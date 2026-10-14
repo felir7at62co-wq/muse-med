@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/bgm-license-info/README.md
+/:
+  en: 56eead6dabd14e03
+  zh: 2ca94cee75aedabb
+/bgm-license-information:
+  en: 7110eb62ba0efa3d
+  zh: 2066dc9686dbe63e
+/bgm-license-information/summary:
+  en: b2c99978e8958234
+  zh: 2ef57bc8b33d8fbc
+/bgm-license-information/table-of-contents:
+  en: a9fcd98694a1d8de
+  zh: c0c4cb52735f2a2a
+/bgm-license-information/declaration-fields:
+  en: 4d515e91891cb7bf
+  zh: 7ed3369edd534b67
+/bgm-license-information/consumers:
+  en: 73372f8d0ce6998b
+  zh: c758e1e5ce55f508
+/bgm-license-information/dev-note:
+  en: 12a57148550a0b82
+  zh: 94f5202b36bead40
+/bgm-license-information/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/bgm-license-information/model-experience/rights-declarations-and-findings:
+  en: e4e91750f339dd4c
+  zh: 268e193a014ee673
+/bgm-license-information/model-experience/rights-declarations-and-findings/what-the-model-sees:
+  en: 1cb60a521b8c2657
+  zh: bcda22a2e5a1e1ae
+/bgm-license-information/model-experience/rights-declarations-and-findings/token-effect:
+  en: b0083a6a5c8fa60b
+  zh: df768ebfa3e4768f
+/bgm-license-information/model-experience/rights-declarations-and-findings/kv-cache-effect:
+  en: 1439dbbe86eaa211
+  zh: 8ea8f033a04925c3
+/bgm-license-information/known-limitations-and-deferred-work:
+  en: 55203531bf2ff5c2
+  zh: b755ee144df53240

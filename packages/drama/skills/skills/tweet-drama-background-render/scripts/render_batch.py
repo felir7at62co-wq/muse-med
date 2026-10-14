@@ -38,9 +38,12 @@ def main() -> None:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     project = args.project.resolve()
-    script = Path(__file__).with_name("render_episode.py")
-    ending_effect = args.ending_effect.resolve()
-    ending_audio = args.ending_audio.resolve()
+    args.project = project
+    for field in ('bgm_dir', 'ending_audio', 'ending_effect'):
+        setattr(args, field, (project / getattr(args, field)).resolve())
+    script = Path(__file__).resolve().with_name("render_episode.py")
+    ending_effect = args.ending_effect
+    ending_audio = args.ending_audio
     for resource in (ending_effect, ending_audio):
         if not resource.is_file():
             raise FileNotFoundError(resource)
@@ -56,7 +59,7 @@ def main() -> None:
             last_shot = max(int(re.search(r"(\d+)", path.stem).group(1)) for path in videos)
             timeline = project / "subtitles" / f"{episode}.timeline.json"
             subtitle = project / "subtitles" / f"{episode}.display.srt"
-            bgm = args.bgm_dir.resolve() / f"{episode}.mp3"
+            bgm = args.bgm_dir / f"{episode}.mp3"
             if not bgm.is_file():
                 raise FileNotFoundError(f"Missing reviewed multi-track BGM mix: {bgm}")
             cmd = [sys.executable, "-B", str(script), "--project", str(project), "--episode", episode,

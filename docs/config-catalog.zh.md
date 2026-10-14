@@ -3910,7 +3910,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-bgm-compose`
 
 - `inject`: `tools` · `subprocess`
-- `source`: [`packages/drama/tool-bgm-compose/src/index.ts:22`](../packages/drama/tool-bgm-compose/src/index.ts)
+- `source`: [`packages/drama/tool-bgm-compose/src/index.ts:23`](../packages/drama/tool-bgm-compose/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-varying executable, subprocess limits, and batch policy. */
@@ -3993,7 +3993,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:74`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -5209,6 +5209,7 @@ export interface Config {
 | `@deepseek-ai/dsh-app-boot` | — | [`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts) |
 | `@deepseek-ai/dsh-atomic-write` | — | [`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts) |
 | `@deepseek-ai/dsh-base` | — | [`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts) |
+| `@deepseek-ai/dsh-bgm-license-info` | — | [`packages/drama/bgm-license-info/src/index.ts`](../packages/drama/bgm-license-info/src/index.ts) |
 | `@deepseek-ai/dsh-brand` | — | [`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts) |
 | `@deepseek-ai/dsh-chunked-list` | — | [`packages/util/chunked-list/src/index.ts`](../packages/util/chunked-list/src/index.ts) |
 | `@deepseek-ai/dsh-client-store` | — | [`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts) |

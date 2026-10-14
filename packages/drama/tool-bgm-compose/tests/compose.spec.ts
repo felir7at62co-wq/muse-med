@@ -216,9 +216,48 @@ describe('runDramaBgm', () => {
       ['onset', 3.157914, -10.7, -6.8],
       ['explicit', 2.25, -21.2, 3.7],
     ])
-    expect(report.segments[1]).toMatchObject({ reason: '关系升温', valence: 6.8, arousal: 3.8 })
+    expect(report.segments[1]).toMatchObject({ reason: '关系升温', valence: 6.8, arousal: 3.8,
+      license_info: { status: 'unknown', commercial_use: 'unknown' } })
+    expect(report.intended_use).toBe('unknown')
+    expect(report.license_records).toHaveLength(3)
     await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(stat(files.report)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('preserves declared, unknown, and commercial-use risks through preview, composition, and source-free verification', async () => {
+    const files = await fixture()
+    const document = JSON.parse(await readFile(files.plan, 'utf8')) as { episodes: { segments: Record<string, unknown>[] }[] }
+    const declared = { status: 'declared', license: 'Project music license', commercial_use: true,
+      source: 'https://music.example/license', attribution: 'Music provider', scope: 'Commercial short-drama distribution' }
+    await writeFile(files.plan, JSON.stringify({ episodes: document.episodes.map(episode => ({
+      ...episode, intended_use: 'commercial', segments: episode.segments.map((segment, index) => ({
+        ...segment, track_id: `catalog-track-${String(index)}`,
+        ...(index === 1 ? {} : { license_info: { ...declared, commercial_use: index === 0 } }),
+      })),
+    })) }))
+    const args = { project: files.project, episode: 5, timeline: files.timeline, plan: files.plan }
+    const preview = await runDramaBgm({ method: 'preview', ...args }, settings(processChannel()))
+    expect(preview.intended_use).toBe('commercial')
+    expect(preview.license_records[0]).toMatchObject({ track_id: 'catalog-track-0', license_info: declared, warnings: [] })
+    expect(preview.segments[0]?.license_info).toEqual(declared)
+    expect(preview.license_records[0]?.source_sha256).toBe(createHash('sha256').update('light.mp3').digest('hex'))
+    expect(preview.license_records[1]?.license_info).toEqual({ status: 'unknown', license: 'unknown',
+      commercial_use: 'unknown', source: 'unknown', attribution: 'unknown', scope: 'unknown' })
+    expect(preview.license_records[1]?.warnings).toContain('音乐授权信息未知或不完整；不能据此认定已获使用授权。')
+    expect(preview.license_records[2]?.warnings).toContain('曲目声明不允许商业使用，与本次商业用途不匹配。')
+    const composed = await runDramaBgm({ method: 'compose', ...args }, settings(processChannel()))
+    expect(composed.license_records).toEqual(preview.license_records)
+    const persisted = JSON.parse(await readFile(files.report, 'utf8')) as Record<string, unknown>
+    expect(persisted).toMatchObject({ intended_use: 'commercial', license_records: preview.license_records })
+    await rm(join(files.project, 'music'), { recursive: true })
+    const verified = await runDramaBgm({ method: 'verify', ...args }, settings(processChannel()))
+    expect(verified.segments).toEqual([])
+    expect(verified.license_records).toEqual(preview.license_records.map(({ source_sha256, ...record }) => {
+      expect(source_sha256).toMatch(/^[a-f0-9]{64}$/)
+      return record
+    }))
+    expect(verified.license_records[0]).not.toHaveProperty('source_sha256')
+    expect(verified.intended_use).toBe('commercial')
   })
 
   it('publishes a verified WAV and JSON report only after the complete batch succeeds', async () => {

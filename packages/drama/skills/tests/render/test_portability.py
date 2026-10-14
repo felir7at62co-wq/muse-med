@@ -1,4 +1,5 @@
 """Offline checks; all synthetic files stay within this package."""
+import argparse
 import importlib.util
 import contextlib
 import io
@@ -201,6 +202,138 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('多于一首', render)
         self.assertIn('按正文情绪分段选曲', render)
         self.assertNotIn('E:\\aa-manju', render)
+
+
+def load_path_renderer(name, script):
+    original_path = sys.path[:]
+    try:
+        return load(name, RENDER / 'scripts' / script)
+    finally:
+        sys.path[:] = original_path
+
+
+class ProjectPathTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.project = self.root / '中文项目 Alpha'
+        self.project.mkdir()
+        self.cwd = Path.cwd()
+        self.assertNotEqual(self.project, self.cwd)
+
+    def test_single_resolves_relative_paths_before_preflight(self):
+        render = load_path_renderer('episode_relative_paths_test', 'render_episode.py')
+        relative = {
+            'timeline': Path('字幕 目录/01.timeline.json'),
+            'subtitle_srt': Path('字幕 目录/01.srt'),
+            'bgm': Path('配乐 目录/missing.mp3'),
+            'ending_audio': Path('片尾 目录/ending.mp3'),
+            'ending_effect': Path('片尾 目录/ending.mp4'),
+            'output': Path('交付 目录/01.mp4'),
+            'freeze_image': Path('片尾 目录/freeze.png'),
+        }
+        args = argparse.Namespace(project=Path(os.path.relpath(self.project, self.cwd)), **relative)
+        with patch.object(render, 'run', side_effect=AssertionError('no media process')):
+            with self.assertRaises(FileNotFoundError) as raised:
+                render.render(args)
+        self.assertEqual(raised.exception.args[0], self.project / relative['bgm'])
+        self.assertEqual(args.project, self.project)
+        for field, value in relative.items():
+            self.assertEqual(getattr(args, field), self.project / value)
+        self.assertEqual(Path.cwd(), self.cwd)
+        self.assertFalse((self.project / 'exports').exists())
+
+    def test_single_preserves_absolute_paths_and_unset_optional_paths(self):
+        render = load_path_renderer('episode_absolute_paths_test', 'render_episode.py')
+        absolute = {field: self.root / '独立 输入' / field for field in
+                    ('timeline', 'subtitle_srt', 'bgm', 'ending_audio', 'ending_effect')}
+        args = argparse.Namespace(project=self.project, output=None, freeze_image=None, **absolute)
+        with self.assertRaises(FileNotFoundError):
+            render.render(args)
+        for field, value in absolute.items():
+            self.assertEqual(getattr(args, field), value)
+        self.assertIsNone(args.output)
+        self.assertIsNone(args.freeze_image)
+        self.assertEqual(Path.cwd(), self.cwd)
+
+    def test_single_cli_uses_project_inputs_output_and_state_with_mixed_paths(self):
+        render = load_path_renderer('episode_cli_paths_test', 'render_episode.py')
+        inputs = self.project / '输入 文件'
+        inputs.mkdir()
+        (inputs / 'timeline.json').write_text(json.dumps({'clips': [
+            {'shot': 1, 'start_us': 0, 'duration_us': 1_000_000}]}), encoding='utf-8')
+        (inputs / 'display.srt').write_text('1\n00:00:00,000 --> 00:00:01,000\n测试\n', encoding='utf-8')
+        (inputs / 'mix.mp3').touch()
+        freeze = self.root / '独立 freeze.png'
+        freeze.touch()
+        source = self.project / 'video/01/shot_001.mp4'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'unit-test source; never decoded')
+        master = self.project / 'audio/01.wav'
+        master.parent.mkdir()
+        master.touch()
+        output = self.project / '交付 文件/01.mp4'
+        argv = ['render', '--project', os.path.relpath(self.project, self.cwd), '--episode', '1',
+                '--timeline', '输入 文件/timeline.json', '--subtitle-srt', '输入 文件/display.srt',
+                '--last-shot', '1', '--bgm', '输入 文件/mix.mp3', '--freeze-image', str(freeze),
+                '--ending-audio', str(RENDER / 'assets/ending_audio.mp3'),
+                '--ending-effect', str(RENDER / 'assets/ending_effect.mp4'),
+                '--output', '交付 文件/01.mp4']
+
+        def record_media_command(command):
+            for index, value in enumerate(command[:-1]):
+                if value == '-i':
+                    self.assertTrue(Path(command[index + 1]).is_absolute())
+            target = Path(command[-1])
+            self.assertTrue(target.is_absolute())
+            target.write_bytes(b'unit-test output; never a deliverable')
+
+        facts = {'streams': [{'codec_type': 'video', 'width': 1440, 'height': 2560,
+                             'codec_name': 'h264', 'avg_frame_rate': '60/1'},
+                            {'codec_type': 'audio'}], 'format': {'duration': '3'}}
+        with patch.object(sys, 'argv', argv), patch.object(render, 'run', side_effect=record_media_command), \
+                patch.object(render, 'choose_encoder', return_value=('libx264', [], '')), \
+                patch.object(render, 'probe', return_value=facts), \
+                patch.object(render, 'assert_decodes_throughout'), contextlib.redirect_stdout(io.StringIO()):
+            render.main()
+        self.assertEqual(output.read_bytes(), b'unit-test output; never a deliverable')
+        state = json.loads((self.project / 'exports/render_tasks.json').read_text(encoding='utf-8'))
+        self.assertEqual(state['tasks']['01']['output'], str(output))
+        ass = self.project / 'exports/.render_cache/01/2k60_h264_24m/display.ass'
+        self.assertIn('测试', ass.read_text(encoding='utf-8-sig'))
+        self.assertEqual(Path.cwd(), self.cwd)
+
+    def test_batch_passes_project_relative_resources_as_absolute_arguments(self):
+        batch = load_path_renderer('batch_project_paths_test', 'render_batch.py')
+        source = self.project / 'video/01/shot_001.mp4'
+        source.parent.mkdir(parents=True)
+        source.touch()
+        mix = self.project / '配乐 文件/01.mp3'
+        mix.parent.mkdir()
+        mix.touch()
+        resources = self.project / '片尾 文件'
+        resources.mkdir()
+        (resources / 'ending.mp3').touch()
+        effect = self.root / '独立 ending.mp4'
+        effect.touch()
+        argv = ['batch', '--project', os.path.relpath(self.project, self.cwd), '--episodes', '1',
+                '--bgm-dir', '配乐 文件', '--ending-audio', '片尾 文件/ending.mp3',
+                '--ending-effect', str(effect)]
+        with patch.object(sys, 'argv', argv), patch.object(batch.subprocess, 'run') as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            run.return_value.returncode = 0
+            batch.main()
+        command = run.call_args.args[0]
+        expected = {'--project': self.project, '--timeline': self.project / 'subtitles/01.timeline.json',
+                    '--subtitle-srt': self.project / 'subtitles/01.display.srt', '--bgm': mix,
+                    '--ending-audio': resources / 'ending.mp3', '--ending-effect': effect}
+        for flag, path in expected.items():
+            self.assertEqual(command[command.index(flag) + 1], str(path))
+        self.assertTrue(Path(command[2]).is_absolute())
+        state = json.loads((self.project / 'exports/batch_render_tasks.json').read_text(encoding='utf-8'))
+        self.assertEqual(state['tasks']['01']['output'], str(self.project / 'exports/01.mp4'))
+        self.assertEqual(Path.cwd(), self.cwd)
 
 
 if __name__ == '__main__':

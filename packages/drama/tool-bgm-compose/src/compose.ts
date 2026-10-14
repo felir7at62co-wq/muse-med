@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs'
 import { mkdir, open, readdir, readFile, realpath, stat, unlink } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import z from '@deepseek-ai/schemastery'
+import { LicenseInfoInputSchema, licenseRiskWarnings, normalizeLicenseInfo, parseBgmUsage } from '@deepseek-ai/dsh-bgm-license-info'
 import {
   createMediaToolkit,
   probeAudio,
@@ -23,6 +24,7 @@ import type { BgmBatchPolicy, BgmBatchRow, ResolvedProjectPath } from './plan.ts
 import type {
   BgmEpisodePlan,
   BgmMediaReport,
+  BgmPlanSegment,
   BgmSegmentReport,
   DramaBgmArguments,
   DramaBgmReport,
@@ -37,6 +39,8 @@ const EMPTY_MEDIA: BgmMediaReport = {
 const SegmentSchema = z.object({
   track: z.string().required(),
   source: z.string().required(),
+  track_id: z.string(),
+  license_info: LicenseInfoInputSchema,
   start_seconds: z.number().required(),
   end_seconds: z.number().required(),
   reason: z.string().required(),
@@ -48,6 +52,7 @@ const SegmentSchema = z.object({
 
 const EpisodeSchema = z.object({
   episode: z.string().required(),
+  intended_use: z.union(['commercial', 'non_commercial', 'unknown'] as const),
   body_duration_seconds: z.number().required(),
   crossfade_seconds: z.number(),
   segments: z.array(SegmentSchema).required(),
@@ -286,7 +291,7 @@ function sourcePath(project: string, source: string): string {
   return isAbsolute(source) ? resolve(source) : resolve(project, source)
 }
 
-/** Analyze every source contribution and preserve its story and matcher evidence. */
+/** Analyze every source contribution and preserve its story, matcher, and license declarations. */
 async function analyzeSegments(
   project: string,
   plan: ReturnType<typeof validateEpisodePlan>,
@@ -312,6 +317,8 @@ async function analyzeSegments(
     const mean = await media.meanVolume(source, start.seconds, segment.inputDurationSeconds, settings.signal)
     reports.push({
       track: segment.track,
+      ...(segment.track_id === undefined ? {} : { track_id: segment.track_id }),
+      license_info: normalizeLicenseInfo(segment.license_info),
       source,
       source_sha256: digest,
       start_seconds: segment.start_seconds,
@@ -333,7 +340,7 @@ async function analyzeSegments(
  * Preview, compose, or verify an episode BGM bed.
  * @param args - Model-facing operation arguments.
  * @param settings - Resolved executables, process channel, and cancellation.
- * @returns Canonical analysis and output report.
+ * @returns Media facts, declared license information, and advisory use risks.
  */
 export async function runDramaBgm(
   args: DramaBgmArguments,
@@ -363,7 +370,21 @@ export async function runDramaBgm(
   if (extname(output).toLowerCase() !== '.wav') throw new Error('BGM 输出必须使用 .wav 扩展名。')
   const parsed = parse(output)
   const reportPath = resolve(parsed.dir, `${parsed.name}.generation.json`)
+  const intendedUse = parseBgmUsage(loaded.selected.intended_use)
+  const licenseRecordsFor = (segments: readonly BgmPlanSegment[]) => segments.map((segment) => {
+    const licenseInfo = normalizeLicenseInfo(segment.license_info)
+    return {
+      track: segment.track,
+      source: sourcePath(project, segment.source),
+      ...(segment.source_sha256 === undefined ? {} : { source_sha256: segment.source_sha256 }),
+      ...(segment.track_id === undefined ? {} : { track_id: segment.track_id }),
+      license_info: licenseInfo,
+      warnings: licenseRiskWarnings(licenseInfo, intendedUse),
+    }
+  })
   const base = {
+    intended_use: intendedUse,
+    license_records: licenseRecordsFor(loaded.selected.segments),
     episode,
     project,
     plan: planPath.resolved,
@@ -383,7 +404,7 @@ export async function runDramaBgm(
     return { method: 'verify', ...base, segments: [], report: '', media: await mediaReport(output, probe) }
   }
   const segments = await analyzeSegments(project, plan, settings)
-  const analyzed = { ...base, segments }
+  const analyzed = { ...base, segments, license_records: licenseRecordsFor(segments) }
   if (args.method === 'preview') return { method: 'preview', ...analyzed, report: '', media: EMPTY_MEDIA }
   if (await exists(output)) throw new Error(`BGM 输出已存在，不会覆盖：${output}`)
   if (await exists(reportPath)) throw new Error(`BGM 报告已存在，不会覆盖：${reportPath}`)
