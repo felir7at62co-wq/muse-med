@@ -67,7 +67,10 @@ export function apply(ctx: Context, config: Config): void {
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。' },
     },
-    output: { schema: outputSchema, render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value) }] },
+    output: { schema: outputSchema, render: (_args, value): ContentBlock[] => [
+      ...(value.error_code === 'queue_full' ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
+      { type: 'text', text: JSON.stringify(value) },
+    ] },
     execute: async (args, exec) => {
       if (args.method === 'start') {
         if (!args.input) throw new Error('audio_transcribe start requires input')

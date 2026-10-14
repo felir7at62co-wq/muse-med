@@ -62,11 +62,11 @@ No runtime invariant companion is published because task receipts and registered
 
 #### What the model sees
 
-The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-audio-transcribe) records the start/status schema. Results contain the status, receipt path, job ID, and completed output paths. A generic persisted tool card displays the call and result. Media bytes, account cookies, object URLs, and provider credentials are omitted; tool calls and returned paths remain Session data.
+The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-audio-transcribe) records the start/status schema. Results contain the status, receipt path, job ID, and completed output paths. A generic persisted tool card displays the call and result. A `queue_full` result prepends “Muse 转写队列已满，请稍后重试” to its unchanged JSON, identifying Muse's own queue rather than provider capacity; other error codes retain their existing output. Media bytes, account cookies, object URLs, and provider credentials are omitted; tool calls and returned paths remain Session data.
 
 #### Token effect
 
-The optional purpose enum adds a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths.
+The optional purpose enum adds a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths; a queue refusal adds one explanatory sentence.
 
 #### KV Cache effect
 

@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
-import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
+import { finishAudioTranscription, startAudioTranscription, type AudioAccount, type AudioRunResult } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
@@ -78,6 +78,33 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
+})
+
+it.each(['start', 'status'] as const)('explains a %s queue refusal without changing its recovery response', async (method) => {
+  const { call } = await fixture()
+  const response: AudioRunResult = { status: 'processing', receipt: 'project/transcript/jobs/source-v1.json',
+    job_id: 'job', error_code: 'queue_full', retry_after_seconds: 2,
+    resume_status: { method: 'status', project: 'project', receipt: 'project/transcript/jobs/source-v1.json' } }
+  if (method === 'start') vi.mocked(startAudioTranscription).mockResolvedValueOnce(response)
+  else vi.mocked(finishAudioTranscription).mockResolvedValueOnce(response)
+  const result = await call({ method, project: 'project', input: 'source.mp4', receipt: response.receipt })
+  expect(result.isError).toBe(false)
+  expect(result.value).toEqual(response)
+  expect(result.content).toEqual([
+    { type: 'text', text: 'Muse 转写队列已满，请稍后重试' },
+    { type: 'text', text: JSON.stringify(response) },
+  ])
+})
+
+it.each(['upload_busy', 'request_rate', 'provider_rate', 'daily_quota', 'server-unavailable', 'response-invalid',
+  'request-rejected', 'idempotency_conflict'] as const)('keeps %s distinct from a queue refusal', async (code) => {
+  const { call } = await fixture()
+  const response: AudioRunResult = { status: 'processing', receipt: 'project/transcript/jobs/source-v1.json',
+    job_id: 'job', error_code: code }
+  vi.mocked(finishAudioTranscription).mockResolvedValueOnce(response)
+  const result = await call({ method: 'status', project: 'project', receipt: response.receipt })
+  expect(result.value).toEqual(response)
+  expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(response) }])
 })
 
 it('rejects incomplete and unsupported tool JSON before starting or querying a job', async () => {
