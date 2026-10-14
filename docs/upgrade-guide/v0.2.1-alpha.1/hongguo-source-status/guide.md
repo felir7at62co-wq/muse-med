@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-Catalog inspection no longer declares a full series available without querying media. `hongguo_download_info` returns `fullSeriesAvailable: null` and `mediaUrlsVerified: false`; a public preview still returns `fullSeriesAvailable: false`. Non-public `accessibleEpisodeCount` is null rather than the unverified total. Source API failures retain safe numeric `upstreamCode`, `sourceStage` and `retryable: false` after bounded attempts, including errors in uppercase `Code` and `BaseResp.StatusCode` envelopes. They are not reported as missing media addresses.
+Catalog inspection no longer declares a full series available without querying media. `hongguo_download_info` returns `fullSeriesAvailable: null` and `mediaUrlsVerified: false`; a public preview still returns `fullSeriesAvailable: false`. Non-public `accessibleEpisodeCount` is null rather than the unverified total. Source API failures retain safe numeric `upstreamCode`, `sourceStage` and `retryable: false`, including errors in uppercase `Code` and `BaseResp.StatusCode` envelopes. They are not reported as missing media addresses. Unknown business errors stop without retrying or rotating the device; explicit risk messages retain the bounded retry budget.
 
 ## Migration
 

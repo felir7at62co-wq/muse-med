@@ -43,7 +43,7 @@ for(const response of [
 ])test(`platform envelope ${JSON.stringify(response)} cannot become a missing-media error`,async t=>{
  const f=await fixture(t,()=>response);
  await assert.rejects(f.client.source.videoUrls(['synthetic'],signal()),error=>{
-  assert.deepEqual(safeError(error),{code:'platform_error',message:'红果原源 API 返回错误；本次源请求重试已用尽，没有生成下载成功结果',upstreamCode:110001,sourceStage:'video_model',retryable:false});return true;
+  assert.deepEqual(safeError(error),{code:'platform_error',message:'红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载',upstreamCode:110001,sourceStage:'video_model',retryable:false});return true;
  });
  assert.equal(f.calls.length,1);
 });
@@ -56,18 +56,19 @@ test('authorization failures do not rotate or retry the retained device',async t
  await assert.rejects(f.client.source.videoUrls(['synthetic'],signal()),error=>error.code==='platform_error'&&error.upstreamCode===403);
  assert.equal(f.calls.length,1);assert.equal(f.client.source.deviceIndex,0);
 });
-test('a bounded source retry can recover and preserves successful media resolution',async t=>{
- let tries=0;const f=await fixture(t,vids=>++tries===1?{Code:110001}:video(vids),{retries:2});
+test('an explicit risk response uses bounded retries and preserves successful media resolution',async t=>{
+ let tries=0;const f=await fixture(t,vids=>++tries===1?{BaseResp:{StatusCode:110001,StatusMessage:'rate limit'}}:video(vids),{retries:2});
  const urls=await f.client.source.videoUrls(['synthetic'],signal());
  assert.equal(urls.size,1);assert.equal(tries,2);
  assert.deepEqual(f.calls.map(c=>new URL(c.url).searchParams.get('device')),['synthetic-0','synthetic-1']);
 });
-test('persistent upstream errors exhaust only the configured attempts and clean partial output',async t=>{
+test('unknown upstream errors stop after one request and clean partial output',async t=>{
  const f=await fixture(t,()=>({Code:110001,Message:'SOURCE_PRIVATE',BaseResp:{StatusCode:110001}}),{retries:2});
  await writeFile(join(f.root,'existing.txt'),'keep');
  const result=await f.client.download({seriesIds:['123']});
  assert.equal(result.code,'platform_error');assert.equal(result.upstreamCode,110001);assert.equal(result.sourceStage,'video_model');assert.equal(result.retryable,false);
- assert.equal(f.calls.filter(c=>c.kind==='api'&&new URL(c.url).pathname.includes('multi_video_model')).length,3);
+ assert.equal(f.calls.filter(c=>c.kind==='api'&&new URL(c.url).pathname.includes('multi_video_model')).length,1);
+ assert.equal(f.client.source.deviceIndex,0);
  assert.equal(f.calls.some(c=>c.kind==='media'),false);
  assert.equal(JSON.stringify(result).includes('SOURCE_PRIVATE'),false);
  assert.equal(await readFile(join(f.root,'existing.txt'),'utf8'),'keep');
@@ -109,4 +110,13 @@ test('catalog failures retain their stage without claiming media or downloads ar
  const result=await f.client.info({seriesIds:['123']});
  assert.equal(result.ok,false);assert.equal(result.sourceStage,'catalog');assert.equal(result.upstreamCode,110001);assert.equal(result.retryable,false);
  assert.equal(JSON.stringify(result).includes('SOURCE_PRIVATE'),false);
+});
+
+test('explicit risk responses stop at the configured budget and report no immediate retry',async t=>{
+ const f=await fixture(t,()=>({BaseResp:{StatusCode:110001,StatusMessage:'rate limit SOURCE_PRIVATE'}}),{retries:2});
+ const result=await f.client.download({seriesIds:['123']});
+ assert.equal(result.code,'platform_error');assert.equal(result.upstreamCode,110001);assert.equal(result.retryable,false);
+ assert.equal(f.calls.filter(c=>c.kind==='api'&&new URL(c.url).pathname.includes('multi_video_model')).length,3);
+ assert.match(result.message,/重试已用尽/);assert.equal(JSON.stringify(result).includes('SOURCE_PRIVATE'),false);
+ assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
 });

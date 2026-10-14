@@ -52,4 +52,4 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 `hongguo_download_info` 不查询视频模型，也不下载文件。`completeCatalog` 核对声明总集数与列表；`mediaUrlsVerified` 保持 false，`fullSeriesAvailable` 为 null，只有公开试看明确排除部分集时为 false。`accessibleEpisodeCount` 为公开播放器声明的开放集数，其他模式为 null。只有成功的 `hongguo_download` 收据才能验证请求集已下载并完整解码。
 
-原源响应共同校验 `code`、`Code` 与 `BaseResp.StatusCode`，不能用一个零掩盖另一个非零错误码。配置的尝试次数耗尽后，失败只公开数字 `upstreamCode`、`sourceStage`（`catalog`、`video_model` 或 `source_api`）及 `retryable: false`。原始消息、设备值、签名响应和媒体地址保持私密。授权错误不重试；其他原源错误沿用现有有限重试次数。平台报错不能证明某剧不存在，不得将其误报为媒体地址缺失或立即重复已耗尽重试的下载。
+原源响应共同校验 `code`、`Code` 与 `BaseResp.StatusCode`，不能用一个零掩盖另一个非零错误码。失败只公开数字 `upstreamCode`、`sourceStage`（`catalog`、`video_model` 或 `source_api`）及 `retryable: false`。原始消息、设备值、签名响应和媒体地址保持私密。授权错误和未知业务错误立即停止，不轮换设备或重试。明确的风控或限流消息沿用配置的有限重试次数；耗尽后不得立即重新提交。平台报错不能证明某剧不存在，不得将其误报为媒体地址缺失或立即重复已耗尽重试的下载。

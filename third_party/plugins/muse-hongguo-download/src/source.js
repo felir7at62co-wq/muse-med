@@ -122,7 +122,7 @@ export class SourceCatalog {
     catch (error) { return { configured: false, source: 'original-hongguo-api', verifiedLive: false, missing: [safeError(error).message] }; }
   }
 
-  /** Keep one session device until a platform failure; retries use the configured budget. */
+  /** Keep one session device; only explicit risk responses use the configured retry budget. */
   async api(path, body, signal, method = 'POST', params = {}) {
     for (let attempt = 0; ; attempt++) {
       try { return await this.apiOnce(path, body, signal, method, params); }
@@ -163,9 +163,10 @@ export class SourceCatalog {
     const sourceStage = path.includes('multi_video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
     const code = sourceStatus(result, sourceStage);
     const details = { ...(code !== undefined ? { upstreamCode: code } : {}), sourceStage, retryable: false };
-    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果', details);
+    if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载', details);
     const messages = [result.message, result.Message, result.BaseResp?.StatusMessage].filter(value => typeof value === 'string').join(' ');
-    if (code !== undefined || /verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new SourceRetryError(details);
+    if (/verify|captcha|risk|频繁|稍后|验证|rate limit|too many/i.test(messages)) throw new SourceRetryError(details);
+    if (code !== undefined) throw new DownloadError('platform_error', '红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载', details);
     return result;
   }
 

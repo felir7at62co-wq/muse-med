@@ -94,7 +94,7 @@ test('normal calls retain the randomly selected session device and keep source s
 test('risk replies rotate the pinned device and retry while authorization and gone errors retain it', async t => {
   const devices = [0, 1, 2].map(index => ({ query: { device: `fixture-device-${index}` }, user_agent: `fixture-ua-${index}` }));
   const f = await fixture(t, { devices });
-  for (const risk of [{ code: 100001 }, { code: 7999 }, { code: 0, BaseResp: { StatusMessage: 'Please verify' } }]) {
+  for (const risk of [{ code: 100001, message: 'rate limit' }, { code: 7999, message: 'Please verify' }, { code: 0, BaseResp: { StatusMessage: 'Please verify' } }]) {
     const requested = [];
     const source = new SourceCatalog(resolveConfig({ ...f.config, retries: 1 }), { randomIndex: () => 2, sign: f.sign,
       request: async url => { requested.push(new URL(url).searchParams.get('device')); return reply(requested.length === 1 ? risk : { code: 0 }); } });
@@ -116,7 +116,7 @@ test('persistent risk replies exhaust the configured retry budget without return
   const f = await fixture(t, { devices });
   const requested = [];
   const source = new SourceCatalog(resolveConfig({ ...f.config, retries: 1 }), { randomIndex: () => 0, sign: f.sign,
-    request: async url => { requested.push(new URL(url).searchParams.get('device')); return reply({ code: 100001, message: 'SOURCE_PRIVATE' }); } });
+    request: async url => { requested.push(new URL(url).searchParams.get('device')); return reply({ code: 100001, message: 'rate limit SOURCE_PRIVATE' }); } });
   await assert.rejects(source.api('/test', {}, emptySignal()), error => error.code === 'platform_error' && !error.message.includes('SOURCE_PRIVATE'));
   assert.deepEqual(requested, ['fixture-device-0', 'fixture-device-1']);
 });
