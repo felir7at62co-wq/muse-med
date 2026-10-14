@@ -82,7 +82,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
     'resolveImageModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
-    'stableSha256', 'storyboardMaterials', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
+    'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled', 'withGenerationEnabled',
   ],
