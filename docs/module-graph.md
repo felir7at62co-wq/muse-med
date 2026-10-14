@@ -252,6 +252,7 @@ flowchart TD
   end
   subgraph group_drama["packages/drama"]
     pkg_bgm_license_info["bgm-license-info"]
+    pkg_character_asset_catalog["character-asset-catalog"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
     pkg_screenplay_project["screenplay-project"]
@@ -1562,6 +1563,7 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | — |
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
 | [`bgm-license-info`](../packages/drama/bgm-license-info) | `drama` | — |
+| [`character-asset-catalog`](../packages/drama/character-asset-catalog) | `drama` | — |
 | [`drama-skills`](../packages/drama/skills) | `drama` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-inspector-profile`](../packages/experimental/inspector-profile) | `experimental` | — |

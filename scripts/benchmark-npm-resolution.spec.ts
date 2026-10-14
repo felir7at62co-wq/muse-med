@@ -1,7 +1,9 @@
+import * as childProcesses from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   benchmarkNpmResolution,
   buildRegistryIndex,
@@ -11,6 +13,11 @@ import {
   runCommandWithTimeout,
   type RegistryIndex,
 } from './benchmark-npm-resolution.ts'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, spawn: vi.fn(actual.spawn) }
+})
 
 const roots: string[] = []
 
@@ -100,6 +107,64 @@ describe('npm resolution benchmark', () => {
     expect(result.registryRequests).toBeGreaterThan(0)
     expect(result.archiveRequests).toBe(0)
     expect(result.unknownPackages).toEqual([])
+  })
+
+  it('retains npm exit and registry observations after the original deadline', async () => {
+    const spawned = Promise.withResolvers<undefined>()
+    const child = new childProcesses.ChildProcess()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    child.stdout = stdout
+    child.stderr = stderr
+    const kill = vi.spyOn(child, 'kill').mockImplementation((signal) => {
+      child.emit('close', null, typeof signal === 'string' ? signal : 'SIGTERM')
+      return true
+    })
+    const spawn = vi.spyOn(childProcesses, 'spawn').mockImplementation(() => {
+      spawned.resolve(undefined)
+      return child
+    })
+    vi.useFakeTimers()
+    let settled: Promise<{ status: 'resolved' } | { status: 'rejected'; error: unknown }> | undefined
+    try {
+      settled = benchmarkNpmResolution(new Map(), '0.1.0', 10_000).then(
+        () => ({ status: 'resolved' as const }),
+        (error: unknown) => {
+          spawned.reject(error)
+          return { status: 'rejected' as const, error }
+        },
+      )
+      await spawned.promise
+      stderr.write('fixture npm diagnostic')
+      await vi.advanceTimersByTimeAsync(11_000)
+      const outcome = await settled
+      expect(outcome.status).toBe('rejected')
+      if (outcome.status !== 'rejected' || !(outcome.error instanceof Error)) {
+        throw new Error('Expected a bounded npm resolution failure')
+      }
+      const [message, diagnostic] = outcome.error.message.split('\n')
+      expect(message).toBe('npm resolution exceeded 10000 ms')
+      expect(JSON.parse(diagnostic!)).toMatchObject({
+        status: null,
+        signal: 'SIGTERM',
+        output: 'fixture npm diagnostic',
+        registryRequests: 0,
+        archiveRequests: 0,
+        unknownPackages: [],
+      })
+    } finally {
+      try {
+        child.emit('close', null, 'SIGTERM')
+        await vi.advanceTimersByTimeAsync(11_000)
+        await settled
+      } finally {
+        vi.useRealTimers()
+        spawn.mockRestore()
+        kill.mockRestore()
+        stdout.destroy()
+        stderr.destroy()
+      }
+    }
   })
 
   it('returns npm placement for two aliased package versions without requesting archives', async () => {

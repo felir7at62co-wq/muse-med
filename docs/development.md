@@ -149,6 +149,8 @@ The root [contributor instructions](../AGENTS.md#commands) summarize common comm
 
 The repository-link and concrete-terminology checks read the complete tracked-file list with a 16 MiB output limit. Larger lists fail discovery; neither check scans a truncated list.
 
+[Manual npm resolution](../scripts/benchmark-npm-resolution.ts) reports subprocess exit, captured output, and loopback registry request counts when its hard deadline expires. The temporary consumer is removed after those observations are captured.
+
 ### Profile runs
 
 Run the repository build separately before using these source-checkout demos:

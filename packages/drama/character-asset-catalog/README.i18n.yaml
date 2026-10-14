@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/character-asset-catalog/README.md
+/:
+  en: bafff3dc61b4f2dd
+  zh: 85e5639a83f6b915
+/deepseek-ai-dsh-character-asset-catalog:
+  en: 4ebf6f44e1e3a5cf
+  zh: ea05e3cb133a090f
+/deepseek-ai-dsh-character-asset-catalog/summary:
+  en: 42eac4864a611809
+  zh: d9fa4a4c31204bb9
+/deepseek-ai-dsh-character-asset-catalog/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: e7e9c15a09fb9e21
+/deepseek-ai-dsh-character-asset-catalog/use-this-package:
+  en: 3e0b4ca1a5b451c6
+  zh: df4093637f3fdbef
+/deepseek-ai-dsh-character-asset-catalog/use-this-package/identity-and-source-claims:
+  en: 7aa806f3f564d59a
+  zh: d47e91cd24ec725e
+/deepseek-ai-dsh-character-asset-catalog/understand-the-implementation:
+  en: 61142ecc977c0287
+  zh: 01a35687acceff4c
+/deepseek-ai-dsh-character-asset-catalog/further-exploration:
+  en: 4cb0cdf4fbe1c310
+  zh: eaef35a13320ee5e
+/deepseek-ai-dsh-character-asset-catalog/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-character-asset-catalog/model-experience/catalog-records:
+  en: 60e1de0244b3c9c4
+  zh: 7ca163e6871209d4
+/deepseek-ai-dsh-character-asset-catalog/model-experience/catalog-records/what-the-model-sees:
+  en: f760187ed9af15a7
+  zh: 2ac9eb4996ee9cea
+/deepseek-ai-dsh-character-asset-catalog/model-experience/catalog-records/token-effect:
+  en: 312f73747784257e
+  zh: 6b1d40e53c90fe71
+/deepseek-ai-dsh-character-asset-catalog/model-experience/catalog-records/kv-cache-effect:
+  en: fff7850c13c5800e
+  zh: 2b5a1b0be53158b4
+/deepseek-ai-dsh-character-asset-catalog/known-limitations-and-deferred-work:
+  en: e1efb1ec9f24f4f0
+  zh: faad254a38987163
+/deepseek-ai-dsh-character-asset-catalog/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914
