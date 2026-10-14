@@ -242,11 +242,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (currentTool !== undefined && activeSkillTools.has(currentTool)) return decision
       if (scopedCatalogOwner) snapshot = { skills: [], complete: true }
     }
-    if (!snapshot.complete) return decision
+    const history = catalogHistory(agent)
+    if (!snapshot.complete) {
+      if (history.visibleDigest === undefined) {
+        throw new Error('Skill preparation did not complete; no model request was sent. Check skill folders and retry.')
+      }
+      return decision
+    }
     const skills = snapshot.skills.filter(isModelInvocable)
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
-    const history = catalogHistory(agent)
     const existing = catalogMessage(decision.messages)
     if (history.visibleDigest === digest) {
       return existing === undefined

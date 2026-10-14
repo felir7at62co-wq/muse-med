@@ -200,7 +200,7 @@ skill 查找对 cwd 敏感，因为提供方可能暴露工作区本地的 skill
 interface SkillLookupOptions {
   /** Workspace selector for the current lookup. */
   readonly cwd?: string | undefined
-  /** Abort discovery or loading work for the current caller. */
+  /** Abort discovery or loading; rejection preserves this signal's original reason. */
   readonly signal?: AbortSignal | undefined
 }
 ```

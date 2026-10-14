@@ -60,7 +60,12 @@ it('matches public measurements without Python or downloading candidates', async
   expect(await run({ method: 'match', valence: 8, arousal: 7, limit: 1 })).toEqual({
     target: { valence: 8, arousal: 7 }, evaluated_tracks: 1,
     candidates: [{ track_id: track.id, name: track.name, url: track.url,
-      valence: 8, arousal: 7, moods: ['happy'], distance: 0 }],
+      valence: 8, arousal: 7, moods: ['happy'], distance: 0,
+      license_info: { status: 'unknown', license: 'unknown', commercial_use: 'unknown',
+        source: 'unknown', attribution: 'unknown', scope: 'unknown' }, license_warnings: [
+        '音乐授权信息未知或不完整；不能据此认定已获使用授权。',
+        '本次用途未指定，尚未核对音乐声明是否覆盖发行用途。',
+      ] }],
     note: 'candidates are ranked by measured distance; choose one yourself.',
   })
   expect(fetch).toHaveBeenCalledTimes(1)
@@ -259,4 +264,50 @@ it('reports an empty public catalogue without suggesting a local index', async (
   transport({ version: 1, tracks: [] })
   const { run } = await mount()
   await expect(run({ method: 'match', valence: 5, arousal: 5 })).rejects.toThrow('no tracks in the configured BGM catalog')
+})
+
+const commercialLicense = { status: 'declared', license: 'Fixture commercial licence', commercial_use: true,
+  source: 'https://rights.example/licence/track', attribution: 'Fixture composer', scope: 'Commercial short-drama release' }
+
+it('preserves declared rights through matching, downloads and a later cache hit', async () => {
+  const fetch = transport({ version: 1, tracks: [{ ...track, license_info: commercialLicense, license_warnings: ['untrusted warning'] }] })
+  const { run } = await mount()
+  const args = { method: 'match', valence: 8, arousal: 7, intended_use: 'commercial' }
+  expect(await run(args)).toMatchObject({ candidates: [{ license_info: commercialLicense, license_warnings: [] }] })
+  const downloaded = await run({ method: 'download', track_id: track.id, intended_use: 'commercial' }) as { path: string }
+  expect(downloaded).toMatchObject({ license_info: commercialLicense, license_warnings: [], cached: false })
+  const restricted = { ...commercialLicense, commercial_use: false }
+  fetch.mockImplementation(async input => String(input) === catalogUrl
+    ? new Response(JSON.stringify({ version: 1, tracks: [{ ...track, license_info: restricted, license_warnings: [] }] }))
+    : new Response(audio))
+  const reused = await run({ method: 'download', track_id: track.id, intended_use: 'commercial' }) as { license_warnings: string[] }
+  expect(reused).toMatchObject({ path: downloaded.path, cached: true, license_info: restricted })
+  expect(reused.license_warnings.length).toBeGreaterThan(0)
+})
+
+it('reports legacy and incomplete declarations as unknown without inferring rights from mood tags', async () => {
+  transport({ version: 1, tracks: [{ ...track, moods: ['commercial'],
+    license_info: { status: 'declared', commercial_use: true }, license_warnings: [] }] })
+  const { run } = await mount()
+  const result = await run({ method: 'match', valence: 8, arousal: 7, intended_use: 'commercial' }) as {
+    candidates: { license_info: { commercial_use: string; status: string }; license_warnings: string[] }[]
+  }
+  expect(result.candidates[0]?.license_info).toMatchObject({ commercial_use: 'unknown' })
+  expect(result.candidates[0]?.license_info.status).not.toBe('verified')
+  expect(result.candidates[0]?.license_warnings.length).toBeGreaterThan(0)
+})
+
+it.each(['match', 'download'])('rejects invalid intended_use before %s network access', async (method) => {
+  const fetch = transport()
+  const { run } = await mount()
+  await expect(run({ method, track_id: track.id, valence: 8, arousal: 7, intended_use: 'allowed' })).rejects.toThrow()
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each(['match', 'download'])('rejects asserted approval in a catalogue before %s can use it', async (method) => {
+  const fetch = transport({ version: 1, tracks: [{ ...track, license_info: { ...commercialLicense, status: 'verified' } }] })
+  const { run, cacheDir } = await mount()
+  await expect(run({ method, track_id: track.id, valence: 8, arousal: 7 })).rejects.toThrow(/license_info.status/)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  await expect(readdir(cacheDir)).rejects.toMatchObject({ code: 'ENOENT' })
 })

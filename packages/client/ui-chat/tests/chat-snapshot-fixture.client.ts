@@ -5,7 +5,7 @@ import type {
   PartialAssistant, RunningToolCall, ToolCallBlock, TurnNavigationItem,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {
-  ConversationLocationDataSource, ConversationLocationDataStore, ConversationTurnDataMap, TurnLocation,
+  ConversationLocationDataSource, ConversationLocationDataStore, ConversationStepDataMap, ConversationTurnDataMap, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { TurnTokenUsage } from '../src/client/contract/chat-nodes.ts'
@@ -21,6 +21,11 @@ import {
 } from '../src/client/contract/turn-process.ts'
 
 const EMPTY: readonly never[] = []
+const EMPTY_STEP_SOURCE = { getSnapshot: () => undefined, subscribe: () => () => {} }
+const EMPTY_STEP_DATA: ConversationLocationDataStore<ConversationStepDataMap> = {
+  get: () => undefined,
+  source: () => EMPTY_STEP_SOURCE,
+}
 
 function sameValues<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
@@ -304,6 +309,13 @@ export function chatSnapshotFixture(input: {
     const previousData = previous?.timeline.turns.get(turn)?.data
     const data = previousData instanceof FixtureTurnDataStore ? previousData : new FixtureTurnDataStore()
     turnData.set(turn, data)
+    // Legacy fixtures retain Step coordinates but not their start/end evidence.
+    const steps = new Set<number>()
+    for (const node of legacy.nodes) {
+      if ('turn' in node && node.turn === turn && 'step' in node && typeof node.step === 'number') steps.add(node.step)
+    }
+    if (legacy.partial?.turn === turn) steps.add(legacy.partial.step)
+    for (const call of legacy.runningCalls) if (call.turn === turn) steps.add(call.step)
     turns.set(turn, {
       turn,
       start: timing === undefined ? undefined : {
@@ -314,7 +326,9 @@ export function chatSnapshotFixture(input: {
         data: { turn, reason: { kind: 'completed' } },
       },
       status: endSeq === undefined ? 'open' : 'closed',
-      steps: EMPTY,
+      steps: [...steps].sort((left, right) => left - right).map(step => ({
+        turn, step, start: undefined, end: undefined, status: 'unknown', data: EMPTY_STEP_DATA,
+      })),
       data,
     })
   }

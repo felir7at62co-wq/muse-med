@@ -31,6 +31,8 @@ Without `catalogUrl`, `match` reads `indexPath` and preserves the local candidat
 
 The published catalogue at `https://muse.tos-cn-beijing.volces.com/bgm/index.json` was exercised through `match` and one verified download without credentials or Python. It is not enabled by default; profile configuration chooses it. Public audio rights and the non-commercial analysis-model license are separate obligations.
 
+Candidates, downloads and published tracks include `license_info` (`status`, `license`, `commercial_use`, `source`, `attribution`, `scope`) and `license_warnings`. These fields carry the supplied rights declaration, never a verified grant. Missing fields remain `unknown`; commercial permission without a license, source and scope becomes unknown. Optional `intended_use` on `match` and `download` is `commercial`, `non_commercial` or `unknown` (default); it changes risk warnings, never permissions or tool availability. A non-commercial declaration used commercially reports a warning without blocking. Download hashes identify audio bytes, not usage rights. Unsupported approval statuses or malformed field types reject the declaration; warnings are recomputed for the current use rather than copied from stored metadata.
+
 | Configuration | Resolution |
 |---|---|
 | `pythonExecutable` | Existing absolute executable; otherwise `DSH_PERCEPTION_PYTHON`; an unusable path prevents analysis only |
@@ -55,7 +57,9 @@ No model weights ship in npm. See [sources and licenses](SOURCES.md) before acqu
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The public manifest is `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods}]}`. Each `id` equals its `sha256:<64 lowercase hex>` digest. Track URLs must exactly match the catalogue's origin plus `/bgm/tracks/<hash>.<audio extension>`. HTTPS transfers omit credentials and reject redirects, partial responses, oversize bodies, invalid measurements, duplicate IDs and unsafe filenames. Downloads stream into exclusive files in private temporary directories, verify size and SHA-256, then atomically rename into content-addressed cache paths; errors remove staging files. Caller cancellation and plugin unload abort network operations.
+The public manifest is `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods,license_info,license_warnings}]}`. Each `id` equals its `sha256:<64 lowercase hex>` digest. Track URLs must exactly match the catalogue's origin plus `/bgm/tracks/<hash>.<audio extension>`. HTTPS transfers omit credentials and reject redirects, partial responses, oversize bodies, invalid measurements, duplicate IDs and unsafe filenames. Downloads stream into exclusive files in private temporary directories, verify size and SHA-256, then atomically rename into content-addressed cache paths; errors remove staging files. Caller cancellation and plugin unload abort network operations.
+
+Local indexing checks SHA-256 before reusing measurements or declarations, even when size and modification time are unchanged. New or changed audio receives unknown rights; unchanged bytes retain normalized declarations. Local candidates include the indexed `source_sha256` when available so a plan can freeze the selected bytes. A failed re-analysis also clears the changed file's old declaration.
 
 The TypeScript tool ranks cached or public measurements and lazily starts an isolated NDJSON Python worker only for analysis. The worker uses the maintained Music2Emotion inference adapter and vendored helpers; analysis-library print diagnostics go to stderr, while stdout carries only NDJSON responses. Non-response JSON and diagnostic lines are ignored; a response must carry a string request ID before it can settle a pending call. Caller cancellation and unloading stop local indexing with an explicit tool error, while ordinary per-track analysis failures remain recorded in the index result. Unloading removes the tool registration, aborts admitted operations, rejects worker requests and waits for process close and filesystem work. An already-started index write completes before cancellation is reported; completed track entries remain available for resuming, and no new worker or index write starts after unloading. Each chord/key operation owns a random OS temporary directory, removed on return or exception; no intermediate is written into package data. No invariant companion is published because the package has no independently maintained observations to reconcile.
 
@@ -96,7 +100,7 @@ The manifest includes `lib/index.js`, `lib/config.js`, `lib/worker.js`, declarat
 
 #### What the model sees
 
-The [generated `bgm_match` schema](../../../docs/tool-catalog.md#deepseek-aidsh-perception-bgm) exposes `match`, `download`, `index`, and `inspect`. Its description states “返回的是候选排序，不是决定” and identifies MERT as “仅限非商业用途”. Public candidates contain stable IDs rather than local paths; only an explicit download returns a verified local `path`. Results include measured valence/arousal, mood tags and candidate distance; the agent chooses the track.
+The [generated `bgm_match` schema](../../../docs/tool-catalog.md#deepseek-aidsh-perception-bgm) exposes `match`, `download`, `index`, and `inspect`. Its description states “返回的是候选排序，不是决定” and identifies MERT as “仅限非商业用途”. Public candidates contain stable IDs rather than local paths; only an explicit download returns a verified local `path`. Results include measured valence/arousal, mood tags, candidate distance, declared license information and usage-risk warnings; the agent chooses the track.
 
 #### Token effect
 
@@ -113,7 +117,7 @@ Append-only. Stable schema text preserves the request prefix; calls add tool res
 - The Python runtime, interpreter, model weights and caches are optional local data prepared outside the package by `scripts/runtime.py`; nothing it writes is packed, no upstream wheel hashes are recorded, and clean-machine or redistributable-payload verification remains undone. MERT cannot be treated as commercially licensed by this package's MIT metadata.
 - The worker directly owns a local subprocess; subprocess-service integration remains separate lifecycle work. Forced termination can bypass Python temporary-directory cleanup.
 - The public catalogue must remain reachable even for cached downloads. The cache has no automatic eviction; no upload credential is accepted or needed.
-- Concurrent writers to one index are not coordinated. Use one index writer at a time; malformed or unreadable indexes are currently treated as empty.
+- Concurrent writers to one index are not coordinated. Use one index writer at a time; malformed JSON or unreadable indexes are currently treated as empty; malformed rights declarations reject matching.
 - Workspace gates require this package to remain private and omit `publishConfig`. A Desktop packer must resolve workspace dependency ranges and include its runtime dependency closure; public npm publication is disabled.
 
 <a id="dev-note"></a>

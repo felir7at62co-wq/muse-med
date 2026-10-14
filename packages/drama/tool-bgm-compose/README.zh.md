@@ -50,6 +50,8 @@ kind: "package-reference"
 
 计划使用 `episodes[].segments[]`。选中集声明 `body_duration_seconds`、可选 `crossfade_seconds`，以及连续的段落；每段包含 `track`、`source`、`start_seconds`、`end_seconds` 与 `reason`。段落可以冻结 `source_start_seconds` 和 `source_sha256`；`valence` 与 `arousal` 可保留候选实测值，但不会调用 `bgm_match`。
 
+每集可声明 `intended_use` 为 `commercial`、`non_commercial` 或 `unknown`，每段可保留选定下载返回的 `track_id` 与 `license_info`。所有方法返回 `intended_use` 和逐曲 `license_records`，已分析段落同时保留规范化许可声明。[许可信息库](../bgm-license-info/README.zh.md)定义字段与缺失数据规则。音频 `source` 仍是文件路径，`license_info.source` 表示权利依据来源。商业用途冲突只提示风险，不阻止合成。`preview` 与 `compose` 为每项许可记录附上实测 `source_sha256`；`verify` 只保留计划可选的摘要声明，不读取源曲或认证使用权。
+
 所有相对 `timeline`、`plan` 与 `output` 都以 `project` 为基准，不使用进程工作目录。跨工具传递时，把控制文件写到项目内的绝对路径，并将 `write` 返回的绝对 `path` 原样传入。结果返回规范化绝对路径。项目路径被拒绝时，错误会同时给出输入、project、resolved 路径与原因。
 
 | 方法 | 写入 | 结果 |
@@ -106,7 +108,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-请求增加一份固定工具 schema。`preview` 与 `compose` 结果随选中集的段落数线性增长，因为每个已分析段落都返回来源身份、时间、实测音量、增益与选曲理由；`verify` 不返回段落分析。
+请求增加一份固定工具 schema。`preview` 与 `compose` 结果随选中集的段落数线性增长，因为每个已分析段落都返回来源身份、时间、实测音量、增益与选曲理由；`verify` 不返回段落分析。所有方法还为每个计划段落返回一项许可记录，因此许可信息也随计划线性增长。
 
 #### KV Cache 影响
 

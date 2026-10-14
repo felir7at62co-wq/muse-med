@@ -29,6 +29,7 @@ const VOICE_PROFILE_FIELDS = {
 export const PROJECT_BIBLE_CHANGES = {
   title: { type: 'string', description: 'Project title.' },
   style: { type: 'string', description: 'Confirmed visual style as free text, including the user\'s custom answer and creative guidance.' },
+  visual_medium: { type: 'string', enum: ['animation_3d', 'photorealistic'], description: 'Confirmed delivery medium: animation_3d adds no ending or watermark; photorealistic retains both. Independent of the full style text and aspect ratio; omitted legacy values keep marked delivery with a warning.' },
   aspect_ratio: { type: 'string', description: 'Confirmed generation aspect ratio, checked against the live catalogue.' },
   jubian_script_id: { type: 'integer', description: 'Actual remote project ID. An existing binding cannot be replaced.' },
   video: { type: 'object', additionalProperties: false, description: 'Exact catalogue selection; model, platform and resolution are required together.', properties: {
@@ -242,6 +243,9 @@ function validateBible(bible: JsonObject): void {
   if (typeof bible.initial_budget_cents !== 'number' || !Number.isSafeInteger(bible.initial_budget_cents) || bible.initial_budget_cents < 0) {
     throw new Error('initial_budget_cents must be nonnegative safe integer CNY cents.')
   }
+  if (bible.visual_medium !== undefined && bible.visual_medium !== 'animation_3d' && bible.visual_medium !== 'photorealistic') {
+    throw new Error('visual_medium must be animation_3d or photorealistic; preserve custom creative guidance in style.')
+  }
   const delivery = object(bible.delivery, 'delivery')
   for (const key of ['width', 'height', 'fps', 'max_effective_chars_per_shot']) {
     if (delivery[key] !== undefined) positive(delivery[key], `delivery.${key}`)
@@ -343,7 +347,7 @@ function append(previous: JsonValue | undefined, added: JsonValue, key: string, 
 function affected(keys: string[]): string[] {
   const stages = new Set<string>()
   for (const key of keys) {
-    if (['style', 'aspect_ratio', 'characters'].includes(key)) for (const stage of ['asset_prompts', 'shots_and_matches', 'video_tasks', 'draft', 'export']) stages.add(stage)
+    if (['style', 'visual_medium', 'aspect_ratio', 'characters'].includes(key)) for (const stage of ['asset_prompts', 'shots_and_matches', 'video_tasks', 'draft', 'export']) stages.add(stage)
     if (key === 'video') for (const stage of ['video_tasks', 'draft', 'export']) stages.add(stage)
     if (key === 'episode_plan') for (const stage of ['episodes', 'shots_and_matches', 'video_tasks', 'draft', 'export']) stages.add(stage)
     if (key === 'delivery') for (const stage of ['shots_and_matches', 'draft', 'export']) stages.add(stage)
@@ -420,6 +424,7 @@ function markdown(config: JsonObject): string {
     '本文件由 project_config.json 自动生成。请通过 drama_project 预览并更新项目设定。', '',
     `远端项目：${display(config.jubian_script_id, '未绑定')}`, '',
     `风格：${display(bible.style, '待确认')}`, '',
+    `交付类型：${display(bible.visual_medium, '未确认；沿用旧版片尾与 AI 水印，请明确记录交付类型')}`, '',
     `生成比例：${display(bible.aspect_ratio, '待确认')}`, '',
     '## 生成与交付', '',
   ]

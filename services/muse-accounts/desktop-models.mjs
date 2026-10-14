@@ -66,7 +66,7 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
   const items=active.get(session.token)??new Set();active.set(session.token,items);items.add(item);
   const abort=()=>controller.abort();req.on('aborted',abort);res.on('close',abort);
   const cancelExpiry=scheduleSessionExpiry(session.expiry,abort,{now});
-  let lease;
+  let lease,queueMs;
   try{
    let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>24*1024*1024){fail(413,'上下文过大');return;}chunks.push(chunk);}
    let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(400,'请求格式错误');return;}
@@ -78,7 +78,7 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined&&(!Number.isSafeInteger(body[key])||body[key]<1)){fail(400,'输出上限无效');return;}
    if(controller.signal.aborted){fail(401,'Muse 登录已失效');return;}
    if(pooled(route)){
-    lease=await pool.acquire(controller.signal);controller.signal.throwIfAborted();
+    const queuedAt=performance.now();lease=await pool.acquire(controller.signal);queueMs=performance.now()-queuedAt;controller.signal.throwIfAborted();
     const current=globalModels.resolve(route,body.model);
     if(!current?.apiKey||!poolKeys().includes(lease.key)){fail(503,'模型配置已变化，请刷新模型列表');return;}
     config={...current,apiKey:lease.key};
@@ -88,7 +88,7 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(body[key],config.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=config.maxTokens;
    if(now()>=session.expiry){controller.abort();fail(401,'Muse 登录已失效');return;}
-   await forward({config,body,res,signal:controller.signal});
+   await forward({config,body,res,signal:controller.signal,queueMs});
   }catch(error){if(error instanceof ModelKeyPoolError&&!controller.signal.aborted)fail(503,'模型请求正在排队，请稍后重试',{'retry-after':'1'});else fail(controller.signal.aborted?401:502,controller.signal.aborted?'Muse 登录已失效或请求已取消':'模型服务暂不可用，请稍后重试');}
   finally{lease?.release();cancelExpiry();req.off('aborted',abort);res.off('close',abort);items.delete(item);if(!items.size)active.delete(session.token);}
  }};

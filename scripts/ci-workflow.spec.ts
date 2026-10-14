@@ -135,6 +135,19 @@ describe('CI workflow', () => {
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
   })
 
+  it('qualifies locked FFmpeg before Windows source coverage without a package-feed dependency', () => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'windows-coverage')
+    if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
+    const steps = coverage.steps.filter(isRecord)
+    const media = steps.findIndex(step => step.name === 'Prepare media test executables')
+    const tests = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
+    expect(media).toBeGreaterThanOrEqual(0)
+    expect(tests).toBeGreaterThan(media)
+    expect(steps[media]).toMatchObject({ shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(steps[media]).not.toHaveProperty('continue-on-error')
+    expect(steps.every(step => typeof step.run !== 'string' || !/\bchoco\s+install\s+ffmpeg\b/u.test(step.run))).toBe(true)
+  })
+
   it('isolates every pnpm action setup destination per runner', () => {
     const files = ['.github/workflows/ci.yml', '.github/workflows/ci-master.yml']
     const setups: Array<{ jobName: string; step: unknown }> = []

@@ -1,6 +1,6 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, mkdir, readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
@@ -55,6 +55,7 @@ interface Prepared {
 async function preparedProject(): Promise<Prepared> {
   const project = await tempProject()
   temporary.push(project)
+  await writePlaceholder(join(project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'photorealistic' } }))
   const paths = episodePaths(project, '02')
   await writePlaceholder(join(paths.videoDir, 'shot_001.mp4'), 'shot one')
   await writePlaceholder(join(paths.videoDir, 'shot_002.mp4'), 'shot two')
@@ -160,6 +161,46 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('refuses an animation timeline marking an included ending before media commands', async () => {
+    const prepared = await preparedProject()
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))
+    await writePlaceholder(prepared.timeline, timelineJson([
+      { shot: 1, startUs: 0, durationUs: 5_050_000 },
+      { shot: 2, startUs: 5_050_000, durationUs: 109_683_332 },
+    ], 112.733332))
+    const channel = renderChannel(prepared)
+    await expect(render(prepared, channel)).rejects.toThrow('仅保留正片镜头')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('renders 3D without ending assets, a stale ending, tail extraction, or watermark', async () => {
+    const prepared = await preparedProject()
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))
+    await rm(prepared.endingAudio)
+    await rm(prepared.endingEffect)
+    await writePlaceholder(join(prepared.paths.cacheDir, 'ending.mp4'), 'stale ending')
+    const channel = renderChannel(prepared, { durationSeconds: 114.733332 })
+    const input = {
+      toolkit: toolkit(channel), settings, project: prepared.project, episode: '02',
+      timelinePath: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm,
+      output: prepared.output, force: false,
+    }
+    const report = await renderEpisode(input)
+    expect(report.ok).toBe(true)
+    expect(report.expected_duration_seconds).toBe(114.733332)
+    expect(report.tail_frame.path).toBe('')
+    expect(report.warnings).toEqual([])
+    const commands = channel.calls.flatMap(call => call.args).join(' ')
+    expect(commands).not.toContain('ending_audio')
+    expect(commands).not.toContain('ending_effect')
+    expect(commands).not.toContain('-sseof')
+    expect(commands).not.toContain('framemd5')
+    expect(commands).toContain('amix=inputs=2')
+    expect(commands).not.toContain('[3:a]')
+    expect(await readFile(join(prepared.paths.cacheDir, 'concat.txt'), 'utf8')).not.toContain('ending.mp4')
+    expect(await readFile(join(prepared.paths.cacheDir, 'display.ass'), 'utf8')).not.toContain('Watermark')
+  })
+
   it('retains the prior delivery and refuses a cache identity when a selected source changes during encoding', async () => {
     const prepared = await preparedProject()
     await writePlaceholder(prepared.output, 'previous delivery')
@@ -311,7 +352,7 @@ describe('renderEpisode', () => {
     expect(burnFilter).toContain("fontsdir='C\\:/Windows/Fonts'")
     // The burn chain ends on the rate filters, so nothing after the subtitles can
     // anchor the picture back to the source frame rate.
-    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,fps=60,setpts=N/(60*TB)')).toBe(true)
+    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)')).toBe(true)
     expect(await readFile(join(prepared.paths.cacheDir, 'display.ass'), 'utf8')).toContain('内容由AI生成')
 
     const mux = channel.calls.find(call => call.args.includes('+faststart'))
@@ -395,6 +436,9 @@ describe('renderEpisode', () => {
     const report = await render(prepared, renderChannel(prepared), false, bgmPlan)
     expect(report.bgm_plan).toMatchObject({ path: bgmPlan, segments, repeated_sequence_episodes: ['03'] })
     expect(report.bgm_plan.bed_sha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(report.bgm_plan.intended_use).toBe('unknown')
+    expect(report.bgm_plan.segments[0]?.license_info).toMatchObject({ status: 'unknown', commercial_use: 'unknown' })
+    expect(report.bgm_plan.license_records[0]?.warnings).toContain('音乐授权信息未知或不完整；不能据此认定已获使用授权。')
     expect(report.not_checked).toContain('bgm_listening')
     expect(report.not_checked).not.toContain('bgm_plan')
     expect(report.ok).toBe(true)

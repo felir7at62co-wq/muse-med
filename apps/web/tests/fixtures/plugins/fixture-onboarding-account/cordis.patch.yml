@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-onboarding-account
+      name: '@fixture/onboarding-account'

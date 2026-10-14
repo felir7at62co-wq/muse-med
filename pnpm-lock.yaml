@@ -723,6 +723,9 @@ importers:
 
   apps/desktop-host:
     dependencies:
+      '@deepseek-ai/dsh-bgm-license-info':
+        specifier: workspace:*
+        version: link:../../packages/drama/bgm-license-info
       '@deepseek-ai/dsh-agent-output-continuation':
         specifier: workspace:*
         version: link:../../packages/core/agent-output-continuation
@@ -7568,6 +7571,16 @@ importers:
         specifier: workspace:*
         version: link:../../core/session
 
+  packages/drama/bgm-license-info:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
   packages/drama/character-asset-catalog:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -7733,6 +7746,9 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-bgm-license-info':
+        specifier: workspace:*
+        version: link:../bgm-license-info
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
@@ -7810,6 +7826,9 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-bgm-license-info':
+        specifier: workspace:*
+        version: link:../bgm-license-info
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
@@ -11255,6 +11274,9 @@ importers:
         specifier: workspace:*
         version: link:../../util/values
     devDependencies:
+      '@deepseek-ai/dsh-bgm-license-info':
+        specifier: workspace:*
+        version: link:../../drama/bgm-license-info
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

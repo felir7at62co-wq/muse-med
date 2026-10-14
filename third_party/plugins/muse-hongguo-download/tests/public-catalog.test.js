@@ -82,7 +82,8 @@ for (const count of [209, 10001]) {
     assert.equal(info.ok, true);
     assert.equal(info.items[0].episodeCount, count);
     assert.equal(info.items[0].completeCatalog, true);
-    assert.equal(info.items[0].fullSeriesAvailable, true);
+    assert.equal(info.items[0].fullSeriesAvailable, null);
+    assert.equal(info.items[0].mediaUrlsVerified, false);
     const catalog = await f.client.catalog('123', 'public', signal());
     assert.equal(catalog.episodes.length, vids.length);
     assert.equal(catalog.episodes.at(-1).vid, vids.at(-1));

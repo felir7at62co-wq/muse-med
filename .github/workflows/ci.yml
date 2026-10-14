@@ -495,6 +495,9 @@ jobs:
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
+      - name: Check Hongguo source status and catalog availability
+        run: node --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+
       - name: Run compatibility smokes
         env:
           DSH_BUILD_CLIENT_PROFILE: official
@@ -681,7 +684,7 @@ jobs:
       # unbuilt checkouts.
       - name: Prepare media test executables
         shell: pwsh
-        run: choco install ffmpeg --yes --no-progress
+        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
 
       - name: Run Windows coverage
         shell: pwsh
@@ -735,6 +738,10 @@ jobs:
           } else {
             pnpm install --frozen-lockfile
           }
+      - name: Check Hongguo source status and catalog availability
+        shell: pwsh
+        run: node --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+
       - name: Run Windows-specific native tests
         shell: pwsh
         run: >-

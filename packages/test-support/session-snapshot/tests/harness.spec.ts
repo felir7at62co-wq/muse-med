@@ -1004,6 +1004,8 @@ describe('runScenario', () => {
     { label: 'session', step: { op: 'waitForTurnEnd', timeoutMs: 20 }, expected: 'did not persist turn/end within 20ms' },
     { label: 'child', step: { op: 'waitForSubagentTurnEnd', child: 2, timeoutMs: 20 },
       expected: 'subagent child #2 did not persist closed turn 1 within 20ms' },
+    { label: 'inbox', step: { op: 'waitForInboxMessage', text: 'missing', timeoutMs: 20 },
+      expected: 'did not persist expected inbox message within 20ms' },
   ] satisfies { label: string; step: InputStep; expected: string }[])
   ('identifies the $label wait when its first log harvest outlasts the deadline', async ({ step, expected }) => {
     const { fixtureFile } = await scenario({})
