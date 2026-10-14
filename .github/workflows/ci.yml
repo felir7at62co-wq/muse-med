@@ -681,7 +681,7 @@ jobs:
       # unbuilt checkouts.
       - name: Prepare media test executables
         shell: pwsh
-        run: choco install ffmpeg --yes --no-progress
+        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
 
       - name: Run Windows coverage
         shell: pwsh
