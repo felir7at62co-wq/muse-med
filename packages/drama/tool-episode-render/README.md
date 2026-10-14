@@ -122,6 +122,8 @@ Per-shot encoding caches require a matching source-byte hash, executable and exa
 
 A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`. Duration must match the current body; segments must have valid, ordered, in-bounds times. Gaps, overlaps, one track and recurring motifs remain creative choices. Repeat advice compares resolved source paths in order within this plan, without case folding or audio fingerprinting. The reported bed hash binds the declaration to this render input; it does not establish that the bed contains those tracks or fits the scene.
 
+`bgm_plan` also preserves the episode's optional `intended_use`, segment `track_id`, and `license_info`, and returns normalized per-track `license_records`. The [license metadata library](../bgm-license-info/README.md) defines unknown facts and use-risk warnings. Warnings remain advisory and are included in the render report; declarations do not certify rights or replace model-license requirements. A declared `source_sha256` is retained without rehashing each source track. Methods that do not read a plan, including `verify`, return unknown intended use and empty license records, with `bgm_license_info` in `not_checked`.
+
 ### The fixed delivery style
 
 | Element | Value |

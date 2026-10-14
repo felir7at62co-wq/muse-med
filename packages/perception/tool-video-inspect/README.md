@@ -107,6 +107,8 @@ The result appends without rewriting earlier messages. The fixed schema changes 
 
 ### Dev Note
 
+The video-EOF comparison fixture starts real media processes and inherits the configured [test and hook budgets](../../../docs/testing.md).
+
 Focused tests use original synthetic FFmpeg media, real PTC execution, filesystem reads, normalized attachments and a keyless scripted model. They inspect actual image blocks in its requests and exercise registration loss and log-backed accepted recovery. The recorded Session scenario loads the plugin through the shipped profile and substitutes only deterministic media process output.
 
 `frameFormat` selects `png` (default) or `jpeg`; `frameJpegQuality` selects the FFmpeg JPEG quantizer from 1 to 31 (default 2, ignored for PNG). Creation mode uses JPEG and four default observations per call to reduce request upload size while preserving source timestamps. Choose sufficient frame dimensions for subtitle and identity inspection; encoding does not establish that the model observed a frame.

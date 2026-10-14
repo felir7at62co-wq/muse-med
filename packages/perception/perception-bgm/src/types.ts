@@ -1,3 +1,5 @@
+import type { LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
+
 /** Public catalogue entries after validation; filenames never choose local paths. */
 export interface CatalogTrack {
   id: string
@@ -8,6 +10,8 @@ export interface CatalogTrack {
   valence: number
   arousal: number
   moods: string[]
+  license_info: LicenseInfo
+  license_warnings: string[]
 }
 
 /** Resolved deployment settings for bounded public-library access. */
