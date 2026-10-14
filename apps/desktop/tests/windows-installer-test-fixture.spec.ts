@@ -139,7 +139,7 @@ it('compiles the reviewed diagnostic helper once into a private assembly and loa
   expect(smoke).toContain('installer-diagnostics-$([Guid]::NewGuid().ToString(\'N\')).dll')
   expect(smoke).toContain("'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly")
   expect(smoke).toContain('-AssemblyPath \'$($diagnosticAssembly.Replace')
-  expect(smoke).toContain('assemblySha256 = (Get-FileHash -LiteralPath $diagnosticAssembly -Algorithm SHA256)')
+  expect(smoke).toContain('assemblySha256 = Read-DiagnosticFileHash $diagnosticAssembly')
   expect(helper).toContain('-OutputAssembly $installerDiagnosticsAssemblyFile')
   expect(worker).toContain('Add-Type -LiteralPath $observerAssemblyFile')
   expect(worker).not.toMatch(/-TypeDefinition|windows-installer-diagnostics\.ps1/u)
@@ -152,6 +152,23 @@ it('compiles the reviewed diagnostic helper once into a private assembly and loa
     .toContain('sameGeneratedFile')
   expect(reusableAssemblyFailures(smoke, helper, worker.replace('Add-Type -LiteralPath $observerAssemblyFile',
     'Add-Type -TypeDefinition $source'))).toContain('noObserverCompilation')
+})
+
+it('hashes private diagnostics with disposed .NET objects rather than optional PowerShell modules', async () => {
+  const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
+  const hash = smoke.slice(smoke.indexOf('function Read-DiagnosticFileHash('), smoke.indexOf('$assemblyReceipt ='))
+  expect(hash).toContain('[Security.Cryptography.SHA256]::Create()')
+  expect(hash).toContain('[IO.File]::OpenRead($Path)')
+  expect(hash).toContain('$hasher.ComputeHash($stream)')
+  expect(hash).toContain('finally { $stream.Dispose() }')
+  expect(hash).toContain('finally { $hasher.Dispose() }')
+  expect(smoke).not.toMatch(/Get-FileHash|Import-Module/u)
+  expect(smoke).toContain("'powershell-runtime.json'")
+  expect(smoke).toContain('psVersion = $PSVersionTable.PSVersion.ToString()')
+  expect(smoke).toContain('clrVersion = [Environment]::Version.ToString()')
+  expect(smoke).toContain('executablePath = $runtimeProcess.MainModule.FileName')
+  expect(smoke).toContain('finally { $runtimeProcess.Dispose() }')
+  expect(smoke).not.toMatch(/PSModulePath|GetEnvironmentVariables|\.CommandLine/u)
 })
 
 const receipt = { primaryFailure: 'Injected automatic update failure after relaunch', cleanupFailures: [],
