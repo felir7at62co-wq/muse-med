@@ -570,6 +570,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
   },
+  async 'muse-drama-explicit-work-scope'(cwd) {
+    await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
+      join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })
+  },
   async 'muse-shot-director-format'(cwd) {
     for (const name of ['tweet-drama-early-shot-script', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
       await cp(join(repoRoot, 'packages/drama/skills/skills', name), join(cwd, '.dsh/skills', name), { recursive: true })
