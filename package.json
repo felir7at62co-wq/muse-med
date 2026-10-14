@@ -222,6 +222,8 @@
     "@deepseek-ai/dsh-experimental-claude-code-mods": "workspace:*",
     "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-mcp-client": "workspace:*",
+    "@deepseek-ai/dsh-pwsh-local": "workspace:*",
+    "@deepseek-ai/dsh-terminal-bash": "workspace:*",
     "@deepseek-ai/dsh-tool-session-query": "workspace:*",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:*",
     "@stylistic/eslint-plugin": "^5.10.0",

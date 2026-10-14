@@ -565,31 +565,28 @@ describe('BashTerminalBackend startup rollback', () => {
       let sends = 0
       let cancellations = 0
       let closes = 0
-      const session = {
-        motd: '',
-        startSend: () => {
-          sends += 1
-          return {
-            done: sends === 1
-              ? Promise.resolve({
-                viewport, waitReason: 'inferred_idle' as const,
-                sessionStatus: { kind: 'running' as const }, truncated: false,
-              })
-              : pending.promise,
-            readOutput: () => ({ delta: '', truncated: false }),
-            cancel: () => { cancellations += 1; return true },
-          }
-        },
-        read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
-        close: () => {
-          closes += 1
-          pending.resolve({
-            viewport: '', waitReason: 'session_exit',
-            sessionStatus: { kind: 'exited', exitCode: 0, signal: null }, truncated: false,
-          })
-          return Promise.resolve()
-        },
-      } as unknown as LocalPtySession
+      const session = stubLocalSession()
+      vi.spyOn(session, 'startSend').mockImplementation(() => {
+        sends += 1
+        return {
+          done: sends === 1
+            ? Promise.resolve({
+              viewport, waitReason: 'inferred_idle',
+              sessionStatus: { kind: 'running' }, truncated: false,
+            })
+            : pending.promise,
+          readOutput: () => ({ delta: '', truncated: false }),
+          cancel: () => { cancellations += 1; return true },
+        }
+      })
+      vi.spyOn(session, 'close').mockImplementation(() => {
+        closes += 1
+        pending.resolve({
+          viewport: '', waitReason: 'session_exit',
+          sessionStatus: { kind: 'exited', exitCode: 0, signal: null }, truncated: false,
+        })
+        return Promise.resolve()
+      })
       const backend = new BashTerminalBackend(
         ctx,
         { ...config(), shellDialect: 'pwsh', shellPath: 'pwsh' },
@@ -617,6 +614,7 @@ describe('BashTerminalBackend startup rollback', () => {
       try {
         await ctx.fiber.dispose()
       } finally {
+        vi.restoreAllMocks()
         vi.useRealTimers()
       }
     }
