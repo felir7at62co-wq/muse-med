@@ -101,6 +101,8 @@ Chat 通过 `uiConversation.groups` 注册过程 Group Definition。React 通过
 
 运行状态显示一只鲸鱼，其 APNG 遮罩继承文字颜色。启用减少动态效果或强制颜色模式、或浏览器不支持 alpha 遮罩时，CSS 选择静态 SVG。构建将图片嵌入插件样式表；React 不通过 DOM 样式传递图片数据。
 
+首个 Step 开始前，打开的 Turn 显示“正在准备请求”。打开的 Step 尚无 Assistant 内容时显示“正在等待回复”；出现思考、文本或工具调用内容后恢复通用运行文案。这些文案由现有 Chat 时间线决定，取消或历史替换时随之重置。时钟显示整个 Turn 的总用时。Step 准入仍包含本地请求准备，因此等待文案不能证明提供方排队、网络请求开始或首个 token 的耗时。历史证据不完整时保留通用文案。
+
 滚动边缘渐隐在 `ResizeObserver` 报告已展开组的布局后初始化；展开组时不会在 layout effect 中立即读取滚动尺寸。
 
 每个组拥有本地 `useDisclosure` 状态，组件保持挂载时，模式切换保留该状态。

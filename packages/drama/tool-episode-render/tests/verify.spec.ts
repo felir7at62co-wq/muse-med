@@ -324,6 +324,24 @@ describe('verifyEpisode', () => {
     return { project, output, timeline, subtitle }
   }
 
+  it.each(['animation_3d', 'photorealistic'] as const)('verifies duration and geometry using a %s snapshot', async (visualMedium) => {
+    const files = await delivered()
+    const document = JSON.parse(await readFile(files.timeline, 'utf8')) as Record<string, unknown>
+    await writePlaceholder(files.timeline, JSON.stringify({ ...document,
+      delivery: { visual_medium: visualMedium, width: 1920, height: 1080, fps: 30 } }))
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 114.733332,
+        video: { width: 1920, height: 1080, fps: 30 }, audio: {} } }), decodeHandler(), () => ({})]),
+      settings: resolveSettings({}), project: files.project, episode: '02',
+      output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    expect(report.expected_duration_seconds).toBe(visualMedium === 'animation_3d' ? 114.733332 : 116.733332)
+    expect(report.checks.find(check => check.id === 'duration')?.ok).toBe(visualMedium === 'animation_3d')
+    expect(report.checks.find(check => check.id === 'video_stream')?.ok).toBe(true)
+    expect(report.checks.find(check => check.id === 'frame_rate')?.ok).toBe(true)
+    expect(report.warnings).toEqual([])
+  })
+
   it.each(['output', 'other', 'corrupt'] as const)('reports a %s ban decision without deleting the delivery', async (kind) => {
     const files = await delivered()
     const { runDramaVideo } = await import('../src/video.ts')
@@ -434,7 +452,7 @@ describe('verifyEpisode', () => {
       'output_source_record',
     ])
     expect(report.failures).toEqual([])
-    expect(report.warnings).toEqual([])
+    expect(report.warnings[0]).toContain('未设置 visual_medium')
     expect(report.clips.map(clip => clip.source)).toEqual(['', ''])
     expect(report.clips[0]).toMatchObject({ shot: 1, start_us: 0, duration_us: 5_050_000 })
     expect(report.body_end_seconds).toBe(114.733332)
@@ -451,7 +469,7 @@ describe('verifyEpisode', () => {
       audio_codec: 'aac',
       audio_sample_rate: 48000,
     })
-    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 13, failed_checks: 0, warnings: 0 })
+    expect(report.summary).toEqual({ shots: 2, encoded: 0, reused: 0, checks: 13, failed_checks: 0, warnings: 1 })
     expect(report.written).toEqual([])
     expect(report.log_path).toBe('')
   })

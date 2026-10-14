@@ -39,6 +39,7 @@ it('follows the application theme for brand marks while keeping the favicon blac
       await assertArtwork('white')
       await page.keyboard.press('Escape')
       await page.reload({ waitUntil: 'load' })
+      await page.getByText('Muse', { exact: true }).first().waitFor({ timeout: 60000 })
       await assertArtwork('white')
       expect({ title: await page.title(), name: await page.getByText('Muse', { exact: true }).first().textContent() })
         .toEqual({ title: 'Muse', name: 'Muse' })

@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, rename, rm, unlink } from 'node:fs/promises'
 import { extname, join } from 'node:path'
+import {
+  licenseRiskWarnings, normalizeLicenseInfo, type BgmUsage, type LicenseInfo,
+} from '@deepseek-ai/dsh-bgm-license-info'
 import type { CatalogConfig, CatalogTrack } from './types.ts'
 
 const AUDIO_EXTENSION = /^\.(?:mp3|wav|m4a|flac|aac|ogg|opus)$/
@@ -39,9 +42,11 @@ function parseCatalog(value: unknown, config: CatalogConfig): CatalogTrack[] {
       || !row.moods.every((mood: unknown) => typeof mood === 'string' && mood.length <= 128 && mood.isWellFormed())) {
       throw new Error('Invalid BGM catalog moods')
     }
+    const licenseInfo = normalizeLicenseInfo(row.license_info)
     ids.add(row.sha256)
     return { id: row.sha256, sha256: row.sha256, name: row.name, bytes: row.bytes,
-      url: expectedUrl, valence: row.valence as number, arousal: row.arousal as number, moods: row.moods as string[] }
+      url: expectedUrl, valence: row.valence as number, arousal: row.arousal as number, moods: row.moods as string[],
+      license_info: licenseInfo, license_warnings: licenseRiskWarnings(licenseInfo, 'unknown') }
   })
 }
 
@@ -102,19 +107,25 @@ async function validCache(path: string, track: CatalogTrack, signal: AbortSignal
  * @param config - Resolved public-library settings.
  * @param trackId - ID selected from this catalogue, not a URL or local filename.
  * @param signal - Operation cancellation and deadline, including catalogue fetch.
- * @returns A real local path usable by the composer; reuse also verifies SHA-256.
+ * @param intendedUse - Intended use used only to report license risks.
+ * @returns A real local path and declared license; reuse also verifies SHA-256.
  */
-export async function downloadTrack(config: CatalogConfig, trackId: string, signal: AbortSignal): Promise<{
+export async function downloadTrack(
+  config: CatalogConfig, trackId: string, signal: AbortSignal, intendedUse: BgmUsage = 'unknown',
+): Promise<{
   track_id: string
   path: string
   bytes: number
   sha256: string
   cached: boolean
+  license_info: LicenseInfo
+  license_warnings: string[]
 }> {
   const track = (await loadCatalog(config, signal)).find(candidate => candidate.id === trackId)
   if (!track) throw new Error('BGM track_id is not in the configured catalog')
   const path = join(config.cacheDir, `${track.sha256.slice(7)}${extname(track.name).toLowerCase()}`)
-  const result = { track_id: track.id, path, bytes: track.bytes, sha256: track.sha256 }
+  const result = { track_id: track.id, path, bytes: track.bytes, sha256: track.sha256,
+    license_info: track.license_info, license_warnings: licenseRiskWarnings(track.license_info, intendedUse) }
   if (await validCache(path, track, signal)) return { ...result, cached: true }
   // Remove only this content-addressed entry; directories/symlinks failed above.
   try { await unlink(path) } catch (error) {

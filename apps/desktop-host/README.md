@@ -17,6 +17,8 @@ The Desktop account composition also excludes Yunying's exact `claude-opus-5-5`,
 
 The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds for gateway and knowledge-base requests, including project portfolio scans. Personal overlays can change this validated account setting; the underlying plugin's default remains 15,000 milliseconds. A timeout still reports an unavailable service and does not establish whether a remote write completed.
 
+Short-drama delivery follows the explicit project medium and prepared canvas; see the [project bible](../../packages/drama/drama-settings/README.md) for selection and legacy behavior.
+
 ## Creation mode
 
 The `creation` preset combines the native editing and short-drama tools behind PTC `run_code`, with one model and no delegation, workflow-agent or Team tools. The existing presets and `short-drama` default remain available. The preset uses an isolated approved creative/Office skill catalog; skill names outside that catalog, including plugin-authoring names, are not discovered in this mode. Approved-name workspace or global overrides still follow the Host registry's normal precedence; the name list does not authenticate instruction bodies. Future tool registration stays inside the reviewed allowlist, including Agent-local contributions.

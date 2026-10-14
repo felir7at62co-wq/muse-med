@@ -5,15 +5,18 @@ import { apply, inject } from '../src/index.ts'
 const contexts: Context[] = []
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
 
-interface Registered { name: string; description: string }
+interface Registered { name: string; description: string; parameters?: { properties?: Record<string, unknown> } }
 
 async function mount(config: Record<string, unknown> = {}): Promise<Registered[]> {
   const ctx = new Context()
   contexts.push(ctx)
   const registered: Registered[] = []
   ctx.provide('tools', {
-    register: (definition: { name: string; description: string }) => {
-      registered.push({ name: definition.name, description: definition.description })
+    register: (definition: Registered) => {
+      registered.push({
+        name: definition.name, description: definition.description,
+        ...(definition.parameters === undefined ? {} : { parameters: definition.parameters }),
+      })
       return () => {}
     },
   })
@@ -35,6 +38,13 @@ describe('bgm_match registration', () => {
   it('states that the result is candidates rather than a decision', async () => {
     const registered = await mount()
     expect(registered[0]?.description).toContain('候选')
+  })
+
+  it('accepts intended use without exposing a model-supplied rights declaration', async () => {
+    const registered = await mount()
+    expect(registered[0]?.parameters?.properties?.intended_use).toMatchObject({ enum: ['commercial', 'non_commercial', 'unknown'] })
+    expect(registered[0]?.parameters?.properties).not.toHaveProperty('license_info')
+    expect(registered[0]?.description).toContain('license_warnings')
   })
 
   it('explains that the scale is the model 1-9 and what the methods do', async () => {

@@ -20,6 +20,7 @@ import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readSubtitleCues } from './subtitles.ts'
+import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument } from './timeline.ts'
 import type { MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
@@ -239,6 +240,7 @@ async function buildMaster(
  */
 export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpisode> {
   const paths = episodePaths(input.project, input.episode)
+  const delivery = await readProjectDelivery(input.project)
   const rows = parseShotManifest(
     await readJsonDocument(input.shotsPath, '成片清单'),
     input.shotsPath,
@@ -247,7 +249,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     resolveAgainst(input.project, row.video), resolveAgainst(input.project, row.audio),
   ]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
-  const timeline = appendClips(shots.map(shot => shot.durationUs))
+  const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery }
   const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
   const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
     ? await fileSha256(packagePath) : undefined
@@ -284,5 +286,8 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   await writeFile(paths.sources, `${JSON.stringify({ shots: selected }, null, 2)}\n`, 'utf8')
   written.push(paths.sources)
 
-  return { shots, timeline, cues, written, warnings: cueOverrunWarnings(cues, timeline.bodyEndSeconds) }
+  return {
+    shots, timeline, cues, written,
+    warnings: [...deliveryPolicyFor(delivery).warnings, ...cueOverrunWarnings(cues, timeline.bodyEndSeconds)],
+  }
 }

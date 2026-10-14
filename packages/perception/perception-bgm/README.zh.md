@@ -31,6 +31,8 @@ kind: "package-bundle"
 
 公开曲库 `https://muse.tos-cn-beijing.volces.com/bgm/index.json` 已通过无凭证、无 Python 的 `match` 与单曲校验下载测试。它不默认启用，由 profile 配置选用。公开音频权利与非商业分析模型许可是不同的义务。
 
+候选、下载结果和已发布曲目都包含 `license_info`（`status`、`license`、`commercial_use`、`source`、`attribution`、`scope`）及 `license_warnings`。这些字段传递提供的权利声明，不表示授权已核验。缺失字段保持 `unknown`；允许商业使用的声明缺少许可、来源或范围时，商业权限降为 unknown。`match` 和 `download` 可选 `intended_use` 为 `commercial`、`non_commercial` 或 `unknown`（默认），只影响风险提示，不授予权限，也不阻断工具调用。非商业声明用于商业用途时返回风险提示。下载摘要只标识音频字节，不证明使用权。不支持的审批状态或非法字段类型会使声明校验失败；风险提示按本次用途重新计算，不直接采用已存提示。
+
 | 配置 | 解析方式 |
 |---|---|
 | `pythonExecutable` | 已存在的绝对可执行路径；未配置则用 `DSH_PERCEPTION_PYTHON`；路径不可用只阻止分析 |
@@ -55,7 +57,9 @@ npm 不携带任何模型权重。获取权重前请阅读[来源与许可](SOUR
 <details>
 <summary>实现细节——点击展开</summary>
 
-公开 manifest 为 `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods}]}`。每个 `id` 等于其 `sha256:<64 位小写十六进制>` 摘要。音轨 URL 必须精确等于曲库同源地址加 `/bgm/tracks/<hash>.<音频扩展名>`。HTTPS 传输不发送凭证，并拒绝重定向、部分响应、超限内容、无效测量值、重复 ID 和不安全文件名。下载流式写入私有临时目录内的独占文件，校验大小与 SHA-256，再原子重命名到内容寻址缓存路径；错误时删除暂存文件。调用取消与插件卸载会中止网络操作。
+公开 manifest 为 `{version:1,tracks:[{id,name,sha256,bytes,url,valence,arousal,moods,license_info,license_warnings}]}`。每个 `id` 等于其 `sha256:<64 位小写十六进制>` 摘要。音轨 URL 必须精确等于曲库同源地址加 `/bgm/tracks/<hash>.<音频扩展名>`。HTTPS 传输不发送凭证，并拒绝重定向、部分响应、超限内容、无效测量值、重复 ID 和不安全文件名。下载流式写入私有临时目录内的独占文件，校验大小与 SHA-256，再原子重命名到内容寻址缓存路径；错误时删除暂存文件。调用取消与插件卸载会中止网络操作。
+
+本地建库在复用测量值或声明前核对 SHA-256，即使大小和修改时间未变也核验。新曲或字节已变化的曲目授权设为 unknown；相同字节保留规范化后的声明。本地候选在索引含摘要时返回 `source_sha256`，供计划冻结选定字节。重分析失败也会清除已变化文件的旧声明。
 
 TypeScript 工具对缓存或公开测量值排序，仅在分析时延迟启动隔离的 NDJSON Python worker。worker 使用维护中的 Music2Emotion 推理适配器和第三方辅助源码；分析库打印的诊断进入 stderr，stdout 只承载 NDJSON 响应。非响应 JSON 和诊断行会被忽略；响应必须含字符串请求 ID，才能结束对应的等待调用。调用取消与卸载会以明确的工具错误停止本地建库，普通单曲分析失败仍记录在建库结果中。卸载会移除工具注册、中止已接入操作、拒绝 worker 等待请求，并等候进程关闭和文件系统工作完成。已经开始的索引写入会在报告取消前完成；已完成的曲目记录保留供续跑，卸载后不会启动新的 worker 或索引写入。每次和弦/调性操作独占随机的系统临时目录，返回或异常时清理；不会向包内数据目录写中间文件。不发布 invariant 附件，因为本包没有需要核对的独立维护观测值。
 
@@ -96,7 +100,7 @@ manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声�
 
 #### 模型看到什么
 
-[生成的 `bgm_match` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-perception-bgm)提供 `match`、`download`、`index` 和 `inspect`。描述明确说明“返回的是候选排序，不是决定”，并标注 MERT“仅限非商业用途”。公开候选包含稳定 ID 而非本地路径；只有明确下载后才返回经校验的本地 `path`。结果包含测量的愉悦度/能量、情绪标签和候选距离，由代理选择曲目。
+[生成的 `bgm_match` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-perception-bgm)提供 `match`、`download`、`index` 和 `inspect`。描述明确说明“返回的是候选排序，不是决定”，并标注 MERT“仅限非商业用途”。公开候选包含稳定 ID 而非本地路径；只有明确下载后才返回经校验的本地 `path`。结果包含测量的愉悦度/能量、情绪标签、候选距离、授权声明及用途风险提示，由代理选择曲目。
 
 #### Token 影响
 
@@ -113,7 +117,7 @@ manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声�
 - Python 运行时、解释器、模型权重与缓存都是由 `scripts/runtime.py` 在包外准备的选装本地数据；它写出的内容不进入 npm 包，未记录上游 wheel 的 hash，干净机器或可重新分发载荷的验证也尚未进行。不得因本包 MIT 元数据而将 MERT 当作可商用模型。
 - worker 直接拥有本地子进程；接入 subprocess 服务仍属于独立生命周期工作。强制终止可能绕过 Python 临时目录清理。
 - 即使复用已下载缓存，公开曲库也必须可访问。缓存不自动淘汰；不接收也不需要上传凭证。
-- 同一索引的并发写入未协调。一次仅允许一个建库写入者；当前损坏或不可读的索引被视为空。
+- 同一索引的并发写入未协调。一次仅允许一个建库写入者；当前 JSON 损坏或不可读的索引被视为空；非法权利声明会使匹配失败。
 - 工作区检查要求本包保持 private 并省略 `publishConfig`。桌面打包器必须解析 workspace 依赖范围并包含运行时依赖闭包；本包禁止公开发布到 npm。
 
 <a id="dev-note"></a>

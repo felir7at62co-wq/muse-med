@@ -15,11 +15,12 @@ import { resolve } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readVideoBans } from './video.ts'
-import { DELIVERY_FPS, DELIVERY_HEIGHT, DELIVERY_WIDTH, ENDING_SECONDS, MIN_BITRATE_BPS } from './delivery.ts'
+import { DEFAULT_DELIVERY, MIN_BITRATE_BPS } from './delivery.ts'
 import { mediaFactsOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { sourceRecordPathFor, readSourceRecord } from './source-record.ts'
 import { readSubtitleCues } from './subtitles.ts'
+import { assertBodyOnlyAnimation, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { readTimeline } from './timeline.ts'
 import type {
   DramaRenderReport,
@@ -27,6 +28,7 @@ import type {
   MediaToolkit,
   RenderCheck,
   RenderSettings,
+  TimelineDelivery,
   SubtitleCue,
 } from './types.ts'
 
@@ -115,15 +117,20 @@ function longestSeconds(segments: readonly DetectedSegment[]): number {
 }
 
 /**
- * Judge the delivered file against the fixed delivery specification.
+ * Judge the delivered file against snapshot geometry and fixed encoding requirements.
  * @param media - The measured facts.
  * @param expectedDurationSeconds - The duration the timeline and the ending require.
+ * @param delivery - Snapshot geometry and frame rate.
  * @returns Duration, geometry, frame rate, audio, and bitrate checks.
  */
-export function deliveryChecks(media: MediaFacts, expectedDurationSeconds: number): RenderCheck[] {
+export function deliveryChecks(
+  media: MediaFacts,
+  expectedDurationSeconds: number,
+  delivery: TimelineDelivery = DEFAULT_DELIVERY,
+): RenderCheck[] {
   const durationDelta = Math.abs(media.durationSeconds - expectedDurationSeconds)
-  const geometryOk = media.width === DELIVERY_WIDTH && media.height === DELIVERY_HEIGHT && media.videoCodec === 'h264'
-  const fpsOk = Math.abs(media.fps - DELIVERY_FPS) <= 0.01
+  const geometryOk = media.width === delivery.width && media.height === delivery.height && media.videoCodec === 'h264'
+  const fpsOk = Math.abs(media.fps - delivery.fps) <= 0.01
   const audioOk = media.hasAudio && media.audioCodec === 'aac' && media.audioSampleRate === 48000
   return [
     verdict('duration', 'failure', durationDelta <= DURATION_TOLERANCE_SECONDS,
@@ -132,11 +139,11 @@ export function deliveryChecks(media: MediaFacts, expectedDurationSeconds: numbe
       + `若差在 ${String(DURATION_TOLERANCE_SECONDS)}s 以内请先确认没有丢帧，否则重跑 render（加 force=true 清缓存）。`),
     verdict('video_stream', 'failure', geometryOk,
       `实测 ${String(media.width)}x${String(media.height)} ${media.videoCodec}`,
-      `交付规格是 ${String(DELIVERY_WIDTH)}x${String(DELIVERY_HEIGHT)} 的 h264。`
+      `交付规格是 ${String(delivery.width)}x${String(delivery.height)} 的 h264。`
       + '请确认片段都是按交付样式编码后拼接的，并删掉 exports/.render_cache 后重跑 render。'),
     verdict('frame_rate', 'failure', fpsOk,
-      `实测 ${media.fps.toFixed(4)}fps，应为 ${String(DELIVERY_FPS)}fps`,
-      '请确认拼接的每一段都用 fps=60 编码；删掉 exports/.render_cache 后重跑 render。'),
+      `实测 ${media.fps.toFixed(4)}fps，应为 ${String(delivery.fps)}fps`,
+      `请确认拼接的每一段都用 fps=${String(delivery.fps)} 编码；删掉 exports/.render_cache 后重跑 render。`),
     verdict('audio_stream', 'failure', audioOk,
       `实测 音轨=${media.hasAudio ? `${media.audioCodec} ${String(media.audioSampleRate)}Hz` : '缺失'}`,
       '交付规格要求 AAC 48kHz 音轨。请确认 audio/<集>.wav 存在且混音步骤成功，然后重跑 render。'),
@@ -327,7 +334,7 @@ export async function decodeChecks(
     verdict('decode_probe', 'failure', missing.length === 0, detail,
       '按时间抽帧解不出画面：成片在自己的时长范围内就断了（容器时长/帧率/码率此时仍然正常）。'
       + '这通常来自手写滤镜链把 fps 放在 subtitles 之前，字幕滤镜会把时间基准锚回源帧率。'
-      + '请重跑 render（必要时加 force=true 清缓存），并确认烧录链最后是 fps=60,setpts=N/(60*TB)。'),
+      + '请重跑 render（必要时加 force=true 清缓存），并确认烧录链最后按交付帧率使用 fps 与 setpts。'),
   ]
 }
 
@@ -352,7 +359,7 @@ export function subtitleChecks(
     : outside.map(cue => `第 ${String(cue.index)} 条 ${cue.startSeconds.toFixed(3)}–${cue.endSeconds.toFixed(3)}s`).join('；')
   return [
     verdict('subtitle_bounds', 'failure', outside.length === 0, detail,
-      `字幕必须落在 0–${bodyEndSeconds.toFixed(3)}s（body_end）之内，片尾 2 秒不承载台词。`
+      `字幕必须落在 0–${bodyEndSeconds.toFixed(3)}s（body_end）之内，片尾不承载台词。`
       + '请修正这些 cue 的起止时间后重跑 render。'),
     verdict('subtitle_present', 'warning', cues.length > 0,
       `实测 ${String(cues.length)} 条字幕`,
@@ -436,14 +443,16 @@ export interface VerifyInput {
  */
 export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderReport> {
   const timeline = await readTimeline(input.timelinePath)
-  const expectedDurationSeconds = Number((timeline.bodyEndSeconds + ENDING_SECONDS).toFixed(6))
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  assertBodyOnlyAnimation(timeline, policy)
+  const expectedDurationSeconds = Number((timeline.bodyEndSeconds + policy.endingSeconds).toFixed(6))
   const probed = await probeMedia(input.toolkit, input.output)
   const media = mediaFactsOf(probed)
   const black = await detectBlackSegments(input.toolkit, input.output, media.durationSeconds)
   const silence = await detectSilenceSegments(input.toolkit, input.output, media.durationSeconds)
   const cues = await readSubtitleCues(input.subtitleSrt)
   const checks: RenderCheck[] = [
-    ...deliveryChecks(media, expectedDurationSeconds),
+    ...deliveryChecks(media, expectedDurationSeconds, policy.delivery),
     ...await decodeChecks(input.toolkit, input.output, media.durationSeconds),
     ...await videoBanChecks(input, timeline.clips.map(clip => clip.shot)),
     verdict('black_frames', 'failure', longestSeconds(black) < BLACK_FAILURE_SECONDS,
@@ -482,7 +491,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
     tailFrame: NO_TAIL_FRAME,
     media,
     checks,
-    warnings: [],
+    warnings: [...policy.warnings],
     logPath: '',
   }
   return buildReport(reportInput)

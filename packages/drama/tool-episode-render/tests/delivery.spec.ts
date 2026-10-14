@@ -107,7 +107,8 @@ describe('assOutline', () => {
 
 describe('deliveryScaleFilter', () => {
   it('fills the delivery frame and fixes the pixel format', () => {
-    expect(deliveryScaleFilter()).toBe('scale=1440:2560:force_original_aspect_ratio=increase,crop=1440:2560,fps=60,format=yuv420p')
+    expect(deliveryScaleFilter()).toBe('scale=1440:2560:force_original_aspect_ratio=increase,crop=1440:2560,'
+      + 'tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,format=yuv420p')
   })
 
   it('uses the requested format when the frame is blended instead of encoded', () => {
@@ -136,13 +137,13 @@ describe('encoderArguments', () => {
 describe('endingEffectFilter', () => {
   it('plays the effect at its own speed, then leaves the freeze frame for the rest of the ending', () => {
     const filter = endingEffectFilter()
-    expect(filter.startsWith('[0:v]scale=1440:2560:force_original_aspect_ratio=increase,crop=1440:2560,fps=60,format=gbrp[base];'))
+    expect(filter.startsWith('[0:v]' + deliveryScaleFilter('gbrp') + '[base];'))
       .toBe(true)
     expect(filter).toContain('[1:v]setpts=PTS-STARTPTS,')
     expect(filter).not.toContain('setpts=(PTS-STARTPTS)/')
     expect(filter).toContain("tmix=frames=2:weights='1 1',")
     expect(filter).toContain('tpad=stop_mode=add:stop_duration=2.000:color=black,')
-    expect(filter).toContain('trim=0:2.000,fps=60,scale=1440:2560:flags=lanczos,')
+    expect(filter).toContain('trim=0:2.000,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,scale=1440:2560:flags=lanczos,')
     expect(filter.endsWith('[base][fx]blend=all_mode=screen:all_opacity=0.90:shortest=1,format=yuv420p[v]')).toBe(true)
   })
 
@@ -158,7 +159,7 @@ describe('subtitleBurnFilter', () => {
   it('doubles the frame for libass and escapes both paths', () => {
     expect(subtitleBurnFilter('C:\\proj\\exports\\display.ass', 'C:\\Windows\\Fonts'))
       .toBe("scale=2880:5120:flags=lanczos,ass='C\\:/proj/exports/display.ass':fontsdir='C\\:/Windows/Fonts',"
-        + 'scale=1440:2560:flags=lanczos,fps=60,setpts=N/(60*TB)')
+        + 'scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)')
   })
 
   it('regularizes the frame rate after the burn, never before it', () => {

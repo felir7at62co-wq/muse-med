@@ -40,7 +40,7 @@ kind: "package-reference"
 
 草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256。全部匹配的台词保留实测时间；锚点无效、重叠或超出镜头时失败，不改写时间后仍标为已对齐。草稿字幕导入同样保留起止时间，拒绝没有逐句对齐时间的长句，详见[输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。显式离线识别需要另行准备依赖和模型。
 
-新草稿在正文最后一帧后保留两秒可编辑定格，并在右下角用独立文字轨全程显示纯白无描边“内容由AI生成”，覆盖正文和片尾。[草稿输入要求](skills/tweet-drama-draft-build/references/io-contract.md)说明已含片尾的输入如何使用 `timeline.body_end`，避免重复追加。已存在的草稿目录保持原样。
+草稿按项目明确的视觉类型交付：`animation_3d` 在正文结束，不添加水印或片尾轨；`photorealistic` 保留两秒可编辑定格，并在右下角用独立文字轨全程显示纯白无描边“内容由AI生成”。旧项目未注明类型时给出警告并保留后者行为，不去除源素材已有标记。[草稿输入要求](skills/tweet-drama-draft-build/references/io-contract.md)说明已含片尾的输入如何使用 `timeline.body_end`，避免重复追加。已存在的草稿目录保持原样。 Windows 解码器启动返回 WinError 2 或 5 且没有 filename 时，在原错误说明后追加选中的可执行文件路径。
 
 [声线参考技能](skills/tweet-drama-voice-continuity/SKILL.md) 让同角色不同服装版本复用认可的声音样本。没有样本时，从该角色首次生成的视频中提取已试听、清晰的单说话人区间；默认 2 秒，参考上限 15 秒。脚本保留源文件，拒绝已有输出，报告实测时长与哈希；确认说话人需要实际听音，Agent 不能检查音频时由用户确认。上传和绑定保留原分镜 ID。音频参考用于引导生成，不能保证 SD 各次输出的音色完全一致。
 

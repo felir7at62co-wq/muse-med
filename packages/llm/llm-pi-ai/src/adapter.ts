@@ -63,6 +63,7 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
+import { completeCompletionsResponse } from './completions-response.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -418,7 +419,7 @@ export class PiAiAdapter extends LlmAdapter {
     const captureResponse: typeof globalThis.fetch = async (input, init) => {
       const response = await globalThis.fetch(input, init)
       responseFacts = providerResponseFacts(response)
-      return response
+      return model.api === 'openai-completions' ? completeCompletionsResponse(response) : response
     }
 
     const consumer = new AbortController()
