@@ -124,7 +124,7 @@ it('plans OCR to the real video EOF without changing container metadata or conta
   expect(raw.frames.map(frame => frame.requested_seconds)).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
   expect(raw.frames.every(frame => frame.timestamp_seconds < 4)).toBe(true)
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
-}, 30_000)
+})
 
 it('retains an internal decode failure as partial OCR coverage after selecting video EOF', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
