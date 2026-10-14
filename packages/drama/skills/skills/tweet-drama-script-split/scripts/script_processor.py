@@ -6,11 +6,16 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from docx import Document
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tweet-drama-core" / "scripts"))
+from episode_scope import is_episode_id, read_episode_manifest, resolve_episode_scope
 
 
 EPISODE_MANIFEST = "manifest.json"
@@ -376,26 +381,82 @@ class ScriptProcessor:
             errors=errors,
         )
 
-    def save(self, project_dir: str, analysis: ScriptAnalysis) -> SaveResult:
+    def save(
+        self,
+        project_dir: str,
+        analysis: ScriptAnalysis,
+        *,
+        work_scope: Optional[Mapping[str, Any]] = None,
+        expected_episode_count: Optional[int] = None,
+    ) -> SaveResult:
+        """Save a split, preserving previously declared scope and whole-story count.
+
+        ``work_scope`` must be explicitly authorized, never inferred from input
+        files. Its episode IDs must exactly match the analyzed episodes. Scoped
+        saves preserve all other episode files and manifest rows. ``None`` keeps
+        an existing declaration; it never removes scope or count metadata.
+        """
         try:
             if analysis.errors:
                 raise ValueError("；".join(analysis.errors))
             numbers = [episode.number for episode in analysis.episodes]
+            if any(not is_episode_id(number) for number in numbers):
+                raise ValueError("分集包含无效或未规范化集号")
             if len(numbers) != len(set(numbers)):
                 raise ValueError("存在重复集号，不能保存")
             if not analysis.episodes:
                 raise ValueError("没有可保存的分集")
-            for episode in analysis.episodes:
-                episode.cleaned_content = episode.cleaned_content.strip()
-                if not episode.cleaned_content:
-                    raise ValueError(f"第{episode.number}集正文为空")
-                episode.refresh_hash()
-
             episodes_dir = os.path.join(project_dir, "episodes")
+            manifest_path = os.path.join(episodes_dir, EPISODE_MANIFEST)
+            previous: Dict[str, Any] = {}
+            if os.path.exists(manifest_path):
+                previous = read_episode_manifest(Path(manifest_path))
+                _validate_manifest(previous)
+
+            declared_count = (
+                expected_episode_count if expected_episode_count is not None
+                else previous.get("expected_episode_count")
+            )
+            scope = work_scope if work_scope is not None else previous.get("work_scope")
+            cleaned = {episode.number: episode.cleaned_content.strip() for episode in analysis.episodes}
+            for number, content in cleaned.items():
+                if not content:
+                    raise ValueError(f"第{number}集正文为空")
+
+            source_mtime = os.path.getmtime(analysis.source_path) if os.path.exists(analysis.source_path) else 0
+            manifest = {
+                **previous,
+                "version": 1,
+                "source_path": analysis.source_path,
+                "source_mtime": source_mtime,
+                "filter_options": analysis.filter_options,
+                "episodes": {
+                    **(previous.get("episodes", {}) if scope is not None else {}),
+                    **{
+                        episode.number: {
+                            "sha256": content_sha256(cleaned[episode.number]),
+                            "char_count": len(cleaned[episode.number]),
+                        }
+                        for episode in analysis.episodes
+                    },
+                },
+            }
+            if scope is not None:
+                if not isinstance(scope, Mapping):
+                    raise ValueError("work_scope 必须是仅含 episode_ids 的对象")
+                manifest["work_scope"] = dict(scope)
+            if declared_count is not None:
+                manifest["expected_episode_count"] = declared_count
+            scoped_ids = _validate_manifest(manifest)
+            if scope is not None and set(numbers) != set(scoped_ids):
+                raise ValueError("分析分集必须与 work_scope.episode_ids 完全一致")
+
             os.makedirs(episodes_dir, exist_ok=True)
             staged: Dict[str, str] = {}
             try:
                 for episode in analysis.episodes:
+                    episode.cleaned_content = cleaned[episode.number]
+                    episode.refresh_hash()
                     with tempfile.NamedTemporaryFile(
                         "w", encoding="utf-8", delete=False, dir=episodes_dir, suffix=".tmp"
                     ) as handle:
@@ -403,9 +464,10 @@ class ScriptProcessor:
                         staged[episode.number] = handle.name
 
                 desired = {f"{number}.txt" for number in numbers}
-                for filename in os.listdir(episodes_dir):
-                    if filename.endswith(".txt") and filename not in desired:
-                        os.remove(os.path.join(episodes_dir, filename))
+                if scope is None:
+                    for filename in os.listdir(episodes_dir):
+                        if filename.endswith(".txt") and filename not in desired:
+                            os.remove(os.path.join(episodes_dir, filename))
                 for number, temp_path in staged.items():
                     os.replace(temp_path, os.path.join(episodes_dir, f"{number}.txt"))
                 staged.clear()
@@ -414,21 +476,6 @@ class ScriptProcessor:
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
 
-            source_mtime = os.path.getmtime(analysis.source_path) if os.path.exists(analysis.source_path) else 0
-            manifest = {
-                "version": 1,
-                "source_path": analysis.source_path,
-                "source_mtime": source_mtime,
-                "filter_options": analysis.filter_options,
-                "episodes": {
-                    episode.number: {
-                        "sha256": episode.content_hash,
-                        "char_count": len(episode.cleaned_content),
-                    }
-                    for episode in analysis.episodes
-                },
-            }
-            manifest_path = os.path.join(episodes_dir, EPISODE_MANIFEST)
             _write_json_atomic(manifest_path, manifest)
 
             return SaveResult(True, len(analysis.episodes), manifest_path)
@@ -463,6 +510,21 @@ class ScriptProcessor:
                 "char_count": len(episode.cleaned_content),
             })
         return {"success": True, "episode_count": len(results), "episodes": results}
+
+
+def _validate_manifest(manifest: Any) -> List[str]:
+    episode_ids = resolve_episode_scope(manifest)
+    for number, row in manifest["episodes"].items():
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None
+        ):
+            raise ValueError(f"EP{number}: 清单缺少有效原文 SHA")
+        if "char_count" in row and (type(row["char_count"]) is not int or row["char_count"] < 1):
+            raise ValueError(f"EP{number}: 清单 char_count 必须是正整数")
+
+    return episode_ids
 
 
 def _text_quality_warnings(content: str) -> List[str]:

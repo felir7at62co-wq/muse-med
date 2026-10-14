@@ -1510,7 +1510,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
   "properties": {
     "method": {
       "type": "string",
-      "description": "start=提取音轨并提交；status=按原收据查询、补传确认未受理的音轨并发布结果，补传可能计费。限流按 retry_after_seconds 等待后用原收据恢复；日额度、登录或任务冲突先处理，不直接重投。",
+      "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
       "enum": [
         "start",
         "status"
@@ -1538,7 +1538,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "purpose": {
       "type": "string",
-      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
       "enum": [
         "subtitles",
         "screenplay"

@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import { MuseAsrError, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
+import { MuseAsrError, parseMuseAsrMetadata, type MuseAsrMetadata, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 
 /** Host-only account service methods consumed by the model tool. */
 export interface AudioAccount {
@@ -31,12 +31,13 @@ export interface AudioMediaOperations {
 }
 
 /** Agent-visible receipt path and local output state. */
-export interface AudioRunResult {
+export interface AudioRunResult extends Omit<MuseAsrMetadata, 'error_code'> {
   readonly status: MuseAsrJob['status']
   readonly receipt: string
   readonly job_id: string
+  readonly diagnostic_job_id?: string
   readonly purpose?: MuseAsrPurpose
-  readonly error_code?: MuseAsrError['code']
+  readonly error_code?: MuseAsrError['code'] | NonNullable<MuseAsrMetadata['error_code']>
   readonly retry_after_seconds?: number
   readonly resume_status?: { readonly method: 'status'; readonly project: string; readonly receipt: string }
   readonly output_txt?: string
@@ -44,7 +45,7 @@ export interface AudioRunResult {
   readonly output_srt?: string
 }
 
-interface AudioPart {
+interface AudioPart extends MuseAsrMetadata {
   readonly id: string
   readonly mp3: string
   readonly sha256: string
@@ -54,7 +55,7 @@ interface AudioPart {
   readonly purpose?: MuseAsrPurpose
 }
 
-interface Receipt {
+interface Receipt extends MuseAsrMetadata {
   readonly id: string
   readonly source: string
   readonly sourceSha256?: string
@@ -148,6 +149,7 @@ async function readReceipt(file: string): Promise<Receipt> {
   if (row.parts !== undefined && (!Array.isArray(row.parts) || row.parts.length === 0 || row.parts.some((part: unknown) => {
     if (typeof part !== 'object' || part === null) return true
     const item = part as Record<string, unknown>
+    parseMuseAsrMetadata(item)
     return typeof item.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(item.id)
       || typeof item.mp3 !== 'string' || typeof item.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(item.sha256)
       || typeof item.offset !== 'number' || !Number.isFinite(item.offset) || item.offset < 0
@@ -158,7 +160,48 @@ async function readReceipt(file: string): Promise<Receipt> {
     ...(row.parts === undefined ? {} : { parts: row.parts as AudioPart[] }),
     accountUsername: row.accountUsername, stem: row.stem, version: row.version,
     language: row.language as 'zh' | 'auto', ...purposeField(row.purpose), sha256: row.sha256, mp3: row.mp3,
-    status: row.status as Receipt['status'] }
+    status: row.status as Receipt['status'], ...parseMuseAsrMetadata(row) }
+}
+
+function metadataFields(value: MuseAsrMetadata): MuseAsrMetadata {
+  return {
+    ...(value.service_version === undefined ? {} : { service_version: value.service_version }),
+    ...(value.queued === undefined ? {} : { queued: value.queued }),
+    ...(value.error_code === undefined ? {} : { error_code: value.error_code }),
+    ...(value.provider_diagnostic === undefined ? {} : { provider_diagnostic: value.provider_diagnostic }),
+    ...(value.recovery === undefined ? {} : { recovery: value.recovery }),
+  }
+}
+
+function updatedReceipt(receipt: Receipt, job: MuseAsrJob): Receipt {
+  const { queued: _queued, error_code: _error, provider_diagnostic: _diagnostic, recovery: _recovery, ...prior } = receipt
+  return { ...prior, status: job.status, ...metadataFields(job) }
+}
+
+function assertJobService(job: MuseAsrJob, previous: MuseAsrMetadata): void {
+  if (previous.service_version !== undefined && job.service_version !== undefined && previous.service_version !== job.service_version) {
+    throw new Error('Cloud transcription service does not match its receipt')
+  }
+}
+
+function canResumeUpload(job: MuseAsrJob): boolean {
+  return job.recovery === undefined ? job.error_code === undefined : job.recovery.next_action === 'resume_upload'
+}
+
+function combinedStatus(jobs: readonly MuseAsrJob[]): MuseAsrJob['status'] {
+  return jobs.some(job => ['uncertain', 'submitting'].includes(job.status)) ? 'uncertain'
+    : jobs.some(job => ['processing', 'preparing'].includes(job.status)) ? 'processing'
+      : jobs.some(job => job.status === 'failed') ? 'failed'
+        : jobs.every(job => job.status === 'silent') ? 'silent' : 'complete'
+}
+
+function combinedMetadata(jobs: readonly MuseAsrJob[]): MuseAsrMetadata & { diagnostic_job_id?: string } {
+  const inspect = jobs.filter(job => job.recovery?.next_action === 'inspect_receipt')
+  const pending = jobs.filter(job => ['uncertain', 'submitting', 'failed', 'processing', 'preparing'].includes(job.status))
+  return [...inspect, ...pending, ...jobs].slice(0, 1).reduce<MuseAsrMetadata & { diagnostic_job_id?: string }>((_prior, job) => {
+    const metadata = metadataFields(job)
+    return { ...metadata, ...(Object.keys(metadata).length === 0 ? {} : { diagnostic_job_id: job.id }) }
+  }, {})
 }
 
 function purposeField(purpose: MuseAsrPurpose | undefined): { purpose?: MuseAsrPurpose } {
@@ -174,15 +217,15 @@ function resolvePurpose(purpose: MuseAsrPurpose | undefined): MuseAsrPurpose {
 }
 
 function rejectedResult(project: string, file: string, receipt: Receipt, error: MuseAsrError): AudioRunResult {
-  const resumable = error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
+  const resumable = error.code === 'server_draining' || error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
     || error.code === 'provider_rate'
     || error.code === 'server-unavailable' || error.code === 'response-invalid'
   return {
     status: error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
       : receipt.status === 'prepared' ? 'preparing' : receipt.status,
-    receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), error_code: error.code,
+    receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), error_code: error.code,
     ...(error.retryAfterSeconds === undefined ? {} : { retry_after_seconds: error.retryAfterSeconds }),
-    ...(resumable ? { resume_status: { method: 'status', project, receipt: file } as const } : {}),
+    ...(resumable && receipt.recovery?.next_action !== 'inspect_receipt' ? { resume_status: { method: 'status', project, receipt: file } as const } : {}),
   }
 }
 
@@ -266,10 +309,11 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     const file = join(jobs, name)
     const prior = await readReceipt(file)
     signal?.throwIfAborted()
-    if (prior.source === source && !['complete', 'silent', 'failed'].includes(prior.status)) {
+    if (prior.source === source && (!['complete', 'silent', 'failed'].includes(prior.status)
+      || prior.recovery?.next_action === 'resume_upload')) {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
       if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file}`)
-      return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id, ...purposeField(prior.purpose) }
+      return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id, ...purposeField(prior.purpose), ...metadataFields(prior) }
     }
   }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
@@ -312,8 +356,9 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     signal?.throwIfAborted()
     if (job.id !== id) throw new Error('Cloud transcription returned a different task ID')
     assertJobPurpose(job, receipt.purpose)
-    await save(receiptPath, { ...receipt, status: job.status }, signal)
-    return { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose) }
+    assertJobService(job, receipt)
+    await save(receiptPath, updatedReceipt(receipt, job), signal)
+    return { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose), ...metadataFields(job) }
   } catch (error) {
     const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
@@ -365,7 +410,7 @@ async function finishReceipt(
   if (receipt.parts !== undefined) return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal)
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
-    && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
+    && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   let job: MuseAsrJob
   let submitted = false
   try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
@@ -373,6 +418,7 @@ async function finishReceipt(
     signal?.throwIfAborted()
     if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found'
       || !['prepared', 'uncertain'].includes(receipt.status)
+      || receipt.service_version !== undefined || receipt.recovery !== undefined
       || !(await stat(receipt.mp3).then(() => true, () => false))) throw error
     signal?.throwIfAborted()
     job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
@@ -381,7 +427,8 @@ async function finishReceipt(
   signal?.throwIfAborted()
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
   assertJobPurpose(job, receipt.purpose)
-  if (!submitted && ['preparing', 'failed'].includes(job.status)
+  assertJobService(job, receipt)
+  if (!submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status)
     && await stat(receipt.mp3).then(() => true, () => false)) {
     signal?.throwIfAborted()
     job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
@@ -389,18 +436,19 @@ async function finishReceipt(
   signal?.throwIfAborted()
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
   assertJobPurpose(job, receipt.purpose)
+  assertJobService(job, receipt)
   if (job.status === 'complete') {
     if (!job.segments?.length) throw new Error('Cloud transcription has no timed speech segments')
     await publish(project, receipt, job.segments, signal)
-    await save(receiptFile, { ...receipt, status: 'complete' }, signal)
+    await save(receiptFile, updatedReceipt(receipt, job), signal)
     signal?.throwIfAborted()
     await rm(receipt.mp3, { force: true })
-    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
+    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(job), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   }
-  await save(receiptFile, { ...receipt, status: job.status }, signal)
+  await save(receiptFile, updatedReceipt(receipt, job), signal)
   signal?.throwIfAborted()
-  if (job.status === 'silent' || job.status === 'failed' || job.retentionExpired) await rm(receipt.mp3, { force: true })
-  return { status: job.status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose) }
+  if (job.status === 'silent' || (job.status === 'failed' && !canResumeUpload(job)) || job.retentionExpired) await rm(receipt.mp3, { force: true })
+  return { status: job.status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(job) }
 }
 
 
@@ -410,6 +458,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
   const id = randomUUID(), jobs = join(project, 'transcript', 'jobs'), receiptFile = join(jobs, `${stem}-v${version}.json`)
   const parts: AudioPart[] = []
   const staged: string[] = []
+  const submittedJobs: MuseAsrJob[] = []
   let persisted = false
   try {
     for (let offset = 0; offset < duration; offset += chunkSeconds) {
@@ -426,19 +475,25 @@ async function startParts(project: string, source: string, sourceSha256: string,
       parts.push({ id: partId, mp3, sha256: await digest(mp3, signal), offset, duration: seconds, purpose })
     }
     if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
-    const receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
+    let receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
       mp3: join(jobs, `.${id}.wav`), sha256: sourceSha256, parts, status: 'prepared' }
     await writeFile(receiptFile, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     persisted = true
-    for (const part of parts) {
+    for (const [index, part] of parts.entries()) {
       signal?.throwIfAborted()
       const job = await account.submitAudio(part.mp3, part.id, part.sha256, language, part.purpose, signal)
       signal?.throwIfAborted()
       if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
       assertJobPurpose(job, part.purpose)
+      assertJobService(job, part)
+      submittedJobs.push(job)
+      parts[index] = { ...part, ...metadataFields(job) }
+      receipt = { ...receipt, parts: [...parts], status: job.status }
+      await save(receiptFile, receipt, signal)
     }
-    await save(receiptFile, { ...receipt, status: 'processing' }, signal)
-    return { status: 'processing', receipt: receiptFile, job_id: id, purpose }
+    const status = combinedStatus(submittedJobs)
+    await save(receiptFile, { ...receipt, status, ...metadataFields(combinedMetadata(submittedJobs)) }, signal)
+    return { status, receipt: receiptFile, job_id: id, purpose, ...combinedMetadata(submittedJobs) }
   } catch (error) {
     signal?.throwIfAborted()
     if (persisted && error instanceof MuseAsrError) return rejectedResult(project, receiptFile, await readReceipt(receiptFile), error)
@@ -454,7 +509,7 @@ async function finishParts(
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
     && await stat(target.txt).then(() => true, () => false) && await stat(target.srt).then(() => true, () => false)) {
-    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), output_txt: target.txt, output_json: target.json, output_srt: target.srt }
+    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, output_srt: target.srt }
   }
   let offset = 0
   const ids = new Set<string>()
@@ -469,7 +524,7 @@ async function finishParts(
     try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
     catch (error) {
       signal?.throwIfAborted()
-      if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired) throw error
+      if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
       job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
       submitted = true
@@ -477,19 +532,18 @@ async function finishParts(
     signal?.throwIfAborted()
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
     assertJobPurpose(job, part.purpose)
-    if (!submitted && job.status === 'preparing' && !part.retentionExpired) {
+    assertJobService(job, part)
+    if (!submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status) && !part.retentionExpired) {
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
       job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
     }
     signal?.throwIfAborted()
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
     assertJobPurpose(job, part.purpose)
+    assertJobService(job, part)
     results.push({ job, part })
   }
-  const unresolved = results.some(({ job }) => ['uncertain', 'submitting'].includes(job.status))
-  const pending = results.some(({ job }) => ['processing', 'preparing'].includes(job.status))
-  const status = unresolved ? 'uncertain' : pending ? 'processing' : results.some(({ job }) => job.status === 'failed') ? 'failed'
-    : results.every(({ job }) => job.status === 'silent') ? 'silent' : 'complete'
+  const status = combinedStatus(results.map(({ job }) => job))
   if (status === 'complete') {
     const segments = results.flatMap(({ job, part }) => {
       return (job.segments ?? []).map((row) => {
@@ -503,11 +557,17 @@ async function finishParts(
     })
     await publish(project, receipt, segments, signal)
   }
-  const updatedParts = parts.map((part, index) => results[index]?.job.retentionExpired ? { ...part, retentionExpired: true } : part)
-  await save(receiptFile, { ...receipt, status, parts: updatedParts }, signal)
-  for (const part of updatedParts) {
+  const updatedParts = results.map(({ part, job }) => {
+    const { queued: _queued, error_code: _error, provider_diagnostic: _diagnostic, recovery: _recovery, ...prior } = part
+    return { ...prior, ...metadataFields(job), ...(job.retentionExpired ? { retentionExpired: true } : {}) }
+  })
+  await save(receiptFile, { ...receipt, status, parts: updatedParts,
+    ...metadataFields(combinedMetadata(results.map(({ job }) => job))) }, signal)
+  for (const { part, job } of results) {
     signal?.throwIfAborted()
-    if (part.retentionExpired || ['complete', 'silent', 'failed'].includes(status)) await rm(part.mp3, { force: true })
+    if (part.retentionExpired || job.retentionExpired || (['complete', 'silent', 'failed'].includes(status)
+      && (job.status !== 'failed' || !canResumeUpload(job)))) await rm(part.mp3, { force: true })
   }
-  return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
+  return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose),
+    ...combinedMetadata(results.map(({ job }) => job)), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
 }

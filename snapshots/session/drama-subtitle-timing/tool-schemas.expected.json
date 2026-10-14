@@ -74,7 +74,7 @@
           },
           "bgm_plan": {
             "type": "string",
-            "description": "render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。"
+            "description": "render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。"
           },
           "ending_audio": {
             "type": "string",

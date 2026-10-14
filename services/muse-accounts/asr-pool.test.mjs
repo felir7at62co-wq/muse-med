@@ -83,7 +83,7 @@ test('restart rejects a missing application or changed application behind a dura
 test('legacy receipts without a resource binding use only the explicit default application',async t=>{
  const calls=[];const env=await fixture(t,async(poolId)=>{calls.push(poolId);return {status:'silent'};});
  await env.submit();await env.service.idle();const [saved]=await receipts(env.root);
- delete saved.job.poolId;delete saved.job.appId;delete saved.job.quotaGroup;saved.job.status='queued';
+ delete saved.job.poolId;delete saved.job.appId;delete saved.job.quotaGroup;saved.job.status='queued';delete saved.job.submittedAtMs;
  await writeFile(join(env.root,'jobs',saved.name),JSON.stringify(saved.job));
  await writeFile(join(env.root,'audio',createHash('sha256').update('alice\0'+saved.job.id).digest('hex')+'.mp3'),bytes);
  const restarted=createAsrService(env.settings);await restarted.ready();await restarted.idle();assert.equal(calls.at(-1),'old');
@@ -154,7 +154,7 @@ test('supplier refusal remains uncertain and writes only approved diagnostic fie
  const env=await fixture(t,async()=>{throw new AsrProviderError('flash','http',new Response('synthetic-secret-body',{status:429,headers:{'X-Api-Status-Code':'45000081'}}));});
  const job=await env.submit();await env.service.idle();const result=await env.service.get('alice',job.id),saved=(await receipts(env.root))[0].job;
  assert.equal(result.status,'uncertain');assert.equal(result.error_code,'provider_rejected');
- assert.deepEqual(saved.providerFailure,{code:'provider_rejected',operation:'flash',httpStatus:429,providerCode:'45000081'});
+ assert.deepEqual(saved.providerFailure,{code:'provider_rejected',operation:'flash',reason:'http',httpStatus:429,providerCode:'45000081'});
  assert.doesNotMatch(JSON.stringify({result,saved}),/synthetic-secret-body|accessToken|apiKey|stack|cause/);
  assert.equal(result.poolId,undefined);assert.equal(result.appId,undefined);assert.equal(result.quotaGroup,undefined);
 });
