@@ -1,5 +1,5 @@
 /** Explicit medium selection, persisted snapshots, and legacy fallbacks. */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,6 +45,11 @@ describe('delivery metadata', () => {
     const timeline = appendClips([1_000_000])
     expect(parseTimelineDocument(JSON.parse(formatTimelineDocument(timeline)), 't.json')).toEqual({ ...timeline, declaredBodyEndSeconds: 1 })
   })
+  it('accepts a legacy timeline without declaring a body boundary', () => {
+    const timeline = parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }] }, 't.json')
+    expect(timeline).toEqual(appendClips([1_000_000]))
+    expect(timeline).not.toHaveProperty('declaredBodyEndSeconds')
+  })
   it.each([null, [], 'animation_3d', {}, { ...animation, visual_medium: null },
     { ...animation, visual_medium: '3D' }, { ...animation, width: 1919 },
     { ...animation, height: 0 }, { ...animation, fps: 0 }, { ...animation, fps: 241 },
@@ -71,6 +76,16 @@ describe('delivery metadata', () => {
   it('reports malformed project JSON instead of falling back', async () => {
     const path = await project()
     await writeFile(join(path, 'project_config.json'), 'broken')
+    await expect(readProjectDelivery(path)).rejects.toThrow()
+  })
+  it('preserves legacy geometry when an existing configuration has no project bible', async () => {
+    const path = await project()
+    await writeFile(join(path, 'project_config.json'), JSON.stringify({ project_name: 'Legacy project' }))
+    expect(await readProjectDelivery(path)).toEqual(DEFAULT_DELIVERY)
+  })
+  it('reports unreadable project configuration instead of treating it as missing', async () => {
+    const path = await project()
+    await mkdir(join(path, 'project_config.json'))
     await expect(readProjectDelivery(path)).rejects.toThrow()
   })
 })
