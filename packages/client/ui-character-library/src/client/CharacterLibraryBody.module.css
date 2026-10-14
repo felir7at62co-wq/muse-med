@@ -1,0 +1,234 @@
+.root {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  padding: 12px;
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.5;
+}
+
+.notices,
+.controls,
+.details,
+.detailImage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.notices {
+  align-items: flex-start;
+  flex: none;
+}
+
+.fixtureBanner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.filters,
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterOptionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.filterValue,
+.secondary,
+.count,
+.cardAppearance {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.count {
+  margin: 0;
+}
+
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding: 2px 4px 12px 2px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  align-content: start;
+  gap: 12px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.name,
+.detailName,
+.metadataTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.detailName {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.metadataTitle {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.details {
+  margin-top: 12px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(60px, auto) minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.facts dt {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.metadataEntry {
+  display: contents;
+}
+
+.imageFrame {
+  display: flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 140px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.imageStatus {
+  position: absolute;
+  padding: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.previewModal {
+  width: min(800px, 100%);
+  max-height: 100%;
+  overflow: auto;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  padding: 20px;
+  text-align: center;
+}
+
+.state p {
+  margin: 0;
+}
+
+.skeleton {
+  cursor: default;
+}
+
+.skeletonImage,
+.skeletonLine {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: var(--dsw-radius-sm);
+}
+
+.skeletonImage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+.skeletonLine {
+  width: 70%;
+  height: 20px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-character-library/README.md
+/:
+  en: 8666e569aa545712
+  zh: ea8bce925fb50128
+/deepseek-ai-dsh-client-ui-character-library:
+  en: 58e51ce3602442f7
+  zh: 3758989b3fbeaedb
+/deepseek-ai-dsh-client-ui-character-library/summary:
+  en: 971b873da9ba001f
+  zh: 24c18f9c9a4ac0b6
+/deepseek-ai-dsh-client-ui-character-library/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 49013dcaeeb768b0
+/deepseek-ai-dsh-client-ui-character-library/use-this-package:
+  en: b8887c83b799829e
+  zh: d9de7966b625980d
+/deepseek-ai-dsh-client-ui-character-library/understand-the-implementation:
+  en: cbfce6b3454a44a1
+  zh: 75c0b0d98783dcd2
+/deepseek-ai-dsh-client-ui-character-library/further-exploration:
+  en: 47050cb1faccddcf
+  zh: e71a9aa46e46d015
+/deepseek-ai-dsh-client-ui-character-library/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-character-library/model-experience/browser-only-character-references:
+  en: 2914a642995427e2
+  zh: 093be12231655c88
+/deepseek-ai-dsh-client-ui-character-library/model-experience/browser-only-character-references/what-the-model-sees:
+  en: 0d421d6cb277225c
+  zh: 1aa1580c428d2540
+/deepseek-ai-dsh-client-ui-character-library/model-experience/browser-only-character-references/token-effect:
+  en: 0ea02515937f4c62
+  zh: 4ea8cba982bd3391
+/deepseek-ai-dsh-client-ui-character-library/model-experience/browser-only-character-references/kv-cache-effect:
+  en: cddb8df9a6f308f9
+  zh: b24a368fe7c07152
+/deepseek-ai-dsh-client-ui-character-library/known-limitations-and-deferred-work:
+  en: c6c3dd8283786c24
+  zh: 6e1991b33d4f4bb8
+/deepseek-ai-dsh-client-ui-character-library/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3332c1b9c36e3241
