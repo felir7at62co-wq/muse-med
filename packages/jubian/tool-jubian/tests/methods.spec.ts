@@ -1551,6 +1551,19 @@ describe('jubian_media', () => {
 
 
 describe('image style at the billed request', () => {
+  it.each(['风格化动画', 'stylized animation', 'stylizedanimation', '3danime'])
+  ('rejects a later contradictory %s batch item before catalogue reads or billing', async (medium) => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
+      { idempotency_key: 'valid-anime', asset_name: 'valid', asset_type: 1,
+        prompt: '项目风格：3D动漫，PBR材质。', image_style: 'anime' },
+      { idempotency_key: 'contradictory-anime', asset_name: 'invalid', asset_type: 2,
+        prompt: `项目风格：${medium}，PBR材质。`, image_style: 'live_action' },
+    ] }, imageDeps())).rejects.toThrow('invalid image request')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('uses official project styles for single and mixed batch asset requests', async () => {
     const { client, calls } = imageProvider()
     expect(await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
@@ -1583,10 +1596,11 @@ describe('image style at the billed request', () => {
     expect(await ledger.records()).toEqual([])
   })
 
-  it.each(['accepted', 'unknown'] as const)
-  ('keeps a legacy style-zero %s record unchanged when the upgraded request resolves anime', async (outcome) => {
+  it.each((['accepted', 'unknown'] as const).flatMap(outcome =>
+    ['3D动漫', '风格化动画', 'stylized animation', '3danime'].map(medium => ({ outcome, medium }))))
+  ('keeps a legacy style-zero $outcome record unchanged for $medium', async ({ outcome, medium }) => {
     const args = { method: 'image_generate', script_id: 2708, idempotency_key: 'legacy-style-zero',
-      asset_name: '旧三维候选', asset_type: 1, prompt: '3D动漫，人物设定图。' } as const
+      asset_name: '旧三维候选', asset_type: 1, prompt: `${medium}，人物设定图。` } as const
     const body = buildImageRequest({ scriptId: args.script_id, assetName: args.asset_name,
       assetType: args.asset_type, prompt: args.prompt, references: [] }, IMAGE_CATALOGUE)
     body.modelConfig = JSON.stringify({ ...JSON.parse(String(body.modelConfig)), style: 0 })

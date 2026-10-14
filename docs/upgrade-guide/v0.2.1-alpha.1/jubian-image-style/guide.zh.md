@@ -9,7 +9,7 @@ description: 剧变资产生图保留声明的动漫媒介，并提供显式的�
 
 ## 变更
 
-`jubian_video image_generate` 与 `image_generate_batch.items` 的每项请求接受 `image_style: "anime" | "live_action"`；顶层批次 `image_style` 会被拒绝。构造器的 `ImageRequestInput.imageStyle` 提供相同选择。动漫请求使用提供方 `style: 1`，包括完整提示词描述的3D动漫；真人使用 `style: 0`。省略选择时识别开头的正向媒介声明，可带精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。显式选择与声明冲突，在计费前失败。回执回显解析的媒介，不证明视觉质量。
+`jubian_video image_generate` 与 `image_generate_batch.items` 的每项请求接受 `image_style: "anime" | "live_action"`；顶层批次 `image_style` 会被拒绝。构造器的 `ImageRequestInput.imageStyle` 提供相同选择。动漫请求使用提供方 `style: 1`，包括完整提示词描述的3D动漫；真人使用 `style: 0`。省略选择时识别开头的正向媒介声明，可带同一行精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。已发布的动画声明包括 `风格化动画`、`3D anime`／`3danime`、`stylized animation`／`stylizedanimation`。后续正文和负面排除不用于选择媒介。显式选择与声明冲突，在计费前失败。回执回显解析的媒介，不证明视觉质量。
 
 ## 迁移
 

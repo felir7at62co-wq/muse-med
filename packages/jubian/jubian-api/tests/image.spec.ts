@@ -234,6 +234,45 @@ describe('imageCandidates', () => {
 
 
 describe('image medium selection', () => {
+  it.each(['3D动漫', '3D国漫', '三维动漫', '3D动画', '三维动画', '风格化三维动画',
+    '风格化动画', '3D动漫／风格化三维动画', '3danime', 'stylizedanimation',
+    '3D anime', '3d Anime', '3D 动漫', 'stylized animation', 'Stylized   Animation'])
+  ('preserves each published anime medium and full custom prompt for %s', (medium) => {
+    for (const prefix of ['', '项目风格: ', '项目风格：']) {
+      const prompt = `${prefix}${medium}，物理可信 PBR 材质，织物纤维与发束分组建模。\n角色身份与妆造逐字保留。`
+      for (const imageStyle of [undefined, 'anime'] as const) {
+        const body = buildImageRequest({ scriptId: 4908, assetName: '动画媒介小样', assetType: 1,
+          prompt, references: [], ...(imageStyle === undefined ? {} : { imageStyle }) }, CATALOGUE)
+        expect(JSON.parse(String(body.modelConfig))).toMatchObject({ style: 1, prompt })
+      }
+      expect(() => resolveImageStyle(prompt, 'live_action')).toThrow('conflicts')
+    }
+  })
+
+  it.each(['风格化动画', 'stylized animation', 'stylizedanimation', '3danime'])
+  ('ignores non-leading, negative, or inexact project declarations of %s', (medium) => {
+    for (const prompt of [`不要${medium}，人物摄影。`, `说明：${medium}，人物。`,
+      `项目风格 ：${medium}，人物。`, `项目风格：\n${medium}，人物。`,
+      `项目风格：\r\n${medium}，人物。`, `项目风格：不要${medium}，人物摄影。`]) {
+      expect(resolveImageStyle(prompt)).toBe('live_action')
+    }
+  })
+
+  it.each(['风格化动画', 'stylized animation', 'stylizedanimation', '3danime'])
+  ('accepts an ended %s declaration without extending it to a different word', (medium) => {
+    expect(resolveImageStyle(medium)).toBe('anime')
+    expect(resolveImageStyle(`${medium}。细节描述。`)).toBe('anime')
+    expect(resolveImageStyle(`${medium}2，细节描述。`)).toBe('live_action')
+    expect(resolveImageStyle(`${medium}馆，细节描述。`)).toBe('live_action')
+  })
+
+  it.each(['风格化动画', 'stylized animation'])
+  ('does not join a lone carriage return to a project declaration of %s', (medium) => {
+    for (const prefix of ['项目风格:', '项目风格：']) {
+      expect(resolveImageStyle(`${prefix}\r${medium}，PBR材质。`)).toBe('live_action')
+    }
+  })
+
   it.each([
     ['项目风格：3D动漫／风格化三维动画，PBR材质。角色身份：女主。', 1],
     ['项目风格: 动漫，水墨线条与二维平涂。角色身份：男主。', 1],

@@ -81,7 +81,7 @@ export type ImageStyle = 'live_action' | 'anime'
 /**
  * Resolve the image medium without rewriting the prompt.
  * @param prompt - Complete prompt; a leading positive medium declaration supplies an omitted choice.
- *   The declaration may follow the exact `项目风格:` or `项目风格：` prefix.
+ *   The declaration may follow the exact `项目风格:` or `项目风格：` prefix on the same first line.
  * @param requested - Explicit image medium; must agree with a leading medium declaration.
  * @returns The explicit or declared medium; unmarked legacy requests retain live action.
  * @throws {JubianError} INVALID_ARGUMENT for an unsupported choice or contradictory declarations.
@@ -90,11 +90,13 @@ export function resolveImageStyle(prompt: string, requested?: unknown): ImageSty
   if (requested !== undefined && requested !== 'live_action' && requested !== 'anime') {
     throw new JubianError('INVALID_ARGUMENT', 'image_style must be live_action or anime')
   }
-  const firstLine = prompt.trimStart().replace(/\r?\n[\s\S]*$/u, '')
+  const firstLine = prompt.trimStart().replace(/[\r\n][\s\S]*$/u, '')
   const declaration = firstLine.replace(/^项目风格[:：]\s*/u, '')
   const anime = new RegExp([
     String.raw`^(?:【(?:动漫|动画|3D动漫|3D动画)】|(?:3d|三维|风格化三维)\s*(?:动漫|动画|国漫)|`,
-    String.raw`(?:stylized\s+)?3d\s+(?:anime|animation)\b|(?:动漫|动画)(?:[／/，,:：\s]|$))`,
+    String.raw`(?:stylized\s+)?3d\s+(?:anime|animation)\b|`,
+    String.raw`(?:3danime|stylized\s*animation)(?:[／/，,:：。.!?！？\s]|$)|`,
+    String.raw`(?:动漫|动画)(?:[／/，,:：\s]|$)|风格化动画(?:[／/，,:：。.!?！？\s]|$))`,
   ].join(''), 'iu').test(declaration)
   const liveAction = new RegExp([
     String.raw`^(?:【(?:真人|真人写实|写实真人)】|真人(?:写实)?(?:摄影|实拍)?(?:[／/，,:：\s]|$)|`,

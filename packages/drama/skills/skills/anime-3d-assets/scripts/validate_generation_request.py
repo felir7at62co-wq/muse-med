@@ -51,7 +51,7 @@ def https_url(value):
 
 
 def validate_generation_request(record, request):
-    """Check a single request against the saved prompt and complete reference plan."""
+    """Check one animation choice, saved prompt and complete reference plan without rewriting them."""
     errors = []
     if not isinstance(record, dict) or not isinstance(request, dict):
         return ["record and request must be objects"]
@@ -64,13 +64,17 @@ def validate_generation_request(record, request):
         prompt = ""
     if generation.get("final_prompt") != prompt:
         errors.append("request.prompt differs from generation.final_prompt; recheck the actual request")
+    if "image_style" in request and request["image_style"] != "anime":
+        errors.append("request.image_style must be anime for the declared animation medium")
     prompt_parts = generation.get("prompt_parts")
     medium = prompt_parts.get("medium") if isinstance(prompt_parts, dict) else None
+    first_line = re.split(r"[\r\n]", prompt.lstrip(), maxsplit=1)[0]
+    declaration = re.sub(r"^项目风格[:：]\s*", "", first_line, count=1)
     if not isinstance(medium, str) or re.sub(r"\s+", "", medium).casefold() not in MEDIA:
         errors.append("prompt_parts.medium must name a positive 3D anime or stylized animation medium")
-    elif (not prompt.lstrip().casefold().startswith(medium.casefold())
-          or (len(prompt.lstrip()) > len(medium)
-              and prompt.lstrip()[len(medium)] not in " ，,／/。.!?！？\n")):
+    elif (not declaration.casefold().startswith(medium.casefold())
+          or (len(declaration) > len(medium)
+              and declaration[len(medium)] not in " ，,／/。.!?！？")):
         errors.append("request.prompt must open with the declared positive animation medium")
     opening = re.split(r"[。\n.!?！？]", prompt, maxsplit=1)[0]
     if not re.search(r"(?<![A-Za-z0-9_])PBR(?![A-Za-z0-9_])", opening, re.IGNORECASE):
