@@ -804,6 +804,21 @@ describe('native episode scope', () => {
 
 describe('keyed storyboard binding normalization', () => {
   it.each([
+    { modelConfig: MODEL_CONFIG, status: 'reconcile_conflict' },
+    { modelConfig: { ...MODEL_CONFIG, duration: 6 }, status: 'none' },
+    { modelConfig: { ...MODEL_CONFIG, prompt: 'Another known scene' }, status: 'none' },
+    { modelConfig: { ...MODEL_CONFIG, duration: 6, prompt: '' }, status: 'none' },
+    { modelConfig: { prompt: 'Another known scene' }, status: 'none' },
+    { modelConfig: { prompt: PROMPT }, status: 'reconcile_conflict' },
+    { modelConfig: { ...MODEL_CONFIG, prompt: '' }, status: 'reconcile_conflict' },
+    { modelConfig: null, status: 'reconcile_conflict' },
+  ])('compares known intent before treating reordered identities as unresolved: %j', ({ modelConfig, status }) => {
+    const candidate = { taskId: '335343', task: { scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, imageMaterials: [...MATERIALS].reverse(), modelConfig }] }
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe(status)
+  })
+
+  it.each([
     { imageMaterials: [...MATERIALS].reverse() },
     { imageMaterials: undefined, image_urls: [URL_GUEST, URL_LEAD] },
   ])('retains reconciliation for reordered existing identity evidence: %j', (overrides) => {

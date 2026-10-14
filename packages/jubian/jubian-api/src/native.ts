@@ -979,7 +979,12 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
       continue
     }
     if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
-      if (sameUnorderedValues(identity, expectation.expectedIdentity)) unsafe = true
+      if (sameUnorderedValues(identity, expectation.expectedIdentity)) {
+        const model = childModel(child), prompt = childPrompt(child)
+        if (model !== null && stableJson(model) !== stableJson(expectation.expectedModel)) continue
+        if (prompt !== null && prompt !== expectation.expectedPrompt) continue
+        unsafe = true
+      }
       continue
     }
     const model = childModel(child)
