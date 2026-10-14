@@ -122,6 +122,8 @@ kind: "package-reference"
 
 可选 BGM 计划形如 `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`。正文时长必须与当前时间线一致，段落时间必须有效、按起点排序且不越界。留白、重叠、单曲和重复主题仍是创作选择。复用提示只比较同一计划内按顺序解析的来源路径，不折叠大小写、不做音频指纹。音轨哈希把声明关联到本次渲染输入，但不证明音轨确实含这些曲目或适合场景。
 
+`bgm_plan` 还保留每集可选的 `intended_use`、每段的 `track_id` 与 `license_info`，并返回规范化逐曲 `license_records`。[许可信息库](../bgm-license-info/README.zh.md)定义未知字段与用途风险提示。风险只作建议并进入渲染报告，不认证使用权或替代模型许可要求。计划中的 `source_sha256` 声明保留，但不逐曲重新计算哈希。不读取计划的方法（包括 `verify`）返回 unknown 用途和空许可记录，并在 `not_checked` 中列出 `bgm_license_info`。
+
 ### 固定交付样式
 
 | 元素 | 取值 |

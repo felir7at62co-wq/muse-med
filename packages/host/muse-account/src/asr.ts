@@ -6,13 +6,76 @@ import { readMuseSession } from './session.ts'
 export type MuseAsrPurpose = 'subtitles' | 'screenplay'
 
 /** Bounded status returned by the account gateway, with optional safe routing metadata. */
-export type MuseAsrJob = {
+export type MuseAsrJob = MuseAsrMetadata & {
   readonly id: string
   readonly status: 'preparing' | 'processing' | 'submitting' | 'uncertain' | 'complete' | 'silent' | 'failed'
   readonly purpose?: MuseAsrPurpose
-  readonly service_version?: 'flash' | 'standard-v1' | 'standard-v2'
   readonly retentionExpired?: boolean
   readonly segments?: readonly MuseAsrSegment[]
+}
+
+/** Safe gateway recovery instructions; no credential or provider response body is retained. */
+export interface MuseAsrMetadata {
+  readonly service_version?: 'flash' | 'standard-v1' | 'standard-v2'
+  readonly queued?: boolean
+  readonly error_code?: 'provider_rejected' | 'provider_unavailable' | 'storage_unavailable'
+  readonly provider_diagnostic?: {
+    readonly reason?: 'timeout' | 'transport' | 'http' | 'response' | 'json' | 'result' | 'audio'
+    readonly operation?: 'submit' | 'query' | 'flash'
+    readonly http_status?: number
+    readonly provider_code?: string
+  }
+  readonly recovery?: {
+    readonly capability: 'query_original_task' | 'no_query' | 'none'
+    readonly next_action: 'poll_original' | 'wait' | 'inspect_receipt' | 'use_result' | 'resume_upload'
+    readonly automatic_resubmit: false
+  }
+}
+
+/**
+ * Validate and retain only safe routing and recovery fields from a gateway response or receipt.
+ * @param row - Parsed JSON object with optional gateway metadata.
+ * @returns Validated metadata; unknown response fields are omitted.
+ */
+export function parseMuseAsrMetadata(row: Record<string, unknown>): MuseAsrMetadata {
+  const { service_version, queued, error_code, provider_diagnostic, recovery } = row
+  if ((service_version !== undefined && (typeof service_version !== 'string' || !['flash', 'standard-v1', 'standard-v2'].includes(service_version)))
+    || (queued !== undefined && typeof queued !== 'boolean')
+    || (error_code !== undefined && (typeof error_code !== 'string' || !['provider_rejected', 'provider_unavailable', 'storage_unavailable'].includes(error_code)))) {
+    throw new MuseAsrError('response-invalid')
+  }
+  let diagnostic: MuseAsrMetadata['provider_diagnostic']
+  if (provider_diagnostic !== undefined) {
+    if (typeof provider_diagnostic !== 'object' || provider_diagnostic === null || Array.isArray(provider_diagnostic)) throw new MuseAsrError('response-invalid')
+    const { reason, operation, http_status, provider_code } = provider_diagnostic as Record<string, unknown>
+    if ((reason !== undefined && (typeof reason !== 'string' || !['timeout', 'transport', 'http', 'response', 'json', 'result', 'audio'].includes(reason)))
+      || (operation !== undefined && (typeof operation !== 'string' || !['submit', 'query', 'flash'].includes(operation)))
+      || (http_status !== undefined && (typeof http_status !== 'number' || !Number.isInteger(http_status) || http_status < 100 || http_status > 599))
+      || (provider_code !== undefined && (typeof provider_code !== 'string' || !/^\d{5,10}$/.test(provider_code)))) throw new MuseAsrError('response-invalid')
+    diagnostic = {
+      ...(reason === undefined ? {} : { reason: reason as NonNullable<NonNullable<MuseAsrMetadata['provider_diagnostic']>['reason']> }),
+      ...(operation === undefined ? {} : { operation: operation as NonNullable<NonNullable<MuseAsrMetadata['provider_diagnostic']>['operation']> }),
+      ...(http_status === undefined ? {} : { http_status }),
+      ...(provider_code === undefined ? {} : { provider_code }),
+    }
+  }
+  let instruction: MuseAsrMetadata['recovery']
+  if (recovery !== undefined) {
+    if (typeof recovery !== 'object' || recovery === null || Array.isArray(recovery)) throw new MuseAsrError('response-invalid')
+    const { capability, next_action, automatic_resubmit } = recovery as Record<string, unknown>
+    if (typeof capability !== 'string' || !['query_original_task', 'no_query', 'none'].includes(capability)
+      || typeof next_action !== 'string' || !['poll_original', 'wait', 'inspect_receipt', 'use_result', 'resume_upload'].includes(next_action)
+      || automatic_resubmit !== false) throw new MuseAsrError('response-invalid')
+    instruction = { capability: capability as NonNullable<MuseAsrMetadata['recovery']>['capability'],
+      next_action: next_action as NonNullable<MuseAsrMetadata['recovery']>['next_action'], automatic_resubmit }
+  }
+  return {
+    ...(service_version === undefined ? {} : { service_version: service_version as NonNullable<MuseAsrMetadata['service_version']> }),
+    ...(queued === undefined ? {} : { queued }),
+    ...(error_code === undefined ? {} : { error_code: error_code as NonNullable<MuseAsrMetadata['error_code']> }),
+    ...(diagnostic === undefined ? {} : { provider_diagnostic: diagnostic }),
+    ...(instruction === undefined ? {} : { recovery: instruction }),
+  }
 }
 
 /** A sentence with optional recognized words, timed in seconds from the submitted audio start. */
@@ -56,7 +119,7 @@ function validSegments(value: unknown): boolean {
 /** Fixed failure classes without upstream response bodies or signed object URLs. */
 export class MuseAsrError extends Error {
   constructor(readonly code: 'sign-in-required' | 'server-unavailable' | 'server-not-configured' | 'job-not-found' | 'request-rejected' | 'response-invalid'
-    | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict', readonly retryAfterSeconds?: number) {
+    | 'server_draining' | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict', readonly retryAfterSeconds?: number) {
     super(`MUSE cloud transcription: ${code}`)
   }
 }
@@ -74,6 +137,7 @@ async function rejection(response: Response): Promise<MuseAsrError> {
   if (response.status === 429 && (code === 'queue_full' || code === 'upload_busy' || code === 'request_rate' || code === 'provider_rate' || code === 'daily_quota')) {
     return new MuseAsrError(code, retryAfterSeconds(response))
   }
+  if (response.status === 503 && code === 'server_draining') return new MuseAsrError(code, retryAfterSeconds(response))
   if (response.status === 409 && code === 'idempotency_conflict') return new MuseAsrError(code)
   return new MuseAsrError('request-rejected')
 }
@@ -112,7 +176,10 @@ export class MuseAsrClient {
       signal?.throwIfAborted()
       if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
       if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
-      if (response.status === 503 && retryAfterSeconds(response) !== undefined) throw new MuseAsrError('server-unavailable', retryAfterSeconds(response))
+      if (response.status === 503 && retryAfterSeconds(response) !== undefined) {
+        const error = await rejection(response)
+        throw error.code === 'server_draining' ? error : new MuseAsrError('server-unavailable', retryAfterSeconds(response))
+      }
       if (response.status === 404 || response.status === 405 || response.status === 503) throw new MuseAsrError('server-not-configured')
       if (!response.ok) throw await rejection(response)
       let value: unknown
@@ -131,7 +198,7 @@ export class MuseAsrClient {
       return {
         id: job.id, status: job.status as MuseAsrJob['status'],
         ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
-        ...(job.service_version === undefined ? {} : { service_version: job.service_version }),
+        ...parseMuseAsrMetadata(job),
         ...(job.retentionExpired === undefined ? {} : { retentionExpired: job.retentionExpired }),
         ...(job.status === 'complete' ? { segments: job.segments as readonly MuseAsrSegment[] } : {}),
       }

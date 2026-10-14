@@ -128,3 +128,5 @@ python scripts/assemble_delivery.py `
 ## 本地技能来源
 
 维护来源为 `@deepseek-ai/dsh-drama-skills` 包内本技能目录，依赖同包相邻 `tweet-drama-core/scripts/video_bans.py`。已安装的个人技能副本不自动同步；接入方必须明确选用本包资源。
+
+交付集号保留完整原编号，范围为 1–9999，文件名至少两位（如 `14.mp4`、`140.mp4`、`1000.mp4`）；不得截成前两位或把范围外集号当成本次交付。

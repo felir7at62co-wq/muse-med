@@ -191,13 +191,20 @@ describe('registration', () => {
   it('maps a BGM plan through call resolution and returns only declared report fields', async () => {
     const prepared = await preparedProject()
     const plan = join(prepared.project, 'bgm-plan.json')
-    await writePlaceholder(plan, JSON.stringify({ episodes: [{ episode: '02', body_duration_seconds: 114.733332,
-      segments: [{ index: 1, track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'scene' }],
+    await writePlaceholder(plan, JSON.stringify({ episodes: [{ episode: '02', intended_use: 'commercial', body_duration_seconds: 114.733332,
+      segments: [{ index: 1, track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'scene',
+        track_id: 'catalog-song', license_info: { license: 'Non-commercial grant', commercial_use: false,
+          source: 'https://music.example/license', attribution: 'Music provider', scope: 'Non-commercial distribution' } }],
     }] }))
     const report = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
       lastShot: 1, bgmPlan: plan }, settingsWith(callChannel(prepared.project).channel))
     expect(report.bgm_plan.path).toBe(plan)
     expect(report.bgm_plan.segments[0]).not.toHaveProperty('index')
+    expect(report.bgm_plan).toMatchObject({ intended_use: 'commercial',
+      license_records: [{ track_id: 'catalog-song', license_info: { status: 'declared', commercial_use: false },
+        warnings: ['曲目声明不允许商业使用，与本次商业用途不匹配。'] }] })
+    expect(report.warnings).toContain('BGM song：曲目声明不允许商业使用，与本次商业用途不匹配。')
+    expect(report.ok).toBe(true)
   })
 
   it('renders the canonical value as pretty JSON', () => {
@@ -548,6 +555,8 @@ describe('runDramaRender', () => {
       subtitleSrt: join(files.project, 'editing', '02.srt'),
     }, settingsWith(callChannel(files.project).channel))
     expect(report.method).toBe('verify')
+    expect(report.bgm_plan).toMatchObject({ intended_use: 'unknown', license_records: [], segments: [] })
+    expect(report.not_checked).toContain('bgm_license_info')
     expect(report.ok).toBe(true)
     expect(report.failures).toEqual([])
     expect(report.checks.map(check => check.id)).toEqual([

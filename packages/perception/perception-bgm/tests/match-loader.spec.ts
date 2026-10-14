@@ -16,12 +16,14 @@ import { EmotionWorker } from '../src/worker.ts'
 it.each([false, true])('matches without Python or weights and unloads (remote=%s)', async (remote) => {
   const root = await mkdtemp(join(import.meta.dirname, 'match-'))
   const ctx = new Context()
+  const licenseInfo = { status: 'declared', license: 'Fixture commercial licence', commercial_use: true,
+    source: 'https://rights.example/licence', attribution: 'Fixture composer', scope: 'Commercial short-drama release' }
   const start = vi.spyOn(EmotionWorker.prototype, 'start')
     .mockRejectedValue(new Error('match must never start Python'))
   try {
     const indexPath = join(root, 'index.json')
     await writeFile(indexPath, JSON.stringify([
-      { path: 'calm.mp3', valence: 3, arousal: 2, moods: ['calm'] },
+      { path: 'calm.mp3', valence: 3, arousal: 2, moods: ['calm'], license_info: licenseInfo },
       { path: 'bright.mp3', valence: 8, arousal: 7, moods: ['happy'] },
     ]))
     const audio = Buffer.from('loader fixture')
@@ -31,7 +33,7 @@ it.each([false, true])('matches without Python or weights and unloads (remote=%s
     if (remote) vi.stubGlobal('fetch', vi.fn(async (input: string) => input === catalogUrl
       ? new Response(JSON.stringify({ version: 1, tracks: [
         { id: `sha256:${hash}`, name: 'calm.mp3', sha256: `sha256:${hash}`, bytes: audio.length,
-          url, valence: 3, arousal: 2, moods: ['calm'] },
+          url, valence: 3, arousal: 2, moods: ['calm'], license_info: licenseInfo },
       ] })) : new Response(audio)))
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
@@ -63,26 +65,28 @@ it.each([false, true])('matches without Python or weights and unloads (remote=%s
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     const result = await ctx.tools.execute({ signal: new AbortController().signal,
       callId: ToolCallId('bgm-offline'), name: 'bgm_match',
-      arguments: { method: 'match', valence: 3, arousal: 2, limit: 1 } })
+      arguments: { method: 'match', valence: 3, arousal: 2, limit: 1, intended_use: 'commercial' } })
     expect(result.isError).toBe(false)
     const content = result.content[0]
     if (content?.type !== 'text') throw new Error('Expected match result')
     expect(JSON.parse(content.text)).toEqual({
       target: { valence: 3, arousal: 2 }, evaluated_tracks: remote ? 1 : 2,
       candidates: [{ ...(remote ? { track_id: `sha256:${hash}`, name: 'calm.mp3', url } : { path: 'calm.mp3' }),
-        valence: 3, arousal: 2, moods: ['calm'], distance: 0 }],
+        valence: 3, arousal: 2, moods: ['calm'], distance: 0,
+        license_info: licenseInfo, license_warnings: [] }],
       note: 'candidates are ranked by measured distance; choose one yourself.',
     })
     if (remote) {
       const download = await ctx.tools.execute({ signal: new AbortController().signal,
         callId: ToolCallId('bgm-download'), name: 'bgm_match',
-        arguments: { method: 'download', track_id: `sha256:${hash}` } })
+        arguments: { method: 'download', track_id: `sha256:${hash}`, intended_use: 'commercial' } })
       expect(download.isError).toBe(false)
       const text = download.content[0]
       if (text?.type !== 'text') throw new Error('Expected download result')
       const output = JSON.parse(text.text) as { path: string; sha256: string }
       expect(await readFile(output.path)).toEqual(audio)
       expect(output.sha256).toBe(`sha256:${hash}`)
+      expect(output).toMatchObject({ license_info: licenseInfo, license_warnings: [] })
     }
     expect(start).not.toHaveBeenCalled()
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-perception-bgm')

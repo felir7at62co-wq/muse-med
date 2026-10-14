@@ -18,7 +18,7 @@ it('discovers WeChat acquisition with project state and verified transcription h
     expect(input).toContain('SHORTDRAMA_WORK')
     expect(input).toContain('audio-transcribe')
     expect(input).toContain('video_ocr')
-    expect(input).toMatch(/视频转小说.*优先复用已有字幕\/转写.*OCR 不支持或不可用.*用户明确授权本素材、用途和扣费.*ASR 备用路径/su)
+    expect(input).toMatch(/视频转小说.*优先复用已有字幕\/转写.*已获授权.*ASR 原稿.*queue_full.*尚未受理.*实测效率.*video_ocr/su)
     expect(input).toMatch(/视频转剧本.*purpose=screenplay/su)
     expect(input).toContain('OCR 失败或部分覆盖不能静默回退')
     expect(input).toContain('不能说全集已完成')

@@ -24,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { BGM_LICENSE_RECORD_TOOL_SCHEMA, LICENSE_INFO_TOOL_SCHEMA } from '@deepseek-ai/dsh-bgm-license-info'
 import { createMediaToolkit } from './ffmpeg.ts'
 import { buildEpisodeCues } from './cues.ts'
 import type { BuiltCues } from './cues.ts'
@@ -532,16 +533,21 @@ const RESULT_SCHEMA = {
         },
       } },
     bgm_plan: { type: 'object', required: true, additionalProperties: false,
-      description: '声明的配乐段落和同序曲目复用提醒；不是试听结论。未提供计划时为空值。',
+      description: '声明的配乐段落、音频许可事实、用途风险和同序复用提醒；不是试听或版权核验结论。未读取计划时许可与用途为 unknown。',
       properties: {
         path: { type: 'string', required: true },
         bed_sha256: { type: 'string', required: true },
+        intended_use: { type: 'string', required: true, enum: ['commercial', 'non_commercial', 'unknown'] },
+        license_records: { type: 'array', required: true, items: BGM_LICENSE_RECORD_TOOL_SCHEMA },
         repeated_sequence_episodes: { type: 'array', required: true, items: { type: 'string' } },
         segments: { type: 'array', required: true, items: {
           type: 'object', additionalProperties: false, properties: {
             track: { type: 'string', required: true }, source: { type: 'string', required: true },
             start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
             reason: { type: 'string', required: true },
+            track_id: { type: 'string' },
+            source_sha256: { type: 'string', description: '计划声明的源曲摘要，渲染器未重新核验源曲。' },
+            license_info: { ...LICENSE_INFO_TOOL_SCHEMA, required: true },
           },
         } },
       } },
@@ -643,7 +649,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；'
         + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。' },
       bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
-        + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。' },
+        + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
+        + '校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。' },
       ending_audio: { type: 'string',
         description: '片尾音文件路径；render 必填，相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
