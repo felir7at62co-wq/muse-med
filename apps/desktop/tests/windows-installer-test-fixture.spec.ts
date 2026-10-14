@@ -109,11 +109,38 @@ it('owns a bounded credential-scrubbed observer and drains it before installer c
   expect(worker).toContain('[InstallerDiagnostics]::RegisterComCallbacksForObserver()')
   expect(worker.indexOf("$receipt.status = 'before-wct'")).toBeLessThan(worker.indexOf('[InstallerDiagnostics]::PopulateWaitChains'))
   expect(worker).toContain('[IO.FileMode]::CreateNew')
-  expect(worker).toContain('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, $null)')
+  expect(worker).toContain('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)')
   expect(worker).toContain('if ($null -ne $process) { $process.Dispose() }')
   expect(worker).not.toContain('$errorObject.Message')
   expect(smoke).toContain("$observerControl.receipt.status -ne 'complete'")
   expect(smoke).toContain('native-observer-exact-installer-and-quiescent-return')
+})
+
+function observerPublicationFailures(smoke: string, worker: string): string[] {
+  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Finish-Setup('))
+  const wrapperWrite = observer.indexOf("[IO.File]::WriteAllText($receiptPath + '.process.json'")
+  const requirements: Record<string, boolean> = {
+    nullableBackupName: worker.includes('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)'),
+    dispositionBeforeReturn: wrapperWrite > observer.indexOf('$quiescent = $true')
+      && wrapperWrite < observer.indexOf('return [ordered]@{'),
+    originalPositiveFailure: smoke.includes("$observerControl.receipt.status -ne 'complete'")
+      && smoke.includes("throw 'Native observer did not complete for its exact idle installer and window'"),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
+it('publishes observer updates with actual null backup semantics and saves worker disposition before the consuming failure', async () => {
+  const [smoke, worker] = await Promise.all([
+    readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8'),
+    readFile(new URL('./windows-installer-failure-observer.ps1', import.meta.url), 'utf8'),
+  ])
+  expect(observerPublicationFailures(smoke, worker)).toEqual([])
+  expect(observerPublicationFailures(smoke, worker.replace('[System.Management.Automation.Language.NullString]::Value', '$null')))
+    .toContain('nullableBackupName')
+  expect(observerPublicationFailures(smoke.replace("[IO.File]::WriteAllText($receiptPath + '.process.json'", '[IO.File]::ReadAllText($receiptPath'), worker))
+    .toContain('dispositionBeforeReturn')
+  expect(observerPublicationFailures(smoke.replace("throw 'Native observer did not complete for its exact idle installer and window'", 'return'), worker))
+    .toContain('originalPositiveFailure')
 })
 
 function reusableAssemblyFailures(smoke: string, helper: string, worker: string): string[] {

@@ -210,6 +210,15 @@ function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
             if (-not $observer.WaitForExit(10000)) { throw 'Native observer survived termination' }
         }
         $quiescent = $true
+        $disposition = [ordered]@{
+            processId = $Process.Id
+            observerProcessId = $observer.Id
+            timedOut = $timedOut
+            exitCode = $observer.ExitCode
+            quiescent = $true
+        } | ConvertTo-Json
+        [IO.File]::WriteAllText($receiptPath + '.process.json',
+            $disposition + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
         return [ordered]@{
             observerProcessId = $observer.Id
             timedOut = $timedOut
