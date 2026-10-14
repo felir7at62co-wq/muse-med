@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import {
+  licenseRiskWarnings, normalizeLicenseInfo, parseBgmUsage, type BgmUsage, type LicenseInfo,
+} from '@deepseek-ai/dsh-bgm-license-info'
 import { EmotionWorker } from './worker.ts'
 import { resolvePython, resolveWeights, defaultWeightsPath, defaultIndexPath, resolveCatalogConfig,
   type BgmConfig } from './config.ts'
@@ -41,6 +44,8 @@ interface TrackEmotion {
   valence: number
   arousal: number
   moods: string[]
+  license_info: LicenseInfo
+  license_warnings: string[]
 }
 
 interface RawAnalysis {
@@ -65,10 +70,13 @@ async function listAudio(directory: string, signal: AbortSignal): Promise<string
 }
 
 async function loadIndex(path: string, signal: AbortSignal): Promise<TrackEmotion[]> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(path, { encoding: 'utf8', signal }))
-    return Array.isArray(parsed) ? parsed as TrackEmotion[] : []
-  } catch { signal.throwIfAborted(); return [] }
+  let parsed: unknown
+  try { parsed = JSON.parse(await readFile(path, { encoding: 'utf8', signal })) }
+  catch { signal.throwIfAborted(); return [] }
+  return Array.isArray(parsed) ? parsed.map((track: TrackEmotion) => {
+    const licenseInfo = normalizeLicenseInfo(track.license_info)
+    return { ...track, license_info: licenseInfo, license_warnings: licenseRiskWarnings(licenseInfo, 'unknown') }
+  }) : []
 }
 
 async function saveIndex(path: string, tracks: TrackEmotion[], signal: AbortSignal): Promise<void> {
@@ -86,17 +94,20 @@ async function hashFile(path: string, signal: AbortSignal): Promise<string> {
 
 /** Rank by distance to a target point; the scale is the model's own 1–9. */
 function rank(tracks: (TrackEmotion | CatalogTrack)[], target: { valence: number; arousal: number },
-  limit: number): Record<string, JsonValue>[] {
+  limit: number, intendedUse: BgmUsage): Record<string, JsonValue>[] {
   return tracks
     .map(track => ({ track,
       distance: Math.abs(track.valence - target.valence) + Math.abs(track.arousal - target.arousal) }))
     .sort((left, right) => left.distance - right.distance)
     .slice(0, limit)
     .map(({ track, distance }) => ({
-      ...('id' in track ? { track_id: track.id, name: track.name, url: track.url } : { path: track.path }),
+      ...('id' in track ? { track_id: track.id, name: track.name, url: track.url }
+        : { path: track.path, ...(typeof track.sha256 === 'string' ? { source_sha256: track.sha256 } : {}) }),
       valence: Number(track.valence.toFixed(2)),
       arousal: Number(track.arousal.toFixed(2)),
       moods: [...track.moods],
+      license_info: { ...track.license_info },
+      license_warnings: licenseRiskWarnings(track.license_info, intendedUse),
       distance: Number(distance.toFixed(2)),
     }))
 }
@@ -162,12 +173,15 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
       + '返回最接近的候选及每首的实际测量值。'
       + 'index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。'
       + 'inspect：只分析一首并返回它的数值。'
-      + '公开库 match 仅返回 track_id/name/url 和测量值，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。'
+      + '公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。'
+      + 'match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。'
       + '**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。'
       + '**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**',
     parameters: {
       method: { type: 'string', required: true, enum: ['match', 'index', 'inspect', 'download'],
         description: 'match=按坐标排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。' },
+      intended_use: { type: 'string', enum: ['commercial', 'non_commercial', 'unknown'],
+        description: 'match/download 可选：本次用途，默认 unknown；只影响授权风险提示，不声明或授予版权。' },
       track_id: { type: 'string', description: 'download 必填：公开库 match 返回的 track_id；不接受任意 URL。' },
       directory: { type: 'string', description: 'index 必填：要扫描的音乐目录。' },
       audio_path: { type: 'string', description: 'inspect 必填：单个音频文件的路径。' },
@@ -189,13 +203,16 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
         ])
         switch (args.method) {
           case 'download': {
+            const intendedUse = parseBgmUsage(args.intended_use)
             if (!catalog) throw new Error('download requires a configured catalogUrl')
             if (typeof args.track_id !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(args.track_id)) {
               throw new Error('download requires a catalog track_id (sha256:64 lowercase hex)')
             }
-            return await downloadTrack(catalog, args.track_id, networkSignal(catalog.networkTimeoutMs))
+            const result = await downloadTrack(catalog, args.track_id, networkSignal(catalog.networkTimeoutMs), intendedUse)
+            return { ...result, license_info: { ...result.license_info } }
           }
           case 'match': {
+            const intendedUse = parseBgmUsage(args.intended_use)
             if (typeof args.valence !== 'number' || typeof args.arousal !== 'number'
               || !Number.isFinite(args.valence) || !Number.isFinite(args.arousal)
               || args.valence < 1 || args.valence > 9 || args.arousal < 1 || args.arousal > 9) {
@@ -212,7 +229,7 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
             return {
               target: { valence: args.valence, arousal: args.arousal },
               evaluated_tracks: tracks.length,
-              candidates: rank(tracks, { valence: args.valence, arousal: args.arousal }, limit),
+              candidates: rank(tracks, { valence: args.valence, arousal: args.arousal }, limit, intendedUse),
               note: 'candidates are ranked by measured distance; choose one yourself.',
             }
           }
@@ -234,13 +251,7 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
               const info = await stat(file)
               signal.throwIfAborted()
               const known = byPath.get(file)
-              // Cheap pre-filter first: identical size and mtime cannot hide new
-              // content in practice, and this keeps a re-index from reading 200 MB of
-              // audio only to compute hashes it already has.
-              if (known !== undefined && known.bytes === info.size && known.modified_ms === info.mtimeMs) {
-                unchanged += 1
-                continue
-              }
+              // Rights declarations stay bound to bytes even when size and modification time are unchanged.
               const sha256 = await hashFile(file, signal)
               signal.throwIfAborted()
               if (known !== undefined && known.sha256 === sha256) {
@@ -248,10 +259,15 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
                 unchanged += 1
                 continue
               }
+              const licenseInfo = normalizeLicenseInfo(undefined)
+              const licenseWarnings = licenseRiskWarnings(licenseInfo, 'unknown')
+              // A failed re-analysis must not retain the changed file's previous rights declaration.
+              if (known !== undefined) byPath.set(file, { ...known, license_info: licenseInfo, license_warnings: licenseWarnings })
               try {
                 const analysis = await analyseOne(file, signal)
                 byPath.set(file, { path: file, sha256, bytes: info.size, modified_ms: info.mtimeMs,
-                  valence: analysis.valence, arousal: analysis.arousal, moods: analysis.moods })
+                  valence: analysis.valence, arousal: analysis.arousal, moods: analysis.moods,
+                  license_info: licenseInfo, license_warnings: licenseWarnings })
                 analysed += 1
               } catch (error) {
                 signal.throwIfAborted()

@@ -179,7 +179,10 @@ describe('registration', () => {
       'method', 'output', 'project', 'shots', 'subtitle_srt', 'timeline',
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles'])
-    expect(parameters.properties.timeline?.description).toContain('相对路径以 project 为基准')
+    for (const field of ['shots', 'lines', 'alignment', 'timeline', 'subtitle_srt', 'bgm', 'bgm_plan',
+      'ending_audio', 'ending_effect', 'output']) {
+      expect(parameters.properties[field]?.description).toContain('相对路径以 project 为基准')
+    }
     expect(parameters.properties.bgm?.description).toContain('drama_bgm 返回的绝对 output')
     expect(parameters.properties.bgm_plan?.description).toContain('drama_bgm 返回的绝对 plan')
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'project'])
@@ -188,13 +191,20 @@ describe('registration', () => {
   it('maps a BGM plan through call resolution and returns only declared report fields', async () => {
     const prepared = await preparedProject()
     const plan = join(prepared.project, 'bgm-plan.json')
-    await writePlaceholder(plan, JSON.stringify({ episodes: [{ episode: '02', body_duration_seconds: 114.733332,
-      segments: [{ index: 1, track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'scene' }],
+    await writePlaceholder(plan, JSON.stringify({ episodes: [{ episode: '02', intended_use: 'commercial', body_duration_seconds: 114.733332,
+      segments: [{ index: 1, track: 'song', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332, reason: 'scene',
+        track_id: 'catalog-song', license_info: { license: 'Non-commercial grant', commercial_use: false,
+          source: 'https://music.example/license', attribution: 'Music provider', scope: 'Non-commercial distribution' } }],
     }] }))
     const report = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
       lastShot: 1, bgmPlan: plan }, settingsWith(callChannel(prepared.project).channel))
     expect(report.bgm_plan.path).toBe(plan)
     expect(report.bgm_plan.segments[0]).not.toHaveProperty('index')
+    expect(report.bgm_plan).toMatchObject({ intended_use: 'commercial',
+      license_records: [{ track_id: 'catalog-song', license_info: { status: 'declared', commercial_use: false },
+        warnings: ['曲目声明不允许商业使用，与本次商业用途不匹配。'] }] })
+    expect(report.warnings).toContain('BGM song：曲目声明不允许商业使用，与本次商业用途不匹配。')
+    expect(report.ok).toBe(true)
   })
 
   it('renders the canonical value as pretty JSON', () => {
@@ -308,8 +318,8 @@ describe('resolveCall', () => {
       method: 'prepare',
       project: resolve('C:/proj'),
       episode: '02',
-      shotsPath: resolve('shots.json'),
-      subtitleSrt: resolve('ep02.srt'),
+      shotsPath: join(resolve('C:/proj'), 'shots.json'),
+      subtitleSrt: join(resolve('C:/proj'), 'ep02.srt'),
     })
   })
 
@@ -324,12 +334,12 @@ describe('resolveCall', () => {
       project,
       episode: '02',
       timelinePath: join(project, 't.json'),
-      subtitleSrt: resolve('s.srt'),
+      subtitleSrt: join(project, 's.srt'),
       lastShot: 9,
       bgm: join(project, 'b.mp3'),
       bgmPlan: join(project, 'editing', 'bgm-plan.json'),
-      endingAudio: resolve('e.mp3'),
-      endingEffect: resolve('fx.mp4'),
+      endingAudio: join(project, 'e.mp3'),
+      endingEffect: join(project, 'fx.mp4'),
       output: join(project, 'exports', '02.mp4'),
       force: false,
     })
@@ -348,26 +358,74 @@ describe('resolveCall', () => {
   })
 
   it('keeps an explicit render output and force flag', () => {
+    const output = resolve('out', 'final.mp4')
     const call = resolveCall({
       method: 'render', project: 'C:/proj', episode: 2, timeline: 't.json', subtitleSrt: 's.srt',
       lastShot: 9, bgm: 'b.mp3', endingAudio: 'e.mp3', endingEffect: 'fx.mp4',
-      output: 'C:/out/final.mp4', force: true,
+      output, force: true,
     })
-    expect(call.method === 'render' ? call.output : '').toBe(resolve('C:/out/final.mp4'))
+    expect(call.method === 'render' ? call.output : '').toBe(output)
     expect(call.method === 'render' ? call.force : false).toBe(true)
   })
 
   it('resolves a verify call from the delivered file and its two inputs', () => {
     const project = resolve('C:/proj')
+    const output = resolve('out', 'final.mp4')
     const call = resolveCall({
-      method: 'verify', project: 'C:/proj', episode: 12, output: 'C:/out/final.mp4',
+      method: 'verify', project: 'C:/proj', episode: 12, output,
       timeline: 't.json', subtitleSrt: 's.srt',
     })
     expect(call.method).toBe('verify')
     expect(call.episode).toBe('12')
     expect(call.method === 'verify' ? call.timelinePath : '').toBe(join(project, 't.json'))
-    expect(call.method === 'verify' ? call.output : '').toBe(resolve('C:/out/final.mp4'))
+    expect(call.method === 'verify' ? call.subtitleSrt : '').toBe(join(project, 's.srt'))
+    expect(call.method === 'verify' ? call.output : '').toBe(output)
   })
+
+  it.each(['prepare', 'subtitles', 'render', 'verify'] as const)(
+    'resolves every %s path against a Chinese project outside the process cwd', (method) => {
+      const project = resolve('中文 项目')
+      expect(project).not.toBe(process.cwd())
+      const call = resolveCall({
+        method, project, episode: 2, shots: '输入 文件/镜头.json', lines: '输入 文件/台词.json',
+        alignment: '输入 文件/对齐.json', timeline: 'editing/时间线.json', subtitleSrt: 'editing/字幕.srt',
+        lastShot: 1, bgm: 'audio/配乐.wav', bgmPlan: 'editing/配乐计划.json',
+        endingAudio: '片尾 素材/音效.mp3', endingEffect: '片尾 素材/特效.mp4', output: 'exports/成片.mp4',
+      })
+      const expected = {
+        prepare: { shotsPath: join(project, '输入 文件', '镜头.json'), subtitleSrt: join(project, 'editing', '字幕.srt') },
+        subtitles: { shotsPath: join(project, '输入 文件', '镜头.json'), linesPath: join(project, '输入 文件', '台词.json'),
+          alignmentPath: join(project, '输入 文件', '对齐.json'), subtitleSrt: join(project, 'editing', '字幕.srt') },
+        render: { timelinePath: join(project, 'editing', '时间线.json'), subtitleSrt: join(project, 'editing', '字幕.srt'),
+          bgm: join(project, 'audio', '配乐.wav'), bgmPlan: join(project, 'editing', '配乐计划.json'),
+          endingAudio: join(project, '片尾 素材', '音效.mp3'), endingEffect: join(project, '片尾 素材', '特效.mp4'),
+          output: join(project, 'exports', '成片.mp4') },
+        verify: { timelinePath: join(project, 'editing', '时间线.json'), subtitleSrt: join(project, 'editing', '字幕.srt'),
+          output: join(project, 'exports', '成片.mp4') },
+      }
+      expect(call).toMatchObject({ method, project, episode: '02', ...expected[method] })
+    },
+  )
+
+  it.each(['prepare', 'subtitles', 'render', 'verify'] as const)(
+    'preserves absolute %s handoff paths outside the project', (method) => {
+      const project = resolve('中文 项目')
+      const absolute = resolve('共享 素材', '已确认 文件')
+      const call = resolveCall({
+        method, project, episode: 2, shots: absolute, lines: absolute, alignment: absolute,
+        timeline: absolute, subtitleSrt: absolute, lastShot: 1, bgm: absolute, bgmPlan: absolute,
+        endingAudio: absolute, endingEffect: absolute, output: absolute,
+      })
+      const expected = {
+        prepare: { shotsPath: absolute, subtitleSrt: absolute },
+        subtitles: { shotsPath: absolute, linesPath: absolute, alignmentPath: absolute, subtitleSrt: absolute },
+        render: { timelinePath: absolute, subtitleSrt: absolute, bgm: absolute, bgmPlan: absolute,
+          endingAudio: absolute, endingEffect: absolute, output: absolute },
+        verify: { timelinePath: absolute, subtitleSrt: absolute, output: absolute },
+      }
+      expect(call).toMatchObject({ method, project, ...expected[method] })
+    },
+  )
 
   it('rejects a non-positive episode number before opening any file', () => {
     expect(() => resolveCall({ method: 'prepare', project: 'C:/proj', episode: 0, shots: 'a', subtitleSrt: 'b' }))
@@ -516,6 +574,8 @@ describe('runDramaRender', () => {
       subtitleSrt: join(files.project, 'editing', '02.srt'),
     }, settingsWith(callChannel(files.project).channel))
     expect(report.method).toBe('verify')
+    expect(report.bgm_plan).toMatchObject({ intended_use: 'unknown', license_records: [], segments: [] })
+    expect(report.not_checked).toContain('bgm_license_info')
     expect(report.ok).toBe(true)
     expect(report.failures).toEqual([])
     expect(report.checks.map(check => check.id)).toEqual([

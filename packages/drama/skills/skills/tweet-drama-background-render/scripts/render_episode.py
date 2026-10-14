@@ -296,6 +296,12 @@ def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int
 
 def render(args: argparse.Namespace) -> dict:
     project = args.project.resolve()
+    args.project = project
+    for field in ('timeline', 'subtitle_srt', 'bgm', 'ending_audio', 'ending_effect',
+                  'output', 'freeze_image'):
+        path = getattr(args, field, None)
+        if path is not None:
+            setattr(args, field, (project / path).resolve())
     if not args.bgm.is_file():
         raise FileNotFoundError(args.bgm)
     timeline = json.loads(args.timeline.read_text(encoding="utf-8"))

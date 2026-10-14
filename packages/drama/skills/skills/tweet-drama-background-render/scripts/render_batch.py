@@ -38,7 +38,12 @@ def main() -> None:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     project = args.project.resolve()
-    script = Path(__file__).with_name("render_episode.py")
+    args.project = project
+    for field in ('bgm_dir', 'ending_audio', 'ending_effect'):
+        path = getattr(args, field, None)
+        if path is not None:
+            setattr(args, field, (project / path).resolve())
+    script = Path(__file__).resolve().with_name("render_episode.py")
     state_path = project / "exports" / "batch_render_tasks.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {"tasks": {}}

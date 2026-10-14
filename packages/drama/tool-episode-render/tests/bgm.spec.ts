@@ -33,3 +33,47 @@ it.each([
   await expect(readBgmPlan(plan, '01', 4, join(project, 'bed.mp3'), project)).rejects.toThrow(message)
   expect(await readFile(plan, 'utf8')).toBe(document)
 })
+
+const declaredLicense = { status: 'declared' as const, license: 'Project music grant', commercial_use: true,
+  source: 'https://music.example/license', attribution: 'Music provider', scope: 'Short-drama distribution' }
+
+it.each([
+  { label: 'declared commercial rights', license_info: declaredLicense, status: 'declared', warnings: [] },
+  { label: 'omitted rights', license_info: undefined, status: 'unknown',
+    warnings: ['音乐授权信息未知或不完整；不能据此认定已获使用授权。'] },
+  { label: 'commercial mismatch', license_info: { ...declaredLicense, commercial_use: false }, status: 'declared',
+    warnings: ['曲目声明不允许商业使用，与本次商业用途不匹配。'] },
+])('preserves $label as declared evidence without refusing the plan', async ({ license_info, status, warnings }) => {
+  const project = await tempProject()
+  roots.push(project)
+  const plan = join(project, 'bgm.json')
+  const bed = join(project, 'bed.mp3')
+  await writeFile(bed, 'mixed bed')
+  await writeFile(plan, JSON.stringify({ episodes: [{ ...episode, intended_use: 'commercial',
+    segments: [{ ...segment, track_id: 'catalog-song', source_sha256: 'declared-source-digest', license_info }],
+  }] }))
+  const report = await readBgmPlan(plan, '01', 4, bed, project)
+  expect(report.intended_use).toBe('commercial')
+  expect(report.segments[0]).toMatchObject({ track_id: 'catalog-song', license_info: { status } })
+  expect(report.license_records[0]).toMatchObject({ source: join(project, 'music.mp3'),
+    source_sha256: 'declared-source-digest', track_id: 'catalog-song', license_info: { status }, warnings })
+  expect(report.bed_sha256).toMatch(/^[a-f0-9]{64}$/)
+})
+
+it('reports unknown use and rights when no plan was read', async () => {
+  const report = await readBgmPlan(undefined, '01', 4, 'missing-bed', 'missing-project')
+  expect(report).toMatchObject({ intended_use: 'unknown', license_records: [], segments: [] })
+})
+
+it('keeps old plans usable while making omitted license facts explicit', async () => {
+  const project = await tempProject()
+  roots.push(project)
+  const plan = join(project, 'bgm.json')
+  const bed = join(project, 'bed.mp3')
+  await writeFile(bed, 'mixed bed')
+  await writeFile(plan, JSON.stringify({ episodes: [episode] }))
+  const report = await readBgmPlan(plan, '01', 4, bed, project)
+  expect(report.intended_use).toBe('unknown')
+  expect(report.segments[0]?.license_info).toEqual({ status: 'unknown', license: 'unknown',
+    commercial_use: 'unknown', source: 'unknown', attribution: 'unknown', scope: 'unknown' })
+})

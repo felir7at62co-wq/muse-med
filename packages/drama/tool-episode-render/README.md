@@ -87,7 +87,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
 | `force` | optional | `render` ignores its per-shot cache and re-encodes every clip |
 
-Relative `timeline`, `bgm`, and `bgm_plan` paths resolve from `project`, not the process working directory. Cross-tool calls should pass the absolute `output` and `plan` returned by `drama_bgm`; absolute paths remain unchanged.
+Every relative project input and output path resolves from `project`, including manifests, subtitle plans, alignment, subtitles, BGM, ending files, and explicit output. Absolute paths remain unchanged. Pass an absolute `project` across tools; a relative project root is resolved once from the process working directory. Ending assets outside the project use their installed absolute paths. Binary and font deployment configuration is unchanged.
 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
@@ -129,6 +129,8 @@ After successful preparation, `editing/<集>-sources.json` records `{shots:[{sho
 Per-shot encoding caches require a matching source-byte hash, executable and exact encoding arguments, including duration. Cache identities are published only after a successful nonempty encode; missing identities and changed sources/settings re-encode automatically. `force` still bypasses reuse.
 
 A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`. Duration must match the current body; segments must have valid, ordered, in-bounds times. Gaps, overlaps, one track and recurring motifs remain creative choices. Repeat advice compares resolved source paths in order within this plan, without case folding or audio fingerprinting. The reported bed hash binds the declaration to this render input; it does not establish that the bed contains those tracks or fits the scene.
+
+`bgm_plan` also preserves the episode's optional `intended_use`, segment `track_id`, and `license_info`, and returns normalized per-track `license_records`. The [license metadata library](../bgm-license-info/README.md) defines unknown facts and use-risk warnings. Warnings remain advisory and are included in the render report; declarations do not certify rights or replace model-license requirements. A declared `source_sha256` is retained without rehashing each source track. Methods that do not read a plan, including `verify`, return unknown intended use and empty license records, with `bgm_license_info` in `not_checked`.
 
 ### Delivery style
 
