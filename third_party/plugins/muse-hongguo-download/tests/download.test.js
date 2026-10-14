@@ -43,8 +43,11 @@ async function fixture(t, extra = {}) {
       return reply({ code: 0, data: { [id]: { video_data: { series_id: id, series_title: `标题${id}`, episode_cnt: extra.declaredCount ?? count,
         video_list: Array.from({ length: count }, (_, index) => ({ vid_index: String(index + 1), vid: `${id}v${index + 1}`, title: `集${index + 1}` })) } } } });
     }
-    const vids = body.mixed_video_id_map['1']; batches.push(vids);
-    return reply({ data: Object.fromEntries(vids.map(vid => [vid, { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) }])) });
+    assert.equal(url.pathname, '/novel/player/video_model/v1/');
+    assert.equal(typeof body.video_id, 'string');
+    assert.equal(Object.hasOwn(body, 'mixed_video_id_map'), false);
+    const vids = [body.video_id]; batches.push(vids);
+    return reply({ data: { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(body.video_id, batches.length) ?? `https://v1.qznovelvod.com/${body.video_id}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) } });
   };
   const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, ...extra.config };
   const sign = async (url, payload, token) => { signs.push({ url, payload, token }); return reply({ 'x-signed': 'SIGNED_PRIVATE' }); };
@@ -60,13 +63,13 @@ test('default original source fails explicitly without silently selecting previe
   assert.match(result.message, /config\.json/); await client.dispose();
 });
 
-test('source batches accumulate and deduplicate every requested video id', async t => {
+test('single-video requests accumulate and deduplicate every requested video id', async t => {
   const f = await fixture(t);
   const source = new SourceCatalog(f.client.config, { request: f.request, sign: f.sign });
   const vids = Array.from({ length: 12 }, (_, i) => `vid${i}`);
   const result = await source.videoUrls([...vids, ...vids.slice(0, 3)], emptySignal());
   assert.deepEqual([...result.keys()], vids);
-  assert.deepEqual(f.batches.map(batch => batch.length), [5, 5, 2]);
+  assert.deepEqual(f.batches, vids.map(vid => [vid]));
 });
 
 test('device requests remove case-insensitive session cookie and token headers before signing', async t => {
@@ -130,9 +133,7 @@ test('selected source quality retains private encryption data and ciphertext len
     ],
     plain: [{ main_url: 'https://v1.qznovelvod.com/plain', video_meta: { size: 300 }, encrypt_info: { encrypt: false, spade_a: 'UNUSED_PRIVATE' } }],
   };
-  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: Object.fromEntries(
-    Object.entries(tracks).map(([vid, video_list]) => [vid, { video_model: JSON.stringify({ video_list }) }]),
-  ) }) });
+  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: { video_model: JSON.stringify({ video_list: tracks[JSON.parse(options.body).video_id] }) } }) });
   const result = await source.videoUrls(['encrypted', 'plain'], emptySignal());
   assert.deepEqual(result.get('encrypted'), { url: 'https://v1.qznovelvod.com/encrypted-best', expectedBytes: 200, sha256: null, encryption: { spade: 'SPADE_PRIVATE' } });
   assert.deepEqual(result.get('plain'), { url: 'https://v1.qznovelvod.com/plain', expectedBytes: 300, sha256: null, encryption: null });
@@ -141,9 +142,9 @@ test('selected source quality retains private encryption data and ciphertext len
 test('encrypted tracks require bounded nonempty private decryption information', async t => {
   const f = await fixture(t);
   for (const spade_a of [undefined, null, 42, '', ' ', 'x'.repeat(16 * 1024 + 1), '界'.repeat(6000)]) {
-    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { vid: { video_model: JSON.stringify({
+    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { video_model: JSON.stringify({
       video_list: [{ main_url: 'https://v1.qznovelvod.com/video?token=URL_PRIVATE', video_meta: { size: 200 }, encrypt_info: { encrypt: true, spade_a } }],
-    }) } } }) });
+    }) } }) });
     await assert.rejects(source.videoUrls(['vid'], emptySignal()), error => error.code === 'encrypted_media'
       && error.message === '原源加密媒体缺少有效的本地解密信息');
   }
@@ -154,7 +155,8 @@ test('two series with seven episodes each publish all files with correct final p
   const result = await f.client.download({ seriesIds: ['101', '102'] });
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.complete, true);
   assert.deepEqual(result.items.map(item => item.downloadedEpisodeCount), [7, 7]);
-  assert.deepEqual(f.batches.map(batch => batch.length), [5, 2, 5, 2]);
+  assert.deepEqual(f.batches.flat(), ['101', '102'].flatMap(id => Array.from({ length: 7 }, (_, i) => `${id}v${i + 1}`)));
+  assert.equal(f.batches.every(batch => batch.length === 1), true);
   for (const item of result.items) {
     assert.deepEqual(item.episodes.map(episode => episode.index), [1, 2, 3, 4, 5, 6, 7]);
     for (const episode of item.episodes) { assert.equal(episode.sha256, sha256); assert.deepEqual(await readFile(episode.path), mp4); }
@@ -184,10 +186,10 @@ test('CDN legacy transient failures refresh only the failed video before publish
     const result = await f.client.download({ seriesIds: ['101'] });
     assert.equal(result.ok, true, `${failure}: ${JSON.stringify(result)}`);
     assert.equal(result.complete, true);
-    assert.deepEqual(f.batches, [['101v1', '101v2', '101v3'], ['101v2']]);
+    assert.deepEqual(f.batches, [['101v1'], ['101v2'], ['101v3'], ['101v2']]);
     assert.deepEqual([...attempts.values()], [1, 2, 1]);
     assert.deepEqual(f.urls.filter(item => item.kind === 'media' && new URL(item.value).pathname === '/101v2')
-      .map(item => new URL(item.value).searchParams.get('model_version')), ['1', '2']);
+      .map(item => new URL(item.value).searchParams.get('model_version')), ['2', '4']);
     for (const episode of result.items[0].episodes) {
       assert.equal(episode.sha256, sha256);
       assert.deepEqual(await readFile(episode.path), mp4);
@@ -213,7 +215,7 @@ test('CDN legacy refresh exhaustion respects the retry budget and removes earlie
     assert.equal(result.complete, false);
     assert.equal(result.code, failure === '403' ? 'http_error' : failure);
     assert.equal(attempts, 3);
-    assert.deepEqual(f.batches, [['101v1', '101v2'], ['101v2'], ['101v2']]);
+    assert.deepEqual(f.batches, [['101v1'], ['101v2'], ['101v2'], ['101v2']]);
     assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
   }
 });

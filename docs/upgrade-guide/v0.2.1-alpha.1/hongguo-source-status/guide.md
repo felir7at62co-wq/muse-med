@@ -11,6 +11,8 @@ English | [中文](guide.zh.md)
 
 Catalog inspection no longer declares a full series available without querying media. `hongguo_download_info` returns `fullSeriesAvailable: null` and `mediaUrlsVerified: false`; a public preview still returns `fullSeriesAvailable: false`. Non-public `accessibleEpisodeCount` is null rather than the unverified total. Source API failures retain safe numeric `upstreamCode`, `sourceStage` and `retryable: false`, including errors in uppercase `Code` and `BaseResp.StatusCode` envelopes. They are not reported as missing media addresses. Unknown business errors stop without retrying or rotating the device; explicit risk messages retain the bounded retry budget.
 
+The original media lookup uses the single-video `/novel/player/video_model/v1/` endpoint with `video_id`, matching Hongguo Downloader 1.0.0.73. Download grouping still retains every requested episode; the obsolete multi-video endpoint is not a fallback.
+
 ## Migration
 
 1. Update consumers of the [download plugin](../../../../third_party/plugins/muse-hongguo-download/README.md) to accept nullable availability and accessible counts. Use `completeCatalog` only for catalog completeness.
