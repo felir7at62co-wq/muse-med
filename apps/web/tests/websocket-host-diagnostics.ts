@@ -103,35 +103,37 @@ export function observeHostWebSockets(): WebSocketHostDiagnostics {
     socket.on('close', onClose)
     restoreSockets.push(() => { socket.off('close', onClose) })
 
-    const ping = socket.ping
+    const ping = socket.ping.bind(socket)
     const pingSpy = vi.spyOn(socket, 'ping').mockImplementation((data: unknown, mask, callback) => {
       state.pingQueued++
       state.lastPingQueuedAtMs = elapsed()
       const shorthand = typeof data === 'function'
       const supplied = shorthand ? data : callback
-      ping.call(socket, shorthand ? undefined : data, shorthand ? undefined : mask, (error) => {
+      ping(shorthand ? undefined : data, shorthand ? undefined : mask, (error) => {
         if (error == null) { state.pingWritten++; state.lastPingWrittenAtMs = elapsed() }
         else state.pingWriteErrors++
         supplied?.(error)
       })
     })
     restoreSockets.push(() => { pingSpy.mockRestore() })
-    const terminate = socket.terminate
+    const terminate = socket.terminate.bind(socket)
     const terminateSpy = vi.spyOn(socket, 'terminate').mockImplementation(() => {
       recordClose('terminate')
-      terminate.call(socket)
+      terminate()
     })
     restoreSockets.push(() => { terminateSpy.mockRestore() })
-    const close = socket.close
+    const close = socket.close.bind(socket)
     const closeSpy = vi.spyOn(socket, 'close').mockImplementation((code, reason) => {
       recordClose('close', code, reason)
-      close.call(socket, code, reason)
+      close(code, reason)
     })
     restoreSockets.push(() => { closeSpy.mockRestore() })
   }
 
-  const handleUpgrade = WebSocketServer.prototype.handleUpgrade
-  const upgradeSpy = vi.spyOn(WebSocketServer.prototype, 'handleUpgrade').mockImplementation(function (
+  const prototype: WebSocketServer = WebSocketServer.prototype
+  // oxlint-disable-next-line typescript/unbound-method -- Every upgrade uses the intercepted server's receiver.
+  const handleUpgrade = prototype.handleUpgrade
+  const upgradeSpy = vi.spyOn(prototype, 'handleUpgrade').mockImplementation(function (
     this: WebSocketServer, request, socket, head, callback,
   ) {
     handleUpgrade.call(this, request, socket, head, (accepted, admittedRequest) => {
