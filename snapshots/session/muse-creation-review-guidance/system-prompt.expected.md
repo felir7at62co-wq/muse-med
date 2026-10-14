@@ -2456,7 +2456,10 @@ interface ToolOutputMap {
   jubian_model: Record<string, JsonValue>;
   jubian_organize: Record<string, JsonValue>;
   jubian_snatch: Record<string, JsonValue>;
-  jubian_storyboard: Record<string, JsonValue>;
+  jubian_storyboard: {
+    /** 旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。 */
+    original_idempotency_key?: string;
+  } & Record<string, JsonValue>;
   jubian_video: {
     /** method=subtasks 的分页对象；子结果数组位于 subtasks.rows。 */
     subtasks?: {
