@@ -286,5 +286,8 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   await writeFile(paths.sources, `${JSON.stringify({ shots: selected }, null, 2)}\n`, 'utf8')
   written.push(paths.sources)
 
-  return { shots, timeline, cues, written, warnings: [...deliveryPolicyFor(delivery).warnings, ...cueOverrunWarnings(cues, timeline.bodyEndSeconds)] }
+  return {
+    shots, timeline, cues, written,
+    warnings: [...deliveryPolicyFor(delivery).warnings, ...cueOverrunWarnings(cues, timeline.bodyEndSeconds)],
+  }
 }

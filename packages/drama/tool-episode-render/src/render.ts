@@ -243,7 +243,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   consumedHashes.push(await fileSha256(subtitled))
   await assertVideoHashesAllowed(input.project, consumedHashes)
-  await assertVideosAllowed(input.project, [...selectedVideos, ...segments, subtitled, ...(endingAssets === undefined ? [] : [endingAssets.effect])])
+  await assertVideosAllowed(input.project, [
+    ...selectedVideos, ...segments, subtitled, ...(endingAssets === undefined ? [] : [endingAssets.effect]),
+  ])
   const staging = await mkdtemp(resolve(dirname(input.output), '.drama-render-'))
   const stagedOutput = resolve(staging, 'output.mp4')
   try {

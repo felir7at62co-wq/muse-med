@@ -3991,15 +3991,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:72`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
  * Plugin config. Every field is a deployment-varying choice: where the media
  * binaries are, the two audio gains the operator approved, whether the GPU
  * encoder is probed, and the font directory and families. The delivery
- * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
- * length — is not configurable.
+ * geometry and frame rate are captured from the project into the timeline;
+ * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
   /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */

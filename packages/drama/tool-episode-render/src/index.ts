@@ -318,7 +318,9 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
     episode: call.episode,
     timeline: prepared.timeline,
     sources,
-    expectedDurationSeconds: Number((prepared.timeline.bodyEndSeconds + deliveryPolicyFor(prepared.timeline.delivery).endingSeconds).toFixed(6)),
+    expectedDurationSeconds: Number(
+      (prepared.timeline.bodyEndSeconds + deliveryPolicyFor(prepared.timeline.delivery).endingSeconds).toFixed(6),
+    ),
     written: prepared.written,
     output: '',
     encoder: '',

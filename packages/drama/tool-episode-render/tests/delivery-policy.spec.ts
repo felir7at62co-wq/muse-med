@@ -35,8 +35,8 @@ describe('delivery metadata', () => {
   it('rejects an already included animation ending even with project-only medium', async () => {
     const timeline = parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 3_000_000 }], body_end: 1 }, 't.json')
     const policy = await resolveDeliveryPolicy(await project({ visual_medium: 'animation_3d' }), timeline.delivery)
-    expect(() => assertBodyOnlyAnimation(timeline, policy)).toThrow('仅保留正片镜头')
-    expect(() => assertBodyOnlyAnimation(timeline, deliveryPolicyFor())).not.toThrow()
+    expect(() => { assertBodyOnlyAnimation(timeline, policy) }).toThrow('仅保留正片镜头')
+    expect(() => { assertBodyOnlyAnimation(timeline, deliveryPolicyFor()) }).not.toThrow()
   })
   it('rejects malformed body_end before any media work', () => {
     expect(() => parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1 }], body_end: null }, 't.json')).toThrow('body_end')
