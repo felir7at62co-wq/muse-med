@@ -90,12 +90,17 @@ export function trustedSubjectId(value: unknown): string | number | null {
   return null
 }
 
-/** Read each prompt marker once while retaining the reserved audio display name. */
+/** Read each prompt key once with its first display name. */
 function promptMarkers(prompt: string): { name: string; key: string }[] {
   const seen = new Set<string>()
-  return [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
-    .map(match => ({ name: String(match[1]), key: String(match[2]) }))
-    .filter(marker => !seen.has(marker.key) && Boolean(seen.add(marker.key)))
+  const markers: { name: string; key: string }[] = []
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)) {
+    const key = String(match[2])
+    if (seen.has(key)) continue
+    seen.add(key)
+    markers.push({ name: String(match[1]), key })
+  }
+  return markers
 }
 
 /** Compare rows by their prompt keys, retaining every identity and group-order field. */
@@ -157,6 +162,7 @@ export interface SubjectSelectionInput {
  * @param input - Live storyboard, ordered selections, active subject rows and their parent assets.
  * @returns The before/after state and the exact `isGenerate=0` PUT body.
  * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or status rule fails.
+ * @throws {JubianError} `INVALID_ARGUMENT` when prompt keys disagree or an image selection uses an audio marker.
  */
 export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSelectionPlan {
   const storyboard = input.storyboard
@@ -192,9 +198,10 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const preservedKeys = preserved.map(material => String(material.materialKey))
   // Existing audio collisions retain the established provider-field diagnostic.
   if (preservedKeys.some(key => keys.includes(key))) invalid()
-  const namedAudio = markers.find(marker => keys.includes(marker.key)
-    && /^音频(?:[0-9]+)?(?:\s|[（(]|$)/u.test(marker.name.trim()))
-  if (namedAudio !== undefined) rejectAudioSelection(namedAudio.key)
+  const namedAudio = [...prompt.matchAll(/@\[([^\]]+)\]\(([^()\s]+)\)/g)]
+    .find(match => keys.includes(String(match[2]))
+      && /^音频(?:[0-9]+)?(?:\s|[（(]|$)/u.test(String(match[1]).trim()))
+  if (namedAudio !== undefined) rejectAudioSelection(String(namedAudio[2]))
   const promptKeys = markers.map(marker => marker.key).filter(key => !preservedKeys.includes(key))
   if (promptKeys.join('\u0000') !== keys.join('\u0000')) {
     throw new JubianError('INVALID_ARGUMENT', `PRE_PUT_MARKER_MISMATCH: prompt keys=${JSON.stringify(promptKeys)}, selection keys=${JSON.stringify(keys)}; no PUT sent`)

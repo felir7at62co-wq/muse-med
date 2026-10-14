@@ -26,7 +26,7 @@ import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
-  responseRecords, stableJson, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
+  responseRecords, stableJson, stableSha256, submissionSemantics, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
   referenceAudioUrls,
 } from '@deepseek-ai/dsh-jubian-api'
@@ -622,6 +622,22 @@ function estimatedVideoQuote(input: VideoEstimate): { amount: string; unit: stri
   return { amount: (amount / 100).toFixed(2), unit: 'CNY' }
 }
 
+/** A recorded images-then-audio serializer key prevents a normalized preview from charging again. */
+async function recordedGroupedKey(ledger: JubianLedger, preview: NativeVideoPreview):
+Promise<{ key: string; outcome: string } | null> {
+  const { materials } = storyboardMaterials(preview.payload)
+  const grouped = [...materials.filter(row => row.materialType === 'image'),
+    ...materials.filter(row => row.materialType === 'audio')]
+  if (stableJson(grouped) === stableJson(materials)) return null
+  const config = object(JSON.parse(String(preview.payload.modelConfig)))
+  const payload = { ...preview.payload, storyboardMaterialList: grouped,
+    modelConfig: JSON.stringify({ ...config, materialList: grouped }) }
+  const key = stableSha256(submissionSemantics(payload))
+  const record = await ledger.find(key)
+  if (record === undefined || record.method !== 'storyboard_native_submit' || record.script_id !== preview.scriptId) return null
+  return { key, outcome: record.outcome ?? 'unknown' }
+}
+
 /**
  * Reconcile a frozen native-video preview and submit at most one charged storyboard PUT for its key.
  * @param client - Authenticated transport for live reads and the optional submission.
@@ -687,6 +703,14 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
       preview_path: previewPath,
       next: '提交前对账发现这次提交在远端已经存在完全一致的任务：没有发送 PUT。'
         + '后续用 jubian_video subtasks 回读该任务即可。' }
+  }
+
+  const groupedRecord = await recordedGroupedKey(ledger, preview)
+  if (groupedRecord !== null) {
+    return { replayed: false, outcome: groupedRecord.outcome, status: 'reconcile_conflict', put_sent: false,
+      task_id: null, preview_path: previewPath, idempotency_key: key, original_idempotency_key: groupedRecord.key,
+      next: '相同提交的旧图片/音频分组 key 已有记录；本次未发送 PUT，也未新增预约。'
+        + '保留原 preview，并用 original_idempotency_key 只读对账；旧文件缺失或远端任务暂未出现不允许换新 key 再付费。' }
   }
 
   const beforeRecords = await listAllVideoTasks(client, preview.scriptId)
@@ -923,6 +947,9 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
     if (existing.status !== 'none') {
       throw new JubianError('CONTRACT_CHANGED', `Storyboard ${item.preview.storyboardId} has a prior or ambiguous task`)
     }
+    const groupedRecord = await recordedGroupedKey(ledger, item.preview)
+    if (groupedRecord !== null) throw new JubianError('CONTRACT_CHANGED',
+      `Storyboard ${item.preview.storyboardId} has recorded original key ${groupedRecord.key}; keep its original preview for read-only reconciliation; no new reservation or PUT sent`)
   })))
   const secondRecords = await listAllVideoTasks(client, first.preview.scriptId)
   const firstIds = firstRecords.map(taskIdOf).sort()

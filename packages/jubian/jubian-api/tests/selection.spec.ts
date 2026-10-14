@@ -283,6 +283,14 @@ describe('selection readback normalization', () => {
 })
 
 describe('keyed selection readback and audio protection', () => {
+  it.each([
+    '@[陆沉舟](lead) @[音频1](lead)',
+    '@[音频1](lead) @[陆沉舟](lead)',
+  ])('refuses mixed image/audio use of a repeated key in %s', (prompt) => {
+    expect(() => buildSubjectSelection({ ...oneSubject(),
+      storyboard: { ...STORYBOARD, modelConfig: { prompt } } })).toThrow('AUDIO_MARKER_NOT_ALLOWED')
+  })
+
   it('accepts physical readback reorder and avoids a second selection write', () => {
     const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })

@@ -825,6 +825,11 @@ function expectedAxis(expectation: NativeClaimExpectation, field: string): strin
   return expectation.expectedModel.find(([name]) => name === field)?.[1] ?? null
 }
 
+/** Compare JSON values independently of order while retaining duplicate counts. */
+function sameUnorderedValues(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return stableJson(left.map(stableJson).sort()) === stableJson(right.map(stableJson).sort())
+}
+
 /**
  * Whether a child's readable evidence disproves that it is the submission being checked.
  *
@@ -838,7 +843,7 @@ function expectedAxis(expectation: NativeClaimExpectation, field: string): strin
 function contradictsExpectation(child: Record<string, unknown>, expectation: NativeClaimExpectation): boolean {
   const evidence = childReadableEvidence(child)
   if (evidence.urls !== null
-    && stableJson(evidence.urls) !== stableJson(expectation.expectedIdentity.map(item => item.imageUrl))) return true
+    && !sameUnorderedValues(evidence.urls, expectation.expectedIdentity.map(item => item.imageUrl))) return true
   const axes: [string, string | null][] = [['modelId', evidence.modelId],
     ['standardId', evidence.standardId], ['resolution', evidence.resolution]]
   for (const [field, read] of axes) {
@@ -973,7 +978,10 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
       unsafe = true
       continue
     }
-    if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) continue
+    if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
+      if (sameUnorderedValues(identity, expectation.expectedIdentity)) unsafe = true
+      continue
+    }
     const model = childModel(child)
     const prompt = childPrompt(child)
     if (model === null || prompt === null) { unsafe = true; continue }

@@ -1689,6 +1689,36 @@ it.each([
 
 describe('keyed binding executor regressions', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
+  it.each([
+    { prompt: '@[陆沉舟](lead) @[音频1](lead) @[苏晚](guest)', preservedAudio: false },
+    { prompt: '@[音频1](lead) @[陆沉舟](lead) @[苏晚](guest)', preservedAudio: false },
+    { prompt: PROMPT, preservedAudio: true },
+  ])('refuses an image/audio key collision before a selection write: %j', async ({ prompt, preservedAudio }) => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }),
+        storyboardMaterialList: preservedAudio
+          ? [{ materialKey: 'lead', materialType: 'audio', materialUrl: 'https://media.example/lead.wav', sortOrder: 1 }]
+          : [] } }
+    await expect(selectAssetsMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, idempotency_key: 'mixed-key-selection', selections })).rejects.toThrow()
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('saves a repeated image reference as one bound asset for its key', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, storyboardMaterialList: [],
+        modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}；再次看向@[陆沉舟](lead)` }) } }
+    expect(await selectAssetsMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, idempotency_key: 'repeated-image-selection', selections }))
+      .toMatchObject({ status: 'applied', paid_requests: 0, verification: { matches: true } })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body!.isGenerate).toBe(0)
+    expect((putCalls(provider)[0]!.body!.storyboardMaterialList as Record<string, unknown>[])
+      .map(material => material.materialKey)).toEqual(['lead', 'guest'])
+  })
+
   it('accepts reordered selection readback and makes a repeated call without a second PUT', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
       storyboard: { ...STORYBOARD, storyboardMaterialList: [] } }
@@ -1727,4 +1757,88 @@ describe('keyed binding executor regressions', () => {
     expect(await ledger.records()).toEqual([])
     expect(putCalls(provider)).toEqual([])
   })
+})
+
+/** One current preview and the equivalent images-then-audio frozen request. */
+async function normalizedLegacyFixture() {
+  const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://media.example/lead.wav',
+    fileName: 'lead voice', sortOrder: 1, audioDuration: 2 }
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+    storyboard: { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, audio],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: '@[陆沉舟](lead) @[声线](voice-lead) @[苏晚](guest)' }) } }
+  const directory = await project()
+  const client = clientFor(provider)
+  const prepared = await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: directory })
+  const previewPath = String(prepared.preview_path)
+  const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+  const rows = preview.payload.storyboardMaterialList as Record<string, unknown>[]
+  const grouped = [...rows.filter(row => row.materialType === 'image'), ...rows.filter(row => row.materialType === 'audio')]
+  const oldPayload = { ...preview.payload, storyboardMaterialList: grouped,
+    modelConfig: JSON.stringify({ ...JSON.parse(String(preview.payload.modelConfig)), materialList: grouped }) }
+  const originalKey = stableSha256(submissionSemantics(oldPayload))
+  expect(originalKey).not.toBe(preview.idempotencyKey)
+  const originalPreviewPath = join(directory, 'video_tasks', `storyboard-916953-${originalKey.slice(0, 12)}.storyboard-native.prepared.json`)
+  await writeFile(originalPreviewPath, JSON.stringify({ ...preview, payload: oldPayload, idempotencyKey: originalKey }))
+  provider.onPut = (payload) => {
+    provider.tasks.push({ id: 335344, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' })
+    provider.subtasks['335344'] = [childOf(payload, { id: 972950, aigcVideoTaskId: 335344,
+      imageMaterials: (payload.storyboardMaterialList as Record<string, unknown>[]).filter(row => row.materialType === 'image'),
+      audioMaterials: [{ audioUrl: audio.materialUrl }] })]
+  }
+  provider.calls.length = 0
+  return { provider, client, directory, preview, previewPath, originalKey, originalPreviewPath, oldPayload, audio }
+}
+
+it.each([false, true])('retains old-key reconciliation when a normalized preview reads reordered child=%s', async (reordered) => {
+  const fixture = await normalizedLegacyFixture()
+  const { provider, client, preview, previewPath, originalKey, oldPayload, audio } = fixture
+  await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: bodyHash(oldPayload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  await ledger.settle(originalKey, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
+  provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
+  provider.subtasks['335343'] = [childOf(oldPayload, { imageMaterials: reordered ? [...MATERIALS].reverse() : MATERIALS,
+    audioMaterials: [{ audioUrl: audio.materialUrl }] })]
+  const result = await submitVideoMethod(client, ledger, { preview_path: previewPath, idempotency_key: preview.idempotencyKey })
+  expect(putCalls(provider)).toHaveLength(0)
+  expect(result.status).toBe(reordered ? 'reconcile_conflict' : 'already_submitted')
+  expect(await ledger.records()).toHaveLength(1)
+})
+
+it.each(['intent', 'unknown', 'accepted', 'missing-preview', 'changed-audit', 'unverified-body'] as const)
+('preserves a recorded grouped intent without a remote task: %s', async (kind) => {
+  const fixture = await normalizedLegacyFixture()
+  const { provider, client, preview, previewPath, originalKey, oldPayload, originalPreviewPath } = fixture
+  await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: kind === 'unverified-body' ? 'sha256:unverified' : bodyHash(oldPayload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  if (kind !== 'intent') await ledger.settle(originalKey, { httpStatus: null, applicationCode: null,
+    responseSha256: null, outcome: kind === 'accepted' ? 'accepted' : 'unknown' })
+  if (kind === 'missing-preview') await rm(originalPreviewPath)
+  if (kind === 'changed-audit') {
+    provider.storyboard.updateTime = '2026-10-14 23:00:00'
+    const updated = await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: fixture.directory })
+    expect(updated.idempotencyKey).toBe(preview.idempotencyKey)
+  }
+  const result = await submitVideoMethod(client, ledger, { preview_path: previewPath, idempotency_key: preview.idempotencyKey })
+  expect(result).toMatchObject({ status: 'reconcile_conflict', put_sent: false, original_idempotency_key: originalKey })
+  expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(putCalls(provider)).toHaveLength(0)
+  expect(await ledger.records()).toHaveLength(1)
+  await expect(submitVideoBatchMethod(client, ledger, { items: [{ preview_path: previewPath,
+    idempotency_key: preview.idempotencyKey }] })).rejects.toThrow(originalKey)
+  expect(putCalls(provider)).toHaveLength(0)
+  expect(await ledger.records()).toHaveLength(1)
+})
+
+it.each(['project', 'method', 'key', 'body'] as const)
+('does not associate an unrelated grouped ledger record: %s', async (kind) => {
+  const fixture = await normalizedLegacyFixture()
+  const payload = kind === 'body' ? { ...fixture.oldPayload, storyboardName: 'Different intent' } : fixture.oldPayload
+  const key = kind === 'key' ? 'unrelated-key' : stableSha256(submissionSemantics(payload))
+  await ledger.begin({ idempotencyKey: key, method: kind === 'method' ? 'storyboard_select_assets' : 'storyboard_native_submit',
+    scriptId: kind === 'project' ? 999 : 2708, requestSha256: bodyHash(payload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  const result = await submitVideoBatchMethod(fixture.client, ledger, { items: [{ preview_path: fixture.previewPath,
+    idempotency_key: fixture.preview.idempotencyKey }] })
+  expect(result).toMatchObject({ submitted: 1 })
+  expect(putCalls(fixture.provider)).toHaveLength(1)
+  expect(await ledger.records()).toHaveLength(2)
 })

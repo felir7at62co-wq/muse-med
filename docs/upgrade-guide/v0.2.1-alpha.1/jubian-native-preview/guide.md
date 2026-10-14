@@ -11,10 +11,12 @@ English | [中文](guide.zh.md)
 
 Native preparation supplies `backupModelList: []` when the saved setting is missing or null, preserving any explicit list and rejecting other values. The list participates in the frozen payload and fingerprint. An unsubmitted older preview without the field no longer matches current preparation.
 
+Preparation resolves materials by key and numeric parent identity, then emits them in first-occurrence prompt order, including interleaved image and audio references. An unsubmitted older preview with a different physical row order can have a different payload fingerprint. Existing results that contain the same image identities or URLs in a different order require reconciliation; reordered evidence neither confirms an exact match nor permits another submission. A recorded equivalent images-then-audio key blocks charging under the normalized key even when its old file or remote task is missing. Single submission returns `reconcile_conflict` and `original_idempotency_key`; batch preflight rejects before new reservations.
+
 `submit_video` reports `put_sent: true` when a PUT was attempted, including a provider refusal or transport failure. Previously an exception incorrectly reported false. The result now includes `put_error` with the credential-redacted provider diagnostic or a generic local error. Neither field confirms a task or a charge; ambiguous requests retain their reservations and cannot be resubmitted under the same key.
 
 ## Migration
 
-1. Re-run `prepare_video` for previews without ledger records, review the resulting file and use its own key.
-2. For recorded keys, keep the original preview and use the same key for read-only reconciliation. Do not replace it merely to retry an ambiguous request.
+1. Re-run `prepare_video` only for previews with no original or normalized ledger record, review the resulting file and use its own key.
+2. For recorded keys, keep the original preview and use the same key for read-only reconciliation. Follow `original_idempotency_key` when present. If the original file is missing, keep the result unresolved; do not use a new key to retry an ambiguous request.
 3. Display `put_error` as submission diagnostics, and claim generation only when a matching task is read back. Verify no second PUT occurs on replay.

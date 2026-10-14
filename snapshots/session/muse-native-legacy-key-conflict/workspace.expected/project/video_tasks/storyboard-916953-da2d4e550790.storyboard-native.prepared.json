@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "da2d4e5507904b4f248d81fa9bfc6312415991c0bded3b8fb1ea08b8f9b00578",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 2,
+    "orderedAssets": [
+      {
+        "assetId": "asset-lead",
+        "materialAssetId": 11,
+        "materialKey": "lead",
+        "materialName": "Existing CG actor",
+        "imageUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/lead.png"
+      },
+      {
+        "assetId": "asset-guest",
+        "materialAssetId": 12,
+        "materialKey": "guest",
+        "materialName": "Existing CG guest",
+        "imageUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/guest.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "isGenerate": 1,
+    "storyboardName": "Offline legacy-key reconciliation",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":4,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[Existing CG actor](lead) @[声线](voice) @[Existing CG guest](guest)\",\"materialList\":[{\"assetId\":\"asset-lead\",\"materialAssetId\":11,\"fileName\":\"Existing CG actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/lead.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"},{\"materialType\":\"audio\",\"materialKey\":\"voice\",\"fileName\":\"lead voice\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/voice.wav\",\"sortOrder\":1,\"audioDuration\":2},{\"assetId\":\"asset-guest\",\"materialAssetId\":12,\"fileName\":\"Existing CG guest\",\"materialKey\":\"guest\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/guest.png\",\"sortOrder\":2,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-lead",
+        "materialAssetId": 11,
+        "fileName": "Existing CG actor",
+        "materialKey": "lead",
+        "materialType": "image",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/lead.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      },
+      {
+        "materialType": "audio",
+        "materialKey": "voice",
+        "fileName": "lead voice",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/voice.wav",
+        "sortOrder": 1,
+        "audioDuration": 2
+      },
+      {
+        "assetId": "asset-guest",
+        "materialAssetId": 12,
+        "fileName": "Existing CG guest",
+        "materialKey": "guest",
+        "materialType": "image",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/guest.png",
+        "sortOrder": 2,
+        "official": true,
+        "asset_status": "confirmed"
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。"
+}

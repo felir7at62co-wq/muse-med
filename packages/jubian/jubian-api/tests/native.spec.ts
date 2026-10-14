@@ -637,10 +637,10 @@ describe('task claiming', () => {
       .toBe('subject_identity_lost')
   })
 
-  it('keeps a settled mismatching identity a conflict when no exact task exists', () => {
+  it('keeps settled reordered identities unresolved when no exact task exists', () => {
     const candidate = { ...related, children: [{ ...CHILD, imageMaterials: [...MATERIALS].reverse() }] }
     expect(classifyNewNativeCandidates([candidate], EXPECTATION).status).toBe('reconcile_conflict')
-    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('none')
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('reconcile_conflict')
   })
 
   it('allows related storyboard-less task details only in the expected episode', () => {
@@ -803,6 +803,25 @@ describe('native episode scope', () => {
 })
 
 describe('keyed storyboard binding normalization', () => {
+  it.each([
+    { imageMaterials: [...MATERIALS].reverse() },
+    { imageMaterials: undefined, image_urls: [URL_GUEST, URL_LEAD] },
+  ])('retains reconciliation for reordered existing identity evidence: %j', (overrides) => {
+    const candidate = { taskId: '335343', task: { scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, ...overrides }] }
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('reconcile_conflict')
+  })
+
+  it.each([
+    { imageMaterials: [MATERIALS[0]!, MATERIALS[0]!] },
+    { imageMaterials: undefined, image_urls: [URL_LEAD, URL_LEAD] },
+    { imageMaterials: undefined, image_urls: [URL_LEAD] },
+  ])('excludes different existing identity multiplicities: %j', (overrides) => {
+    const candidate = { taskId: '335343', task: { scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, ...overrides }] }
+    expect(classifyExistingNativeMatches([candidate], EXPECTATION).status).toBe('none')
+  })
+
   it('resolves A/C/B parent assets and material rows into A/B/C prompt order with one fingerprint', () => {
     const keys = ['A', 'B', 'C']
     const materials = keys.map((key, index) => ({ assetId: `asset-${key}`, materialAssetId: index + 1,
