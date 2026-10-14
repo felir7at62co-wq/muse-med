@@ -45,7 +45,7 @@ NOT_OURS = {
 SYNOPSIS_LIMIT = 200  # 去空白后的字符数；必须严格少于
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 POSTER_HINT = ("海报", "poster")
-FILM_RE = re.compile(r"^\d{2}\.mp4$")  # 00成片 里只认 01.mp4、02.mp4……
+FILM_RE = re.compile(r"(?:0[1-9]|[1-9][0-9]{1,3})\.mp4")  # 集号 1–9999，仅个位数补零
 
 
 def die(msg: str) -> None:
@@ -258,7 +258,7 @@ def sync_dir(target_dir: Path, targets: dict[str, Path], label: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="按 +++交付模板 组装整部剧的交付目录")
     ap.add_argument("--project", required=True, help="项目目录")
-    ap.add_argument("--episode", required=True, help="要追加/更新的集号，1 与 01 都行")
+    ap.add_argument("--episode", required=True, help="要追加/更新的集号，范围 1–9999，1 与 01 都行")
     ap.add_argument("--out", default=None, help="交付目录，默认 <项目>\\delivery")
     args = ap.parse_args()
 
@@ -269,8 +269,8 @@ def main() -> int:
         episode = int(args.episode)
     except ValueError:
         die(f"--episode 要是集号：{args.episode!r}")
-    if episode < 1:
-        die(f"--episode 要从 1 开始：{episode}")
+    if not 1 <= episode <= 9999:
+        die(f"--episode 要在 1–9999 之间：{episode}")
 
     override = os.environ.get("TWEET_DRAMA_TEMPLATE")
     if override is not None and (not override.strip() or not Path(override).expanduser().is_dir()):
@@ -289,14 +289,14 @@ def main() -> int:
                 die(f"交付目录含链接，拒绝写入：{path}")
     film_name = f"{episode:02d}.mp4"
 
-    # 00成片 里只认 NN.mp4，别的文件先报出来，别把上游母版悄悄删了
+    # 00成片 里只认 01.mp4 到 9999.mp4，别的文件先报出来，别把上游母版悄悄删了
     shot = out / "00成片"
     strays = (
-        sorted(p.name for p in shot.iterdir() if p.is_file() and not FILM_RE.match(p.name))
+        sorted(p.name for p in shot.iterdir() if p.is_file() and not FILM_RE.fullmatch(p.name))
         if shot.is_dir() else []
     )
     if strays:
-        die(f"00成片 里有不符合 NN.mp4 命名的文件：{strays}\n      请先人工确认（脚本不删它们）。")
+        die(f"00成片 里有不符合 01.mp4–9999.mp4 命名的文件：{strays}\n      请先人工确认（脚本不删它们）。")
 
     master = pick_master(project, episode)
     leads = pick_leads(project)

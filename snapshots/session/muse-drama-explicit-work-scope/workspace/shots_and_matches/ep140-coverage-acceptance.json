@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "episode": "140",
+  "status": "passed",
+  "episode_manifest_sha256": "631b722cc2dd2333944bbd260e634349aa1d053bb7c644d4f0f2ef56836dd23b",
+  "source_file": "episodes/140.txt",
+  "source_sha256": "bcce89bfd24660bd16d0f501f41435114a2a511557c0eb097ff37d0cde4b0d6e",
+  "source_file_sha256": "bcce89bfd24660bd16d0f501f41435114a2a511557c0eb097ff37d0cde4b0d6e",
+  "shot_script": "shots/第140集镜头脚本.md",
+  "shot_sha256": "a28259653d78d6a2443cc21f2a7d278db32a815b142df9c712f798dedc71eee1",
+  "source_map": "shots_and_matches/ep140-source-map.json",
+  "mapping_sha256": "a149a95821c64818024a2ce829c6888429625e5fdb3cc8f298fe4aa89ebb430e",
+  "speech_count": 1,
+  "source_line_count": 3,
+  "checked_at": "2026-10-14T00:00:00+00:00"
+}
