@@ -3200,7 +3200,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-skill-filesystem`
 
 - `inject`: `skills`
-- `source`: [`packages/skill/skill-filesystem/src/index.ts:55`](../packages/skill/skill-filesystem/src/index.ts)
+- `source`: [`packages/skill/skill-filesystem/src/index.ts:57`](../packages/skill/skill-filesystem/src/index.ts)
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -3227,6 +3227,10 @@ export interface Config {
   watchPollIntervalMs?: number
   /** Maximum distinct project roots whose skill directories remain watched. */
   watchMaxProjects?: number
+  /** Maximum milliseconds for an existing root watcher to become ready. */
+  watchReadyTimeoutMs?: number
+  /** Maximum milliseconds for one complete root discovery, including watcher readiness. */
+  discoveryTimeoutMs?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */

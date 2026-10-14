@@ -101,6 +101,8 @@ Running group titles, reasoning previews, tool and command rows, the active retr
 
 The running status shows a whale whose APNG mask inherits the text color. CSS selects the static SVG when reduced motion or forced colors are active, or alpha masks are unsupported. The build embeds the image in the plugin stylesheet; React does not pass image data through DOM styles.
 
+Before the first Step, an open Turn shows “Preparing request”. An open Step with no Assistant content shows “Waiting for response”; reasoning, text, and tool-call content restore the general activity label. These labels follow the existing Chat timeline and reset on cancellation or history replacement. Their clock measures total Turn time. Step admission includes local request preparation, so the waiting label does not establish a provider queue, network request start, or time to first token. Incomplete history retains the general label.
+
 Scroll-edge fades initialize when `ResizeObserver` reports the open group's layout; opening the group performs no immediate scroll-dimension read in a layout effect.
 
 Each group owns local `useDisclosure` state that survives mode changes while its component stays mounted.

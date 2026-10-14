@@ -103,7 +103,7 @@ export type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'>
 export interface SkillLookupOptions {
   /** Workspace selector for the current lookup. */
   readonly cwd?: string | undefined
-  /** Abort discovery or loading work for the current caller. */
+  /** Abort discovery or loading; rejection preserves this signal's original reason. */
   readonly signal?: AbortSignal | undefined
 }
 
@@ -602,7 +602,7 @@ export class SkillRegistry extends Service {
       try {
         output = await waitWithAbort(provider.list(options), options.signal)
       } catch (error) {
-        if (options.signal?.aborted === true) throw toError(options.signal.reason)
+        if (options.signal?.aborted === true) throw options.signal.reason
         cacheable = false
         this.ctx.logger.warn(`skill provider "${provider.name}" skipped: ${errorMessage(error)}`)
       }
@@ -818,16 +818,17 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
 
 function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return promise
-  throwIfAborted(signal)
   return new Promise<T>((resolve, reject) => {
     const cleanup = (): void => {
       signal.removeEventListener('abort', onAbort)
     }
     const onAbort = (): void => {
       cleanup()
-      reject(toError(signal.reason))
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- AbortSignal reasons retain caller identity.
+      reject(signal.reason)
     }
     signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
     void promise.then(
       (value) => {
         cleanup()
@@ -841,12 +842,12 @@ function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined):
   })
 }
 
-/** Throw a total Error for an already-aborted lookup. */
+/** Preserve the caller's cancellation reason for an already-aborted lookup. */
 function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted === true) throw toError(signal.reason)
+  signal?.throwIfAborted()
 }
 
-/** Normalize an arbitrary abort or provider failure without trusting coercion. */
+/** Normalize an arbitrary provider failure without trusting coercion. */
 function toError(error: unknown): Error {
   try {
     if (error instanceof Error) return error
