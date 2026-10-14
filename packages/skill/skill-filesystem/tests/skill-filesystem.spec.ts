@@ -681,6 +681,33 @@ describe('FileSystemSkillProvider', () => {
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
   })
 
+  it.each(['cancelled during root resolution', new Error('cancelled during root resolution')])(
+    'contains cancellation raised before the discovery wait subscribes (%s)',
+    async (reason) => {
+      const home = await tempDir('skill-resolve-cancellation')
+      const cancellation = new AbortController()
+      const ctx = new Context()
+      await ctx.plugin(class extends TestFileSystem {
+        override async resolve(path: string): Promise<FsTarget> {
+          cancellation.abort(reason)
+          throw new FsError(`Cancelled resolution: ${path}`, 'FS_NOT_FOUND')
+        }
+      })
+      const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+        signal: new AbortController().signal, invalidate() {},
+      }, { watch: false })
+      try {
+        const discovery = provider.list({ cwd: home, signal: cancellation.signal })
+        expect(cancellation.signal.aborted).toBe(true)
+        await expect(discovery).rejects.toBe(reason)
+        expect((ctx.fs as TestFileSystem).statSignals).toEqual([])
+        expect((ctx.fs as TestFileSystem).listDirCalls).toBe(0)
+      } finally {
+        await provider.dispose()
+      }
+    },
+  )
+
   it('aborts a stalled discovery read at its deadline without caching a partial catalog', async () => {
     const home = await tempDir('skill-discovery-read-timeout')
     const root = join(home, 'skills')
