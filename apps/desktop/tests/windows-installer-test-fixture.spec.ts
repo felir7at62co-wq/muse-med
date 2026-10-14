@@ -143,6 +143,40 @@ it('publishes observer updates with actual null backup semantics and saves worke
     .toContain('originalPositiveFailure')
 })
 
+function acquiredApplicationFailures(smoke: string): string[] {
+  const pristine = smoke.slice(smoke.indexOf('# This ordinary checked launch'), smoke.indexOf('    Set-RegisteredPathForUpdate'))
+  const retry = smoke.slice(smoke.indexOf("throw 'Finish did not launch the installed test application'"), smoke.indexOf('    $app = Start-TestProcess $appPath'))
+  const automatic = smoke.slice(smoke.indexOf("throw 'Automatic update did not relaunch its own installed application'"), smoke.indexOf("$results.Add('automatic-update-shows-progress-and-relaunches-without-finish-click')"))
+  const requirements: Record<string, boolean> = {}
+  for (const [name, block, variable] of [['pristine', pristine, '$pristineApp'], ['retry', retry, '$app'], ['automatic', automatic, '$app']] as const) {
+    const cache = block.indexOf(`$processHandles.Add(${variable}.Id, [InstallerCapture]::RetainProcessHandle(${variable}))`)
+    requirements[name + 'HandleBeforeDismiss'] = cache > block.indexOf(`$processes.Add(${variable})`)
+      && cache < block.indexOf(`Dismiss ${variable} 'Installer test application is running.'`)
+  }
+  const publication = pristine.indexOf("'pristine-application-exit.json'")
+  const wait = pristine.indexOf('$pristineApp.WaitForExit(10000)')
+  requirements.pristineExitBeforeFailure = wait >= 0 && publication > wait
+    && publication < pristine.indexOf('if ($pristineWaitFailure) { throw $pristineWaitFailure }')
+    && publication < pristine.indexOf("throw 'Pristine launched application did not exit cleanly'")
+    && pristine.includes('[InstallerCapture]::ObserveProcessExit($pristineApp, $processHandles[$pristineApp.Id])')
+    && pristine.includes('if (-not $pristineWaitReturned -or $pristineApp.ExitCode -ne 0)')
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
+it('retains discovered application handles before closing their windows and records pristine exit before any original failure', async () => {
+  const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
+  expect(acquiredApplicationFailures(smoke)).toEqual([])
+  expect(acquiredApplicationFailures(smoke.replace('$processHandles.Add($pristineApp.Id, [InstallerCapture]::RetainProcessHandle($pristineApp))', '')))
+    .toContain('pristineHandleBeforeDismiss')
+  const withoutAppHandles = acquiredApplicationFailures(smoke.replaceAll('$processHandles.Add($app.Id, [InstallerCapture]::RetainProcessHandle($app))', ''))
+  expect(withoutAppHandles).toContain('retryHandleBeforeDismiss')
+  expect(withoutAppHandles).toContain('automaticHandleBeforeDismiss')
+  expect(acquiredApplicationFailures(smoke.replace("'pristine-application-exit.json'", "'unused.json'")))
+    .toContain('pristineExitBeforeFailure')
+  expect(acquiredApplicationFailures(smoke.replace('$pristineApp.WaitForExit(10000)', '$pristineApp.WaitForExit(30000)')))
+    .toContain('pristineExitBeforeFailure')
+})
+
 function reusableAssemblyFailures(smoke: string, helper: string, worker: string): string[] {
   const requirements: Record<string, boolean> = {
     privateParentAssembly: smoke.includes('Join-Path $OutputDirectory ("installer-diagnostics-$([Guid]::NewGuid()')
