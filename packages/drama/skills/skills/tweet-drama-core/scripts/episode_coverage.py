@@ -17,8 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from episode_scope import is_episode_id, read_episode_manifest, resolve_episode_scope
+
 
 VERSION = 1
+ACCEPTANCE_VERSION = 2
 SPEECH_KINDS = {"dialogue", "os", "vo"}
 NON_SPEECH_KINDS = {"action", "scene", "state", "transition", "heading"}
 SHOT_MARKER = re.compile(r"^【镜头(\d+)】[ \t]*$", re.MULTILINE)
@@ -29,6 +32,13 @@ OFFSCREEN_SUFFIX = re.compile(r"[（(]\s*(?:画外音|VO)\s*[）)]\s*$", re.IGNO
 SOURCE_SUFFIX = re.compile(r"[（(]\s*(OS|VO|画外音|心声|旁白|解说)\s*[）)]\s*$", re.IGNORECASE)
 ACTION_SPEECH = re.compile(r"^(?:[△▲]\s*|(?:动作|画面)[：:]\s*)([^：:]{1,30}?)(?:说道?|喊道?|问道?|答道?|念道?|低语|耳语|自语|开口)[：:]\s*(.+)$")
 ACTION_SPEECH_HINT = re.compile(r"说|喊|问|答|念|低语|耳语|自语|开口|[“”\"「」]")
+# A whole physical-handling sentence may contain a speech character in its object.
+# Do not remove substrings: another clause can still describe spoken content.
+WRITTEN_OBJECT_ACTION = re.compile(
+    r"^(?:[△▲]\s*|(?:动作|画面)[：:]\s*)(?:他|她|两人|众人)?"
+    r"(?:拿起|放下|翻开|合上)(?:了|着)?(?:一本|一份|这份|那份|那本|这本)?"
+    r"(?:说明书|说明文件|说明页|问卷|答题卡|答案页)[。.!]?$"
+)
 SKIP_SPEAKER = {"场景", "时间", "地点", "镜头", "画面", "动作", "人物", "状态", "环境", "转场", "备注", "说明"}
 
 
@@ -107,9 +117,9 @@ def _non_speech_kind(line: str) -> str | None:
         return "heading"
     if re.match(r"^\d{1,3}[-－]\d{1,3}(?:\s|$)", stripped) or re.match(r"^(?:场景|地点|时间|环境)[：:]", stripped):
         return "scene"
-    if stripped.startswith(("△", "▲")):
-        return None if ACTION_SPEECH_HINT.search(stripped) else "action"
-    if re.match(r"^(?:动作|画面)[：:]", stripped):
+    if stripped.startswith(("△", "▲")) or re.match(r"^(?:动作|画面)[：:]", stripped):
+        if WRITTEN_OBJECT_ACTION.fullmatch(stripped):
+            return "action"
         return None if ACTION_SPEECH_HINT.search(stripped) else "action"
     if re.match(r"^(?:人物状态|状态)[：:]", stripped):
         return "state"
@@ -167,7 +177,7 @@ def _shots(text: str) -> dict[int, tuple[str, str | None, str, str] | None]:
     return found
 
 
-def _episode(project: Path, ep: str, manifest_sha: str, expected_sha: str) -> dict[str, Any]:
+def _episode(project: Path, ep: str, manifest_sha: str, dependency_sha: str, expected_sha: str) -> dict[str, Any]:
     source_file = project / "episodes" / f"{ep}.txt"
     map_file = project / "shots_and_matches" / f"ep{ep}-source-map.json"
     record_file = project / "shots_and_matches" / f"ep{ep}-coverage-acceptance.json"
@@ -329,17 +339,23 @@ def _episode(project: Path, ep: str, manifest_sha: str, expected_sha: str) -> di
     if result["status"] == "passed" and record_file.is_file():
         try:
             record = _read_json(record_file)
-            required = _record_fields(result, ep, manifest_sha)
+            if isinstance(record, dict) and record.get("version") == VERSION:
+                required = _record_fields(result, ep, dependency_sha)
+                required["version"] = VERSION
+                del required["episode_manifest_sha256"]
+                required["manifest_sha256"] = manifest_sha
+            else:
+                required = _record_fields(result, ep, dependency_sha)
             result["accepted"] = isinstance(record, dict) and all(record.get(key) == value for key, value in required.items())
         except (OSError, ValueError):
             pass
     return result
 
 
-def _record_fields(result: dict[str, Any], ep: str, manifest_sha: str) -> dict[str, Any]:
+def _record_fields(result: dict[str, Any], ep: str, dependency_sha: str) -> dict[str, Any]:
     return {
-        "version": VERSION, "episode": ep, "status": "passed",
-        "manifest_sha256": manifest_sha,
+        "version": ACCEPTANCE_VERSION, "episode": ep, "status": "passed",
+        "episode_manifest_sha256": dependency_sha,
         "source_file": result["source_file"], "source_sha256": result["source_sha256"],
         "source_file_sha256": result["source_file_sha256"],
         "shot_script": result["shot_script"], "shot_sha256": result["shot_sha256"],
@@ -353,7 +369,7 @@ def _source_preflight(project: Path, listed: dict[str, Any], episodes: list[str]
     failures: list[str] = []
     for ep in episodes:
         source_file = project / "episodes" / f"{ep}.txt"
-        entry = listed[ep]
+        entry = listed.get(ep)
         expected_sha = entry.get("sha256") if isinstance(entry, dict) else None
         if not isinstance(expected_sha, str) or re.fullmatch(r"[0-9a-f]{64}", expected_sha) is None:
             failures.append(f"EP{ep}: 清单缺少有效原文 SHA")
@@ -379,63 +395,76 @@ def _source_preflight(project: Path, listed: dict[str, Any], episodes: list[str]
     return failures
 
 
-def audit_project(project: Path | str) -> dict[str, Any]:
+def source_inventory(project: Path | str) -> dict[str, Any]:
+    """Validate the declared scope and its source bytes for audit and projection."""
     project = Path(project).resolve()
     manifest_path = project / "episodes" / "manifest.json"
-    output: dict[str, Any] = {"status": "pending", "reasons": [], "expected_episodes": [],
-                              "episodes": {}, "source_integrity": False, "source_reasons": []}
+    actual = {path.stem for path in (project / "episodes").glob("*.txt") if path.is_file()}
+    result: dict[str, Any] = {"manifest": {}, "expected": [], "actual": sorted(actual),
+                              "issues": [], "manifest_exists": manifest_path.is_file(),
+                              "explicit_scope": False, "story_episode_count": None}
     if not manifest_path.is_file():
-        output["reasons"].append("缺少 episodes/manifest.json；不能推定预期集数")
-        return output
+        result["issues"] = ["缺少 episodes/manifest.json；不能推定预期集数"]
+        return result
     try:
-        manifest = _read_json(manifest_path)
+        manifest = read_episode_manifest(manifest_path)
+        expected = resolve_episode_scope(manifest)
     except (OSError, ValueError) as error:
-        output.update(status="failed", reasons=[f"分集清单不可读取: {error}"])
-        return output
-    if not isinstance(manifest, dict) or manifest.get("version") != 1 or not isinstance(manifest.get("episodes"), dict) or not manifest["episodes"]:
-        output.update(status="failed", reasons=["分集清单版本无效，或缺少非空 episodes 对象"])
-        return output
+        result["issues"] = [f"分集清单不可读取或范围无效: {error}"]
+        return result
     listed = manifest["episodes"]
-    if any(not re.fullmatch(r"\d{2,4}", key) or int(key) < 1 or key != f"{int(key):02d}" for key in listed):
-        output.update(status="failed", reasons=["分集清单包含无效或未规范化集号"])
+    explicit = "work_scope" in manifest
+    result.update(manifest=manifest, expected=expected, explicit_scope=explicit,
+                  story_episode_count=manifest.get("expected_episode_count"))
+    missing = set(expected) - set(listed)
+    if missing:
+        result["issues"].append("工作范围缺少分集清单条目: " + ", ".join("EP" + ep for ep in sorted(missing, key=int)))
+    extra = actual - set(listed)
+    if extra:
+        result["issues"].append(f"分集文件不在清单内: {sorted(extra)}")
+    if explicit:
+        result["actual"] = sorted(actual & set(expected), key=int)
+    result["issues"].extend(_source_preflight(project, listed, expected))
+    return result
+
+
+def _manifest_dependency_sha(manifest: dict[str, Any], ep: str) -> str:
+    """Bind one episode entry and shared parsing settings, not collaborators' rows."""
+    dependency = {"version": manifest["version"], "episode": ep,
+                  "entry": manifest["episodes"].get(ep),
+                  "filter_options": manifest.get("filter_options")}
+    return _sha(json.dumps(dependency, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":")).encode("utf-8"))
+
+
+def audit_project(project: Path | str) -> dict[str, Any]:
+    project = Path(project).resolve()
+    inventory = source_inventory(project)
+    output: dict[str, Any] = {"status": "pending", "reasons": list(inventory["issues"]),
+                              "expected_episodes": inventory["expected"], "episodes": {},
+                              "explicit_work_scope": inventory["explicit_scope"],
+                              "source_integrity": not inventory["issues"],
+                              "source_reasons": list(inventory["issues"])}
+    if not inventory["manifest_exists"]:
         return output
-    episodes = sorted(listed, key=int)
-    output["expected_episodes"] = episodes
-    declared_count = manifest.get("expected_episode_count")
-    if declared_count is not None:
-        if type(declared_count) is not int or not 1 <= declared_count <= 9999:
-            output["reasons"].append("expected_episode_count 必须是 1–9999 的整数")
-        else:
-            output["declared_episode_count"] = declared_count
-            declared_ids = {f"{number:02d}" for number in range(1, declared_count + 1)}
-            if set(episodes) != declared_ids:
-                missing = sorted(declared_ids - set(episodes), key=int)
-                extra = sorted(set(episodes) - declared_ids, key=int)
-                output["reasons"].append(
-                    f"声明预期 {declared_count} 集与清单不符；缺少 "
-                    f"{', '.join('EP' + ep for ep in missing) or '无'}，多出 "
-                    f"{', '.join('EP' + ep for ep in extra) or '无'}"
-                )
-    expected = [f"{number:02d}" for number in range(1, int(episodes[-1]) + 1)]
-    if episodes != expected:
-        missing = sorted(set(expected) - set(episodes), key=int)
-        output["reasons"].append("分集清单集号不连续，缺少 " + ", ".join(f"EP{ep}" for ep in missing))
-    actual_files = {path.stem for path in (project / "episodes").glob("*.txt") if path.is_file()}
-    if actual_files != set(episodes):
-        missing = sorted(set(episodes) - actual_files)
-        extra = sorted(actual_files - set(episodes))
-        output["reasons"].append(f"分集文件与清单集号不一致；缺少 {missing}，多出 {extra}")
-    output["source_reasons"] = output["reasons"] + _source_preflight(project, listed, episodes)
-    output["source_integrity"] = not output["source_reasons"]
-    manifest_sha = _sha(manifest_path.read_bytes())
-    for ep in episodes:
-        record = listed[ep]
+    manifest = inventory["manifest"]
+    if not manifest:
+        output["status"] = "failed"
+        return output
+    if inventory["story_episode_count"] is not None:
+        output["declared_episode_count"] = inventory["story_episode_count"]
+    manifest_sha = _sha((project / "episodes" / "manifest.json").read_bytes())
+    for ep in inventory["expected"]:
+        record = manifest["episodes"].get(ep)
         sha = record.get("sha256") if isinstance(record, dict) else None
         if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{64}", sha) is None:
             output["episodes"][ep] = {"status": "failed", "accepted": False,
                                       "reasons": [f"EP{ep}: 清单缺少有效原文 SHA"]}
         else:
-            output["episodes"][ep] = _episode(project, ep, manifest_sha, sha)
+            dependency_sha = _manifest_dependency_sha(manifest, ep)
+            row = _episode(project, ep, manifest_sha, dependency_sha, sha)
+            row["episode_manifest_sha256"] = dependency_sha
+            output["episodes"][ep] = row
     if output["reasons"] or any(row["status"] == "failed" for row in output["episodes"].values()):
         output["status"] = "failed"
     elif any(row["status"] == "pending" for row in output["episodes"].values()):
@@ -459,19 +488,19 @@ def write_pass_records(project: Path | str, episodes: list[str] | tuple[str, ...
     reasons: list[str] = []
     if not selected:
         reasons.append("没有可签发的逐集覆盖验收")
-    if any(not ep.isdecimal() or int(ep) < 1 for ep in selected):
+    if any(not is_episode_id(ep) for ep in selected):
         reasons.append("签发集号无效")
-    elif selected != sorted(set(selected), key=int) or any(
+    elif selected != sorted(set(selected), key=int) or (not audit["explicit_work_scope"] and any(
         int(right) != int(left) + 1 for left, right in zip(selected, selected[1:])
-    ):
-        reasons.append("签发集号必须无重复、按升序且连续")
+    )):
+        reasons.append("签发集号必须无重复、按升序；整剧模式还须连续")
     for ep in selected:
         row = audit["episodes"].get(ep)
         if row is None:
-            reasons.append(f"EP{ep}: 不在分集清单内")
+            reasons.append(f"EP{ep}: 不在声明工作范围内")
         elif row["status"] != "passed":
             reasons.extend(row["reasons"] or [f"EP{ep}: 覆盖审计未通过"])
-    if selected and selected[0].isdecimal() and selected[-1] in audit["expected_episodes"]:
+    if not audit["explicit_work_scope"] and selected and selected[0].isdecimal() and selected[-1] in audit["expected_episodes"]:
         for ep in audit["expected_episodes"]:
             if int(ep) >= int(selected[0]):
                 break
@@ -481,14 +510,13 @@ def write_pass_records(project: Path | str, episodes: list[str] | tuple[str, ...
         audit["accept_status"] = "blocked"
         audit["accept_reasons"] = reasons
         return audit
-    manifest_sha = _sha((project / "episodes" / "manifest.json").read_bytes())
     for ep in selected:
         row = audit["episodes"][ep]
         if row["accepted"]:
             continue
         path = project / row["record_path"]
         path.parent.mkdir(parents=True, exist_ok=True)
-        record = {**_record_fields(row, ep, manifest_sha),
+        record = {**_record_fields(row, ep, row["episode_manifest_sha256"]),
                   "checked_at": datetime.now(timezone.utc).isoformat()}
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False,
                                          dir=path.parent, suffix=".tmp") as handle:
@@ -515,20 +543,20 @@ def paid_ready(project: Path | str, episodes: list[str] | tuple[str, ...]) -> di
     requested = [str(ep).zfill(2) for ep in episodes]
     if not requested:
         reasons.append("未指定待付费制作的集号")
-    if any(not ep.isdecimal() or int(ep) < 1 for ep in requested):
+    if any(not is_episode_id(ep) for ep in requested):
         reasons.append("请求集号无效")
-    if all(ep.isdecimal() for ep in requested) and (requested != sorted(set(requested), key=int) or any(
-        int(right) != int(left) + 1 for left, right in zip(requested, requested[1:])
+    if all(is_episode_id(ep) for ep in requested) and (requested != sorted(set(requested), key=int) or (
+        not audit["explicit_work_scope"] and any(
+            int(right) != int(left) + 1 for left, right in zip(requested, requested[1:])
+        )
     )):
-        reasons.append("请求集号必须无重复、按升序且连续")
+        reasons.append("请求集号必须无重复、按升序；整剧模式还须连续")
     expected = audit["expected_episodes"]
     if any(ep not in expected for ep in requested):
-        reasons.append("请求包含分集清单外的集号")
+        reasons.append("请求包含声明工作范围外的集号")
     if requested and all(ep in expected for ep in requested):
-        latest = int(requested[-1])
-        for ep in expected:
-            if int(ep) > latest:
-                break
+        required = requested if audit["explicit_work_scope"] else [ep for ep in expected if int(ep) <= int(requested[-1])]
+        for ep in required:
             if not audit["episodes"][ep]["accepted"]:
                 reasons.append(f"EP{ep}: 缺少当前有效的覆盖验收通过记录")
                 reasons.extend(audit["episodes"][ep]["reasons"])

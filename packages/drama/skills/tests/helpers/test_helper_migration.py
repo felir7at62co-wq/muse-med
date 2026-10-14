@@ -23,6 +23,183 @@ def load(skill, filename):
     return module
 
 
+class SplitWorkScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load("tweet-drama-script-split", "script_processor.py")
+        self.processor = self.module.ScriptProcessor()
+        self.temp = tempfile.TemporaryDirectory(dir=PACKAGE / "tests")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.project = self.root / "project"
+        self.episodes = self.project / "episodes"
+        self.manifest_path = self.episodes / "manifest.json"
+
+    def analysis(self, *numbers):
+        source = self.root / "source.txt"
+        source.write_text("\n".join(
+            f"第{number}集\n旁白：这是第{number}集的新正文。" for number in numbers
+        ), encoding="utf-8")
+        return self.processor.analyze(str(source))
+
+    def seed(self, numbers, **metadata):
+        self.episodes.mkdir(parents=True, exist_ok=True)
+        rows = {}
+        for number in numbers:
+            content = f"旁白：这是第{number}集的协作者正文。"
+            (self.episodes / f"{number}.txt").write_text(content, encoding="utf-8")
+            rows[number] = {"sha256": self.module.content_sha256(content),
+                            "char_count": len(content), "owner": f"writer-{number}"}
+        manifest = {"version": 1, "episodes": rows, **metadata}
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return manifest
+
+    def snapshot(self):
+        return {str(path.relative_to(self.project)): path.read_bytes()
+                for path in self.project.rglob("*") if path.is_file()}
+
+    def read_manifest(self):
+        return json.loads(self.manifest_path.read_text(encoding="utf-8"))
+
+    def test_assigned_range_140_through_219_keeps_whole_story_total_300(self):
+        ids = [str(number) for number in range(140, 220)]
+        result = self.processor.save(
+            str(self.project), self.analysis(*ids), work_scope={"episode_ids": ids},
+            expected_episode_count=300,
+        )
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(result.episode_count, 80)
+        manifest = self.read_manifest()
+        self.assertEqual(manifest["expected_episode_count"], 300)
+        self.assertEqual(manifest["work_scope"], {"episode_ids": ids})
+        self.assertEqual(list(manifest["episodes"]), ids)
+        self.assertEqual({path.stem for path in self.episodes.glob("*.txt")}, set(ids))
+
+    def test_scoped_save_preserves_collaborator_rows_files_and_unknown_metadata(self):
+        previous = self.seed(["01", "140", "220", "300"], expected_episode_count=300,
+                             project_note={"editors": ["A", "B"]})
+        (self.episodes / "300.txt").unlink()
+        (self.episodes / "collaborator-notes.txt").write_text("keep these notes", encoding="utf-8")
+        before = self.snapshot()
+        result = self.processor.save(str(self.project), self.analysis(140, 141),
+                                     work_scope={"episode_ids": ["140", "141"]})
+        self.assertTrue(result.success, result.error)
+        manifest = self.read_manifest()
+        for number in ("01", "220", "300"):
+            self.assertEqual(manifest["episodes"][number], previous["episodes"][number])
+        for name in ("episodes/01.txt", "episodes/220.txt", "episodes/collaborator-notes.txt"):
+            self.assertEqual(self.snapshot()[name], before[name])
+        self.assertFalse((self.episodes / "300.txt").exists())
+        self.assertNotEqual(manifest["episodes"]["140"]["sha256"], previous["episodes"]["140"]["sha256"])
+        self.assertEqual(manifest["project_note"], previous["project_note"])
+        self.assertEqual(manifest["expected_episode_count"], 300)
+
+    def test_omitted_and_none_scope_count_preserve_existing_assignment(self):
+        previous = self.seed(["140", "220"], work_scope={"episode_ids": ["140"]},
+                             expected_episode_count=300)
+        collaborator = (self.episodes / "220.txt").read_bytes()
+        for kwargs in ({}, {"work_scope": None, "expected_episode_count": None}):
+            with self.subTest(kwargs=kwargs):
+                result = self.processor.save(str(self.project), self.analysis(140), **kwargs)
+                self.assertTrue(result.success, result.error)
+                manifest = self.read_manifest()
+                self.assertEqual(manifest["work_scope"], previous["work_scope"])
+                self.assertEqual(manifest["expected_episode_count"], 300)
+                self.assertEqual(manifest["episodes"]["220"], previous["episodes"]["220"])
+                self.assertEqual((self.episodes / "220.txt").read_bytes(), collaborator)
+        before = self.snapshot()
+        result = self.processor.save(str(self.project), self.analysis(219))
+        self.assertFalse(result.success)
+        self.assertIn("完全一致", result.error)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_explicit_new_assignment_preserves_previously_assigned_episode(self):
+        previous = self.seed(["140"], work_scope={"episode_ids": ["140"]}, expected_episode_count=300)
+        content = (self.episodes / "140.txt").read_bytes()
+        result = self.processor.save(str(self.project), self.analysis(219),
+                                     work_scope={"episode_ids": ["219"]}, expected_episode_count=400)
+        self.assertTrue(result.success, result.error)
+        manifest = self.read_manifest()
+        self.assertEqual(manifest["work_scope"], {"episode_ids": ["219"]})
+        self.assertEqual(manifest["expected_episode_count"], 400)
+        self.assertEqual(manifest["episodes"]["140"], previous["episodes"]["140"])
+        self.assertEqual((self.episodes / "140.txt").read_bytes(), content)
+
+    def test_noncontiguous_explicit_assignment_does_not_expand_to_a_range(self):
+        self.seed(["02"])
+        before = (self.episodes / "02.txt").read_bytes()
+        ids = ["01", "140", "219"]
+        result = self.processor.save(str(self.project), self.analysis(*ids),
+                                     work_scope={"episode_ids": ids})
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(self.read_manifest()["work_scope"], {"episode_ids": ids})
+        self.assertEqual({path.stem for path in self.episodes.glob("*.txt")}, {"01", "02", "140", "219"})
+        self.assertEqual((self.episodes / "02.txt").read_bytes(), before)
+
+    def test_invalid_or_mismatched_scope_fails_without_changing_files_or_analysis(self):
+        self.seed(["01", "140", "220"], expected_episode_count=300)
+        invalid_scopes = [[], {}, {"episode_ids": []}, {"episode_ids": "140"},
+                          {"episode_ids": [140]}, {"episode_ids": ["0140"]},
+                          {"episode_ids": ["00"]}, {"episode_ids": ["10000"]},
+                          {"episode_ids": ["140", "140"]}, {"episode_ids": ["141", "140"]},
+                          {"episode_ids": ["301"]}, {"episode_ids": ["140", "141"]},
+                          {"episode_ids": ["141"]}, {"episode_ids": ["140"], "start": 140}]
+        for scope in invalid_scopes:
+            with self.subTest(scope=scope):
+                analysis = self.analysis(140)
+                analysis.episodes[0].cleaned_content += "  "
+                content = analysis.episodes[0].cleaned_content
+                before = self.snapshot()
+                result = self.processor.save(str(self.project), analysis, work_scope=scope)
+                self.assertFalse(result.success)
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(analysis.episodes[0].cleaned_content, content)
+
+    def test_invalid_total_fails_before_creating_output(self):
+        for total in (True, 0, -1, 10000, "300", 139):
+            with self.subTest(total=total):
+                result = self.processor.save(str(self.project), self.analysis(140),
+                                             work_scope={"episode_ids": ["140"]},
+                                             expected_episode_count=total)
+                self.assertFalse(result.success)
+                self.assertFalse(self.project.exists())
+
+    def test_malformed_existing_manifest_cannot_be_silently_replaced(self):
+        row = {"sha256": "a" * 64, "char_count": 1}
+        valid = {"version": 1, "episodes": {"140": row}}
+        invalid = [[], {**valid, "version": True}, {**valid, "version": 2},
+                   {**valid, "episodes": {}}, {**valid, "episodes": {"0140": row}},
+                   {**valid, "episodes": {"140": []}},
+                   {**valid, "episodes": {"140": {"sha256": "invalid"}}},
+                   {**valid, "episodes": {"140": {**row, "char_count": True}}},
+                   {**valid, "expected_episode_count": None},
+                   {**valid, "expected_episode_count": 100},
+                   {**valid, "work_scope": None},
+                   {**valid, "work_scope": {"episode_ids": ["140", "140"]}}]
+        self.seed(["140", "220"])
+        payloads = [json.dumps(value) for value in invalid] + [
+            "invalid json",
+            '{"version": 1, "version": 1, "episodes": {"140": {"sha256": "' + "a" * 64 + '"}}}',
+        ]
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                self.manifest_path.write_text(payload, encoding="utf-8")
+                before = self.snapshot()
+                result = self.processor.save(str(self.project), self.analysis(140),
+                                             work_scope={"episode_ids": ["140"]}, expected_episode_count=300)
+                self.assertFalse(result.success)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_legacy_save_preserves_total_and_never_infers_scope(self):
+        self.seed(["01", "140", "220"], expected_episode_count=300)
+        result = self.processor.save(str(self.project), self.analysis(140, 219))
+        self.assertTrue(result.success, result.error)
+        manifest = self.read_manifest()
+        self.assertEqual(manifest["expected_episode_count"], 300)
+        self.assertNotIn("work_scope", manifest)
+        self.assertEqual(set(manifest["episodes"]), {"140", "219"})
+        self.assertEqual({path.stem for path in self.episodes.glob("*.txt")}, {"140", "219"})
+
+
 class HelperMigrationTests(unittest.TestCase):
     def test_split_save_does_not_require_old_app_state(self):
         module = load("tweet-drama-script-split", "script_processor.py")
