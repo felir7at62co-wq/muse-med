@@ -702,6 +702,8 @@ interface ToolArgsMap {
       episode?: string;
       /** 本项图片提示词。 */
       prompt: string;
+      /** 本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。 */
+      image_style?: "live_action" | "anime";
       /** 本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。 */
       image_platform_id?: string;
       /** 本项有序参考图 HTTPS URL。 */
@@ -709,6 +711,8 @@ interface ToolArgsMap {
       /** 可选：重生成的父资产 ID；省略则新建。 */
       parent_asset_id?: number;
     })[];
+    /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
+    image_style?: "live_action" | "anime";
     /** image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。 */
     image_platform_id?: string;
     /** image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，不接受直接传入规格 ID。 */
