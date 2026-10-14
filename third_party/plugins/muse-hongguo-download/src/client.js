@@ -129,11 +129,13 @@ export class HongguoDownloadClient {
       for (const id of options.seriesIds) {
         const catalog = await this.catalog(id, options.mode, active);
         items.push({ seriesId: id, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
-          accessibleEpisodeCount: catalog.accessibleEpisodeCount ?? catalog.episodeCount,
+          accessibleEpisodeCount: catalog.accessibleEpisodeCount ?? null,
           completeCatalog: catalog.episodes.length === catalog.episodeCount, downloaded: false,
-          fullSeriesAvailable: options.mode !== 'public' || catalog.accessibleEpisodeCount === catalog.episodeCount });
+          mediaUrlsVerified: false,
+          fullSeriesAvailable: options.mode === 'public' && catalog.accessibleEpisodeCount < catalog.episodeCount ? false : null });
       }
-      return { ok: true, sourceMode: options.mode, items, verifiedDownload: false, note: note(options.mode) };
+      return { ok: true, sourceMode: options.mode, items, verifiedDownload: false,
+        note: `${note(options.mode)} 目录完整不代表媒体可下载；媒体地址尚未验证，只有实际下载与完整解码成功后才能确认交付。` };
     });
   }
 
