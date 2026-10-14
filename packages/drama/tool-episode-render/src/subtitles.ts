@@ -5,7 +5,7 @@
  * The burned-in subtitle is part of the delivered picture, so its style is the
  * delivery specification rather than a tool parameter: size 68 with -2 spacing
  * and a black outline 7 delivered pixels wide, bottom-centred on a 1080x1920
- * canvas, plus the single bottom-right `内容由AI生成` mark. The outline's ASS
+ * canvas by default. The policy selects the canvas and optional bottom-right AI mark. The outline's ASS
  * field is derived from that delivered width by `assOutline` — the field is in
  * canvas units and libass scales it to the rasterized frame.
  *
@@ -13,8 +13,9 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { buildAssHeader, escapeAssText, formatAssTime, WATERMARK_POSITION, WATERMARK_TEXT } from './delivery.ts'
-import type { RenderSettings, SubtitleCue } from './types.ts'
+import { assCanvas, buildAssHeader, escapeAssText, formatAssTime, WATERMARK_TEXT } from './delivery.ts'
+import { deliveryPolicyFor } from './delivery-policy.ts'
+import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
 
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
 const WATERMARK_END = '9:59:59.00'
@@ -113,21 +114,25 @@ export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
 /**
  * Compose the ASS script for one episode.
  *
- * Every cue becomes a `Default` dialogue line and the delivery spec's AI-content
- * mark becomes the single `Watermark` line, so the burn-in carries both the
- * operator's subtitle style and the platform's declaration in one file.
+ * Every cue becomes a `Default` dialogue line. The optional AI-content mark
+ * is omitted entirely for 3D animation, including its ASS style.
  * @param cues - The cues to burn, in file order.
  * @param settings - Font families validated by the plugin Config.
+ * @param policy - Resolved geometry and medium-specific mark treatment.
  * @returns The complete ASS document.
  */
 export function buildAssDocument(
   cues: readonly SubtitleCue[],
   settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>,
+  policy: DeliveryPolicy = deliveryPolicyFor(),
 ): string {
   const events = cues.map(cue => 'Dialogue: 0,'
     + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
     + escapeAssText(cue.text))
-  events.push(`Dialogue: 1,0:00:00.00,${WATERMARK_END},Watermark,,0,0,0,,`
-    + `${WATERMARK_POSITION}${WATERMARK_TEXT}`)
-  return `${buildAssHeader(settings)}${events.join('\n')}\n`
+  if (policy.addWatermark) {
+    const canvas = assCanvas(policy.delivery)
+    const position = `{\\an3\\pos(${String(canvas.width - 55)},${String(canvas.height - 110)})}`
+    events.push(`Dialogue: 1,0:00:00.00,${WATERMARK_END},Watermark,,0,0,0,,${position}${WATERMARK_TEXT}`)
+  }
+  return `${buildAssHeader(settings, policy.delivery, policy.addWatermark)}${events.join('\n')}\n`
 }

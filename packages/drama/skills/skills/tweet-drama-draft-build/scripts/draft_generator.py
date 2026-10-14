@@ -9,11 +9,19 @@ import sys
 import shutil
 import logging
 import re
+import json
+import importlib.util
 from typing import Dict, Any, Optional
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos, find_project
+
+_policy_spec = importlib.util.spec_from_file_location(
+    "drama_delivery_policy", Path(__file__).resolve().parents[2]
+    / "tweet-drama-background-render/scripts/delivery_policy.py")
+_delivery_policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(_delivery_policy)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +74,7 @@ class DraftGenerator:
               05_timeline/    ← 01.timeline.json, ... (可选)
               06_ending/      ← 与成片相同的已选 ending_audio.mp3/ending_effect.mp4 (可选)
 
-        ending_audio/ending_effect 是显式选定的片尾文件；在正文后 2 秒内保持原速独立可编辑。
+        仿真人的 ending_audio/ending_effect 在正文后 2 秒内保持原速独立可编辑；3D 动画忽略片尾素材。
         """
         selected = {}
         for directory in (fallback_video_dir, video_dir):
@@ -75,13 +83,24 @@ class DraftGenerator:
                     if path.is_file() and path.parent.name.isdigit():
                         selected[(path.parent.name, path.name)] = path
         videos = [path for path in selected.values() if path.suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}]
+        project_root = Path(project) if project else next(
+            (path for path in (Path(video_dir).resolve(), *Path(video_dir).resolve().parents)
+             if (path / 'project_config.json').is_file()), None)
         if videos:
-            check_videos(find_project(Path(video_dir), project), videos)
-        ending_files = {"ending_audio.mp3": ending_audio, "ending_effect.mp4": ending_effect}
+            project_root = find_project(Path(video_dir), project)
+            check_videos(project_root, videos)
+        timeline_paths = sorted(Path(timeline_dir).glob('*.timeline.json')) if timeline_dir else []
+        policies = [_delivery_policy.resolve_delivery(
+            json.loads(path.read_text(encoding='utf-8')), project_root) for path in timeline_paths]
+        if not policies:
+            policies = [_delivery_policy.resolve_delivery({}, project_root)]
+        include_ending = any(policy['ending_duration_us'] for policy in policies)
+        ending_files = ({"ending_audio.mp3": ending_audio, "ending_effect.mp4": ending_effect}
+                        if include_ending else {})
         for source in ending_files.values():
             if source is not None and not Path(source).is_file():
                 raise FileNotFoundError(f"Missing selected ending asset: {source}")
-        if ending_effect:
+        if include_ending and ending_effect:
             check_videos(find_project(Path(video_dir), project), [Path(ending_effect)])
         # 先清空已存在的素材目录，确保每次都是全新的素材
         if os.path.exists(output_materials_dir):

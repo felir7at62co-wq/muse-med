@@ -147,7 +147,7 @@ describe('registration', () => {
     expect(tool.name).toBe('drama_render')
     expect(tool.description).toContain('默认 SimHei 68，字体服从部署配置')
     for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2',
-      '黑描边按成片像素推导（目标 7px，标准管线写入 5）', 'fps=60,setpts=N/(60*TB)',
+      '黑描边按成片像素推导（目标 7px，标准管线写入 5）', 'fps=F,setpts=N/(F*TB)', 'F 取时间线 delivery.fps（旧时间线默认 60）',
       '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
     }
@@ -450,13 +450,13 @@ describe('resolveCall', () => {
     expect(() => resolveCall({
       method: 'render', project: 'C:/proj', episode: 1, lastShot: 2, timeline: 't', subtitleSrt: 's',
     })).toThrow('drama_render render 需要 bgm')
-    expect(() => resolveCall({
+    expect(resolveCall({
       method: 'render', project: 'C:/proj', episode: 1, lastShot: 2, timeline: 't', subtitleSrt: 's', bgm: 'b',
-    })).toThrow('drama_render render 需要 endingAudio')
-    expect(() => resolveCall({
+    })).toMatchObject({ method: 'render' })
+    expect(resolveCall({
       method: 'render', project: 'C:/proj', episode: 1, lastShot: 2, timeline: 't', subtitleSrt: 's',
       bgm: 'b', endingAudio: 'e',
-    })).toThrow('drama_render render 需要 endingEffect')
+    })).toMatchObject({ method: 'render' })
     expect(() => resolveCall({ method: 'verify', project: 'C:/proj', episode: 1 }))
       .toThrow('drama_render verify 需要 timeline')
     expect(() => resolveCall({ method: 'verify', project: 'C:/proj', episode: 1, timeline: 't' }))
@@ -468,6 +468,25 @@ describe('resolveCall', () => {
 })
 
 describe('runDramaRender', () => {
+  it('resolves animation policy before requiring ending arguments through the tool entry', async () => {
+    const files = await preparedProject()
+    await writePlaceholder(join(files.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))
+    const report = await run({ method: 'render', project: files.project, episode: 2,
+      timeline: files.timeline, subtitleSrt: files.subtitle, lastShot: 1, bgm: files.bgm, output: files.output },
+    settingsWith(callChannel(files.project).channel))
+    expect(report.expected_duration_seconds).toBe(114.733332)
+    expect(report.tail_frame.path).toBe('')
+  })
+
+  it.each(['endingAudio', 'endingEffect'] as const)('requires %s only after resolving photorealistic policy', async (missing) => {
+    const files = await preparedProject()
+    await writePlaceholder(join(files.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'photorealistic' } }))
+    const endings = missing === 'endingAudio' ? {} : { endingAudio: files.endingAudio }
+    await expect(run({ method: 'render', project: files.project, episode: 2,
+      timeline: files.timeline, subtitleSrt: files.subtitle, lastShot: 1, bgm: files.bgm, ...endings },
+    settingsWith(callChannel(files.project).channel))).rejects.toThrow(`需要 ${missing}`)
+  })
+
   it.each([
     [{}, 'SimHei', 'Microsoft YaHei'],
     [{ subtitleFontFamily: 'Noto Sans CJK SC' }, 'Noto Sans CJK SC', 'Microsoft YaHei'],
@@ -506,7 +525,7 @@ describe('runDramaRender', () => {
     expect(report.clips[0]?.duration_us).toBe(114_733_332)
     expect(report.clips[0]?.source).toBe(join(files.project, 'media', 'p1-clean.mp4'))
     expect(report.body_end_seconds).toBe(114.733332)
-    expect(report.expected_duration_seconds).toBe(114.733332)
+    expect(report.expected_duration_seconds).toBe(116.733332)
     expect(report.encoder).toBe('')
     expect(report.gpu_requested).toBe(false)
     expect(report.media.duration_seconds).toBe(0)

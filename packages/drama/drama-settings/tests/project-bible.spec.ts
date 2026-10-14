@@ -91,6 +91,48 @@ it.each(['仿真人', '3D', '二维水墨动画，低饱和色彩'])('persists t
   expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain(`风格：${style}`)
 })
 
+it.each(['animation_3d', 'photorealistic'])('persists explicit delivery medium independently of style and ratio: %s', async (visual_medium) => {
+  const { ctx, home } = await bench()
+  const style = '写实 3D，电影级 PBR 材质'
+  const changes = { style, visual_medium, aspect_ratio: '16:9' }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '确认交付类型')
+  expect(preview.changed_fields).toContain('visual_medium')
+  expect(preview.affected_stages).toEqual(['asset_prompts', 'shots_and_matches', 'video_tasks', 'draft', 'export'])
+  await updateProjectBible(ctx.settings, home, changes, '确认交付类型', preview.expected_revision, preview.preview_fingerprint)
+  const result = await readProjectBible(ctx.settings, home)
+  expect(result.config).toMatchObject({ project_bible: { style, visual_medium, aspect_ratio: '16:9', revision: 1 } })
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toContain(`交付类型：${visual_medium}`)
+  const later = { title: '新增标题' }
+  const next = await previewProjectBible(ctx.settings, home, later, '只更新标题')
+  expect(next.proposed).toMatchObject({ project_bible: { style, visual_medium, revision: 2 } })
+  expect(next.changed_fields).toEqual(['title'])
+})
+
+it('never infers medium from legacy style or aspect ratio and labels the legacy delivery', async () => {
+  const { ctx, home } = await bench()
+  const preview = await previewProjectBible(ctx.settings, home, { style: '写实 3D', aspect_ratio: '16:9' }, '保留旧项目')
+  expect(preview.proposed.project_bible).not.toHaveProperty('visual_medium')
+  expect(preview.markdown).toContain('未确认；沿用旧版片尾与 AI 水印')
+})
+
+it.each(['3d', '写实3D', 'unknown', '', null, 1])('rejects an invalid explicit delivery medium: %s', async (visual_medium) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { visual_medium }, '无效类型')).rejects.toThrow('visual_medium')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('records medium changes in revision history without replacing completed work', async () => {
+  const { ctx, home } = await bench()
+  const first = { visual_medium: 'photorealistic', style: '古装风格', completed_tasks: [{ task_id: 'finished-1', kind: 'video' }] }
+  const preview = await previewProjectBible(ctx.settings, home, first, '初建')
+  await updateProjectBible(ctx.settings, home, first, '初建', preview.expected_revision, preview.preview_fingerprint)
+  const change = { visual_medium: 'animation_3d' }
+  const next = await previewProjectBible(ctx.settings, home, change, '确认 3D 交付')
+  const saved = await updateProjectBible(ctx.settings, home, change, '确认 3D 交付', next.expected_revision, next.preview_fingerprint)
+  expect(saved.config).toMatchObject({ project_bible: { visual_medium: 'animation_3d', style: '古装风格', revision: 2,
+    completed_tasks: first.completed_tasks, history: [{ revision: 1 }, { revision: 2, changed_fields: ['visual_medium'], affected_stages: ['asset_prompts', 'shots_and_matches', 'video_tasks', 'draft', 'export'] }] } })
+})
+
 it('preserves legacy requirements, stable package bindings, completed tasks and prior revisions', async () => {
   const { ctx, home } = await bench()
   await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
