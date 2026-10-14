@@ -10,7 +10,7 @@ import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TerminalSessionService, { TerminalBackendCleanupError, TerminalSessionId } from '@deepseek-ai/dsh-terminal'
-import type { TerminalSendRequest, TerminalWaitReason } from '@deepseek-ai/dsh-terminal'
+import type { TerminalSendRequest, TerminalSendResult, TerminalWaitReason } from '@deepseek-ai/dsh-terminal'
 import { BashTerminalBackend, PWSH_PROMPT_SETUP } from '@deepseek-ai/dsh-terminal-bash'
 import { ENCODING_PREAMBLE } from '@deepseek-ai/dsh-pwsh-local'
 import * as ptyLocal from '@deepseek-ai/dsh-terminal-bash'
@@ -455,39 +455,79 @@ describe('BashTerminalBackend startup rollback', () => {
     expect(spawned?.env?.PROMPT_COMMAND).toBeUndefined()
   })
 
-  it('keeps waiting for stdin_read when the first settled output only echoes the prompt literal', async () => {
+  it.each([
+    { output: 'empty', viewport: '' },
+    { output: 'setup echo', viewport: "function prompt { 'dsh> ' }\n" },
+  ])('submits pwsh setup once while waiting for a delayed prompt after $output', async ({ viewport }) => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
     const sends: TerminalSendRequest[] = []
-    const session = {
-      motd: '',
-      startSend: (request: TerminalSendRequest) => {
-        sends.push(request)
-        const second = sends.length > 1
-        return {
-          done: Promise.resolve({
-            viewport: second ? 'dsh> ' : "function prompt { 'dsh> ' }\n",
-            waitReason: second ? 'stdin_read' as const : 'inferred_idle' as const,
-            sessionStatus: { kind: 'running' as const }, truncated: false,
-          }),
-          readOutput: () => ({ delta: '', truncated: false }),
-          cancel: () => false,
-        }
-      },
-      read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
-    } as unknown as LocalPtySession
+    const firstStarted = Promise.withResolvers<undefined>()
+    const followupStarted = Promise.withResolvers<undefined>()
+    const firstResult = Promise.withResolvers<TerminalSendResult>()
+    const promptResult = Promise.withResolvers<TerminalSendResult>()
+    const session = stubLocalSession()
+    const close = vi.spyOn(session, 'close')
+    vi.spyOn(session, 'startSend').mockImplementation((request) => {
+      sends.push(request)
+      if (sends.length === 1) firstStarted.resolve(undefined)
+      else followupStarted.resolve(undefined)
+      return {
+        done: sends.length === 1 ? firstResult.promise : promptResult.promise,
+        readOutput: () => ({ delta: '', truncated: false }),
+        cancel: () => false,
+      }
+    })
     const backend = new BashTerminalBackend(
       ctx,
       { ...config(), shellDialect: 'pwsh', shellPath: 'pwsh' },
       async () => terminalHandle(),
       () => session,
     )
-    await backend.spawn(spec(agent(ctx)))
-    expect(sends).toHaveLength(2)
-    expect(sends[1]).toMatchObject({ text: '', submit: false })
-    expect(session.motd).toBe('dsh> ')
+    const spawning = backend.spawn(spec(agent(ctx)))
+    let published = false
+    void spawning.then(() => { published = true }, () => {})
+    try {
+      await firstStarted.promise
+      firstResult.resolve({
+        viewport, waitReason: 'inferred_idle',
+        sessionStatus: { kind: 'running' }, truncated: false,
+      })
+      await followupStarted.promise
+      expect(published).toBe(false)
+      expect(sends).toHaveLength(2)
+      expect(sends[0]).toMatchObject({ text: ENCODING_PREAMBLE + PWSH_PROMPT_SETUP, submit: true })
+      expect(sends[1]).toMatchObject({ text: '', submit: false })
+      expect(sends.filter(request => request.submit)).toHaveLength(1)
+      promptResult.resolve({
+        viewport: 'dsh> ', waitReason: 'stdin_read',
+        sessionStatus: { kind: 'running' }, truncated: false,
+      })
+      expect(await spawning).toBe(session)
+      expect(session.motd).toBe('dsh> ')
+    } finally {
+      firstResult.resolve({
+        viewport, waitReason: 'inferred_idle',
+        sessionStatus: { kind: 'running' }, truncated: false,
+      })
+      promptResult.resolve({
+        viewport: 'dsh> ', waitReason: 'stdin_read',
+        sessionStatus: { kind: 'running' }, truncated: false,
+      })
+      await Promise.allSettled([spawning])
+      try {
+        await session.close('test complete')
+      } finally {
+        try {
+          await ctx.fiber.dispose()
+        } finally {
+          vi.restoreAllMocks()
+        }
+      }
+    }
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it('rejects a pwsh bootstrap whose shell exits or times out', async () => {
@@ -513,19 +553,15 @@ describe('BashTerminalBackend startup rollback', () => {
     await expect(timedOut.spawn(spec(agent(ctx)))).rejects.toThrow('did not reach readiness before startup timeout')
   })
 
-  it('bounds all pwsh startup retries with one deadline', async () => {
+  it.each(['', 'setup echo'])('bounds pwsh startup follow-ups after %j with one deadline', async (viewport) => {
     vi.useFakeTimers()
+    const ctx = new Context()
+    const pending = Promise.withResolvers<TerminalSendResult>()
+    let spawning: Promise<LocalPtySession> | undefined
     try {
-      const ctx = new Context()
       await ctx.plugin(EmptySandbox)
       await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
-      const pending = Promise.withResolvers<{
-        viewport: string
-        waitReason: 'inferred_idle'
-        sessionStatus: { kind: 'running' }
-        truncated: boolean
-      }>()
       let sends = 0
       let cancellations = 0
       let closes = 0
@@ -536,7 +572,7 @@ describe('BashTerminalBackend startup rollback', () => {
           return {
             done: sends === 1
               ? Promise.resolve({
-                viewport: 'setup echo', waitReason: 'inferred_idle' as const,
+                viewport, waitReason: 'inferred_idle' as const,
                 sessionStatus: { kind: 'running' as const }, truncated: false,
               })
               : pending.promise,
@@ -545,7 +581,14 @@ describe('BashTerminalBackend startup rollback', () => {
           }
         },
         read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
-        close: () => { closes += 1; return Promise.resolve() },
+        close: () => {
+          closes += 1
+          pending.resolve({
+            viewport: '', waitReason: 'session_exit',
+            sessionStatus: { kind: 'exited', exitCode: 0, signal: null }, truncated: false,
+          })
+          return Promise.resolve()
+        },
       } as unknown as LocalPtySession
       const backend = new BashTerminalBackend(
         ctx,
@@ -554,7 +597,7 @@ describe('BashTerminalBackend startup rollback', () => {
         () => session,
       )
 
-      const spawning = backend.spawn(spec(agent(ctx)))
+      spawning = backend.spawn(spec(agent(ctx)))
       await vi.advanceTimersByTimeAsync(0)
       expect(sends).toBe(2)
       const rejected = expect(spawning).rejects.toThrow('did not reach readiness before startup timeout')
@@ -563,8 +606,19 @@ describe('BashTerminalBackend startup rollback', () => {
       await rejected
       expect(cancellations).toBe(1)
       expect(closes).toBe(1)
+      expect(sends).toBe(2)
+      expect(session.motd).toBe('')
     } finally {
-      vi.useRealTimers()
+      pending.resolve({
+        viewport: '', waitReason: 'session_exit',
+        sessionStatus: { kind: 'exited', exitCode: 0, signal: null }, truncated: false,
+      })
+      await Promise.allSettled(spawning === undefined ? [] : [spawning])
+      try {
+        await ctx.fiber.dispose()
+      } finally {
+        vi.useRealTimers()
+      }
     }
   })
 
