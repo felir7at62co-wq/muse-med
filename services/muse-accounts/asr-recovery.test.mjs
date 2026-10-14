@@ -26,8 +26,8 @@ test('shutdown reports a response persistence failure after its only provider re
  await service.ready();await service.submit('alice',randomUUID(),hash,'zh',Readable.from(bytes));await entered.promise;
  const saved=join(root,'original-jobs');await rename(join(root,'jobs'),saved);await writeFile(join(root,'jobs'),'blocked ledger');
  const stopped=service.close();release.resolve();
- // A file-backed jobs directory reports ENOENT on Windows and ENOTDIR on POSIX.
- await assert.rejects(stopped,error=>['ENOTDIR','ENOENT'].includes(error.code)&&error.syscall==='open'&&typeof error.path==='string'&&dirname(error.path)===join(root,'jobs'));
+ // The blocked ledger fails either its write or temporary-file cleanup, with platform-owned error codes.
+ await assert.rejects(stopped,error=>['ENOTDIR','ENOENT'].includes(error.code)&&['open','lstat'].includes(error.syscall)&&typeof error.path==='string'&&dirname(error.path)===join(root,'jobs'));
  const [file]=await readdir(saved),job=JSON.parse(await readFile(join(saved,file),'utf8'));
  assert.equal(calls,1);assert.equal(job.status,'submitting');assert.ok(Number.isFinite(job.submittedAtMs));
 });
