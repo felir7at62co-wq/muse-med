@@ -47,6 +47,10 @@
 
 在既有 `generation.prompt_parts.medium` 填入开头使用的媒介词，例如 `3D动漫` 或 `风格化三维动画`（其他允许值见检查脚本的 `MEDIA`）。其余风格子项和材质结构仍写入正文。`generation.final_prompt` 保存最终实际工具参数中的完整 prompt，不能只保存上游草稿。非 `local_review` 参考均为本次计划提交项，逐张记录 `purpose`、`submitted`、`upload_status`（`pending/failed/unknown/uploaded`）和 `url`；只有实际上传成功且取得可用 HTTPS URL 后才能记 `uploaded`、`submitted=true`。`local_review` 仅本地审阅，必须 `submitted=false`。沿用 schema 2 的开放对象，不是新增 API 参数。
 
+`jubian_video image_generate` 显式提供 `image_style: "anime"`，批量调用则在每个 `items` 项提供；3D动漫细分风格继续完整保留在 prompt 中。剧变的生图媒介参数独立于提示词，`anime` 对应动漫，不得按真人默认值提交。回执中的 `image_style` 只是本次解析的请求选择，仍须回读远端与查看实际图像；它不证明生成质量。
+
+自然写实 CG 的画风验收应与已确认的项目母版或随包目标参考比较，记录造型风格化程度和跨人物一致性。没有噪点、皮肤光滑或白底不能单独证明三维动漫媒介；照片般难以区分或偏离目标参考时，记为待确认，不能因参数是 `anime` 就判画风通过。
+
 保存即将调用的 `jubian_video` 完整参数为 `request.json`，从本次加载的 Skill 目录运行：
 
 ```sh

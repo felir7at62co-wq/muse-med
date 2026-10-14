@@ -1547,3 +1547,52 @@ describe('jubian_media', () => {
     }
   })
 })
+
+
+describe('image style at the billed request', () => {
+  it('sends anime for a legacy leading 3D declaration and preserves explicit choices per batch item', async () => {
+    const { client, calls } = imageProvider()
+    const single = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'style-single', asset_name: '3D主角小样', asset_type: 1,
+      prompt: '3D动漫／风格化三维动画，人物设定图。' }, imageDeps())
+    expect(single.image_style).toBe('anime')
+    const batch = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
+      { idempotency_key: 'style-scene', asset_name: '3D场景小样', asset_type: 2, image_style: 'anime',
+        prompt: '场景设定图，精细PBR材质。' },
+      { idempotency_key: 'style-photo', asset_name: '真人小样', asset_type: 1, image_style: 'live_action',
+        prompt: '【真人写实】人物摄影。', parent_asset_id: 77 },
+    ] }, imageDeps())
+    expect(batch.errors).toBe(0)
+    expect(batch.results).toMatchObject([{ image_style: 'anime' }, { image_style: 'live_action' }])
+    const paid = calls.filter(call => call.method === 'POST' || call.method === 'PUT')
+    expect(paid).toHaveLength(3)
+    expect(Object.fromEntries(paid.map((call) => {
+      const config: unknown = JSON.parse(String(call.body!.modelConfig))
+      return [String(call.body!.assetName), config]
+    })))
+      .toMatchObject({ '3D主角小样': { style: 1 }, '3D场景小样': { style: 1 }, '真人小样': { style: 0 } })
+    expect(paid.find(call => call.body!.assetName === '真人小样')!.body!.id).toBe(77)
+  })
+
+  it('rejects conflicting single and later batch styles before any provider request or ledger reservation', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'conflict-single', asset_name: 'lead', asset_type: 1,
+      prompt: '3D动漫，角色。', image_style: 'live_action' }, imageDeps())).rejects.toThrow('conflicts')
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
+      { idempotency_key: 'batch-valid', asset_name: 'valid', asset_type: 1, prompt: '3D动漫，角色。', image_style: 'anime' },
+      { idempotency_key: 'batch-invalid', asset_name: 'invalid', asset_type: 2, prompt: '【真人写实】场景。', image_style: 'anime' },
+    ] }, imageDeps())).rejects.toThrow('invalid image request')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not charge again when a claimed key is reused with a changed medium', async () => {
+    const { client, calls } = imageProvider()
+    const args = { method: 'image_generate', script_id: 2708, idempotency_key: 'frozen-style',
+      asset_name: 'lead', asset_type: 1, prompt: '人物设定图。', image_style: 'live_action' } as const
+    await videoMethod(client, ledger, args, imageDeps())
+    await expect(videoMethod(client, ledger, { ...args, image_style: 'anime' }, imageDeps())).rejects.toThrow()
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+})

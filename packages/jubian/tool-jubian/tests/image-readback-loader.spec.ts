@@ -23,10 +23,18 @@ it('records an active candidate without confirming its casting or charging again
     projects: { '4672': { limit: '1', unit: 'CNY' } } }))
   const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
   const requests: { url: string; method: string }[] = []
+  let submittedStyle: unknown
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = input instanceof Request ? input.url : input.toString()
     const method = init?.method ?? 'GET'
     requests.push({ url, method })
+    if (method === 'POST' && typeof init?.body === 'string') {
+      const body: unknown = JSON.parse(init.body)
+      if (body !== null && typeof body === 'object' && 'modelConfig' in body && typeof body.modelConfig === 'string') {
+        const model: unknown = JSON.parse(body.modelConfig)
+        if (model !== null && typeof model === 'object' && 'style' in model) submittedStyle = model.style
+      }
+    }
     let data: unknown
     if (url.includes('getSelectList')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
       unitPrice: 0.12, unit: '张', genTypes: [{ id: 97, type: 3 }],
@@ -49,7 +57,7 @@ it('records an active candidate without confirming its casting or charging again
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
     const adapter = new MockAdapter([
       toolCallResponse('pilot', 'jubian_video', { method: 'image_generate', script_id: 4672,
-        asset_name: 'EP02｜角色｜李成3D', asset_type: 1, prompt: 'Visible 3D CG character model.',
+        asset_name: 'EP02｜角色｜李成3D', asset_type: 1, image_style: 'anime', prompt: '3D动漫／风格化三维动画，Visible 3D CG character model.',
         idempotency_key: 'lead-3d-pilot' }),
       textResponse('The candidate is ready for visual review; casting has not been confirmed.'),
     ])
@@ -68,6 +76,7 @@ it('records an active candidate without confirming its casting or charging again
     expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(result => result.content))
     expect(requests.filter(request => request.method === 'POST')).toHaveLength(1)
+    expect(submittedStyle).toBe(1)
     expect(requests).toHaveLength(4)
   } finally {
     fetch.mockRestore()

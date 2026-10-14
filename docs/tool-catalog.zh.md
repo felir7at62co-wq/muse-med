@@ -4970,6 +4970,14 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
             "type": "string",
             "description": "本项图片提示词。"
           },
+          "image_style": {
+            "type": "string",
+            "description": "本项媒介；3D动漫用 anime，真人用 live_action；与提示词开头一致。",
+            "enum": [
+              "live_action",
+              "anime"
+            ]
+          },
           "image_platform_id": {
             "type": "string",
             "description": "本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。"
@@ -4992,6 +5000,14 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
           "prompt"
         ]
       }
+    },
+    "image_style": {
+      "type": "string",
+      "description": "image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别提示词开头的正向媒介，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。",
+      "enum": [
+        "live_action",
+        "anime"
+      ]
     },
     "image_platform_id": {
       "type": "string",

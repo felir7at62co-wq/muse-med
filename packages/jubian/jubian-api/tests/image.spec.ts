@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel } from '../src/image.ts'
+import { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel, resolveImageStyle } from '../src/image.ts'
 
 const CATALOGUE = [{ id: 42, standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
   genTypes: [{ id: 7, type: 3 }],
@@ -229,5 +229,43 @@ describe('imageCandidates', () => {
   it('rejects a matching row without a usable id or platform', () => {
     expect(() => imageCandidates([{ modelId: 'gpt-image-2', platformId: 'KU_AI' }])).toThrow()
     expect(() => imageCandidates([{ id: 66, modelId: 'gpt-image-2' }])).toThrow()
+  })
+})
+
+
+describe('image medium selection', () => {
+  it.each(['3D动漫／风格化三维动画，PBR材质。', '【动漫】3D角色设定图。',
+    '三维动画，精细CG建模。', '风格化三维动画，电影光照。', 'stylized 3D animation character.',
+    '动漫，纯环境场景。', '动画：同一项目道具。', '3D国漫，角色立绘。'])
+  ('keeps a leading anime medium in the provider selector without rewriting %s', (prompt) => {
+    const body = buildImageRequest({ scriptId: 4908, assetName: '角色小样', assetType: 1,
+      prompt, references: [] }, CATALOGUE)
+    const config: unknown = JSON.parse(String(body.modelConfig))
+    expect(config).toMatchObject({ style: 1, prompt })
+  })
+
+  it.each(['【真人】人物摄影。', '【真人写实】真人摄影。', '真人实拍，人物设定。',
+    'photorealistic portrait photography of a character.', 'live-action portrait.'])
+  ('retains live action for a declared photography medium %s', (prompt) => {
+    expect(resolveImageStyle(prompt)).toBe('live_action')
+  })
+
+  it('uses an explicit anime choice for neutral PBR wording and retains legacy unmarked requests', () => {
+    expect(resolveImageStyle('自然比例，精细皮肤材质，photorealistic lighting。', 'anime')).toBe('anime')
+    expect(resolveImageStyle('一位中年男性')).toBe('live_action')
+    expect(resolveImageStyle('一位中年男性', 'live_action')).toBe('live_action')
+    expect(resolveImageStyle('【动漫】3D动漫角色。', 'anime')).toBe('anime')
+    expect(resolveImageStyle('  3D动漫，第一行。\n不要真人摄影。')).toBe('anime')
+    const body = buildImageRequest({ scriptId: 4908, assetName: '中性措辞', assetType: 1,
+      prompt: '人物设定图，精细PBR材质。', references: [], imageStyle: 'anime', parentAssetId: 169279 }, CATALOGUE)
+    const config: unknown = JSON.parse(String(body.modelConfig))
+    expect(config).toMatchObject({ style: 1 })
+    expect(body.id).toBe(169279)
+  })
+
+  it('rejects a conflicting explicit medium before building a generation request', () => {
+    expect(() => resolveImageStyle('3D动漫，角色。', 'live_action')).toThrow('conflicts')
+    expect(() => resolveImageStyle('【真人写实】摄影风格。', 'anime')).toThrow('conflicts')
+    expect(() => resolveImageStyle('人物设定图', 'unsupported')).toThrow('image_style')
   })
 })

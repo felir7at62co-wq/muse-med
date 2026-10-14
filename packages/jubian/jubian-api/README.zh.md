@@ -34,6 +34,8 @@ kind: "package-reference"
 
 `encodeVoiceSlot` 与 `readVoiceSlot` 在规范的音频资产名称后缀中保留精确的项目、人物及人生时期标识。解码后的标签表示预期声线身份，不证明说话人质量，也不表示不同录音可以互换。
 
+`ImageRequestInput.imageStyle` 选择 `anime` 或 `live_action`，分别向提供方发送 `style: 1` 或 `style: 0`。省略字段时，`resolveImageStyle` 识别提示词开头的正向动漫或真人声明；未标记的旧提示词保留真人。显式选择与开头声明冲突时，在提交前失败。完整提示词保持原字节，包括3D细分画风。该选择只描述请求媒介，不证明生成图像质量。
+
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
 读取器接收剧变响应信封的 `data` 字段，即 `JubianResponse.data`；`readStoryboardPage(data, scriptId)` 还会逐行核对请求项目。它无需生成设置即可返回当前页身份行，缺失的总数和分集归属保留为 null，并接受空页。传输层把这个字段原样返回，而赋予它类型的就是本库。

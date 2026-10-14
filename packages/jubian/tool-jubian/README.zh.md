@@ -389,6 +389,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 `image_generate` 是唯一例外，而且只是因为不这样做结果就没法用：该方法在调用内部等待并核实自己的生成图已可用，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。
 
+`image_generate` 用 `image_style: "anime"` 选择2D/3D动漫，`"live_action"` 选择真人；批量 `items` 逐项提供。旧调用从提示词开头的正向媒介声明解析，未标记的旧提示词保留真人。显式选择冲突在计费前失败。回执里的 `image_style` 是解析后的请求选择，不是视觉验收结论。完整提示词保留3D细分画风，实际图像仍需查看；未知提交按原 key 对账。
+
 -----
 
 <a id="understand-the-implementation"></a>

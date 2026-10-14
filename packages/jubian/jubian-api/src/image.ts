@@ -75,6 +75,36 @@ function imageAspectRatio(value: unknown): ImageAspectRatio {
   return value
 }
 
+/** Provider image media: anime includes both 2D and 3D animation described by the prompt. */
+export type ImageStyle = 'live_action' | 'anime'
+
+/**
+ * Resolve the image medium without rewriting the prompt.
+ * @param prompt - Complete prompt; only a leading positive medium declaration supplies an omitted choice.
+ * @param requested - Explicit image medium; must agree with a leading medium declaration.
+ * @returns The explicit or declared medium; unmarked legacy requests retain live action.
+ * @throws {JubianError} INVALID_ARGUMENT for an unsupported choice or contradictory declarations.
+ */
+export function resolveImageStyle(prompt: string, requested?: unknown): ImageStyle {
+  if (requested !== undefined && requested !== 'live_action' && requested !== 'anime') {
+    throw new JubianError('INVALID_ARGUMENT', 'image_style must be live_action or anime')
+  }
+  const firstLine = prompt.trimStart().replace(/\r?\n[\s\S]*$/u, '')
+  const anime = new RegExp([
+    String.raw`^(?:【(?:动漫|动画|3D动漫|3D动画)】|(?:3d|三维|风格化三维)\s*(?:动漫|动画|国漫)|`,
+    String.raw`(?:stylized\s+)?3d\s+(?:anime|animation)\b|(?:动漫|动画)(?:[／/，,:：\s]|$))`,
+  ].join(''), 'iu').test(firstLine)
+  const liveAction = new RegExp([
+    String.raw`^(?:【(?:真人|真人写实|写实真人)】|真人(?:写实)?(?:摄影|实拍)?(?:[／/，,:：\s]|$)|`,
+    String.raw`(?:photorealistic\s+(?:portrait\s+)?photography|live[- ]action)\b)`,
+  ].join(''), 'iu').test(firstLine)
+  const declared = anime ? 'anime' : liveAction ? 'live_action' : undefined
+  if (requested !== undefined && declared !== undefined && requested !== declared) {
+    throw new JubianError('INVALID_ARGUMENT', 'image_style conflicts with the leading prompt medium; align both before generation')
+  }
+  return requested ?? declared ?? 'live_action'
+}
+
 /** The one model id the paid image route buys. */
 const IMAGE_MODEL_ID = 'gpt-image-2'
 
@@ -188,6 +218,8 @@ export interface ImageRequestInput {
   assetType: number
   prompt: string
   references: string[]
+  /** Explicit image medium; omitted calls use a leading declaration or the legacy live-action default. */
+  imageStyle?: ImageStyle
   /** Defaults to 16:9 when omitted. */
   aspectRatio?: ImageAspectRatio
   /** Present only for the update route; the provider then takes PUT instead of POST. */
@@ -204,6 +236,7 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
   text(input.assetName)
   positive(input.assetType)
   text(input.prompt, true)
+  resolveImageStyle(input.prompt, input.imageStyle)
   imageAspectRatio(input.aspectRatio ?? '16:9')
   if (input.parentAssetId !== undefined) positive(input.parentAssetId)
   if (!Array.isArray(input.references)) invalid()
@@ -234,7 +267,7 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
-    prompt: input.prompt, style: 0, materialList: references, quality: '' }
+    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0, materialList: references, quality: '' }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,
     ...(input.parentAssetId === undefined ? {} : { id: input.parentAssetId }) }
