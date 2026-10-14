@@ -698,7 +698,11 @@ describe('FileSystemSkillProvider', () => {
       if (signal === undefined) throw new Error('expected a discovery signal')
       started.resolve(undefined)
       return await new Promise<string>((_resolve, reject) => {
-        const abort = (): void => { stopped.resolve(undefined); reject(signal.reason) }
+        const abort = (): void => {
+          stopped.resolve(undefined)
+          const reason: unknown = signal.reason
+          reject(reason instanceof Error ? reason : new Error(String(reason)))
+        }
         signal.addEventListener('abort', abort, { once: true })
         if (signal.aborted) abort()
       })

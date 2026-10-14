@@ -116,11 +116,11 @@ describe('Chat Completions transport completion', () => {
   })
 
   it('does not replace protocol completion with a rejected trailing-body cancellation', async () => {
-    const cancelled = Promise.withResolvers<void>()
+    const cancelled = Promise.withResolvers<undefined>()
     const response = new Response(new ReadableStream<Uint8Array>({
       start(controller) { controller.enqueue(encoder.encode('data: [DONE]\n\n')) },
       cancel() {
-        cancelled.resolve()
+        cancelled.resolve(undefined)
         return Promise.reject(new Error('synthetic cancellation failure'))
       },
     }), { headers })
@@ -217,9 +217,10 @@ describe('installed pi-ai Chat Completions protocol', () => {
     const controller = new AbortController()
     onTestFinished(() => { controller.abort() })
     const events = await collect(server.url, controller.signal)
-    expect(events.at(-1)).toMatchObject({
-      type: 'error', error: { errorMessage: expect.stringContaining('Stream ended without finish_reason') },
-    })
+    const terminal = events.at(-1)
+    expect(terminal?.type).toBe('error')
+    if (terminal?.type !== 'error') throw new Error('expected a terminal SDK error')
+    expect(terminal.error.errorMessage).toContain('Stream ended without finish_reason')
     await server.responseClosed
   })
 

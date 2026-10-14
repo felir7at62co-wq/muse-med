@@ -371,7 +371,7 @@ describe('dsh-tool-skill', () => {
     openMessageTurn(session)
 
     await expect(composePrefixForAgent(ctx, agent)).rejects.toThrowErrorMatchingInlineSnapshot(
-      `[Error: Skill preparation did not complete; no model request was sent. Check skill folders and retry.]`,
+      '[Error: Skill preparation did not complete; no model request was sent. Check skill folders and retry.]',
     )
     expect(catalogMessages(session)).toEqual([])
     failing = false

@@ -246,7 +246,7 @@ describe('skill-filesystem watcher failures', () => {
       await provider.dispose()
       gate.release.resolve(undefined)
       await gate.completed.promise
-      await new Promise<void>(resolve => { setImmediate(resolve) })
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
       expect(watcherHarness.statCalls.filter(path => path.startsWith(root))).toHaveLength(1)
     } finally {
       gate.release.resolve(undefined)

@@ -12,8 +12,7 @@ class DoneEventScanner {
 
   /** Return the byte offset after a complete terminal event, if present. */
   scan(bytes: Uint8Array): number | undefined {
-    for (let index = 0; index < bytes.length; index++) {
-      const byte = bytes[index]
+    for (const [index, byte] of bytes.entries()) {
       if (this.skipLineFeed && byte === 10) {
         this.skipLineFeed = false
         continue
@@ -22,7 +21,7 @@ class DoneEventScanner {
       if (byte !== 10 && byte !== 13) {
         // Only the sentinel prefix matters; ordinary JSON lines can be arbitrarily long.
         // Three extra bytes accommodate a UTF-8 BOM on the first line.
-        if (this.line.length < 16) this.line += String.fromCharCode(byte!)
+        if (this.line.length < 16) this.line += String.fromCharCode(byte)
         continue
       }
       const line = this.firstLine ? this.line.replace(/^\xEF\xBB\xBF/, '') : this.line

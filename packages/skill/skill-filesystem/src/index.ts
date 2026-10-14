@@ -776,7 +776,8 @@ function waitForDiscovery<T>(work: Promise<T>, signal?: AbortSignal): Promise<T>
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
       signal.removeEventListener('abort', onAbort)
-      reject(signal.reason)
+      const reason: unknown = signal.reason
+      reject(reason instanceof Error ? reason : new Error(errorMessage(reason)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
     if (signal.aborted) onAbort()
