@@ -1,7 +1,7 @@
 /** Desktop bundle ownership keeps Jianying settings editable through the real Loader and page. */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
-import { fireEvent, within, waitFor } from '@testing-library/react'
+import { act, fireEvent, within, waitFor } from '@testing-library/react'
 import { afterAll, expect, it, onTestFinished, vi } from 'vitest'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
@@ -141,19 +141,43 @@ it('shows an actual Host override refusal on the Client page and leaves the save
   const pinned = 'D:/pinned-mock-drafts'
   const { profile, controller } = await bench([{ id: DRAMA_SETTINGS_NAMESPACE, config: { jianyingDraftDir: pinned } }])
   const before = readFileSync(profile.patchPath, 'utf8')
-  const page = await mountSettingsPage(pageTransport(controller))
+  const transport = pageTransport(controller)
+  const hostReply = Promise.withResolvers<Awaited<ReturnType<typeof transport.mutate>>>()
+  const releaseReply = Promise.withResolvers<undefined>()
+  let pending: ReturnType<typeof transport.mutate> | undefined
+  const page = await mountSettingsPage({ ...transport, mutate: (...args) => {
+    pending = transport.mutate(...args).then(async (result) => {
+      hostReply.resolve(result)
+      await releaseReply.promise
+      return result
+    }, (error: unknown) => {
+      hostReply.reject(error)
+      throw error
+    })
+    return pending
+  } })
   onTestFinished(page.dispose)
   const rendered = within(page.container)
   await waitFor(() => { expect(rendered.getByLabelText<HTMLInputElement>('JianyingPro draft root').value).toBe(pinned) })
-  fireEvent.change(rendered.getByLabelText('JianyingPro draft root'), { target: { value: 'D:/requested-mock-drafts' } })
-  fireEvent.click(rendered.getByRole('button', { name: 'Save' }))
-  await waitFor(() => {
+  try {
+    fireEvent.change(rendered.getByLabelText('JianyingPro draft root'), { target: { value: 'D:/requested-mock-drafts' } })
+    fireEvent.click(rendered.getByRole('button', { name: 'Save' }))
+    expect(await hostReply.promise).toMatchObject({ ok: false, error: { code: 'settings/rejected' } })
+    expect(rendered.queryByRole('status')).toBeNull()
+    expect(rendered.queryByText('Saved.')).toBeNull()
+    await act(async () => {
+      releaseReply.resolve(undefined)
+      await pending
+    })
     expect(rendered.getByRole('status').textContent).toBe('Could not save: the host refused this write.')
-  })
-  expect(rendered.queryByText('Saved.')).toBeNull()
-  expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
-  const readback = controller.describe().namespaces.find(row => row.ns === DRAMA_SETTINGS_NAMESPACE)
-  expect(readback?.value).toMatchObject({ jianyingDraftDir: pinned })
+    expect(rendered.queryByText('Saved.')).toBeNull()
+    expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
+    const readback = controller.describe().namespaces.find(row => row.ns === DRAMA_SETTINGS_NAMESPACE)
+    expect(readback?.value).toMatchObject({ jianyingDraftDir: pinned })
+  } finally {
+    releaseReply.resolve(undefined)
+    await act(async () => { await Promise.allSettled(pending === undefined ? [] : [pending]) })
+  }
 })
 
 it.each(['home', 'overlay'] as const)('preserves an explicit %s override and refuses the profile write', async (layer) => {
