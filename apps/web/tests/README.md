@@ -24,6 +24,8 @@ Desktop onboarding waits for the published balance result through a [read-only a
 
 State-sensitive cases use Workspace, admission, attachment, and model-stream barriers to separate visible intermediate states from completed operations. Model-picker persistence assertions wait for the saved default, independently of menu closure. Details close waits for frame transitions; archive verification assigns an explicit title to the seeded Session and follows that identity across reload. The [CI test reliability workflow](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state) owns these synchronization rules.
 
+Permission-picker assertions wait for rendered option rows before checking counts or snapshots. The install-lifetime scenario owns a separate profile and browser, installs Auto as a bundle, and persists enablement through Plugin Manager with HMR active. Catalog-response completion precedes the existing DOM checks; current permission alone does not confirm catalog completion.
+
 Explicit scrolling uses `scrollIntoView` from `support.ts`: it resolves the locator again when its old element detaches and checks connection in the same browser task as native scrolling. Scenarios retain their visibility and geometry assertions after scrolling.
 
 ## These are Host-face tests
