@@ -376,7 +376,7 @@ async function runNpm(
   cwd: string,
   registry: string,
   timeoutMs: number,
-): Promise<{ durationMs: number; output: string; timedOut: boolean }> {
+): Promise<Awaited<ReturnType<typeof runCommandWithTimeout>>> {
   const npmrc = join(cwd, '.npmrc')
   const globalNpmrc = join(cwd, '.npmrc-global')
   writeFileSync(npmrc, `registry=${registry}\n@deepseek-ai:registry=${registry}\n`)
@@ -419,6 +419,7 @@ async function runNpm(
  * @param timeoutMs - Hard wall-clock limit for the npm child process.
  * @param timeoutSubject - What the limit guards, named in the timeout diagnostic.
  * @returns The package lock plus timing and registry-request observations.
+ * @throws On timeout, including subprocess exit, output, and local registry observations.
  */
 export async function resolveNpmPackageLock(
   index: RegistryIndex,
@@ -473,7 +474,17 @@ export async function resolveNpmPackageLock(
       dependencies,
     }, null, 2)}\n`)
     const result = await runNpm(consumer, registry, timeoutMs)
-    if (result.timedOut) throw new Error(`${timeoutSubject} exceeded ${String(timeoutMs)} ms`)
+    if (result.timedOut) {
+      throw new Error(`${timeoutSubject} exceeded ${String(timeoutMs)} ms\n${JSON.stringify({
+        status: result.status,
+        signal: result.signal,
+        durationMs: result.durationMs,
+        output: result.output.trim(),
+        registryRequests,
+        archiveRequests,
+        unknownPackages: [...unknownPackages].sort(),
+      })}`)
+    }
     return {
       durationMs: result.durationMs,
       registryRequests,
