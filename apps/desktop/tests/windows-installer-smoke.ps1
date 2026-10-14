@@ -6,7 +6,17 @@ param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$P
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
-. (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1')
+$diagnosticAssembly = Join-Path $OutputDirectory ("installer-diagnostics-$([Guid]::NewGuid().ToString('N')).dll")
+. (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly
+$assemblyReceipt = [ordered]@{
+    assemblyPath = $diagnosticAssembly
+    assemblySha256 = (Get-FileHash -LiteralPath $diagnosticAssembly -Algorithm SHA256).Hash.ToLowerInvariant()
+    sourceSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+    compiledInParent = $true
+} | ConvertTo-Json
+# This source-generated assembly remains in this run's private diagnostic artifacts, outside the installed payload.
+[IO.File]::WriteAllText((Join-Path $OutputDirectory 'diagnostics-assembly.json'),
+    $assemblyReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 [InstallerCapture]::Initialize()
 [InstallerCapture]::ProductName = $ProductName
 $installPath = Join-Path $OutputDirectory 'Installed App'
@@ -149,7 +159,7 @@ function Wait-FinishCallbackReturn([Diagnostics.Process]$Process, [int]$Previous
 function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
     $observerPath = Join-Path $PSScriptRoot 'windows-installer-failure-observer.ps1'
     $receiptPath = Join-Path $OutputDirectory ("native-observer-$($Process.Id)-$([Guid]::NewGuid().ToString('N')).json")
-    $command = "& '$($observerPath.Replace("'", "''"))' -ProcessId $($Process.Id) -InstallerPath '$($Installer.Replace("'", "''"))' -OutputPath '$($receiptPath.Replace("'", "''"))'"
+    $command = "& '$($observerPath.Replace("'", "''"))' -ProcessId $($Process.Id) -InstallerPath '$($Installer.Replace("'", "''"))' -AssemblyPath '$($diagnosticAssembly.Replace("'", "''"))' -OutputPath '$($receiptPath.Replace("'", "''"))'"
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = Join-Path $PSHOME 'powershell.exe'
     $startInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' +

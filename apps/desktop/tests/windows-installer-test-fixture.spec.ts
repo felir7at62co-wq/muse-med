@@ -116,6 +116,44 @@ it('owns a bounded credential-scrubbed observer and drains it before installer c
   expect(smoke).toContain('native-observer-exact-installer-and-quiescent-return')
 })
 
+function reusableAssemblyFailures(smoke: string, helper: string, worker: string): string[] {
+  const requirements: Record<string, boolean> = {
+    privateParentAssembly: smoke.includes('Join-Path $OutputDirectory ("installer-diagnostics-$([Guid]::NewGuid()')
+      && smoke.includes("'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly")
+      && smoke.includes('-AssemblyPath \'$($diagnosticAssembly.Replace'),
+    sameGeneratedFile: helper.includes('-OutputAssembly $installerDiagnosticsAssemblyFile')
+      && helper.includes('Add-Type -LiteralPath $installerDiagnosticsAssemblyFile')
+      && helper.includes('if (Test-Path -LiteralPath $installerDiagnosticsAssemblyFile)'),
+    noObserverCompilation: worker.includes('Add-Type -LiteralPath $observerAssemblyFile')
+      && !/-TypeDefinition|windows-installer-diagnostics\.ps1/u.test(worker),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
+it('compiles the reviewed diagnostic helper once into a private assembly and loads the same file in the observer', async () => {
+  const [smoke, helper, worker] = await Promise.all([
+    readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8'),
+    readFile(new URL('./windows-installer-diagnostics.ps1', import.meta.url), 'utf8'),
+    readFile(new URL('./windows-installer-failure-observer.ps1', import.meta.url), 'utf8'),
+  ])
+  expect(smoke).toContain('installer-diagnostics-$([Guid]::NewGuid().ToString(\'N\')).dll')
+  expect(smoke).toContain("'windows-installer-diagnostics.ps1') -AssemblyPath $diagnosticAssembly")
+  expect(smoke).toContain('-AssemblyPath \'$($diagnosticAssembly.Replace')
+  expect(smoke).toContain('assemblySha256 = (Get-FileHash -LiteralPath $diagnosticAssembly -Algorithm SHA256)')
+  expect(helper).toContain('-OutputAssembly $installerDiagnosticsAssemblyFile')
+  expect(worker).toContain('Add-Type -LiteralPath $observerAssemblyFile')
+  expect(worker).not.toMatch(/-TypeDefinition|windows-installer-diagnostics\.ps1/u)
+  expect(smoke).toContain('$observer.WaitForExit(5000)')
+  expect(smoke).toContain('$waitReturned = $Process.WaitForExit(10000)')
+  expect(reusableAssemblyFailures(smoke, helper, worker)).toEqual([])
+  expect(reusableAssemblyFailures(smoke.replace('Join-Path $OutputDirectory ("installer-diagnostics-$([Guid]::NewGuid()',
+    'Join-Path $env:TEMP ("shared-diagnostics.dll'), helper, worker)).toContain('privateParentAssembly')
+  expect(reusableAssemblyFailures(smoke, helper.replace('-OutputAssembly $installerDiagnosticsAssemblyFile', ''), worker))
+    .toContain('sameGeneratedFile')
+  expect(reusableAssemblyFailures(smoke, helper, worker.replace('Add-Type -LiteralPath $observerAssemblyFile',
+    'Add-Type -TypeDefinition $source'))).toContain('noObserverCompilation')
+})
+
 const receipt = { primaryFailure: 'Injected automatic update failure after relaunch', cleanupFailures: [],
   negativeControlRequested: true, negativeControlReached: true, negativeControlProcessId: 2345,
   discoveredAppProcessIds: [2345], remainingAppProcessIds: [], applicationRemoved: true, uninstallerRemoved: true,

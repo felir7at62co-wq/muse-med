@@ -1,5 +1,24 @@
-if (-not ('InstallerDiagnostics' -as [type])) {
-    Add-Type -ReferencedAssemblies System.dll, System.Core.dll -TypeDefinition @'
+<# Compile the reviewed helper once for the main native test and its isolated diagnostic observers. #>
+[CmdletBinding()]
+param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$AssemblyPath)
+if ($AssemblyPath -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+(?:\\|$))') {
+    throw 'Installer diagnostics assembly requires a fully qualified Windows path'
+}
+$installerDiagnosticsAssemblyFile = [IO.Path]::GetFullPath($AssemblyPath)
+if (-not [string]::Equals([IO.Path]::GetExtension($installerDiagnosticsAssemblyFile), '.dll', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Installer diagnostics assembly must be a DLL'
+}
+if (-not [IO.Directory]::Exists([IO.Path]::GetDirectoryName($installerDiagnosticsAssemblyFile))) {
+    throw 'Installer diagnostics assembly requires its allocated private directory'
+}
+if (Test-Path -LiteralPath $installerDiagnosticsAssemblyFile) {
+    throw 'Installer diagnostics refuses a preexisting assembly destination'
+}
+if ('InstallerDiagnostics' -as [type]) {
+    throw 'Installer diagnostics cannot replace an already loaded helper type'
+}
+# Disk compilation without PassThru does not load types in Windows PowerShell 5.
+Add-Type -ReferencedAssemblies System.dll, System.Core.dll -OutputAssembly $installerDiagnosticsAssemblyFile -OutputType Library -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -379,4 +398,7 @@ public static class InstallerDiagnostics {
     }
 }
 '@
+Add-Type -LiteralPath $installerDiagnosticsAssemblyFile
+if (-not ('InstallerDiagnostics' -as [type])) {
+    throw 'The compiled installer diagnostics assembly did not provide its helper type'
 }
