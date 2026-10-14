@@ -28,12 +28,12 @@ import {
   deliveryScaleFilter,
   ENDING_AUDIO_ASSET,
   ENDING_EFFECT_ASSET,
-  ENDING_SECONDS,
   MAX_BITRATE,
   MIN_BITRATE_BPS,
   subtitleBurnFilter,
   TARGET_BITRATE,
 } from './delivery.ts'
+import { assertBodyOnlyAnimation, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { chooseEncoder } from './encoder.ts'
 import {
   buildEndingClip,
@@ -44,7 +44,7 @@ import {
 } from './ending.ts'
 import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
-import { buildReport, type ReportInput } from './report.ts'
+import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { readSubtitleCues, buildAssDocument } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
@@ -75,13 +75,24 @@ export interface RenderInput {
   /** Optional declared segment plan; never substitutes for listening review. */
   readonly bgmPlan?: string
   /** Absolute path of the ending sound. */
-  readonly endingAudio: string
+  readonly endingAudio?: string
   /** Absolute path of the ending effect video. */
-  readonly endingEffect: string
+  readonly endingEffect?: string
   /** Absolute path of the file to write. */
   readonly output: string
   /** Whether the per-shot cache is ignored and every clip re-encoded. */
   readonly force: boolean
+}
+
+/** Demand ending paths only after the explicit medium has selected a marked delivery. */
+function requiredEndingPaths(input: RenderInput): { audio: string; effect: string } {
+  if (input.endingAudio === undefined) {
+    throw new Error('drama_render render 需要 endingAudio：写实或旧版交付需要随包片尾音 assets/ending_audio.mp3。')
+  }
+  if (input.endingEffect === undefined) {
+    throw new Error('drama_render render 需要 endingEffect：写实或旧版交付需要随包片尾特效 assets/ending_effect.mp4。')
+  }
+  return { audio: input.endingAudio, effect: input.endingEffect }
 }
 
 /** Fail loud when one required input is not a readable file. */
@@ -120,25 +131,32 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const { toolkit, settings } = input
   const paths = episodePaths(input.project, input.episode)
   const timeline = await readTimeline(input.timelinePath)
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  assertBodyOnlyAnimation(timeline, policy)
+  const endingAssets = policy.endingSeconds === 0 ? undefined : requiredEndingPaths(input)
   const clips = selectBodyClips(timeline, input.lastShot)
   const selectedVideos = clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
-  await assertVideosAllowed(input.project, [...selectedVideos, input.endingEffect])
+  await assertVideosAllowed(input.project, [...selectedVideos, ...(endingAssets === undefined ? [] : [endingAssets.effect])])
   const bodyEndSeconds = bodyEndSecondsOf(clips)
-  const totalSeconds = bodyEndSeconds + ENDING_SECONDS
+  const totalSeconds = bodyEndSeconds + policy.endingSeconds
   const expectedDurationSeconds = Number(totalSeconds.toFixed(6))
 
   await requireFile(paths.masterAudio, '整集原声 master', '请先跑 prepare 生成 audio/<集>.wav。')
   await requireFile(input.bgm, 'BGM', '请给出这部剧实际使用的 BGM 文件路径。')
-  await requireEndingAssetFile(input.endingAudio, ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET)
-  await requireEndingAssetFile(input.endingEffect, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
+  if (endingAssets !== undefined) {
+    await requireEndingAssetFile(endingAssets.audio, ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET)
+    await requireEndingAssetFile(endingAssets.effect, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
+  }
 
   const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
   // Every input is judged before the first media command runs, so a substituted
   // ending asset or an over-long effect costs nothing but the message.
-  await requireShippedEndingAsset(input.endingAudio, ENDING_AUDIO_ASSET)
-  await requireShippedEndingAsset(input.endingEffect, ENDING_EFFECT_ASSET)
-  await requireEndingEffectFits(toolkit, input.endingEffect)
-  const choice = await chooseEncoder(toolkit, settings.preferNvenc)
+  if (endingAssets !== undefined) {
+    await requireShippedEndingAsset(endingAssets.audio, ENDING_AUDIO_ASSET)
+    await requireShippedEndingAsset(endingAssets.effect, ENDING_EFFECT_ASSET)
+    await requireEndingEffectFits(toolkit, endingAssets.effect)
+  }
+  const choice = await chooseEncoder(toolkit, settings.preferNvenc, policy.delivery.fps)
   const gpuUsed = choice.encoder !== 'libx264'
   await mkdir(paths.cacheDir, { recursive: true })
   await mkdir(dirname(input.output), { recursive: true })
@@ -147,18 +165,20 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     `episode=${input.episode}`,
     `project=${input.project}`,
     `bgm_plan=${JSON.stringify(bgmPlan)}`,
+    `delivery=${JSON.stringify(policy.delivery)} add_watermark=${String(policy.addWatermark)}`,
+    ...policy.warnings.map(warning => `warning=${warning}`),
     `encoder=${choice.encoder} gpu_requested=${String(settings.preferNvenc)} gpu_used=${String(gpuUsed)}`,
     `encoder_fallback_reason=${choice.fallbackReason === '' ? '(none)' : choice.fallbackReason}`,
-    `body_end_seconds=${bodyEndSeconds.toFixed(6)} ending_seconds=${ENDING_SECONDS.toFixed(3)} `
+    `body_end_seconds=${bodyEndSeconds.toFixed(6)} ending_seconds=${policy.endingSeconds.toFixed(3)} `
       + `expected_duration_seconds=${expectedDurationSeconds.toFixed(6)}`,
     `target_bitrate=${TARGET_BITRATE} max_bitrate=${MAX_BITRATE} min_bitrate_bps=${String(MIN_BITRATE_BPS)}`,
   ]
 
-  const scaleFilter = deliveryScaleFilter()
+  const scaleFilter = deliveryScaleFilter('yuv420p', policy.delivery)
   const encodedShots: number[] = []
   const reusedShots: number[] = []
   const segments: string[] = []
-  const consumedHashes: string[] = [await fileSha256(input.endingEffect)]
+  const consumedHashes: string[] = endingAssets === undefined ? [] : [await fileSha256(endingAssets.effect)]
   for (const clip of clips) {
     const source = resolve(paths.videoDir, shotFileName(clip.shot))
     await requireFile(source, `镜头 ${String(clip.shot)} 的渲染输入`,
@@ -190,19 +210,22 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   }
   log.push(`encoded_shots=${encodedShots.join(',') || '(none)'} reused_shots=${reusedShots.join(',') || '(none)'}`)
 
-  const tailFrame = await extractTailFrame(
-    toolkit,
-    resolve(paths.videoDir, shotFileName(input.lastShot)),
-    resolve(paths.cacheDir, 'last_video_tail_frame.png'),
-  )
-  log.push(`tail_frame=${tailFrame.path} frame_md5=${tailFrame.frameMd5} `
-    + `sequential_tail_md5=${tailFrame.sequentialTailMd5} `
-    + `from_sequential_decode=${String(tailFrame.fromSequentialDecode)}`)
-  const ending = resolve(paths.cacheDir, 'ending.mp4')
-  await buildEndingClip(toolkit, tailFrame.path, input.endingEffect, ending, choice.encoder, choice.args)
-  consumedHashes.push(await fileSha256(ending))
-  await assertVideoHashesAllowed(input.project, consumedHashes)
-  segments.push(ending)
+  let tailFrame = NO_TAIL_FRAME
+  if (endingAssets !== undefined) {
+    tailFrame = await extractTailFrame(
+      toolkit,
+      resolve(paths.videoDir, shotFileName(input.lastShot)),
+      resolve(paths.cacheDir, 'last_video_tail_frame.png'),
+    )
+    log.push(`tail_frame=${tailFrame.path} frame_md5=${tailFrame.frameMd5} `
+      + `sequential_tail_md5=${tailFrame.sequentialTailMd5} `
+      + `from_sequential_decode=${String(tailFrame.fromSequentialDecode)}`)
+    const ending = resolve(paths.cacheDir, 'ending.mp4')
+    await buildEndingClip(toolkit, tailFrame.path, endingAssets.effect, ending, choice.encoder, choice.args, policy.delivery)
+    consumedHashes.push(await fileSha256(ending))
+    await assertVideoHashesAllowed(input.project, consumedHashes)
+    segments.push(ending)
+  }
 
   const concatFile = resolve(paths.cacheDir, 'concat.txt')
   await writeFile(concatFile, `${segments.map(concatLine).join('\n')}\n`, 'utf8')
@@ -211,26 +234,27 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   const cues = await readSubtitleCues(input.subtitleSrt)
   const ass = resolve(paths.cacheDir, 'display.ass')
-  await writeFile(ass, `\ufeff${buildAssDocument(cues, settings)}`, 'utf8')
+  await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
   await runFfmpeg(toolkit, [
-    '-y', '-v', 'error', '-i', base, '-vf', subtitleBurnFilter(ass, settings.fontsDir),
+    '-y', '-v', 'error', '-i', base, '-vf', subtitleBurnFilter(ass, settings.fontsDir, policy.delivery),
     '-an', '-c:v', choice.encoder, ...choice.args, subtitled,
   ])
 
   consumedHashes.push(await fileSha256(subtitled))
   await assertVideoHashesAllowed(input.project, consumedHashes)
-  await assertVideosAllowed(input.project, [...selectedVideos, ...segments, subtitled, input.endingEffect])
+  await assertVideosAllowed(input.project, [...selectedVideos, ...segments, subtitled, ...(endingAssets === undefined ? [] : [endingAssets.effect])])
   const staging = await mkdtemp(resolve(dirname(input.output), '.drama-render-'))
   const stagedOutput = resolve(staging, 'output.mp4')
   try {
     await runFfmpeg(toolkit, [
       '-y', '-v', 'error', '-i', subtitled, '-i', paths.masterAudio,
-      '-stream_loop', '-1', '-i', input.bgm, '-i', input.endingAudio,
+      '-stream_loop', '-1', '-i', input.bgm,
+      ...(endingAssets === undefined ? [] : ['-i', endingAssets.audio]),
       '-filter_complex', audioMixFilter({
         bodyEndSeconds,
         totalSeconds,
-        endingSeconds: ENDING_SECONDS,
+        endingSeconds: policy.endingSeconds,
         masterVolume: settings.masterVolume,
         bgmVolume: settings.bgmVolume,
       }),
@@ -248,7 +272,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   await writeFile(paths.renderLog, `${log.join('\n')}\n`, 'utf8')
   const media = await measure(toolkit, input.output)
-  const checks = deliveryChecks(media, expectedDurationSeconds)
+  const checks = deliveryChecks(media, expectedDurationSeconds, policy.delivery)
   log.push(`output=${input.output} size_bytes=${String(media.sizeBytes)} `
     + `bitrate_bps=${String(media.bitrateBps)} duration_seconds=${media.durationSeconds.toFixed(6)}`)
   log.push(...checks.map(logCheck))
@@ -277,7 +301,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     bgmPlan,
     project: input.project,
     episode: input.episode,
-    timeline: { clips, bodyEndSeconds },
+    timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
     sources,
     expectedDurationSeconds,
     written: [input.output, sourceRecordPath, paths.renderLog],
@@ -291,9 +315,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     tailFrame,
     media,
     checks,
-    warnings: tailFrame.fromSequentialDecode
+    warnings: [...policy.warnings, ...(tailFrame.fromSequentialDecode
       ? ['sseof 抽到的帧不是真实尾帧，已改用顺序解码的最后一帧作为片尾定格（见 tail_frame 字段）。']
-      : [],
+      : [])],
     logPath: paths.renderLog,
   }
   return buildReport(reportInput)

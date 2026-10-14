@@ -22,8 +22,39 @@ export interface TimelineClip {
   readonly durationUs: number
 }
 
+/** Explicit project medium; free-text style never selects delivery behavior. */
+export type VisualMedium = 'animation_3d' | 'photorealistic'
+
+/** Validated delivery snapshot stored in timeline JSON. */
+export interface TimelineDelivery {
+  /** Explicit medium, omitted for legacy projects that have not selected one. */
+  readonly visual_medium?: VisualMedium
+  /** Delivered pixel width. */
+  readonly width: number
+  /** Delivered pixel height. */
+  readonly height: number
+  /** Delivered frames per second. */
+  readonly fps: number
+}
+
+/** Resolved medium-specific treatment and delivery geometry. */
+export interface DeliveryPolicy {
+  /** Timeline geometry and effective explicit medium. */
+  readonly delivery: TimelineDelivery
+  /** Whether the ASS script adds the AI-content mark. */
+  readonly addWatermark: boolean
+  /** Ending duration, zero for 3D animation. */
+  readonly endingSeconds: number
+  /** Missing-medium warning for legacy projects. */
+  readonly warnings: readonly string[]
+}
+
 /** One episode timeline: the clips plus the body end they imply. */
 export interface Timeline {
+  /** Project delivery settings captured when this timeline was prepared. */
+  readonly delivery?: TimelineDelivery
+  /** Original body_end when the source JSON declares it; checked for animation endings. */
+  readonly declaredBodyEndSeconds?: number
   /** Every clip, in shot order. */
   readonly clips: readonly TimelineClip[]
   /** Seconds from the episode start to the last body frame, excluding the ending. */

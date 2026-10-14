@@ -1,18 +1,13 @@
 /**
- * The fixed delivery style: picture geometry, rate control, subtitle style,
- * ending effect, and the audio mix graph.
- *
- * These values are the operator-approved delivery specification, not
- * deployment-varying choices, so they live here as constants and every method
- * builds its commands from them. What does vary per deployment — the binaries,
- * the two audio gains, the font directory and families — is validated by the
- * plugin's Config.
+ * Delivery defaults, rate control, subtitle style, ending effect, and audio mix.
+ * Geometry is supplied by the validated timeline snapshot. Deployment-selected
+ * binaries, gains, font directory and font families remain plugin Config fields.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/delivery
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec, RenderSettings } from './types.ts'
+import type { AudioMixSpec, RenderSettings, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -22,6 +17,9 @@ export const DELIVERY_HEIGHT = 2560
 
 /** Delivered frame rate. */
 export const DELIVERY_FPS = 60
+
+/** Geometry used by legacy timelines and omitted project delivery fields. */
+export const DEFAULT_DELIVERY: TimelineDelivery = { width: DELIVERY_WIDTH, height: DELIVERY_HEIGHT, fps: DELIVERY_FPS }
 
 /** Video target bitrate. */
 export const TARGET_BITRATE = '24M'
@@ -133,9 +131,6 @@ export function assOutline(targetPx: number, playResY: number, outputHeight: num
   return Math.round(targetPx * playResY / outputHeight)
 }
 
-/** Keyframe interval in frames. */
-const KEYFRAME_INTERVAL = DELIVERY_FPS * 2
-
 /**
  * Compose the ASS styles and event format with deployment-selected fonts.
  *
@@ -143,25 +138,44 @@ const KEYFRAME_INTERVAL = DELIVERY_FPS * 2
  * in script-canvas units that {@link assOutline} can derive from the delivered
  * pixels; without it libass treats the value as unscaled raster pixels.
  * @param settings - Font families validated by the plugin Config.
+ * @param delivery - Output geometry determining the script canvas and outline.
+ * @param addWatermark - Whether to include the watermark style.
  * @returns The ASS header, including the event format line.
  */
-export function buildAssHeader(settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>): string {
-  const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)
+export function buildAssHeader(
+  settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>,
+  delivery: TimelineDelivery = DEFAULT_DELIVERY,
+  addWatermark = true,
+): string {
+  const canvas = assCanvas(delivery)
+  const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX, canvas.height, delivery.height)
+  const watermarkStyle = addWatermark
+    ? `Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1\n`
+    : ''
   return `[Script Info]
 ScriptType: v4.00+
-PlayResX: ${String(PLAY_RES_WIDTH)}
-PlayResY: ${String(PLAY_RES_HEIGHT)}
+PlayResX: ${String(canvas.width)}
+PlayResY: ${String(canvas.height)}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,520,1
-Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1
-
+Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,${String(Math.round(canvas.height * 520 / PLAY_RES_HEIGHT))},1
+${watermarkStyle}
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 `
+}
+
+/**
+ * Match the ASS canvas to the delivered aspect ratio with stable short-edge sizing.
+ * @param delivery - Validated output geometry.
+ * @returns Script width and height; legacy portrait remains 1080x1920.
+ */
+export function assCanvas(delivery: TimelineDelivery = DEFAULT_DELIVERY): { width: number; height: number } {
+  const scale = PLAY_RES_WIDTH / Math.min(delivery.width, delivery.height)
+  return { width: Math.round(delivery.width * scale), height: Math.round(delivery.height * scale) }
 }
 
 /**
@@ -171,22 +185,24 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
  * without letterboxing, and the pixel format is fixed to what the encoder and
  * the blend expect.
  * @param pixelFormat - The format the chain ends in; `gbrp` when the frame is blended instead of encoded.
+ * @param delivery - Output geometry and frame rate.
  * @returns The scale, crop, frame-rate, and pixel-format chain.
  */
-export function deliveryScaleFilter(pixelFormat = 'yuv420p'): string {
-  return `scale=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)}:force_original_aspect_ratio=increase,`
-    + `crop=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)},fps=${String(DELIVERY_FPS)},format=${pixelFormat}`
+export function deliveryScaleFilter(pixelFormat = 'yuv420p', delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
+  return `scale=${String(delivery.width)}:${String(delivery.height)}:force_original_aspect_ratio=increase,`
+    + `crop=${String(delivery.width)}:${String(delivery.height)},fps=${String(delivery.fps)},format=${pixelFormat}`
 }
 
 /**
  * The rate-control and profile arguments one encoder takes.
  * @param encoder - `h264_nvenc` or `libx264`.
+ * @param fps - Delivery frame rate; the GOP spans two seconds.
  * @returns The arguments that follow `-c:v <encoder>`.
  */
-export function encoderArguments(encoder: string): string[] {
+export function encoderArguments(encoder: string, fps = DELIVERY_FPS): string[] {
   const rateControl = [
     '-b:v', TARGET_BITRATE, '-maxrate', MAX_BITRATE, '-bufsize', BUFFER_SIZE,
-    '-g', String(KEYFRAME_INTERVAL), '-profile:v', 'high', '-level', '5.1',
+    '-g', String(fps * 2), '-profile:v', 'high', '-level', '5.1',
   ]
   return encoder === 'h264_nvenc'
     ? ['-preset', 'p5', '-rc', 'vbr', '-cq', '19', ...rateControl]
@@ -208,17 +224,21 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * {@link ENDING_SECONDS} even though the effect is shorter. The effect's frames
  * are interpolated to 120 fps and averaged back to 60 before the pad, and the
  * result is screen-blended over the freeze at {@link EFFECT_BLEND_OPACITY}.
+ * @param delivery - Output geometry and frame rate.
  * @returns The filter graph, whose only output pad is `[v]`.
  */
-export function endingEffectFilter(): string {
-  return `[0:v]${deliveryScaleFilter('gbrp')}[base];`
+export function endingEffectFilter(delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
+  const canvas = assCanvas(delivery)
+  const effectWidth = Math.round(canvas.width / 2)
+  const effectHeight = Math.round(canvas.height / 2)
+  return `[0:v]${deliveryScaleFilter('gbrp', delivery)}[base];`
     + '[1:v]setpts=PTS-STARTPTS,'
-    + 'scale=540:960:force_original_aspect_ratio=increase,'
-    + 'crop=540:960,minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,'
+    + `scale=${String(effectWidth)}:${String(effectHeight)}:force_original_aspect_ratio=increase,`
+    + `crop=${String(effectWidth)}:${String(effectHeight)},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,`
     + "tmix=frames=2:weights='1 1',"
     + `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
-    + `trim=0:${ENDING_SECONDS.toFixed(3)},fps=${String(DELIVERY_FPS)},`
-    + `scale=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)}:flags=lanczos,`
+    + `trim=0:${ENDING_SECONDS.toFixed(3)},fps=${String(delivery.fps)},`
+    + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
     + 'eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];'
     + `[base][fx]blend=all_mode=screen:all_opacity=${EFFECT_BLEND_OPACITY}:shortest=1,format=yuv420p[v]`
 }
@@ -238,21 +258,22 @@ export function endingEffectFilter(): string {
  * stream constant-rate and anchored at zero before the encoder sees it.
  * @param assPath - Absolute path of the ASS script to burn.
  * @param fontsDir - Directory libass resolves the style's font from.
+ * @param delivery - Output geometry and frame rate.
  * @returns The scale, subtitles, scale, and frame-rate chain.
  */
-export function subtitleBurnFilter(assPath: string, fontsDir: string): string {
-  return `scale=${String(DELIVERY_WIDTH * 2)}:${String(DELIVERY_HEIGHT * 2)}:flags=lanczos,`
+export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
+  return `scale=${String(delivery.width * 2)}:${String(delivery.height * 2)}:flags=lanczos,`
     + `ass='${escapeFilterPath(assPath)}':fontsdir='${escapeFilterPath(fontsDir)}',`
-    + `scale=${String(DELIVERY_WIDTH)}:${String(DELIVERY_HEIGHT)}:flags=lanczos,`
-    + `fps=${String(DELIVERY_FPS)},setpts=N/(${String(DELIVERY_FPS)}*TB)`
+    + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
+    + `fps=${String(delivery.fps)},setpts=N/(${String(delivery.fps)}*TB)`
 }
 
 /**
  * The graph that mixes the episode's own master, the BGM bed, and the ending
  * sound into the delivered audio.
  *
- * Input 0 is the picture, 1 the master audio, 2 the BGM, and 3 the ending sound;
- * the ending is delayed to the body end and never mixed over the body, the BGM is
+ * Input 0 is the picture, 1 the master audio, 2 the BGM, and optionally 3 the ending sound;
+ * a zero-length ending omits that input entirely. The ending is delayed to the body end, the BGM is
  * cut at the body end rather than run under the ending, and the master is padded
  * to the total so `amix` cannot end early. `normalize=0` keeps every gain the
  * caller's own, and the limiter is the delivery spec's final ceiling.
@@ -263,10 +284,13 @@ export function audioMixFilter(spec: AudioMixSpec): string {
   const total = spec.totalSeconds.toFixed(6)
   const body = spec.bodyEndSeconds.toFixed(6)
   const delayMs = Math.round(spec.bodyEndSeconds * 1000)
+  const ending = spec.endingSeconds > 0
+    ? `[3:a]atrim=0:${spec.endingSeconds.toFixed(6)},adelay=${String(delayMs)}|${String(delayMs)},volume=1[a2];`
+      + '[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,'
+    : '[a0][a1]amix=inputs=2:duration=longest:normalize=0,'
   return `[1:a]apad,atrim=0:${total},volume=${String(spec.masterVolume)}[a0];`
     + `[2:a]atrim=0:${body},volume=${String(spec.bgmVolume)}[a1];`
-    + `[3:a]atrim=0:${spec.endingSeconds.toFixed(6)},adelay=${String(delayMs)}|${String(delayMs)},volume=1[a2];`
-    + '[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,'
+    + ending
     + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`
 }
 

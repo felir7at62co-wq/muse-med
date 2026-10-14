@@ -109,6 +109,91 @@ class DraftDeliveryContractTests(unittest.TestCase):
         return [json.loads(by_id[segment['material_id']]['content'])
                 for segment in DraftDeliveryContractTests.segments(content, 'text')]
 
+    @staticmethod
+    def delivery_timeline(medium, **extra):
+        return {**TIMELINE, 'delivery': {'visual_medium': medium, 'width': 2560, 'height': 1440, 'fps': 30}, **extra}
+
+    def test_animation_draft_has_only_body_and_never_reads_or_generates_ending_assets(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        (root / '06_ending').mkdir()
+        for name in ('ending_audio.mp3', 'ending_effect.mp4'):
+            (root / '06_ending' / name).write_bytes(b'stale unusable ending asset')
+        with patch.object(self.module, 'extract_draft_tail', side_effect=AssertionError('no tail extraction')), \
+                patch.object(self.module, 'append_draft_watermark', side_effect=AssertionError('no added mark')):
+            draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(content['duration'], 4_000_000)
+        self.assertEqual(content['canvas_config']['width'], 2560)
+        self.assertEqual(content['canvas_config']['height'], 1440)
+        self.assertEqual(content['fps'], 30)
+        self.assertEqual(len(self.segments(content, 'video')), 2)
+        self.assertFalse({'片尾音', '片尾特效', 'AI内容标识'} & {track['name'] for track in content['tracks']})
+        self.assertNotIn('内容由AI生成', json.dumps(content, ensure_ascii=False))
+        self.assertFalse((draft_dir / 'Resources/last_video_tail_frame.png').exists())
+        self.assertFalse((draft_dir / 'ending-evidence.json').exists())
+        self.assertEqual(len(self.texts(content)), 3)
+
+    def test_landscape_delivery_snapshot_preserves_unit_scale_for_854_by_480_source(self):
+        timeline = self.delivery_timeline('animation_3d')
+        timeline['delivery'].update(width=1920, height=1080, fps=30)
+        root = self.build_root(timeline=timeline)
+        for shot in (1, 2):
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'color=blue:s=854x480:r=24:d=2', '-pix_fmt', 'yuv420p',
+                            str(root / f'02_media/25/p{shot}.mp4')], check=True)
+        content = self.generate_content(root)
+        self.assertEqual((content['canvas_config']['width'], content['canvas_config']['height']), (1920, 1080))
+        for segment in self.segments(content, 'video'):
+            self.assertEqual(segment['clip']['scale'], {'x': 1.0, 'y': 1.0})
+        self.assertEqual({(item['width'], item['height']) for item in content['materials']['videos']}, {(854, 480)})
+
+    def test_explicit_photorealistic_draft_retains_ending_and_notice(self):
+        content = self.generate_content(self.build_root(timeline=self.delivery_timeline('photorealistic')))
+        self.assertEqual(content['duration'], 6_000_000)
+        self.assertEqual(len(self.segments(content, 'video')), 3)
+        self.assertEqual(len([track for track in content['tracks'] if track['name'] == 'AI内容标识']), 1)
+
+    def test_animation_draft_verifier_rejects_generated_mark_ending_and_extra_duration(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        content = self.generate_content(root)
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips())
+        cues = [{'text': text['text']} for text in self.texts(content)]
+        self.module.verify_draft_delivery(content, self.clips(), 4_000_000, cues, plan)
+        for track_name, message in (('AI内容标识', '不得添加 AI'), ('片尾音', '不得包含生成的片尾')):
+            bad = json.loads(json.dumps(content))
+            bad['tracks'].append({'type': 'text' if track_name == 'AI内容标识' else 'audio',
+                                  'name': track_name, 'segments': []})
+            with self.subTest(track=track_name), self.assertRaisesRegex(self.module.DraftInputError, message):
+                self.module.verify_draft_delivery(bad, self.clips(), 4_000_000, cues, plan)
+        content['duration'] = 6_000_000
+        with self.assertRaisesRegex(self.module.DraftInputError, '总时长必须等于正文'):
+            self.module.verify_draft_delivery(content, self.clips(), 4_000_000, cues, plan)
+
+    def test_conflicting_medium_or_included_animation_ending_refuses_before_draft_creation(self):
+        for mode in ('conflict', 'included'):
+            timeline = self.delivery_timeline('animation_3d', **({'body_end': 2} if mode == 'included' else {}))
+            root = self.build_root(timeline=timeline)
+            if mode == 'conflict':
+                (root / 'project_config.json').write_text(json.dumps({
+                    'project_bible': {'visual_medium': 'photorealistic'}}), encoding='utf-8')
+            with self.subTest(mode=mode), self.assertRaisesRegex(self.module.DraftInputError, 'prepare'):
+                self.generate(root)
+            self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_preparing_animation_ignores_missing_selected_endings_and_preserves_snapshot(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        spec = importlib.util.spec_from_file_location('draft_prepare_animation', SCRIPT.with_name('draft_generator.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        materials = root / 'materials'
+        module.DraftGenerator().prepare_materials(
+            str(root / '01_audio'), str(root / '02_media'), str(materials),
+            timeline_dir=str(root / '05_timeline'), project=str(root),
+            ending_audio=str(root / 'missing.mp3'), ending_effect=str(root / 'missing.mp4'))
+        self.assertFalse((materials / '06_ending').exists())
+        self.assertEqual((materials / '05_timeline/25.timeline.json').read_bytes(),
+                         (root / '05_timeline/25.timeline.json').read_bytes())
+
     def test_a_timeline_with_other_field_names_refuses_instead_of_defaulting_to_five_seconds(self):
         root = self.build_root(timeline={'shots': [{'shot': 1, 'start': 0, 'end': 2},
                                                    {'shot': 2, 'start': 2, 'end': 4}]})

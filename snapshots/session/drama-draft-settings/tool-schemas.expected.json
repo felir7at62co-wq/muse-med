@@ -172,6 +172,14 @@
                 "type": "string",
                 "description": "Confirmed visual style as free text, including the user's custom answer and creative guidance."
               },
+              "visual_medium": {
+                "type": "string",
+                "description": "Confirmed delivery medium: animation_3d adds no ending or watermark; photorealistic retains both. Independent of the full style text and aspect ratio; omitted legacy values keep marked delivery with a warning.",
+                "enum": [
+                  "animation_3d",
+                  "photorealistic"
+                ]
+              },
               "aspect_ratio": {
                 "type": "string",
                 "description": "Confirmed generation aspect ratio, checked against the live catalogue."

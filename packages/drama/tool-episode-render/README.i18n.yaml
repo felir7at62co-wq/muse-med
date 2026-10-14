@@ -9,47 +9,50 @@
   en: 0a63906ce4d8bb83
   zh: 86ede8a130dc7609
 /deepseek-ai-dsh-tool-episode-render/summary:
-  en: ee9ad954f64ba209
-  zh: e4b2694513db3763
+  en: 80a3961d31f68168
+  zh: 80a533cd70e72da6
 /deepseek-ai-dsh-tool-episode-render/table-of-contents:
   en: d152484eb41ac6b4
   zh: f0f7f88fe2f53b05
 /deepseek-ai-dsh-tool-episode-render/use-this-package:
-  en: c0b3f796bd7a27bf
-  zh: c7ef3b531a0a41a1
+  en: 2a5ebb2371bb319e
+  zh: b21b6a4436d96828
 /deepseek-ai-dsh-tool-episode-render/use-this-package/reversible-video-bans:
   en: bb04e98a08b2006c
   zh: 6aa143d0ccea86f8
 /deepseek-ai-dsh-tool-episode-render/use-this-package/the-four-render-methods:
-  en: 7a41051737c4e52e
-  zh: 13b391e9e4949f4b
-/deepseek-ai-dsh-tool-episode-render/use-this-package/delivery-prerequisites-the-two-ending-files-and-the-2-second-window:
-  en: f99392354b8aa155
-  zh: 83c23a5730480e7b
+  en: 589f6745b008dbf5
+  zh: a3f2bf1c77f3eade
+/deepseek-ai-dsh-tool-episode-render/use-this-package/medium-and-delivery-snapshot:
+  en: 1f6454e91193b2ba
+  zh: bbc0a9874ab16173
+/deepseek-ai-dsh-tool-episode-render/use-this-package/marked-delivery-prerequisites-the-two-ending-files:
+  en: fb6b51c1334cd892
+  zh: 73e2d8dcea16c927
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-subtitles-does:
   en: 4f6783843590ad39
   zh: be1f52d4e4fbe6b0
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-prepare-writes:
   en: b861706a970ea3c3
   zh: 971c25955aea2448
-/deepseek-ai-dsh-tool-episode-render/use-this-package/the-fixed-delivery-style:
-  en: 2add4f9ff9f06398
-  zh: 756ebdf5df2fe10c
+/deepseek-ai-dsh-tool-episode-render/use-this-package/delivery-style:
+  en: cae67521fc712526
+  zh: 6396a48f32c6d008
 /deepseek-ai-dsh-tool-episode-render/use-this-package/the-three-known-traps:
-  en: 2e8e274410dfa795
-  zh: d9dea57f1ff20a3a
+  en: 95375ae3ec6e5b0b
+  zh: 2f0dc5b870290711
 /deepseek-ai-dsh-tool-episode-render/use-this-package/check-codes:
-  en: 213145d5ca80f6c0
-  zh: a4690a5332acbfda
+  en: 40be061a584fd926
+  zh: 46a4a791dd740493
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation:
   en: d035a09534004c59
   zh: 3a43afce99eaa2b9
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation/design-philosophy:
-  en: 772d7bfafb32bcbf
-  zh: 70545fd2cd5d9072
+  en: eba56c4904730ee1
+  zh: 644340f08ae55cda
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation/source-map:
-  en: 15a722c1575db92c
-  zh: fc9ebd67b959bc17
+  en: 4e4f30844885c442
+  zh: 4fbd6edb86759090
 /deepseek-ai-dsh-tool-episode-render/further-exploration:
   en: 2647dcc45b64eb22
   zh: c9b42a2dba999a25
@@ -69,8 +72,8 @@
   en: 064f99a9c816466f
   zh: 656fd64286b15620
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
-  en: b83182c0cf4a2d8f
-  zh: 953281ce6d0f44e6
+  en: b4b66e19103314b2
+  zh: 94a33877cdcfdeb0
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
   en: 7592720dbb825107
   zh: b45c7ac69e2f8d1a

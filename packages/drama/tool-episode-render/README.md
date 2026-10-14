@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Turn selected shot videos into a delivered episode without hand-written FFmpeg commands. `drama_render` measures each line's times from the shot that speaks it, prepares inputs, renders the fixed delivery style, and checks measurable output properties. `drama_video` records reversible user bans for exact video versions and exposes their labels and reasons. A ban needs no review evidence; neither an unbanned version nor a successful technical check means content approval.
+Turn selected shot videos into a delivered episode without hand-written FFmpeg commands. `drama_render` measures each line's times from the shot that speaks it, prepares inputs, renders the medium-specific delivery style, and checks measurable output properties. `drama_video` records reversible user bans for exact video versions and exposes their labels and reasons. A ban needs no review evidence; neither an unbanned version nor a successful technical check means content approval.
 
 ## Table of Contents
 
@@ -50,7 +50,7 @@ Mount the plugin as one row of a short-drama preset; it needs only the tool regi
 | `subtitleFontFamily` | `SimHei` | ASS subtitle font family |
 | `watermarkFontFamily` | `Microsoft YaHei` | ASS watermark font family |
 
-Font families are deployment configuration, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. Deployments providing Noto Sans CJK SC can set both families to `Noto Sans CJK SC`. This does not change `fontsDir` or install fonts: libass must have access to the selected families. The single ASS burn follows body/ending concatenation, so the watermark uses the same family throughout the ending.
+Font families are deployment configuration, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. Deployments providing Noto Sans CJK SC can set both families to `Noto Sans CJK SC`. This does not change `fontsDir` or install fonts: libass must have access to the selected families. When the medium requires a mark and ending, the single ASS burn follows their concatenation and uses the same watermark family throughout.
 
 ### Reversible video bans
 
@@ -66,7 +66,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 |---|---|---|---|
 | `subtitles` | The shot-sources manifest and the per-shot line plan | `editing/<集>.srt` | Giving already-written lines their times from each shot's own audio, without speech recognition |
 | `prepare` | The shot-sources manifest and the subtitle | `video/<集>/shot_00N.mp4`, `audio/<集>.wav`, `editing/<集>-timeline.json`, `editing/<集>.srt` | Building every input a render reads, without encoding picture |
-| `render` | The timeline, the prepared shots, the master, the subtitle, the BGM, the ending sound and effect | The delivered MP4 and `exports/.render_cache/<集>/render.log` | Producing the delivery and returning its measured parameters |
+| `render` | The timeline, prepared shots, master, subtitle, BGM, and medium-required ending assets | The delivered MP4 and `exports/.render_cache/<集>/render.log` | Producing the delivery and returning its measured parameters |
 | `verify` | The delivered file, its timeline, and its subtitle | Nothing | Checking a delivery after the fact, or re-checking one from an earlier session |
 
 | Parameter | Required | Meaning |
@@ -82,25 +82,33 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
 | `bgm` | `render` | The BGM bed, looped to the body end |
 | `bgm_plan` | optional, `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
-| `ending_audio` | `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
-| `ending_effect` | `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
+| `ending_audio` | marked `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
+| `ending_effect` | marked `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
 | `force` | optional | `render` ignores its per-shot cache and re-encodes every clip |
 
 Relative `timeline`, `bgm`, and `bgm_plan` paths resolve from `project`, not the process working directory. Cross-tool calls should pass the absolute `output` and `plan` returned by `drama_bgm`; absolute paths remain unchanged.
 
-Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. A method missing one of its own arguments fails before any file is opened. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
+Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
-### Delivery prerequisites: the two ending files and the 2-second window
+### Medium and delivery snapshot
 
-`render`'s two ending files are **delivery prerequisites**, not options: they are **shipped assets** the installed copy supplies, and the caller may neither substitute nor source them elsewhere. `render` judges both inputs byte by byte before any media command runs, so one file missing from the installation is one episode that cannot be produced; that absence is a **broken installation** rather than a wrong path, and the error names which of the two it is (a correct sibling shipped file beside it proves the directory arrived and only this file is gone).
+`project_config.json.project_bible.visual_medium` explicitly selects `animation_3d` or `photorealistic`; free-text `style` and aspect ratio never select a policy. `prepare` writes `delivery: {visual_medium?, width, height, fps}` into the timeline using project-bible delivery values, defaulting omitted geometry fields to 1440x2560 at 60 fps. Width and height must be positive even integers; fps must be a positive integer no greater than 240. Present invalid values, including null, fail before media work.
+
+`render` and `verify` preserve snapshot geometry. An explicit snapshot medium wins when the project omits it; an explicit project medium supplies a missing snapshot medium. If both explicitly disagree, the operation requires a new `prepare` rather than silently changing the timeline. Old timelines without delivery metadata retain legacy geometry. When neither source declares a medium, reports warn and retain the legacy marked output. An explicit `canvas` conflicting with snapshot dimensions is rejected; animation also rejects a declared `body_end` differing from the clip end, requiring a body-only timeline to be prepared again.
+
+`animation_3d` outputs only the body duration, adds no watermark style or event, mixes only master and BGM, and never opens ending assets, extracts a tail frame or concatenates a stale ending. Body subtitles remain enabled. `photorealistic` and unclassified legacy projects keep the following marked delivery behavior. Every method's `expected_duration_seconds` includes only its selected ending length.
+
+### Marked delivery prerequisites: the two ending files
+
+Marked `render` requires both shipped ending assets and validates their bytes before media commands. Missing or substituted files block only that delivery mode; the diagnostic identifies an incomplete installation when the correctly hashed sibling proves the asset directory arrived.
 
 | Asset | Path inside the skill package (`packages/drama/skills/skills/`) | Bytes | SHA-256 |
 |---|---|---|---|
 | Ending effect | `tweet-drama-background-render/assets/ending_effect.mp4` | 904,502 | `49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010` |
 | Ending sound | `tweet-drama-background-render/assets/ending_audio.mp3` | 83,432 | `d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f` |
 
-**The two-second ending window is a hard requirement** (`ENDING_SECONDS = 2`): a delivery must reach body end plus 2 seconds; `ending_audio` contributes only its first 2 seconds, delayed to the body end; `ending_effect` plays once at its own speed over the opening of those 2 seconds, and an effect longer than the window **fails instead of being truncated**; both `ending_*` arguments are required, and a missing one fails before any file is opened.
+The marked ending lasts exactly two seconds (`ENDING_SECONDS = 2`). Its sound contributes only its first two seconds, delayed to body end. The effect plays once at its own speed; an effect longer than the window fails instead of being truncated. Both ending arguments are required for this mode.
 
 ### What subtitles does
 
@@ -122,23 +130,23 @@ Per-shot encoding caches require a matching source-byte hash, executable and exa
 
 A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`. Duration must match the current body; segments must have valid, ordered, in-bounds times. Gaps, overlaps, one track and recurring motifs remain creative choices. Repeat advice compares resolved source paths in order within this plan, without case folding or audio fingerprinting. The reported bed hash binds the declaration to this render input; it does not establish that the bed contains those tracks or fits the scene.
 
-### The fixed delivery style
+### Delivery style
 
 | Element | Value |
 |---|---|
-| Picture | 1440x2560 at 60 fps, H.264 high@5.1, `yuv420p` |
-| Rate control | 24M target, 30M peak, 48M buffer, 120-frame GOP |
+| Picture | Snapshot width, height and fps; legacy 1440x2560 at 60 fps; H.264 high@5.1, `yuv420p` |
+| Rate control | 24M target, 30M peak, 48M buffer, two-second GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
-| Endings | 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
-| Subtitles | Configured font family, size 68, spacing -2, a 7px black outline on the delivered picture (the ASS field is derived from it, 5 at this geometry, with `ScaledBorderAndShadow: yes` so libass scales it to the rasterized frame), bottom-centred, plus the single bottom-right `内容由AI生成` mark. The burn chain ends on `fps=60,setpts=N/(60*TB)` |
-| Audio | Episode master at 1.45, BGM at 0.24 to the body end, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
+| Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
+| Subtitles | Configured font family, size 68, spacing -2, a 7px black outline on the delivered picture (the ASS field is derived from it, 5 at this geometry, with `ScaledBorderAndShadow: yes` so libass scales it to the rasterized frame), bottom-centred, plus the single bottom-right `内容由AI生成` mark only for marked delivery. The burn chain ends on `fps` and `setpts` at the snapshot rate |
+| Audio | Episode master at 1.45, BGM at 0.24 to the body end, when marked, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
 ### The three known traps
 
 - **The tail frame.** `-sseof -0.05` returns exit code 0 without writing a file on some sources, so the frame was silently wrong. This package always seeks with `-sseof -0.1`, and it does not trust the result: the extracted frame's `framemd5` must equal the last frame of a full sequential decode. When it does not, the frame is re-extracted by index; when that still does not match, the render stops instead of freezing an unproved frame. The evidence is returned in `tail_frame`.
 - **The GPU encoder.** A driver too old for NVENC, a missing build, or a busy GPU session all fail the probe the same way. The probe encodes one frame of a 256x256 source — some NVIDIA generations reject smaller frames — and a failure falls back to `libx264` by design, with the probe's own output recorded in `encoder_fallback_reason` and in the render log.
-- **The frame rate after the burn.** The burn runs on the source's own time base, so an `fps` filter placed before `ass`/`subtitles` does not survive into the encode: the container still reports the delivery rate while a fraction of the frames decode. The burn chain therefore ends on `fps=60,setpts=N/(60*TB)`, and nothing trusts metadata alone — `decode_probe` decodes a frame at the head, the middle, and just inside the tail.
+- **The frame rate after the burn.** The burn runs on the source's own time base, so an `fps` filter placed before `ass`/`subtitles` does not survive into the encode: the container still reports the delivery rate while a fraction of the frames decode. The burn chain therefore ends on `fps=F,setpts=N/(F*TB)`, where `F` is the snapshot frame rate (60 for legacy timelines), and nothing trusts metadata alone — `decode_probe` decodes a frame at the head, the middle, and just inside the tail.
 
 ### Check codes
 
@@ -147,8 +155,8 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Code | Severity | Passes when |
 |---|---|---|
 | `duration` | failure | The measured duration is within 0.15 s of body end plus the ending |
-| `video_stream` | failure | 1440x2560 H.264 |
-| `frame_rate` | failure | 60 fps within 0.01 |
+| `video_stream` | failure | Snapshot geometry and H.264 |
+| `frame_rate` | failure | Snapshot fps within 0.01 |
 | `audio_stream` | failure | An AAC 48 kHz audio stream is present |
 | `bitrate_floor` | failure | The overall bitrate reaches 4.6 Mbps |
 | `decode_probe` | failure | A frame decodes at the head, the middle, and 0.1 s inside the tail |
@@ -175,7 +183,7 @@ This section explains how one call is executed and where the code lives; the obs
 
 The package is built on four commitments:
 
-- **Enforce the delivery where it is produced.** The picture geometry, the rate control, the subtitle style, the ending, and the audio mix are the operator-approved specification. They are constants in one module, not parameters a caller can drift from, and the operation that writes the file is the operation that checks it.
+- **Enforce the delivery where it is produced.** The picture geometry, the rate control, the subtitle style, the ending, and the audio mix are the operator-approved specification. Validated project and timeline metadata select geometry and medium treatment, and the operation that writes the file is the operation that checks it.
 - **Report the artifact, throw on the obstacle.** A delivered file that misses the bitrate floor is a domain outcome: the operator still needs the file, so it comes back with `ok: false` and one repair line per failed check. A missing input or a failed command is an environment problem: it throws, because there is nothing to hand back.
 - **Prove the tail frame.** The ending is the one frame nobody can inspect afterwards, so its source record is a returned value rather than a comment. The `-sseof` result is compared against a sequential decode every time, and a mismatch is either repaired by index or refused.
 - **One injected process edge.** Every module takes a `MediaToolkit`; only one function starts a process. The whole pipeline therefore runs in tests against a stub channel, and the real channel is exercised by its own three-process spec.
@@ -185,7 +193,8 @@ The package is built on four commitments:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, argument resolution, the method dispatch, and the `drama_render` schema and description |
-| [`src/delivery.ts`](src/delivery.ts) | The fixed delivery specification: geometry, encoder arguments, the ASS header and timestamps, the shipped ending assets, the ending filter, and the audio mix graph |
+| [`src/delivery-policy.ts`](src/delivery-policy.ts) | Validates project/timeline metadata, rejects medium conflicts, and resolves legacy warnings and medium treatment |
+| [`src/delivery.ts`](src/delivery.ts) | Delivery defaults and style: geometry, encoder arguments, the ASS header and timestamps, the shipped ending assets, the ending filter, and the audio mix graph |
 | [`src/ffmpeg.ts`](src/ffmpeg.ts) | Process channel, ffmpeg and ffprobe wrappers, and shared media measurement |
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
@@ -240,10 +249,10 @@ Append-only. The tool registration carries a stable name, description, and schem
 These limits define what this package is and what it is not. They are current constraints, not a task backlog.
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
-- **The delivery style is not configurable** — geometry, frame rate, rate control, the subtitle layout, the ending length, the ending assets' bytes, and the limiter are constants, because they are the operator-approved specification. Only the binaries, the two gains, the encoder preference, the font directory and families are `Config` fields.
+- **Delivery metadata does not expose arbitrary filters** — project-bible geometry and explicit medium are validated and snapshotted; rate control, subtitle style, shipped ending hashes and limiter remain fixed. Only binaries, gains, encoder preference and fonts are plugin `Config` fields.
 - **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Final MP4 publication uses a staged sibling and rename after ban checks; failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
-- **The ending is rebuilt on every render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.
+- **A required ending is rebuilt on every marked render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.
 - **`prepare` copies, it does not link** — every source video is copied into the project, so a nine-shot episode needs room for the reviewed cuts twice. Hard links would break as soon as the source is rewritten.
 - **One episode per call** — `last_shot` bounds a render to the body shots it delivers, but a call never renders several episodes, and no method reads `pipeline_state.json`.
 - **The mix is not metered** — `amix` with `normalize=0` keeps the operator's gains exactly, and `alimiter=0.95` is the only ceiling. A source louder than the master it replaced can still clip before the limiter, and `verify`'s silence check does not detect it.

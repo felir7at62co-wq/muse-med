@@ -44,6 +44,7 @@
     "skills/tweet-drama-background-render/assets/ending_effect.mp4",
     "skills/tweet-drama-background-render/scripts/render_batch.py",
     "skills/tweet-drama-background-render/scripts/render_episode.py",
+    "skills/tweet-drama-background-render/scripts/delivery_policy.py",
     "skills/tweet-drama-core/SKILL.md",
     "skills/tweet-drama-core/references/io-contract.md",
     "skills/tweet-drama-core/references/match-preview.md",

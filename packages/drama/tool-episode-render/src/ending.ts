@@ -23,7 +23,7 @@ import { fileSha256 } from './cache.ts'
 import { ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
 import { probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { pathExists } from './paths.ts'
-import type { MediaToolkit, TailFrameEvidence } from './types.ts'
+import type { TimelineDelivery, MediaToolkit, TailFrameEvidence } from './types.ts'
 
 /**
  * How far before the end the seek starts.
@@ -260,6 +260,7 @@ export async function extractTailFrame(
  * @param effect - Absolute path of the ending effect video.
  * @param target - Absolute path of the clip to write.
  * @param encoder - The encoder the body clips were encoded with.
+ * @param delivery - Optional output geometry; omitted for legacy delivery.
  * @param encoderArgs - That encoder's rate-control arguments.
  */
 export async function buildEndingClip(
@@ -269,10 +270,11 @@ export async function buildEndingClip(
   target: string,
   encoder: string,
   encoderArgs: readonly string[],
+  delivery?: TimelineDelivery,
 ): Promise<void> {
   await runFfmpeg(toolkit, [
     '-y', '-v', 'error', '-loop', '1', '-i', tailFrame, '-i', effect,
-    '-filter_complex', endingEffectFilter(), '-map', '[v]',
+    '-filter_complex', endingEffectFilter(delivery), '-map', '[v]',
     '-t', ENDING_SECONDS.toFixed(3), '-an', '-c:v', encoder, ...encoderArgs, target,
   ])
 }

@@ -7,10 +7,17 @@ import sys
 import subprocess
 import hashlib
 import math
+import importlib.util
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
 from video_bans import check_videos, find_project
+
+_policy_spec = importlib.util.spec_from_file_location(
+    "drama_delivery_policy", Path(__file__).resolve().parents[2]
+    / "tweet-drama-background-render/scripts/delivery_policy.py")
+_delivery_policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(_delivery_policy)
 
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
@@ -82,10 +89,15 @@ def watermark_position(width: int, height: int) -> tuple[float, float]:
     return max(0.0, 0.90 - text_width / width), -0.8625
 
 
-def draft_ending_plan(timeline_path, clips: dict) -> dict:
-    """Resolve the body clock, optional canvas, and an already included two-second ending."""
+def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
+    """Resolve explicit delivery policy, body clock and a permitted already included ending."""
     payload = json.loads(Path(timeline_path).read_text(encoding="utf-8")) if clips else {}
     end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
+    try:
+        policy = _delivery_policy.resolve_delivery(payload, project)
+        _delivery_policy.reject_animation_ending(payload, end, policy)
+    except ValueError as error:
+        raise DraftInputError(str(error)) from error
     declared = payload.get("body_end", end / 1e6)
     if (isinstance(declared, bool) or not isinstance(declared, (int, float))
             or not math.isfinite(declared) or declared <= 0):
@@ -105,12 +117,9 @@ def draft_ending_plan(timeline_path, clips: dict) -> dict:
         if clip["start_us"] != cursor:
             raise DraftInputError("正文时间线必须连续，不能有重叠或空隙。")
         cursor += clip["duration_us"]
-    canvas = payload.get("canvas", {"width": 1440, "height": 2560})
-    if not isinstance(canvas, dict) or any(isinstance(canvas.get(key), bool)
-            or not isinstance(canvas.get(key), int) or canvas[key] <= 0 for key in ("width", "height")):
-        raise DraftInputError("时间线 canvas 必须包含正整数 width 和 height。")
     return {"body_clips": body_clips, "body_end_us": body_end, "included": included,
-            "duration_us": body_end + ENDING_DURATION_US, "last_shot": last_shot, "canvas": canvas}
+            "duration_us": body_end + policy["ending_duration_us"], "last_shot": last_shot,
+            "canvas": {key: policy[key] for key in ("width", "height")}, "policy": policy}
 
 
 def draft_decode_timeout_seconds() -> float:
@@ -920,8 +929,8 @@ def _duration_us(segment: dict) -> int:
 def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues, ending=None) -> None:
     """交付前校验一份草稿：对不上就拒绝交付并列出全部失败项。
 
-    正文镜头和主音频保持原时间线，主轨另含恰好 2 秒的可编辑真实末帧定格。
-    AI 标识独立覆盖正文与片尾，字幕轨仍只计实际发声字幕。
+    正文镜头和主音频保持原时间线；3D 动画不添加定格或 AI 标识。
+    仿真人与未声明媒介的旧项目另含 2 秒定格及独立 AI 标识，字幕仅计实际发声。
 
     Args:
         content: 即将写出的草稿内容（json.loads(script.dumps())）。
@@ -943,7 +952,9 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     video_total = sum(_duration_us(segment) for segment in video_segments)
     audio_total = sum(_duration_us(segment) for segment in audio_segments)
     body_end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
-    total_duration = body_end + ENDING_DURATION_US
+    include_ending = ending is None or ending["policy"]["ending_duration_us"] > 0
+    add_watermark = ending is None or ending["policy"]["add_watermark"]
+    total_duration = body_end + (ENDING_DURATION_US if include_ending else 0)
     expected_audio = audio_duration_us
     if ending is not None:
         total_duration = ending["duration_us"]
@@ -955,11 +966,12 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     if not video_segments:
         failures.append("视频轨没有任何片段。")
     elif abs(video_total - total_duration) > TIMELINE_TOLERANCE_US:
-        failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 正文加 2 秒定格 "
+        failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 交付要求 "
                         f"{total_duration / 1e6:.3f} 秒。")
     if clips:
-        if len(video_segments) != len(clips) + 1:
-            failures.append(f"视频段数 {len(video_segments)} != 镜头数 {len(clips)} + 1 个定格。")
+        expected_freezes = 1 if include_ending else 0
+        if len(video_segments) != len(clips) + expected_freezes:
+            failures.append(f"视频段数 {len(video_segments)} != 镜头数 {len(clips)} + {expected_freezes} 个定格。")
     else:
         failures.append("这一集没有时间线（05_timeline/<集>.timeline.json）：无法核对正文镜头时长。")
 
@@ -981,14 +993,28 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
             failures.append(f"镜头 {shot} 用的是默认时长 {duration / 1e6:.3f} 秒，时间线里没有这个镜头。")
         elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US or start != clip["start_us"]:
             failures.append(f"镜头 {shot} 的时间范围与正文时间线不一致。")
-    if len(freeze_segments) != 1:
+    if include_ending and len(freeze_segments) != 1:
         failures.append("主轨必须包含恰好一个可编辑末帧定格图片片段。")
+    if not include_ending:
+        generated_ending = any(track.get("name") in ("片尾音", "片尾特效")
+                               for track in content.get("tracks", []))
+        ending_material = any(Path(item.get("path") or "").name in
+                              ("last_video_tail_frame.png", "ending_audio.mp3", "ending_effect.mp4")
+                              for kind in ("videos", "audios")
+                              for item in content.get("materials", {}).get(kind, []))
+        if freeze_segments or generated_ending or ending_material:
+            failures.append("3D 动画草稿不得包含生成的片尾轨道或定格素材。")
+        if abs(content.get("duration", 0) - body_end) > TIMELINE_TOLERANCE_US:
+            failures.append("3D 动画草稿总时长必须等于正文，不能含片尾。")
 
     watermark_segments = [segment for track in content.get("tracks", [])
                           if track.get("type") == "text" and track.get("name") == WATERMARK_TRACK
                           for segment in track.get("segments", [])]
     texts = {material.get("id"): material for material in content.get("materials", {}).get("texts", [])}
-    if len(watermark_segments) != 1:
+    if not add_watermark:
+        if watermark_segments or any(track.get("name") == WATERMARK_TRACK for track in content.get("tracks", [])):
+            failures.append("3D 动画草稿不得添加 AI 内容标识。")
+    elif len(watermark_segments) != 1:
         failures.append("草稿必须包含一个独立可编辑的 AI 内容标识。")
     else:
         watermark = watermark_segments[0]
@@ -1058,7 +1084,6 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
 def main_with_args(args):
     if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
         raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
-    draft_decode_timeout_seconds()
     drafts_dir = Path(args.drafts)
     if not drafts_dir.is_absolute() or not drafts_dir.is_dir():
         raise DraftInputError('drafts_dir must be the existing absolute editor root returned by drama_draft_dir')
@@ -1198,9 +1223,6 @@ def main_with_args(args):
         videos = [path for path in media_files if path.suffix.lower() in video_extensions]
         if videos:
             source_hashes = check_videos(find_project(root, getattr(args, 'project', None)), videos)
-        ending_effect = root / "06_ending" / "ending_effect.mp4"
-        if ending_effect.is_file():
-            check_videos(find_project(root, getattr(args, 'project', None)), [ending_effect])
 
         # 使用简单的名称格式，只包含前缀和序列编号
         draft_name = f"{args.name_prefix}{seq}"
@@ -1211,7 +1233,16 @@ def main_with_args(args):
 
         if not timeline_clips:
             raise DraftInputError(f"这一集没有时间线 {timeline_path}，不能交付草稿。")
-        ending_plan = draft_ending_plan(timeline_path, timeline_clips)
+        project = getattr(args, 'project', None)
+        if project is None:
+            project = next((path for path in (root, *root.parents)
+                            if (path / 'project_config.json').is_file()), None)
+        ending_plan = draft_ending_plan(timeline_path, timeline_clips, project)
+        ending_effect = root / "06_ending" / "ending_effect.mp4"
+        if ending_plan["policy"]["ending_duration_us"] and ending_effect.is_file():
+            check_videos(find_project(root, project), [ending_effect])
+        if ending_plan["policy"]["ending_duration_us"]:
+            draft_decode_timeout_seconds()
         body_clips = ending_plan["body_clips"]
         canvas = ending_plan["canvas"]
 
@@ -1242,9 +1273,9 @@ def main_with_args(args):
             try:
                 logger.info(f"[{draft_name}] Attempt {attempt}: Trying to create draft...")
                 # 首先尝试创建新草稿
-                script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=60)
+                script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=ending_plan["policy"]["fps"])
                 logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
-                            f"with {canvas['width']}x{canvas['height']} at 60fps")
+                            f"with {canvas['width']}x{canvas['height']} at {ending_plan['policy']['fps']:g}fps")
                 break
             except Exception as ex:
                 logger.info(f"[{draft_name}] Failed to create draft: {ex}")
@@ -1398,9 +1429,11 @@ def main_with_args(args):
             try:
                 if last_source is None or last_duration is None:
                     raise DraftInputError("最后一个正文镜头未成功加入，不能生成定格。")
-                append_draft_ending(script, video_track, last_source, last_duration, draft_path,
-                                    ending_plan, root)
-                append_draft_watermark(script, ending_plan["duration_us"], canvas)
+                if ending_plan["policy"]["ending_duration_us"]:
+                    append_draft_ending(script, video_track, last_source, last_duration, draft_path,
+                                        ending_plan, root)
+                if ending_plan["policy"]["add_watermark"]:
+                    append_draft_watermark(script, ending_plan["duration_us"], canvas)
             except Exception as error:
                 refuse(f"定格或AI标识创建失败：{error}")
 

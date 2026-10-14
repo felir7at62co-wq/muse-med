@@ -2,13 +2,11 @@
  * `drama_render`: the short-drama pipeline's episode renderer, as one
  * model-facing tool.
  *
- * The delivery style used to be encoded in a skill script the model launched
- * with a shell. The style itself is a fixed specification — 1440x2560 at 60 fps,
- * 24M target with a 30M ceiling and a 4.6 Mbps floor, 68px subtitles with -2
- * spacing and a 7px black outline on the delivered picture, the bottom-right
- * `内容由AI生成` mark, and a two-second ending frozen from the last body shot's
- * real tail frame — so it lives here as constants, and the operation that
- * produces the delivery is the operation that enforces it.
+ * Project medium and timeline delivery geometry determine output treatment.
+ * Explicit 3D animation omits added marks and endings. Photorealistic and
+ * unclassified legacy projects retain the marked two-second ending; missing
+ * classification is reported. Rate control and body subtitle styling remain
+ * the approved delivery specification.
  *
  * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
@@ -24,6 +22,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { deliveryPolicyFor } from './delivery-policy.ts'
 import { createMediaToolkit } from './ffmpeg.ts'
 import { buildEpisodeCues } from './cues.ts'
 import type { BuiltCues } from './cues.ts'
@@ -67,8 +66,8 @@ const FONT_FAMILY_PATTERN = /^(?=[^,\r\n]*\S)[^,\r\n]+$/u
  * Plugin config. Every field is a deployment-varying choice: where the media
  * binaries are, the two audio gains the operator approved, whether the GPU
  * encoder is probed, and the font directory and families. The delivery
- * specification itself — geometry, frame rate, bitrates, subtitle layout, ending
- * length — is not configurable.
+ * geometry and frame rate are captured from the project into the timeline;
+ * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
   /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
@@ -125,9 +124,9 @@ interface DramaRenderArguments {
   bgm?: string
   /** Optional episode/segments music plan to report, not a listening verdict. */
   bgmPlan?: string
-  /** Ending sound; required by `render`. */
+  /** Ending sound; required only for photorealistic or legacy marked delivery. */
   endingAudio?: string
-  /** Ending effect video; required by `render`. */
+  /** Ending effect video; required only for photorealistic or legacy marked delivery. */
   endingEffect?: string
   /** Delivered file; required by `verify`, defaulted for `render`. */
   output?: string
@@ -182,9 +181,9 @@ interface RenderCall extends CallBase {
   /** Optional absolute path of the declared BGM plan. */
   readonly bgmPlan?: string
   /** Absolute path of the ending sound. */
-  readonly endingAudio: string
+  readonly endingAudio?: string
   /** Absolute path of the ending effect video. */
-  readonly endingEffect: string
+  readonly endingEffect?: string
   /** Absolute path of the file to write. */
   readonly output: string
   /** Whether the per-shot cache is ignored. */
@@ -233,8 +232,8 @@ function required<T>(value: T | undefined, method: DramaRenderMethod, field: str
 /**
  * Narrow one call's arguments to the paths its method cannot run without.
  *
- * Each method's own requirements are checked before any file is opened, so a
- * missing argument is one readable message rather than a failed command later.
+ * Common requirements are checked before files are opened. Ending paths are
+ * required asynchronously by render only after resolving the delivery medium.
  * @param args - The dispatched arguments.
  * @returns The resolved call, with every path absolute.
  * @throws {Error} When the method's required arguments are missing or the episode number is not a positive integer.
@@ -291,10 +290,8 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       lastShot,
       bgm: resolve(project, required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
-      endingAudio: resolve(required(args.endingAudio, 'render', 'endingAudio',
-        '片尾音文件路径（技能的 assets/ending_audio.mp3）。')),
-      endingEffect: resolve(required(args.endingEffect, 'render', 'endingEffect',
-        '片尾特效文件路径（技能的 assets/ending_effect.mp4）。')),
+      ...(args.endingAudio === undefined ? {} : { endingAudio: resolve(args.endingAudio) }),
+      ...(args.endingEffect === undefined ? {} : { endingEffect: resolve(args.endingEffect) }),
       output: resolve(args.output ?? paths.output),
       force: args.force ?? false,
     }
@@ -321,7 +318,7 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
     episode: call.episode,
     timeline: prepared.timeline,
     sources,
-    expectedDurationSeconds: prepared.timeline.bodyEndSeconds,
+    expectedDurationSeconds: Number((prepared.timeline.bodyEndSeconds + deliveryPolicyFor(prepared.timeline.delivery).endingSeconds).toFixed(6)),
     written: prepared.written,
     output: '',
     encoder: '',
@@ -365,7 +362,7 @@ function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderRepo
     episode: call.episode,
     timeline: built.timeline,
     sources,
-    expectedDurationSeconds: built.timeline.bodyEndSeconds,
+    expectedDurationSeconds: Number((built.timeline.bodyEndSeconds + deliveryPolicyFor(built.timeline.delivery).endingSeconds).toFixed(6)),
     written: built.written,
     output: '',
     encoder: '',
@@ -427,8 +424,8 @@ export async function runDramaRender(
       lastShot: call.lastShot,
       bgm: call.bgm,
       ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }),
-      endingAudio: call.endingAudio,
-      endingEffect: call.endingEffect,
+      ...(call.endingAudio === undefined ? {} : { endingAudio: call.endingAudio }),
+      ...(call.endingEffect === undefined ? {} : { endingEffect: call.endingEffect }),
       output: call.output,
       force: call.force,
     })
@@ -474,7 +471,7 @@ const RESULT_SCHEMA = {
     body_end_seconds: { type: 'number', required: true,
       description: '正片（不含片尾）结束时刻，秒。' },
     expected_duration_seconds: { type: 'number', required: true,
-      description: '正片结束 + 片尾 2 秒，成片必须达到的时长。' },
+      description: '按明确媒介计算的交付时长：3D 动画等于正片结束；写实或未声明媒介的旧项目再加片尾 2 秒。' },
     written: { type: 'array', required: true, items: { type: 'string' },
       description: '本次写入的绝对路径；verify 不写任何文件。' },
     output: { type: 'string', required: true,
@@ -569,7 +566,7 @@ const RESULT_SCHEMA = {
   },
 } as const
 
-/** What the model reads before calling: the four methods, the fixed style, and the two known traps. */
+/** What the model reads before calling: the four methods, medium-specific delivery, and known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + 'subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，'
   + '字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。'
@@ -582,13 +579,18 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + 'prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
-  + 'render=出片：逐镜编码到交付规格 1440x2560@60、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1，'
+  + 'prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。'
+  + 'render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。'
+  + '3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。'
+  + 'render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。'
+  + '以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：'
   + '片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，'
   + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
   + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
   + '拼接后烧录 ASS 字幕'
   + '（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，'
-  + '烧录链最后是 fps=60,setpts=N/(60*TB)，把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；'
+  + '烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；'
+  + '把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；'
   + '右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），'
   + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
@@ -644,11 +646,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
         + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。' },
       ending_audio: { type: 'string',
-        description: '片尾音文件路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
+        description: '片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
           + '只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。' },
       ending_effect: { type: 'string',
-        description: '片尾特效视频路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
+        description: '片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
           + '（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：'
           + '它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；'
           + '换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。' },

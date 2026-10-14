@@ -33,17 +33,12 @@ def main() -> None:
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--episodes", required=True)
     parser.add_argument("--bgm-dir", required=True, type=Path, help="Per-episode multi-track mixes: NN.mp3")
-    parser.add_argument("--ending-audio", required=True, type=Path)
-    parser.add_argument("--ending-effect", required=True, type=Path)
+    parser.add_argument("--ending-audio", type=Path)
+    parser.add_argument("--ending-effect", type=Path)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     project = args.project.resolve()
     script = Path(__file__).with_name("render_episode.py")
-    ending_effect = args.ending_effect.resolve()
-    ending_audio = args.ending_audio.resolve()
-    for resource in (ending_effect, ending_audio):
-        if not resource.is_file():
-            raise FileNotFoundError(resource)
     state_path = project / "exports" / "batch_render_tasks.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {"tasks": {}}
@@ -61,9 +56,11 @@ def main() -> None:
                 raise FileNotFoundError(f"Missing reviewed multi-track BGM mix: {bgm}")
             cmd = [sys.executable, "-B", str(script), "--project", str(project), "--episode", episode,
                    "--timeline", str(timeline), "--subtitle-srt", str(subtitle),
-                   "--last-shot", str(last_shot), "--bgm", str(bgm),
-                   "--ending-audio", str(ending_audio),
-                   "--ending-effect", str(ending_effect)]
+                   "--last-shot", str(last_shot), "--bgm", str(bgm)]
+            for name in ('ending_audio', 'ending_effect'):
+                resource = getattr(args, name)
+                if resource is not None:
+                    cmd += [f"--{name.replace('_', '-')}", str(resource.resolve())]
             if args.force:
                 cmd.append("--force")
             proc = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True,

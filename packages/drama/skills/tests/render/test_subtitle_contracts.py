@@ -76,6 +76,22 @@ class BurnedSubtitleContractTests(unittest.TestCase):
         self.assertNotIn('请勿带入现实', text)
         self.assertNotIn('drawtext', self.render.subtitle_filter(Path('display.ass')))
 
+    def test_animation_ass_keeps_speech_but_has_no_generated_watermark(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            srt, ass = Path(temporary) / 'a.srt', Path(temporary) / 'a.ass'
+            srt.write_text('1\n00:00:00,000 --> 00:00:01,000\n真实台词\n', encoding='utf-8')
+            self.render.write_ass(srt, ass, add_watermark=False, width=2560, height=1440)
+            text = ass.read_text(encoding='utf-8-sig')
+            self.assertIn('真实台词', text)
+            self.assertNotIn('Watermark', text)
+            self.assertNotIn('内容由AI生成', text)
+            self.assertEqual(len([line for line in text.splitlines() if line.startswith('Dialogue:')]), 1)
+            self.assertIn('PlayResX: 1920', text)
+            self.assertIn('PlayResY: 1080', text)
+            self.assertIn(',40,40,293,1', self.style_line(text))
+        chain = self.render.subtitle_filter(Path('display.ass'), 2560, 1440, 30)
+        self.assertTrue(chain.endswith('scale=2560:1440:flags=lanczos,fps=30,setpts=N/(30*TB)'))
+
     def test_decode_probe_counts_decoded_frames_not_the_exit_code(self):
         outcome = type('Outcome', (), {'returncode': 0, 'stderr': '[Parsed_showinfo_0 @ 0x1] n:   0 pts: 0\n'})()
         with patch.object(self.render.subprocess, 'run', return_value=outcome) as run:
