@@ -5,6 +5,7 @@ The generation tests run the real generator against real (tiny) media through th
 temporary directory.
 """
 import argparse
+import errno
 import importlib.util
 import json
 import shutil
@@ -30,6 +31,14 @@ def load_draft_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def windows_start_error(winerror, filename=None):
+    """Model Windows startup metadata on both Windows and POSIX test hosts."""
+    error = OSError(0, 'decoder startup failed', filename, winerror)
+    if os.name != 'nt':
+        error.winerror = winerror
+    return error
 
 
 class DraftDeliveryContractTests(unittest.TestCase):
@@ -563,6 +572,64 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 self.assertIsInstance(raised.exception.__context__, OSError)
                 self.assertFalse((editor / DRAFT_NAME).exists())
                 self.assertEqual(sentinel.read_bytes(), b'keep old draft on decoder startup error')
+
+    def test_windows_decoder_start_errors_without_filename_report_selected_executable(self):
+        decoder = str(Path('configured decoder') / '中文 ffmpeg.exe')
+        for winerror in (2, 5):
+            with self.subTest(winerror=winerror):
+                error = windows_start_error(winerror)
+                self.assertIsNone(error.filename)
+                original_errno, original_args, original_strerror = error.errno, error.args, error.strerror
+                with patch.dict(os.environ, {'DSH_FFMPEG_PATH': decoder}), \
+                     patch.object(self.module.subprocess, 'run', side_effect=error) as run:
+                    with self.assertRaises(OSError) as raised:
+                        self.module._ffmpeg_output(['-f', 'null', '-'])
+                self.assertIs(raised.exception, error)
+                self.assertIsNone(error.filename)
+                self.assertIn(decoder, str(error))
+                self.assertEqual(error.strerror, f'{original_strerror}（解码器：{decoder}）')
+                self.assertEqual(error.errno, original_errno)
+                self.assertEqual(error.winerror, winerror)
+                self.assertEqual(error.args, original_args)
+                self.assertEqual(run.call_args.args[0], [decoder, '-v', 'error', '-f', 'null', '-'])
+
+    def test_other_decoder_start_oserrors_keep_original_filename_and_text(self):
+        errors = [FileNotFoundError(errno.ENOENT, 'file missing'),
+                  FileNotFoundError(errno.ENOENT, 'file missing', '/usr/bin/missing decoder'),
+                  PermissionError(errno.EACCES, 'permission denied'),
+                  PermissionError(errno.EACCES, 'permission denied', '/usr/bin/blocked decoder'),
+                  OSError(5, 'input/output error'), OSError(5, 'input/output error', '/usr/bin/ffmpeg'),
+                  windows_start_error(193), windows_start_error(2, 'original filename'),
+                  windows_start_error(5, 'original filename')]
+        for error in errors:
+            with self.subTest(error=str(error)):
+                original_filename, original_text = error.filename, str(error)
+                with patch.dict(os.environ, {'DSH_FFMPEG_PATH': 'configured decoder'}), \
+                     patch.object(self.module.subprocess, 'run', side_effect=error):
+                    with self.assertRaises(OSError) as raised:
+                        self.module._ffmpeg_output(['-f', 'null', '-'])
+                self.assertIs(raised.exception, error)
+                self.assertEqual(error.filename, original_filename)
+                self.assertEqual(str(error), original_text)
+
+    def test_decoder_non_oserror_is_not_reclassified(self):
+        error = RuntimeError('original subprocess failure')
+        with patch.object(self.module.subprocess, 'run', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                self.module._ffmpeg_output(['-f', 'null', '-'])
+        self.assertIs(raised.exception, error)
+
+    def test_decoder_timeout_and_nonzero_exit_keep_existing_diagnostics(self):
+        error = subprocess.TimeoutExpired(['decoder'], 3)
+        with patch.dict(os.environ, {'MUSE_DRAFT_DECODE_TIMEOUT_SECONDS': '3'}), \
+             patch.object(self.module.subprocess, 'run', side_effect=error):
+            with self.assertRaisesRegex(self.module.DraftInputError, '定格解码超过 3 秒') as raised:
+                self.module._ffmpeg_output(['-f', 'null', '-'])
+        self.assertIs(raised.exception.__cause__, error)
+        result = subprocess.CompletedProcess(['decoder'], 1, stdout='', stderr='original decoder stderr')
+        with patch.object(self.module.subprocess, 'run', return_value=result):
+            with self.assertRaisesRegex(self.module.DraftInputError, '定格提取失败：original decoder stderr'):
+                self.module._ffmpeg_output(['-f', 'null', '-'])
 
 
 if __name__ == '__main__':

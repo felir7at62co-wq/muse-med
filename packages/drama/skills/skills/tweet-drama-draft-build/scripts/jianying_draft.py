@@ -145,6 +145,11 @@ def _ffmpeg_output(arguments: list[str]) -> str:
     except subprocess.TimeoutExpired as error:
         raise DraftInputError(f"定格解码超过 {timeout:g} 秒，已终止进程；请检查视频，"
                               "或调整 MUSE_DRAFT_DECODE_TIMEOUT_SECONDS 后重试。") from error
+    except OSError as error:
+        # Windows process startup can omit the executable from its OSError.
+        if error.filename is None and getattr(error, 'winerror', None) in (2, 5):
+            error.strerror = f"{error.strerror}（解码器：{executable}）"
+        raise
     if result.returncode:
         raise DraftInputError(f"定格提取失败：{result.stderr[-2000:]}")
     return result.stdout
