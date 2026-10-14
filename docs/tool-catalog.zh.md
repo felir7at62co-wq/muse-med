@@ -5599,7 +5599,7 @@ The three methods share one schema: `validate` and `preview` only read, and `com
     },
     "project": {
       "type": "string",
-      "description": "项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。"
+      "description": "项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。"
     },
     "episode": {
       "type": "integer",
@@ -5607,15 +5607,15 @@ The three methods share one schema: `validate` and `preview` only read, and `com
     },
     "shots": {
       "type": "string",
-      "description": "成片清单 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"video\":\"media/02/p1-clean.mp4\",\"audio\":\"可选\"}]}；prepare 与 subtitles 必填。video 缺音轨时必须给 audio。"
+      "description": "成片清单 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"video\":\"media/02/p1-clean.mp4\",\"audio\":\"可选\"}]}；prepare 与 subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。video 缺音轨时必须给 audio。"
     },
     "lines": {
       "type": "string",
-      "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
+      "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
     },
     "alignment": {
       "type": "string",
-      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
+      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
     },
     "timeline": {
       "type": "string",
@@ -5623,7 +5623,7 @@ The three methods share one schema: `validate` and `preview` only read, and `com
     },
     "subtitle_srt": {
       "type": "string",
-      "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。"
+      "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。"
     },
     "last_shot": {
       "type": "integer",
@@ -5639,15 +5639,15 @@ The three methods share one schema: `validate` and `preview` only read, and `com
     },
     "ending_audio": {
       "type": "string",
-      "description": "片尾音文件路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。"
+      "description": "片尾音文件路径；render 必填，相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。"
     },
     "ending_effect": {
       "type": "string",
-      "description": "片尾特效视频路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。"
+      "description": "片尾特效视频路径；render 必填，相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。"
     },
     "output": {
       "type": "string",
-      "description": "成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。"
+      "description": "成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。相对路径以 project 为基准，绝对路径保持不变。"
     },
     "force": {
       "type": "boolean",

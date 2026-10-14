@@ -235,7 +235,7 @@ function required<T>(value: T | undefined, method: DramaRenderMethod, field: str
  *
  * Each method's own requirements are checked before any file is opened, so a
  * missing argument is one readable message rather than a failed command later.
- * @param args - The dispatched arguments.
+ * @param args - The dispatched arguments; relative input and output paths are based on `project`.
  * @returns The resolved call, with every path absolute.
  * @throws {Error} When the method's required arguments are missing or the episode number is not a positive integer.
  */
@@ -252,9 +252,9 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       method: 'prepare',
       project,
       episode,
-      shotsPath: resolve(required(args.shots, 'prepare', 'shots',
+      shotsPath: resolve(project, required(args.shots, 'prepare', 'shots',
         '成片清单的路径，内容形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4"}]}。')),
-      subtitleSrt: resolve(required(args.subtitleSrt, 'prepare', 'subtitleSrt',
+      subtitleSrt: resolve(project, required(args.subtitleSrt, 'prepare', 'subtitleSrt',
         '本集 SRT 字幕的路径，prepare 会把它装到 editing/<集>.srt 供烧录。')),
     }
   }
@@ -263,15 +263,15 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       method: 'subtitles',
       project,
       episode,
-      shotsPath: resolve(required(args.shots, 'subtitles', 'shots',
+      shotsPath: resolve(project, required(args.shots, 'subtitles', 'shots',
         '成片清单的路径，内容形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4"}]}。')),
-      linesPath: resolve(required(args.lines, 'subtitles', 'lines',
+      linesPath: resolve(project, required(args.lines, 'subtitles', 'lines',
         '台词计划的路径，内容形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；'
         + '每镜的台词要在这里按字幕条切好。')),
-      alignmentPath: resolve(required(args.alignment, 'subtitles', 'alignment',
+      alignmentPath: resolve(project, required(args.alignment, 'subtitles', 'alignment',
         '语音识别对齐文档的路径，内容形如 {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}；'
         + '每镜的时间必须来自对该镜成片的识别，镜内相对秒数；字幕文字仍取 lines 里的剧本原文。')),
-      subtitleSrt: resolve(args.subtitleSrt ?? paths.subtitle),
+      subtitleSrt: resolve(project, args.subtitleSrt ?? paths.subtitle),
     }
   }
   if (args.method === 'render') {
@@ -286,16 +286,16 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       episode,
       timelinePath: resolve(project, required(args.timeline, 'render', 'timeline',
         '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。')),
-      subtitleSrt: resolve(required(args.subtitleSrt, 'render', 'subtitleSrt',
+      subtitleSrt: resolve(project, required(args.subtitleSrt, 'render', 'subtitleSrt',
         '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。')),
       lastShot,
       bgm: resolve(project, required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
-      endingAudio: resolve(required(args.endingAudio, 'render', 'endingAudio',
+      endingAudio: resolve(project, required(args.endingAudio, 'render', 'endingAudio',
         '片尾音文件路径（技能的 assets/ending_audio.mp3）。')),
-      endingEffect: resolve(required(args.endingEffect, 'render', 'endingEffect',
+      endingEffect: resolve(project, required(args.endingEffect, 'render', 'endingEffect',
         '片尾特效文件路径（技能的 assets/ending_effect.mp4）。')),
-      output: resolve(args.output ?? paths.output),
+      output: resolve(project, args.output ?? paths.output),
       force: args.force ?? false,
     }
   }
@@ -305,9 +305,9 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
     episode,
     timelinePath: resolve(project, required(args.timeline, 'verify', 'timeline',
       '被检查成片所依据的时间线 JSON 路径。')),
-    subtitleSrt: resolve(required(args.subtitleSrt, 'verify', 'subtitleSrt',
+    subtitleSrt: resolve(project, required(args.subtitleSrt, 'verify', 'subtitleSrt',
       '被检查成片所烧录的 SRT 字幕路径。')),
-    output: resolve(required(args.output, 'verify', 'output',
+    output: resolve(project, required(args.output, 'verify', 'output',
       '要检查的成片文件路径，例如 export/<剧名>_第02集_成片.mp4。')),
   }
 }
@@ -618,17 +618,18 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
           + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。' },
       project: { type: 'string', required: true,
-        description: '项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。' },
+        description: '项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
-          + 'prepare 与 subtitles 必填。video 缺音轨时必须给 audio。' },
+          + 'prepare 与 subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。video 缺音轨时必须给 audio。' },
       lines: { type: 'string',
         description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
-          + '每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。' },
+          + '相对路径以 project 为基准，绝对路径保持不变。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。' },
       alignment: { type: 'string',
         description: '语音识别对齐文档 JSON 路径，subtitles 必填，形如'
           + ' {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。'
+          + '文件相对路径以 project 为基准，绝对路径保持不变。'
           + '只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
           + '缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。' },
       timeline: { type: 'string',
@@ -636,7 +637,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
-          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。' },
+          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
       bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；'
@@ -644,16 +645,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
         + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；校验时间、记录曲目与复用提醒，不代替试听。' },
       ending_audio: { type: 'string',
-        description: '片尾音文件路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
+        description: '片尾音文件路径；render 必填，相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
           + '只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。' },
       ending_effect: { type: 'string',
-        description: '片尾特效视频路径；render 必填。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
+        description: '片尾特效视频路径；render 必填，相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
           + '（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：'
           + '它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；'
           + '换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。' },
       output: { type: 'string',
-        description: '成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。' },
+        description: '成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。相对路径以 project 为基准，绝对路径保持不变。' },
       force: { type: 'boolean',
         description: 'render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。' },
     },

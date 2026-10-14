@@ -278,11 +278,17 @@ def ending_effect_filter(ending_duration: float) -> str:
 
 def render(args: argparse.Namespace) -> dict:
     project = args.project.resolve()
+    args.project = project
+    for field in ('timeline', 'subtitle_srt', 'bgm', 'ending_audio', 'ending_effect',
+                  'output', 'freeze_image'):
+        path = getattr(args, field, None)
+        if path is not None:
+            setattr(args, field, (project / path).resolve())
     for resource in (args.bgm, args.ending_audio, args.ending_effect):
         if not resource.is_file():
             raise FileNotFoundError(resource)
-    verify_ending_asset(args.ending_audio.resolve(), ENDING_AUDIO)
-    verify_ending_asset(args.ending_effect.resolve(), ENDING_EFFECT)
+    verify_ending_asset(args.ending_audio, ENDING_AUDIO)
+    verify_ending_asset(args.ending_effect, ENDING_EFFECT)
     episode = str(args.episode).zfill(2)
     timeline = json.loads(args.timeline.read_text(encoding="utf-8"))
     clips = [item for item in timeline.get("clips", []) if int(item.get("shot", 0)) <= args.last_shot]
@@ -290,7 +296,7 @@ def render(args: argparse.Namespace) -> dict:
         raise ValueError(f"Expected {args.last_shot} body clips, got {len(clips)}")
     sources = [project / 'video' / episode / f"shot_{int(clip['shot']):03d}.mp4" for clip in clips]
     source_hashes = check_videos(project, sources)
-    sources.append(args.ending_effect.resolve())
+    sources.append(args.ending_effect)
     source_hashes.update(check_videos(project, [sources[-1]]))
     body_end_us = max(int(item["start_us"]) + int(item["duration_us"]) for item in clips)
     body_end = body_end_us / 1_000_000
@@ -329,7 +335,7 @@ def render(args: argparse.Namespace) -> dict:
         rendered.append(target)
 
     if args.freeze_image:
-        freeze_image = args.freeze_image.resolve()
+        freeze_image = args.freeze_image
     else:
         last_video = project / "video" / episode / f"shot_{args.last_shot:03d}.mp4"
         freeze_image = cache / "last_video_tail_frame.png"
@@ -337,7 +343,7 @@ def render(args: argparse.Namespace) -> dict:
             extract_tail_frame(last_video, freeze_image)
     freeze = cache / "ending.mp4"
     if force or not freeze.exists():
-        ending_effect = args.ending_effect.resolve()
+        ending_effect = args.ending_effect
         if not ending_effect.exists():
             raise FileNotFoundError(ending_effect)
         effect_filter = ending_effect_filter(args.ending_duration)
@@ -360,8 +366,8 @@ def render(args: argparse.Namespace) -> dict:
          "-an", "-c:v", encoder, *encoder_args, str(subtitled)])
 
     master = find_audio(project, episode)
-    bgm = args.bgm.resolve()
-    ending_audio = args.ending_audio.resolve()
+    bgm = args.bgm
+    ending_audio = args.ending_audio
     filter_audio = (
         f"[1:a]apad,atrim=0:{total_duration:.6f},volume={args.master_volume}[a0];"
         f"[2:a]atrim=0:{body_end:.6f},volume={args.bgm_volume}[a1];"
