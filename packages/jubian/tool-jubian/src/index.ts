@@ -271,6 +271,15 @@ const OUTPUT = {
     [{ type: 'text', text: JSON.stringify(value, null, 2) }],
 } as const
 
+/** Existing storyboard results retain the original key when serializer changes require reconciliation. */
+const STORYBOARD_OUTPUT = {
+  schema: { type: 'object', additionalProperties: true, properties: {
+    original_idempotency_key: { type: 'string',
+      description: '旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。' },
+  } },
+  render: OUTPUT.render,
+} as const
+
 /** Video methods keep their existing result fields; subtask reads expose the paged rows to PTC callers. */
 const VIDEO_OUTPUT = {
   schema: { type: 'object', additionalProperties: true, properties: {
@@ -721,7 +730,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       video_previews: ARGS.video_previews,
       ...VIDEO_ESTIMATE_ARGS,
     },
-    output: OUTPUT,
+    output: STORYBOARD_OUTPUT,
     execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch, storyboardBatch })),
   }))
 

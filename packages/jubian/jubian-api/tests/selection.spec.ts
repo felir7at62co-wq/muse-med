@@ -117,13 +117,13 @@ describe('subject selection planning', () => {
     expect(second.nextAction).toBeNull()
   })
 
-  it('verifies the saved snapshot against the plan and notices a changed order', () => {
+  it('verifies saved keyed fields independently of physical provider order', () => {
     const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })
     const saved = { ...STORYBOARD, storyboardMaterialList: plan.payload.storyboardMaterialList }
     expect(verifySubjectSelection(saved, plan.after)).toMatchObject({ matches: true, is_generate: 1 })
     const reversed = { ...saved, storyboardMaterialList: [...plan.payload.storyboardMaterialList as unknown[]].reverse() }
-    expect(verifySubjectSelection(reversed, plan.after).matches).toBe(false)
+    expect(verifySubjectSelection(reversed, plan.after).matches).toBe(true)
   })
 
   it('keeps provider-owned material fields out of the compared state but inside the payload', () => {
@@ -280,4 +280,58 @@ describe('selection readback normalization', () => {
         .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
     }
   })
+})
+
+describe('keyed selection readback and audio protection', () => {
+  it.each([
+    '@[陆沉舟](lead) @[音频1](lead)',
+    '@[音频1](lead) @[陆沉舟](lead)',
+  ])('refuses mixed image/audio use of a repeated key in %s', (prompt) => {
+    expect(() => buildSubjectSelection({ ...oneSubject(),
+      storyboard: { ...STORYBOARD, modelConfig: { prompt } } })).toThrow('AUDIO_MARKER_NOT_ALLOWED')
+  })
+
+  it('accepts physical readback reorder and avoids a second selection write', () => {
+    const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
+      subjectRows: ROWS, parentAssets: PARENTS })
+    const saved = { ...STORYBOARD,
+      storyboardMaterialList: [...first.payload.storyboardMaterialList as Record<string, unknown>[]].reverse() }
+    expect(verifySubjectSelection(saved, first.after).matches).toBe(true)
+    expect(buildSubjectSelection({ storyboard: saved, selections: SELECTIONS,
+      subjectRows: [...ROWS].reverse(), parentAssets: [...PARENTS].reverse() }).status).toBe('already_applied')
+  })
+
+  it('preserves interleaved audio by key and never turns an audio marker into an image', () => {
+    const audio = { materialType: 'audio', materialKey: 'voice', materialUrl: 'https://media.example/voice.wav', sortOrder: 1 }
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [audio],
+      modelConfig: { prompt: '@[陆沉舟](lead) @[声音](voice) @[苏晚](guest)' } }
+    const plan = buildSubjectSelection({ storyboard, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS })
+    expect((plan.payload.storyboardMaterialList as Record<string, unknown>[]).map(material => material.materialKey))
+      .toEqual(['lead', 'voice', 'guest'])
+    expect(() => buildSubjectSelection({ storyboard, selections: [{ material_key: 'voice', asset_id: 81285 }],
+      subjectRows: ROWS, parentAssets: PARENTS })).toThrow()
+    expect(() => buildSubjectSelection({ storyboard: { ...STORYBOARD,
+      modelConfig: { prompt: '@[音频1 (陆沉舟)](voice)' } }, selections: [{ material_key: 'voice', asset_id: 81285 }],
+    subjectRows: ROWS, parentAssets: PARENTS })).toThrow('AUDIO_MARKER_NOT_ALLOWED')
+  })
+
+  it('refuses an audio-category parent even with a generic image marker name', () => {
+    expect(() => buildSubjectSelection({ ...oneSubject(), parentAssets: [{ ...PARENTS[0]!, assetType: 4 }] })).toThrow()
+  })
+
+  it.each(['assetId', 'materialAssetId', 'materialKey', 'materialType', 'materialUrl', 'sortOrder'])
+  ('still detects a changed %s after physical readback reorder', (field) => {
+    const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS })
+    const changed = [...plan.payload.storyboardMaterialList as Record<string, unknown>[]].reverse()
+      .map((material, index) => index === 0 ? { ...material, [field]: field === 'sortOrder' ? 9 : 'changed' } : material)
+    expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: changed }, plan.after).matches).toBe(false)
+  })
+})
+
+it.each([null, ' ', 'voice', 'unused'])('refuses missing, duplicated or unreferenced preserved audio key %j', (key) => {
+  const audio = { materialType: 'audio', materialKey: 'voice', materialUrl: 'https://media.example/voice.wav', sortOrder: 1 }
+  const materials = key === 'voice' ? [audio, { ...audio }] : [{ ...audio, materialKey: key }]
+  expect(() => buildSubjectSelection({ storyboard: { ...STORYBOARD, storyboardMaterialList: materials,
+    modelConfig: { prompt: PROMPT + ' @[声音](voice)' } }, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS }))
+    .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
 })

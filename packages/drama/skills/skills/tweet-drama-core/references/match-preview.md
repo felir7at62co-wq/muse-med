@@ -68,7 +68,7 @@
 }
 ```
 
-工具 GET 回读分镜，核对项目、分集ID、Prompt 身份和素材顺序，复用现有 select_assets 构造器生成整卡建议。未指定修改的图片与参考音频必须保持字段和位置不变；模型、Prompt、时长及其他卡片字段保留。遇到缺映射、未核实关系或保留冲突时，当前卡 blocked，停止后续预检，不执行任何卡片写入。
+工具 GET 回读分镜，核对项目、分集ID、Prompt 身份和素材顺序，复用现有 select_assets 构造器生成整卡建议。未指定修改的图片与参考音频按 `materialKey` 保留所有字段，包括身份和各自分组的 `sortOrder`；素材数组可按 Prompt 标记的首次出现顺序重排。模型、Prompt、时长及其他卡片字段保留。遇到缺映射、未核实关系或保留冲突时，当前卡 blocked，停止后续预检，不执行任何卡片写入。
 
 `shots.status` 为 awaiting_confirmation、already_bound 或 blocked；already_bound 只表示当前选择一致。结果 fingerprint 包含原文、登记与版本证据、适用范围、映射和分镜快照；变化后应重新核对。它不是审批令牌。`apply_allowed=false` 只表示预览不授予写入权限，不禁止取得真实用户授权后使用既有绑定工具；Agent 创建的 approved 字段不是人工批准。
 

@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-legacy-key-conflict
+profile: headless
+composition: muse-native-legacy-key-conflict
+recording: authored
+header:
+  class: muse-native-legacy-key-conflict
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-legacy-key-fixture

@@ -454,16 +454,40 @@ export function storyboardMaterials(storyboard: Record<string, unknown>):
   return { materials: parsed.map(object), serialized: typeof storyboard.storyboardMaterialList === 'string' }
 }
 
+/** Read material rows by prompt key; physical provider order never selects an identity. */
+function promptOrderedVideoMaterials(materials: Record<string, unknown>[], prompt: string): Record<string, unknown>[] {
+  const byKey = new Map<string, Record<string, unknown>>()
+  for (const material of materials) {
+    const key = material.materialKey
+    if (typeof key !== 'string' || !key.trim()) invalid('A storyboard material is missing materialKey')
+    if (byKey.has(key)) invalid('A storyboard materialKey is duplicated')
+    if (material.materialType !== 'image' && material.materialType !== 'audio') invalid('Unsupported materialType')
+    byKey.set(key, material)
+  }
+  const references = [...new Set(promptKeys(prompt))]
+  const audioKeys = materials.filter(material => material.materialType === 'audio').map(material => String(material.materialKey))
+  const imageKeys = materials.filter(material => material.materialType === 'image').map(material => String(material.materialKey))
+  const imageReferences = references.filter(key => !audioKeys.includes(key))
+  if (imageReferences.length !== imageKeys.length || imageReferences.some(key => !imageKeys.includes(key))) {
+    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_IMAGE_MARKER_MISMATCH: prompt keys=${JSON.stringify(imageReferences)}, bound keys=${JSON.stringify(imageKeys)}; no PUT sent`)
+  }
+  const audioReferences = references.filter(key => audioKeys.includes(key))
+  if (audioReferences.length !== audioKeys.length) {
+    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_AUDIO_MARKER_MISMATCH: prompt keys=${JSON.stringify(audioReferences)}, bound keys=${JSON.stringify(audioKeys)}; no PUT sent`)
+  }
+  return references.map(key => byKey.get(key) as Record<string, unknown>)
+}
+
 /**
- * Read and check the ordered materials one live storyboard already carries.
+ * Read and check the keyed materials one live storyboard already carries.
  *
- * Image materials must already name a trusted identity, an ordered parent and
+ * Image materials must already name a trusted identity, a numeric parent and
  * an official URL. Uploaded audio uses its own URL, marker and group order;
  * available duration metadata must be within 15 seconds, while absent metadata
  * remains unverified. Submit re-reads the same saved fields before its paid PUT.
  * @param storyboard - The live storyboard snapshot.
- * @param assets - One parent asset per image, in storyboard image order.
- * @returns The enriched ordered materials, the normalized prompt and the model config.
+ * @param assets - One parent asset per image, in any provider order.
+ * @returns The enriched materials in complete prompt order, the normalized prompt and model config.
  * @throws {JubianError} `CONTRACT_CHANGED` when a bound identity or material order disagrees.
  * @throws {JubianError} `INVALID_ARGUMENT` when ordered Prompt markers disagree with bound materials.
  */
@@ -477,14 +501,23 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   }
   const prompt = normalizedPrompt(config.prompt)
   const scriptId = integer(storyboard.scriptId)
-  const imageMaterials = materials.filter(material => material.materialType !== 'audio')
-  if (assets.length !== imageMaterials.length) invalid()
-
-  const keys: string[] = []
+  const orderedMaterials = promptOrderedVideoMaterials(materials, prompt)
+  const imageMaterials = orderedMaterials.filter(material => material.materialType === 'image')
+  const assetsByParent = new Map<number, Record<string, unknown>>()
+  for (const asset of assets) {
+    const parentId = integer(asset.id ?? asset.assetId)
+    if (assetsByParent.has(parentId)) invalid('Image parent assets do not have unique IDs')
+    assetsByParent.set(parentId, asset)
+  }
+  if (assetsByParent.size !== imageMaterials.length) invalid('Image material and parent-asset counts disagree')
+  const usedParents = new Set<number>()
   const enriched = imageMaterials.map((material, index) => {
-    const asset = assets[index] as Record<string, unknown>
-    const assetId = asset.id ?? asset.assetId
-    const parentId = material.materialAssetId ?? material.assetId
+    const parentId = integer(material.materialAssetId)
+    if (usedParents.has(parentId)) invalid('Image materials do not have unique parent IDs')
+    const asset = assetsByParent.get(parentId)
+    if (asset === undefined) invalid('Image material parent is missing')
+    usedParents.add(parentId)
+    if (Number(asset.assetType) === 4) invalid('An image material points to an audio parent asset')
     if (integer(asset.scriptId) !== scriptId) invalid()
     const hsStatus = wireText(asset.hsAssetStatus)
     if (hsStatus !== null && !['active', ...SUCCESS_STATUSES].includes(hsStatus.trim().toLowerCase())) invalid()
@@ -503,13 +536,8 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
     if (asset.isUsed !== undefined && asset.isUsed !== null && Number(asset.isUsed) !== 1) invalid()
     const officialUrl = httpUrl(asset.assetUrl ?? asset.url)
     if (officialUrl === null) invalid()
-    if (assetId === undefined || assetId === null || wireText(parentId) !== wireText(assetId)) invalid()
     if (material.materialUrl !== officialUrl) invalid()
-    const materialType = wireText(material.materialType)
-    if (materialType === null || materialType.trim().toLowerCase() !== 'image') invalid()
-    const materialKey = material.materialKey
-    if (typeof materialKey !== 'string' || !materialKey) invalid()
-    keys.push(materialKey)
+    if (Number(material.sortOrder) !== index + 1) invalid('Image material sortOrder conflicts with prompt group order')
     const verified: Record<string, unknown> = {}
     for (const field of ['assetId', 'materialAssetId', 'assetName', 'fileName', 'materialKey',
       'materialType', 'materialUrl', 'sortOrder']) {
@@ -519,29 +547,21 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
     verified.official = true
     verified.asset_status = 'confirmed'
     const trusted = wireText(asset.hsAssetId)
-    if (trusted !== null && trusted.trim() !== '') verified.assetId = trusted
-    else if (Number(asset.isLocal) === 1) invalid()
+    if (trusted !== null && trusted.trim() !== '') {
+      if (wireText(material.assetId) !== trusted) invalid('Image material assetId conflicts with its official parent')
+      verified.assetId = trusted
+    } else if (Number(asset.isLocal) === 1) invalid()
     return verified
   })
 
-  const audioMaterials = materials.filter(material => material.materialType === 'audio')
+  const audioMaterials = orderedMaterials.filter(material => material.materialType === 'audio')
     .map(material => ({ ...validateAudioMaterial(material) }))
   referenceAudioUrls(audioMaterials)
-  const audioKeys = audioMaterials.map(material => String(material.materialKey))
-  const allKeys = [...keys, ...audioKeys]
-  if (new Set(allKeys).size !== allKeys.length) invalid()
-  const references = [...new Set(promptKeys(prompt))]
-  const imageReferences = references.filter(key => !audioKeys.includes(key))
-  if (imageReferences.join('\u0000') !== keys.join('\u0000')) {
-    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_IMAGE_MARKER_MISMATCH: prompt keys=${JSON.stringify(imageReferences)}, bound keys=${JSON.stringify(keys)}; no PUT sent`)
-  }
-  const audioReferences = references.filter(key => audioKeys.includes(key))
-  if (audioReferences.join('\u0000') !== audioKeys.join('\u0000')) {
-    throw new JubianError('INVALID_ARGUMENT', `PREPARE_VIDEO_AUDIO_MARKER_MISMATCH: prompt keys=${JSON.stringify(audioReferences)}, bound keys=${JSON.stringify(audioKeys)}; no PUT sent`)
-  }
   const maximumAudio = config.modelId === 'doubao-seedance-2-0-260128' ? 3 : 10
   if (audioMaterials.length > maximumAudio) invalid(`The selected SD model accepts at most ${maximumAudio} audio references`)
-  return { materials: [...enriched, ...audioMaterials], prompt, config }
+  const verifiedByKey = new Map([...enriched, ...audioMaterials].map(material => [String(material.materialKey), material]))
+  return { materials: orderedMaterials.map(material =>
+    verifiedByKey.get(String(material.materialKey)) as Record<string, unknown>), prompt, config }
 }
 
 /** Read the prompt's ordered `@[name](key)` placeholder keys. */
@@ -554,7 +574,7 @@ function promptKeys(prompt: string): string[] {
 export interface NativePreviewInput {
   /** The live storyboard snapshot the PUT will echo. */
   storyboard: Record<string, unknown>
-  /** The image parent assets in storyboard image order; uploaded audio has no parent. */
+  /** The image parent assets in any provider order; uploaded audio has no parent. */
   assets: Record<string, unknown>[]
   /** The live `taskType=1` catalogue. */
   models: unknown
@@ -602,7 +622,6 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     const materialName = wireText(material.fileName ?? material.assetName)
     const imageUrl = String(material.materialUrl)
     if (assetId === null || !assetId.trim()) invalid()
-    if (materialAssetId === undefined || materialAssetId === null || materialAssetId === '') invalid()
     if (materialName === null || !materialName.trim()) invalid()
     return { assetId, materialAssetId: integer(materialAssetId),
       materialKey: String(material.materialKey), materialName, imageUrl }
@@ -806,6 +825,11 @@ function expectedAxis(expectation: NativeClaimExpectation, field: string): strin
   return expectation.expectedModel.find(([name]) => name === field)?.[1] ?? null
 }
 
+/** Compare JSON values independently of order while retaining duplicate counts. */
+function sameUnorderedValues(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return stableJson(left.map(stableJson).sort()) === stableJson(right.map(stableJson).sort())
+}
+
 /**
  * Whether a child's readable evidence disproves that it is the submission being checked.
  *
@@ -819,7 +843,7 @@ function expectedAxis(expectation: NativeClaimExpectation, field: string): strin
 function contradictsExpectation(child: Record<string, unknown>, expectation: NativeClaimExpectation): boolean {
   const evidence = childReadableEvidence(child)
   if (evidence.urls !== null
-    && stableJson(evidence.urls) !== stableJson(expectation.expectedIdentity.map(item => item.imageUrl))) return true
+    && !sameUnorderedValues(evidence.urls, expectation.expectedIdentity.map(item => item.imageUrl))) return true
   const axes: [string, string | null][] = [['modelId', evidence.modelId],
     ['standardId', evidence.standardId], ['resolution', evidence.resolution]]
   for (const [field, read] of axes) {
@@ -954,7 +978,15 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
       unsafe = true
       continue
     }
-    if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) continue
+    if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
+      if (sameUnorderedValues(identity, expectation.expectedIdentity)) {
+        const model = childModel(child), prompt = childPrompt(child)
+        if (model !== null && stableJson(model) !== stableJson(expectation.expectedModel)) continue
+        if (prompt !== null && prompt !== expectation.expectedPrompt) continue
+        unsafe = true
+      }
+      continue
+    }
     const model = childModel(child)
     const prompt = childPrompt(child)
     if (model === null || prompt === null) { unsafe = true; continue }

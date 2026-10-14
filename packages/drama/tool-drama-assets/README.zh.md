@@ -99,7 +99,7 @@ pagination 包含 output_offset、output_limit、next_offset 和无前缀的 64 
 
 ### 集中复用预览
 
-`reuse_preview` 复用相同匹配检查，仅在身份、状态、条件和候选选择一致时归组，返回候选详情、适用范围、版本/来源指纹及可选的逐卡素材选择建议。参见[映射格式](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检)。沿用 `select_assets` 构造器检查图片身份和 Prompt 顺序；建议保留每项无关素材的原位置，以及模型、Prompt 和提供方字段。无法保留时阻断。人物需求未提供 `character_id` 时可按已核验 `stable_id` 归组，两种身份类型不会相互混用。图片需求映射到音频占位符时返回 `IMAGE_MAPPING_TARGETS_AUDIO` 并阻断。首张预检失败后停止后续预检；重复预览不执行绑定。
+`reuse_preview` 复用相同匹配检查，仅在身份、状态、条件和候选选择一致时归组，返回候选详情、适用范围、版本/来源指纹及可选的逐卡素材选择建议。参见[映射格式](../skills/skills/tweet-drama-core/references/match-preview.md#集中复用与分镜预检)。沿用 `select_assets` 构造器检查图片身份和 Prompt 顺序；建议按 `materialKey` 比较原素材与提议素材，保留每项未选素材的全部字段，以及模型、Prompt 和提供方字段。仅改变素材行物理顺序允许，未选素材缺失、重复或发生变化则阻断。人物需求未提供 `character_id` 时可按已核验 `stable_id` 归组，两种身份类型不会相互混用。图片需求映射到音频占位符时返回 `IMAGE_MAPPING_TARGETS_AUDIO` 并阻断。首张预检失败后停止后续预检；重复预览不执行绑定。
 
 流程为匹配预览 → 复用建议 → 用户确认 → 模型调用原有 `jubian_storyboard.select_assets`。`reuse_ready`、`already_bound` 和指纹是观察结果，不是授权。`apply_allowed=false` 表示预览不授予写入权限，不禁止模型取得真实用户授权后使用原有绑定工具。逐卡ID和有序 selections 来自 `shots`；来源、身份、版本或范围变化后重新审核。声线继续走 `audio_preview → audio_apply`。本包不新增绑定执行器或审批签发，既有工具继续保留授权、身份、顺序、幂等和回读检查。
 

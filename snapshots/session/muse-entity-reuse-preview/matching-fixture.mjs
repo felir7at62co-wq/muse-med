@@ -25,11 +25,11 @@ export function apply(ctx) {
         const id = Number(url.pathname.split('/').at(-1))
         if (![901, 902].includes(id)) throw new Error('Unexpected storyboard')
         data = { id, scriptId: 2708, episodeId: 91, duration: 5000,
-          modelConfig: { prompt: '@[阿舟](lead)走进@[大厅](bg)，@[阿舟](lead)停下。@[声线](voice)', resolution: '720p' },
+          modelConfig: { prompt: '@[阿舟](lead)声音参照@[声线](voice)，走进@[大厅](bg)，@[阿舟](lead)停下。', resolution: '720p' },
           storyboardMaterialList: [
-            { materialKey: 'lead', materialAssetId: 99, assetId: 'asset-99', fileName: '旧选择', materialType: 'image', materialUrl: 'https://example.invalid/old.png', sortOrder: 1 },
             { materialKey: 'bg', materialAssetId: 12, assetId: 'asset-12', fileName: '大厅', materialType: 'image', materialUrl: 'https://example.invalid/lobby.png', sortOrder: 2 },
             { materialKey: 'voice', materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav', sortOrder: 1 },
+            { materialKey: 'lead', materialAssetId: 99, assetId: 'asset-99', fileName: '旧选择', materialType: 'image', materialUrl: 'https://example.invalid/old.png', sortOrder: 1 },
           ] }
       } else data = assets.find(row => String(row.id) === url.pathname.split('/').at(-1))
       return new Response(JSON.stringify({ code: 200, data }), { status: 200 })

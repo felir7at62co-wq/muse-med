@@ -468,6 +468,7 @@
     { "path": "./packages/drama/tool-audio-transcribe" },
     { "path": "./packages/perception/tool-video-inspect" },
     { "path": "./packages/drama/tool-episode-render" },
+    { "path": "./packages/drama/character-asset-catalog" },
     { "path": "./packages/drama/tool-character-reference" },
     { "path": "./packages/drama/tool-drama-assets" },
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },
