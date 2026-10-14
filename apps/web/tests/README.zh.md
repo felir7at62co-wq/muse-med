@@ -20,6 +20,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 ## 完成状态观察
 
+桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。
+
 依赖状态的用例使用 Workspace、接纳、附件和模型流屏障，区分可见中间状态与已完成操作。模型选择器的持久化断言等待默认设置保存完成，不以菜单关闭作为完成信号。详情关闭等待框架过渡结束；归档验证为 seed Session 设置显式标题，并跨重载跟踪该身份。[CI 测试可靠性工作流](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state)负责这些同步规则。
 
 权限选择器断言先等待选项行渲染，再检查数量或快照。安装生命周期场景独立拥有配置档和浏览器，将 Auto 安装为包，并在保持 HMR 启用的情况下通过插件管理器持久保存启停状态。目录响应完成后再执行原有 DOM 检查；当前权限发生变化，并不表示目录刷新已经完成。
