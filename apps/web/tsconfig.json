@@ -130,6 +130,7 @@
     "tests/ptc-round.e2e.ts",
     "tests/present.e2e.ts",
     "tests/present-svg.e2e.ts",
+    "tests/websocket-host-diagnostics.ts",
     "tests/composer-draft-scroll.e2e.ts",
     "tests/composer-placeholder.e2e.ts",
     "tests/context-meter.e2e.ts",

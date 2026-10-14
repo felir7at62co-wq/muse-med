@@ -19,14 +19,211 @@ interface RunningMux {
 const running = new Set<RunningMux>()
 
 afterEach(async () => {
-  await Promise.all([...running].map(async (entry) => {
-    running.delete(entry)
-    await entry.mux.close().catch(() => undefined)
-    await closeHttp(entry.http)
-  }))
+  vi.restoreAllMocks()
+  try {
+    await Promise.all([...running].map(async (entry) => {
+      running.delete(entry)
+      await entry.mux.close().catch(() => undefined)
+      await closeHttp(entry.http)
+    }))
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
+  it('allows a delayed Ping write to receive its Pong after the queued-write checks', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const writes = holdPings(serverSocket)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const immediate = holdImmediateChecks()
+
+    vi.advanceTimersByTime(20)
+    vi.advanceTimersByTime(20)
+    vi.advanceTimersByTime(20)
+    expect(immediate.checks).toHaveLength(1)
+    const received = once(client, 'ping')
+    await writes.release()
+    await received
+    expect(writes.count()).toBe(0)
+    immediate.checks[0]?.()
+    expect(terminated).not.toHaveBeenCalled()
+
+    const answered = once(serverSocket, 'pong')
+    client.pong()
+    await answered
+    immediate.restore()
+    const closed = once(client, 'close')
+    client.close()
+    await closed
+  })
+
+  it('bounds a Ping write that never completes and cancels its active stream', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const opened = Promise.withResolvers<undefined>()
+    const returned = Promise.withResolvers<undefined>()
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => {
+      opened.resolve(undefined)
+      return cleanlyCancelled(control.signal, () => { returned.resolve(undefined) })
+    }, 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const writes = holdPings(serverSocket)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    client.send(openFrame('blocked-ping'))
+    await opened.promise
+    const closed = once(client, 'close')
+
+    vi.advanceTimersByTime(20)
+    vi.advanceTimersByTime(20)
+    expect(writes.count()).toBe(1)
+    expect(terminated).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(20)
+    await closed
+    await returned.promise
+    expect(terminated).toHaveBeenCalledOnce()
+    vi.advanceTimersByTime(100)
+    expect(writes.count()).toBe(1)
+    writes.fail(new Error('late write failure'))
+    expect(terminated).toHaveBeenCalledOnce()
+  })
+
+  it('terminates an immediate Ping write failure', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
+    const client = await connect(entry.url)
+    const serverSocket = acceptedSocket(entry.mux)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    vi.spyOn(serverSocket, 'ping').mockImplementation((_data: unknown, _mask, callback) => {
+      callback?.(new Error('fixture Ping write failure'))
+    })
+    const closed = once(client, 'close')
+    vi.advanceTimersByTime(20)
+    await closed
+    expect(terminated).toHaveBeenCalledOnce()
+  })
+
+  it('does not count a Pong received before the Ping write callback as missed', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const send = serverSocket.ping.bind(serverSocket)
+    const written = Promise.withResolvers<undefined>()
+    let completeWrite: (() => void) | undefined
+    const firstPing = vi.spyOn(serverSocket, 'ping').mockImplementation((data: unknown, mask, callback) => {
+      send(data, mask, (error) => {
+        completeWrite = () => { callback?.(error) }
+        written.resolve(undefined)
+      })
+    })
+    const received = once(client, 'ping')
+    vi.advanceTimersByTime(20)
+    await written.promise
+    await received
+    const answered = once(serverSocket, 'pong')
+    client.pong()
+    await answered
+    expect(completeWrite).toBeDefined()
+    completeWrite?.()
+    firstPing.mockRestore()
+
+    const followingPings = vi.spyOn(serverSocket, 'ping')
+    const second = once(client, 'ping')
+    vi.advanceTimersByTime(20)
+    await second
+    const immediate = holdImmediateChecks()
+    const third = once(client, 'ping')
+    vi.advanceTimersByTime(20)
+    expect(followingPings).toHaveBeenCalledTimes(2)
+    expect(immediate.checks).toEqual([])
+    await third
+    immediate.restore()
+    const closed = once(client, 'close')
+    client.close()
+    await closed
+  })
+
+  it('ignores late Ping callbacks and heartbeat checks while the socket is closing', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const writes = holdPings(serverSocket)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const immediate = holdImmediateChecks()
+    vi.advanceTimersByTime(60)
+    expect(immediate.checks).toHaveLength(1)
+
+    client.pause()
+    serverSocket.close()
+    expect(serverSocket.readyState).toBe(WebSocket.CLOSING)
+    writes.fail(new Error('closing Ping write'))
+    immediate.checks[0]?.()
+    expect(terminated).not.toHaveBeenCalled()
+    immediate.restore()
+    const closed = once(client, 'close')
+    client.resume()
+    await closed
+  })
+
+  it('invalidates Ping callbacks and final checks before disposal terminates the socket', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const writes = holdPings(serverSocket)
+    const immediate = holdImmediateChecks()
+    vi.advanceTimersByTime(60)
+    expect(immediate.checks).toHaveLength(1)
+    const terminate = serverSocket.terminate.bind(serverSocket)
+    const terminated = vi.spyOn(serverSocket, 'terminate').mockImplementation(() => {
+      expect(serverSocket.readyState).toBe(WebSocket.OPEN)
+      writes.fail(new Error('disposed Ping write'))
+      immediate.checks[0]?.()
+      terminate()
+    })
+    const closed = once(client, 'close')
+    immediate.restore()
+    await entry.mux.close()
+    running.delete(entry)
+    await closed
+    expect(terminated).toHaveBeenCalledOnce()
+    await closeHttp(entry.http)
+  })
+
+  it('does not accept application traffic instead of Pong replies', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const entry = await startMux(async (_endpoint, _payload, uplink) => echoUplink(uplink), 20)
+    const client = await connect(entry.url, false)
+    const serverSocket = acceptedSocket(entry.mux)
+    const terminated = vi.spyOn(serverSocket, 'terminate')
+    const frames = collectFrames(client)
+    const firstItem = once(client, 'message')
+    client.send(openFrame('active-traffic'))
+    client.send(itemFrame('active-traffic', 'before Ping'))
+    await firstItem
+    expect(frames).toHaveLength(1)
+    for (const value of ['first Ping', 'second Ping']) {
+      const received = once(client, 'ping')
+      vi.advanceTimersByTime(20)
+      await received
+      const item = once(client, 'message')
+      client.send(itemFrame('active-traffic', value))
+      await item
+      expect(frames.at(-1)?.value).toBe(value)
+      expect(terminated).not.toHaveBeenCalled()
+    }
+    const closed = once(client, 'close')
+    vi.advanceTimersByTime(20)
+    await closed
+    expect(terminated).toHaveBeenCalledOnce()
+    expect(frames.map(frame => frame.value)).toEqual(['before Ping', 'first Ping', 'second Ping'])
+  })
+
   it('sends WebSocket Ping control frames without application messages', async () => {
     const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)
     const client = await connect(entry.url)
@@ -72,21 +269,17 @@ describe('Remote stream mux server carrier lifecycle', () => {
     const client = await connect(entry.url, false)
     const serverSocket = acceptedSocket(entry.mux)
     const terminated = vi.spyOn(serverSocket, 'terminate')
-    let finalCheck: (() => void) | undefined
-    const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback) => {
-      finalCheck = callback
-      return 0 as unknown as NodeJS.Immediate
-    })
+    const immediate = holdImmediateChecks()
 
     try {
       await once(client, 'ping')
       await once(client, 'ping')
-      await vi.waitFor(() => { expect(finalCheck).toBeDefined() })
+      await vi.waitFor(() => { expect(immediate.checks.length).toBeGreaterThan(0) })
       serverSocket.emit('pong', Buffer.alloc(0))
-      finalCheck?.()
+      for (const check of immediate.checks) check()
       expect(terminated).not.toHaveBeenCalled()
     } finally {
-      immediate.mockRestore()
+      immediate.restore()
       const closed = once(client, 'close')
       client.close()
       await closed
@@ -542,6 +735,42 @@ function acceptedSocket(mux: RemoteStreamMuxServer): WebSocket {
   const socket = [...exposed.server.clients][0]
   if (socket === undefined) throw new Error('fixture mux has no accepted socket')
   return socket
+}
+
+function holdPings(socket: WebSocket): {
+  readonly count: () => number
+  readonly release: () => Promise<void>
+  readonly fail: (error: Error) => void
+} {
+  const send = socket.ping.bind(socket)
+  const queued: { readonly send: () => Promise<void>; readonly fail: (error: Error) => void }[] = []
+  vi.spyOn(socket, 'ping').mockImplementation((data: unknown, mask, callback) => {
+    queued.push({
+      send: () => new Promise<void>((resolve, reject) => {
+        send(data, mask, (error) => {
+          callback?.(error)
+          if (error) reject(error)
+          else resolve()
+        })
+      }),
+      fail: (error) => { callback?.(error) },
+    })
+  })
+  return {
+    count: () => queued.length,
+    release: async () => { await Promise.all(queued.splice(0).map(ping => ping.send())) },
+    fail: (error) => { for (const ping of queued.splice(0)) ping.fail(error) },
+  }
+}
+
+function holdImmediateChecks(): { readonly checks: (() => void)[]; readonly restore: () => void } {
+  const schedule = globalThis.setImmediate
+  const checks: (() => void)[] = []
+  const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback, ...args) => {
+    checks.push(() => { callback(...args) })
+    return schedule(() => {})
+  })
+  return { checks, restore: () => { immediate.mockRestore() } }
 }
 
 function collectFrames(client: WebSocket): Record<string, unknown>[] {

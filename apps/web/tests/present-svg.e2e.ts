@@ -13,6 +13,7 @@ import {
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspaceZh, ZH_BROWSER_LOCALE } from './support.ts'
+import { observeHostWebSockets, type WebSocketHostDiagnostics } from './websocket-host-diagnostics.ts'
 
 const DIR = fileURLToPath(new URL('../../../snapshots/web/present-svg', import.meta.url))
 const FIXTURE = join(DIR, 'session.v3.jsonl')
@@ -27,9 +28,11 @@ describe('web e2e: requested SVG is explicitly delivered', () => {
   let tripwire: ReturnType<typeof watchConsole>
   let cwd: string
   let replayRoot: string | undefined
+  let hostDiagnostics: WebSocketHostDiagnostics | undefined
   const connectionDiagnostics: string[] = []
 
   beforeAll(async () => {
+    hostDiagnostics = observeHostWebSockets()
     let replayOverride: string | undefined
     if (MODE !== 'record') {
       replayRoot = await mkdtemp(join(tmpdir(), 'dsh-present-svg-replay-'))
@@ -73,6 +76,7 @@ describe('web e2e: requested SVG is explicitly delivered', () => {
       try {
         await scaffold?.close()
       } finally {
+        hostDiagnostics?.restore()
         if (replayRoot !== undefined) await rm(replayRoot, { recursive: true, force: true })
       }
     }
@@ -154,7 +158,8 @@ describe('web e2e: requested SVG is explicitly delivered', () => {
       { fills: ['color(srgb 1 1 1 / 0.05)', 'color(srgb 1 1 1 / 0.05)'], matchingTiles: true, matchingCards: true },
     ])
     expect(tripwire.pageErrors).toEqual([])
-    expect(tripwire.warnings, connectionDiagnostics.join('\n')).toEqual([])
+    expect(hostDiagnostics?.socketCount, 'the Host WebSocket diagnostic hook must observe the real carrier').toBeGreaterThan(0)
+    expect(tripwire.warnings, [...connectionDiagnostics, hostDiagnostics?.format()].join('\n')).toEqual([])
   })
 
   it.skipIf(MODE === 'record')('replays the delivered file and Chinese conversation', async () => {
