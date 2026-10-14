@@ -389,7 +389,7 @@ After an authorized submission, do other work and read `subtasks` later; use the
 
 `image_generate` is the one exception, and only because its result is unusable without it: that method waits inside the call for its own image to become available, bounded by `imageActiveTimeoutMs`, and reports the timeout as `asset_status: timeout` instead of throwing.
 
-For `image_generate`, set `image_style: "anime"` for 2D/3D animation or `"live_action"` for live action; batch `items` carry this choice individually. The tool resolves leading positive medium declarations for older calls and keeps live action for unmarked legacy prompts. Contradictory explicit choices fail before billing. The receipt echoes the resolved `image_style`, not a visual acceptance verdict. Keep 3D substyle in the full prompt, inspect the resulting image and reconcile any uncertain submission with its original key.
+For `image_generate`, set `image_style: "anime"` for 2D/3D animation or `"live_action"` for live action; batch `items` carry this choice individually and a top-level batch `image_style` is rejected. The tool resolves leading positive medium declarations for older calls, including the exact `项目风格:` or `项目风格：` prefix, and keeps live action for unmarked legacy prompts. Contradictory explicit choices fail before billing. The receipt echoes the resolved `image_style`, not a visual acceptance verdict. Keep 3D substyle in the full prompt, inspect the resulting image and reconcile any uncertain submission with its original key.
 
 -----
 

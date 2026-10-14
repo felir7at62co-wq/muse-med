@@ -510,6 +510,9 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
   assetName: string
   assetType: number
 }> {
+  if (args.image_style !== undefined) {
+    throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch image_style belongs in each items entry, not at the top level')
+  }
   if (!Number.isSafeInteger(args.script_id) || (args.script_id as number) <= 0) {
     throw new JubianError('INVALID_ARGUMENT', 'image_generate_batch requires a positive script_id')
   }

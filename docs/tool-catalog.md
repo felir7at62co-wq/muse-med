@@ -4968,7 +4968,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           },
           "image_style": {
             "type": "string",
-            "description": "本项媒介；3D动漫用 anime，真人用 live_action；与提示词开头一致。",
+            "description": "本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。",
             "enum": [
               "live_action",
               "anime"
@@ -4999,7 +4999,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     },
     "image_style": {
       "type": "string",
-      "description": "image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别提示词开头的正向媒介，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。",
+      "description": "image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。",
       "enum": [
         "live_action",
         "anime"

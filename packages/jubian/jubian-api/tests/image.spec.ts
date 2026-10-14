@@ -234,6 +234,29 @@ describe('imageCandidates', () => {
 
 
 describe('image medium selection', () => {
+  it.each([
+    ['项目风格：3D动漫／风格化三维动画，PBR材质。角色身份：女主。', 1],
+    ['项目风格: 动漫，水墨线条与二维平涂。角色身份：男主。', 1],
+    ['  项目风格： stylized 3D animation, soft lighting.\nCharacter reference.', 1],
+    ['项目风格：真人实拍，人物摄影。', 0],
+  ])('preserves an official leading project style in %s', (prompt, style) => {
+    const body = buildImageRequest({ scriptId: 4908, assetName: '风格样图', assetType: 1,
+      prompt, references: [] }, CATALOGUE)
+    expect(JSON.parse(String(body.modelConfig))).toMatchObject({ style, prompt })
+  })
+
+  it.each(['构图说明：项目风格：3D动漫，角色。', '项目风格：不要3D动漫，要人物摄影。',
+    '项目风格：\n3D动漫，角色。', '项目风格 ：3D动漫，角色。', '项目风格：禁止真人摄影，3D动漫。'])
+  ('does not infer a medium from non-leading or negative project style wording %s', (prompt) => {
+    expect(resolveImageStyle(prompt)).toBe('live_action')
+    expect(resolveImageStyle(prompt, 'anime')).toBe('anime')
+  })
+
+  it('rejects an explicit medium conflicting with an official leading project style', () => {
+    expect(() => resolveImageStyle('项目风格：3D动漫，角色。', 'live_action')).toThrow('conflicts')
+    expect(() => resolveImageStyle('项目风格: 真人实拍，场景。', 'anime')).toThrow('conflicts')
+  })
+
   it.each(['3D动漫／风格化三维动画，PBR材质。', '【动漫】3D角色设定图。',
     '三维动画，精细CG建模。', '风格化三维动画，电影光照。', 'stylized 3D animation character.',
     '动漫，纯环境场景。', '动画：同一项目道具。', '3D国漫，角色立绘。'])
