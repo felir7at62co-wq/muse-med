@@ -306,6 +306,9 @@
     - id: ui-sidebar-terminal
       name: '@deepseek-ai/dsh-client-ui-sidebar-terminal'
     # The right Sidebar's workspace file tree tab type.
+    - id: ui-character-library
+      name: '@deepseek-ai/dsh-client-ui-character-library'
+
     - id: ui-sidebar-files
       name: '@deepseek-ai/dsh-client-ui-sidebar-files'
 
