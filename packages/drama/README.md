@@ -27,6 +27,7 @@ The `drama/` group holds the short-drama pipeline's formats, operations, and set
 | [`screenplay-project/`](screenplay-project/README.md) | Source-backed writing, independent fact and episode review, generated source references, and resumable character knowledge |
 | [`tool-audio-transcribe/`](tool-audio-transcribe/README.md) | The model-facing `audio_transcribe` tool: account-bound cloud transcription of local media with durable job receipts and versioned transcripts |
 | [`tool-shot-script/`](tool-shot-script/README.md) | The model-facing `drama_shot` tool: script validation with hard failures and warnings separated, the package budget preview, and the matched JSON and episode package compile |
+| [`bgm-license-info/`](bgm-license-info/README.md) | Music-rights declarations, explicit unknown metadata and advisory intended-use conflicts shared by catalog and rendering consumers |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.md) | The model-facing `drama_bgm` tool: source analysis, deterministic crossfaded composition, no-clobber publication, and fixed WAV verification |
 | [`tool-episode-render/`](tool-episode-render/README.md) | The model-facing `drama_render` tool: the render-input layout, the fixed 1440x2560 delivery with its subtitle and audio style, the proved two-second ending, and the post-render checks |
 | [`drama-settings/`](drama-settings/README.md) | The durable `drama` settings section every other row reads, plus its Web GUI surface: the Settings page and that page's read-only component list |

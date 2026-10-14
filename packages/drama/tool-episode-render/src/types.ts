@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-tool-episode-render/types
  */
 
+import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
+
 /** The operation one `drama_render` call runs. */
 export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles'
 
@@ -306,6 +308,12 @@ export interface DramaRenderReport {
 
 /** A declared music segment on the episode clock, not an acoustic measurement. */
 export interface BgmSegment {
+  /** Stable catalog identity when declared in the plan. */
+  readonly track_id?: string
+  /** Normalized audio license declaration, not independently verified rights. */
+  readonly license_info: LicenseInfo
+  /** Source digest declared in the plan; the renderer does not rehash each track. */
+  readonly source_sha256?: string
   /** Human-readable track identity. */
   readonly track: string
   /** Track source path declared by the plan. */
@@ -320,6 +328,10 @@ export interface BgmSegment {
 
 /** Declared BGM metadata bound to the bed used by this render. */
 export interface BgmPlanReport {
+  /** Declared episode use, or unknown when no plan was read. */
+  readonly intended_use: BgmUsage
+  /** Declared track rights and non-blocking use risks; empty when no plan was read. */
+  readonly license_records: BgmLicenseRecord[]
   /** Plan file, or empty when none was supplied. */
   readonly path: string
   /** SHA-256 of the bed, not a verification that it matches the declared tracks. */

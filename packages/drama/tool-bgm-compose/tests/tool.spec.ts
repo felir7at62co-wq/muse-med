@@ -1,5 +1,6 @@
 /** Model-facing tool identity, schema, and configuration. */
 
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -43,12 +44,21 @@ describe('registration', () => {
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'plan', 'project', 'timeline'])
   })
 
+  it('matches the recorded-session owner schema generated through the shipped Loader', async () => {
+    const snapshot = JSON.parse(await readFile(new URL(
+      '../../../../snapshots/session/drama-bgm-preview/tool-schemas.expected.json', import.meta.url,
+    ), 'utf8')) as { initial: { name: string; description: string; parameters: unknown }[] }
+    const tool = mount()
+    expect({ name: tool.name, description: tool.description, parameters: tool.parameters })
+      .toEqual(snapshot.initial.find(row => row.name === 'drama_bgm'))
+  })
+
   it('declares its canonical report fields and renders pretty JSON', () => {
     const tool = mount()
     const output = tool.output.schema as { properties: Record<string, unknown> }
     expect(Object.keys(output.properties).sort()).toEqual([
-      'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'episode', 'media', 'method', 'output', 'plan',
-      'policy_findings', 'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
+      'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'episode', 'intended_use', 'license_records',
+      'media', 'method', 'output', 'plan', 'policy_findings', 'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
     ])
     expect(validateJsonSchemaValue(tool.parameters, {
       method: 'compose', project: 'D:/project', episode: 5,
