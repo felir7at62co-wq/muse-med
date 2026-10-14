@@ -34,12 +34,14 @@ export function createInstallerTestSource(source, appRoot) {
   Pop $0`)
 }
 
-/** Instrument a private copy of the actual Finish callbacks without changing their launch or error behavior.
+/** Instrument a private copy of the actual Finish callbacks and resolve includes at their original locations.
  * @param {string} source - Production page callbacks.
- * @returns {string} Private callbacks with per-process, credential-free stage receipts.
+ * @returns {string} Unchanged launch/error operations with per-process, credential-free stage receipts.
  */
 export function createInstallerTestPagesSource(source) {
   const replacements = [
+    ['!include "${__FILEDIR__}\\path.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\path.nsh"'],
+    ['!include "${__FILEDIR__}\\drawing.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\drawing.nsh"'],
     ['    SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0',
       '    SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0\n    !insertmacro InstallerFixtureTrace "outer-next-return" "" ""'],
     ['Function InstallerFinishLeave\n',
@@ -64,6 +66,7 @@ export function createInstallerTestPagesSource(source) {
     if (source.split(marker).length !== 2) throw new Error(`Installer page fixture requires one production marker: ${marker}`)
     source = source.replace(marker, replacement)
   }
+  if (source.includes('${__FILEDIR__}')) throw new Error('Installer page fixture has an unresolved source-relative path')
   return `; Private test receipts preserve the NSIS error flag, stack and caller registers.
 Var InstallerFixtureTraceStarted
 !macro InstallerFixtureTrace Event Mode Result

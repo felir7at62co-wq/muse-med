@@ -25,7 +25,8 @@ it('retains each actual page operation and confines stage receipts to the privat
   const fixture = createInstallerTestPagesSource(source)
   expect(source).not.toContain('InstallerFixtureTrace')
   const callbacks = fixture.slice(fixture.indexOf('!macroend\n\n') + '!macroend\n\n'.length)
-  expect(callbacks.split('\n').filter(line => !line.includes('!insertmacro InstallerFixtureTrace')).join('\n')).toBe(source)
+  const sourceWithOriginalIncludes = source.replaceAll('${__FILEDIR__}', '${INSTALLER_SOURCE_DIR}')
+  expect(callbacks.split('\n').filter(line => !line.includes('!insertmacro InstallerFixtureTrace')).join('\n')).toBe(sourceWithOriginalIncludes)
   expect(callbacks).toContain('"before-launch" "elevated-shell"')
   expect(callbacks).toContain('"after-launch" "elevated-shell" "$1"')
   expect(callbacks).toContain('"before-launch" "direct-exec"')
@@ -43,6 +44,19 @@ it('retains each actual page operation and confines stage receipts to the privat
     .toThrow('requires one production marker')
   expect(() => createInstallerTestPagesSource(source + '\nFunction InstallerFinishLeave\n'))
     .toThrow('requires one production marker')
+})
+
+it('resolves every copied page include against the original installer source directory', async () => {
+  const source = await readFile(new URL('../installer/pages.nsh', import.meta.url), 'utf8')
+  const fixture = createInstallerTestPagesSource(source)
+  const relativeIncludes = [...source.matchAll(/!include "\$\{__FILEDIR__\}\\([^"\n]+)"/gu)].map(match => match[1])
+  expect(relativeIncludes).toEqual(['path.nsh', 'drawing.nsh'])
+  for (const name of ['path.nsh', 'drawing.nsh']) expect(fixture).toContain(`!include "\${INSTALLER_SOURCE_DIR}\\${name}"`)
+  expect(fixture).not.toContain('${__FILEDIR__}')
+  expect(() => createInstallerTestPagesSource(source.replace('!include "${__FILEDIR__}\\path.nsh"', '')))
+    .toThrow('requires one production marker')
+  expect(() => createInstallerTestPagesSource(source + '\n!include "${__FILEDIR__}\\unexpected.nsh"\n'))
+    .toThrow('unresolved source-relative path')
 })
 
 it('separates pristine checked launch, waits for error-callback return, and retains the original exit failure', async () => {

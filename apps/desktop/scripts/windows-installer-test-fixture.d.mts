@@ -4,9 +4,9 @@
  * @returns Private fixture source with an opt-in reboot result.
  */
 export function createInstallerTestSource(source: string, appRoot: string): string
-/** Instrument a private copy of the actual Finish callbacks while retaining launch and error behavior.
+/** Instrument a private copy of the actual Finish callbacks and resolve includes at their original locations.
  * @param source - Production page callbacks.
- * @returns Private callbacks with per-process, credential-free stage receipts.
+ * @returns Unchanged launch/error operations with per-process, credential-free stage receipts.
  */
 export function createInstallerTestPagesSource(source: string): string
 
