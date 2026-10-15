@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Adapt flat character metadata, explicit Phase 1 v2 metadata and unversioned legacy aliases into catalog records while preserving source claims. Supply exact metadata keys and a read-only reader to measure image bytes and compare any declared size or SHA-256. Keep catalog, reference, project and supplier identities separate. Parsing and byte verification grant no publication, reuse or binding approval.
+Adapt flat character metadata, numeric historical v1 metadata, explicit Phase 1 v2 metadata and unversioned legacy aliases into catalog records while preserving source claims. Supply exact metadata keys and a read-only reader to measure image bytes and compare any declared size or SHA-256. Keep catalog, reference, project and supplier identities separate. Parsing and byte verification grant no publication, reuse or binding approval.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Adapt flat character metadata, explicit Phase 1 v2 metadata and unversioned lega
 
 Use this library when a caller needs consistent character records from metadata with different field names. It exports a module API through [`src/index.ts`](src/index.ts); it registers no plugin, tool or profile configuration.
 
-`parseCharacterMetadata(json, source, key)` parses JSON using an operator-configured logical source namespace and the exact relative metadata key. Flat metadata uses `asset_id` and `file_name`; older aliases are `id` and `images[0].filename`. Both alias sets may appear together only when their values agree. Only explicit `schema_version=2` identifies Phase 1 v2; unversioned old-only fields are labeled `legacy_aliases`. The parser retains the source JSON data and records which aliases supplied each value. It derives the image key from the metadata directory and declared filename, preserving every directory level.
+`parseCharacterMetadata(json, source, key)` parses JSON using an operator-configured logical source namespace and the exact relative metadata key. Flat metadata uses `asset_id` and `file_name`. Numeric `schema_version=1` is labeled `legacy_v1` and reads the image filename from the string `images[0]`; numeric `schema_version=2` identifies Phase 1 v2 and reads `images[0].filename`. Unversioned old-only fields are labeled `legacy_aliases`. ID and filename aliases may appear together only when their values agree; string versions such as `"1"` are rejected. The historical v1 path is a read-only adaptation, not an approval or use authorization. The parser retains the source JSON data and records which fields supplied each value. It derives the image key from the metadata directory and declared filename, preserving every directory level.
 
 `adapted.asset_id` and `adapted.file_name` expose the normalized aliases; `identity.original_asset_id` remains the separately typed original identity.
 
@@ -39,10 +39,10 @@ Use this library when a caller needs consistent character records from metadata 
 |---|---|
 | Storage source ID | A stable logical namespace configured by the operator, independent of a bucket or object key. |
 | Original asset ID and catalog asset ID | The metadata's local ID and its namespaced `character:<source>:<original-id>` catalog identity. Neither is a supplier asset ID. |
-| Phase 1 reference ID | The original v2 reference identity; flat metadata does not acquire one automatically. |
+| Phase 1 reference ID | The original v2 reference identity; flat and historical v1 metadata do not acquire one automatically. |
 | Project character and supplier asset/material IDs | Separate identities with explicit project or provider/account scope in association types. Parsing creates no association. |
 
-The record separates retained metadata, adapted claims, derived keys, observed bytes and unknown authority. An explicit v2 `style` becomes a setting claim; a flat `style` becomes an art-style claim. Unversioned legacy aliases infer neither style meaning. Era, gender and appearance remain source claims, and appearance entries retain their metadata locations. `approved` and `rejected` status text becomes an approval or rejection claim, never an authoritative decision. Review, rights, reuse scope and TOS object version remain unknown; `can_publish`, `can_reuse` and `can_bind` remain false.
+The record separates retained metadata, adapted claims, derived keys, observed bytes and unknown authority. An explicit v2 `style` becomes a setting claim; a flat `style` becomes an art-style claim. Historical v1 and unversioned legacy aliases infer neither style meaning. Era, gender and appearance remain source claims, and appearance entries retain their metadata locations. `approved` and `rejected` status text becomes an approval or rejection claim, never an authoritative decision. Review, rights, reuse scope and TOS object version remain unknown; `can_publish`, `can_reuse` and `can_bind` remain false.
 
 `raw.metadata` retains the complete parsed source object. `unknown.metadata_fields` separately preserves unrecognized top-level keys and their values verbatim as own data properties, including names such as `__proto__`; it is distinct from the unknown review, rights, reuse and TOS authority fields. Retaining a field does not validate its meaning or make it authoritative.
 

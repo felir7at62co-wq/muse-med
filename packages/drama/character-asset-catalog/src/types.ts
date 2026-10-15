@@ -7,7 +7,7 @@ export type CharacterStorageSourceId = Branded<'character-storage-source-id'>
 export type OriginalCharacterAssetId = Branded<'original-character-asset-id'>
 /** Catalog identity derived from a stable source namespace and original ID. */
 export type CatalogAssetId = Branded<'character-catalog-asset-id'>
-/** Existing Phase 1 draft reference identity; absent from new flat metadata. */
+/** Existing Phase 1 draft reference identity; absent from flat and legacy v1 metadata. */
 export type Phase1ReferenceId = Branded<'phase1-reference-id'>
 /** Project-scoped story character identity, never inferred by this package. */
 export type ProjectCharacterId = Branded<'project-character-id'>
@@ -44,7 +44,7 @@ export type CharacterMetadataJsonValue = null | boolean | number | string
 /** A parsed JSON object with metadata keys preserved verbatim. */
 export type CharacterMetadataJsonObject = { [key: string]: CharacterMetadataJsonValue }
 /** Explicitly supported metadata layouts. */
-export type MetadataFormat = 'phase1_v2' | 'legacy_aliases' | 'flat'
+export type MetadataFormat = 'phase1_v2' | 'legacy_v1' | 'legacy_aliases' | 'flat'
 /** Classification of a raw metadata status claim; it is never an approval grant. */
 export type MetadataStatusClass = 'pending_review' | 'approved_claim' | 'rejected_claim' | 'unknown'
 
@@ -68,7 +68,7 @@ export interface CharacterMetadataRecord {
     source: CharacterMetadataJsonValue
     status: string
     id_field: 'asset_id' | 'id' | 'both'
-    file_field: 'file_name' | 'images[0].filename' | 'both'
+    file_field: 'file_name' | 'images[0].filename' | 'images[0]' | 'both'
   }
   adapted: {
     asset_id: OriginalCharacterAssetId
