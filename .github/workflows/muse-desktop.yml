@@ -2,6 +2,7 @@ name: Publish verified Muse 1.1.1
 on:
   workflow_dispatch:
 permissions:
+  actions: read
   contents: write
 concurrency:
   group: publish-muse-1.1.1
