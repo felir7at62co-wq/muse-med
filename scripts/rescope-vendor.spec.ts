@@ -26,8 +26,6 @@ describe('rescope file selection', () => {
   it.each([
     'third_party/plugins/dsh-bridge/package-lock.json',
     'third_party/plugins/dshmarket/package-lock.json',
-    'third_party/plugins/dsh-ponytail/scripts/sync-dist.mjs',
-    'third_party/plugins/dsh-ponytail/scripts/verify-dist.mjs',
   ])('preserves the fixed upstream file %s', (file) => {
     expect(isRescopeExcluded(file)).toBe(true)
     const text = "const upstream = 'cordis'\n"
@@ -42,7 +40,6 @@ describe('rescope file selection', () => {
     'packages/example/package.json',
     'third_party/plugins/dsh-bridge/package.json',
     'third_party/plugins/dshmarket/src/index.ts',
-    'third_party/plugins/dsh-ponytail/scripts/other.mjs',
   ])('keeps %s subject to upstream package-name checks', (file) => {
     expect(isRescopeExcluded(file)).toBe(false)
   })

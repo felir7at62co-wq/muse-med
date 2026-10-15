@@ -14,12 +14,11 @@ export const reviewedVendorVersions = Object.freeze({
   '@deepseek-ai/cordis-plugin-timer': '1.1.7-alpha.1',
 })
 
-/** Artifact metadata for the Host qualification and retired companion exports. */
+/** Artifact metadata for the Host qualification and retired dependencies. */
 export const hostRuntimeCompatibility = Object.freeze({
   hostVersion: reviewedHostVersion,
   vendorVersions: reviewedVendorVersions,
   retiredPackage: '@deepseek-ai/dsh-invariants',
-  retiredCompanion: '@mengyuly/dsh-ponytail/invariant',
 })
 
 /**
@@ -35,7 +34,7 @@ export function reviewedHostPackageVersion(name) {
 
 /**
  * Qualify a copied manifest without modifying its retained source object.
- * The retired invariant service and Ponytail companion are omitted from artifacts;
+ * The retired invariant service is omitted from artifacts;
  * remaining peers explicitly admit the reviewed releases and runtime dependencies use exact pins.
  * @param {object} source Manifest read from private staging.
  * @returns {object} Qualified manifest retaining unrelated dependencies and resource exports.
@@ -54,10 +53,6 @@ export function qualifyCommunityManifest(source) {
       const version = reviewedHostPackageVersion(name)
       if (version) manifest[section][name] = version
     }
-  }
-  if (manifest.name === '@mengyuly/dsh-ponytail') {
-    delete manifest.exports['./invariant']
-    manifest.files = manifest.files.filter(path => path !== 'lib/invariant.js')
   }
   return manifest
 }

@@ -310,7 +310,7 @@ describe('translation scope discovery', () => {
     expect(isTranslationScopeFile('third_party/plugins/muse-fanqie-download/README.md')).toBe(true)
     expect(isTranslationScopeFile('third_party/plugins/muse-reverse-tools/resources/reverse-skill-owned/README.md')).toBe(true)
   })
-  const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-ponytail', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search']
+  const upstreamDirectories = ['dshmarket', 'dsh-codex-subscription', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search']
 
   it.each(upstreamDirectories)('preserves original upstream documentation in %s', (directory) => {
     for (const file of ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/README.md']) {

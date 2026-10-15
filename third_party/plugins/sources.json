@@ -11,12 +11,6 @@
     "commit": "257f7c719690321ee2963ec7f63e96c734712e36",
     "license": "MIT"
   },
-  "dsh-ponytail": {
-    "repository": "https://github.com/MengYuil/dsh-ponytail",
-    "version": "0.3.3",
-    "commit": "9b03d3ffcff96b7e8e4ff749802b04cca23e1b51",
-    "license": "MIT"
-  },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",
     "version": "2.12.1",

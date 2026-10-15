@@ -142,9 +142,9 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供七个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、Ponytail、技能/MCP 面板、`@wenbin_wb/dsh-bridge` 及红果数据工具是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供六个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge` 及红果数据工具是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
-应用 → 桌面插件把七个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
+应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
 除极简模式外，各预设提供 `hongguo_search`、`hongguo_detail`、`hongguo_rankings` 和 `hongguo_collections`，无需登录、key 或初始配置。工具检索红果公开数据，分别保留收藏、点赞、热度、来源链接及未完整覆盖的情况。搜索覆盖首屏窗口，榜单覆盖所选公开榜单；工具不下载视频。源码构建器保留恢复的原发行包，在各预设自己的工具作用域启用 provider 前核对源码清单。
 
@@ -186,7 +186,7 @@ macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的�
 
 开发环境应用菜单提供“刷新页面”（macOS 为 Cmd+R，其他平台为 Ctrl+R）和“重启应用与 Host”。重启会等待 Host 关闭，再重新启动 Electron 和新的 Host；这两项操作都不会重新构建源码。
 
-`dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，通过现有源码构建器构建七个固定的社区插件，再将其已校验 tarball、冻结的运行依赖及已构建的 CLI 包和私有 Desktop Host 包连同其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
+`dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，通过现有源码构建器构建六个固定的社区插件，再将其已校验 tarball、冻结的运行依赖及已构建的 CLI 包和私有 Desktop Host 包连同其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
 
 ```sh
 pnpm run dev:desktop

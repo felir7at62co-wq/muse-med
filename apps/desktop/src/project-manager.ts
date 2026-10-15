@@ -78,7 +78,7 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-  'dsh-codex-subscription', 'dsh-ffmpeg', '@mengyuly/dsh-ponytail', '@wenbin_wb/dsh-bridge',
+  'dsh-codex-subscription', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
@@ -204,7 +204,7 @@ function backupProfileManifest(projectDir: string): void {
 
 /**
  * Read the profile's third-party bundle names, completing a stored list that only lacks built-in
- * bundles this release added.
+ * bundles this release added and removing retired built-in bundles.
  *
  * Every entry point that reads the list — startup, the plugin inventory, and dependency mutations —
  * reaches the stored list through this function, and startup reads it before it decides that the
@@ -219,7 +219,10 @@ function backupProfileManifest(projectDir: string): void {
 function profilePluginNames(projectDir: string): readonly string[] {
   const manifest = projectManifest(projectDir)
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
-  const normalized = manifest.dsh.profile.bundles.map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
+  const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
+  const normalized = manifest.dsh.profile.bundles
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail')
+    .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
   if (new Set(bundles).size !== bundles.length) {
@@ -227,7 +230,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired) {
+  if (pending !== undefined || retired || retiredPonytail) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')

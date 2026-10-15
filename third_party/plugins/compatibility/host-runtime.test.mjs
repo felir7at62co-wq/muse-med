@@ -30,14 +30,7 @@ for (const name of Object.keys(pins)) {
         if (expected) assert.equal(version, expected)
       }
     }
-    if (name === 'dsh-ponytail') {
-      assert.equal(manifest.exports['./invariant'], undefined)
-      assert.ok(!manifest.files.includes('lib/invariant.js'))
-      assert.deepEqual(manifest.exports['.'], original.exports['.'])
-      assert.equal(manifest.dsh.bundle.patch, original.dsh.bundle.patch)
-    } else {
-      assert.deepEqual(manifest.exports, original.exports)
-    }
+    assert.deepEqual(manifest.exports, original.exports)
   })
 }
 

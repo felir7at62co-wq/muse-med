@@ -928,6 +928,11 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   for (const [logIndex, log] of actualLogs.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    if (scenario.name === 'muse-editing-tool-catalog') {
+      expect(prompts.join('\n'), 'editing prompt excludes the retired persona').not.toContain('PONYTAIL MODE')
+      expect(log.content, 'editing skill catalog excludes retired Ponytail skills')
+        .not.toMatch(/ponytail-(?:review|audit|debt|gain|help)/u)
+    }
     if (headers.length > 0) {
       expect(systemPromptPrecedesRequests(log.content), `${scenario.name}: a system/message precedes the first request/header`).toBe(true)
       expect(prompts.length, `${scenario.name}: system/message count`)

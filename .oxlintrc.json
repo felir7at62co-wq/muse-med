@@ -27,7 +27,6 @@
     "third_party/plugins/dsh-ffmpeg/**",
     "third_party/plugins/dsh-bridge/**",
     "third_party/plugins/dsh-skill-mcp-panel/**",
-    "third_party/plugins/dsh-ponytail/**",
     "third_party/plugins/dshmarket/**",
     "third_party/plugins/muse-hongguo-search/**",
     "packages/experimental/claude-code-mods/examples/*/{hooks,tests,types}/**", // Claude Code's published example mods and their tests keep the upstream style; see the headers.

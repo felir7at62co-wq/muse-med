@@ -140,9 +140,9 @@ Local media preparation covers Python document/media dependencies and FFmpeg; th
 
 ### Runtime and plugin activation
 
-The [community source builder](../../third_party/plugins/README.md) supplies seven required local tarball roots; missing inputs stop package preparation rather than falling back to registry binaries. Codex subscription, FFmpeg tools, Ponytail, the Skill/MCP panel, `@wenbin_wb/dsh-bridge`, and Hongguo metadata are built-in profile bundles. The marketplace ships unmounted; the native product catalogue consumes the `./catalog` export the product build adds to that package.
+The [community source builder](../../third_party/plugins/README.md) supplies six required local tarball roots; missing inputs stop package preparation rather than falling back to registry binaries. Codex subscription, FFmpeg tools, the Skill/MCP panel, `@wenbin_wb/dsh-bridge`, and Hongguo metadata are built-in profile bundles. The marketplace ships unmounted; the native product catalogue consumes the `./catalog` export the product build adds to that package. Startup backs up the profile manifest before removing the retired Ponytail bundle from its built-in list; personal composition rows require the [upgrade steps](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.md).
 
-Application → Desktop Plugins lists the seven bundled community packages separately from user-installed plugins, loads the online catalogue only when asked, filters locally, and hands a confirmed npm-backed entry to the existing desktop package transaction. GitHub- or tarball-only entries stay browsable with a repository link and no install action. Development mode is read-only for package changes, and a catalogue network failure neither downloads anything nor hides the bundled inventory.
+Application → Desktop Plugins lists the six bundled community packages separately from user-installed plugins, loads the online catalogue only when asked, filters locally, and hands a confirmed npm-backed entry to the existing desktop package transaction. GitHub- or tarball-only entries stay browsable with a repository link and no install action. Development mode is read-only for package changes, and a catalogue network failure neither downloads anything nor hides the bundled inventory.
 
 Every preset except Minimal exposes `hongguo_search`, `hongguo_detail`, `hongguo_rankings`, and `hongguo_collections` without login, keys, or initial configuration. They search public Hongguo metadata and preserve separate collection, like, and heat values with source links and incomplete coverage. Search covers the first window; rankings cover the requested public boards. They do not download videos. The source builder retains the recovered release archive and checks its source inventory before activating the provider in each preset's own tool scope.
 
@@ -184,7 +184,7 @@ macOS and Linux GUI launches inherit only the session manager's environment, wit
 
 The development application menu offers Reload Page (Cmd+R on macOS, Ctrl+R elsewhere) and Restart App and Host. Restart waits for Host shutdown before relaunching Electron and starting a new Host; neither action rebuilds source files.
 
-`dev:desktop` builds the current Host, client bundles, Web frontend, and Electron shell, builds the seven pinned community plugins through the existing source builder, and projects their validated tarballs, frozen runtime dependencies, and the built CLI and private Desktop Host packages with their workspace dependencies into a disposable desktop npm project, and launches Electron without downloading the packaged Node.js runtime or resolving dsh from npm:
+`dev:desktop` builds the current Host, client bundles, Web frontend, and Electron shell, builds the six pinned community plugins through the existing source builder, and projects their validated tarballs, frozen runtime dependencies, and the built CLI and private Desktop Host packages with their workspace dependencies into a disposable desktop npm project, and launches Electron without downloading the packaged Node.js runtime or resolving dsh from npm:
 
 ```sh
 pnpm run dev:desktop

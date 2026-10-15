@@ -122,10 +122,6 @@ test('builds every pinned plugin with its declared runtime entries and notices',
       for (const section of ['dependencies', 'peerDependencies', 'devDependencies', 'optionalDependencies']) {
         assert.equal(manifest[section]?.['@deepseek-ai/dsh-invariants'], undefined)
       }
-      if (manifest.name === '@mengyuly/dsh-ponytail') {
-        assert.equal(manifest.exports['./invariant'], undefined)
-        assert.doesNotMatch(list.stdout, /package\/lib\/(?:types\/)?invariant\.(?:js|d\.ts)/u)
-      }
       const sourceMetadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
       assert.equal(sourceMetadata.status, 0)
       assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
