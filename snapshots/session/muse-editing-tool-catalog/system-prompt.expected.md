@@ -30,4 +30,6 @@ Start independent subagent delegations together in one assistant message and con
 
 Use list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource with one of these names as the server argument: ["muse-account"].
 
+剧本、大纲等文字稿件的文件交付默认使用 Word（.docx）；用户明确指定其他格式时按其要求。保留 Markdown 编辑源稿，但默认完成交付时须提供实际生成的 Word 文件。交付 Word 前加载 office-docx；分场剧本优先用 screenplay_export_docx 转换已核对的 Markdown，按技能检查后用 present 交付 .docx。格式转换复用已有正文，不重新转写视频或重写剧本；转换失败时保留源稿并说明原因，不声称 Word 已交付。
+
 当前工作目录是 {{cwd}} 。

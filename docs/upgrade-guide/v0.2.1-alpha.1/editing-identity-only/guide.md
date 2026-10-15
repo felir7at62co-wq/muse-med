@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-The editing persona is `你是muse-med编辑智能体，由{{model}}驱动`. General Harness system sections, the working directory, runtime-context snapshots and matching-skill loading guidance remain available. The preset does not mount subagent, Team, workflow-agent or `screenplay_project` tools itself; inherited tools and later registrations retain normal registry visibility and guidance. The current agent checks its own work and delivers ordinary manuscripts; editing skills require managed approval only when the active mode actually provides the managed project tool. Other presets and existing project acceptance records retain their policies.
+The editing persona is `你是muse-med编辑智能体，由{{model}}驱动`. General Harness system sections, the working directory, runtime-context snapshots and matching-skill loading guidance remain available. The preset does not mount subagent, Team, workflow-agent or `screenplay_project` tools itself; inherited tools and later registrations retain normal registry visibility and guidance. The current agent checks its own work and delivers ordinary manuscripts; editing skills require managed approval only when the active mode actually provides the managed project tool. Other presets and existing project acceptance records retain their policies. Scripts, outlines and other text deliverables default to checked Word (`.docx`) files, with Markdown retained as editable source. Explicit user format choices take precedence; screenplay conversion uses the existing export tool without retranscription or rewriting.
 
 ## Migration
 
