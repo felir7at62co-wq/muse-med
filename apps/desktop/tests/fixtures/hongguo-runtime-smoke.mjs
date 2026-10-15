@@ -84,8 +84,14 @@ export function createNativeDiagnostics(service) {
   }
 }
 
-/** Mount the package's existing client and local subprocess provider without any platform HTTP request. */
-async function mountPackagedRuntime(root, paths) {
+/**
+ * Mount the installed client and managed subprocess provider; platform HTTP remains forbidden unless explicitly enabled.
+ * @param root Packaged dependency root.
+ * @param paths Prepared private source and executable paths.
+ * @param platformRequests Whether this opt-in acceptance may contact Hongguo and download media.
+ * @returns Owned client, native observations and joined context disposal.
+ */
+export async function mountPackagedRuntime(root, paths, platformRequests = false) {
   const requireRuntime = createRequire(join(root, 'package.json'))
   const load = name => import(pathToFileURL(requireRuntime.resolve(name)).href)
   const [{ Context }, { default: SubprocessLocal }, { HongguoDownloadClient }] = await Promise.all([
@@ -99,8 +105,9 @@ async function mountPackagedRuntime(root, paths) {
     const client = new HongguoDownloadClient({
       legacyAppDir: paths.app, javaExecutable: paths.java, pythonExecutable: paths.python,
       bootstrapDevices: true, signerStartupTimeoutMs: 120_000, deviceBootstrapTimeoutMs: 30_000,
+      ffmpegExecutable: paths.ffmpeg, ...(paths.ffprobe ? { ffprobeExecutable: paths.ffprobe } : {}),
     }, { subprocess: diagnostics.subprocess,
-      request: async () => { throw new Error('Native payload fixture forbids platform requests') } })
+      ...(!platformRequests ? { request: async () => { throw new Error('Native payload fixture forbids platform requests') } } : {}) })
     const bridge = join(dirname(requireRuntime.resolve('muse-hongguo-download/package.json')), 'python', 'decrypt.py')
       .replace(/([/\\])app\.asar(?=[/\\])/u, '$1app.asar.unpacked')
     return { client, subprocess: diagnostics.subprocess, bridge, nativeDiagnostics: () => diagnostics.records(),

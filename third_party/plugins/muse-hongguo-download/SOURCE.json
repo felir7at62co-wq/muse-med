@@ -15,7 +15,14 @@
       "sha256": "36ba2d34b6c939f09d4534e086724cb46587fa96a9ce8ae1b5a5c3e78fd25bf5"
     }
   ],
-  "legacyInterface": "Original full episode API and v1.0.0.73 single video_model API; FqTrace loopback signer; original offline_decrypt.pyc modules",
+  "legacyInterface": "Original complete catalog API with FqTrace local signing; per-episode preload media API without native signature headers; original offline_decrypt.pyc modules",
+  "mediaLookup": {
+    "path": "/novel/player/multi_video_model/preload/v1",
+    "scene": "preload",
+    "requestIds": "mixed_video_id_map.1004, one exact episode per request",
+    "responseModel": "data[requestedVideoId].video_model",
+    "nativeSignatureHeaders": false
+  },
   "credentialFilesIncluded": false,
   "originalRuntimeIncluded": false,
   "originalSourceFiles": [

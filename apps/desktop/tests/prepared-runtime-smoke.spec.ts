@@ -31,6 +31,7 @@ const roots: string[] = []
 const hostArch = Object.getOwnPropertyDescriptor(process, 'arch')!
 afterEach(() => {
   Object.defineProperty(process, 'arch', hostArch)
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   vi.clearAllMocks()
 })
@@ -103,6 +104,19 @@ it('cleans the private home when native payload acceptance fails before Host sta
   expect(existsSync(productHome)).toBe(false)
   expect(smokeDesktopRuntime).not.toHaveBeenCalled()
   expect(runConcurrent).not.toHaveBeenCalled()
+})
+
+it('gives explicitly requested installed Hongguo downloads their bounded live budget', async () => {
+  vi.stubEnv('MUSE_HONGGUO_LIVE_REQUIRED', '1')
+  vi.stubEnv('MUSE_HONGGUO_LIVE_IDS', '7687998333729639449,7691176265872591896')
+  const root = mkdtempSync(join(tmpdir(), 'live-hongguo-runtime-'))
+  roots.push(root)
+  await smokePreparedRuntime(root, process.execPath, root, runtimeFixture(root))
+  const options = payload.mock.calls[0]![2] as { timeout: number; env: NodeJS.ProcessEnv }
+  expect(options.timeout).toBe(1_800_000)
+  expect(options.env.MUSE_HONGGUO_LIVE_REQUIRED).toBe('1')
+  expect(options.env.MUSE_HONGGUO_LIVE_IDS).toBe('7687998333729639449,7691176265872591896')
+  expect(existsSync(options.env.NARB_NATIVE_CACHE_DIR!)).toBe(false)
 })
 
 it('refuses to launch a target runtime when its Hongguo source preparation fails', async () => {

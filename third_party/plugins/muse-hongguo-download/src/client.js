@@ -140,7 +140,7 @@ export class HongguoDownloadClient {
   }
 
   async mediaOptions(catalog, batch, mode, signal) {
-    if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]));
+    if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), signal);
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));
     const result = new Map();
     for (const episode of batch) {

@@ -11,7 +11,11 @@ English | [中文](guide.zh.md)
 
 Catalog inspection no longer declares a full series available without querying media. `hongguo_download_info` returns `fullSeriesAvailable: null` and `mediaUrlsVerified: false`; a public preview still returns `fullSeriesAvailable: false`. Non-public `accessibleEpisodeCount` is null rather than the unverified total. Source API failures retain safe numeric `upstreamCode`, `sourceStage` and `retryable: false`, including errors in uppercase `Code` and `BaseResp.StatusCode` envelopes. They are not reported as missing media addresses. Unknown business errors stop without retrying or rotating the device; explicit risk messages retain the bounded retry budget.
 
-The original media lookup uses the single-video `/novel/player/video_model/v1/` endpoint with `video_id`, matching Hongguo Downloader 1.0.0.73. Download grouping still retains every requested episode; the obsolete multi-video endpoint is not a fallback.
+The original media lookup uses `/novel/player/multi_video_model/preload/v1`, `dr_scene: "preload"` and a single requested ID in `mixed_video_id_map`. Preload requests omit incompatible native signatures, including inherited signature headers, and consume only the exact requested ID's keyed video model. Catalog requests retain local signing. `mediaRequestIntervalMs` spaces media requests by 6000 ms by default across concurrent calls; its cancellable queue does not consume the individual request timeout. CDN downloads retain their configured concurrency. Download grouping retains every requested episode without switching to previews or another source.
+
+Transient connection failures, truncated responses, HTTP 429 and HTTP 5xx use bounded retries on the retained device; exhausted retries stop with safe stage metadata. Individual media deadlines return `source_timeout` without retrying.
+
+After a valid preload model, a later empty media response may recover once on the retained device after `emptySourceCooldownMs` (default 120000), within the retry budget. The original batch remains cancellable and continues with its existing files. First-use or repeated emptiness terminates the batch; no device is regenerated.
 
 Empty HTTP 200 bodies return `empty_source_response` instead of `platform_json`. Empty and malformed JSON replies include `httpStatus`, `responseBytes`, `sourceStage` and `retryable: false`; response contents remain private.
 

@@ -8,6 +8,10 @@ Button and checkbox waits use the native button class and exact localized text, 
 
 Private test processes retain their Process-owned handles from launch until cleanup. Finish records its ten-second wait result, managed exit state and getter errors, and a nonblocking native exit observation in `finish-exit.jsonl` before reporting failure. Acceptance requires the wait to succeed and both observations to report exit code zero; a native result cannot replace a missing or failed managed observation.
 
+## Installed Hongguo downloads
+
+The [desktop packaging workflow](../../../.github/workflows/muse-desktop.yml) offers an explicit `verify_hongguo_live` dispatch option and comma-separated `hongguo_series_ids`. It requires complete downloads of at least two series from the genuine installed application, using its packaged plugin and native runtimes with private temporary configuration. Every episode must pass full decoding, then independent byte-count and SHA256 checks. Both client and subprocess context disposal finish before temporary media is removed. Ordinary packaging checks remain offline; an offline smoke does not establish live download availability.
+
 ## Summary
 
 Local download and mandatory-dialog evidence is separate from production backend integration, visual acceptance, and installed-application upgrades. Run the command in the [Desktop README](../README.md) to produce a fresh isolated report.

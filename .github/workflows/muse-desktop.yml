@@ -9,6 +9,14 @@ on:
         required: true
         default: all
         options: [all, win-x64, mac-arm64]
+      verify_hongguo_live:
+        description: Require complete Hongguo downloads from the genuine installed application
+        type: boolean
+        default: false
+      hongguo_series_ids:
+        description: Comma-separated series IDs for opt-in installed download acceptance
+        type: string
+        default: '7687998333729639449,7691176265872591896'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -51,7 +59,7 @@ jobs:
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check download bundle packaging
-        run: node --test third_party/plugins/download-pack.test.mjs
+        run: node --test third_party/plugins/download-pack.test.mjs apps/desktop/tests/hongguo-live-smoke.test.mjs
       - name: Check bundled 3D anime skill preflight
         run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
       - name: Check offline OCR process protocol
@@ -81,6 +89,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
+          MUSE_HONGGUO_LIVE_REQUIRED: ${{ inputs.verify_hongguo_live && '1' || '0' }}
+          MUSE_HONGGUO_LIVE_IDS: ${{ inputs.hongguo_series_ids }}
         run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
       - name: Upload installers, update metadata and build identity
         uses: actions/upload-artifact@v4

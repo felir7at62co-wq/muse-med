@@ -10,6 +10,8 @@ const ranges = {
   signerStartupTimeoutMs: [100, 600000], signerHeapMb: [256, 4096],
   signerPollIntervalMs: [1, 1000], signerPortAttempts: [1, 16],
   deviceBootstrapTimeoutMs: [100, 300000],
+  mediaRequestIntervalMs: [0, 60000],
+  emptySourceCooldownMs: [1000, 600000],
 };
 const defaults = {
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
@@ -17,9 +19,11 @@ const defaults = {
   javaExecutable: '', signerStartupTimeoutMs: 120000, signerHeapMb: 1024,
   signerPollIntervalMs: 25, signerPortAttempts: 4,
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
+  mediaRequestIntervalMs: 6000,
+  emptySourceCooldownMs: 120000,
   mediaUserAgent: 'Mozilla/5.0 (Linux; Android 12)',
-  catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com'],
-  mediaPorts: [443, 9305],
+  catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com', '*.ctydoh.cn'],
+  mediaPorts: [443, 9305, 20002],
   requestTimeoutMs: 20000, downloadTimeoutMs: 600000, callTimeoutMs: 7200000,
   maxResponseBytes: 8388608, maxEpisodeBytes: 1073741824, maxSeries: 10, concurrency: 3, retries: 2,
   mediaProcessGraceMs: 1000,

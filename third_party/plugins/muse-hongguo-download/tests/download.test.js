@@ -43,13 +43,15 @@ async function fixture(t, extra = {}) {
       return reply({ code: 0, data: { [id]: { video_data: { series_id: id, series_title: `标题${id}`, episode_cnt: extra.declaredCount ?? count,
         video_list: Array.from({ length: count }, (_, index) => ({ vid_index: String(index + 1), vid: `${id}v${index + 1}`, title: `集${index + 1}` })) } } } });
     }
-    assert.equal(url.pathname, '/novel/player/video_model/v1/');
-    assert.equal(typeof body.video_id, 'string');
-    assert.equal(Object.hasOwn(body, 'mixed_video_id_map'), false);
-    const vids = [body.video_id]; batches.push(vids);
-    return reply({ data: { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(body.video_id, batches.length) ?? `https://v1.qznovelvod.com/${body.video_id}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) } });
+    assert.equal(url.pathname, '/novel/player/multi_video_model/preload/v1');
+    assert.equal(body.dr_scene, 'preload');
+    assert.equal(Object.hasOwn(body, 'video_id'), false);
+    const vids = body.mixed_video_id_map['1004']; batches.push(vids);
+    assert.equal(vids.length, 1);
+    const vid = vids[0];
+    return reply({ data: { [vid]: { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) } } });
   };
-  const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, ...extra.config };
+  const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0, ...extra.config };
   const sign = async (url, payload, token) => { signs.push({ url, payload, token }); return reply({ 'x-signed': 'SIGNED_PRIVATE' }); };
   const client = new HongguoDownloadClient(config, { request, sign, processMedia: extra.processMedia ?? fixtureProcessMedia });
   t.after(() => client.dispose());
@@ -63,7 +65,7 @@ test('default original source fails explicitly without silently selecting previe
   assert.match(result.message, /config\.json/); await client.dispose();
 });
 
-test('single-video requests accumulate and deduplicate every requested video id', async t => {
+test('per-episode preload requests accumulate and deduplicate every requested video id', async t => {
   const f = await fixture(t);
   const source = new SourceCatalog(f.client.config, { request: f.request, sign: f.sign });
   const vids = Array.from({ length: 12 }, (_, i) => `vid${i}`);
@@ -133,7 +135,7 @@ test('selected source quality retains private encryption data and ciphertext len
     ],
     plain: [{ main_url: 'https://v1.qznovelvod.com/plain', video_meta: { size: 300 }, encrypt_info: { encrypt: false, spade_a: 'UNUSED_PRIVATE' } }],
   };
-  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: { video_model: JSON.stringify({ video_list: tracks[JSON.parse(options.body).video_id] }) } }) });
+  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: { [JSON.parse(options.body).mixed_video_id_map['1004'][0]]: { video_model: JSON.stringify({ video_list: tracks[JSON.parse(options.body).mixed_video_id_map['1004'][0]] }) } } }) });
   const result = await source.videoUrls(['encrypted', 'plain'], emptySignal());
   assert.deepEqual(result.get('encrypted'), { url: 'https://v1.qznovelvod.com/encrypted-best', expectedBytes: 200, sha256: null, encryption: { spade: 'SPADE_PRIVATE' } });
   assert.deepEqual(result.get('plain'), { url: 'https://v1.qznovelvod.com/plain', expectedBytes: 300, sha256: null, encryption: null });
@@ -142,9 +144,9 @@ test('selected source quality retains private encryption data and ciphertext len
 test('encrypted tracks require bounded nonempty private decryption information', async t => {
   const f = await fixture(t);
   for (const spade_a of [undefined, null, 42, '', ' ', 'x'.repeat(16 * 1024 + 1), '界'.repeat(6000)]) {
-    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { video_model: JSON.stringify({
+    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { vid: { video_model: JSON.stringify({
       video_list: [{ main_url: 'https://v1.qznovelvod.com/video?token=URL_PRIVATE', video_meta: { size: 200 }, encrypt_info: { encrypt: true, spade_a } }],
-    }) } }) });
+    }) } } }) });
     await assert.rejects(source.videoUrls(['vid'], emptySignal()), error => error.code === 'encrypted_media'
       && error.message === '原源加密媒体缺少有效的本地解密信息');
   }
@@ -526,11 +528,11 @@ test('config and URL validation reject unsafe and unknown settings', () => {
   assert.equal(isPublicAddress('8.8.8.8'), true);
 });
 
-test('media port defaults allow official CDN hosts on 443 and 9305 while rejecting other ports', () => {
+test('media defaults allow observed CDN ports while rejecting other ports', () => {
   const config = resolveConfig();
-  assert.deepEqual(config.mediaPorts, [443, 9305]);
-  for (const hostname of ['v1.qznovelvod.com', 'v1.douyinvod.com', 'rt2016n-41.free-lbv13.idouyinvod.com', 'media.pkoplink.com', 'media.bdcgslb.com', 'media.vegslb.com', 'bvqhvgghkihvgu.jspcdn.cn', '3026312747.qrstuvwxyzab.com']) {
-    for (const suffix of ['', ':443', ':9305']) {
+  assert.deepEqual(config.mediaPorts, [443, 9305, 20002]);
+  for (const hostname of ['v1.qznovelvod.com', 'v1.douyinvod.com', 'rt2016n-41.free-lbv13.idouyinvod.com', 'media.pkoplink.com', 'media.bdcgslb.com', 'media.vegslb.com', 'bvqhvgghkihvgu.jspcdn.cn', '3026312747.qrstuvwxyzab.com', 'media.ctydoh.cn']) {
+    for (const suffix of ['', ':443', ':9305', ':20002']) {
       const value = `https://${hostname}${suffix}/fixture.mp4`;
       assert.equal(checkedUrl(value, 'media', config.mediaHosts, config.mediaPorts).hostname, hostname);
     }
@@ -584,6 +586,19 @@ test('media port extensions leave page and API requests restricted to HTTPS port
         error => error.code === 'unsafe_url');
     }
     assert.throws(() => checkedUrl(`http://${hostname}:443/fixture`, kind, [hostname], config.mediaPorts),
+      error => error.code === 'unsafe_url');
+  }
+});
+
+test('the observed CTY media redirect keeps HTTPS, hostname and port restrictions', () => {
+  const config = resolveConfig();
+  assert.equal(checkedUrl('https://media.ctydoh.cn:20002/video.mp4', 'media', config.mediaHosts, config.mediaPorts).port, '20002');
+  for (const value of ['http://media.ctydoh.cn:20002/video.mp4', 'https://media.ctydoh.cn:20003/video.mp4',
+    'https://media.ctydoh.cn.example.org:20002/video.mp4', 'https://ctydoh.cn:20002/video.mp4']) {
+    assert.throws(() => checkedUrl(value, 'media', config.mediaHosts, config.mediaPorts), error => error.code === 'unsafe_url');
+  }
+  for (const kind of ['page', 'api']) {
+    assert.throws(() => checkedUrl('https://media.ctydoh.cn:20002/video.mp4', kind, ['media.ctydoh.cn'], config.mediaPorts),
       error => error.code === 'unsafe_url');
   }
 });

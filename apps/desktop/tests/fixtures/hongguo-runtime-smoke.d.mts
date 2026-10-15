@@ -30,6 +30,7 @@ export interface HongguoSmokePaths {
   java: string
   python: string
   ffmpeg: string
+  ffprobe?: string
 }
 
 /** Existing client methods used by the local acceptance fixture. */
@@ -51,6 +52,16 @@ export interface HongguoSmokeRuntime {
   disposeContext(): Promise<void>
   nativeDiagnostics?(): readonly HongguoNativeDiagnostic[]
 }
+
+/**
+ * Mount the installed client with platform requests disabled unless explicitly enabled.
+ * @param root Packaged dependency root.
+ * @param paths Private source and executable paths.
+ * @param platformRequests Whether this acceptance may contact Hongguo and download media.
+ * @returns Owned native runtime and joined context disposal.
+ */
+export function mountPackagedRuntime(root: string, paths: HongguoSmokePaths,
+  platformRequests?: boolean): Promise<HongguoSmokeRuntime>
 
 /**
  * Check native bootstrap, original signing and offline module loading without platform requests.

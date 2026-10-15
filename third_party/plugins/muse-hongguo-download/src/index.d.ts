@@ -13,6 +13,8 @@ export interface HongguoDownloadConfig {
   signerPollIntervalMs?: number; signerPortAttempts?: number;
   bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
   mediaUserAgent?: string; retryDelayMs?: number;
+  mediaRequestIntervalMs?: number;
+  emptySourceCooldownMs?: number;
   requestTimeoutMs?: number; downloadTimeoutMs?: number; callTimeoutMs?: number;
   mediaProcessGraceMs?: number;
   maxResponseBytes?: number; maxEpisodeBytes?: number; maxSeries?: number; concurrency?: number; retries?: number;

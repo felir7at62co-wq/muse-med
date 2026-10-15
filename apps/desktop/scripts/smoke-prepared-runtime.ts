@@ -26,7 +26,7 @@ export async function smokePreparedRuntime(
   root: string, node: string, resourcesRuntime: string, descriptor: DesktopRuntimeDescriptor,
 ): Promise<void> {
   const cache = await realpath(await mkdtemp(join(tmpdir(), 'desktop-native-smoke-')))
-  const environment = { ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
+  const environment: NodeJS.ProcessEnv = { ...scrubWindowsSigningEnvironment(process.env), NODE_OPTIONS: '',
     NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0' }
   try {
     const archive = runtimeArchivePath(root)
@@ -36,7 +36,7 @@ export async function smokePreparedRuntime(
     }))
     const { stdout } = await promisify(execFile)(node, [
       '--expose-internals', resolve(import.meta.dirname, '../tests/fixtures/runtime-payload-smoke.mjs'), root, resourcesRuntime,
-    ], { timeout: 300_000, windowsHide: true,
+    ], { timeout: environment.MUSE_HONGGUO_LIVE_REQUIRED === '1' ? 1_800_000 : 300_000, windowsHide: true,
       env: desktopNodeEnvironment(node, join(resourcesRuntime, 'bin'), environment) })
     process.stdout.write(stdout)
     if (archive === undefined) await smokeDesktopRuntime(root, node, descriptor, environment, resourcesRuntime)

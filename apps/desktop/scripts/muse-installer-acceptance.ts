@@ -204,6 +204,7 @@ async function main(): Promise<void> {
     assertMuseInstalledUnchanged(installedFiles, await payloadInventory(installed))
     report.installedRuntimeSmoke = { passed: true, archiveInventory: true, nativePayload: true,
       packagedHost: true, productPresetsAndSkills: true, officeConversions: true, teardown: true }
+    report.hongguoLiveRequired = process.env.MUSE_HONGGUO_LIVE_REQUIRED === '1'
     report.success = true
     run.finish(true)
   } catch (error) {

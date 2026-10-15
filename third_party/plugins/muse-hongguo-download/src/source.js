@@ -1,13 +1,16 @@
-/** Port of the original RemoteCatalog deleted in Hongguo-Source-Repair-0.2/source-changes.patch. */
+/** Complete Hongguo catalogs and exact-episode preload models with private local source configuration. */
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { createHash, randomInt } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import { officialRequest, checkedUrl } from './network.js';
 import { seriesId } from './parser.js';
 import { DownloadError, safeError } from './errors.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const preloadPath = '/novel/player/multi_video_model/preload/v1';
+const nativeSignatureHeaders = new Set(['x-argus', 'x-gorgon', 'x-khronos', 'x-ladon', 'x-helios', 'x-medusa', 'x-neptune', 'x-soter']);
 
 /** Preserve decimal platform and device ids beyond JavaScript's exact integer range. */
 function parseSourceJson(text) {
@@ -40,7 +43,7 @@ async function jsonFile(path) {
 /** Read bounded streaming bytes, refusing HTTP errors and encoded/truncated bodies. */
 export async function responseBytes(response, limit, signal) {
   try {
-    if (response.statusCode !== 200) throw new DownloadError('http_error', `平台返回 HTTP ${response.statusCode}`);
+    if (response.statusCode !== 200) throw new DownloadError('http_error', `平台返回 HTTP ${response.statusCode}`, { httpStatus: response.statusCode });
     const encoding = response.headers['content-encoding'];
     if (encoding && encoding !== 'identity') throw new DownloadError('encoding', '平台返回不支持的传输编码');
     const length = response.headers['content-length'];
@@ -54,6 +57,9 @@ export async function responseBytes(response, limit, signal) {
     }
     if (length && size !== Number(length)) throw new DownloadError('incomplete_response', '平台响应不完整');
     return Buffer.concat(chunks);
+  } catch (error) {
+    if (signal.aborted || error instanceof DownloadError) throw error;
+    throw new DownloadError('incomplete_response', '平台响应读取中断；没有取得完整来源数据');
   } finally { response.destroy(); }
 }
 
@@ -80,6 +86,12 @@ export class SourceCatalog {
     this.bootstrap = dependencies.bootstrap ?? null;
     this.loaded = null;
     this.deviceIndex = null;
+    this.mediaGate = Promise.resolve();
+    this.nextMediaRequestAt = 0;
+    this.mediaBlockedUntil = 0;
+    this.preloadResolved = false;
+    this.now = dependencies.now ?? (() => performance.now());
+    this.wait = dependencies.wait ?? ((milliseconds, signal) => delay(milliseconds, undefined, { signal }));
   }
 
   /** Load only the explicitly configured original legacy directory. */
@@ -122,19 +134,64 @@ export class SourceCatalog {
     catch (error) { return { configured: false, source: 'original-hongguo-api', verifiedLive: false, missing: [safeError(error).message] }; }
   }
 
-  /** Keep one session device; only explicit risk responses use the configured retry budget. */
+  /** Bound transient read-only retries on the retained device; only explicit risk replies can rotate it. */
   async api(path, body, signal, method = 'POST', params = {}) {
+    let emptyRetried = false;
     for (let attempt = 0; ; attempt++) {
-      try { return await this.apiOnce(path, body, signal, method, params); }
-      catch (error) {
-        if (!(error instanceof SourceRetryError) || signal.aborted) throw error;
-        if (attempt >= this.config.retries) throw error;
-        if (this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
+      const mediaRequest = path === preloadPath;
+      const release = mediaRequest ? await this.reserveMediaRequest(signal) : () => {};
+      let active = signal;
+      try {
+        active = mediaRequest ? AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]) : signal;
+        return await this.apiOnce(path, body, active, method, params);
       }
+      catch (error) {
+        if (signal.aborted) throw error;
+        if (active.aborted) throw new DownloadError('source_timeout', '红果单集媒体请求超时；未完成批次已停止，请保留原配置检查来源状态',
+          { sourceStage: 'video_model', retryable: false });
+        const risk = error instanceof SourceRetryError;
+        const readOnly = mediaRequest || method === 'GET' || path === '/novel/player/multi_video_detail/v1/';
+        const transient = readOnly && error instanceof DownloadError && (['network', 'incomplete_response'].includes(error.code)
+          || error.code === 'http_error' && (error.httpStatus === 429 || error.httpStatus >= 500));
+        const emptyRecovery = mediaRequest && this.preloadResolved && !emptyRetried && error instanceof DownloadError
+          && error.code === 'empty_source_response';
+        if (!risk && !transient && !emptyRecovery) throw error;
+        if (attempt >= this.config.retries) {
+          if (transient) {
+            error.retryable = false;
+            error.sourceStage = mediaRequest ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
+          }
+          throw error;
+        }
+        if (emptyRecovery) {
+          emptyRetried = true;
+          this.mediaBlockedUntil = this.now() + this.config.emptySourceCooldownMs;
+        }
+        if (risk && this.loaded.devices.length > 1) this.deviceIndex = (this.deviceIndex + 1) % this.loaded.devices.length;
+      } finally { release(); }
+      if (this.config.retryDelayMs) await delay(this.config.retryDelayMs, undefined, { signal });
     }
   }
 
-  /** Apply the original JSON body digest and local signer to each HTTPS API request. */
+  /** Wait for a serialized media reservation and return the callback that releases it after request settlement. */
+  async reserveMediaRequest(signal) {
+    const previous = this.mediaGate;
+    let release;
+    this.mediaGate = new Promise(resolve => { release = resolve; });
+    try {
+      await previous;
+      signal.throwIfAborted();
+      const remaining = Math.max(this.nextMediaRequestAt, this.mediaBlockedUntil) - this.now();
+      if (remaining > 0) await this.wait(remaining, signal);
+      signal.throwIfAborted();
+      return () => {
+        this.nextMediaRequestAt = this.now() + this.config.mediaRequestIntervalMs;
+        release();
+      };
+    } catch (error) { release(); throw error; }
+  }
+
+  /** Preserve signed catalog requests; the preload protocol omits incompatible native signatures. */
   async apiOnce(path, body, signal, method, params) {
     const sourceStage = path.includes('video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
     const { source, devices, headers, api, signUrl } = await this.load(signal);
@@ -144,16 +201,21 @@ export class SourceCatalog {
       url.searchParams.set(key, String(value));
     }
     const raw = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
-    const requestHeaders = { ...headers, 'user-agent': device.user_agent || headers['user-agent'] || 'HongguoDownloader/SourceRebuild',
+    const signedRequest = path !== preloadPath;
+    const sourceHeaders = signedRequest ? headers : Object.fromEntries(Object.entries(headers)
+      .filter(([name]) => !nativeSignatureHeaders.has(name.toLowerCase())));
+    const requestHeaders = { ...sourceHeaders, 'user-agent': device.user_agent || headers['user-agent'] || 'HongguoDownloader/SourceRebuild',
       'content-type': 'application/json; charset=utf-8', ...(raw ? { 'x-ss-stub': createHash('md5').update(raw).digest('hex').toUpperCase() } : {}) };
-    const endpoint = this.signer ? await this.signer.ensure(signal)
-      : { url: signUrl, token: process.env[this.config.signTokenEnv] || '' };
-    const signedResponse = await this.sign(endpoint.url, { url: url.href, headers: requestHeaders }, endpoint.token, signal);
-    let signed;
-    try { signed = JSON.parse((await responseBytes(signedResponse, 128 * 1024, signal)).toString('utf8')); }
-    catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('signer', '原签名器返回无效 JSON'); }
-    if (!record(signed) || signed.error || Object.values(signed).some(value => typeof value !== 'string' && typeof value !== 'number')) {
-      throw new DownloadError('signer', '原签名器返回无效签名');
+    let signed = {};
+    if (signedRequest) {
+      const endpoint = this.signer ? await this.signer.ensure(signal)
+        : { url: signUrl, token: process.env[this.config.signTokenEnv] || '' };
+      const signedResponse = await this.sign(endpoint.url, { url: url.href, headers: requestHeaders }, endpoint.token, signal);
+      try { signed = JSON.parse((await responseBytes(signedResponse, 128 * 1024, signal)).toString('utf8')); }
+      catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('signer', '原签名器返回无效 JSON'); }
+      if (!record(signed) || signed.error || Object.values(signed).some(value => typeof value !== 'string' && typeof value !== 'number')) {
+        throw new DownloadError('signer', '原签名器返回无效签名');
+      }
     }
     const response = await this.request(url.href, 'api', signal, { method, body: raw,
       allowedHosts: [api.hostname], headers: { ...requestHeaders, ...(raw ? { 'content-length': raw.length } : {}), ...Object.fromEntries(Object.entries(signed).map(([key, value]) => [key, String(value)])) } });
@@ -201,16 +263,16 @@ export class SourceCatalog {
     return { seriesId: id, title: String(video.series_title || id).slice(0, 200), episodeCount: count, source: 'original-hongguo-api', episodes };
   }
 
-  /** Resolve each unique episode through the source's single-video endpoint. */
+  /** Resolve each unique episode through preload and accept only its exact keyed video model. */
   async videoUrls(vids, signal) {
     const out = new Map();
     const unique = [...new Set(vids)];
     for (const vid of unique) {
-      const result = await this.api('/novel/player/video_model/v1/', { biz_param: {
+      const result = await this.api(preloadPath, { biz_param: {
         detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false,
         need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024,
-      }, video_id: vid }, signal);
-      let model = result.data?.video_model;
+      }, dr_scene: 'preload', mixed_video_id_map: { '1004': [vid] } }, signal);
+      let model = result.data?.[vid]?.video_model;
       if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
       const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
       const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
@@ -227,6 +289,7 @@ export class SourceCatalog {
       let url = best.main_url;
       if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
       checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
+      this.preloadResolved = true;
       out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
     }
     return out;
