@@ -33,7 +33,7 @@ for(const name of await readdir(join(root,'publish'))){
  for await(const b of createReadStream(join(root,'publish',name))){hash.update(b);size+=b.length}
  expected.set(name,{size,digest:'sha256:'+hash.digest('hex')})
 }
-const releases=['v1.1.2','v1.1.2-rc.muse-stable'].map(tag=>String(api('releases/tags/'+tag).id))
+const releases=['414227831','414227847']
 function validateAssets(release){
  assert.equal(release.target_commitish,sourceCommit)
  for(const asset of release.assets){const e=expected.get(asset.name);assert.ok(e);assert.equal(asset.state,'uploaded');assert.equal(asset.size,e.size);assert.equal(asset.digest,e.digest)}
