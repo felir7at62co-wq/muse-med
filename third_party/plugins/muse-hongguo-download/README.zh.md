@@ -4,7 +4,7 @@
 
 `hongguo_download_info` 检查来源及总集数；`hongguo_download` 接受多部 `seriesIds`，省略 `episodes` 时下载完整列表。工具默认使用 `legacy`，读取所提供完整 `Hongguo Downloader/app` 目录及其原接口。真实多部全集验收要求下载成功并完成媒体验证；源码文件齐全本身不代表验收通过。
 
-下载先检查来源声明总集数和从 1 到 N 的连续集号，再按 `/novel/player/multi_video_model/preload/v1` 接口逐集请求媒体模型，携带 `dr_scene: "preload"` 和只含当前视频 ID 的 `mixed_video_id_map`，每 5 集组织下载并保留全部结果。预加载请求不附带原生签名头，只接受当前视频 ID 对应的响应；目录查询仍使用本地签名器。媒体查询及失败处理均不切换其他来源或试看。每集检查传输长度和来源声明大小，经原离线模块处理加密视频，再用 ffprobe 检查可播放媒体流、ffmpeg 完整解码每个视频，并计算最终 SHA256。整批所有请求集完成后才发布目录及 `download-manifest.json`；某集失败或取消会等待所有工作停止并清理本次文件。Muse 工具从当前会话取得工作区，默认写入 `downloads`，`outputDir` 必须在该工作区内，目录中的符号链接被拒绝。文件路径和摘要会进入会话工具结果，带签名的媒体地址、设备值、Cookie、签名器响应、密钥和令牌不会写入结果。
+下载先检查来源声明总集数和从 1 到 N 的连续集号，再按 `/novel/player/multi_video_model/preload/v1` 接口逐集请求媒体模型，携带 `dr_scene: "preload"` 和只含当前视频 ID 的 `mixed_video_id_map`，每 5 集组织下载并保留全部结果。预加载请求不附带原生签名头，只接受当前视频 ID 对应的响应；目录查询仍使用本地签名器。媒体查询及失败处理均不切换其他来源或试看。每集检查传输长度和来源声明大小，经原离线模块处理加密视频，再用 ffprobe 检查可播放媒体流、ffmpeg 完整解码每个视频，并计算最终 SHA256。整批所有请求集完成后才发布目录及 `download-manifest.json`；某集失败或取消会等待所有工作停止并清理本次文件。Muse 默认写入发起会话工作区的 `downloads`。在 `danger-full-access`（完全权限）下，显式绝对 `outputDir` 直接写入指定目录；相对路径仍基于工作区。`read-only` 拒绝下载，`workspace-write` 及没有 `sandboxPolicy` 的 profile 保留仅工作区输出。已存在的父路径别名会转换为真实路径；子目录链接及执行中被替换的输出目录被拒绝。文件和收据直接使用最终位置，无需再搬运。文件路径和摘要会进入会话工具结果，带签名的媒体地址、设备值、Cookie、签名器响应、密钥和令牌不会写入结果。
 
 `complete: true` 表示下载集号覆盖来源声明的 1–N。成功下载返回 `fullDecodeChecked: true` 和 `validationLevel: 'ffprobe-full-decode-sha256'`。所有来源模式都需要配置 ffmpeg 和 ffprobe；原加密视频还需要兼容的 Python 运行时及离线模块。缺少运行时、HLS、不支持的加密、网页响应及长度不完整的文件都会明确失败。插件不合并或转码。Desktop 将解密桥接脚本放在 ASAR 外，供外部解释器读取。
 
@@ -28,7 +28,7 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 | `outputRoot` | 空 | 独立客户端显式工作区；Muse 工具使用发起会话的工作区 |
 | `mediaUserAgent` | `Mozilla/5.0 (Linux; Android 12)` | 媒体请求标识；原源媒体请求不携带官网 Referer 或会话凭据 |
 | `mediaRequestIntervalMs` | 6000 | 上次媒体 API 请求完成后的最短间隔，跨并发调用及剧集共用；排队可取消，单次请求超时在等待结束后开始。CDN 下载仍按配置并发。 |
-| `emptySourceCooldownMs` | 120000 | 已正确解析过预加载模型后，每个媒体查询遇到空正文可在原设备上冷却恢复一次，计入重试预算；所有媒体调用共用可取消的冷却等待。首次即为空或再次为空时停止。 |
+| `emptySourceCooldownMs` | 120000 | 已正确解析过预加载模型后，每个媒体查询遇到空正文可保留原设备配置等待接口恢复后重试一次，计入重试预算；所有媒体调用共用可取消的恢复等待。首次即为空或再次为空时停止。 |
 | `retryDelayMs` | 1500 | 来源或下载暂时失败后有限重试前的等待；媒体下载重试重新查询同一集的模型 |
 | `mediaHosts` | `*.qznovelvod.com`、`*.douyinvod.com`、`*.idouyinvod.com`、`*.pkoplink.com`、`*.bdcgslb.com`、`*.vegslb.com`、`*.jspcdn.cn`、`*.qrstuvwxyzab.com`, `*.ctydoh.cn` | 允许的原源媒体和实际观察到的 CDN 跳转域名，每次重定向同样验证 |
 | `mediaPorts` | 443、9305 | 允许的 HTTPS 媒体端口；页面和原源 API 始终使用 443 |
@@ -56,6 +56,6 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 原源响应共同校验 `code`、`Code` 与 `BaseResp.StatusCode`，不能用一个零掩盖另一个非零错误码。失败只公开数字 `upstreamCode`、`sourceStage`（`catalog`、`video_model` 或 `source_api`）及 `retryable: false`。原始消息、设备值、签名响应和媒体地址保持私密。连接失败、来源响应截断、HTTP 429 和 HTTP 5xx 在原设备上按配置次数有限重试。首次即为空或再次为空、授权错误和未知业务错误立即停止，不重试或轮换设备。已正确解析过预加载模型后，空正文可在同一设备等待 `emptySourceCooldownMs` 后恢复一次，计入重试预算；可取消的等待期间保留本轮已下载文件，再次为空则中止并清理整批。可取消的排队结束后，单次媒体请求超时返回 `source_timeout`。明确的风控或限流消息沿用配置的有限重试次数；耗尽后不得立即重新提交。平台报错不能证明某剧不存在，不得将其误报为媒体地址缺失或立即重复已耗尽重试的下载。
 
-HTTP 200 正文为空时返回 `empty_source_response`；非空正文解析失败时返回 `platform_json`。两者保留 `sourceStage`、`httpStatus`、`responseBytes` 和 `retryable: false`，不公开响应原文。最终报告空正文失败时应停止重复下载，保留私有设备配置以供诊断。空响应不能证明平台整体停服，也不能作为自动重建设备或改用试看的依据。手动恢复本机配置后，新客户端才会读取恢复的文件；已有客户端在释放前仍保留缓存配置。
+HTTP 200 正文为空时返回 `empty_source_response`；非空正文解析失败时返回 `platform_json`。两者保留 `sourceStage`、`httpStatus`、`responseBytes` 和 `retryable: false`，不公开响应原文。最终报告空正文失败时应停止重复下载，保留私有设备配置以供诊断。恢复等待不是电脑降温，也不能据此确认提供方限流。空响应不能证明平台整体停服，也不能作为自动重建设备或改用试看的依据。手动恢复本机配置后，新客户端才会读取恢复的文件；已有客户端在释放前仍保留缓存配置。
 
 安装后的真实下载验收详见[桌面验证参考](../../../apps/desktop/tests/README.zh.md)。

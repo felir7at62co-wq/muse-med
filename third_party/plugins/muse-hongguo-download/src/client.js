@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveConfig } from './config.js';
 import { DownloadError, safeError } from './errors.js';
@@ -40,26 +40,56 @@ function argumentsFor(args, config, download) {
     try { args.episodes.forEach(episodeNumber); } catch (error) { throw new DownloadError('invalid_arguments', 'episodes 集号无效'); }
     episodes = [...args.episodes].sort((a, b) => a - b);
   }
-  if (args.outputDir !== undefined && (typeof args.outputDir !== 'string' || !args.outputDir.trim() || args.outputDir.includes('\0'))) throw new DownloadError('invalid_arguments', 'outputDir 必须是有效的工作区内目录');
+  if (args.outputDir !== undefined && (typeof args.outputDir !== 'string' || !args.outputDir.trim() || args.outputDir.includes('\0'))) throw new DownloadError('invalid_arguments', 'outputDir 必须是有效的目录路径');
   return { seriesIds: [...args.seriesIds], mode, episodes, outputDir: args.outputDir };
 }
 
-async function outputDirectory(workspace, value) {
+async function outputDirectory(workspace, value, filePolicy) {
   if (!workspace || !isAbsolute(workspace)) throw new DownloadError('missing_workspace', '缺少当前会话工作区路径，无法决定下载位置');
+  if (filePolicy?.mode === 'read-only') throw new DownloadError('file_access_denied', '当前会话为只读权限，无法下载文件；请在界面调整文件访问权限');
   const root = await realpath(workspace);
   const requested = resolve(isAbsolute(value ?? '') ? workspace : root, value ?? 'downloads');
-  // Absolute arguments can refer to a symlinked workspace itself, but never to directories outside it.
-  const target = within(workspace, requested) ? resolve(root, relative(workspace, requested)) : requested;
-  if (!within(root, target)) throw new DownloadError('unsafe_path', 'outputDir 必须位于当前会话工作区内');
-  let directory = root;
-  for (const component of relative(root, target).split(sep).filter(Boolean)) {
-    directory = join(directory, component);
-    try { await mkdir(directory, { mode: 0o700 }); }
-    catch (error) { if (error.code !== 'EEXIST') throw error; }
-    const info = await lstat(directory);
-    if (!info.isDirectory() || info.isSymbolicLink() || !within(root, await realpath(directory))) throw new DownloadError('unsafe_path', '下载目录包含链接或越出当前工作区');
+  let target = within(workspace, requested) ? resolve(root, relative(workspace, requested)) : requested;
+  if (!isAbsolute(value ?? '') && !within(root, target)) throw new DownloadError('unsafe_path', '相对 outputDir 不能越出工作区；请使用目标目录的绝对路径');
+  let anchor = root;
+  if (!within(root, target)) {
+    // Resolve existing parent aliases before authorizing or creating external directories.
+    anchor = target;
+    for (;;) {
+      try {
+        const info = await lstat(anchor);
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new DownloadError('unsafe_path', '下载目录包含链接或不是文件夹');
+        break;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        anchor = dirname(anchor);
+      }
+    }
+    const canonical = await realpath(anchor);
+    target = resolve(canonical, relative(anchor, target));
+    anchor = canonical;
+    if (!within(root, target) && filePolicy?.mode !== 'danger-full-access') throw new DownloadError('file_access_denied', '当前会话仅允许写入工作区；请在界面开启完全权限后直接下载到指定目录');
   }
-  return target;
+  const anchorIdentity = await lstat(anchor);
+  const check = async create => {
+    const current = await lstat(anchor);
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== anchorIdentity.dev || current.ino !== anchorIdentity.ino
+      || await realpath(anchor) !== anchor) throw new DownloadError('unsafe_path', '下载输出目录已被替换');
+    let directory = anchor;
+    for (const component of relative(anchor, target).split(sep).filter(Boolean)) {
+      directory = join(directory, component);
+      if (create) {
+        try { await mkdir(directory, { mode: 0o700 }); }
+        catch (error) { if (error.code !== 'EEXIST') throw error; }
+      }
+      let info;
+      try { info = await lstat(directory); }
+      catch (error) { if (!create && error.code === 'ENOENT') return; throw error; }
+      if (!info.isDirectory() || info.isSymbolicLink() || await realpath(directory) !== directory) throw new DownloadError('unsafe_path', '下载目录包含链接或已被替换');
+    }
+  };
+  await check(false);
+  return { path: target, create: () => check(true) };
 }
 
 function slug(value) {
@@ -223,9 +253,10 @@ export class HongguoDownloadClient {
   }
 
   /** Publish one batch only after every requested episode passes; a failure removes all owned partial files. */
-  download(args, signal, workspace) {
+  download(args, signal, workspace, filePolicy) {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
+      const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
       for (const id of options.seriesIds) {
         const catalog = await this.catalog(id, options.mode, active);
         const selected = options.episodes ? catalog.episodes.filter(episode => options.episodes.includes(episode.index)) : catalog.episodes;
@@ -233,7 +264,8 @@ export class HongguoDownloadClient {
         if (options.mode === 'public' && selected.some(episode => episode.index > catalog.accessibleEpisodeCount)) throw new DownloadError('public_preview_only', `官网仅开放 ${catalog.accessibleEpisodeCount}/${catalog.episodeCount} 集；没有将试看替代全剧`);
         plans.push({ catalog, selected });
       }
-      const directory = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir);
+      await output.create();
+      const directory = output.path;
       active.throwIfAborted();
       const staging = await mkdtemp(join(directory, '.hongguo-partial-'));
       const final = join(directory, `hongguo-${randomUUID()}`), items = [];

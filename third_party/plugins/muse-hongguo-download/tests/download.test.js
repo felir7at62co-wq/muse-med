@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile, readFile, readdir, rm, mkdir, symlink } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, readdir, rm, mkdir, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { HongguoDownloadClient, resolveConfig } from '../src/client.js';
 import { apply } from '../src/index.js';
@@ -469,13 +469,74 @@ test('dispose aborts active downloads and waits for their cleanup', async t => {
   assert.equal((await work).code, 'cancelled'); assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
 });
 
-test('output arguments cannot escape the session workspace or follow a child directory link', async t => {
+test('full-access downloads publish directly to the explicit external directory with final receipt paths', async t => {
   const f = await fixture(t, { count: 1 });
   const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-outside-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  assert.equal((await f.client.download({ seriesIds: ['101'], outputDir: outside })).code, 'unsafe_path');
+  const outputDir = join(outside, '指定目录', '红果');
+  const result = await f.client.download({ seriesIds: ['101'], outputDir }, undefined, undefined, { mode: 'danger-full-access' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.path.startsWith(`${await realpath(outputDir)}${sep}hongguo-`), true);
+  const receipt = JSON.parse(await readFile(join(result.path, 'download-manifest.json'), 'utf8'));
+  assert.deepEqual(receipt, result);
+  assert.deepEqual(await readFile(receipt.items[0].episodes[0].path), mp4);
+  assert.equal(receipt.items[0].episodes[0].sha256, sha256);
+  assert.equal((await readdir(f.root)).includes('downloads'), false);
+  assert.equal((await readdir(outputDir)).some(name => name.startsWith('.hongguo-partial-')), false);
+});
+
+test('workspace and read-only policies reject unauthorized destinations before source requests', async t => {
+  const f = await fixture(t, { count: 1 });
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-denied-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  for (const policy of [undefined, { mode: 'workspace-write' }]) {
+    assert.equal((await f.client.download({ seriesIds: ['101'], outputDir: join(outside, 'not-created') }, undefined, undefined, policy)).code, 'file_access_denied');
+  }
+  assert.equal((await f.client.download({ seriesIds: ['101'] }, undefined, undefined, { mode: 'read-only' })).code, 'file_access_denied');
+  assert.deepEqual(f.urls, []);
+  assert.deepEqual(await readdir(outside), []);
+  assert.equal((await readdir(f.root)).includes('downloads'), false);
+});
+
+test('relative traversal and child directory links remain refused with full access', async t => {
+  const f = await fixture(t, { count: 1 });
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-linked-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const policy = { mode: 'danger-full-access' };
+  assert.equal((await f.client.download({ seriesIds: ['101'], outputDir: '../escape' }, undefined, undefined, policy)).code, 'unsafe_path');
   await symlink(outside, join(f.root, 'linked'), 'dir');
-  assert.equal((await f.client.download({ seriesIds: ['101'], outputDir: 'linked' })).code, 'unsafe_path');
+  for (const outputDir of ['linked', join(f.root, 'linked'), join(outside, 'link')]) {
+    if (outputDir === join(outside, 'link')) await symlink(f.root, outputDir, 'dir');
+    assert.equal((await f.client.download({ seriesIds: ['101'], outputDir }, undefined, undefined, policy)).code, 'unsafe_path');
+  }
+  assert.deepEqual(f.urls, []);
+  assert.deepEqual(await readdir(outside), ['link']);
+});
+
+test('failed external downloads remove only their staging files and preserve existing content', async t => {
+  const f = await fixture(t, { count: 1, media: Buffer.from('not a video') });
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-failure-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, 'keep.txt'), 'existing');
+  const result = await f.client.download({ seriesIds: ['101'], outputDir: outside }, undefined, undefined, { mode: 'danger-full-access' });
+  assert.equal(result.ok, false);
+  assert.deepEqual(await readdir(outside), ['keep.txt']);
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'existing');
+});
+
+test('cancelled external downloads await workers before removing their staging directory', async t => {
+  const f = await fixture(t, { count: 1 });
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-cancel-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const controller = new AbortController(), started = deferred();
+  f.setMedia((_url, signal) => Object.assign(Readable.from((async function* () {
+    yield mp4.subarray(0, 12); started.resolve();
+    await new Promise(resolve => { if (signal.aborted) resolve(); else signal.addEventListener('abort', resolve, { once: true }); });
+    signal.throwIfAborted();
+  })()), { statusCode: 200, headers: {} }));
+  const work = f.client.download({ seriesIds: ['101'], outputDir: outside }, controller.signal, undefined, { mode: 'danger-full-access' });
+  await started.promise; controller.abort();
+  assert.equal((await work).code, 'cancelled');
   assert.deepEqual(await readdir(outside), []);
 });
 
@@ -509,7 +570,9 @@ test('public preview is never substituted for a default full-series request', as
 test('host tools obtain the workspace from the initiating session and declare canonical output', async t => {
   const root = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-')); t.after(() => rm(root, { recursive: true, force: true }));
   const tools = [], cleanup = [];
-  apply({ tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return { session: { header: { cwd: root } } }; } },
+  let mode = 'workspace-write';
+  apply({ get(name) { assert.equal(name, 'sandboxPolicy'); return { resolve({ session }) { assert.equal(session.header.cwd, root); return { mode }; } }; },
+    tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return { session: { header: { cwd: root } } }; } },
     subprocess: { spawn() { throw new Error('Unexpected subprocess before source configuration'); } }, effect(factory) { cleanup.push(factory()); } });
   t.after(() => Promise.all(cleanup.map(fn => fn())));
   assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download']);
@@ -517,6 +580,12 @@ test('host tools obtain the workspace from the initiating session and declare ca
   const result = await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() });
   assert.equal(result.code, 'missing_original_source');
   assert.equal(tools[1].output.render({}, result)[0].type, 'text');
+  mode = 'read-only';
+  assert.equal((await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() })).code, 'file_access_denied');
+  mode = 'danger-full-access';
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-output-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  assert.equal((await tools[1].execute({ seriesIds: ['123'], outputDir: outside }, { signal: emptySignal() })).code, 'missing_original_source');
 });
 
 test('config and URL validation reject unsafe and unknown settings', () => {

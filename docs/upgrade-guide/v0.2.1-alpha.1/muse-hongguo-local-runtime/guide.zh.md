@@ -15,11 +15,14 @@ Muse Desktop 提供经过校验的 Java 17、CPython 3.11、PyCryptodome 及原�
 
 `maxEpisodes` 已删除。全集下载按原源声明的总集数执行，并要求完整连续的剧集目录。工具不再对原源、manifest、公开目录或选定集号另设集数上限。公开可访问性和文件验证仍然适用。
 
+`hongguo_download` 遵循发起会话的文件权限。只读会话不能下载。完全权限会话可传外部绝对 `outputDir`，文件和清单直接使用该目标位置；仅工作区权限和没有 `sandboxPolicy` 的 profile 保留工作区输出。相对路径越界和子目录链接被拒绝。
+
 ## 迁移
 
 1. 安装配套 Muse Desktop 包，使用自动本地配置。选择内置签名器时，移除继承的 `MUSE_HONGGUO_SIGN_SERVER` 和 `MUSE_HONGGUO_SIGN_TOKEN`。仅在显式管理外部签名器时保留这些配置。
 2. 独立 profile 保留原源码及兼容的媒体可执行文件。提供 `javaExecutable` 并省略 `signServer` 来启动受管签名器，或保留显式 `signServer` 和 `signTokenEnv` 来使用外部签名器。仅为包含锁定原 `devicepool.pyc` 的通用源码启用 `bootstrapDevices`；现有设备配置会保留。
 3. 调用 `hongguo_download_info` 确认声明总集数。调用 `hongguo_download` 时传入多个 `seriesIds` 并省略 `episodes` 下载全集。确认每部请求剧集都有 `complete: true`、`fullDecodeChecked: true` 和最终清单。来源可用本身不代表成功下载。
-4. 从独立配置中删除 `maxEpisodes`。此字段会作为未知字段被拒绝，无需替代配置。
+4. 要下载到工作区外，在 Muse 界面选择完全文件权限，并通过 `outputDir` 传入绝对目标目录。检查返回的 `path` 和清单中的各集路径指向该目录。独立客户端可将已解析的 `SandboxExecutionPolicy` 作为 `download()` 第四个参数；省略时仍仅写入工作区。
+5. 从独立配置中删除 `maxEpisodes`。此字段会作为未知字段被拒绝，无需替代配置。
 
 时限及媒体要求见[插件配置](../../../../third_party/plugins/muse-hongguo-download/README.zh.md)。不可变源码被修改时会明确失败；Muse 不覆盖已保存设备或凭据。

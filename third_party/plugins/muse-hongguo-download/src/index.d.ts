@@ -2,6 +2,8 @@ import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-agent';
 import type {} from '@deepseek-ai/dsh-tools';
 import type {} from '@deepseek-ai/dsh-subprocess';
+import type {} from '@deepseek-ai/dsh-sandbox-policy';
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox';
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess';
 
 /** Deployment fields never store signing credentials. */
@@ -42,12 +44,12 @@ export interface DownloadInfo {
   items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number | null;
     completeCatalog: boolean; downloaded: false; mediaUrlsVerified: false; fullSeriesAvailable: false | null }[];
 }
-/** Standalone downloads require a managed subprocess provider and an explicit workspace; Muse supplies both. */
+/** Downloads require a managed subprocess provider and workspace; external destinations additionally require full-access policy. */
 export class HongguoDownloadClient {
   constructor(config?: HongguoDownloadConfig, dependencies?: { subprocess?: SubprocessRuntime });
   readonly config: Readonly<Required<HongguoDownloadConfig>>;
   info(options: Pick<DownloadOptions, 'seriesIds' | 'sourceMode'>, signal?: AbortSignal): Promise<DownloadInfo | DownloadFailure>;
-  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string): Promise<DownloadResult | DownloadFailure>;
+  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy): Promise<DownloadResult | DownloadFailure>;
   dispose(): Promise<void>;
 }
 export const name: 'muse-hongguo-download';
