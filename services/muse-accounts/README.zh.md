@@ -105,7 +105,11 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 <a id="model-key-pools"></a>
 ### 模型 Key 资源池
 
-智谱数组凭据使用网关统一排队，其他供应商仍可直连。新桌面客户端使用 `X-Muse-Provider-Routing: mixed-v1` 协商供应商级路由；直连目录中的智谱项返回 `transport: relay`，不包含供应商 Key。旧客户端刷新时收到兼容的全转发目录。网关启动时让桌面和云端工作间请求共用一个资源池；独立的中转构造器可接收同一个运营者拥有的 `keyPool`，未提供时创建自身资源池。每个独立凭据的在途请求数由 `MUSE_ZHIPU_KEY_CONCURRENCY` 配置（默认 20）；`MUSE_ZHIPU_QUEUE_LIMIT`（默认 1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（默认 120000）限制等待队列。每条请求只发送一次，整个流结束或取消后释放名额；全部占满时等待，不重复分发请求。队列超时或溢出在供应商调用前返回 503。排队后的请求重新解析全部当前模型配置，并在转发前核对所保留的凭据。实际账户并发权益以供应商控制台为准；多进程服务或其他客户端共享这些凭据时，单进程计数不能保证供应商总并发。
+智谱数组凭据让桌面和云端工作间请求共用一个网关并发池。桌面客户端协商 `X-Muse-Provider-Routing: mixed-v1`；额外发送 `X-Muse-Zhipu-Direct: leased-v1` 且网关已开启直连时，智谱返回 `transport: leased`。这类客户端每次调用前只向 `/api/desktop-models/zhipu-official/leases` POST `{model}`，随后使用短期 JWT 直接向返回的供应商地址发送会话并接收流。GET `/leases/<id>` 核验同一个登录，DELETE 报告供应商流已清理。旧客户端仍收到 `transport: relay`，不领取资源池 Key。两种传输共用 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。
+
+直连名额在签发凭据前保存到账号文件旁的私密 `model-direct-leases.json`。启动时恢复各凭据指纹的占用后才接收请求，当前目录暂时移除的凭据指纹也会恢复计数；文件不含供应商密钥或 JWT。`MUSE_ZHIPU_DIRECT_TOKEN_MS`（60000）、`MUSE_ZHIPU_DIRECT_REQUEST_MS`（1800000）、`MUSE_ZHIPU_DIRECT_CHECK_MS`（30000）和 `MUSE_ZHIPU_DIRECT_GRACE_MS`（15000）分别配置凭证有效期、请求最长时限、登录检查间隔和释放缓冲期。正常清理后等待缓冲期释放；未收到完成报告时保守占用到原请求时限加缓冲期。持久化失败会停止新的直连准入。部署时保留此文件，同一个共享 Key 池只使用一个拥有者网关进程。
+
+JWT 在过期前仍是可复用的持有者凭证，供应商不会替 Muse 强制执行单次使用或限定模型。登录检查和客户端时限用于协调正常 Muse 客户端，不能保证供应商已取消请求或撤销已签发的 JWT。实际账户并发权益以供应商为准，其他客户端使用这些凭据产生的调用不在网关计数内；承诺用户容量前应验证真实授权与吞吐。
 
 流式中转原样转发字节，直到完整的 SSE `data: [DONE]` 事件，随后关闭上游响应和请求，并在下游发送完成后释放名额。仅收到 `finish_reason` 不会结束转发：后续工具调用片段、其他候选回复和用量仍然保留。支持分片 UTF-8 以及 LF、CRLF 和 CR 事件分隔符；最后一个 CR 立即结束事件，已收到的可选 LF 一并保留。不含 `[DONE]` 的流仍在普通 EOF 时结束；非流式 JSON 保持不变。已转发响应的 `Server-Timing` 字段仅包含耗时：`gateway-queue` 表示使用 Key 资源池时的名额等待时间，`upstream-headers` 表示从发送请求到收到上游 HTTP 响应头的时间，包含建连。这两项都不是模型首 token 延迟，也不包含请求内容、账号标识或凭据。
 

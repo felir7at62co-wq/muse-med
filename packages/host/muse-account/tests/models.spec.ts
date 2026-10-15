@@ -1075,3 +1075,46 @@ it('rejects supplier credentials attached to an explicitly pooled relay route', 
   await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
   expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
 })
+
+it('streams leased Zhipu directly with a fresh per-request token while keeping the model history credential-free', async () => {
+  const supplier = await mockServer([{ events: textEvents }, { events: textEvents }])
+  await login()
+  const calls: string[] = []
+  let admitted = 0
+  const glm = { ...catalog.providers[0]!, id: 'zhipu-official', name: 'GLM', transport: 'leased' }
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async (url, init) => {
+      const path = new URL(url instanceof Request ? url.url : url).pathname
+      calls.push(`${init?.method ?? 'GET'} ${path}`)
+      expect(new Headers(init?.headers).get('x-muse-zhipu-direct')).toBe('leased-v1')
+      if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
+      if (path.endsWith('/access')) return Response.json({ transport: 'direct', providers: [glm] })
+      if (init?.method === 'POST') {
+        admitted++
+        expect(JSON.parse(typeof init.body === 'string' ? init.body : '')).toEqual({ model: 'writer' })
+        return Response.json({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9', apiKey: `temporary-token-${admitted}`,
+          baseURL: supplier.url + '/v1', deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 })
+      }
+      return Response.json({ released: true })
+    } })
+  await models.refresh()
+  const prepared = await ctx.llm.prepareCall({ provider: 'muse-cloud-zhipu-official', model: 'writer' })
+  expect(admitted).toBe(0)
+  const output: StreamChunk[] = []
+  for await (const chunk of prepared.stream({ ...prepared.config, messages: [] })) output.push(chunk)
+  const next = await assemble(ctx, { provider: 'muse-cloud-zhipu-official', model: 'writer', messages: [] })
+  expect(next.finish).toEqual({ kind: 'stop' })
+  expect(supplier.headers.map(header => header.authorization)).toEqual(['Bearer temporary-token-1', 'Bearer temporary-token-2'])
+  expect(supplier.headers.every(header => header.cookie === undefined && header.origin === undefined)).toBe(true)
+  expect(calls.filter(call => call.startsWith('DELETE'))).toHaveLength(2)
+  expect(await readFile(join(root, 'model-access.json'), 'utf8')).not.toContain('temporary-token')
+  expect(JSON.stringify(output)).not.toContain('temporary-token')
+})
+
+it('refuses a leased route assigned to a supplier other than official Zhipu', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { ...catalog, transport: 'direct' } : { transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'leased' }] }) })
+  await expect(models.refresh()).rejects.toThrow()
+})

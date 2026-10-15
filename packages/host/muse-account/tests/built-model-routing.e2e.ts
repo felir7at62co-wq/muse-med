@@ -137,3 +137,68 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
   expect(await service.logout()).toEqual({ state: 'signed-out' })
   expect(fixture.ctx.llm.listProviders().map(provider => provider.id)).not.toContain('muse-cloud-deepseek-official')
 })
+
+it('uses the built Host to acquire GLM credentials while model bytes bypass the gateway completion route', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-built-leased-'))
+  onTestFinished(() => rm(home, { recursive: true, force: true }))
+  const provider = { id: 'zhipu-official', name: 'GLM', models: [{ id: 'glm-5.3-flash', name: 'GLM',
+    contextWindow: 1000000, maxTokens: 128000, input: ['text'], reasoningEfforts: { max: 'max' }, defaultReasoningEffort: 'max' }] }
+  let baseUrl = '', admitted = 0, released = 0, supplierCalls = 0, relayCalls = 0
+  const server = createServer((request, response) => {
+    let body = ''
+    request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
+    request.once('end', () => {
+      const json = (value: object): void => {
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(value))
+      }
+      if (request.url === '/login') {
+        response.writeHead(303, { 'set-cookie': '__Host-muse=leased-session; Path=/; HttpOnly', location: '/' }); response.end(); return
+      }
+      if (request.url === '/api/muse.account') { json({ username: 'fixture' }); return }
+      if (request.url === '/api/desktop-models/providers') { json({ transport: 'direct', providers: [provider] }); return }
+      if (request.url === '/api/desktop-models/access') { json({ transport: 'direct', providers: [{ ...provider, transport: 'leased' }] }); return }
+      if (request.url === '/api/desktop-models/zhipu-official/leases' && request.method === 'POST') {
+        admitted++
+        expect(JSON.parse(body)).toEqual({ model: 'glm-5.3-flash' })
+        json({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9', baseURL: baseUrl + '/supplier', apiKey: 'temporary-lease-token',
+          deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 }); return
+      }
+      if (request.method === 'DELETE' && request.url?.startsWith('/api/desktop-models/zhipu-official/leases/')) {
+        released++; json({ released: true }); return
+      }
+      if (request.url === '/supplier/chat/completions') {
+        supplierCalls++
+        expect(request.headers.authorization).toBe('Bearer temporary-lease-token')
+        expect(request.headers.cookie).toBeUndefined(); expect(request.headers.origin).toBeUndefined()
+        expect(JSON.parse(body)).toMatchObject({ max_tokens: 128000, reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false } })
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.end(textEvents.map(event => `data: ${event}\n\n`).join('')); return
+      }
+      if (request.url?.endsWith('/chat/completions')) relayCalls++
+      response.writeHead(404); response.end()
+    })
+  })
+  onTestFinished(async () => {
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => { resolve() }))
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+  baseUrl = `http://127.0.0.1:${address.port}`
+  const fixture = await oldSessionFixture(false, home)
+  const account = createRequire(import.meta.url)(artifact) as typeof import('../src/index.ts')
+  fixture.ctx.loader.builtins['leased-built-account'] = account
+  const id = await fixture.ctx.loader.create({ name: 'cordis:leased-built-account', config: { baseUrl, accountHome: home, remoteAccess: false } })
+  await fixture.ctx.loader.await(); await fixture.ctx.loader.resolve(id).fiber?.await()
+  const service: unknown = fixture.ctx.get('museAccount')
+  if (!(service instanceof account.MuseAccountService)) throw new Error('Built Muse account unavailable')
+  await service.login({ username: 'fixture', password: 'local-fixture-only', registerIfMissing: false })
+  await fixture.controller.selectModel({ sessionId: fixture.agent.id, provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flash', reasoningEffort: 'max' })
+  const idle = waitForIdle(fixture.ctx, fixture.agent)
+  fixture.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue the script.' }], source: { kind: 'user' } }))
+  await idle
+  expect({ admitted, released, supplierCalls, relayCalls }).toEqual({ admitted: 1, released: 1, supplierCalls: 1, relayCalls: 0 })
+  expect(fixture.agent.session.deriveMessages().filter(message => message.role === 'assistant').map(message => message.content))
+    .toEqual([[{ type: 'text', text: 'hello' }]])
+  expect(JSON.stringify(fixture.agent.session.snapshotEvents())).not.toContain('temporary-lease-token')
+})

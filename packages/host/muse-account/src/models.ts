@@ -8,6 +8,8 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   PreparedAdapterCall,
+  GenerateOptions,
+  StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -20,6 +22,7 @@ import { readMuseSession } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { clearModelAccess, saveModelAccess } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
+import { streamWithModelLease } from './model-direct.ts'
 
 const supplierAccess = z.object({
   baseURL: z.string().max(2048).refine((value) => {
@@ -35,7 +38,7 @@ const supplierAccess = z.object({
 const metadata = z.object({ providers: z.array(z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(200),
   access: supplierAccess.optional(),
-  transport: z.literal('relay').optional(),
+  transport: z.enum(['relay', 'leased']).optional(),
   models: z.array(z.object({
     id: z.string().min(1).max(200), name: z.string().min(1).max(200),
     contextWindow: z.number().int().positive(), maxTokens: z.number().int().positive(),
@@ -50,12 +53,15 @@ const metadata = z.object({ providers: z.array(z.object({
     }
   })).max(256),
 })).max(100), transport: z.enum(['relay', 'direct']).optional() }).superRefine((data, context) => {
-  if (data.providers.some(provider => provider.transport === 'relay' ? provider.access !== undefined
-    : data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
+  if (data.providers.some(provider => provider.transport === 'leased' && provider.id !== 'zhipu-official')
+    || data.providers.some(provider => provider.transport !== undefined ? provider.access !== undefined
+      : data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
     context.addIssue({ code: 'custom', message: 'Supplier access must match the negotiated transport' })
   }
 })
 const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
+
+type DirectStream = (options: GenerateOptions, signal: AbortSignal) => AsyncIterable<StreamChunk>
 
 /** Capture account catalog defaults with the same prepared generation as its request stream. */
 class MusePiAiAdapter extends PiAiAdapter {
@@ -64,6 +70,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly defaultEffort: (provider: string, model: string) => ReasoningEffortId | undefined,
     private readonly authorizationSignal: () => AbortSignal,
     private readonly providerSelectable: (provider: string) => boolean,
+    private readonly streamOverride: (provider: string, model: string) => DirectStream | undefined,
   ) {
     super(options)
   }
@@ -80,12 +87,15 @@ class MusePiAiAdapter extends PiAiAdapter {
   override async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall> {
     const defaultEffort = this.defaultEffort(provider, model)
     const authorization = this.authorizationSignal()
+    const direct = this.streamOverride(provider, model)
     const prepared = await super.prepareCall(provider, model, signal)
     return { ...prepared,
       model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
         : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
-      stream: options => safeMuseModelStream(() => prepared.stream({ ...options, signal: options.signal === undefined ? authorization
-        : AbortSignal.any([authorization, options.signal]) })),
+      stream: options => safeMuseModelStream(() => {
+        const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
+        return direct ? direct(options, signal) : prepared.stream({ ...options, signal })
+      }),
     }
   }
 
@@ -110,6 +120,7 @@ export class MuseModels {
   private profiles = new Map<string, ResolvedPiAiProviderProfile>()
   private readonly revisions = new WeakMap<ResolvedPiAiProviderProfile, string>()
   private readonly keys = new WeakMap<ResolvedPiAiProviderProfile, string>()
+  private readonly leased = new WeakMap<ResolvedPiAiProviderProfile, PiAiProviderProfile>()
   private authorization = new AbortController()
   private defaultEfforts: ReadonlyMap<string, ReasoningEffortId> = new Map()
   private registration: AdapterRegistrationHandle | undefined
@@ -121,7 +132,7 @@ export class MuseModels {
   private readonly disposeRequestRoute: () => void
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
-    this.adapter = new MusePiAiAdapter({
+    const adapterOptions: PiAiAdapterOptions = {
       profiles: () => this.profiles,
       resolveApiKey: async (_provider, profile) => {
         const session = await readMuseSession(options.sessionFile, options.baseUrl)
@@ -151,12 +162,28 @@ export class MuseModels {
           + ` status=${status ?? 'unavailable'} requestId=${JSON.stringify(requestId ?? null)}`,
         )
       },
-    }, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`), () => this.authorization.signal,
-    provider => this.providerSelectable(provider))
+    }
+    this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
+      () => this.authorization.signal, provider => this.providerSelectable(provider),
+      (provider, model) => this.directStream(adapterOptions, provider, model))
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
       return await this.repairRequestRoute(agent, config, signal)
     }, { prepend: true })
+  }
+
+  private directStream(adapterOptions: PiAiAdapterOptions, provider: string, model: string): DirectStream | undefined {
+    const profile = this.profiles.get(provider)
+    const spec = profile && this.leased.get(profile)
+    const revision = profile && this.revisions.get(profile)
+    if (!spec || !revision) return undefined
+    return (options, signal) => streamWithModelLease({ ...this.options, revision }, model, signal,
+      (access, requestSignal) => {
+        const profiles = resolveProfiles({ [provider]: { ...spec, baseURL: access.baseURL, headers: {} } })
+        const adapter = new PiAiAdapter({ ...adapterOptions, profiles: () => profiles,
+          resolveApiKey: () => Promise.resolve(access.apiKey) })
+        return adapter.stream({ ...options, signal: requestSignal })
+      })
   }
 
   /**
@@ -209,7 +236,7 @@ export class MuseModels {
     if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) return
     if (this.isStopped()) return
     const response = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/providers', this.options.baseUrl), {
-      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1' }, redirect: 'error',
+      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1', 'x-muse-zhipu-direct': 'leased-v1' }, redirect: 'error',
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
     }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
     if (response.status === 401) {
@@ -225,7 +252,7 @@ export class MuseModels {
     try { announcement = JSON.parse(text) } catch { throw new MuseGatewayError('gateway-rejected') }
     if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct') {
       const access = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/access', this.options.baseUrl), {
-        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1' }, redirect: 'error',
+        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1', 'x-muse-zhipu-direct': 'leased-v1' }, redirect: 'error',
         signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
       }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
       if (access.status === 401) {
@@ -282,6 +309,9 @@ export class MuseModels {
       this.revisions.set(profile, session.revision)
       const key = data.providers.find(provider => `muse-cloud-${provider.id}` === id)?.access?.apiKey
       if (key !== undefined) this.keys.set(profile, key)
+      if (data.providers.some(provider => `muse-cloud-${provider.id}` === id && provider.transport === 'leased')) {
+        this.leased.set(profile, { ...providers[id] })
+      }
     }
     if (data.transport === 'direct') {
       const access = data.providers.flatMap(provider => provider.access && candidate.has(`muse-cloud-${provider.id}`)

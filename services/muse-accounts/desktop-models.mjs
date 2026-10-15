@@ -27,7 +27,7 @@ export function desktopModelCatalog(globalModels,modelConfig){
  * @param {object} options Model configuration, forwarding operation and login clock.
  * @returns {object} Request handling and stream cancellation operations.
  */
-export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now,transport='relay',keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool}){
+export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now,transport='relay',keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,directLeases}){
  if(!['relay','direct'].includes(transport))throw Error('Invalid Desktop model transport');
  const active=new Map();
  const poolKeys=()=>globalModels?.credentialPool?.('zhipu-official')??[];
@@ -47,7 +47,7 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
    if(!directRequest(req)){fail(404,'本地模型直连未启用');return;}
    const catalog=desktopModelCatalog(globalModels,modelConfig),providers=[];
    for(const provider of catalog.providers){
-    if(pooled(provider.id)){providers.push({...provider,transport:'relay'});continue;}
+    if(pooled(provider.id)){providers.push({...provider,transport:directLeases&&req.headers['x-muse-zhipu-direct']==='leased-v1'?'leased':'relay'});continue;}
     const configs=provider.models.map(model=>globalModels?.resolve(provider.id,model.id));
     const first=configs[0];
     if(!first?.apiKey||configs.some((config,index)=>!config||config.apiKey!==first.apiKey||config.baseURL!==first.baseURL||config.model!==provider.models[index].id)){
@@ -59,6 +59,33 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
    }
    res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','pragma':'no-cache'});
    res.end(JSON.stringify({transport:'direct',providers}));return;
+  }
+  const directPath='/api/desktop-models/zhipu-official/leases';
+  if(path===directPath||path.startsWith(directPath+'/')){
+   if(!directLeases||!directRequest(req)||req.headers['x-muse-zhipu-direct']!=='leased-v1'){fail(404,'Direct model access unavailable');return;}
+   const controller=new AbortController(),abort=()=>controller.abort();req.on('aborted',abort);res.on('close',abort);
+   const item={accountId:session.id,controller},items=active.get(session.token)??new Set();active.set(session.token,items);items.add(item);
+   const cancelExpiry=scheduleSessionExpiry(session.expiry,abort,{now});
+   try{
+    let value;
+    if(path===directPath&&req.method==='POST'){
+     let size=0;const chunks=[];
+     for await(const chunk of req){size+=chunk.length;if(size>4096){fail(413,'Invalid direct model request');return;}chunks.push(chunk);}
+     let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(400,'Invalid direct model request');return;}
+     if(!body||typeof body.model!=='string'||body.model.length>200){fail(400,'Invalid direct model request');return;}
+     value=await directLeases.acquire(session,body.model,controller.signal);
+    }else{
+     const id=path.slice(directPath.length+1);
+     if(!/^[0-9a-f-]{36}$/i.test(id)){fail(404,'Direct model reservation unavailable');return;}
+     if(req.method==='GET')value=directLeases.check(session,id);
+     else if(req.method==='DELETE')value=await directLeases.release(session,id);
+     else{fail(405,'Unsupported direct model method');return;}
+    }
+    if(controller.signal.aborted){fail(401,'Muse session expired or request cancelled');return;}
+    res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','pragma':'no-cache'});res.end(JSON.stringify(value));
+   }catch(error){fail(controller.signal.aborted?401:error instanceof ModelKeyPoolError?503:error.status??503,'Direct model admission unavailable');}
+   finally{cancelExpiry();req.off('aborted',abort);res.off('close',abort);items.delete(item);if(!items.size)active.delete(session.token);}
+   return;
   }
   const route=/^\/api\/desktop-models\/([a-z][a-z0-9-]{0,63})\/chat\/completions$/.exec(path)?.[1];
   if(!route||req.method!=='POST'){fail(404,'模型接口不存在');return;}

@@ -49,6 +49,8 @@ export async function apply(ctx) {
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
   const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
+  const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
+  assert.ok(!leasedZhipu || pooledZhipu)
   assert.ok(!officialGlm || direct)
   assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
@@ -76,7 +78,7 @@ export async function apply(ctx) {
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
     : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
-  const directCompletion = direct && !pooledZhipu
+  const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
   assert.equal(script.length, refusal ? 0 : 2)
@@ -106,9 +108,23 @@ export async function apply(ctx) {
           assert.equal(request.headers['x-muse-provider-routing'], 'mixed-v1')
           response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ transport: 'direct',
             providers: catalog.providers.map(provider => pooledZhipu && provider.id === 'zhipu-official'
-              ? { ...provider, transport: 'relay' } : ({ ...provider, access: {
+              ? { ...provider, transport: leasedZhipu ? 'leased' : 'relay' } : ({ ...provider, access: {
               baseURL: `${baseUrl}/supplier/${provider.id}`, apiKey: `supplier-fixture-${provider.id}`,
             } })) })); return
+        }
+        const leasePath = '/api/desktop-models/zhipu-official/leases'
+        if (leasedZhipu && request.url === leasePath && request.method === 'POST') {
+          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
+          assert.equal(request.headers['x-muse-zhipu-direct'], 'leased-v1')
+          assert.deepEqual(JSON.parse(body), { model: selectedModel.model })
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9',
+            baseURL: `${baseUrl}/supplier/zhipu-official`, apiKey: 'supplier-fixture-zhipu-official',
+            deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 })); return
+        }
+        if (leasedZhipu && request.url === leasePath + '/c0b928a2-9bea-416b-80f0-cbd051fba1c9' && request.method === 'DELETE') {
+          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
+          response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"released":true}'); return
         }
         if (request.url === completionPath) {
           const payload = JSON.parse(body)

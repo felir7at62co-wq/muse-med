@@ -1,4 +1,6 @@
 /** Bounded admission for independently provisioned supplier-account credentials. */
+import {createHash} from 'node:crypto';
+const fingerprint=key=>createHash('sha256').update(key).digest('hex');
 /** Admission stopped before a supplier request was dispatched. */
 export class ModelKeyPoolError extends Error {}
 
@@ -19,7 +21,7 @@ export function resolveModelKeyPoolPolicy(env={}){
 
 /** Count whole active streams per credential and wait fairly for a free slot.
  * @param {object} options Current private keys and validated deployment limits.
- * @returns {object} Cancellable lease acquisition and queued-request shutdown.
+ * @returns {object} Cancellable acquisition, durable fingerprint reservation restoration, and queued-request shutdown.
  */
 export function createModelKeyPool({keys,...limits}){
  const {concurrency,maxQueued,waitMs}=resolveModelKeyPoolPolicy({MUSE_ZHIPU_KEY_CONCURRENCY:limits.concurrency,
@@ -29,15 +31,15 @@ export function createModelKeyPool({keys,...limits}){
   const available=[...new Set(keys())];if(!available.length)return;
   let selected,lowest=concurrency;
   for(let i=0;i<available.length;i++){
-   const index=(cursor+i)%available.length,key=available[index],used=active.get(key)??0;
+   const index=(cursor+i)%available.length,key=available[index],used=active.get(fingerprint(key))??0;
    if(used<lowest){selected={key,index};lowest=used;}
   }
   if(!selected)return;
   cursor=(selected.index+1)%available.length;
-  const key=selected.key;active.set(key,lowest+1);let released=false;
+  const key=selected.key,hash=fingerprint(key);active.set(hash,lowest+1);let released=false;
   return {key,release(){
    if(released)return;released=true;
-   const count=active.get(key)-1;if(count)active.set(key,count);else active.delete(key);
+   const count=active.get(hash)-1;if(count)active.set(hash,count);else active.delete(hash);
    drain();
   }};
  }
@@ -45,6 +47,11 @@ export function createModelKeyPool({keys,...limits}){
   while(!closed&&queue.length){const slot=lease();if(!slot)return;const waiter=queue.shift();waiter.cleanup();waiter.resolve(slot);}
  }
  return {
+  restore(hash){
+   if(!/^[a-f0-9]{64}$/.test(hash)||closed)throw new ModelKeyPoolError('Invalid restored model reservation');
+   active.set(hash,(active.get(hash)??0)+1);let released=false;
+   return ()=>{if(released)return;released=true;const count=active.get(hash)-1;if(count)active.set(hash,count);else active.delete(hash);drain();};
+  },
   acquire(signal){
    if(closed)return Promise.reject(new ModelKeyPoolError('Model key pool is closed'));
    if(signal?.aborted)return Promise.reject(signal.reason);
