@@ -22,7 +22,8 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
  * @param home - Disposable smoke home and workspace.
- * @returns ESM plugin source that records completion only after preset, model inputs, skills, and Agent disposal succeed.
+ * @returns ESM plugin source requiring shared editing tools, its current identity and Word delivery guidance,
+ * bundled skills, and completed Agent disposal. Editing delegation tools may be absent or inherited.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -92,16 +93,20 @@ export function apply(ctx) {
     }
     if (id === 'editing') {
       if (standardTools === undefined) throw new Error('desktop runtime: standard tool catalog was not checked')
-      const missingStandardTools = [...standardTools].filter(name => !names.has(name))
+      const delegationTools = new Set(['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code',
+        'send_message', 'interrupt_agent', 'list_agents', 'workflow'])
+      const missingStandardTools = [...standardTools].filter(name => !delegationTools.has(name) && !names.has(name))
       if (missingStandardTools.length > 0) {
         throw new Error('desktop runtime: editing mode missing standard tool ' + missingStandardTools.join(', '))
       }
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
-      if (persona !== editingModelInput.personaPrefix
-        || !persona?.includes('在大纲阶段建议集数、篇幅和字数范围，交用户选择或修改')
-        || !persona.includes('不把参考阅读设为开写门禁')) {
+      if (persona !== editingModelInput.personaPrefix) {
         throw new Error('desktop runtime: editing persona changed')
+      }
+      const delivery = assembly.sections.find(section => section.name === 'editing:delivery')?.text
+      if (!delivery?.includes('默认使用 Word（.docx）') || !delivery.includes('screenplay_export_docx')) {
+        throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
