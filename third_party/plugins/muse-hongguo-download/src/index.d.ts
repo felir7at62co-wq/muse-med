@@ -28,6 +28,7 @@ export interface DownloadedEpisode {
 export interface DownloadFailure {
   ok: false; complete: false; code: string; message: string;
   upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
+  httpStatus?: number; responseBytes?: number;
 }
 export interface DownloadResult {
   ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;

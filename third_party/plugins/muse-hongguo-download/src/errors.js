@@ -5,6 +5,8 @@ export class DownloadError extends Error {
     this.upstreamCode = details.upstreamCode;
     this.sourceStage = details.sourceStage;
     this.retryable = details.retryable;
+    this.httpStatus = details.httpStatus;
+    this.responseBytes = details.responseBytes;
   }
 }
 
@@ -13,7 +15,9 @@ export function safeError(error) {
   if (error instanceof DownloadError) return { code: error.code, message: error.message,
     ...(error.upstreamCode !== undefined ? { upstreamCode: error.upstreamCode } : {}),
     ...(error.sourceStage !== undefined ? { sourceStage: error.sourceStage } : {}),
-    ...(error.retryable !== undefined ? { retryable: error.retryable } : {}) };
+    ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
+    ...(error.httpStatus !== undefined ? { httpStatus: error.httpStatus } : {}),
+    ...(error.responseBytes !== undefined ? { responseBytes: error.responseBytes } : {}) };
   if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return { code: 'cancelled', message: '下载已取消或超过时限；未完成文件已清理' };
   return { code: 'operation_failed', message: '红果下载操作失败；请检查本地源配置、输出目录权限和网络' };
 }

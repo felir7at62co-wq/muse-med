@@ -136,6 +136,7 @@ export class SourceCatalog {
 
   /** Apply the original JSON body digest and local signer to each HTTPS API request. */
   async apiOnce(path, body, signal, method, params) {
+    const sourceStage = path.includes('video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
     const { source, devices, headers, api, signUrl } = await this.load(signal);
     const device = devices[this.deviceIndex % devices.length];
     const url = new URL(path, api);
@@ -156,11 +157,15 @@ export class SourceCatalog {
     }
     const response = await this.request(url.href, 'api', signal, { method, body: raw,
       allowedHosts: [api.hostname], headers: { ...requestHeaders, ...(raw ? { 'content-length': raw.length } : {}), ...Object.fromEntries(Object.entries(signed).map(([key, value]) => [key, String(value)])) } });
+    const httpStatus = response.statusCode;
+    const bytes = await responseBytes(response, this.config.maxResponseBytes, signal);
+    const diagnostic = { sourceStage, retryable: false, httpStatus, responseBytes: bytes.length };
+    if (!bytes.length) throw new DownloadError('empty_source_response',
+      '红果原源接口返回空正文；本次来源请求未成功。请停止重复下载，保留本机设备配置并检查来源状态；不要自动重建设备或用试看代替全集', diagnostic);
     let result;
-    try { result = parseSourceJson((await responseBytes(response, this.config.maxResponseBytes, signal)).toString('utf8')); }
-    catch (error) { if (error instanceof DownloadError || signal.aborted) throw error; throw new DownloadError('platform_json', '原源平台返回无效 JSON'); }
+    try { result = parseSourceJson(bytes.toString('utf8')); }
+    catch (error) { if (signal.aborted) throw error; throw new DownloadError('platform_json', '原源平台返回非空但无效的 JSON；请按失败阶段检查，不要立即重复下载', diagnostic); }
     if (!record(result)) throw new DownloadError('platform_error', '红果原源 API 返回错误；没有生成下载成功结果');
-    const sourceStage = path.includes('video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
     const code = sourceStatus(result, sourceStage);
     const details = { ...(code !== undefined ? { upstreamCode: code } : {}), sourceStage, retryable: false };
     if ([101001, 401, 403, 1001, 8].includes(code)) throw new DownloadError('platform_error', '红果原源 API 返回业务错误；请检查失败阶段与错误码，不要立即重复下载', details);

@@ -132,3 +132,27 @@ test('single-video resolution rejects malformed model JSON before media dispatch
  await assert.rejects(f.client.source.videoUrls(['synthetic'],signal()),error=>error.code==='platform_json');
  assert.equal(f.calls.some(call=>call.kind==='media'),false);
 });
+
+test('empty successful HTTP media replies report their stage without retrying or rotating the device',async t=>{
+ const f=await fixture(t,()=>video([]),{retries:2});
+ const original=f.client.source.request;
+ f.client.source.request=async(url,kind,active,options)=>{
+  if(kind==='api'&&new URL(url).pathname.includes('video_model')){
+   f.calls.push({kind,url});return Object.assign(Readable.from([]),{statusCode:200,headers:{'content-length':'0'}});
+  }
+  return original(url,kind,active,options);
+ };
+ const result=await f.client.download({seriesIds:['123'],episodes:[1]});
+ assert.equal(result.ok,false);assert.equal(result.code,'empty_source_response');assert.equal(result.sourceStage,'video_model');
+ assert.equal(result.httpStatus,200);assert.equal(result.responseBytes,0);assert.equal(result.retryable,false);
+ assert.equal(f.calls.filter(call=>new URL(call.url).pathname.includes('video_model')).length,1);
+ assert.equal(f.client.source.deviceIndex,0);assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+});
+
+test('nonempty invalid JSON preserves safe response facts without leaking source bytes',async t=>{
+ const f=await fixture(t,()=>video([]),{retries:2});
+ f.client.source.request=async()=>Object.assign(Readable.from([Buffer.from('SOURCE_PRIVATE')]),{statusCode:200,headers:{}});
+ const result=await f.client.info({seriesIds:['123']});
+ assert.equal(result.code,'platform_json');assert.equal(result.sourceStage,'catalog');assert.equal(result.responseBytes,14);
+ assert.equal(result.httpStatus,200);assert.equal(result.retryable,false);assert.ok(!JSON.stringify(result).includes('SOURCE_PRIVATE'));
+});
