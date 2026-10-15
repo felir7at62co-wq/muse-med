@@ -585,6 +585,9 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
+    const renderTarget = join(cwd, '.dsh/skills/tweet-drama-background-render/SKILL.md')
+    await mkdir(dirname(renderTarget), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-background-render/SKILL.md'), renderTarget)
   },
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),

@@ -28,6 +28,8 @@ Create and review drama scripts, reuse assets, maintain project state, prepare e
 <a id="use-this-package"></a>
 ## Use this package
 
+The [background-render skill](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清) also guides authorized SeedVR2 / RunningHub video upscaling through the existing Jubian tools: identify the source, check current model pricing, submit once, observe the accepted task in the background, download the current result and inspect its actual resolution and quality. The agent continues within an existing explicit HD authorization without per-clip confirmation; a resolution hint alone does not authorize payment. The current submission tool picks the first URL-bearing child and prefers its original URL, so an ambiguous result or a requested processed version must be resolved before submission.
+
 Resolve this package's `package.json`, then give its sibling `skills` directory to the existing skill loader. This resource package registers no Service, Tool, or plugin. Installing the npm package alone does not activate its skills.
 
 Start with [the pipeline](skills/tweet-drama-pipeline/SKILL.md), then read the relevant skill before invoking its scripts. Keep the skill directories adjacent: draft, render, and delivery share core's video-ban checks. Use Python 3.11 or newer. Image helpers require Pillow, document helpers require python-docx, and draft generation requires pyJianYingDraft; each skill owns its other optional dependencies. Draft generation rejects an existing draft directory rather than deleting it; use a distinct `name_prefix` for each candidate, without path separators or Windows-reserved characters. No Python interpreter, dependency environment, or FFmpeg binary is bundled.
