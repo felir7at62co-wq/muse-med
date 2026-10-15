@@ -28,7 +28,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-[后台成片技能](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清)也指导通过现有剧变工具执行已授权的 SeedVR2 / RunningHub 视频转高清：识别来源、核对当前模型计价、提交一次、后台观察受理任务、下载当前结果并检查实际分辨率与画质。已有明确高清授权时，Agent 自行继续，不逐条重复确认；仅有分辨率提示不授权付费。当前提交工具选取首个带视频 URL 的子结果并优先使用原始 URL，因此来源歧义或处理后版本要求须在提交前解决。
+[后台成片技能](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清)指导已授权的 SeedVR2 / RunningHub 转高清。默认在指定分集和视频包内选最新生成结果，使用其当前处理后的视频，提交一次并后台观察受理任务。高清结果成功、归属匹配且有当前输出地址后直接采用；仅在另行要求时增加画面、音频和元数据检查。已有明确高清授权不逐条重复确认，仅有分辨率提示不授权付费。
 
 解析本包的 `package.json`，再把同级 `skills` 目录交给现有技能加载器。本资源包不注册 Service、Tool 或插件。仅安装 npm 包不会激活技能。
 

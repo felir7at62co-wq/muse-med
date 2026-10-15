@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/jubian-upscale-current-source/guide.md
+/:
+  en: 4b79e79387b62654
+  zh: 82f8967d9e356a11
+/jubian-upscale-source-selection:
+  en: eb9e6ae2b88cf247
+  zh: 8a2320b56177eb21
+/jubian-upscale-source-selection/change:
+  en: 8a72f96a680852f7
+  zh: 248c3de19576090f
+/jubian-upscale-source-selection/migration:
+  en: 0f28f3c7fd14bb29
+  zh: 1f7e1566ca3f01c7

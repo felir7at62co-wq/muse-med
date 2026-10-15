@@ -385,6 +385,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 `needs_upscale` 仅比较实际分辨率与 `delivery_resolution`：`true` 表示低于目标，`false` 表示达到或高于目标，`null` 表示未知。它不是内容不可用判定，也不构成付费处理义务。SD2.5 默认使用原片，不自动提交或等待高清。任何模型都不能仅因 `needs_upscale=true` 自动付费；只有用户明确要求或授权具体高清处理时才调用 `upscale`，SD2.5 也可按此要求处理。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。
 
+`upscale` 按提供方创建时间倒序读取子结果，选择首个有视频地址且成功、或旧记录未提供状态的结果。提交其当前 `video_url`，包括已去字幕的版本，不再优先使用原始 `base_video_url`。明确未完成或失败的结果会被跳过；没有可用结果时不提交付费请求。去字幕保留现有原始来源选择规则。既有幂等键仍重放已记录的结果。
+
 已获授权的提交完成后先做别的，稍后回读 `subtasks`；用上文的操作观察器核验是否完成，而不是靠最初的响应。
 
 `image_generate` 是唯一例外，而且只是因为不这样做结果就没法用：该方法在调用内部等待并核实自己的生成图已可用，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。

@@ -11,14 +11,14 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 
 使用现有 `jubian_video method=upscale`，对应 **SeedVR2视频高清 / RunningHub**，目标 1080p；不通过重新生成分镜、另建原生生成任务或本地放大冒充高清。当前工具提交 `taskType=20`、`modelId=2074071626416742401`、`platformId=RUNNING_HUB`、`standardId=55`、`videoStandardId=303`。先用 `jubian_catalog method=rate, standard_id=55` 回读当前计价；参考价为 1 元/条，实际费用以当前回读和项目预算为准。当前 `models` 入口不接受 task_type=20，不调用该参数查询高清模型；提交型号由现有工具固定。计价缺失或回读型号、通道、规格与上述选择冲突时报告，不猜替代模型。
 
-1. 用 `jubian_video method=tasks, script_id=...` 找到本项目已生成的视频任务，再用 `task` 与 `subtasks` 核对项目、分集、任务状态和 `subtasks.rows`。只处理成功且有视频 URL 的来源。记录源 `task_id`、子结果 ID、原始/当前 URL、真实时长、分辨率、`hd_count` 及 `last_task_type`；已有高清结果优先检查并复用，同一来源存在待完成高清任务时继续查询原任务，不重投。
-2. 现有 `upscale` 输入是源任务 `task_id`，由工具回读来源结果和身份；不是分镜 ID、子结果 ID 或新高清任务 ID。工具自动选取该源任务返回的首个带视频 URL 的子结果，且优先使用它的 `base_video_url`。调用前确认这正是用户选定的来源；同一任务有多个不同结果或需要处理去字幕后的当前版本、而工具实际选源无法对应时，不用此入口猜选，报告缺少精确选源能力。
+1. 用 `jubian_video method=tasks, script_id=...` 找到本项目、本分集和本包已生成的视频任务，默认选择最新生成且成功、有输出 URL 的任务；优先按提供方生成时间倒序，缺少时间时用任务 ID 倒序。不能把别的分集或包当作“最新”来源。已有当前来源的成功高清结果直接复用；有未结束高清任务则继续查询，不重投。
+2. `upscale` 输入是源任务 `task_id`，由工具回读来源身份。工具按提供方创建时间倒序读取子结果，选首个带视频 URL 且未标为未完成或失败的结果，使用它的当前 `video_url`，包括最新去字幕后的版本；不再优先退回 `base_video_url`。保留源任务、子结果和 URL 记录，无需因多个候选结果再向用户询问。用户明确指定旧版本时遵从指定；工具不能精确定位该版本则报告，不冒用默认来源。
 3. 对已核对来源调用 `jubian_video({method:"upscale",task_id:<源任务ID>,task_name:"EP01-P1-SeedVR2-HD",idempotency_key:<本来源固定键>})`，遵守既有项目预算、审批与账本规则。保存 `outcome`、原 key 和 `accepted_task_id`；`accepted` 只表示受理。结果未知时保留原 key，对账或查询，不能换 key 再买一次；不以 `retry` 自动重投付费处理。
 4. `accepted_task_id` 非空时，用它启动 `jubian_watch({task_id:<高清任务ID>,stage:"upscale"})` 并保存返回的 `job_id`。用 `job_output(job_id=..., wait=true)` 收取结果；后台查询期间继续独立工作，不用模型轮次忙轮询。重启后用已保存的高清任务 ID 查询 `jubian_video task/subtasks`；缺少受理 ID 时用原账本和源任务结果对账，不虚构任务 ID。
-5. 完成后再次读取高清任务的 `subtasks.rows`，核对状态、当前输出 URL、`last_task_type`、`hd_count` 和来源关联。用 `jubian_media method=download, media_kind=video` 下载选定的当前高清 URL，不下载 `base_video_url` 冒充高清。保存原片与高清片、源/高清任务 ID、URL、文件 SHA256 和费用回执；不覆盖已确认的原片。
-6. 用 `video_inspect metadata` 或 FFprobe 核对实际下载文件的宽高、时长和音轨，竖屏通常为 1080×1920，横屏通常为 1920×1080，以实际文件为准。抽看首/中/尾及人脸、文字、动作疑点并核对音频，检查丢帧、闪烁、涂抹、身份变化与音画不同步；任务成功或分辨率标签不能代替画质验收。通过后将高清文件更新为本包选源，再继续草稿或成片；未完成或未验收只报告当前状态，不称最终交付。
+5. 从后台结果或高清任务 `subtasks.rows` 确认当前高清任务已成功、结果属于本任务、当前高清 URL 非空且有转高清记录（`last_task_type=20` 或 `hd_count>0`）。满足这些条件就直接采用当前高清 URL，并在交付或后续流程需要本地文件时用 `jubian_media method=download, media_kind=video` 下载；不退回 `base_video_url`。保留任务 ID、原 key 和结果路径供恢复；pending、failed、unknown 或缺少输出地址时继续查询或报告失败，不当作完成。
+6. 高清任务只确认上述完成状态与输出地址，不额外抽帧、看人脸或文字、试听、检查音画同步，也不运行 FFprobe 或画质验收；确认转好就用于后续草稿、合成或交付。无需为高清另做一轮内容审校。用户另行要求质量检查时才追加。
 
-只做视频转高清时交付已核验视频及来源记录，无需额外创建短剧、重新生成视频或进入后面的整集成片流程。
+只做视频转高清时交付成功的高清视频及来源记录，不进入后面的整集成片流程。整集渲染规则只适用于单独请求的合成任务，不作为采用高清结果的前置条件。
 
 ## 整集成片
 

@@ -141,7 +141,7 @@ describe('jubian_video upscale', () => {
   it('posts the workbench HD conversion body once under the same ledger key', async () => {
     const { client, calls } = stubClient((request) => {
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
-      if (request.path.endsWith('/sub/list')) return { total: 1, rows: [{ id: 990,
+      if (request.path.includes('/sub/list')) return { total: 1, rows: [{ id: 990,
         aigcVideoTaskId: 42, duration: 13.5, firstResultId: 1007193, parentResultId: 1007193,
         resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
       return 429001
@@ -159,6 +159,47 @@ describe('jubian_video upscale', () => {
       expect(await videoMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true })
       expect(calls).toHaveLength(3)
     } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('upscales the newest completed child current URL instead of its original or an older result', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744 }
+      if (request.path.includes('/sub/list')) {
+        expect(request.path).toContain('?orderByColumn=createTime&orderBy=desc')
+        return { total: 4, rows: [
+          { id: 994, taskStatus: 'failed', duration: 3,
+            resultList: [{ tosVideoUrl: 'https://example.test/failed.mp4' }] },
+          { id: 993, taskStatus: 'running', duration: 4,
+            resultList: [{ tosVideoUrl: 'https://example.test/pending.mp4' }] },
+          { id: 992, taskStatus: 'succeeded', duration: 12, firstResultId: 123, parentResultId: 456,
+            resultList: [{ tosVideoUrl: 'https://example.test/original.mp4',
+              lastTosVideoUrl: 'https://example.test/latest-clean.mp4', lastTaskType: 10 }] },
+          { id: 991, taskStatus: 'completed', duration: 8,
+            resultList: [{ tosVideoUrl: 'https://example.test/old.mp4' }] },
+        ] }
+      }
+      return 429002
+    })
+    expect(await videoMethod(client, ledger, {
+      method: 'upscale', task_id: 42, idempotency_key: 'latest-current',
+    })).toMatchObject({ outcome: 'accepted', accepted_task_id: '429002' })
+    expect(calls.at(-1)?.body).toMatchObject({
+      videoUrl: 'https://example.test/latest-clean.mp4', duration: 12,
+      firstResultId: 123, parentResultId: 456,
+    })
+  })
+
+  it('does not buy an upscale when every URL-bearing result is unfinished or failed', async () => {
+    const { client, calls } = stubClient(request => request.method === 'GET'
+      ? { id: 42, scriptId: 2708, episodeId: 46744 }
+      : { rows: ['running', 'failed'].map((taskStatus, i) => ({
+        id: 992 - i, taskStatus, duration: 8,
+        resultList: [{ tosVideoUrl: 'https://example.test/unusable.mp4' }],
+      })) })
+    await expect(videoMethod(client, ledger, {
+      method: 'upscale', task_id: 42, idempotency_key: 'no-finished-source',
+    })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(calls.filter(call => call.path.includes('hdConversion'))).toEqual([])
   })
 
   it('does not resend an unknown upscale recorded before the route repair', async () => {

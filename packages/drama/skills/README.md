@@ -28,7 +28,7 @@ Create and review drama scripts, reuse assets, maintain project state, prepare e
 <a id="use-this-package"></a>
 ## Use this package
 
-The [background-render skill](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清) also guides authorized SeedVR2 / RunningHub video upscaling through the existing Jubian tools: identify the source, check current model pricing, submit once, observe the accepted task in the background, download the current result and inspect its actual resolution and quality. The agent continues within an existing explicit HD authorization without per-clip confirmation; a resolution hint alone does not authorize payment. The current submission tool picks the first URL-bearing child and prefers its original URL, so an ambiguous result or a requested processed version must be resolved before submission.
+The [background-render skill](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清) guides authorized SeedVR2 / RunningHub upscaling. It defaults to the latest generated result within the requested episode and package, uses its current processed video, submits once and observes the accepted task in the background. A successful matching HD result with a current output URL is adopted directly; visual, audio and metadata inspection are optional when separately requested. Existing explicit HD authorization does not require per-clip confirmation, and a resolution hint alone does not authorize payment.
 
 Resolve this package's `package.json`, then give its sibling `skills` directory to the existing skill loader. This resource package registers no Service, Tool, or plugin. Installing the npm package alone does not activate its skills.
 
