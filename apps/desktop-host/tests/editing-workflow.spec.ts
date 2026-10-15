@@ -31,10 +31,6 @@ it('routes editor feedback to project versions and reports verified knowledge-ba
   const skill = await readFile(new URL('../skills/editing/SKILL.md', import.meta.url), 'utf8')
   expect(skill).toMatch(/编辑反馈.*原话.*大纲.*版本.*处理结果/su)
   expect(skill).toMatch(/编辑反馈.*项目.*记录.*知识库.*授权.*写入.*读回/su)
-  const preset = await readFile(new URL('../presets/editing/agent.cordis.yml', import.meta.url), 'utf8')
-  for (const phrase of ['muse-script-editing', '小说转剧本', '视频转剧本', '换梗', '全部正文']) {
-    expect(preset).toContain(phrase)
-  }
 })
 
 it('discovers separate novel conversion and trope-change guidance', async () => {

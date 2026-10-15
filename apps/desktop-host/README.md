@@ -19,6 +19,10 @@ The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds f
 
 Short-drama delivery follows the explicit project medium and prepared canvas; see the [project bible](../../packages/drama/drama-settings/README.md) for selection and legacy behavior.
 
+## Editing identity
+
+The `editing` preset renders exactly `你是muse-med编辑智能体，由{{model}}驱动`, replacing `{{model}}` with the selected model ID. Its complete persona excludes all other assembled system sections and dynamic runtime-context snapshots. The existing tools and skill catalog remain available, including DSH's default instruction to load a matching skill before acting. Editing workflows load through the selected skills rather than a preset-mandated entry sequence.
+
 ## Creation mode
 
 The `creation` preset combines the native editing and short-drama tools behind PTC `run_code`, with one model and no delegation, workflow-agent or Team tools. The existing presets and `short-drama` default remain available. The preset uses an isolated approved creative/Office skill catalog; skill names outside that catalog, including plugin-authoring names, are not discovered in this mode. Approved-name workspace or global overrides still follow the Host registry's normal precedence; the name list does not authenticate instruction bodies. Future tool registration stays inside the reviewed allowlist, including Agent-local contributions.
@@ -52,7 +56,7 @@ Each creative preset owns its isolated compaction backend, so its policy lives i
 <a id="video-screenplay-delivery"></a>
 ## Video screenplay delivery
 
-The editing and short-drama routes require visual preparation, independent episode review and sequential acceptance through [screenplay-project](../../packages/drama/screenplay-project/README.md). A managed video project uses `workflow: video_to_screenplay` and `qa/screenplay-project.json`; its formal files go under the sibling `final/` directory. Scene-file chunks and saved coverage support recovery without relying on a compressed conversation summary.
+Managed video screenplay projects require visual preparation, independent episode review and sequential acceptance through [screenplay-project](../../packages/drama/screenplay-project/README.md). A managed video project uses `workflow: video_to_screenplay` and `qa/screenplay-project.json`; its formal files go under the sibling `final/` directory. Scene-file chunks and saved coverage support recovery without relying on a compressed conversation summary.
 
 `screenplay_export_docx` verifies each managed input against the current accepted Markdown before conversion, pins those contents, and saves a `.docx.screenplay.json` record binding the candidate and output digests. Its optional `project` argument retains that binding for exports elsewhere and refuses a missing or unmarked explicit project. The Office composition also registers an actual `present` executor check: managed Markdown must match acceptance, and Word needs a matching record plus an independent body comparison against the current accepted text using the bundled Python runtime. Project identity uses the real filesystem path so directory aliases retain the same acceptance. Replacing the body or adding text in a table fails even with a forged matching record. Generic Python or Office outputs without acceptance cannot be declared formal managed video deliverables. Source-preserving refinement and story-faithful projects use the same final-directory check, including their exact separate modification notes. Story delivery also rechecks the Host-issued logged inspection records before accepted text is used. Ordinary documents and projects without a video or refinement marker retain existing conversion and delivery behavior.
 

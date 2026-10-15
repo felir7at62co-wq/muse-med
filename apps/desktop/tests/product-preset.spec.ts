@@ -106,11 +106,9 @@ it('offers only short drama and editing while keeping registered legacy composit
       personaPrefix: string
     }
     expect(editingPrompt).toBe(editingModelInput.personaPrefix)
-    for (const requirement of ['小说转剧本', '视频转剧本', '剧名', '换梗方案', '集数', '篇幅', '用户选择',
-      '优先阅读本次转出的剧本', '知识库', '全部正文', 'purpose=screenplay']) {
-      expect(editingPrompt, requirement).toContain(requirement)
-    }
-    expect(editingPrompt).not.toContain('无法读取原文时不写正式正文')
+    expect(editingRows.find(row => row.id === 'persona')?.config).toMatchObject({
+      complete: true, includeRuntimeContext: false,
+    })
     for (const id of ['agent-instructions', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)
     }

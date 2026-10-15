@@ -8,6 +8,9 @@
 /muse-desktop-host:
   en: b81ea54abca45d04
   zh: dc5d4c93ff3528f4
+/muse-desktop-host/editing-identity:
+  en: d22be8b88e98fa58
+  zh: cc83035a1c2e7296
 /muse-desktop-host/creation-mode:
   en: c97cb527b711b5b3
   zh: b8f1c48e42f392bf
@@ -15,5 +18,5 @@
   en: e0ff9a14fb81cdc8
   zh: a65ac36641773ccd
 /muse-desktop-host/video-screenplay-delivery:
-  en: 580d2ec502dc215e
-  zh: e7ce3dbc26404db0
+  en: 91e1d1cf5d8f2810
+  zh: 00663aedb535f1b3

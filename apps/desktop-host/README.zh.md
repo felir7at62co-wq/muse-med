@@ -20,6 +20,10 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 <a id="compaction-defaults"></a>
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 
+## 编辑身份
+
+`editing` 预设精确渲染 `你是muse-med编辑智能体，由{{model}}驱动`，其中 `{{model}}` 替换为当前选择的模型 ID。完整 persona 排除其他所有拼装系统段和动态运行时上下文快照。原有工具与技能目录保持可用，并保留 DSH 默认的匹配技能先加载指导。编辑流程通过选用的技能加载，不由预设指定固定入口顺序。
+
 ## 创作模式
 
 `creation` 预设将编辑与短剧的原生工具合并到 PTC `run_code`，由一个模型执行，不提供委派、工作流模型或团队工具。现有预设与 `short-drama` 默认值保持可用。此模式使用隔离的创作与 Office 已审核技能目录，不发现目录名单外的技能名，包括插件编写技能名。名单内技能的项目或全局同名覆盖仍沿 Host 注册表的通常优先级；名称目录不认证指令正文来源。后续工具注册仍受已审核白名单约束，包括 Agent 自身作用域的贡献。
@@ -53,7 +57,7 @@ Host 默认值与 `standard`、`ptc`、`cordis`、`short-drama`、`editing`、`c
 <a id="video-screenplay-delivery"></a>
 ## 视频剧本交付
 
-编剧与短剧路由要求通过 [screenplay-project](../../packages/drama/screenplay-project/README.zh.md) 先整理视觉事实，再逐集独立审校并顺序验收。受管视频项目使用 `workflow: video_to_screenplay` 和 `qa/screenplay-project.json`；正式文件位于同级 `final/` 目录。分块场景文件和持久化覆盖清单支持恢复，不依赖压缩后的对话摘要。
+受管视频剧本项目要求通过 [screenplay-project](../../packages/drama/screenplay-project/README.zh.md) 先整理视觉事实，再逐集独立审校并顺序验收。受管视频项目使用 `workflow: video_to_screenplay` 和 `qa/screenplay-project.json`；正式文件位于同级 `final/` 目录。分块场景文件和持久化覆盖清单支持恢复，不依赖压缩后的对话摘要。
 
 `screenplay_export_docx` 在转换前将每份受管输入与当前已验收 Markdown 比较，固定这些正文，并生成 `.docx.screenplay.json` 记录，绑定候选与输出摘要。可选 `project` 参数使跨目录导出保持绑定；显式项目不存在或未标记时拒绝导出。Office 组合还注册实际 `present` 执行器检查：受管 Markdown 须匹配验收，Word 须有匹配记录，并通过内置 Python 将实际正文与当前已验收正文独立比较。项目身份使用文件系统真实路径，使目录别名保持同一验收。替换正文或在表格中追加内容，即使伪造匹配记录也会失败。普通 Python 或 Office 生成的文件未经候选验收时，不能声明为受管视频正式交付。保源精修和故事忠实项目也使用同一final目录检查，包括精确匹配的独立修改说明；故事交付在采用已验收正文前还核对Host生成的真实检查日志记录。普通文档和没有视频或精修标记的项目保留原有转换与交付行为。
 
