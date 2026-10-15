@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/editing-identity-only/guide.md
 /:
-  en: 899e0b10f58fc1cd
-  zh: 205d9ac52fa16869
-/editing-identity-only-prompt:
-  en: 24ad77757360f666
-  zh: 21d6e6fb5779c9f9
-/editing-identity-only-prompt/change:
-  en: 12f599c3595584e5
-  zh: f617e15317e684cb
-/editing-identity-only-prompt/migration:
-  en: 0dcf3a15e1b1ad25
-  zh: 832539113f71fd4b
+  en: 3cc000b0bf6cf136
+  zh: 70506d9df3db050a
+/editing-tools-and-guidance:
+  en: d04f43d64bd49998
+  zh: 44e3a58c529abc31
+/editing-tools-and-guidance/change:
+  en: 03140e2e080637a5
+  zh: 72feadd5d0b99b70
+/editing-tools-and-guidance/migration:
+  en: 31d98f6f6a08e517
+  zh: d06e758f61a5002c

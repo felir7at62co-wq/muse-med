@@ -71,3 +71,13 @@ it('makes the shared screenplay format available from both adaptation routes', a
     await ctx.fiber.dispose()
   }
 })
+
+
+it('limits managed acceptance instructions to modes that provide the project tool', async () => {
+  for (const name of ['editing', 'transcript-to-script', 'screenplay-format', 'novel-to-script', 'trope-adaptation']) {
+    const body = await readFile(new URL(`../skills/${name}/SKILL.md`, import.meta.url), 'utf8')
+    expect(body, name).toContain('编辑模式由当前 Agent 自主核对来源、修改和交付')
+    expect(body, name).toContain('当前工具目录提供 `screenplay_project` 且任务采用受管项目时，才加载')
+    expect(body, name).toContain('工具不可用时直接整理普通稿件，不调用受管命令')
+  }
+})

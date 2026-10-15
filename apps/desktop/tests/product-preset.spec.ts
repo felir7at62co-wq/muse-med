@@ -107,7 +107,7 @@ it('offers only short drama and editing while keeping registered legacy composit
     }
     expect(editingPrompt).toBe(editingModelInput.personaPrefix)
     expect(editingRows.find(row => row.id === 'persona')?.config).toMatchObject({
-      complete: true, includeRuntimeContext: false,
+      complete: false, includeRuntimeContext: true,
     })
     for (const id of ['agent-instructions', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)

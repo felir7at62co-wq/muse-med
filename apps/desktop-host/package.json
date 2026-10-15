@@ -16,7 +16,8 @@
     "lib/cli.js",
     "lib/creation-policy.js",
     "lib/creation-skills.js",
-    "lib/short-drama-guidance.js"
+    "lib/short-drama-guidance.js",
+    "lib/editing-policy.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -77,7 +78,8 @@
     "./package.json": "./package.json",
     "./creation-policy": "./lib/creation-policy.js",
     "./creation-skills": "./lib/creation-skills.js",
-    "./short-drama-guidance": "./lib/short-drama-guidance.js"
+    "./short-drama-guidance": "./lib/short-drama-guidance.js",
+    "./editing-policy": "./lib/editing-policy.js"
   },
   "dsh": {
     "bundle": {

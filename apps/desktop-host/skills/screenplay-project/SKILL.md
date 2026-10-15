@@ -1,9 +1,11 @@
 ---
 name: screenplay-project
-description: 小说转剧本、视频转剧本、剧本换梗及长篇续写时，管理来源事实、人物知情和按项目策略的逐集验收。
+description: 仅当前工具目录提供 screenplay_project 且任务采用受管项目时，管理来源事实、人物知情和按项目策略的逐集验收。
 ---
 
 # 剧本项目与逐集验收
+
+本技能仅适用于当前工具目录提供 `screenplay_project` 的受管项目。编辑模式不提供该工具，由当前 Agent 自主检查普通稿件；不为应用本技能而尝试调用隐藏工具、另起模型或修改已有项目审批。
 
 先读已有项目 `status`，按工具声明的策略与 self-check/independent 恢复；历史独立审校和其他 preset 的严格策略不因共通写作指南改变。分场正文起草、续写、修改或审校前，按当前工具形态加载 `screenplay-format`：native 工具直接调用 `skill` 并保留完整返回值；PTC 用 `return await tools.skill({name: "screenplay-format"})` 返回完整 `content`、`provider`、`resourceBase`。下一模型轮读到正文后，按该技能实际返回的 `resourceBase` 读取所导航的共享写作品质与时间线规范，不从本技能目录拼接跨包路径。
 

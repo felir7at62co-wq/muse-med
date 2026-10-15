@@ -5,6 +5,9 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as Persona from '@deepseek-ai/dsh-persona'
+import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import WebServer from '@deepseek-ai/dsh-host-webserver'
+import * as EditingPolicy from '../src/editing-policy.ts'
 
 interface PresetRow {
   readonly id: string
@@ -21,22 +24,27 @@ function rows(id: string): readonly PresetRow[] {
   }) as PresetRow[]
 }
 
-it('gives editing every standard capability while keeping its own persona', () => {
+it('keeps standard editing capabilities without delegation or managed acceptance', () => {
   const standard = rows('standard')
   const editing = rows('editing')
-  for (const row of standard.filter(row => row.id !== 'persona' && row.id !== 'compaction')) {
+  for (const row of standard.filter(row => !['persona', 'compaction', 'delegation'].includes(row.id))) {
     expect(editing.find(candidate => candidate.id === row.id), row.id).toEqual(row)
   }
-  expect(editing.some(row => row.id === 'editing-tools')).toBe(false)
+  expect(editing.some(row => row.id === 'delegation')).toBe(false)
+  expect(editing.some(row => row.id === 'screenplay-project')).toBe(false)
+  expect(editing.find(row => row.id === 'editing-policy')?.name).toBe('@deepseek-ai/dsh-desktop-host/editing-policy')
   expect(editing.find(row => row.id === 'persona')?.config).not.toEqual(standard.find(row => row.id === 'persona')?.config)
 })
 
-it('renders only the editing identity and selected model despite other prompt contributions', async () => {
+it('keeps general guidance and runtime facts while filtering delegation and managed tools', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt, { personaPrefix: 'Global instructions.' })
+    await ctx.plugin(Tools)
+    await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
     let model = 'deepseek-flash'
     ctx.systemPrompt.variable('model', () => model)
+    ctx.systemPrompt.variable('cwd', () => '/editing-workspace')
     ctx.systemPrompt.section({ name: 'tool:guidance', order: 100, text: 'Load skills first.' })
     ctx.systemPrompt.context({ name: 'runtime:guidance', order: 1, text: 'Runtime instructions.' })
     const key = { preset: 'editing' }
@@ -47,13 +55,41 @@ it('renders only the editing identity and selected model despite other prompt co
       assembly.sections.push({ name: 'late:guidance', text: 'Late instructions.' })
       return next()
     })
+    ctx.tools.register(defineContentToolFixture({ name: 'read', description: 'Read a file', parameters: {}, execute: async () => [] }))
+    for (const name of EditingPolicy.EDITING_UNAVAILABLE_TOOL_NAMES) {
+      ctx.tools.register(defineContentToolFixture({ name, description: name, parameters: {}, execute: async () => [] }))
+      ctx.systemPrompt.section({ name: `tool:${name}`, order: 100, text: `Unsupported ${name}` })
+    }
+    ctx.systemPrompt.section({ name: 'team:policy', order: 100, text: 'Team rules.' })
+    ctx.systemPrompt.context({ name: 'subagent:policy', order: 100, text: 'Subagent rules.' })
+    const policy = await scope.ctx.plugin(EditingPolicy)
+    await scope.ctx.plugin(Object.assign((inner: Context) => {
+      inner.tools.register(defineContentToolFixture({ name: 'subagent', description: 'Late local tool', parameters: {}, execute: async () => [] }))
+    }, { inject: ['tools'] }))
     const first = await ctx.systemPrompt.assemble({ scope: key })
-    expect(renderPrompt(first)).toBe('你是muse-med编辑智能体，由deepseek-flash驱动')
-    expect(first.contexts).toEqual([])
+    const prompt = renderPrompt(first)
+    expect(prompt).toContain('你是muse-med编辑智能体，由deepseek-flash驱动')
+    expect(prompt).toContain('Load skills first.')
+    expect(prompt).toContain('Late instructions.')
+    expect(prompt).toContain('FS_STALE_VERSION')
+    expect(prompt).toContain(`http://127.0.0.1:${ctx.webServer.port}`)
+    expect(prompt).toContain('你没有隐式读取到 DOM、路由或截图')
+    expect(prompt).toContain('不启动替代服务器')
+    expect(prompt).toContain('当前工作目录是 /editing-workspace。')
+    expect(prompt).not.toContain('Unsupported')
+    expect(prompt).not.toContain('Team rules.')
+    expect(first.contexts.map(context => context.text)).toEqual(['Runtime instructions.'])
+    expect(first.tools.map(tool => tool.name)).toEqual(['read'])
+    for (const name of EditingPolicy.EDITING_UNAVAILABLE_TOOL_NAMES) expect(ctx.tools.get(name, key)).toBeUndefined()
+    expect(ctx.tools.get('subagent')).toBeDefined()
     model = 'glm-5.3-flashx'
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })))
-      .toBe('你是muse-med编辑智能体，由glm-5.3-flashx驱动')
+      .toContain('你是muse-med编辑智能体，由glm-5.3-flashx驱动')
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Global instructions.')
+    expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('用户正在使用 Muse 桌面 GUI')
+    await policy.dispose()
+    expect(ctx.tools.get('subagent', key)?.description).toBe('Late local tool')
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Unsupported screenplay_project')
   } finally {
     await ctx.fiber.dispose()
   }

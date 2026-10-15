@@ -2,8 +2,11 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     prefix: 你是muse-med编辑智能体，由{{model}}驱动
-    complete: true
-    includeRuntimeContext: false
+    suffix: 当前工作目录是 {{cwd}}。
+    complete: false
+    includeRuntimeContext: true
+- id: editing-policy
+  name: '@deepseek-ai/dsh-desktop-host/editing-policy'
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
@@ -148,81 +151,6 @@
         headChars: 8000
         tailChars: 2000
 
-# ── delegation and workflows ────────────────────────────────────────────────
-
-# Delegation uses Host backends; workflow state is isolated per preset.
-- id: delegation
-  name: cordis:group
-  group: true
-  isolate:
-    workflowEngine: true
-  config:
-    - id: tool-subagent-control
-      name: '@deepseek-ai/dsh-tool-subagent-control'
-
-    - id: tool-subagent-list-agents
-      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
-
-    - id: tool-subagent
-      name: '@deepseek-ai/dsh-tool-subagent'
-      config:
-        provider: spawn
-        toolName: subagent
-        modelSelectionSettings: true
-        backgroundMode: continuable
-        toolFilter:
-          deny:
-            - schedule_create
-            - schedule_delete
-            - schedule_list
-            - schedule_update
-
-    - id: tool-subagent-fork
-      name: '@deepseek-ai/dsh-tool-subagent'
-      config:
-        provider: fork
-        toolName: subagent_fork
-        backgroundMode: continuable
-        toolFilter:
-          deny:
-            - schedule_create
-            - schedule_delete
-            - schedule_list
-            - schedule_update
-
-    - id: tool-subagent-codex
-      name: '@deepseek-ai/dsh-tool-subagent'
-      disabled: true
-      config:
-        provider: codex
-        toolName: subagent_codex
-        backgroundMode: one-shot
-        maxDepth: provider-managed
-
-    - id: tool-subagent-claude-code
-      name: '@deepseek-ai/dsh-tool-subagent'
-      disabled: true
-      config:
-        provider: claude-code
-        toolName: subagent_claude_code
-        backgroundMode: one-shot
-        maxDepth: provider-managed
-
-    - id: workflow-ptc
-      name: '@deepseek-ai/dsh-workflow-ptc'
-      config:
-        provider: spawn
-
-    - id: tool-workflow
-      name: '@deepseek-ai/dsh-tool-workflow'
-
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
-      disabled: true
-      config:
-        subagentProvider: spawn
-        maxRounds: 64
-
 # ── remaining model-facing rows ─────────────────────────────────────────────
 
 - id: tool-ask-user
@@ -241,9 +169,6 @@
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
-
-- id: screenplay-project
-  name: '@deepseek-ai/dsh-screenplay-project'
 
 - id: tool-audio-transcribe
   name: '@deepseek-ai/dsh-tool-audio-transcribe'

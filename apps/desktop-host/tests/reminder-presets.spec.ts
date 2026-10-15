@@ -55,7 +55,7 @@ it('registers reminders only in the complete Muse preset scopes and disposes the
 })
 
 it('filters the four reminder tools from each complete preset spawn and fork delegation', () => {
-  for (const preset of presets.filter(preset => preset !== 'minimal' && preset !== 'creation')) {
+  for (const preset of presets.filter(preset => !['minimal', 'creation', 'editing'].includes(preset))) {
     const delegation = rows(preset).find(row => row.id === 'delegation')
     if (delegation === undefined || !Array.isArray(delegation.config)) throw new Error(`Missing ${preset} delegation`)
     const children = delegation.config as readonly PresetRow[]
@@ -69,8 +69,8 @@ it('filters the four reminder tools from each complete preset spawn and fork del
   }
 })
 
-it('keeps the single-agent creation preset without delegation', () => {
-  expect(rows('creation').find(row => row.id === 'delegation')).toBeUndefined()
+it.each(['creation', 'editing'])('keeps the single-agent %s preset without delegation', (preset) => {
+  expect(rows(preset).find(row => row.id === 'delegation')).toBeUndefined()
 })
 
 it('keeps reminders absent when the optional Host schedule service is disabled', async () => {

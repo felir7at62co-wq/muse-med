@@ -59,6 +59,10 @@ export async function apply(ctx, config) {
       await mkdir(productPresetDirectory)
       const sourceDirectory = new URL(`../../../apps/desktop-host/presets/${presetId}/`, import.meta.url)
       let source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
+      if (presetId === 'editing') {
+        source = source.replace("'@deepseek-ai/dsh-desktop-host/editing-policy'",
+          JSON.stringify(new URL('./editing-policy.mjs', import.meta.url).href))
+      }
       if (presetId === 'creation') {
         for (const entry of ['creation-policy', 'creation-skills']) {
           source = source.replace(`'@deepseek-ai/dsh-desktop-host/${entry}'`,

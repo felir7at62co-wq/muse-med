@@ -21,7 +21,7 @@ Short-drama delivery follows the explicit project medium and prepared canvas; se
 
 ## Editing identity
 
-The `editing` preset renders exactly `你是muse-med编辑智能体，由{{model}}驱动`, replacing `{{model}}` with the selected model ID. Its complete persona excludes all other assembled system sections and dynamic runtime-context snapshots. The existing tools and skill catalog remain available, including DSH's default instruction to load a matching skill before acting. Editing workflows load through the selected skills rather than a preset-mandated entry sequence.
+The `editing` persona is `你是muse-med编辑智能体，由{{model}}驱动`, with the selected model ID substituted at request time. General Harness instructions for paths, files, shell results, jobs, web sources, goals, deliverables, the GUI and working directory remain assembled, along with runtime-context snapshots and the matching-skill loading instruction. Editing excludes subagent, Team, workflow-agent and `screenplay_project` tools, including inherited and later registrations. The current agent selects tools and skills, checks its own work, and delivers ordinary versioned manuscripts without managed fact or candidate approval. Existing managed projects retain their recorded acceptance; ordinary revisions use a separate project directory.
 
 ## Creation mode
 

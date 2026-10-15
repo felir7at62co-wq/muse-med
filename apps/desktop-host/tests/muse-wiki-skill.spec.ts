@@ -26,7 +26,7 @@ it('discovers Muse Wiki guidance for logged-in navigation, cited synthesis, and 
     const editing = renderSkillContent((await ctx.skills.get('muse-script-editing'))!)
     expect(editing).toContain('muse-llm-wiki')
     const preset = await readFile(new URL('../presets/editing/agent.cordis.yml', import.meta.url), 'utf8')
-    expect(preset).toContain('muse-llm-wiki')
+    expect(preset).not.toContain('muse-llm-wiki')
   } finally {
     await ctx.fiber.dispose()
   }
@@ -53,6 +53,8 @@ it('discovers proactive participation guidance across presets with private recor
       if (name === 'creation') {
         expect(preset).toContain('@deepseek-ai/dsh-desktop-host/creation-skills')
         expect(CREATION_SKILL_NAMES).toContain('muse-project-participation')
+      } else if (name === 'editing') {
+        expect(preset).not.toContain('muse-project-participation')
       } else {
         expect(preset).toContain('muse-project-participation')
       }
