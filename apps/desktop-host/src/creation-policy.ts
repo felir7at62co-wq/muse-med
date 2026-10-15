@@ -30,6 +30,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'exit_plan_mode',
   'fanqie_download',
   'fanqie_download_info',
+  'fanqie_search',
   'ffmpeg_adjust',
   'ffmpeg_concat',
   'ffmpeg_cut',

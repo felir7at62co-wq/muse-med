@@ -105,6 +105,51 @@ test('disposal waits for the owned engine and removes its partial book', async t
 test('registers model tools without loading Python or contacting the platform', async () => {
   const definitions = [], disposers = [];
   apply({ subprocess: {}, agents: {}, tools: { register(value) { definitions.push(value); return () => {}; } }, effect(callback) { disposers.push(callback()); } });
-  assert.deepEqual(definitions.map(value => value.name), ['fanqie_download_info', 'fanqie_download']);
+  assert.deepEqual(definitions.map(value => value.name), ['fanqie_search', 'fanqie_download_info', 'fanqie_download']);
   for (const dispose of disposers.reverse()) await dispose();
+});
+
+test('search returns distinguishable candidates and an opaque next-page cursor without creating files', async t => {
+  const root = await workspace(t), requests = [];
+  const client = new FanqieClient({ pythonExecutable: 'python' }, engine(async spec => {
+    const request = JSON.parse(spec.stdio.stdin.data);
+    requests.push(request);
+    assert.equal(request.operation, 'search');
+    assert.equal(request.staging, undefined);
+    return { ok: true, complete: false, query: request.query, hasMore: requests.length === 1,
+      nextPassback: requests.length === 1 ? 'opaque:next' : null,
+      items: ids.map((bookId, index) => ({ bookId, title: '同名测试', author: `作者${index}`,
+        originalTitle: null, chapterCount: 1, url: `https://fanqienovel.com/page/${bookId}` })) };
+  }));
+  t.after(() => client.dispose());
+  const first = await client.call('search', { query: ' 同名测试 ' }, root);
+  assert.equal(first.ok, true);
+  assert.equal(first.complete, false);
+  assert.notEqual(first.items[0].author, first.items[1].author);
+  const second = await client.call('search', { query: first.query, passback: first.nextPassback }, root);
+  assert.equal(second.hasMore, false);
+  assert.deepEqual(requests.map(request => request.passback), ['0', 'opaque:next']);
+  assert.deepEqual(await readdir(root), []);
+});
+
+test('search rejects invalid inputs before spawn and malformed engine results before reporting success', async t => {
+  const root = await workspace(t);
+  const invalid = new FanqieClient({ pythonExecutable: 'python' }, engine(() => { throw new Error('Must not start'); }));
+  t.after(() => invalid.dispose());
+  for (const args of [{ query: '' }, { query: ' ' }, { query: 3 }, { query: '书', outputDir: 'novels' }, { query: '书', passback: 10 }]) {
+    assert.equal((await invalid.call('search', args, root)).code, 'invalid_arguments');
+  }
+  for (const change of [r => { r.complete = true; }, r => { r.query = 'wrong'; }, r => { r.nextPassback = null; },
+    r => { r.items[0].bookId = Number(ids[0]); }, r => { r.items[0].url = 'https://evil.test'; }]) {
+    const client = new FanqieClient({ pythonExecutable: 'python' }, engine(async () => {
+      const result = { ok: true, complete: false, query: '书', hasMore: true, nextPassback: '10',
+        items: [{ bookId: ids[0], title: '书', author: '作者', originalTitle: null, chapterCount: 1,
+          url: `https://fanqienovel.com/page/${ids[0]}` }] };
+      change(result);
+      return result;
+    }));
+    assert.equal((await client.call('search', { query: '书' }, root)).ok, false);
+    await client.dispose();
+  }
+  assert.deepEqual(await readdir(root), []);
 });

@@ -267,6 +267,13 @@ interface ToolArgsMap {
     /** 一部或多部书籍ID或官方书籍页链接；默认最多10本 */
     bookIds: string[];
   };
+  /** 通过书名或关键词搜索番茄官方书籍，返回候选书名、原名、作者、bookId、官方链接和章节数。只有书名时先用此工具，再将符合用户书名及作者的 bookId 传给 fanqie_download；同名或身份不明确时请用户选书，不默认下载排名第一本。hasMore 为真时原样传回 nextPassback 继续同一 query。搜索和章节数不代表正文可下载或已完整下载。 */
+  fanqie_search: {
+    /** 书名或搜索关键词 */
+    query: string;
+    /** 同一搜索上一页返回的 nextPassback；首次搜索省略 */
+    passback?: string;
+  };
   /** Read the current session goal, including the id and revision that update_goal requires. */
   get_goal: Record<string, JsonValue>;
   /** Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved. */
@@ -2095,6 +2102,10 @@ interface ToolOutputMap {
     complete: boolean;
   } & Record<string, JsonValue>;
   fanqie_download_info: {
+    ok: boolean;
+    complete: boolean;
+  } & Record<string, JsonValue>;
+  fanqie_search: {
     ok: boolean;
     complete: boolean;
   } & Record<string, JsonValue>;

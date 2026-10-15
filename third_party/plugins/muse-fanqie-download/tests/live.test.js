@@ -7,6 +7,41 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FanqieClient } from '../src/client.js';
 
+test('finds real books by title and resolves a search candidate through the complete catalog', {
+  skip: !process.env.MUSE_FANQIE_LIVE_QUERY,
+  timeout: 30 * 60_000,
+}, async () => {
+  const { Context } = await import('../../../../vendor/cordis/lib/index.js');
+  const { default: SubprocessLocal } = await import('../../../../packages/subprocess/subprocess-local/lib/index.js');
+  const ctx = new Context(), workspace = await mkdtemp(join(tmpdir(), 'muse-fanqie-search-live-'));
+  let client;
+  try {
+    await ctx.plugin(SubprocessLocal);
+    client = new FanqieClient({ pythonExecutable: process.env.MUSE_FANQIE_PYTHON_PATH ?? '' }, ctx.subprocess);
+    const query = process.env.MUSE_FANQIE_LIVE_QUERY;
+    const result = await client.call('search', { query }, workspace);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.complete, false);
+    const selected = result.items.find(book => book.title === query);
+    assert.ok(selected, 'The explicitly selected title must appear in official results');
+    const info = await client.call('info', { bookIds: [selected.bookId] }, workspace);
+    assert.equal(info.ok, true, JSON.stringify(info));
+    assert.equal(info.items[0].bookId, selected.bookId);
+    assert.equal(info.items[0].chapterCount, info.items[0].chapters.length);
+    if (result.hasMore) {
+      const next = await client.call('search', { query, passback: result.nextPassback }, workspace);
+      assert.equal(next.ok, true, JSON.stringify(next));
+      assert.equal(next.complete, false);
+      assert.notDeepEqual(next.items.map(book => book.bookId), result.items.map(book => book.bookId),
+        'The next-page cursor must advance the official search results');
+    }
+  } finally {
+    await client?.dispose();
+    await ctx.fiber.dispose();
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('downloads every published chapter of the explicitly selected real books', {
   skip: !process.env.MUSE_FANQIE_LIVE_BOOK_IDS,
   timeout: 30 * 60_000,

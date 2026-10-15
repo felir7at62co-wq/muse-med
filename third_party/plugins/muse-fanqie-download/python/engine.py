@@ -122,6 +122,45 @@ def validate_catalog(book_id, result):
     return book, [{**item, 'item_id': ids[index], 'order': index + 1} for index, item in enumerate(items)]
 
 
+def search_page(query, result):
+    """Project the official books tab without ads, private device fields or search ranking claims."""
+    tabs = result.get('search_tabs')
+    if not isinstance(tabs, list):
+        raise EngineError('invalid_search_result')
+    tab = next((tab for tab in tabs if isinstance(tab, dict) and tab.get('tab_type') == 3), None)
+    if tab is None or not isinstance(tab.get('data'), list) or tab.get('has_more') not in (True, False, 0, 1):
+        raise EngineError('invalid_search_result')
+    more = bool(tab['has_more'])
+    cursor = tab.get('passback') if more else None
+    if more and (not isinstance(cursor, str) or not cursor):
+        raise EngineError('invalid_search_result')
+    items, seen = [], set()
+    for group in tab['data']:
+        books = group.get('book_data', []) if isinstance(group, dict) else None
+        if not isinstance(books, list):
+            raise EngineError('invalid_search_result')
+        for book in books:
+            book_id = book.get('book_id') if isinstance(book, dict) else None
+            if not isinstance(book_id, str) or not re.fullmatch(r'\d{10,24}', book_id):
+                raise EngineError('invalid_search_result')
+            if book_id in seen:
+                continue
+            seen.add(book_id)
+            def text(field):
+                value = book.get(field) or ''
+                if not isinstance(value, str):
+                    raise EngineError('invalid_search_result')
+                return html.unescape(re.sub(r'</?em>', '', value)).strip()
+            title = text('book_name')
+            count = str(book.get('serial_count') or '0')
+            if not title or not re.fullmatch(r'\d+', count):
+                raise EngineError('invalid_search_result')
+            items.append({'bookId': book_id, 'title': title, 'originalTitle': text('original_book_name') or None,
+                          'author': text('author'), 'chapterCount': int(count),
+                          'url': 'https://fanqienovel.com/page/' + book_id})
+    return {'ok': True, 'complete': False, 'query': query, 'hasMore': more, 'nextPassback': cursor, 'items': items}
+
+
 class Client:
     """Normal anonymous registration and read endpoints only; no privilege or account writes."""
     def __init__(self, settings):
@@ -191,6 +230,10 @@ class Client:
     def directory(self, book_id):
         return validate_catalog(book_id, self.api('/reading/bookapi/directory/all_items/v/', {'book_id': book_id}))
 
+    def search(self, query, passback):
+        return search_page(query, self.api('/reading/bookapi/search/tab/v/',
+                           {'query': query, 'tab_type': '3', 'passback': passback}))
+
     def download(self, book_id, staging):
         book, chapters = self.directory(book_id)
         if str(book.get('vip_book', '0')) != '0' or str(book.get('sale_status', '0')) != '0':
@@ -225,6 +268,8 @@ class Client:
 
 def run(request):
     client = Client(request['settings'])
+    if request['operation'] == 'search':
+        return client.search(request['query'], request['passback'])
     if request['operation'] == 'info':
         items = []
         for book_id in request['bookIds']:

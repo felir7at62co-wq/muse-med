@@ -5,10 +5,47 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python'))
-from engine import AES, EngineError, decode_chapter, pad, validate_catalog
+from engine import AES, Client, EngineError, decode_chapter, pad, search_page, validate_catalog
 
 
 class EngineTests(unittest.TestCase):
+    def test_search_keeps_all_books_in_groups_and_removes_highlights_and_duplicates(self):
+        first = {'book_id': '20000000000', 'book_name': '<em>测试</em>书', 'author': '作者&amp;合著',
+                 'original_book_name': '原名', 'serial_count': '3'}
+        second = {**first, 'book_id': '30000000000', 'author': '同名作者'}
+        response = {'search_tabs': [{'tab_type': 11, 'data': [{'video': 'not a book'}]},
+                    {'tab_type': 3, 'has_more': True, 'passback': 'opaque:next',
+                     'data': [{'book_data': [first, second]}, {'book_data': [first]}]}]}
+        result = search_page('测试书', response)
+        self.assertEqual(result['nextPassback'], 'opaque:next')
+        self.assertFalse(result['complete'])
+        self.assertEqual([(b['bookId'], b['title'], b['author']) for b in result['items']],
+                         [('20000000000', '测试书', '作者&合著'), ('30000000000', '测试书', '同名作者')])
+        self.assertEqual(result['items'][0]['chapterCount'], 3)
+        self.assertEqual(result['items'][0]['url'], 'https://fanqienovel.com/page/20000000000')
+        empty = search_page('无此书', {'search_tabs': [{'tab_type': 3, 'has_more': False, 'data': []}]})
+        self.assertEqual(empty['items'], [])
+        self.assertIsNone(empty['nextPassback'])
+
+    def test_search_rejects_missing_tab_invalid_identity_and_missing_pagination(self):
+        for result in ({}, {'search_tabs': []},
+                       {'search_tabs': [{'tab_type': 3, 'has_more': True, 'data': []}]},
+                       {'search_tabs': [{'tab_type': 3, 'has_more': False,
+                         'data': [{'book_data': [{'book_id': 20000000000, 'book_name': '不可丢失精度'}]}]}]}):
+            with self.subTest(result=result), self.assertRaisesRegex(EngineError, '^invalid_search_result$'):
+                search_page('测试', result)
+
+    def test_search_passes_the_opaque_cursor_to_the_official_read_endpoint(self):
+        client = object.__new__(Client)
+        calls = []
+        def api(path, params):
+            calls.append((path, params))
+            return {'search_tabs': [{'tab_type': 3, 'has_more': False, 'data': []}]}
+        client.api = api
+        client.search('书名 & 作者', 'opaque:next')
+        self.assertEqual(calls, [('/reading/bookapi/search/tab/v/',
+                         {'query': '书名 & 作者', 'tab_type': '3', 'passback': 'opaque:next'})])
+
     def chapter(self, html='<article><h1>Fixture</h1><p>这是独立构造的章节测试内容。</p></article>'):
         iv, key = bytes(16), bytes(range(16))
         encrypted = AES.new(key, AES.MODE_CBC, iv).encrypt(pad(gzip.compress(html.encode()), 16))

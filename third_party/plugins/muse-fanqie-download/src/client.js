@@ -68,10 +68,19 @@ export class FanqieClient {
     const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.config.callTimeoutMs), ...(callSignal ? [callSignal] : [])]);
     try {
       signal.throwIfAborted();
-      if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(key => !['bookIds', ...(operation === 'download' ? ['outputDir'] : [])].includes(key))) throw new TypeError('Invalid Fanqie arguments');
-      if (!Array.isArray(args.bookIds) || !args.bookIds.length || args.bookIds.length > this.config.maxBooks) throw new TypeError('Invalid number of books');
-      const ids = args.bookIds.map(bookId);
-      if (new Set(ids).size !== ids.length) throw new TypeError('Duplicate books');
+      const allowed = operation === 'search' ? ['query', 'passback'] : ['bookIds', ...(operation === 'download' ? ['outputDir'] : [])];
+      if (!['search', 'info', 'download'].includes(operation) || !args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(key => !allowed.includes(key))) throw new TypeError('Invalid Fanqie arguments');
+      let request;
+      if (operation === 'search') {
+        if (typeof args.query !== 'string' || !args.query.trim() || args.query.includes('\0') || (args.passback !== undefined && (typeof args.passback !== 'string' || !args.passback || args.passback.includes('\0')))) throw new TypeError('Invalid Fanqie search');
+        request = { query: args.query.trim(), passback: args.passback ?? '0' };
+      } else {
+        if (!Array.isArray(args.bookIds) || !args.bookIds.length || args.bookIds.length > this.config.maxBooks) throw new TypeError('Invalid number of books');
+        const bookIds = args.bookIds.map(bookId);
+        if (new Set(bookIds).size !== bookIds.length) throw new TypeError('Duplicate books');
+        request = { bookIds };
+      }
+      const ids = request.bookIds;
       if (args.outputDir !== undefined && (typeof args.outputDir !== 'string' || !args.outputDir.trim() || args.outputDir.includes('\0'))) throw new TypeError('Invalid output directory');
       if (!this.config.pythonExecutable) return { ok: false, complete: false, code: 'missing_runtime', message: '需要 Muse 内置的 Python/PyCryptodome 运行时，或配置 pythonExecutable' };
       const python = await this.subprocess.resolveExecutable(this.config.pythonExecutable, undefined, signal);
@@ -79,7 +88,7 @@ export class FanqieClient {
       if (output) staging = await mkdtemp(join(output, '.fanqie-'));
       const { pythonExecutable: _python, ...settings } = this.config;
       handle = this.subprocess.spawn({ argv: [python, '-I', '-B', script], cwd: workspace,
-        stdio: { stdin: { data: JSON.stringify({ operation, bookIds: ids, staging, settings }) },
+        stdio: { stdin: { data: JSON.stringify({ operation, ...request, staging, settings }) },
           stdout: { maxBytes: this.config.maxOutputBytes }, stderr: { maxBytes: 4096 } }, signal, graceMs: this.config.graceMs });
       const outcome = await handle.done;
       await handle.waitForExit();
@@ -88,7 +97,22 @@ export class FanqieClient {
       if (!captured || captured.lossy || captured.truncated || typeof captured.text !== 'string' || Buffer.byteLength(captured.text) > this.config.maxOutputBytes) throw new Error('engine_output');
       const result = JSON.parse(captured.text);
       if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') throw new Error('engine_output');
-      if (outcome.signal || outcome.exitCode !== 0 || !result.ok) return { ok: false, complete: false, code: typeof result.code === 'string' && /^[a-zA-Z_]{1,64}$/u.test(result.code) ? result.code : 'engine_failed', message: '番茄下载失败；未完成文件已清理' };
+      if (outcome.signal || outcome.exitCode !== 0 || !result.ok) return { ok: false, complete: false, code: typeof result.code === 'string' && /^[a-zA-Z_]{1,64}$/u.test(result.code) ? result.code : 'engine_failed', message: '番茄请求失败；未完成文件已清理' };
+      if (operation === 'search') {
+        if (result.complete !== false || result.query !== request.query || typeof result.hasMore !== 'boolean'
+          || (result.hasMore ? typeof result.nextPassback !== 'string' || !result.nextPassback : result.nextPassback !== null)
+          || !Array.isArray(result.items)) throw new Error('engine_output');
+        const seen = new Set();
+        for (const item of result.items) {
+          if (!item || typeof item.bookId !== 'string' || !/^\d{10,24}$/u.test(item.bookId) || seen.has(item.bookId)
+            || typeof item.title !== 'string' || !item.title.trim() || typeof item.author !== 'string'
+            || (item.originalTitle !== null && typeof item.originalTitle !== 'string')
+            || !Number.isSafeInteger(item.chapterCount) || item.chapterCount < 0
+            || item.url !== `https://fanqienovel.com/page/${item.bookId}`) throw new Error('engine_output');
+          seen.add(item.bookId);
+        }
+        return result;
+      }
       if (!Array.isArray(result.items) || result.items.length !== ids.length || result.items.some((item, index) => item.bookId !== ids[index] || !Number.isSafeInteger(item.chapterCount) || item.chapterCount < 1)) throw new Error('engine_output');
       if (operation === 'download') {
         if (!result.complete) throw new Error('incomplete_batch');
@@ -109,7 +133,7 @@ export class FanqieClient {
       return result;
     } catch (error) {
       return { ok: false, complete: false, code: signal.aborted ? 'cancelled' : error instanceof TypeError ? 'invalid_arguments' : 'engine_failed',
-        message: signal.aborted ? '番茄任务已取消，未完成文件已清理' : '番茄任务失败，检查书籍 ID、下载目录或本地运行时；未完成文件已清理' };
+        message: signal.aborted ? '番茄任务已取消，未完成文件已清理' : '番茄任务失败，检查搜索词、书籍 ID、下载目录或本地运行时；未完成文件已清理' };
     } finally {
       if (handle) { handle.terminate(); await Promise.allSettled([handle.done, handle.waitForExit()]); }
       if (staging) await rm(staging, { recursive: true, force: true });
