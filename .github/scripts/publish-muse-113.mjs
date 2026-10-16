@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readdir } from 'node:fs/promises'
+import { readdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { promisify } from 'node:util'
 import { join, resolve } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execFile } from 'node:child_process'
+const execFileAsync=promisify(execFile)
 import { createMuseMirrorPlan } from '../../apps/desktop/scripts/muse-release-mirror.mjs'
 const root=resolve(process.env.MUSE_ARTIFACT_ROOT ?? '.release')
 const version='1.1.3', sourceCommit='3285b48b3e0c632736cb54af32f7427646d42684'
@@ -58,14 +61,32 @@ async function verifyPublic(op){
  assert.equal(hash.digest('hex'),op.sha256)
  assert.equal(size,op.kind==='binary'?op.size:Buffer.byteLength(op.contents))
 }
-for(const op of operations){
+async function uploadMirror(op){
+ const publicUrl='https://muse.tos-cn-beijing.volces.com/'+op.key
+ if(op.kind==='binary'){
+  const existing=await fetch(publicUrl,{method:'HEAD',signal:AbortSignal.timeout(60000)})
+  if(existing.ok){await verifyPublic(op);console.log(JSON.stringify({stage:'mirror-binary-reconciled',key:op.key}));return}
+  assert.equal(existing.status,404)
+ }
  const cap=capabilities.operations.find(c=>c.key===op.key)
- const body=op.kind==='binary'?createReadStream(op.path):op.contents
- const response=await fetch(cap.url,{method:'PUT',headers:cap.headers,body,duplex:'half',signal:AbortSignal.timeout(1800000)})
- assert.ok(response.ok || op.kind==='binary' && response.status===412,'Mirror upload failed: HTTP '+response.status)
- await response.arrayBuffer();await verifyPublic(op)
+ const temporary=await mkdtemp(join(tmpdir(),'muse-113-upload-'))
+ const started=Date.now()
+ const progress=setInterval(()=>console.log(JSON.stringify({stage:'mirror-upload-active',key:op.key,elapsedSeconds:Math.round((Date.now()-started)/1000)})),30000)
+ try{
+  const bodyPath=op.kind==='binary'?op.path:join(temporary,'metadata')
+  if(op.kind!=='binary')await writeFile(bodyPath,op.contents,{mode:0o600})
+  const configPath=join(temporary,'request.conf')
+  const lines=['url = '+JSON.stringify(cap.url),...Object.entries(cap.headers).map(([key,value])=>'header = '+JSON.stringify(key+': '+value))]
+  await writeFile(configPath,lines.join('\n')+'\n',{mode:0o600})
+  const {stdout}=await execFileAsync('curl',['--config',configPath,'--http1.1','--silent','--show-error','--connect-timeout','30','--max-time','1200','--speed-limit','16384','--speed-time','90','--upload-file',bodyPath,'--output',join(temporary,'response'),'--write-out','%{http_code} %{size_upload} %{speed_upload} %{time_total}'],{maxBuffer:1024*1024})
+  const [status,bytes,speed,seconds]=stdout.trim().split(' ')
+  assert.ok(status==='200'||status==='204'||op.kind==='binary'&&status==='412','Mirror upload failed: HTTP '+status)
+  console.log(JSON.stringify({stage:'mirror-upload-complete',key:op.key,status,bytes:Number(bytes),bytesPerSecond:Number(speed),seconds:Number(seconds)}))
+ }finally{clearInterval(progress);await rm(temporary,{recursive:true,force:true})}
+ await verifyPublic(op)
  console.log(JSON.stringify({stage:op.kind==='binary'?'mirror-binary-verified':'mirror-feed-verified',key:op.key}))
 }
+for(const op of operations)await uploadMirror(op)
 execFileSync('gh',['release','edit','v1.1.3-rc.muse-stable','--draft=false','--prerelease','--latest=false','--repo',repo],{stdio:'inherit'})
 execFileSync('gh',['release','edit','v1.1.3','--draft=false','--latest','--repo',repo],{stdio:'inherit'})
 for(const id of releases){const r=api('releases/'+id);assert.equal(r.draft,false);validateAssets(r)}
