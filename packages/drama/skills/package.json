@@ -12,6 +12,7 @@
     "README.md",
     "README.zh.md",
     "README.i18n.yaml",
+    "skills/character-reference-library/SKILL.md",
     "skills/jubian-asset-library/SKILL.md",
     "skills/jubian-asset-library/scripts/batch_tag_all.py",
     "skills/jubian-asset-library/scripts/download_and_tag_project.py",

@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/character-library-tos/README.md
+/:
+  en: d9c1a9ab6a1f1fc9
+  zh: 9b9084c2a8b90737
+/deepseek-ai-dsh-character-library-tos:
+  en: 0e4f85c363d162df
+  zh: bba463c46ead718f
+/deepseek-ai-dsh-character-library-tos/summary:
+  en: d686722ef0f75c31
+  zh: 15e058441d49d05c
+/deepseek-ai-dsh-character-library-tos/table-of-contents:
+  en: 80947c69ee4762a7
+  zh: 43950800e0b43227
+/deepseek-ai-dsh-character-library-tos/use-this-package:
+  en: 1f606fd9f2dad073
+  zh: f6ee76a62e98b36d
+/deepseek-ai-dsh-character-library-tos/read-and-write-safety:
+  en: 91a2528c927c726e
+  zh: b65fe87d62750adb
+/deepseek-ai-dsh-character-library-tos/understand-the-implementation:
+  en: aa4ac1230ed44e20
+  zh: efa089a7d0903acb
+/deepseek-ai-dsh-character-library-tos/further-exploration:
+  en: 080babb0c24592fb
+  zh: 70324a4377aad109
+/deepseek-ai-dsh-character-library-tos/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-character-library-tos/model-experience/tos-backed-library-reads:
+  en: a711cfa2f3f8e15a
+  zh: ebac77d3b4247424
+/deepseek-ai-dsh-character-library-tos/model-experience/tos-backed-library-reads/what-the-model-sees:
+  en: eb90db55745c298e
+  zh: 9bdc555b49b3ac04
+/deepseek-ai-dsh-character-library-tos/model-experience/tos-backed-library-reads/token-effect:
+  en: d3c5798fa31974b4
+  zh: 3b7e0b6e127aeac3
+/deepseek-ai-dsh-character-library-tos/model-experience/tos-backed-library-reads/kv-cache-effect:
+  en: 64f399ba26be5659
+  zh: c4093c52ab7e614d
+/deepseek-ai-dsh-character-library-tos/known-limitations-and-deferred-work:
+  en: a189f7c182f674e1
+  zh: 330344abd76df92c
+/deepseek-ai-dsh-character-library-tos/known-limitations-and-deferred-work/dev-note:
+  en: b4ebe7f1697506da
+  zh: e104d362b3211189

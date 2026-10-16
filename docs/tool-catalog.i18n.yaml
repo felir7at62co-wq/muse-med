@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 8f8682df85694115
-  zh: f71a5b93cf680396
+  en: 2b3e56d4a0263575
+  zh: 59627d3d37e21a53
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -419,6 +419,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-character-reference:
   en: 0baaab921b5c5c52
   zh: 0baaab921b5c5c52
+/tool-schema-catalog/deepseek-ai-dsh-tool-character-reference/drama-character-reference-view:
+  en: df1907777715db65
+  zh: e5f6f7669e681146
 /tool-schema-catalog/deepseek-ai-dsh-tool-character-reference/drama-character-references:
-  en: 2ab92f1f7f9354cb
-  zh: b043561f76034806
+  en: 2124b26d1cf5667a
+  zh: a9a02e2abc6e1858

@@ -1,5 +1,5 @@
 ---
-description: "Recommend at most one verified local character reference from an unpublished draft index for isolated QA, without uploads, bindings, or writes."
+description: "Let an Agent search bounded character references and inspect verified images without exposing storage locations or granting use permission."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `drama_character_references` in an isolated QA profile to compare a bounded role request with an unpublished local character-reference draft. The tool validates the index, its v2 metadata, and image hashes before returning at most one reference with evidence and uncertainties. It returns no recommendation for an unverified era, insufficient evidence, or a tied score. The lookup never uploads assets, binds a production project, writes files, or makes paid requests.
+`drama_character_references` returns up to three metadata-ranked references with measured original-image SHA-256. The Host verifies the Agent Session's `project_config.json` character and claimed role before library access. The model cannot supply storage locations or credentials. `drama_character_reference_view` rereads a candidate by Catalog ID, rejects changed image identity, and returns a durable image block only to an image-capable model route. Search text is not visual inspection.
+
+Every outcome denies publication, reuse, binding, and application. A `pending_review` item may guide selection but remains unavailable for production use.
 
 ## Table of Contents
 
@@ -24,13 +26,11 @@ Use `drama_character_references` in an isolated QA profile to compare a bounded 
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin only in an isolated QA composition and provide an absolute path to the unpublished `character_reference_index.draft.json`. Shipped profiles do not load it.
+Mount this plugin only in a Host composition that already provides `tools`, `settings`, and the read-only `characterLibrary` service. The plugin has no configuration for paths, TOS locations, uploads, writes, or supplier operations.
 
-| Field | Default | Meaning |
-|---|---|---|
-| `referenceIndexPath` | required | Absolute path fixed by the QA profile; it is never accepted as an Agent tool argument or a TOS URL. |
+The Agent supplies the current project `character_id`, a screenplay-derived `role_description`, and a `role_class` claim. The Host obtains the project root only from the current Session `cwd`, reads the validated project bible through `readProjectBible`, and rejects a missing workspace, unconfigured project, unknown character, missing persisted role class, or conflicting claim before calling the library. Lead roles may search by default. Any non-lead role is skipped by the domain service unless `supporting_use_reason` states a bounded, story-specific exception. Optional collection, era, gender, style, trait, and role terms narrow the internal search.
 
-The plugin registers only `drama_character_references`. The caller supplies a script-derived `role_description` and any supported style, tag, or era requirements that are actually known. `pending_review` entries may remain candidates, but a returned reference is never an approval or an asset binding.
+`character_id` identifies the project role. `catalog_asset_id` identifies a library candidate; `image_sha256` identifies its original image bytes. The Agent passes both candidate fields to `drama_character_reference_view` and may inspect, compare, choose, or decline candidates. These identities remain separate from supplier asset IDs.
 
 -----
 
@@ -40,7 +40,7 @@ The plugin registers only `drama_character_references`. The caller supplies a sc
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-[`src/index.ts`](src/index.ts) fixes the index path in deployment configuration and registers the read-only tool. [`src/reference.ts`](src/reference.ts) keeps referenced metadata and images inside the configured draft root, verifies the draft and file hashes, then ranks exact declared evidence. The result reports `read_only=true`, `apply_allowed=false`, `local_writes=0`, `remote_writes=0`, and `paid_requests=0`.
+[`src/index.ts`](src/index.ts) registers bounded search and image inspection, checks the exact model route's image capability before reading image bytes, and persists the verified preview as a session attachment before returning its image block. [`src/project-role.ts`](src/project-role.ts) resolves the Session workspace through the public project-bible reader. [`src/reference.ts`](src/reference.ts) validates the model claim, requires an exact authority match, and projects bounded Catalog fields without storage keys.
 
 </details>
 
@@ -53,27 +53,29 @@ The plugin registers only `drama_character_references`. The caller supplies a sc
 
 #### What the model sees
 
-The model receives a fixed `drama_character_references` tool with `role_description` plus optional `style`, `desired_tags`, and `era`. The result is `recommended`, `no_match`, or `needs_review`; it contains at most one local QA reference, the reason, sourced evidence, uncertainties, and explicit no-write flags. The model must describe the item as a reference rather than an approved or bound production asset.
+The `drama_character_references` result contains up to three Catalog identities, original-image digests, matched evidence, uncertainties, and explicit no-use flags. It contains no image block. `drama_character_reference_view` returns one image block beside its stable Catalog ID, original-image digest, current metadata status, and no-binding flag. The Agent may use the images to choose or abstain, but must not describe a candidate as approved or bound.
 
 #### Token effect
 
-The tool schema is fixed. One appended result is bounded to one recommendation and its evidence or to a short explanation that no reliable recommendation exists.
+The fixed schemas add two bounded tool definitions. Search returns at most three short candidate records; each explicit view adds one image to model context, subject to the deployment attachment and model limits.
 
 #### KV Cache effect
 
-Tool results append without rewriting earlier messages. Changes to the tool description or schema change the reusable request prefix; changing the local draft affects only a later tool result.
+Tool calls and results append to the conversation. Schema changes affect the reusable request prefix; search text and viewed image blocks affect later model requests. The attachment may be normalized for model input; the reported original SHA-256 continues to identify the source bytes.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- This package is available only to an explicitly configured isolated QA profile; no shipped production profile registers it.
-- It reads one fixed local draft. It has no upload path, TOS publication, index writer, formal character-library UI, import operation, or production-project binding.
-- Matching uses declared local labels and exact evidence. It does not call a vision model, perform semantic scoring, or verify the caller's role description against the script.
-- `pending_review` is not approval. Copyright, reuse rights, identity, age, gender, and production suitability still require the responsible human review.
-- Offline tool checks and simulated Agent sessions do not establish real-model acceptance. A real Agent Session remains separately pending.
+- The Host-owned library and its deployment provider must be configured; this package has no fallback to a local draft, arbitrary file, or caller-supplied object-store location.
+- The current Agent Session must have an existing workspace whose project bible contains the requested stable character ID and a persisted role class. This tool does not infer either field or repair project data.
+- Image inspection requires a durable attachment service and an exact model route that declares image input. A text-only route can search but cannot claim to have inspected a picture.
+- It does not upload assets, publish metadata, change review state, bind a project character, call a supplier, or invoke paid generation.
+- `pending_review`, `approved_claim`, and all other metadata states remain descriptive claims. This tool does not establish copyright, reuse rights, project approval, or production suitability.
+- Non-lead policy is owned by the business service rather than catalog metadata. A supporting-role exception permits lookup only; it does not grant use permission.
+- Real Agent acceptance and any later approval-to-binding workflow require separate end-to-end evidence.
 
 <a id="dev-note"></a>
 ### Dev Note
 
-None.
+After editing both README languages, regenerate `README.i18n.yaml` with the repository translation-pairing generator.

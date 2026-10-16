@@ -84,6 +84,8 @@ import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
 import * as ToolDramaAssets from '@deepseek-ai/dsh-tool-drama-assets'
 import * as ToolCharacterReference from '@deepseek-ai/dsh-tool-character-reference'
+
+import type CharacterLibrary from '@deepseek-ai/dsh-character-library'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
@@ -867,21 +869,29 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-character-reference',
     dir: 'tool-character-reference',
     source: 'packages/drama/tool-character-reference/src/index.ts',
-    requires: ['ctx.tools', 'an absolute deployment-configured local character reference draft index path'],
-    writes: ['tool/call', 'tool/result'],
+    requires: ['ctx.tools', 'ctx.settings', 'ctx.characterLibrary (the Host-owned read-only character library)', 'ctx.attachments and ctx.llm for image view'],
+    writes: ['tool/call', 'tool/result with image attachment on view'],
     async mount(ctx) {
-      // Schema harvest only: apply validates that the configured path is absolute,
-      // while the tool reads it only when executed. Point at this real package
-      // directory so catalog generation needs no production path, temporary
-      // directory, or fabricated character-reference asset.
-      await ctx.plugin(ToolCharacterReference, {
-        referenceIndexPath: resolve(root, 'packages/drama/tool-character-reference'),
+      // Schema harvest only: execution is unreachable. Inject the same Host
+      // capability name as production without a local index, asset fixture,
+      // credential, object-store client or network-capable implementation.
+      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-character-reference-'))
+      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
+      await ctx.plugin(Loader)
+      ctx.provide('profileContext', {
+        name: 'catalog', startedBundles: [], dir: home, patchPath: join(home, 'cordis.patch.yml'),
+        installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
       })
+      ctx.provide('characterLibrary', {} as CharacterLibrary)
+      await ctx.plugin(CatalogSettingsForms)
+      await ctx.plugin(CatalogAttachmentStore)
+      await ctx.plugin(LlmRuntime)
+      await ctx.plugin(ToolCharacterReference)
     },
     note:
-      '`drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. '
-      + 'It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. '
-      + 'It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile.',
+      '`drama_character_references` returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. '
+      + '`drama_character_reference_view` rechecks a candidate and saves its verified image as a model-visible attachment only when the model route supports images. '
+      + 'Main roles are eligible by default; supporting roles require a bounded story-specific reason. Neither tool grants approval, reuse, binding or production rights, writes TOS, or requests paid generation.',
   },
 ]
 

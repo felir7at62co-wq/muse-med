@@ -254,6 +254,8 @@ flowchart TD
   subgraph group_drama["packages/drama"]
     pkg_bgm_license_info["bgm-license-info"]
     pkg_character_asset_catalog["character-asset-catalog"]
+    pkg_character_library["character-library"]
+    pkg_character_library_tos["character-library-tos"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
     pkg_screenplay_project["screenplay-project"]
@@ -483,6 +485,8 @@ flowchart TD
   pkg_credentials_local --> pkg_credentials
   pkg_credentials_local --> pkg_home_paths
   pkg_credentials_local --> pkg_launch_environment
+  pkg_character_library_tos --> pkg_character_library
+  pkg_character_library_tos --> pkg_credentials
   pkg_host_directory_picker_auto --> pkg_client_ui_directory_picker_browse
   pkg_host_directory_picker_auto --> pkg_client_ui_directory_picker_native
   pkg_host_directory_picker_auto --> pkg_host_directory_picker_browse
@@ -901,7 +905,9 @@ flowchart TD
   pkg_tool_bgm_compose --> pkg_llm
   pkg_tool_bgm_compose --> pkg_subprocess
   pkg_tool_bgm_compose --> pkg_tools
+  pkg_tool_character_reference --> pkg_attachment
   pkg_tool_character_reference --> pkg_llm
+  pkg_tool_character_reference --> pkg_settings
   pkg_tool_character_reference --> pkg_tools
   pkg_tool_drama_assets --> pkg_credentials
   pkg_tool_drama_assets --> pkg_llm
@@ -1566,6 +1572,7 @@ flowchart TD
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
 | [`bgm-license-info`](../packages/drama/bgm-license-info) | `drama` | — |
 | [`character-asset-catalog`](../packages/drama/character-asset-catalog) | `drama` | — |
+| [`character-library`](../packages/drama/character-library) | `drama` | — |
 | [`drama-skills`](../packages/drama/skills) | `drama` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-inspector-profile`](../packages/experimental/inspector-profile) | `experimental` | — |
@@ -1604,6 +1611,7 @@ flowchart TD
 | [`computer-use`](../packages/computer-use/computer-use) | `computer-use` | [`brand`](../packages/util/brand) |
 | [`authorization`](../packages/credentials/authorization) | `credentials` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm) |
 | [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment) |
+| [`character-library-tos`](../packages/drama/character-library-tos) | `drama` | [`character-library`](../packages/drama/character-library), [`credentials`](../packages/credentials/credentials) |
 | [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`client-ui-directory-picker-browse`](../packages/client/ui-directory-picker-browse), [`client-ui-directory-picker-native`](../packages/client/ui-directory-picker-native), [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver) |
 | [`muse-account`](../packages/host/muse-account) | `host` | [`typert-protocol`](../packages/typert/protocol) |
 | [`anonymous-user-id`](../packages/identity/anonymous-user-id) | `identity` | [`brand`](../packages/util/brand), [`home-paths`](../packages/util/home-paths) |
@@ -1726,7 +1734,7 @@ flowchart TD
 | [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
-| [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
+| [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |

@@ -50,6 +50,8 @@ kind: "package-bundle"
 
 `project_config.json` 是权威数据。`project_bible` 保存风格、明确的视觉类型、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
 
+每个角色可记录项目拥有的 `role_class`，值为 `lead`、`important_support`、`support` 或 `extra`。Host 工作流默认只为主角检索公共人物参考库，其他角色必须提供具体剧情理由；Catalog metadata 不决定角色重要性，也不授予使用权限。
+
 `visual_medium` 接受 `animation_3d` 和 `photorealistic`，与自由文本 `style` 独立。3D 漫的草稿和成片不新增片尾或水印；仿真人保留二者。旧项目缺值时保留缺值并明确提示类型未确认，沿用旧版带标识交付，绝不从风格文本或比例猜测。类型变化写入版本记录，并提示复核资产、镜头、视频、草稿和成片阶段，不删除已完成任务。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 负责明确选择，[渲染器](../tool-episode-render/README.zh.md) 负责时间线快照与交付规则执行。
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
