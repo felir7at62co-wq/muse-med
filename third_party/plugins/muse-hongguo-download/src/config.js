@@ -10,7 +10,9 @@ const ranges = {
   signerStartupTimeoutMs: [100, 600000], signerHeapMb: [256, 4096],
   signerPollIntervalMs: [1, 1000], signerPortAttempts: [1, 16],
   deviceBootstrapTimeoutMs: [100, 300000],
-  mediaRequestIntervalMs: [0, 60000],
+  mediaRequestIntervalMs: [0, 60000], mediaIdleTimeoutMs: [100, 120000],
+  mediaBatchSize: [1, 5], mediaConnections: [1, 4], mediaConnectionLimit: [1, 32],
+  mediaSegmentMinBytes: [65536, 1073741824],
   emptySourceCooldownMs: [1000, 600000],
 };
 const defaults = {
@@ -19,7 +21,8 @@ const defaults = {
   javaExecutable: '', signerStartupTimeoutMs: 120000, signerHeapMb: 1024,
   signerPollIntervalMs: 25, signerPortAttempts: 4,
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
-  mediaRequestIntervalMs: 6000,
+  mediaRequestIntervalMs: 6000, mediaIdleTimeoutMs: 20000,
+  mediaBatchSize: 5, mediaConnections: 4, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
   emptySourceCooldownMs: 120000,
   mediaUserAgent: 'Mozilla/5.0 (Linux; Android 12)',
   catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com', '*.ctydoh.cn'],
@@ -50,6 +53,7 @@ export function resolveConfig(value = {}) {
     } else if (typeof entry !== 'string') throw new TypeError(`${key} 必须是字符串`);
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
+  if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');
   if (!['legacy', 'manifest', 'public'].includes(config.sourceMode)) throw new TypeError('sourceMode 必须是 legacy、manifest 或 public');
   if (!config.mediaUserAgent || config.mediaUserAgent.length > 1024 || /[\r\n\0]/.test(config.mediaUserAgent)) throw new TypeError('mediaUserAgent 必须是非空有效请求头值');
   for (const key of ['legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'javaExecutable']) {

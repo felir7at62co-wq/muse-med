@@ -1,7 +1,7 @@
 /** Source-preserving multi-series downloader with atomic batch publication and cancellation cleanup. */
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveConfig } from './config.js';
@@ -13,6 +13,7 @@ import { ManifestCatalog } from './manifest.js';
 import { validateMp4 } from './media.js';
 import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
 import { LocalSigner } from './signer.js';
+import { transferMedia } from './transfer.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const modes = ['legacy', 'manifest', 'public'];
@@ -188,30 +189,15 @@ export class HongguoDownloadClient {
     const decoded = `${path}.decoded.part`;
     for (let attempt = 0; ; attempt++) {
       const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.downloadTimeoutMs)]);
-      let file, response;
       try {
         active.throwIfAborted();
-        response = await this.request(media.url, 'media', active, { allowedHosts: this.config.mediaHosts, allowedPorts: this.config.mediaPorts,
-          headers: { 'user-agent': this.config.mediaUserAgent, ...media.headers } });
-        if (response.statusCode !== 200) throw new DownloadError('http_error', `媒体返回 HTTP ${response.statusCode}`);
-        const encoding = response.headers['content-encoding'];
-        if (encoding && encoding !== 'identity') throw new DownloadError('encoding', '媒体使用不支持的传输编码');
-        if (/text\/|html|json|mpegurl/i.test(response.headers['content-type'] ?? '')) throw new DownloadError('invalid_media', '服务器返回网页、JSON 或 HLS，下载已拒绝');
-        const lengthText = response.headers['content-length'];
-        const expected = lengthText === undefined ? null : Number(lengthText);
-        if (lengthText !== undefined && (!/^\d+$/.test(lengthText) || !Number.isSafeInteger(expected) || expected <= 0 || expected > this.config.maxEpisodeBytes)) throw new DownloadError('media_size', '媒体长度无效或超过配置的 maxEpisodeBytes');
-        file = await open(part, 'wx', 0o600);
-        const digest = createHash('sha256'); let bytes = 0;
-        for await (const chunk of response) {
-          active.throwIfAborted(); bytes += chunk.length;
-          if (bytes > this.config.maxEpisodeBytes) throw new DownloadError('media_size', '媒体超过配置的 maxEpisodeBytes');
-          await file.writeFile(chunk); digest.update(chunk);
-        }
-        active.throwIfAborted();
-        if (!bytes || (expected !== null && bytes !== expected) || (media.expectedBytes !== null && bytes !== media.expectedBytes)) throw new DownloadError('incomplete_media', '媒体实际长度与来源声明不一致');
-        const sha256 = digest.digest('hex');
+        const { bytes, sha256 } = await transferMedia({ request: this.request, url: media.url, signal: active,
+          headers: { 'user-agent': this.config.mediaUserAgent, ...media.headers },
+          allowedHosts: this.config.mediaHosts, allowedPorts: this.config.mediaPorts,
+          maxBytes: this.config.maxEpisodeBytes, expectedBytes: media.expectedBytes, path: part,
+          connections: Math.min(this.config.mediaConnections, Math.floor(this.config.mediaConnectionLimit / this.config.concurrency)),
+          minSegmentBytes: this.config.mediaSegmentMinBytes, idleTimeoutMs: this.config.mediaIdleTimeoutMs });
         if (media.sha256 && sha256 !== media.sha256) throw new DownloadError('checksum_mismatch', '媒体 SHA256 与授权目录声明不一致');
-        await file.sync(); await file.close(); file = null;
         if (!media.encryption) await validateMp4(part);
         if (!this.processMedia) throw new DownloadError('missing_media_runtime', '缺少受管视频处理运行时；无法验证解密和完整播放');
         const validation = await this.processMedia(media, { inputPath: part, outputPath: decoded, workspace, signal: active });
@@ -236,10 +222,8 @@ export class HongguoDownloadClient {
           format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true };
       } catch (error) {
         if (signal.aborted || attempt >= this.config.retries || !['network', 'incomplete_media', 'http_error', ...(refresh ? ['unsafe_redirect'] : [])].includes(error.code)) throw error;
-        if (error.code === 'http_error' && response?.statusCode < 500 && response?.statusCode !== 429 && !(refresh && response?.statusCode === 403)) throw error;
+        if (error.code === 'http_error' && error.httpStatus < 500 && error.httpStatus !== 429 && !(refresh && error.httpStatus === 403)) throw error;
       } finally {
-        response?.destroy();
-        if (file) await file.close();
         await rm(part, { force: true });
         await rm(decoded, { force: true });
       }
@@ -272,15 +256,24 @@ export class HongguoDownloadClient {
       let published = false, renamed = false;
       const workers = new AbortController();
       const workerSignal = AbortSignal.any([active, workers.signal]);
+      let pendingSource, firstFailure;
+      const fail = error => { firstFailure ??= error; workers.abort(); return { error }; };
       try {
         for (const { catalog, selected } of plans) {
           const folderName = `${slug(catalog.title)}-${slug(catalog.seriesId)}`;
           const folder = join(staging, folderName); await mkdir(folder, { mode: 0o700 });
           const episodes = [];
-          for (let offset = 0; offset < selected.length; offset += 5) {
+          const batchSize = this.config.mediaBatchSize;
+          const prepare = offset => this.mediaOptions(catalog, selected.slice(offset, offset + batchSize), options.mode, workerSignal)
+            .then(urls => ({ urls }), fail);
+          pendingSource = prepare(0);
+          for (let offset = 0; offset < selected.length; offset += batchSize) {
+            const prepared = await pendingSource;
+            if (prepared.error) throw firstFailure;
             workerSignal.throwIfAborted();
-            const batch = selected.slice(offset, offset + 5);
-            const urls = await this.mediaOptions(catalog, batch, options.mode, workerSignal);
+            const batch = selected.slice(offset, offset + batchSize);
+            const urls = prepared.urls;
+            pendingSource = offset + batchSize < selected.length ? prepare(offset + batchSize) : null;
             let next = 0;
             const jobs = Array.from({ length: Math.min(this.config.concurrency, batch.length) }, async () => {
               while (next < batch.length) {
@@ -293,8 +286,7 @@ export class HongguoDownloadClient {
                 episodes.push({ index: episode.index, title: episode.title, path: join(final, folderName, filename), durationSeconds: episode.durationSeconds, ...saved });
               }
             });
-            let firstFailure;
-            const owned = jobs.map(job => job.catch(error => { firstFailure ??= error; workers.abort(); throw error; }));
+            const owned = jobs.map(job => job.catch(error => { fail(error); throw error; }));
             const settled = await Promise.allSettled(owned);
             if (settled.some(result => result.status === 'rejected')) throw firstFailure;
           }
@@ -313,7 +305,11 @@ export class HongguoDownloadClient {
         await rename(staging, final); renamed = true;
         active.throwIfAborted(); published = true;
         return value;
-      } finally { if (!published) await rm(renamed ? final : staging, { recursive: true, force: true }); }
+      } finally {
+        workers.abort();
+        await pendingSource;
+        if (!published) await rm(renamed ? final : staging, { recursive: true, force: true });
+      }
     });
   }
 }

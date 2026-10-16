@@ -47,9 +47,8 @@ async function fixture(t, extra = {}) {
     assert.equal(body.dr_scene, 'preload');
     assert.equal(Object.hasOwn(body, 'video_id'), false);
     const vids = body.mixed_video_id_map['1004']; batches.push(vids);
-    assert.equal(vids.length, 1);
-    const vid = vids[0];
-    return reply({ data: { [vid]: { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) } } });
+    assert.ok(vids.length >= 1 && vids.length <= 5);
+    return reply({ data: Object.fromEntries(vids.map(vid => [vid, { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) }])) });
   };
   const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0, ...extra.config };
   const sign = async (url, payload, token) => { signs.push({ url, payload, token }); return reply({ 'x-signed': 'SIGNED_PRIVATE' }); };
@@ -65,13 +64,13 @@ test('default original source fails explicitly without silently selecting previe
   assert.match(result.message, /config\.json/); await client.dispose();
 });
 
-test('per-episode preload requests accumulate and deduplicate every requested video id', async t => {
+test('batched preload requests accumulate and deduplicate every requested video id', async t => {
   const f = await fixture(t);
   const source = new SourceCatalog(f.client.config, { request: f.request, sign: f.sign });
   const vids = Array.from({ length: 12 }, (_, i) => `vid${i}`);
   const result = await source.videoUrls([...vids, ...vids.slice(0, 3)], emptySignal());
   assert.deepEqual([...result.keys()], vids);
-  assert.deepEqual(f.batches, vids.map(vid => [vid]));
+  assert.deepEqual(f.batches, [vids.slice(0, 5), vids.slice(5, 10), vids.slice(10)]);
 });
 
 test('device requests remove case-insensitive session cookie and token headers before signing', async t => {
@@ -135,7 +134,7 @@ test('selected source quality retains private encryption data and ciphertext len
     ],
     plain: [{ main_url: 'https://v1.qznovelvod.com/plain', video_meta: { size: 300 }, encrypt_info: { encrypt: false, spade_a: 'UNUSED_PRIVATE' } }],
   };
-  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: { [JSON.parse(options.body).mixed_video_id_map['1004'][0]]: { video_model: JSON.stringify({ video_list: tracks[JSON.parse(options.body).mixed_video_id_map['1004'][0]] }) } } }) });
+  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: Object.fromEntries(JSON.parse(options.body).mixed_video_id_map['1004'].map(vid => [vid, { video_model: JSON.stringify({ video_list: tracks[vid] }) }])) }) });
   const result = await source.videoUrls(['encrypted', 'plain'], emptySignal());
   assert.deepEqual(result.get('encrypted'), { url: 'https://v1.qznovelvod.com/encrypted-best', expectedBytes: 200, sha256: null, encryption: { spade: 'SPADE_PRIVATE' } });
   assert.deepEqual(result.get('plain'), { url: 'https://v1.qznovelvod.com/plain', expectedBytes: 300, sha256: null, encryption: null });
@@ -158,7 +157,7 @@ test('two series with seven episodes each publish all files with correct final p
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.complete, true);
   assert.deepEqual(result.items.map(item => item.downloadedEpisodeCount), [7, 7]);
   assert.deepEqual(f.batches.flat(), ['101', '102'].flatMap(id => Array.from({ length: 7 }, (_, i) => `${id}v${i + 1}`)));
-  assert.equal(f.batches.every(batch => batch.length === 1), true);
+  assert.deepEqual(f.batches.map(batch => batch.length), [5, 2, 5, 2]);
   for (const item of result.items) {
     assert.deepEqual(item.episodes.map(episode => episode.index), [1, 2, 3, 4, 5, 6, 7]);
     for (const episode of item.episodes) { assert.equal(episode.sha256, sha256); assert.deepEqual(await readFile(episode.path), mp4); }
@@ -188,10 +187,10 @@ test('CDN legacy transient failures refresh only the failed video before publish
     const result = await f.client.download({ seriesIds: ['101'] });
     assert.equal(result.ok, true, `${failure}: ${JSON.stringify(result)}`);
     assert.equal(result.complete, true);
-    assert.deepEqual(f.batches, [['101v1'], ['101v2'], ['101v3'], ['101v2']]);
+    assert.deepEqual(f.batches, [['101v1', '101v2', '101v3'], ['101v2']]);
     assert.deepEqual([...attempts.values()], [1, 2, 1]);
     assert.deepEqual(f.urls.filter(item => item.kind === 'media' && new URL(item.value).pathname === '/101v2')
-      .map(item => new URL(item.value).searchParams.get('model_version')), ['2', '4']);
+      .map(item => new URL(item.value).searchParams.get('model_version')), ['1', '2']);
     for (const episode of result.items[0].episodes) {
       assert.equal(episode.sha256, sha256);
       assert.deepEqual(await readFile(episode.path), mp4);
@@ -217,7 +216,7 @@ test('CDN legacy refresh exhaustion respects the retry budget and removes earlie
     assert.equal(result.complete, false);
     assert.equal(result.code, failure === '403' ? 'http_error' : failure);
     assert.equal(attempts, 3);
-    assert.deepEqual(f.batches, [['101v1'], ['101v2'], ['101v2'], ['101v2']]);
+    assert.deepEqual(f.batches, [['101v1', '101v2'], ['101v2'], ['101v2']]);
     assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
   }
 });
@@ -670,4 +669,59 @@ test('the observed CTY media redirect keeps HTTPS, hostname and port restriction
     assert.throws(() => checkedUrl('https://media.ctydoh.cn:20002/video.mp4', kind, ['media.ctydoh.cn'], config.mediaPorts),
       error => error.code === 'unsafe_url');
   }
+});
+
+
+test('one bounded source batch is prefetched while current downloads retain their concurrency limit', async t => {
+  const ready = deferred(), release = deferred();
+  t.after(() => release.resolve());
+  let running = 0, maximum = 0, entered = 0;
+  const f = await fixture(t, { count: 12, processMedia: async (_media, { inputPath }) => {
+    running++; maximum = Math.max(maximum, running);
+    assert.equal(f.batches.length >= 2, true, 'next source batch starts before current processing');
+    if (++entered === 3) ready.resolve();
+    await release.promise; running--;
+    return { processedPath: inputPath, durationSeconds: 10, fullDecodeChecked: true };
+  } });
+  const work = f.client.download({ seriesIds: ['101'] });
+  await Promise.race([ready.promise, work.then(result => assert.fail(`download ended before overlap: ${JSON.stringify(result)}`))]);
+  assert.deepEqual(f.batches.map(batch => batch.length), [5, 5]);
+  assert.equal(maximum, 3);
+  release.resolve();
+  const result = await work;
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.complete, true);
+  assert.deepEqual(f.batches.map(batch => batch.length), [5, 5, 2]);
+  assert.equal(maximum, 3);
+});
+
+test('cancellation joins a prefetched lookup before removing its staging directory', async t => {
+  const entered = deferred(), release = deferred(), aborted = deferred();
+  t.after(() => release.resolve());
+  const f = await fixture(t, { count: 7 });
+  const original = f.client.mediaOptions.bind(f.client);
+  let joined = false;
+  f.client.mediaOptions = async (catalog, batch, mode, signal) => {
+    if (batch[0].index !== 6) return original(catalog, batch, mode, signal);
+    entered.resolve();
+    await new Promise(resolve => { if (signal.aborted) resolve(); else signal.addEventListener('abort', resolve, { once: true }); });
+    aborted.resolve(); await release.promise; joined = true; signal.throwIfAborted();
+  };
+  const controller = new AbortController(); let settled = false;
+  const work = f.client.download({ seriesIds: ['101'] }, controller.signal).then(result => { settled = true; return result; });
+  await entered.promise; controller.abort(); await aborted.promise;
+  assert.equal(settled, false);
+  assert.equal((await readdir(join(f.root, 'downloads'))).length, 1);
+  release.resolve();
+  assert.equal((await work).code, 'cancelled'); assert.equal(joined, true);
+  assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+});
+
+test('media scheduling defaults are bounded and explicitly configurable', () => {
+  const config = resolveConfig();
+  assert.equal(config.mediaIdleTimeoutMs, 20000);
+  assert.equal(config.mediaBatchSize, 5); assert.equal(config.mediaConnections, 4);
+  assert.equal(config.mediaConnectionLimit, 12); assert.equal(config.mediaSegmentMinBytes, 2097152);
+  for (const entry of [{ mediaBatchSize: 0 }, { mediaBatchSize: 6 }, { mediaConnections: 5 },
+    { mediaSegmentMinBytes: 65535 }, { mediaIdleTimeoutMs: 99 }, { mediaConnectionLimit: 2, concurrency: 3 }]) assert.throws(() => resolveConfig(entry));
+  assert.equal(resolveConfig({ mediaBatchSize: 1, mediaConnections: 1, concurrency: 8 }).concurrency, 8);
 });

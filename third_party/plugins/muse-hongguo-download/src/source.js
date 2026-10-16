@@ -263,34 +263,37 @@ export class SourceCatalog {
     return { seriesId: id, title: String(video.series_title || id).slice(0, 200), episodeCount: count, source: 'original-hongguo-api', episodes };
   }
 
-  /** Resolve each unique episode through preload and accept only its exact keyed video model. */
+  /** Resolve bounded batches through preload and accept only each requested ID's keyed model. */
   async videoUrls(vids, signal) {
     const out = new Map();
     const unique = [...new Set(vids)];
-    for (const vid of unique) {
+    for (let offset = 0; offset < unique.length; offset += this.config.mediaBatchSize) {
+      const batch = unique.slice(offset, offset + this.config.mediaBatchSize);
       const result = await this.api(preloadPath, { biz_param: {
         detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false,
         need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024,
-      }, dr_scene: 'preload', mixed_video_id_map: { '1004': [vid] } }, signal);
-      let model = result.data?.[vid]?.video_model;
-      if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
-      const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
-      const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
-        .sort((a, b) => (Number(b.video_meta?.size) || 0) - (Number(a.video_meta?.size) || 0))[0];
-      if (!best) throw new DownloadError('missing_episode_url', '原源某集没有媒体地址；整剧尚未完成');
-      let encryption = null;
-      if (best.encrypt_info?.encrypt) {
-        const spade = best.encrypt_info.spade_a;
-        if (typeof spade !== 'string' || !spade.trim() || Buffer.byteLength(spade, 'utf8') > 16 * 1024) {
-          throw new DownloadError('encrypted_media', '原源加密媒体缺少有效的本地解密信息');
+      }, dr_scene: 'preload', mixed_video_id_map: { '1004': batch } }, signal);
+      for (const vid of batch) {
+        let model = result.data?.[vid]?.video_model;
+        if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
+        const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
+        const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
+          .sort((a, b) => (Number(b.video_meta?.size) || 0) - (Number(a.video_meta?.size) || 0))[0];
+        if (!best) throw new DownloadError('missing_episode_url', '原源某集没有媒体地址；整剧尚未完成');
+        let encryption = null;
+        if (best.encrypt_info?.encrypt) {
+          const spade = best.encrypt_info.spade_a;
+          if (typeof spade !== 'string' || !spade.trim() || Buffer.byteLength(spade, 'utf8') > 16 * 1024) {
+            throw new DownloadError('encrypted_media', '原源加密媒体缺少有效的本地解密信息');
+          }
+          encryption = { spade };
         }
-        encryption = { spade };
+        let url = best.main_url;
+        if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
+        checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
+        this.preloadResolved = true;
+        out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
       }
-      let url = best.main_url;
-      if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
-      checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
-      this.preloadResolved = true;
-      out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
     }
     return out;
   }

@@ -75,10 +75,13 @@ test('unknown upstream errors stop after one request and clean partial output',a
  assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
 });
 test('a later failed media batch removes already downloaded files without publishing success',async t=>{
- const f=await fixture(t,vids=>vids.includes('video-6')?{BaseResp:{StatusCode:110001}}:video(vids),{count:7});
+ let saved;const completed=new Promise(resolve=>{saved=resolve;});
+ const f=await fixture(t,async vids=>{if(vids.includes('video-6')){await completed;return {BaseResp:{StatusCode:110001}};}return video(vids);},{count:7});
+ const original=f.client.saveEpisode.bind(f.client);
+ f.client.saveEpisode=async(...args)=>{const result=await original(...args);saved();return result;};
  const result=await f.client.download({seriesIds:['123']});
  assert.equal(result.code,'platform_error');assert.equal(result.complete,false);
- assert.equal(f.calls.filter(c=>c.kind==='media').length,5);
+ assert.ok(f.calls.filter(c=>c.kind==='media').length>=1);
  assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
 });
 test('cancelled source retries stop dispatch and await partial cleanup',async t=>{
