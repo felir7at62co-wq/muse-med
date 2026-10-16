@@ -1,71 +1,26 @@
-name: Publish verified Muse 1.1.3
+name: Verify Muse 1.1.3 mirror
 on:
   workflow_dispatch:
-    inputs:
-      stage:
-        description: Prepare the exact-file upload request or publish with approved capabilities
-        required: true
-        type: choice
-        default: prepare
-        options: [prepare, publish]
 permissions:
   actions: read
-  contents: write
-concurrency:
-  group: publish-muse-1.1.3
-  cancel-in-progress: false
+  contents: read
 jobs:
-  publish:
-    if: github.repository == 'felir7at62co-wq/muse-med'
+  readback:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 40
     env:
       GH_TOKEN: ${{ github.token }}
-      GH_REPO: felir7at62co-wq/muse-med
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - run: node .github/scripts/readback-muse-113.mjs
+      - uses: actions/upload-artifact@v4
         with:
-          github-token: ${{ github.token }}
-          run-id: 38852653581
-          name: muse-mac-arm64-3285b48b3e0c632736cb54af32f7427646d42684
-          path: .release/mac-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: 38852653581
-          name: muse-win-x64-3285b48b3e0c632736cb54af32f7427646d42684
-          path: .release/win-x64
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: 38852653581
-          name: muse-mac-arm64-installed-acceptance-3285b48b3e0c632736cb54af32f7427646d42684
-          path: .release/acceptance/mac-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: 38852653581
-          name: muse-win-x64-installed-acceptance-3285b48b3e0c632736cb54af32f7427646d42684
-          path: .release/acceptance/win-x64
-      - name: Verify native acceptance and artifact hashes
-        run: node .github/scripts/prepare-muse-113.mjs
-      - name: Retain verified hashes and exact-file capability request
-        uses: actions/upload-artifact@v4
-        with:
-          name: muse-1.1.3-capability-request
-          path: .release/capability-request/
+          name: muse-1.1.3-mirror-full-readback
+          path: .release/mirror-full-verification.json
           if-no-files-found: error
           retention-days: 30
-      - name: Publish the verified release and mirror
-        if: inputs.stage == 'publish'
-        env:
-          MUSE_TOS_PLAN: ${{ secrets.MUSE_RELEASE_113_TOS_PLAN }}
-        run: node .github/scripts/publish-muse-113.mjs
