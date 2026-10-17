@@ -1,5 +1,6 @@
-/** Muse's new-task picker exposes its two product modes in both themes, without model calls. */
-import { mkdir, readFile } from 'node:fs/promises'
+/** Muse exposes one creative Agent without preset or plugin-management navigation. */
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
@@ -13,22 +14,34 @@ import { connectFreshWorkspace, newEnglishPage, openSettings } from './support.t
 let scaffold: WebScaffold
 let browser: Browser
 let page: Page
+let overlayRoot: string
 const evidenceDir = process.env.DSH_UI_EVIDENCE_DIR
 
 beforeAll(async () => {
   const root = fileURLToPath(new URL('../../desktop-host/', import.meta.url))
-  const patch = loadOverlayPatches('muse-med', join(root, 'config/desktop.cordis.patch.yml'))
-    .find(row => row.id === 'agent-preset-registry')
-  const policy = patch?.config as { default: string; selectablePresets: string[] }
-  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama', 'editing'] })
-  // These UI declarations retain the real product labels; product-preset.spec.ts owns full composition activation.
+  const patches = loadOverlayPatches('muse-med', join(root, 'config/desktop.cordis.patch.yml'))
+  const policy = patches.find(row => row.id === 'agent-preset-registry')?.config as {
+    default: string
+    selectablePresets: string[]
+  }
+  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama'] })
   const definitions: PresetDefinition[] = []
-  for (const id of ['short-drama', 'editing', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
-    const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as { name?: string; description?: string; order: number }
+  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
+    const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as {
+      name?: string
+      description?: string
+      order: number
+    }
     definitions.push({ id, ...meta, plugins: [] })
   }
+  overlayRoot = await mkdtemp(join(tmpdir(), 'muse-unified-ui-'))
+  const overlay = join(overlayRoot, 'ui.patch.yml')
+  const uiIds = ['ui-agent-preset', 'ui-plan', 'ui-plugin-manager', 'ui-settings-plugins', 'ui-settings-plugin-inventory']
+  const uiRows = patches.filter(row => row.id !== undefined && uiIds.includes(row.id))
+  expect(uiRows).toHaveLength(uiIds.length)
+  await writeFile(overlay, JSON.stringify(uiRows))
   if (evidenceDir) await mkdir(evidenceDir, { recursive: true })
-  scaffold = await launchWebScaffold({ agentPresets: { ...policy, definitions } })
+  scaffold = await launchWebScaffold({ extraOverlayPath: overlay, agentPresets: { ...policy, definitions } })
   browser = await chromium.launch()
   page = await newEnglishPage(browser)
   await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
@@ -36,39 +49,24 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  try { await browser?.close() } finally { await scaffold?.close() }
+  try { await browser?.close() } finally {
+    try { await scaffold?.close() } finally { if (overlayRoot) await rm(overlayRoot, { recursive: true, force: true }) }
+  }
 })
 
-it('defaults to short drama, offers editing, and hides the five other modes in conversation and settings', async () => {
+it('hides preset selection, mode labels and plugin management for the unified Agent', async () => {
   const consoleWatch = watchConsole(page)
   await connectFreshWorkspace(page, scaffold.workspaceCwd, 'workspace')
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
-    await page.getByRole('button', { name: '短剧模式', exact: true }).click()
-    await page.getByRole('menu').waitFor()
-    expect(await page.getByRole('menuitem').allTextContents()).toEqual([
-      expect.stringContaining('短剧模式'), expect.stringContaining('编辑模式'),
-    ])
-    const menuBounds = await page.getByRole('menu').boundingBox()
-    const viewport = page.viewportSize()!
-    expect(menuBounds).not.toBeNull()
-    expect(menuBounds!.x).toBeGreaterThanOrEqual(0)
-    expect(menuBounds!.y).toBeGreaterThanOrEqual(0)
-    expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(viewport.width)
-    expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(viewport.height)
-    if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `two-modes-${theme}.png`) })
-    await page.keyboard.press('Escape')
-    expect(await page.getByRole('menu').count()).toBe(0)
+    expect(await page.getByRole('button', { name: /短剧模式|编辑模式|短剧编导/ }).count()).toBe(0)
+    expect(await page.getByRole('button', { name: 'Plugins', exact: true }).count()).toBe(0)
+    if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `unified-agent-${theme}.png`) })
   }
-  await page.getByRole('button', { name: '短剧模式', exact: true }).click()
-  await page.getByRole('menuitem', { name: /^编辑模式/ }).click()
-  await expect.poll(() => scaffold.ctx.agents.list().filter(agent => agent.session.header.cwd?.endsWith('/workspace'))
-    .map(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx))).toEqual(['editing'])
   await openSettings(page, 'en')
-  await page.getByRole('button', { name: 'Agent presets', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  expect(await dialog.getByText(/Standard mode|PTC mode|Minimal mode|Creator mode|Creation mode/).allTextContents()).toEqual([])
-  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'editing'])
-  if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'two-modes-settings.png') })
+  expect(await page.getByRole('button', { name: 'Agent presets', exact: true }).count()).toBe(0)
+  expect(await page.getByRole('button', { name: 'Built-in plugins', exact: true }).count()).toBe(0)
+  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+  if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'unified-agent-settings.png') })
   expect(consoleWatch.pageErrors).toEqual([])
 })

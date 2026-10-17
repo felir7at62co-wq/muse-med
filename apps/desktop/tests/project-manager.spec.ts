@@ -80,7 +80,7 @@ function seedPlugin(manager: DesktopProjectManager): void {
 
 const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-  'dsh-codex-subscription', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
+  'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
 ] as const
 /** Bundle list stored in a profile manifest file. */
@@ -110,13 +110,16 @@ afterEach(async () => {
 })
 
 describe('desktop external plugin profile', () => {
-  it.each([false, true])('removes the retired Ponytail bundle while retaining external plugins (legacy bridge: %s)', async (legacyBridge) => {
+  it.each([
+    ['@mengyuly/dsh-ponytail', false], ['@mengyuly/dsh-ponytail', true],
+    ['dsh-codex-subscription', false], ['dsh-codex-subscription', true],
+  ] as const)('removes retired %s while retaining external plugins (legacy bridge: %s)', async (retiredPlugin, legacyBridge) => {
     const { manager } = setup()
     await manager.applyRelease()
     await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
     const manifestPath = join(manager.paths.profile, 'package.json')
     const bundles = [...BUILT_IN_BUNDLES, 'plugin']
-    bundles.splice(4, 0, '@mengyuly/dsh-ponytail')
+    bundles.splice(4, 0, retiredPlugin)
     writeBundles(manifestPath, legacyBridge
       ? bundles.map(name => name === '@wenbin_wb/dsh-bridge' ? '@moyu-good/dsh-lark-bridge' : name)
       : bundles)
@@ -197,7 +200,7 @@ describe('desktop external plugin profile', () => {
     const manifestPath = join(manager.paths.profile, 'package.json')
     writeBundles(manifestPath, [
       '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-      'dsh-codex-subscription', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
+      'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
       '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
       'plugin',
     ])

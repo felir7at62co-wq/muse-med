@@ -29,7 +29,8 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
  * @param config - Product preset id (editing by default), platform-shell visibility and clock recording.
  */
 export async function apply(ctx, config) {
-  const presetId = config.presetId ?? 'editing'
+  const requestedPreset = config.presetId ?? 'editing'
+  const presetId = requestedPreset === 'editing' ? 'short-drama' : requestedPreset
   let productBaseUrl
   let productPresetDirectory
   await ctx.effect(async () => {
@@ -59,7 +60,7 @@ export async function apply(ctx, config) {
       await mkdir(productPresetDirectory)
       const sourceDirectory = new URL(`../../../apps/desktop-host/presets/${presetId}/`, import.meta.url)
       let source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
-      if (presetId === 'editing') {
+      if (presetId === 'short-drama') {
         source = source.replace("'@deepseek-ai/dsh-desktop-host/editing-policy'",
           JSON.stringify(new URL('./editing-policy.mjs', import.meta.url).href))
       }
@@ -142,14 +143,15 @@ export async function apply(ctx, config) {
     directory: productPresetDirectory,
   })
   ctx.on('agent/created', async ({ agent }) => {
-    await ctx.agentPresets.mount(agent.ctx, presetId)
-    // The product suffix puts Chinese punctuation directly after {{cwd}};
-    // this snapshot-only shadow keeps the same meaning with a path boundary.
-    agent.ctx.effect(() => agent.ctx.systemPrompt.section({
-      name: PERSONA_SUFFIX_SECTION,
-      order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
-      text: '当前工作目录是 {{cwd}} 。',
-    }))
+    await ctx.agentPresets.mount(agent.ctx, requestedPreset)
+    // Legacy presets need a path delimiter for stable workspace normalization.
+    if (presetId !== 'short-drama') {
+      agent.ctx.effect(() => agent.ctx.systemPrompt.section({
+        name: PERSONA_SUFFIX_SECTION,
+        order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
+        text: '当前工作目录是 {{cwd}} 。',
+      }))
+    }
     if (config.hidePlatformShellTools === true) {
       agent.ctx.effect(() => agent.ctx.tools.restrict({ futureDeny: ['bash', 'pwsh'] }))
       for (const [name, order] of [

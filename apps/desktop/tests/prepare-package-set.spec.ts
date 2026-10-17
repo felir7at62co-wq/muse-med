@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
@@ -85,7 +86,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -94,6 +95,13 @@ describe('desktop package-set selection', () => {
       available.set(name, packed(name))
       expect(selectDesktopPackageClosure(available, [name]).some(entry => entry.manifest.name === name)).toBe(true)
     }
+  })
+
+  it('omits a leftover Codex archive from the Desktop package closure', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'dsh-codex-subscription']
+    const available = new Map(names.map(name => [name, packed(name)]))
+    expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
+      .not.toContain('dsh-codex-subscription')
   })
 
   it('leaves independently published Office packages to npm resolution', () => {
@@ -120,7 +128,7 @@ describe('desktop package-set selection', () => {
       'package/presets/short-drama/agent.cordis.yml',
       'package/presets/short-drama/preset.yml',
       'package/lib/native-preset.js',
-      ...['standard', 'ptc', 'minimal', 'cordis', 'editing'].flatMap(id => [
+      ...['standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),
       'package/presets/cordis/skills/cordis-plugin-development/SKILL.md',

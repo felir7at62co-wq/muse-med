@@ -581,7 +581,7 @@ function bodyStateIssues(
       + `已登记的该角色版本：${versions.length === 0 ? '无' : versions.map(describeRegistration).join('；')}。`
       + `补料需求：角色=${character}；阶段=${required.pregnancy === '' ? '按剧本写明' : required.pregnancy}；`
       + `服装=${costume}；用于=${episodes}。`
-      + '补料路径：从 jubian-asset-library 复用，或用 jubian_video/jubian_asset 生成/导入该状态资产 → '
+      + '补料路径：复用用户已指定的适用资产，或用 jubian_video/jubian_asset 生成/导入该状态资产 → '
       + '在 assets_manifest.json 登记新行（name、type=角色、episodes、state_or_costume、official=true、'
       + 'jubian_asset_id、jubian_material_id、url）→ 跑 drama_assets reconcile 留对账证据 → 重新 drama_shot validate/compile。'))
   }

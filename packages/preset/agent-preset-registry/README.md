@@ -48,6 +48,8 @@ The Web definitions come from the `dsh-web-app` bundle. Definitions are ordinary
 
 The registry writes no declarations. The `read` Remote renders one declaration’s child list back as entry-list YAML (`!!js` conditions included) so a client can show what a preset composes; nothing accepts YAML back. A new preset or an override of a shipped one is a bundle patch: an `insert` of a `@deepseek-ai/dsh-agent-preset` row, or a patch keyed by that row’s id, installed into the profile with `plugin_manager`; Creator mode authors such bundles in conversation. The [display helper](src/display.ts) resolves known unnamed presets through locale keys, including the product `creation` preset. A named declaration keeps its own name and description.
 
+Historical Muse preset ids `short-drama-local` and `editing` resolve to `short-drama` when no definition with the recorded id exists. This mapping preserves Session bytes and keeps aliases out of the roster; an explicitly restored definition under the old id takes precedence.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

@@ -9,8 +9,6 @@ kind: "package-reference"
 
 分镜编写按集保存原文到镜头的对应记录，核对台词、说话人、动作与表演信息。Agent 从剧变项目读取视频模型、平台、比例、分辨率和风格，按既有时长规则计算各包时长，整批检查后并行提交。
 
-内置的[16:9 3D分镜技能](skills/shot-script-creator-16-9-3d/SKILL.md)用于已确认的横屏CG项目，保留已确认资产风格与当前项目设置，遵守共用时长和站位图指导，不把真人项目改成3D。Muse创作模式通过随包技能加载器提供它，无需个人技能目录。
-
 ## 概述
 
 创作和审核短剧脚本、复用资产、维护项目状态、准备可编辑草稿、渲染分集、组装整剧交付，以及认领剧变剧本池里新放出的剧本。入口是维护中的 `skills/*/SKILL.md` 文件，从总控技能开始。Python 脚本与必要静态资源一起分发，其中包括渲染器要用的片尾特效与片尾音。用户项目、凭据、逐项目媒体及本地运行环境不随包分发。
@@ -32,13 +30,13 @@ kind: "package-reference"
 
 解析本包的 `package.json`，再把同级 `skills` 目录交给现有技能加载器。本资源包不注册 Service、Tool 或插件。仅安装 npm 包不会激活技能。
 
-从[总控](skills/tweet-drama-pipeline/SKILL.md)开始，调用脚本前读取相关技能。保留技能目录相邻：草稿、渲染和交付共用 core 的视频禁用检查。使用 Python 3.11 或更新版本。图片辅助模块需要 Pillow，文档辅助模块需要 python-docx，草稿生成需要 pyJianYingDraft；其他可选依赖由各技能说明。同名草稿已存在时拒绝生成，不删除旧目录；每个候选版本须使用不同的 `name_prefix`，且不能包含路径分隔符或 Windows 保留字符。包内不附带 Python 解释器、依赖环境或 FFmpeg 二进制。
+按任务选择相关技能，调用脚本前先读取。保留技能目录相邻：草稿、渲染和交付共用 core 的视频禁用检查。使用 Python 3.11 或更新版本。图片辅助模块需要 Pillow，文档辅助模块需要 python-docx，草稿生成需要 pyJianYingDraft；其他可选依赖由各技能说明。同名草稿已存在时拒绝生成，不删除旧目录；每个候选版本须使用不同的 `name_prefix`，且不能包含路径分隔符或 Windows 保留字符。包内不附带 Python 解释器、依赖环境或 FFmpeg 二进制。
 
 内置的 [3D 动漫资产技能](skills/anime-3d-assets/SKILL.md)为已明确确认的 3D 项目提供人物、场景、道具设计、参考图与视觉检查。生成前读取[首轮要求](skills/anime-3d-assets/references/first-pass-cg.md)；既有项目圣经和资产清单仍是权威记录。
 
-[项目圣经技能](skills/tweet-drama-project-bible/SKILL.md) 用一次集中问题询问缺少的创意与实时 SD 模型选择，复用已给答案，并通过 drama_project 保存审阅后的更新。风格题提供仿真人、3D 和其他（自行输入）；用户自填的原文作为风格保存。生成分辨率与交付尺寸分开；可选角色声音指导伴随说话人核对与实际听音审核。Wiki 参考指导写作，不阻塞启动。已有项目保留稳定视频包/分镜身份、已完成任务和版本记录。
+[项目圣经技能](skills/tweet-drama-project-bible/SKILL.md) 用一次集中问题询问缺少的创意与实时 SD 模型选择，复用已给答案，并通过 drama_project 保存审阅后的更新。媒介题提供仿真人、3D 和其他（自行输入）；保存风格时保留用户自填原文。[受众与影视风格方法](skills/tweet-drama-project-bible/references/audience-and-style.md)从实际剧本推断观看兴趣与情绪预期，区分创作假设和市场证据，再转化为媒介、题材、情绪观感与美术方向，不要求额外报告或模型轮次。生成分辨率与交付尺寸分开；可选角色声音指导伴随说话人核对与实际听音审核。Wiki 参考指导写作，不阻塞启动。已有项目保留稳定视频包/分镜身份、已完成任务和版本记录。
 
-[资产提取](skills/tweet-drama-asset-extract/SKILL.md)与[视觉审核](skills/tweet-drama-asset-vision-check/SKILL.md)技能在创建或判断图片提示词前先解析当前明确要求与 `project_bible.style`。已确认真人项目保留既有角色设定板与审核规则；已确认动漫、国漫、二维动画、三维动画和 CG 动画项目逐字继承已存风格，并按该风格审核，不加入真人专属约束。风格缺失或冲突时保留中性资产事实，但停在可生成提示词、风格判定和付费请求之前；预设名、参考图媒介与模型名称都不提供默认风格。
+Agent 按剧本与已确认项目要求准备角色、场景和道具需求。[视觉审核技能](skills/tweet-drama-asset-vision-check/SKILL.md)依据当前明确要求与 `project_bible.style` 检查候选；预设名、参考图媒介与模型名称都不提供默认风格。审核同时核对已定观感、身份与材质质量。仿真人玄幻生物可采用电影级特效；非人类资产保留剧本物种与尺度，不套用人类面部设定板版式。
 
 草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256。全部匹配的台词保留实测时间；锚点无效、重叠或超出镜头时失败，不改写时间后仍标为已对齐。草稿字幕导入同样保留起止时间，拒绝没有逐句对齐时间的长句，详见[输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。显式离线识别需要另行准备依赖和模型。
 
@@ -46,7 +44,7 @@ kind: "package-reference"
 
 [声线参考技能](skills/tweet-drama-voice-continuity/SKILL.md) 让同角色不同服装版本复用认可的声音样本。没有样本时，从该角色首次生成的视频中提取已试听、清晰的单说话人区间；默认 2 秒，参考上限 15 秒。脚本保留源文件，拒绝已有输出，报告实测时长与哈希；确认说话人需要实际听音，Agent 不能检查音频时由用户确认。上传和绑定保留原分镜 ID。音频参考用于引导生成，不能保证 SD 各次输出的音色完全一致。
 
-资产脚本优先使用 `JUBIAN_ASSET_LIBRARY_ROOT`，否则使用 `$DSH_HOME/data/jubian-asset-library`，其中 home 默认是 `~/.dsh`。检索从当前数据根定位本地媒体，不信任旧的 `tags.local_path`。人物候选脚本合并人脸、全身和服装索引，群像不能直接配对，输出人脸与造型的有序本地路径而不上传。core 的 `import-library` 仅把选定的两张图归档到项目；原库不改，仍需审核与可追溯的用户确认后才能进入现有付费生图流程。视觉标注维护需要显式注入 `DEEPSEEK_API_KEY`，可能产生费用；不读取 env 文件或 Jubian token。凭据提供方与子进程环境的接线由消费应用负责。
+选定参考图的导入使用 `tweet-drama-core/scripts/asset_library` 中的只读辅助模块。它们优先使用 `JUBIAN_ASSET_LIBRARY_ROOT`，否则使用 `$DSH_HOME/data/jubian-asset-library`，其中 home 默认是 `~/.dsh`。媒体路径从当前数据根解析。core 的 `import-library` 仅把用户选定的人脸与全身图配对归档到项目，保留原库，并要求审核与可追溯的用户确认后才能进入付费生成。
 
 分集覆盖检查和流程状态投影共用[显式工作范围规则](skills/tweet-drama-core/references/io-contract.md#episode-work-scope-and-coverage)。协作者可以完成已分配的集，不必补做前面的集，也不能因此宣称整剧完成。分工拆分保留其他协作者的清单条目和文件；验收仍校验当前原文、映射与镜头摘要。支持独立工作目录后合并产物，不协调同一本地项目的并发写入。
 
@@ -78,7 +76,7 @@ npm test
 
 完整的 `anime-3d-assets` 资源树随包提供给文件系统技能加载器。更新源码不会同步个人技能副本或已安装版本。
 
-发布检查会逐一比对实际 npm 压缩包和文件清单，包括[导演镜头格式指南](skills/tweet-drama-early-shot-script/references/director-format.md)；遗漏、未登记或内容过期的资源会在桌面端打包前报错。
+发布检查会逐一比对实际 npm 压缩包与文件清单，遗漏、未登记或内容过期的资源会在桌面端打包前报错。镜头提示词与视频包由 Agent 自主编写，经原生分镜预览检查，不内置镜头编译技能。
 
 </details>
 
@@ -89,7 +87,7 @@ npm test
 
 #### 模型看到什么
 
-加载技能会通过消费应用的技能加载器加入维护中的 `SKILL.md` 指令，例如[总控](skills/tweet-drama-pipeline/SKILL.md)。检索结果和脚本输出仅在请求时进入上下文。本包不注册工具，也不自行发起模型调用。付费视觉标注脚本仍是显式维护动作；项目模型规格与交付设置仍是依据。
+加载技能会通过消费应用的技能加载器加入维护中的 `SKILL.md` 指令。检索结果和脚本输出仅在请求时进入上下文。本包不注册工具，也不自行发起模型调用。付费视觉标注脚本仍是显式维护动作；项目模型规格与交付设置仍是依据。
 
 #### Token 影响
 

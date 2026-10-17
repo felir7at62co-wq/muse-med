@@ -68,7 +68,7 @@ describe('desktop development project', () => {
   })
 
   it.each([
-    ['dsh-codex-subscription', 'sources.json'],
+    ['dsh-ffmpeg', 'sources.json'],
     ['muse-hongguo-download', 'owned-downloads.json'],
     ['muse-douyin-download', 'owned-downloads.json'],
     ['muse-reverse-tools', 'owned-downloads.json'],

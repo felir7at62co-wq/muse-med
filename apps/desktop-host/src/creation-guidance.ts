@@ -7,8 +7,7 @@ export const CREATION_GUIDANCE_SECTION = 'muse:creation-guidance'
 export const CREATION_GUIDANCE = `## 创作共用规则
 
 先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面文字先复用已有字幕/转写，支持时用 video_ocr；本机 OCR 不支持或不可用时说明能力，只有已有明确 ASR 授权才走 audio-transcribe，不自动扣费或混淆来源。音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script；
-短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择；
-需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
+普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择；
 
 各任务按阶段执行：产出并返回可读证据 → 下一模型轮检查 → 修正并重读复检 → 继续依赖阶段或交付。机器先检查格式、引用、覆盖与摘要；
 需要模型判断的内容须实际进入上下文后再检查，图片须实际看过，语音须有试听依据。明确记录 self-check、输入输出版本、实际检查范围及未完成项；

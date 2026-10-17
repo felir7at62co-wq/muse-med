@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Video model selectors resolve from any matching live taskType=1 row; known Seedance limits remain enforced, while other models require positive whole-second durations without borrowing those limits. Explicit image selections accept any taskType=2 model and supported resolution; omitted model selection retains GPT Image 2. Catalogue dimensions may be absent or rounded for other image models. Post-processing selectors resolve exact models, platforms and output standards from taskType 10 or 20, rejecting missing or ambiguous choices.
+
 ## Summary
 
 `@deepseek-ai/dsh-jubian-api` validates Jubian response data and builds request bodies for catalog, asset, video, storyboard, image, subtitle, and upscale operations. It also downloads bounded media. Readers return typed values or throw `JubianError` with `CONTRACT_CHANGED` when a payload does not match. `@deepseek-ai/dsh-jubian` owns Jubian request transport and credentials; `@deepseek-ai/dsh-tool-jubian` uses these functions.

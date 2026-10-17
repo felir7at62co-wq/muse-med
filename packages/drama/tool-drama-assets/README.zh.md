@@ -202,7 +202,7 @@ pagination 包含 output_offset、output_limit、next_offset 和无前缀的 64 
 - **`dispose` 可以写出没有比对的证据** —— 在一个没有任何证据的项目上，`dispose` 会新建一份只含 disposition、`blocking`、`ignored_without_note` 与 `ready` 的文件。宿主钩子仍然会拒绝它，因为它要求只有 `reconcile` 才会写的、新鲜的 `ran_at`。
 - **清单是唯一的本地一侧** —— 记在别处的资产（`matches/*.json`、流水线状态文件）不算已登记。登记一条资产意味着 `assets_manifest.json` 里有一行带整数 `jubian_asset_id` 的记录。
 - **字符串形式的 `jubian_asset_id` 算已声明** —— 清单读者只留整数 ID，所以 ID 写成字符串 `"83840"` 的行不算已声明；它也不算悬空，因为悬空判定用同样的读法读同一个字段，于是这一行对两张清单都不可见。
-- **`cross_project_note` 只被继承，从不被写入** —— 该字段从上一份证据原样保留并返回；跨项目检索本身属于 `jubian-asset-library` 技能。
+- **`cross_project_note` 只被继承，从不被写入** —— 该字段从上一份证据原样保留并返回；本工具不执行跨项目素材库检索。
 - **写入不是跨进程事务** —— 临时文件加改名让一次写入是原子的，但同一个项目上两个并发的 `dispose` 仍可能交错各自的读-改-写。
 
 <a id="dev-note"></a>

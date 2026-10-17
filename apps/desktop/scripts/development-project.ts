@@ -155,14 +155,15 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
 
   const sourceRoot = join(options.repositoryRoot, 'third_party', 'plugins')
   const pins = {
-    ...JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string }>,
-    ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string }>,
+    ...JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string; desktop?: boolean }>,
+    ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string; desktop?: boolean }>,
   }
   mkdirSync(dirname(options.projectDir), { recursive: true })
   const staging = mkdtempSync(join(dirname(options.projectDir), '.community-'))
   const packages: Array<{ directory: string; name: string; version: string; dependencies: Array<[string, string]> }> = []
   try {
     for (const [source, pin] of Object.entries(pins)) {
+      if (pin.desktop === false) continue
       if (!/^[a-z0-9-]+$/u.test(source)) throw new Error('desktop development: invalid community source name')
       const expected = readManifest(join(sourceRoot, source, 'package.json'))
       const name = expected.name

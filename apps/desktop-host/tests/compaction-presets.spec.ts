@@ -13,7 +13,7 @@ interface PresetRow {
 }
 
 const smallModels = ['gpt-6-sol', 'gpt-6-astra', 'gemini-3.1-pro']
-const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'creation']
+const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'creation']
 
 function presetConfig(preset: string): BasicCompactionConfig {
   const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {

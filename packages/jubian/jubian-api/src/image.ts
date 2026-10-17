@@ -38,7 +38,7 @@ function text(value: unknown, multiline = false): string {
   return value
 }
 
-/** The selectors one GPT Image 2 request needs. */
+/** Selectors for one image-generation request. */
 export interface ImageModelSelectors {
   standardId: number
   modelId: string
@@ -59,6 +59,12 @@ export interface ImageModelSelectors {
  * several rows the call fails and names every candidate instead of choosing.
  */
 export interface ImageModelSelection {
+  /** Explicit live model id; omitted calls retain GPT Image 2. */
+  modelId?: string
+  /** Exact videoStandards row id when otherwise equivalent specifications repeat. */
+  videoStandardId?: number
+  /** Explicit live resolution; omitted calls choose the lowest supported resolution. */
+  resolution?: string
   /** The row's `platformId`, such as `KU_AI`. */
   platformId?: string
   /** The row's own `id`, which is the request's `standardId`, such as `66`. */
@@ -109,7 +115,7 @@ export function resolveImageStyle(prompt: string, requested?: unknown): ImageSty
   return requested ?? declared ?? 'live_action'
 }
 
-/** The one model id the paid image route buys. */
+/** The default model when a caller omits an explicit model selection. */
 const IMAGE_MODEL_ID = 'gpt-image-2'
 
 /** The row field that becomes the request's `standardId`. */
@@ -163,16 +169,17 @@ function candidateSummary(row: Record<string, unknown>): string {
     + ` unitPrice=${unitPrice} unit=${typeof row.unit === 'string' && row.unit.trim() ? row.unit : '?'}`
 }
 
-/** Pick the one `gpt-image-2` row the selection names, or fail naming every candidate. */
+/** Pick the selected model and platform row, or fail naming every candidate. */
 function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Record<string, unknown> {
-  const matches = rows(catalogue).filter(row => row.modelId === IMAGE_MODEL_ID)
-  if (matches.length === 0) invalid('the account catalogue carries no gpt-image-2 row')
+  const modelId = selection.modelId ?? IMAGE_MODEL_ID
+  const matches = rows(catalogue).filter(row => row.modelId === modelId)
+  if (matches.length === 0) invalid(`the account catalogue carries no ${modelId} row`)
   const selected = matches.filter(row => (selection.platformId === undefined || row.platformId === selection.platformId)
     && (selection.standardId === undefined || Number(standardIdOf(row)) === selection.standardId))
   if (selected.length === 1) return selected[0] as Record<string, unknown>
   const candidates = matches.map(candidateSummary).join(' | ')
-  invalid(`${matches.length} catalogue rows carry gpt-image-2 and the configured selection`
-    + ` selected ${selected.length} of them; pin exactly one row — on the 短剧 settings page (资产图生成通道),`
+  invalid(`${matches.length} catalogue rows carry ${modelId} and the configured selection`
+    + ` selected ${selected.length} of them; pin exactly one row with image_model_id/image_platform_id, on the 短剧 settings page (资产图生成通道),`
     + ` or with the tool config fields imagePlatformId/imageStandardId. Candidates: ${candidates}`)
 }
 
@@ -181,7 +188,7 @@ function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Reco
  * @param catalogue - Envelope `data` already read from `/model/charge/getSelectList?taskType=2`.
  * @param selection - The row this deployment pinned; required as soon as the catalogue lists several.
  * @param aspectRatio - Requested image ratio; existing callers default to 16:9.
- * @returns The lowest supported resolution whose standard has the requested dimensions divisible by 16.
+ * @returns The selected standard or lowest supported resolution; GPT Image 2 also requires exact dimensions divisible by 16.
  * @throws {JubianError} `INVALID_ARGUMENT` for an unsupported ratio, or `CONTRACT_CHANGED` when the
  *   selected model row or requested image specification cannot be identified in the catalogue.
  */
@@ -190,14 +197,18 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
   const ratio = imageAspectRatio(aspectRatio)
   return readPayload('resolveImageModel', catalogue, () => {
     const model = imageModelRow(catalogue, selection)
+    const strictDimensions = model.modelId === IMAGE_MODEL_ID
     const standards = rows(model.videoStandards).filter(row => row.ratio === ratio
+      && (selection.videoStandardId === undefined || Number(row.id) === selection.videoStandardId)
       && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
-      && typeof row.width === 'number' && Number.isSafeInteger(row.width) && row.width > 0 && row.width <= 8192
-      && row.width % 16 === 0
-      && typeof row.height === 'number' && Number.isSafeInteger(row.height) && row.height > 0 && row.height <= 8192
-      && row.height % 16 === 0 && (ratio === '16:9'
-      ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))
-    const resolution = ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
+      && (!strictDimensions || (typeof row.width === 'number' && Number.isSafeInteger(row.width)
+        && row.width > 0 && row.width <= 8192 && row.width % 16 === 0
+        && typeof row.height === 'number' && Number.isSafeInteger(row.height)
+        && row.height > 0 && row.height <= 8192 && row.height % 16 === 0
+        && (ratio === '16:9' ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))))
+    const resolution = selection.resolution === undefined
+      ? ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
+      : selection.resolution.toUpperCase()
     const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
     const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
     for (const row of generationRows) positive(row.type)
@@ -205,9 +216,9 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
     if (generations.length > 1) invalid()
     const generation = generations.length === 1 ? generations[0] : undefined
     const standard = atResolution[0]
-    if (standard === undefined) invalid(`selected gpt-image-2 catalogue row has no valid ${ratio} image specification`)
-    if (atResolution.length > 1) invalid(`selected gpt-image-2 catalogue row has multiple ${ratio} image specifications at ${resolution}`)
-    return { standardId: positive(model.id ?? model.standardId), modelId: IMAGE_MODEL_ID,
+    if (standard === undefined) invalid(`selected image catalogue row has no valid ${ratio} image specification`)
+    if (atResolution.length > 1) invalid(`selected image catalogue row has multiple ${ratio} image specifications at ${resolution}`)
+    return { standardId: positive(model.id ?? model.standardId), modelId: text(model.modelId),
       platformId: text(model.platformId), genType: 3,
       modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
         ? null : positive(generation.id),

@@ -133,7 +133,7 @@ def _shot_speech(body: str) -> tuple[str, str | None, str, str] | None:
     if not lines:
         return None
     if len(lines) != 1:
-        raise ValueError("镜头含多条发声行，须先通过 drama_shot validate")
+        raise ValueError("镜头含多条发声行，请拆成可逐条核对的来源映射")
     label, spoken = lines[0].group(1).lower(), lines[0].group(2).strip()
     field = re.search(r"^(?:发声类型|语音类型)[：:]\s*(.+)$", body, re.MULTILINE)
     declared = field.group(1).strip().lower() if field else ""

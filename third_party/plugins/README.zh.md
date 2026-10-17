@@ -2,9 +2,11 @@
 
 [English](README.md) | 中文
 
-这七份源码快照保留了 Muse Med 使用的社区插件。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除七个上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
+这些保留的源码快照记录 Muse 社区插件依赖。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除保留的上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
+
+源码清单中 desktop: false 的条目仅保留用于显式兼容工作，默认构建、桌面打包与开发加载均排除。Codex 订阅已设置此标记，不属于 Muse 产品；--only dsh-codex-subscription 仍可显式构建兼容产物。
 
 ## 构建
 
@@ -20,9 +22,9 @@ pnpm --dir third_party/plugins/toolchain run test:build
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。上游清单与源码文件保持不变。
 
-Codex 临时运行时补丁在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
+显式 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
-Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
+在可选兼容构建中，Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
 
 桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
 
@@ -30,9 +32,9 @@ Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器�
 
 `dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
 
-构建脚本导入每个生成的 Host 入口。Codex 针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
+构建脚本导入每个生成的 Host 入口。显式 Codex 构建针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
 
-[桌面打包入口](../../apps/desktop/scripts/package-target.ts)在 S6 步骤构建两份清单中的插件，并将压缩包放在第一方打包输入旁。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)将[源码插件包名](../../apps/desktop/src/core-package-set.ts)选为显式根，并拒绝注册表替代。桌面开发启动同样构建并暂存两份清单中的插件。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
+[桌面打包入口](../../apps/desktop/scripts/package-target.ts)在 S6 步骤构建两份清单中启用桌面的条目，并将压缩包放在第一方打包输入旁。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)将[源码插件包名](../../apps/desktop/src/core-package-set.ts)选为显式根，并拒绝注册表替代。桌面开发启动同样构建并暂存其中启用桌面的条目。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
 
 Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选的 connection fetch 传输，不要求 Web 服务器。FFmpeg 需要产品配置编码器路径。压缩包存在不代表功能已启用。
 

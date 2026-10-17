@@ -24,16 +24,12 @@ function rows(id: string): readonly PresetRow[] {
   }) as PresetRow[]
 }
 
-it('keeps standard editing capabilities without delegation or managed acceptance', () => {
-  const standard = rows('standard')
-  const editing = rows('editing')
-  for (const row of standard.filter(row => !['persona', 'compaction', 'delegation'].includes(row.id))) {
-    expect(editing.find(candidate => candidate.id === row.id), row.id).toEqual(row)
+it('combines editing delivery guidance with the short-drama production tools', () => {
+  const combined = rows('short-drama')
+  for (const id of ['editing-policy', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render',
+    'tool-fs', 'tool-skill', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
+    expect(combined.some(row => row.id === id), id).toBe(true)
   }
-  expect(editing.some(row => row.id === 'delegation')).toBe(false)
-  expect(editing.some(row => row.id === 'screenplay-project')).toBe(false)
-  expect(editing.find(row => row.id === 'editing-policy')?.name).toBe('@deepseek-ai/dsh-desktop-host/editing-policy')
-  expect(editing.find(row => row.id === 'persona')?.config).not.toEqual(standard.find(row => row.id === 'persona')?.config)
 })
 
 it('keeps general guidance and runtime facts without restricting inherited or later tools', async () => {
@@ -49,7 +45,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     ctx.systemPrompt.context({ name: 'runtime:guidance', order: 1, text: 'Runtime instructions.' })
     const key = { preset: 'editing' }
     const scope = createScope(ctx, key)
-    const config = rows('editing').find(row => row.id === 'persona')?.config as Persona.Config
+    const config = rows('short-drama').find(row => row.id === 'persona')?.config as Persona.Config
     await scope.ctx.plugin(Persona, Persona.Config(config))
     scope.ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
       assembly.sections.push({ name: 'late:guidance', text: 'Late instructions.' })
@@ -70,7 +66,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     ctx.tools.register(defineContentToolFixture({ name: 'subagent_fork', description: 'Late inherited tool', parameters: {}, execute: async () => [] }))
     const first = await ctx.systemPrompt.assemble({ scope: key })
     const prompt = renderPrompt(first)
-    expect(prompt).toContain('你是muse-med编辑智能体，由deepseek-flash驱动')
+    expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
     expect(prompt).toContain('Load skills first.')
     expect(prompt).toContain('Late instructions.')
     expect(prompt).toContain('FS_STALE_VERSION')
@@ -81,7 +77,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(prompt).toContain(`http://127.0.0.1:${ctx.webServer.port}`)
     expect(prompt).toContain('你没有隐式读取到 DOM、路由或截图')
     expect(prompt).toContain('不启动替代服务器')
-    expect(prompt).toContain('当前工作目录是 /editing-workspace。')
+    expect(prompt).toContain('你的工作目录是 /editing-workspace ；短剧工作间是其中的 short-drama/。')
     expect(prompt).toContain('Inherited screenplay_project')
     expect(prompt).toContain('Team rules.')
     expect(first.contexts.map(context => context.text)).toEqual(['Runtime instructions.', 'Subagent rules.'])
@@ -92,7 +88,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(ctx.tools.get('subagent')).toBeDefined()
     model = 'glm-5.3-flashx'
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })))
-      .toContain('你是muse-med编辑智能体，由glm-5.3-flashx驱动')
+      .toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Global instructions.')
     expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('用户正在使用 Muse 桌面 GUI')
     expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('文件交付默认使用 Word')

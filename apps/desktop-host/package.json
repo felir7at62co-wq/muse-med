@@ -55,7 +55,6 @@
     "@deepseek-ai/dsh-tool-drama-assets": "workspace:*",
     "@deepseek-ai/dsh-tool-episode-render": "workspace:*",
     "@deepseek-ai/dsh-tool-jubian": "workspace:*",
-    "@deepseek-ai/dsh-tool-shot-script": "workspace:*",
     "@deepseek-ai/dsh-tool-schedule": "workspace:*",
     "@deepseek-ai/dsh-tool-workspace-dependencies": "workspace:*",
     "@deepseek-ai/dsh-tool-present": "workspace:*",

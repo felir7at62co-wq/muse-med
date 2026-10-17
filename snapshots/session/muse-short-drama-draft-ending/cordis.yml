@@ -1,3 +1,25 @@
+# Desktop's Web bundle keeps these Host-level tools disabled.
+- id: plan-mode
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-ptc
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
 # Mount the current short-drama preset; keep shell availability platform independent.
 - id: tool-bash
   disabled: true

@@ -24,8 +24,6 @@ The watermark, the subtitle style and the ending bytes are all enforced by `dram
 
 [tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) owns character state at binding time: a per-character, per-episode state card (body state including pregnancy week or age band, costume version, hair, time of day) drawn from the script or a confirmed outline, checked line by line against the asset's own board before binding. An asset whose board disagrees with the script's state is the wrong version even when its name matches. The card now lands in two machine-readable places — the shot's `身体状态` field and the asset's `state_or_costume` plus `episodes` registration — and `drama_shot` refuses a binding that disagrees; [the state gate note](2026-09-28-character-state-gate-at-binding.md) owns that enforcement.
 
-[shot-script-creator-9-16](../../../../packages/drama/skills/skills/shot-script-creator-9-16/SKILL.md) owns reactions: a reaction expression (惊讶, 震惊, 瞪眼, 挑眉, 后退, 捂嘴) requires a trigger written in the same or the preceding shot and taken from the episode's own dialogue or ▲ action lines. A shot whose source line is an ordinary question may not carry raised eyebrows or widened eyes, and one expression word may not be reused across unrelated shots.
-
 ## Alternatives considered
 
 **Make the outline a plugin `Config` field.** Rejected: the outline is part of the delivery specification, exactly like the frame size and bitrate the same header fixes, and a deployment-varying field would let one project silently ship a different look.

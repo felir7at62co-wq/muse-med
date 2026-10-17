@@ -24,7 +24,6 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'drama_draft_dir',
   'drama_project',
   'drama_render',
-  'drama_shot',
   'drama_video',
   'edit',
   'exit_plan_mode',

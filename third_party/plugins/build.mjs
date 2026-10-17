@@ -75,7 +75,8 @@ const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
 run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
-for (const name of values.only ? [values.only] : Object.keys(pins)) {
+const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
+for (const name of values.only ? [values.only] : desktopSources) {
   const staging = mkdtempSync(join(output, '.source-build-'))
   const links = []
   try {

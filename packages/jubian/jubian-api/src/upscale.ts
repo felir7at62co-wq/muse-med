@@ -1,15 +1,6 @@
 /**
- * Video upscaling: the paid stage that turns a sub-1080p generation into a
- * 1080p deliverable.
- *
- * This exists because the generation models top out below the delivery target.
- * `doubao-seedance-2-5-260628` offers only 480p and 720p, so a request for 2.5
- * at 480p means every shot still has to come through here before it can be used.
- *
- * The shape below is captured from the real workbench request, not inferred:
- * `taskType` 20, the SeedVR2 model, its two standard identifiers, and the result
- * identities of the source video. `taskType` 2 is NOT this stage — the one
- * result carrying it was a failed image operation.
+ * Paid video upscaling requests use taskType 20, live model selectors and the
+ * provider's source-result identities. Omitted model selectors retain SeedVR2.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
@@ -27,6 +18,54 @@ export const VIDEO_UPSCALE_MODEL = {
   /** The 1080p video standard that row offers. */
   videoStandardId: 303,
 } as const
+
+/** Exact selectors of one live post-processing model and optional output specification. */
+export interface PostProcessModel {
+  modelId: string
+  platformId: string
+  standardId: number
+  videoStandardId: number | null
+}
+
+/** Caller selection for a post-processing catalogue row. */
+export interface PostProcessSelection {
+  modelId: string
+  platformId?: string
+  resolution?: string
+}
+
+/**
+ * Resolve an explicit model against its task-specific live catalogue.
+ * @param catalogue - Rows from taskType 10 or 20.
+ * @param selection - Exact model, optional platform and output resolution.
+ * @returns Unique provider selectors; erasure models without standards return null for that selector.
+ * @throws {JubianError} CONTRACT_CHANGED for missing, ambiguous or malformed model/specification rows.
+ */
+export function resolvePostProcessModel(catalogue: unknown, selection: PostProcessSelection): PostProcessModel {
+  if (!Array.isArray(catalogue)) invalid()
+  const objects = catalogue.filter((row): row is Record<string, unknown> =>
+    row !== null && typeof row === 'object' && !Array.isArray(row))
+  const matches = objects.filter(row => row.modelId === selection.modelId
+    && (selection.platformId === undefined || row.platformId === selection.platformId))
+  const [row] = matches
+  if (matches.length !== 1 || row === undefined || typeof row.platformId !== 'string' || !row.platformId.trim()) {
+    throw new JubianError('CONTRACT_CHANGED', 'Select one live model and platform from the task-specific catalogue')
+  }
+  const rawStandards = row.videoStandards
+  if (!Array.isArray(rawStandards)) invalid()
+  const standards = rawStandards.filter((item): item is Record<string, unknown> =>
+    item !== null && typeof item === 'object' && !Array.isArray(item))
+    .filter(item => selection.resolution === undefined
+      || (typeof item.resolution === 'string' && item.resolution.toLowerCase() === selection.resolution.toLowerCase()))
+  const [standard] = standards
+  if ((rawStandards.length > 0 && standards.length !== 1)
+    || (rawStandards.length === 0 && selection.resolution !== undefined)) {
+    throw new JubianError('CONTRACT_CHANGED', 'Select one supported output resolution from the live model standards')
+  }
+  if (standard?.modelId !== undefined && standard.modelId !== selection.modelId) invalid()
+  return { modelId: selection.modelId, platformId: row.platformId,
+    standardId: positive(row.id ?? row.standardId), videoStandardId: standard === undefined ? null : positive(standard.id) }
+}
 
 /** One upscale submission as a caller states it. */
 export interface VideoUpscaleInput {
@@ -57,9 +96,11 @@ function positive(value: unknown): number {
 /**
  * Build the exact upscale request body.
  * @param input - Source identity, duration, URL and a task name.
+ * @param model - Live selectors; omitted legacy calls retain the SeedVR2 configuration.
  * @returns The wire body for one upscaling submission.
  */
-export function buildVideoUpscaleRequest(input: VideoUpscaleInput): Record<string, unknown> {
+export function buildVideoUpscaleRequest(input: VideoUpscaleInput,
+  model: PostProcessModel = VIDEO_UPSCALE_MODEL): Record<string, unknown> {
   const videoUrl = input.videoUrl
   if (typeof videoUrl !== 'string' || !videoUrl.startsWith('https://')) invalid()
   if (typeof input.taskName !== 'string' || !input.taskName.trim() || !input.taskName.isWellFormed()
@@ -74,10 +115,10 @@ export function buildVideoUpscaleRequest(input: VideoUpscaleInput): Record<strin
     duration,
     taskName: input.taskName,
     taskType: VIDEO_UPSCALE_TASK_TYPE,
-    modelId: VIDEO_UPSCALE_MODEL.modelId,
-    platformId: VIDEO_UPSCALE_MODEL.platformId,
-    standardId: VIDEO_UPSCALE_MODEL.standardId,
-    videoStandardId: VIDEO_UPSCALE_MODEL.videoStandardId,
+    modelId: model.modelId,
+    platformId: model.platformId,
+    standardId: positive(model.standardId),
+    videoStandardId: positive(model.videoStandardId),
     videoUrl }
 }
 

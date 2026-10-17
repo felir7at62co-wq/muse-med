@@ -23,6 +23,7 @@ import {
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled, withGenerationEnabled,
 } from '@deepseek-ai/dsh-jubian-api'
+import { resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
@@ -102,7 +103,11 @@ export interface MethodArgs {
   estimate_basis?: string
   /** Image medium; 2D and 3D animation both use anime. */
   image_style?: ImageStyle
-  /** `image_generate`: one-call platform choice; omitting it uses the configured or saved route. */
+  /** Exact live image specification, used when ratio and resolution are ambiguous. */
+  image_spec_id?: number
+  image_model_id?: string
+  image_resolution?: string
+  /** One-call platform choice; omitted calls use the configured or saved route. */
   image_platform_id?: string
   /** `image_generate`: requested image ratio; omitted calls retain 16:9. */
   image_aspect_ratio?: ImageAspectRatio
@@ -110,6 +115,9 @@ export interface MethodArgs {
   parent_asset_id?: number
   content_duration_ms?: number
   model_id?: string
+  platform_id?: string
+  resolution?: string
+  erase_mode?: 'automatic' | 'region'
   task_name?: string
   first_result_id?: number
   parent_result_id?: number
@@ -169,6 +177,9 @@ export interface ImageBatchItem {
   prompt?: string
   /** This item's image medium; its complete 3D substyle remains in prompt. */
   image_style?: ImageStyle
+  image_spec_id?: number
+  image_model_id?: string
+  image_resolution?: string
   image_platform_id?: string
   references?: string[]
   parent_asset_id?: number
@@ -228,7 +239,7 @@ type ClientResponse = JubianResponse
  * spending three minutes of wall clock.
  */
 export interface ImageMethodOptions {
-  /** The `gpt-image-2` catalogue row this deployment pinned. */
+  /** Deployment image selection; explicit per-call models replace it. */
   selection?: ImageModelSelection
   /** Total budget for reaching `hsAssetStatus === 'Active'`, in milliseconds. */
   activeTimeoutMs?: number
@@ -238,6 +249,16 @@ export interface ImageMethodOptions {
   now?: () => number
   /** Sleep between readback polls. */
   sleep?: (ms: number) => Promise<void>
+}
+
+/** Explicit model selection does not retain another model's configured platform or standard. */
+function imageSelection(args: { image_model_id?: string; image_platform_id?: string; image_resolution?: string; image_spec_id?: number },
+  configured: ImageModelSelection | undefined): ImageModelSelection {
+  const base = args.image_model_id === undefined ? configured ?? {} : { modelId: args.image_model_id }
+  const platform = args.image_platform_id === undefined ? base
+    : { ...(base.modelId === undefined ? {} : { modelId: base.modelId }), platformId: args.image_platform_id }
+  return { ...platform, ...(args.image_spec_id === undefined ? {} : { videoStandardId: args.image_spec_id }),
+    ...(args.image_resolution === undefined ? {} : { resolution: args.image_resolution }) }
 }
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
@@ -596,7 +617,7 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs): Pro
   switch (args.method) {
     case 'models': {
       const taskType = need(args.task_type)
-      if (![TASKS.video, TASKS.image, TASKS.subtitleErasure].includes(taskType as 1 | 2 | 10)) {
+      if (![TASKS.video, TASKS.image, TASKS.subtitleErasure, 20].includes(taskType)) {
         throw new JubianError('CONTRACT_CHANGED')
       }
       const result = await client.request({ method: 'GET', path: `/model/charge/getSelectList?taskType=${taskType}` })
@@ -851,8 +872,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const catalogueRows = (await client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
       for (const { item, assetName, assetType } of prepared) {
-        const selection: ImageModelSelection = item.image_platform_id === undefined
-          ? deps.image?.selection ?? {} : { platformId: item.image_platform_id }
+        const selection: ImageModelSelection = imageSelection(item, deps.image?.selection)
         buildImageRequest({ scriptId: need(args.script_id), assetName,
           assetType, prompt: need(item.prompt), imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
           references: item.references ?? [],
@@ -925,9 +945,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
-      const selection: ImageModelSelection = args.image_platform_id === undefined
-        ? deps.image?.selection ?? {}
-        : { platformId: args.image_platform_id }
+      const selection: ImageModelSelection = imageSelection(args, deps.image?.selection)
       const { assetName, assetType } = imageIdentity(args, deps.naming ?? resolveNaming())
       const imageStyle = resolveImageStyle(need(args.prompt), args.image_style)
       // Ordinary replays skip this catalogue read. A batch supplies its one
@@ -996,11 +1014,18 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           // the source identities and duration.
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'current')
           projectId = media.scriptId
+          const selected = args.model_id === undefined && args.platform_id === undefined && args.resolution === undefined
+            ? undefined : resolvePostProcessModel((await client.request({ method: 'GET',
+              path: '/model/charge/getSelectList?taskType=20' })).data, {
+              modelId: args.model_id ?? VIDEO_UPSCALE_MODEL.modelId,
+              ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+              resolution: args.resolution ?? '1080p',
+            })
           return buildVideoUpscaleRequest({
             ...media,
             taskName: args.task_name
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-高清转换`,
-          })
+          }, selected)
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
         () => ({ scriptId: projectId as number }))
@@ -1144,7 +1169,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         path: `/aigc/storyboard/list?scriptId=${scriptId}&${page(args)}` })
       return { storyboards: readStoryboardPage(result.data, scriptId), page_num: args.page_num ?? 1,
         page_size: args.page_size ?? 20,
-        next: '按 total 与分页读取当前项目；total 未返回时继续到空页。get 读取指定分镜详情；空项目可直接 create，无需模型配置或手工样本。' }
+        next: '按 total 与分页读取当前项目；total 未返回时继续到空页。写提示词默认按分集选择已有视频卡，get 读取详情，'
+          + '再 edit_preview/edit_batch_preview → edit_apply 原位填写；仅已有卡不足或用户明确要求新增时 create/create_batch。空项目无需模型配置或手工样本。' }
     }
     case 'get': {
       const result = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
@@ -1223,14 +1249,20 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           // coordinates in a way no caller can reproduce.
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
-          return buildSubtitleEraseRequest(need(args.model_id, 'model_id'), {
+          const modelId = need(args.model_id, 'model_id')
+          const selected = SUBTITLE_ERASE_MODELS.some(id => id === modelId) && args.platform_id === undefined
+            ? undefined : resolvePostProcessModel((await client.request({ method: 'GET',
+              path: '/model/charge/getSelectList?taskType=10' })).data, { modelId,
+              ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+            })
+          return buildSubtitleEraseRequest(modelId, {
             ...media,
             taskName: args.task_name
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-去字幕`,
             videoWidth: need(args.video_width),
             videoHeight: need(args.video_height),
             ...(args.subtitle_box === undefined ? {} : { subtitleBox: args.subtitle_box }),
-          })
+          }, selected, args.erase_mode)
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
         () => ({ scriptId: projectId as number }))

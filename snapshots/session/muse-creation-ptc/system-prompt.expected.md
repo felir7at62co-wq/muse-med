@@ -4,7 +4,7 @@ You are an AI agent powered by DeepSeek Harness.
 
 ## 创作共用规则
 
-先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面文字先复用已有字幕/转写，支持时用 video_ocr；本机 OCR 不支持或不可用时说明能力，只有已有明确 ASR 授权才走 audio-transcribe，不自动扣费或混淆来源。音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 短剧制作选 tweet-drama-pipeline；普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择； 需要精修、批注对账、修改说明模板或详细 QA 清单时再加载 muse-creation。
+先核对用户目标、授权范围、已有项目与实际产物，只推进所需阶段。视频画面文字先复用已有字幕/转写，支持时用 video_ocr；本机 OCR 不支持或不可用时说明能力，只有已有明确 ASR 授权才走 audio-transcribe，不自动扣费或混淆来源。音频对白与视频转剧本用 audio-transcribe；剧本按来源选 novel-to-script 或 transcript-to-script； 普通剪辑先核对素材再用现有 FFmpeg 工具，不强制完整短剧流程。其他专业技能按自动目录按需选择；
 
 各任务按阶段执行：产出并返回可读证据 → 下一模型轮检查 → 修正并重读复检 → 继续依赖阶段或交付。机器先检查格式、引用、覆盖与摘要； 需要模型判断的内容须实际进入上下文后再检查，图片须实际看过，语音须有试听依据。明确记录 self-check、输入输出版本、实际检查范围及未完成项； 不为每个小工具强加新回合，不以文件存在、工具成功、关键词检查或计划冒充完成。
 
@@ -25,7 +25,7 @@ You are an AI agent powered by DeepSeek Harness.
 
 当编写短剧镜头脚本时，建议每个镜头控制在1–4秒。有台词时按8个有效字/秒计算预算：max(1, ceil(有效字数/8))；有效字计汉字、拉丁字母和数字，标点、空格不计。 超过4秒的台词按原文语义拆到连续镜头，保持原文、说话人、顺序和发声连续；可以切到对方反应并让原说话人画外续说，不能为了限时删词、改台词或让别人接说。 无台词的反应、道具信息和简单动作优先1–2秒；只有完整复杂动作确实需要时才用3–4秒，避免空停、重复动作和无信息的环境展示。 同时发生的动作与台词放在同一镜头，不重复拆出动作停留。分镜明确景别、主要动作、可见情绪和唯一主要运镜，关键道具或屏幕信息给合适的特写。
 
-拍摄时间只写入本地预算、时间线或请求的duration/content_duration_ms参数。发送剧变的modelConfig.prompt及分镜画面正文禁止镜头时长字段、0–3秒等时间段、秒数倒排和总时长说明； 结尾只描述自然动作收束，不写收束秒数。原剧本台词或画面内容本身的时间信息保留，不能误删台词里的“三秒”或剧情要求的倒计时。 使用drama_shot preview/compile返回的包prompt，不按时间线重写一份带时间的提交稿；提交前回读实际保存的model_config.prompt与独立时长参数。 各包按完整连续镜头预算加自然收束，符合当前模型实际时长范围；视频包总时长不是单镜时长。成片按实际切点复核镜头节奏，预算通过不代表成片遵守。
+拍摄时间只写入本地预算、时间线或请求的duration/content_duration_ms参数。发送剧变的modelConfig.prompt及分镜画面正文禁止镜头时长字段、0–3秒等时间段、秒数倒排和总时长说明； 结尾只描述自然动作收束，不写收束秒数。原剧本台词或画面内容本身的时间信息保留，不能误删台词里的“三秒”或剧情要求的倒计时。 由Agent组织各包完整提示词与素材引用；提交前回读实际保存的model_config.prompt与独立时长参数，通过prepare_video免费预览后自主检查。 各包按完整连续镜头预算加自然收束，符合当前模型实际时长范围；视频包总时长不是单镜时长。成片按实际切点复核镜头节奏，预算通过不代表成片遵守。
 
 站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包。剧本或视频提示中只要有人物走动、靠近、后退、换位等位置移动，或人物进入场景、离开场景、换场，整个包就不使用站位图；不为使用站位图强行拆包。摄影机移动、切镜或人物因取景暂时画外不算人物走位或离场。 符合适用条件且选择使用时，一个视频包配置一张完整全景站位图，沿用已确认角色图和场景图；一眼能看清全部在场人物各自唯一的位置、相互距离、前后与遮挡关系，以及门、桌、床等固定环境锚点。同一角色只出现一个实体，不用单镜局部图、表情图或动作状态拼图代替包级全景。 站位图严格沿用项目已确认风格和角色、场景资产的视觉样式；3D项目不能变真人摄影，真人项目不能被强改3D。生图提示明确项目风格并使用既有图作为参照，保持脸型比例、材质、服装和场景渲染一致。 站位图仅约束人物身份和空间关系；图中的站立、蹲下、坐下、姿势和表情不绑定视频状态，各镜按镜头脚本与视频提示决定。不能照搬图中的静态动作，或让应坐着、蹲着的人提前起身；无需因姿势或表情变化重做站位图。 动作与情绪由逐镜脚本描述并保持衔接；需要人物走位的包用脚本和视频提示说明路径，不挂站位图。只有阵容、空间布局和固定环境完全相同时才可跨包复用，且各包都须符合站位图适用条件。 使用站位图时，视频生成前必须实际查看该包的全景图，核对全部在场角色身份、人数、位置关系、固定物及机位轴线。多人站位参考图不取代正式角色资产；用于生成的干净图不带姓名、箭头或宫格文字，标注版本只供审核。每镜出镜名单优先于站位图中的全包阵容；单人近景不因全景图包含多人而额外生成画外人物。 画风须通过实际看图确认，不能仅凭提示词声明或style字段验收；风格不符的站位图不得绑定视频，先修复或重新生成并复审。付费修复遵守既有授权、预览和幂等对账规则，未知结果不换key重投。 审片先实际读取同一项目已确认的角色与场景参考图，再与生成图或带时间码的视频帧并列比对，记录参考资产、时间码和脸型、服装、材质、渲染等可见差异。仅看成片不能确认风格或角色身份符合项目；缺少已确认参考、看不清或风格难以区分时标为待确认，不通过、不绑定，也不擅自收费重做。 正式参考的父资产ID、材质ID及确认状态须与同一项目当前记录一致。历史图、候选图或身份与风格未核的图只能辅助观察，不能替代正式参考，也不能混合不同标准提高置信度或判通过。 写实CG和照片感画面可能相近；只描述可见画面及与参考的符合程度，不凭提示中的3D、任务状态或加载的技能推断实际风格，也不把渲染或真人实拍的制作来源当作看图已证实的事实。 画风相符须逐项对照正式参考的造型比例、材质表现、渲染质感与强弱，记录可见相似与差异；“同为3D”“CG同族”或未见另一风格特征不足以判通过。细项差异未解释或细节不足时保持待确认，不把低清未呈现的纹理当作制作来源证据；不强迫具体风格标签，已核实的合理光照和机位变化不单独判失败。 每镜绑定实际入画角色及必要场景、道具；多视角设定只表示同一个人，不复制演员。对照正式资产逐镜检查脸型、发型、服装和年龄特征；服装相似或资产ID正确都不足以确认角色一致。 与正式参考的脸型、发型、衣装、材质或渲染存在影响身份或画风的可见差异时，相关项记失败；证据不足以判断时记待确认。未获明确授权接受差异或复检证实解决前不能通过，不以低清、光照或“可能版本不同”自行豁免。已核实为合理镜头变化的摄影机切换、姿态、光照和普通构图偏差可以接受，但不能替代身份与画风关键特征核对。 关键正式参考缺失或未核、关键质量项失败或待确认时，包整体不得通过，不绑定、不推进依赖该验收的收费操作；不能用局部通过、高置信度或“未发现失败”覆盖未核项。 人物难以辨认、重复、错绑定、瞬移或镜头节奏超限时记录具体时段，修正受影响片段后再实看复检；不把任务成功当作质量通过。
 
@@ -206,21 +206,6 @@ interface ToolArgsMap {
     /** render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。 */
     force?: boolean;
   } & Record<string, JsonValue>;
-  /** 短剧镜头脚本的判定与编译（剧变流水线）。validate=只读校验：逐镜给出推导时长（8 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，硬失败与警告分开列出；preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、提交给剧变的整秒时长与素材键顺序。时长：N秒的正整数声明优先；省略时按 8 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，没写就按默认 2 秒计；只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时判失败：无声镜整行省略台词行与出镜人物，不要用占位值占位；本说明、技能正文与检查清单里出现这些字样不算脚本违规，校验只看脚本里写了什么。导演格式对白必须有说话人；说话人字段与台词角色前缀冲突时失败，不能静默换角色。旁白/解说/心声/画外声/OS 作为 vo 画外发声保留原文与说话人，提醒核对项目配音；风格/负面词缺失和正文秒数仅警告；只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产；角色状态在绑定前强制核对：每个入画角色都要在自己的 主体状态追踪 段落里写 身体状态：【阶段（孕周/年龄段）；服装；发型】；（孕八周记孕早期，没有体型变化写 非孕期），所挂资产的 state_or_costume（连同资产名）必须登记同一组维度，资产还必须登记 episodes（本集号数组，或 ["all"] 全剧母版）；任一侧没写、写了别的阶段、或本集不在登记集数里都判失败并点名资产 id，清单里根本没有该状态的资产时给出补料需求（角色/阶段/服装/用于哪几集）与补料路径，不静默绑定。preview/compile 必填 max_submit_seconds：单包提交时长上限（至少4秒，在项目模型确认能力内），不是自动取模型最大值。只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。硬失败时不会写任何文件，也不给打包方案。 */
-  drama_shot: {
-    /** validate=只读校验；preview=只读预算（不落盘）；compile=判定通过后写入 matched JSON 与单集 package。 */
-    method: "validate" | "preview" | "compile";
-    /** 镜头脚本路径（绝对，或相对当前工作目录）。 */
-    script: string;
-    /** 资产清单 assets_manifest.json 的路径；preview 与 compile 必填，validate 可选——给了才判定资产绑定。 */
-    assets?: string;
-    /** 项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。 */
-    project?: string;
-    /** preview/compile 必填：本次打包的单包总时长上限，包含收束。项目模型 SD2.0 支持4–15秒，SD2.5 支持4–30秒；具体修订须已核实。按内容确定，不必取最大值；编译后将各包 submit_seconds 写入对应分镜。 */
-    max_submit_seconds?: number;
-    /** 集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。 */
-    episode?: number;
-  } & Record<string, JsonValue>;
   /** 按用户决定禁用或解除禁用具体视频版本。ban 必须提供本地 video 和至少一个 labels 标签（如人物对调、字幕错误），reason 可选，不要求审图证据。内部按 SHA256 标识，同字节副本共享禁用，新生成不同字节不受影响。unban 不等于审核通过；list/inspect 可读标签和原因。只在 drama_render prepare/render 拦截，verify 报告风险不删文件；不拦截通用 ffmpeg。 */
   drama_video: {
     method: "ban" | "unban" | "list" | "inspect";
@@ -314,7 +299,7 @@ interface ToolArgsMap {
     /** 默认false；true跳过短期内存缓存重新读取公开网页 */
     refresh?: boolean;
   };
-  /** 按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。按新版原源接口逐集请求媒体模型，每5集组织下载并累积全部结果。逐集取流按配置间隔等待，媒体下载仍并发。已成功解析媒体后遇到偶发空正文，同一查询可保留原设备配置等待接口恢复后最多重试一次，默认等待120秒；这不是电脑降温，也不能据此断定提供方限流；可取消，等待期间不要重复提交相同任务。检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads；完全权限下按用户指定的绝对outputDir直接落盘，收据记录最终路径。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。失败结果包含sourceStage与upstreamCode时按实际阶段和错误码诊断；retryable为false时不要立即重复相同请求。empty_source_response表示HTTP成功但正文为空，不能据此判断全平台停服或自动重建设备。不能仅凭目录成功或文件齐全断言本地无问题、提供方临时故障。 */
+  /** 按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。按配置每批最多5集请求媒体模型，预取下一批地址并与当前批下载重叠，累积全部结果。批次取流按配置间隔等待；媒体按连接预算并发，支持可靠字节范围的较大文件可分段下载，可恢复的分段异常停止并收取全部工作后回退一次完整下载。已成功解析媒体后遇到偶发空正文，同一查询可保留原设备配置等待接口恢复后最多重试一次，默认等待120秒；这不是电脑降温，也不能据此断定提供方限流；可取消，等待期间不要重复提交相同任务。检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads；完全权限下按用户指定的绝对outputDir直接落盘，收据记录最终路径。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。失败结果包含sourceStage与upstreamCode时按实际阶段和错误码诊断；retryable为false时不要立即重复相同请求。empty_source_response表示HTTP成功但正文为空，不能据此判断全平台停服或自动重建设备。不能仅凭目录成功或文件齐全断言本地无问题、提供方临时故障。 */
   hongguo_download: {
     /** 一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部 */
     seriesIds: string[];
@@ -437,11 +422,11 @@ interface ToolArgsMap {
     /** Update only: exact revision returned by read. Stale writes do not change the authorization. */
     expected_revision?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）目录与项目只读查询：账户模型目录与报价、剧本、分集。全部只读，不产生费用。 */
+  /** 剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。 */
   jubian_catalog: {
     /** models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。 */
     method: "models" | "rate" | "script" | "episodes";
-    /** models 必填：1=视频，2=图片，10=去字幕。 */
+    /** models 必填：1=视频，2=图片，10=去字幕，20=转高清。 */
     task_type?: number;
     /** rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。 */
     standard_id?: number;
@@ -517,7 +502,7 @@ interface ToolArgsMap {
       resolution?: string;
       /** 目录支持的生成类型。 */
       genType?: number;
-      /** 模型允许的整数秒数，包含末尾自然收束：SD2.0 为4–15秒，SD2.5 为4–30秒，具体修订须已核实。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。 */
+      /** 当前所选模型的正整数秒数：已知 SD2.0 为4–15秒，SD2.5 为4–30秒；其他目录模型按其能力选时长，不套用 Seedance 上限。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。 */
       duration?: number;
       /** 目录支持的生成数量。 */
       genNum?: number;
@@ -551,9 +536,9 @@ interface ToolArgsMap {
     /** 简述用户原话中对本次目标范围和时间窗口的明确授权；不能把查询结果当成授权。 */
     authorization_basis: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。修改已有任务卡用 edit_preview 或 edit_batch_preview 检查 before/after，再 edit_apply；保持分镜 ID，不因秒数或提示词变化新建卡。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
+  /** 剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，默认先 list/get 当前项目和分集的已有视频卡并原位填写；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请检查：项目与分集、已有视频卡 ID 及逐卡视频包对应、before/after 与本次修改范围、提示词和原文对白、素材标记与用途、动作和空间关系、所选模型与时长；发现问题先修正。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_storyboard: {
-    /** list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。 */
+    /** list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。 */
     method: "list" | "get" | "create" | "create_batch" | "save" | "edit_preview" | "edit_batch_preview" | "edit_apply" | "generate" | "select_assets" | "prepare_video" | "submit_video" | "submit_video_batch" | "erase_subtitle" | "delete_preview" | "delete_apply" | "audio_preview" | "audio_apply";
     /** 分镜 ID。 */
     storyboard_id?: number;
@@ -567,10 +552,14 @@ interface ToolArgsMap {
     task_id?: number;
     /** 剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。 */
     script_id?: number;
-    /** erase_subtitle 必填：quzimuToB（羽点，区域性）或 ark-erase-video-subtitle-pro（自动）。插件不设默认值——省略即在发请求前报错，不会替你挑一个模型。 */
+    /** erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。 */
     model_id?: string;
     /** erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。 */
     task_name?: string;
+    /** 去字幕可选：task_type=10 目录的精确 platformId。 */
+    platform_id?: string;
+    /** 新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。 */
+    erase_mode?: "automatic" | "region";
     /** 可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。 */
     episode?: string;
     /** erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 `EP05-P3` 前缀。 */
@@ -581,7 +570,7 @@ interface ToolArgsMap {
     video_height?: number;
     /** erase_subtitle 可选：{zimuLeft,zimuTop,zimuWidth,zimuHeight}。省略时按画面尺寸推导提供方默认比例——通常不要传，工作台的预览坐标无法由调用方复现。 */
     subtitle_box?: Record<string, JsonValue>;
-    /** create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。 */
+    /** create_batch 必填：仅已有视频卡不足或用户明确要求新增时使用；先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。 */
     storyboards?: {
       /** 本项固定重放键；不得重复。 */
       idempotency_key: string;
@@ -618,11 +607,11 @@ interface ToolArgsMap {
     }[];
     /** audio_apply 必填：已检查的 audio_preview fingerprint；idempotency_key 必须相同。 */
     expected_fingerprint?: string;
-    /** edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。 */
+    /** edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是所选模型实际请求的整数秒。 */
     changes?: {
       /** 新的完整包提示词；素材标记改变后须重新选源。 */
       prompt?: string;
-      /** SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。 */
+      /** 正整数秒；SD2.0 为4–15秒，SD2.5 为4–30秒，其他目录模型按各自能力与镜头内容确定。 */
       duration?: number;
       modelId?: string;
       platformId?: string;
@@ -677,7 +666,7 @@ interface ToolArgsMap {
     /** 本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。 */
     estimate_basis?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，或由部署在插件配置里给 imagePlatformId/imageStandardId；本次改道可显式给 image_platform_id。遇到未锁定的多候选时把候选念给用户，请他在设置里选一行，不要自己挑。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
+  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_video: {
     /** task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
     method: "task" | "tasks" | "subtasks" | "unresolved" | "image_generate" | "image_generate_batch" | "upscale" | "retry";
@@ -711,6 +700,12 @@ interface ToolArgsMap {
       prompt: string;
       /** 本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。 */
       image_style?: "live_action" | "anime";
+      /** 本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。 */
+      image_spec_id?: number;
+      /** 本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。 */
+      image_model_id?: string;
+      /** 本项可选的目录分辨率，如 1K、2K、4K。 */
+      image_resolution?: string;
       /** 本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。 */
       image_platform_id?: string;
       /** 本项有序参考图 HTTPS URL。 */
@@ -720,9 +715,15 @@ interface ToolArgsMap {
     })[];
     /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
     image_style?: "live_action" | "anime";
+    /** image_generate 可选：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
+    image_spec_id?: number;
+    /** image_generate 可选：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
+    image_model_id?: string;
+    /** image_generate 可选：所选模型目录支持的分辨率，如 1K、2K、4K。 */
+    image_resolution?: string;
     /** image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。 */
     image_platform_id?: string;
-    /** image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，不接受直接传入规格 ID。 */
+    /** image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。 */
     image_aspect_ratio?: "16:9" | "9:16";
     /** image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。 */
     references?: string[];
@@ -736,6 +737,12 @@ interface ToolArgsMap {
     package_number?: string;
     /** erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。 */
     task_name?: string;
+    /** erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。 */
+    model_id?: string;
+    /** upscale 可选：task_type=20 实时目录中的精确 platformId。 */
+    platform_id?: string;
+    /** upscale 可选：所选高清模型目录中的输出分辨率，默认1080p。 */
+    resolution?: string;
     /** 写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
     idempotency_key?: string;
   } & Record<string, JsonValue>;
@@ -1941,133 +1948,6 @@ interface ToolOutputMap {
       /** 未通过的检查数（含 warning）。 */
       failed_checks: number;
       /** 提醒条数。 */
-      warnings: number;
-    };
-  };
-  drama_shot: {
-    /** 产生本结果的操作。 */
-    method: "validate" | "preview" | "compile";
-    /** 是否通过全部硬失败；false 时没有写任何文件、也没有打包方案。 */
-    ok: boolean;
-    /** 被判定镜头脚本的绝对路径。 */
-    script: string;
-    /** 资产清单绝对路径；空串表示本次没有给清单（validate 未做资产绑定判定）。 */
-    assets_manifest: string;
-    /** 是否判定过资产绑定。 */
-    assets_checked: boolean;
-    shots: ({
-      /** 镜头号。 */
-      shot: number;
-      /** 【镜头N】在脚本里的行号。 */
-      line: number;
-      /** dialogue=画面内台词；vo=画外发声，含旁白/心声；action=无发声。 */
-      voice_type: "dialogue" | "vo" | "action";
-      /** 说话人；无声镜为空串。 */
-      speaker: string;
-      /** 去掉说话人前缀后的台词原文；无声镜为空串。 */
-      text: string;
-      /** 有效字：汉字/字母/数字，标点与空格不计。 */
-      effective_chars: number;
-      /** 本镜计入打包预算的整秒数。 */
-      duration_seconds: number;
-      /** 时长来源：明确声明、8 有效字/秒估算、动作复杂度、或编译器默认值。 */
-      duration_source: "speech" | "declared" | "complexity" | "default";
-      /** 是否是同场画外音。 */
-      offscreen: boolean;
-      /** 出镜人物 字段原文；整行省略时为空串。 */
-      characters_field: string;
-      /** 绑定到的正式场景名；空串表示没有绑定场景。 */
-      scene: string;
-      /** 关键道具 字段原文；整行省略时为空串。 */
-      props_field: string;
-      /** 本镜绑定的资产，顺序为 人物 → 场景 → 道具。 */
-      bindings: {
-        /** 资产正式名。 */
-        name: string;
-        /** 资产类型。 */
-        type: string;
-        /** 是否 official=true。 */
-        official: boolean;
-        /** 剧变父资产 ID；缺失为空串。 */
-        asset_id: string;
-        /** 剧变生成材质 ID；缺失为空串。 */
-        material_id: string;
-        /** 剧变资产 URL；缺失为空串。 */
-        url: string;
-      }[];
-    })[];
-    /** 每包对应一次剧变提交；硬失败时为空数组。 */
-    packages: ({
-      /** 包序号，从 1 开始。 */
-      index: number;
-      /** 本包镜头号，按脚本顺序。 */
-      shots: number[];
-      /** 本包内容时长（整秒），加收束不超过 max_submit_seconds。 */
-      content_seconds: number;
-      /** 提交 jubian_storyboard generate 的 content_duration_ms（整千毫秒）。 */
-      content_duration_ms: number;
-      /** 提交给剧变的整秒时长：内容时长 + 1 秒自然收束。 */
-      submit_seconds: number;
-      /** 自然收束秒数，至少 1；短包增加停留以达到 4 秒最低提交时长。 */
-      natural_hold_seconds: number;
-      /** 写进提示词的收束要求，不新增台词。 */
-      hold_instruction: string;
-      /** 可直接保存到分镜 modelConfig.prompt 的完整镜头正文、已绑定素材映射与自然收束要求。 */
-      prompt: string;
-      /** 本包提示词里 @[名称](key) 的 key，按出现顺序去重；select_assets 必须按这个顺序提交。 */
-      material_keys: string[];
-      /** 本包镜头绑定的资产名，按镜头顺序去重。 */
-      material_names: string[];
-      /** 按提示词 key 顺序的明确素材身份；直接使用这些 key、父资产 ID 与 material ID，不按名称数组下标猜。 */
-      material_bindings: ({
-        material_key: string;
-        name: string;
-        type: string;
-        official: boolean;
-        asset_id: string;
-        material_id: string;
-        url: string;
-        reference_scope: "identity" | "appearance";
-      })[];
-    })[];
-    /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
-    failures: ({
-      /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
-      severity: "failure" | "warning";
-      /** 稳定的规则代码（见包 README 的代码表）。 */
-      code: string;
-      /** 脚本行号；0 表示整篇问题。 */
-      line: number;
-      /** 镜头号；0 表示整篇问题。 */
-      shot: number;
-      /** 中文说明：指出违规值并给出修法。 */
-      message: string;
-    })[];
-    /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
-    warnings: ({
-      /** severity=failure 表示必须先修好再编译，warning 不阻塞编译。 */
-      severity: "failure" | "warning";
-      /** 稳定的规则代码（见包 README 的代码表）。 */
-      code: string;
-      /** 脚本行号；0 表示整篇问题。 */
-      line: number;
-      /** 镜头号；0 表示整篇问题。 */
-      shot: number;
-      /** 中文说明：指出违规值并给出修法。 */
-      message: string;
-    })[];
-    /** 本次写入的绝对路径；只有 compile 通过后才非空。 */
-    written: string[];
-    summary: {
-      /** 镜头数。 */
-      shots: number;
-      /** 包数。 */
-      packages: number;
-      /** 全部包的内容时长之和。 */
-      content_seconds: number;
-      /** 硬失败条数。 */
-      failures: number;
-      /** 警告条数。 */
       warnings: number;
     };
   };

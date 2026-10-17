@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "skills/jubian-asset-library/scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills/tweet-drama-core/scripts/asset_library"
 sys.path.insert(0, str(SCRIPTS))
 import character_candidates as characters
 import search_assets

@@ -19,8 +19,8 @@ export type { ImageAspectRatio, ImageModelCandidate, ImageModelSelection, ImageM
 export { AUTOMATIC_ERASE_MODEL, DEFAULT_SUBTITLE_REGION, SUBTITLE_ERASE_MODELS, SUBTITLE_ERASE_STANDARDS,
   buildSubtitleEraseRequest, defaultSubtitleBox, readSubtitleTaskId } from './subtitle.ts'
 export type { SubtitleEraseInput } from './subtitle.ts'
-export { VIDEO_UPSCALE_MODEL, VIDEO_UPSCALE_TASK_TYPE, buildVideoUpscaleRequest, readUpscaleTaskId } from './upscale.ts'
-export type { VideoUpscaleInput } from './upscale.ts'
+export { VIDEO_UPSCALE_MODEL, VIDEO_UPSCALE_TASK_TYPE, buildVideoUpscaleRequest, readUpscaleTaskId, resolvePostProcessModel } from './upscale.ts'
+export type { VideoUpscaleInput, PostProcessModel, PostProcessSelection } from './upscale.ts'
 export { MEDIA_ALLOWED_ORIGINS, MEDIA_LIMITS, downloadMedia } from './download.ts'
 export type { DownloadMediaOptions, DownloadedMedia, MediaKind } from './download.ts'
 export { REFERENCE_ALIGNMENT, REFERENCE_OBJECT_PREFIX, alignReferenceEdge, alignedReferenceSize,

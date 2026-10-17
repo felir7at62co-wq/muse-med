@@ -123,8 +123,9 @@ export function desktopPackageSteps(
   if (sources === null || typeof sources !== 'object' || Array.isArray(sources)) {
     throw new Error('desktop package: third_party/plugins/sources.json is not an object')
   }
-  const pinnedTarballs = Object.keys(sources)
-    .map(source => packedTarball(join('third_party', 'plugins', source), `community plugin ${source}`))
+  const pinnedTarballs = Object.entries(sources)
+    .filter(([, pin]) => !(pin !== null && typeof pin === 'object' && 'desktop' in pin && pin.desktop === false))
+    .map(([source]) => packedTarball(join('third_party', 'plugins', source), `community plugin ${source}`))
   const downloads = JSON.parse(readFileSync(join(root, 'third_party', 'plugins', 'owned-downloads.json'), 'utf8')) as Record<string, { version: string }>
   const downloadTarballs = Object.keys(downloads)
     .map(source => packedTarball(join('third_party', 'plugins', source), `Muse download tool ${source}`))

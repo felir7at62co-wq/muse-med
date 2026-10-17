@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 PACKAGE = Path(__file__).resolve().parents[1]
 SKILLS = PACKAGE / "skills"
-ASSETS = SKILLS / "jubian-asset-library" / "scripts"
+ASSETS = SKILLS / "tweet-drama-core" / "scripts" / "asset_library"
 sys.path.insert(0, str(ASSETS))
 
 
@@ -118,32 +118,13 @@ class Resources(unittest.TestCase):
 
     def test_asset_roots_use_dsh_home_and_explicit_override(self):
         os.environ["DSH_HOME"] = str(self.root / "home")
-        for name in ("search_assets", "batch_tag_all", "download_and_tag_project"):
-            with self.subTest(name=name):
-                self.assertEqual(load(ASSETS / (name + ".py")).ROOT, self.root / "home/data/jubian-asset-library")
+        self.assertEqual(load(ASSETS / "search_assets.py").ROOT, self.root / "home/data/jubian-asset-library")
         os.environ["JUBIAN_ASSET_LIBRARY_ROOT"] = str(self.root / "override")
         self.assertEqual(load(ASSETS / "search_assets.py").ROOT, self.root / "override")
 
-    def test_missing_vision_key_fails_without_file_or_network_access(self):
-        for name in ("batch_tag_all", "download_and_tag_project", "retry_failed"):
-            module = load(ASSETS / (name + ".py"))
-            with self.subTest(name=name), patch.object(Path, "read_text", side_effect=AssertionError("credential file forbidden")), patch.object(sys, "argv", [name + ".py"]):
-                with self.assertRaisesRegex(SystemExit, "DEEPSEEK_API_KEY"):
-                    module.main()
-        self.request.assert_not_called()
-
-    def test_retry_uses_module_not_source_text(self):
-        source = (ASSETS / "retry_failed.py").read_text(encoding="utf-8")
-        self.assertNotIn("aa-manju", source)
-        module = load(ASSETS / "retry_failed.py")
-        with self.assertRaisesRegex(SystemExit, "DEEPSEEK_API_KEY"):
-            module.load_key()
-        self.request.assert_not_called()
-
     def test_skill_resources_are_portable_and_reports_honest(self):
-        asset = (SKILLS / "jubian-asset-library/SKILL.md").read_text(encoding="utf-8")
         delivery = (SKILLS / "tweet-drama-delivery/SKILL.md").read_text(encoding="utf-8")
-        self.assertNotIn("aa-manju", asset + delivery)
+        self.assertNotIn("aa-manju", delivery)
         self.assertNotIn("delivery-assembly.json", delivery)
         self.assertIn("stdout", delivery)
 

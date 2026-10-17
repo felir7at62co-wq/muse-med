@@ -17,7 +17,7 @@ description: 覆盖验收记录使用逐集 v2 摘要，显式短剧分工需要
 
 ## 迁移
 
-1. 同步更新相邻的 `tweet-drama-core`、`tweet-drama-script-split`、`tweet-drama-pipeline` 和 `tweet-drama-delivery` 技能目录。个人安装副本不会自动同步。
+1. 同步更新相邻的 `tweet-drama-core`、`tweet-drama-script-split` 和 `tweet-drama-delivery` 技能目录。个人安装副本不会自动同步。
 2. 备份 `episodes/manifest.json`。确认授权集号列表，再按[范围 schema](../../../../packages/drama/skills/skills/tweet-drama-core/references/io-contract.md#episode-work-scope-and-coverage) 添加 `work_scope.episode_ids`。保留真实整剧总集数，不从现有文件推断工作范围。
 3. 运行 `episode_coverage.py <project> audit`。处理缺失原文、过期摘要和不确定的映射。只对实际核对且通过的集运行 `accept <episode...>`；不能批量批准 pending 条目。新验收的集获得 v2 记录。
 4. 授权提交前运行 `gate <episode...>`，并运行 `pipeline_state.py <project> sync`。核对 `completion_scope=work_scope` 和准确的 `scope_episodes`。gate 返回非零时停止提交。这些命令不会生成或提交付费媒体。

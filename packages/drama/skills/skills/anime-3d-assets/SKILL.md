@@ -59,7 +59,7 @@ metadata:
 
 每次生成、编辑、复用和审核都读取项目 `style_lock`，并遵循 [画风隔离与质量验收](references/style-and-quality.md)。项目旧设定为仿真人但本轮明确要 3D 动漫时，创建新的 3D 风格修订和派生资产，保留旧版；不得优先继承冲突的旧风格。上游流程给出的真人提示词只提取剧情事实，按本技能重新构建视觉描述。
 
-`tweet-drama-asset-extract`、`tweet-drama-asset-vision-check` 和 `shot-script-creator-9-16` 的仿真人审美、真人感评分和真人模板不参与本技能的创作与画风验收。项目管理、任务查询、版本登记等能力可复用，但其默认摄影风格、女性选角审美、模型预设和提示词不得注入本任务。调用生成工具前查看最终实际提交文本与参考图，而不只检查本地草稿；按[提交前检查](references/first-pass-cg.md#提交前检查)保存最终工具参数并运行 `scripts/validate_generation_request.py`，仅退出码0且 `generation_ready=true` 才能提交。参考上传失败、尺寸校验失败、结果未知或缺少可用 URL 时暂停受影响请求，报告原因并保留失败记录，禁止静默删除参考后降级纯文字生成。批量请求须整批通过检查。
+`tweet-drama-asset-vision-check` 的仿真人审美、真人感评分和真人模板不参与本技能的创作与画风验收。项目管理、任务查询、版本登记等能力可复用，但其默认摄影风格、女性选角审美、模型预设和提示词不得注入本任务。调用生成工具前查看最终实际提交文本与参考图，而不只检查本地草稿；按[提交前检查](references/first-pass-cg.md#提交前检查)保存最终工具参数并运行 `scripts/validate_generation_request.py`，仅退出码0且 `generation_ready=true` 才能提交。参考上传失败、尺寸校验失败、结果未知或缺少可用 URL 时暂停受影响请求，报告原因并保留失败记录，禁止静默删除参考后降级纯文字生成。批量请求须整批通过检查。
 
 发现总控仍固定分派到仿真人技能时，返回明确交接要求：`asset_style_family=3d_anime`、`asset_creation_skill=anime-3d-assets`、`asset_review_rules=style-and-quality`。这些是交接说明，不冒充平台已支持的 API 参数；不能自行修改无关技能或声称安装本文件已经改变总控代码。
 

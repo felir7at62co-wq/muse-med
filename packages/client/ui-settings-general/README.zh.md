@@ -58,7 +58,7 @@ Web 与桌面端的通用设置底部显示当前发布版本，优先使用构�
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-外壳声明 settings.launcher，供账号功能提供侧边栏菜单，并以设置按钮作为回退。展开的入口可以声明 `data-settings-launcher-layout="stacked"`，将连接和更新状态对齐到第二行。入口接收 settingsOpen，其 false→true 边沿代表一次进入设置页，因此注册方在每次进入时执行一次，而不是在同一次打开中的每次重渲染执行。关闭对话框后，焦点返回当前入口。
+外壳声明 settings.launcher，供账号功能提供侧边栏菜单，并以设置按钮作为回退。展开的入口可以声明 `data-settings-launcher-layout="inline"`，将连接和更新状态放在主入口与末尾操作之间，与两者位于同一行。入口接收 settingsOpen，其 false→true 边沿代表一次进入设置页，因此注册方在每次进入时执行一次，而不是在同一次打开中的每次重渲染执行。关闭对话框后，焦点返回当前入口。
 
 <details>
 <summary>实现细节——点击展开</summary>

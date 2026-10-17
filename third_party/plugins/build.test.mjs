@@ -75,7 +75,7 @@ test('rejects an unknown source', () => {
   assert.match(result.stderr, /unknown source/)
 })
 
-test('builds every pinned plugin with its declared runtime entries and notices', () => {
+test('builds every desktop plugin with its declared runtime entries and notices', () => {
   const [first, second] = sameDepthOutputs('muse-all-plugins')
   try {
     const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--out', first], { cwd: root, stdio: 'inherit' })
@@ -83,7 +83,8 @@ test('builds every pinned plugin with its declared runtime entries and notices',
     const repeated = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--out', second], { cwd: root, stdio: 'inherit' })
     assert.equal(repeated.status, 0)
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
-    assert.equal(tarballs.length, Object.keys(pins).length)
+    assert.equal(tarballs.length, Object.values(pins).filter(pin => pin.desktop !== false).length)
+    assert.ok(tarballs.every(file => !file.startsWith('dsh-codex-subscription-')))
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })

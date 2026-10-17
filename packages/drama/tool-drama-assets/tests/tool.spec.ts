@@ -271,7 +271,7 @@ describe('runDramaAssets', () => {
       policy: {
         image_channel: 'KU_AI', image_unit_price_cny: 0.12, max_attempts_per_asset: 3,
         worst_case_cny_per_asset: 0.36,
-        cross_project_reuse: '手动：先跑 jubian-asset-library 技能检索，结论写进本文件的 cross_project_note',
+        cross_project_reuse: '手动：仅在已提供可用素材来源时评估复用，结论写进本文件的 cross_project_note',
       },
       cross_project_note: '',
       next: '证据 ready=false：付费生图会被宿主钩子拒绝，先按 ready_reason 把未登记的资产逐条处置。',

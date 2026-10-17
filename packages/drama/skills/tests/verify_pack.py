@@ -46,6 +46,6 @@ with tarfile.open(sys.argv[1], "r:gz") as archive:
         if relative.suffix == ".py":
             ast.parse(data, filename=str(relative), feature_version=(3, 11))
             assert b"aa-manju" not in data
-            if "jubian-asset-library" in relative.parts:
+            if "asset_library" in relative.parts:
                 assert b"pipeline.env" not in data
     print(f"PASS: {len(members)} exact allowlisted files; no links, caches, credentials, dependency trees or stray media directories")

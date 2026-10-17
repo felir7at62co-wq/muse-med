@@ -849,9 +849,6 @@ importers:
       '@deepseek-ai/dsh-tool-schedule':
         specifier: workspace:*
         version: link:../../packages/schedule/tool-schedule
-      '@deepseek-ai/dsh-tool-shot-script':
-        specifier: workspace:*
-        version: link:../../packages/drama/tool-shot-script
       '@deepseek-ai/dsh-tool-video-inspect':
         specifier: workspace:*
         version: link:../../packages/perception/tool-video-inspect

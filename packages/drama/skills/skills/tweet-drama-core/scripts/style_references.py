@@ -48,7 +48,7 @@ def import_library_pair(project: Path, role_id: str, name: str, role_class: str,
     project = project.resolve()
     library_root = library_root.resolve()
     _validate_role_details(role_id, name, role_class)
-    library_scripts = Path(__file__).resolve().parents[2] / "jubian-asset-library" / "scripts"
+    library_scripts = Path(__file__).resolve().parent / "asset_library"
     if not library_scripts.is_dir():
         raise ValueError("Bundled character library scripts are missing")
     sys.path.insert(0, str(library_scripts))

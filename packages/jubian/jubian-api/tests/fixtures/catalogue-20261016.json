@@ -1,0 +1,4838 @@
+{
+  "1": [
+    {
+      "id": 65,
+      "platformId": "RUNNING_HUB",
+      "modelId": "2084464684937342977",
+      "modelName": "海螺H3-9图1音",
+      "seriesId": 8,
+      "seriesName": "海螺系列",
+      "unitPrice": 1.0,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 80,
+          "type": 3,
+          "modelId": "2084464684937342977"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 351,
+          "modelId": "2084464684937342977",
+          "resolution": "768p",
+          "quality": "plus",
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "platformId": "RUNNING_HUB",
+      "modelId": "2091068769136365570",
+      "modelName": "海螺H3-9图3音",
+      "seriesId": 8,
+      "seriesName": "海螺系列",
+      "unitPrice": 1.0,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 90,
+          "type": 3,
+          "modelId": "2091068769136365570"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 367,
+          "modelId": "2091068769136365570",
+          "resolution": "768p",
+          "quality": "plus",
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "platformId": "YI_KE",
+      "modelId": "Wonder-Pro",
+      "modelName": "万境一刻专业版",
+      "seriesId": 15,
+      "seriesName": "一刻系列",
+      "unitPrice": 52.8,
+      "unit": "元/分钟",
+      "genTypes": [
+        {
+          "id": 61,
+          "type": 3,
+          "modelId": "Wonder-Pro"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 295,
+          "modelId": "Wonder-Pro",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 296,
+          "modelId": "Wonder-Pro",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-1-0-pro-250528",
+      "modelName": "seedance-1-0-pro",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 8.7,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 19,
+          "type": 1,
+          "modelId": "doubao-seedance-1-0-pro-250528"
+        },
+        {
+          "id": 35,
+          "type": 2,
+          "modelId": "doubao-seedance-1-0-pro-250528"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 72,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1088,
+          "frames": 24
+        },
+        {
+          "id": 73,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1664,
+          "width": 1248,
+          "frames": 24
+        },
+        {
+          "id": 74,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1440,
+          "width": 1440,
+          "frames": 24
+        },
+        {
+          "id": 75,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 1248,
+          "width": 1664,
+          "frames": 24
+        },
+        {
+          "id": 76,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 77,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2206,
+          "width": 946,
+          "frames": 24
+        },
+        {
+          "id": 78,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 86,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 480,
+          "frames": 24
+        },
+        {
+          "id": 87,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 736,
+          "width": 544,
+          "frames": 24
+        },
+        {
+          "id": 88,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 640,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 89,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 544,
+          "width": 736,
+          "frames": 24
+        },
+        {
+          "id": 90,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 480,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 91,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 960,
+          "width": 416,
+          "frames": 24
+        },
+        {
+          "id": 92,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 864,
+          "width": 480,
+          "frames": 24
+        },
+        {
+          "id": 93,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1248,
+          "width": 704,
+          "frames": 24
+        },
+        {
+          "id": 94,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1120,
+          "width": 832,
+          "frames": 24
+        },
+        {
+          "id": 95,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 960,
+          "width": 960,
+          "frames": 24
+        },
+        {
+          "id": 96,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 832,
+          "width": 1120,
+          "frames": 24
+        },
+        {
+          "id": 97,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 704,
+          "width": 1248,
+          "frames": 24
+        },
+        {
+          "id": 98,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1504,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 99,
+          "modelId": "doubao-seedance-1-0-pro-250528",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1248,
+          "width": 704,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-1-0-pro-fast-251015",
+      "modelName": "seedance-1-0-pro-fast",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 2.436,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 24,
+          "type": 1,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 128,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1248,
+          "width": 704,
+          "frames": 24
+        },
+        {
+          "id": 129,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1120,
+          "width": 832,
+          "frames": 24
+        },
+        {
+          "id": 130,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 960,
+          "width": 960,
+          "frames": 24
+        },
+        {
+          "id": 131,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 832,
+          "width": 1120,
+          "frames": 24
+        },
+        {
+          "id": 132,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 704,
+          "width": 1248,
+          "frames": 24
+        },
+        {
+          "id": 133,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1504,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 134,
+          "modelId": "doubao-seedance-1-0-pro-fast-251015",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1248,
+          "width": 704,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-1-5-pro-251215",
+      "modelName": "seedance-1-5-pro",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 11.52,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 17,
+          "type": 1,
+          "modelId": "doubao-seedance-1-5-pro-251215"
+        },
+        {
+          "id": 36,
+          "type": 2,
+          "modelId": "doubao-seedance-1-5-pro-251215"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 41,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 42,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1664,
+          "width": 1248,
+          "frames": 24
+        },
+        {
+          "id": 43,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1440,
+          "width": 1440,
+          "frames": 24
+        },
+        {
+          "id": 44,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 1248,
+          "width": 1664,
+          "frames": 24
+        },
+        {
+          "id": 45,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 46,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2206,
+          "width": 946,
+          "frames": 24
+        },
+        {
+          "id": 47,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 100,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 101,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 752,
+          "width": 560,
+          "frames": 24
+        },
+        {
+          "id": 102,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 640,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 103,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 560,
+          "width": 752,
+          "frames": 24
+        },
+        {
+          "id": 104,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 105,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 992,
+          "width": 432,
+          "frames": 24
+        },
+        {
+          "id": 106,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 107,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 108,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1112,
+          "width": 834,
+          "frames": 24
+        },
+        {
+          "id": 109,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 960,
+          "width": 960,
+          "frames": 24
+        },
+        {
+          "id": 110,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 834,
+          "width": 1112,
+          "frames": 24
+        },
+        {
+          "id": 111,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 112,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1470,
+          "width": 630,
+          "frames": 24
+        },
+        {
+          "id": 113,
+          "modelId": "doubao-seedance-1-5-pro-251215",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-2-0-260128",
+      "modelName": "seedance2.0",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 46.0,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 11,
+          "type": 1,
+          "modelId": "doubao-seedance-2-0-260128"
+        },
+        {
+          "id": 31,
+          "type": 2,
+          "modelId": "doubao-seedance-2-0-260128"
+        },
+        {
+          "id": 25,
+          "type": 3,
+          "modelId": "doubao-seedance-2-0-260128"
+        },
+        {
+          "id": 55,
+          "type": 4,
+          "modelId": "doubao-seedance-2-0-260128"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 27,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 28,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 752,
+          "width": 560,
+          "frames": 24
+        },
+        {
+          "id": 29,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 640,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 30,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 560,
+          "width": 752,
+          "frames": 24
+        },
+        {
+          "id": 31,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 32,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 992,
+          "width": 432,
+          "frames": 24
+        },
+        {
+          "id": 33,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 34,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 35,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1112,
+          "width": 834,
+          "frames": 24
+        },
+        {
+          "id": 36,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 960,
+          "width": 960,
+          "frames": 24
+        },
+        {
+          "id": 37,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 834,
+          "width": 1112,
+          "frames": 24
+        },
+        {
+          "id": 38,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 39,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1470,
+          "width": 630,
+          "frames": 24
+        },
+        {
+          "id": 40,
+          "modelId": "doubao-seedance-2-0-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1112,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-2-0-fast-260128",
+      "modelName": "seedance2.0-fast",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 15.91,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 14,
+          "type": 1,
+          "modelId": "doubao-seedance-2-0-fast-260128"
+        },
+        {
+          "id": 32,
+          "type": 2,
+          "modelId": "doubao-seedance-2-0-fast-260128"
+        },
+        {
+          "id": 26,
+          "type": 3,
+          "modelId": "doubao-seedance-2-0-fast-260128"
+        },
+        {
+          "id": 56,
+          "type": 4,
+          "modelId": "doubao-seedance-2-0-fast-260128"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 58,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 59,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 752,
+          "width": 560,
+          "frames": 24
+        },
+        {
+          "id": 60,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 640,
+          "width": 640,
+          "frames": 24
+        },
+        {
+          "id": 61,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 560,
+          "width": 752,
+          "frames": 24
+        },
+        {
+          "id": 62,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 63,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 992,
+          "width": 432,
+          "frames": 24
+        },
+        {
+          "id": 64,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 65,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 66,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1112,
+          "width": 834,
+          "frames": 24
+        },
+        {
+          "id": 67,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 960,
+          "width": 960,
+          "frames": 24
+        },
+        {
+          "id": 68,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 834,
+          "width": 1112,
+          "frames": 24
+        },
+        {
+          "id": 69,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 70,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1470,
+          "width": 630,
+          "frames": 24
+        },
+        {
+          "id": 71,
+          "modelId": "doubao-seedance-2-0-fast-260128",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-2-0-mini-260615",
+      "modelName": "seedance-2-0-mini",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 4.62,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 60,
+          "type": 3,
+          "modelId": "doubao-seedance-2-0-mini-260615"
+        },
+        {
+          "id": 79,
+          "type": 4,
+          "modelId": "doubao-seedance-2-0-mini-260615"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 291,
+          "modelId": "doubao-seedance-2-0-mini-260615",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 292,
+          "modelId": "doubao-seedance-2-0-mini-260615",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 293,
+          "modelId": "doubao-seedance-2-0-mini-260615",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 294,
+          "modelId": "doubao-seedance-2-0-mini-260615",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedance-2-5-260628",
+      "modelName": "doubao-seedance-2-5",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 70.0,
+      "unit": "元/百万tokens",
+      "genTypes": [
+        {
+          "id": 71,
+          "type": 3,
+          "modelId": "doubao-seedance-2-5-260628"
+        },
+        {
+          "id": 72,
+          "type": 4,
+          "modelId": "doubao-seedance-2-5-260628"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 337,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 338,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 413,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "480p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 339,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 340,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 414,
+          "modelId": "doubao-seedance-2-5-260628",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "adaptive",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "platformId": "KU_AI",
+      "modelId": "grok-video-3",
+      "modelName": "grok模型",
+      "seriesId": 7,
+      "seriesName": "grok系列",
+      "unitPrice": 0.224,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 23,
+          "type": 1,
+          "modelId": "grok-video-3"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 83,
+          "modelId": "grok-video-3",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 720,
+          "width": 480,
+          "frames": 24
+        },
+        {
+          "id": 84,
+          "modelId": "grok-video-3",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 720,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 85,
+          "modelId": "grok-video-3",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:2",
+          "height": 720,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 150,
+          "modelId": "grok-video-3",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 151,
+          "modelId": "grok-video-3",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "platformId": "KU_AI",
+      "modelId": "grok-video-3-10s",
+      "modelName": "grok10秒",
+      "seriesId": 7,
+      "seriesName": "grok系列",
+      "unitPrice": 0.224,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 28,
+          "type": 1,
+          "modelId": "grok-video-3-10s"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 138,
+          "modelId": "grok-video-3-10s",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 720,
+          "width": 480,
+          "frames": 24
+        },
+        {
+          "id": 139,
+          "modelId": "grok-video-3-10s",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 720,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 140,
+          "modelId": "grok-video-3-10s",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "1:2",
+          "height": 720,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 144,
+          "modelId": "grok-video-3-10s",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 145,
+          "modelId": "grok-video-3-10s",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "platformId": "HH",
+      "modelId": "happyhorse-1.0-i2v",
+      "modelName": "happyhorse-1.0-i2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 60.0,
+      "unit": "元/分钟(1系数) ",
+      "genTypes": [
+        {
+          "id": 33,
+          "type": 1,
+          "modelId": "happyhorse-1.0-i2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 281,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 168,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 282,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 169,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "platformId": "YUN_WO_KE",
+      "modelId": "happyhorse-1.0-i2v",
+      "modelName": "happyhorse-1.0-i2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 33.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 33,
+          "type": 1,
+          "modelId": "happyhorse-1.0-i2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 281,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 168,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 282,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 169,
+          "modelId": "happyhorse-1.0-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "platformId": "YI_KE",
+      "modelId": "happyhorse-1.0-i2v-yk",
+      "modelName": "阿里一刻i2v",
+      "seriesId": 15,
+      "seriesName": "一刻系列",
+      "unitPrice": 48.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 50,
+          "type": 1,
+          "modelId": "happyhorse-1.0-i2v-yk"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 265,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 266,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 267,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 268,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 269,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 270,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 271,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 272,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 273,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 274,
+          "modelId": "happyhorse-1.0-i2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "platformId": "YUN_WO_KE",
+      "modelId": "happyhorse-1.0-r2v",
+      "modelName": "happyhorse-1.0-r2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 33.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 47,
+          "type": 3,
+          "modelId": "happyhorse-1.0-r2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 170,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 174,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 175,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 176,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 177,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 178,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 179,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 180,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 181,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 182,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "platformId": "HH",
+      "modelId": "happyhorse-1.0-r2v",
+      "modelName": "happyhorse-1.0-r2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 60.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 47,
+          "type": 3,
+          "modelId": "happyhorse-1.0-r2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 170,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 174,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 175,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 176,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 177,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 178,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 179,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 180,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 181,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 182,
+          "modelId": "happyhorse-1.0-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "platformId": "YI_KE",
+      "modelId": "happyhorse-1.0-r2v-yk",
+      "modelName": "阿里一刻r2v",
+      "seriesId": 15,
+      "seriesName": "一刻系列",
+      "unitPrice": 48.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 49,
+          "type": 3,
+          "modelId": "happyhorse-1.0-r2v-yk"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 256,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 257,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 258,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 259,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 252,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 260,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 261,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 262,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 263,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 264,
+          "modelId": "happyhorse-1.0-r2v-yk",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "platformId": "YUN_WO_KE",
+      "modelId": "happyhorse-1.1-i2v",
+      "modelName": "happyhorse-1.1-i2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 33.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 59,
+          "type": 1,
+          "modelId": "happyhorse-1.1-i2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 283,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 284,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 285,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 286,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "platformId": "YI_KE",
+      "modelId": "happyhorse-1.1-i2v",
+      "modelName": "happyhorse-1.1-i2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 48.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 59,
+          "type": 1,
+          "modelId": "happyhorse-1.1-i2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 283,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 284,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 285,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 286,
+          "modelId": "happyhorse-1.1-i2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "platformId": "YUN_WO_KE",
+      "modelId": "happyhorse-1.1-r2v",
+      "modelName": "happyhorse-1.1-r2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 33.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 58,
+          "type": 3,
+          "modelId": "happyhorse-1.1-r2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 287,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 288,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 289,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 290,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "platformId": "YI_KE",
+      "modelId": "happyhorse-1.1-r2v",
+      "modelName": "happyhorse-1.1-r2v",
+      "seriesId": 2,
+      "seriesName": "happyhorse系列",
+      "unitPrice": 48.0,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [
+        {
+          "id": 58,
+          "type": 3,
+          "modelId": "happyhorse-1.1-r2v"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 287,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 288,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 289,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 290,
+          "modelId": "happyhorse-1.1-r2v",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "platformId": "KU_AI",
+      "modelId": "veo3.1-fast",
+      "modelName": "veo模型",
+      "seriesId": 9,
+      "seriesName": "veo系列",
+      "unitPrice": 0.24,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 21,
+          "type": 1,
+          "modelId": "veo3.1-fast"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 79,
+          "modelId": "veo3.1-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1088,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 80,
+          "modelId": "veo3.1-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1920,
+          "width": 1088,
+          "frames": 24
+        },
+        {
+          "id": 154,
+          "modelId": "veo3.1-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 155,
+          "modelId": "veo3.1-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "platformId": "ZHI_LIAN",
+      "modelId": "veo31-fast",
+      "modelName": "veo模型",
+      "seriesId": 9,
+      "seriesName": "veo系列",
+      "unitPrice": 0.2,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 22,
+          "type": 1,
+          "modelId": "veo31-fast"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 81,
+          "modelId": "veo31-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1920,
+          "width": 1088,
+          "frames": 24
+        },
+        {
+          "id": 82,
+          "modelId": "veo31-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1088,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 152,
+          "modelId": "veo31-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 153,
+          "modelId": "veo31-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "platformId": "KU_AI",
+      "modelId": "veo_3_1-fast",
+      "modelName": "veo模型-稳定版",
+      "seriesId": 9,
+      "seriesName": "veo系列",
+      "unitPrice": 0.24,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 27,
+          "type": 1,
+          "modelId": "veo_3_1-fast"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 135,
+          "modelId": "veo_3_1-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1920,
+          "width": 1088,
+          "frames": 24
+        },
+        {
+          "id": 136,
+          "modelId": "veo_3_1-fast",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1088,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 148,
+          "modelId": "veo_3_1-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 149,
+          "modelId": "veo_3_1-fast",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "platformId": "KU_AI",
+      "modelId": "veo_3_1-lite",
+      "modelName": "veo_3_1-lite",
+      "seriesId": 9,
+      "seriesName": "veo系列",
+      "unitPrice": 0.28,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 29,
+          "type": 1,
+          "modelId": "veo_3_1-lite"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 141,
+          "modelId": "veo_3_1-lite",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1920,
+          "width": 1088,
+          "frames": 24
+        },
+        {
+          "id": 142,
+          "modelId": "veo_3_1-lite",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1088,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 146,
+          "modelId": "veo_3_1-lite",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        },
+        {
+          "id": 147,
+          "modelId": "veo_3_1-lite",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "platformId": "HH",
+      "modelId": "wan3.0-video",
+      "modelName": "wan3.0-video",
+      "seriesId": 4,
+      "seriesName": "wan3系列",
+      "unitPrice": 50.4,
+      "unit": "元/分钟",
+      "genTypes": [
+        {
+          "id": 77,
+          "type": 2,
+          "modelId": "wan3.0-video"
+        },
+        {
+          "id": 78,
+          "type": 3,
+          "modelId": "wan3.0-video"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 345,
+          "modelId": "wan3.0-video",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 346,
+          "modelId": "wan3.0-video",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 341,
+          "modelId": "wan3.0-video",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 342,
+          "modelId": "wan3.0-video",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 343,
+          "modelId": "wan3.0-video",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 344,
+          "modelId": "wan3.0-video",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "platformId": "YUN_WO_KE",
+      "modelId": "wan3.0-video",
+      "modelName": "wan3.0-video",
+      "seriesId": 4,
+      "seriesName": "wan3系列",
+      "unitPrice": 43.2,
+      "unit": "元/分钟",
+      "genTypes": [
+        {
+          "id": 77,
+          "type": 2,
+          "modelId": "wan3.0-video"
+        },
+        {
+          "id": 78,
+          "type": 3,
+          "modelId": "wan3.0-video"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 345,
+          "modelId": "wan3.0-video",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 346,
+          "modelId": "wan3.0-video",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 341,
+          "modelId": "wan3.0-video",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 342,
+          "modelId": "wan3.0-video",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 343,
+          "modelId": "wan3.0-video",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 344,
+          "modelId": "wan3.0-video",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "platformId": "HH",
+      "modelId": "wan3.0-video-prime",
+      "modelName": "wan3.0-video-prime",
+      "seriesId": 4,
+      "seriesName": "wan3系列",
+      "unitPrice": 108.0,
+      "unit": "元/分钟",
+      "genTypes": [
+        {
+          "id": 81,
+          "type": 2,
+          "modelId": "wan3.0-video-prime"
+        },
+        {
+          "id": 82,
+          "type": 3,
+          "modelId": "wan3.0-video-prime"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 368,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 369,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 370,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 371,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 372,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 373,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "platformId": "YUN_WO_KE",
+      "modelId": "wan3.0-video-prime",
+      "modelName": "wan3.0-video-prime",
+      "seriesId": 4,
+      "seriesName": "wan3系列",
+      "unitPrice": 75.6,
+      "unit": "元/分钟",
+      "genTypes": [
+        {
+          "id": 81,
+          "type": 2,
+          "modelId": "wan3.0-video-prime"
+        },
+        {
+          "id": 82,
+          "type": 3,
+          "modelId": "wan3.0-video-prime"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 368,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1920,
+          "width": 1080,
+          "frames": 24
+        },
+        {
+          "id": 369,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "1080P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1080,
+          "width": 1920,
+          "frames": 24
+        },
+        {
+          "id": 370,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 864,
+          "width": 496,
+          "frames": 24
+        },
+        {
+          "id": 371,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "480P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 496,
+          "width": 864,
+          "frames": 24
+        },
+        {
+          "id": 372,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1280,
+          "width": 720,
+          "frames": 24
+        },
+        {
+          "id": 373,
+          "modelId": "wan3.0-video-prime",
+          "resolution": "720P",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 720,
+          "width": 1280,
+          "frames": 24
+        }
+      ]
+    }
+  ],
+  "2": [
+    {
+      "id": 35,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedream-4-0-250828",
+      "modelName": "seedream-4-0",
+      "seriesId": 12,
+      "seriesName": "seedream系列",
+      "unitPrice": 0.116,
+      "unit": "元/张",
+      "genTypes": [
+        {
+          "id": 42,
+          "type": 3,
+          "modelId": "doubao-seedream-4-0-250828"
+        },
+        {
+          "id": 41,
+          "type": 4,
+          "modelId": "doubao-seedream-4-0-250828"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 190,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 240,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 1152,
+          "width": 864,
+          "frames": null
+        },
+        {
+          "id": 241,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 864,
+          "width": 1152,
+          "frames": null
+        },
+        {
+          "id": 242,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 736,
+          "width": 1312,
+          "frames": null
+        },
+        {
+          "id": 243,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1312,
+          "width": 736,
+          "frames": null
+        },
+        {
+          "id": 244,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1248,
+          "width": 832,
+          "frames": null
+        },
+        {
+          "id": 245,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 832,
+          "width": 1248,
+          "frames": null
+        },
+        {
+          "id": 246,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 672,
+          "width": 1568,
+          "frames": null
+        },
+        {
+          "id": 187,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 2048,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 193,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 2304,
+          "width": 1728,
+          "frames": null
+        },
+        {
+          "id": 196,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1728,
+          "width": 2304,
+          "frames": null
+        },
+        {
+          "id": 199,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1600,
+          "width": 2848,
+          "frames": null
+        },
+        {
+          "id": 202,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2848,
+          "width": 1600,
+          "frames": null
+        },
+        {
+          "id": 205,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1664,
+          "width": 2496,
+          "frames": null
+        },
+        {
+          "id": 208,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 2496,
+          "width": 1664,
+          "frames": null
+        },
+        {
+          "id": 211,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1344,
+          "width": 3136,
+          "frames": null
+        },
+        {
+          "id": 188,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 4096,
+          "width": 4096,
+          "frames": null
+        },
+        {
+          "id": 214,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 4704,
+          "width": 3520,
+          "frames": null
+        },
+        {
+          "id": 217,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 3520,
+          "width": 4704,
+          "frames": null
+        },
+        {
+          "id": 220,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 3040,
+          "width": 5504,
+          "frames": null
+        },
+        {
+          "id": 223,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 5504,
+          "width": 3040,
+          "frames": null
+        },
+        {
+          "id": 226,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 4992,
+          "width": 3328,
+          "frames": null
+        },
+        {
+          "id": 229,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 3328,
+          "width": 4992,
+          "frames": null
+        },
+        {
+          "id": 232,
+          "modelId": "doubao-seedream-4-0-250828",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2656,
+          "width": 6240,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedream-4-5-251128",
+      "modelName": "seedream-4-5",
+      "seriesId": 12,
+      "seriesName": "seedream系列",
+      "unitPrice": 0.18,
+      "unit": "元/张",
+      "genTypes": [
+        {
+          "id": 40,
+          "type": 3,
+          "modelId": "doubao-seedream-4-5-251128"
+        },
+        {
+          "id": 39,
+          "type": 4,
+          "modelId": "doubao-seedream-4-5-251128"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 185,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 2048,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 192,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 2304,
+          "width": 1728,
+          "frames": null
+        },
+        {
+          "id": 195,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1728,
+          "width": 2304,
+          "frames": null
+        },
+        {
+          "id": 198,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1600,
+          "width": 2848,
+          "frames": null
+        },
+        {
+          "id": 201,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2848,
+          "width": 1600,
+          "frames": null
+        },
+        {
+          "id": 204,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1664,
+          "width": 2496,
+          "frames": null
+        },
+        {
+          "id": 207,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 2496,
+          "width": 1664,
+          "frames": null
+        },
+        {
+          "id": 210,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1344,
+          "width": 3136,
+          "frames": null
+        },
+        {
+          "id": 186,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 4096,
+          "width": 4096,
+          "frames": null
+        },
+        {
+          "id": 213,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 4704,
+          "width": 3520,
+          "frames": null
+        },
+        {
+          "id": 216,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 3520,
+          "width": 4704,
+          "frames": null
+        },
+        {
+          "id": 219,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 3040,
+          "width": 5504,
+          "frames": null
+        },
+        {
+          "id": 222,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 5504,
+          "width": 3040,
+          "frames": null
+        },
+        {
+          "id": 225,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 4992,
+          "width": 3328,
+          "frames": null
+        },
+        {
+          "id": 228,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 3328,
+          "width": 4992,
+          "frames": null
+        },
+        {
+          "id": 231,
+          "modelId": "doubao-seedream-4-5-251128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2656,
+          "width": 6240,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "platformId": "FANG_ZHOU",
+      "modelId": "doubao-seedream-5-0-260128",
+      "modelName": "seedream-5-0",
+      "seriesId": 12,
+      "seriesName": "seedream系列",
+      "unitPrice": 0.1584,
+      "unit": "元/张",
+      "genTypes": [
+        {
+          "id": 38,
+          "type": 3,
+          "modelId": "doubao-seedream-5-0-260128"
+        },
+        {
+          "id": 37,
+          "type": 4,
+          "modelId": "doubao-seedream-5-0-260128"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 183,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 2048,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 191,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 2304,
+          "width": 1728,
+          "frames": null
+        },
+        {
+          "id": 194,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 1728,
+          "width": 2304,
+          "frames": null
+        },
+        {
+          "id": 197,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1600,
+          "width": 2848,
+          "frames": null
+        },
+        {
+          "id": 200,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2848,
+          "width": 1600,
+          "frames": null
+        },
+        {
+          "id": 203,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1664,
+          "width": 2496,
+          "frames": null
+        },
+        {
+          "id": 206,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 2496,
+          "width": 1664,
+          "frames": null
+        },
+        {
+          "id": 209,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 1344,
+          "width": 3136,
+          "frames": null
+        },
+        {
+          "id": 189,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 3072,
+          "width": 3072,
+          "frames": null
+        },
+        {
+          "id": 233,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 3456,
+          "width": 2592,
+          "frames": null
+        },
+        {
+          "id": 234,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 2592,
+          "width": 3456,
+          "frames": null
+        },
+        {
+          "id": 235,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 2304,
+          "width": 4096,
+          "frames": null
+        },
+        {
+          "id": 236,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 4096,
+          "width": 2304,
+          "frames": null
+        },
+        {
+          "id": 237,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 3744,
+          "width": 2496,
+          "frames": null
+        },
+        {
+          "id": 238,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 2496,
+          "width": 3744,
+          "frames": null
+        },
+        {
+          "id": 239,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "3K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2016,
+          "width": 4704,
+          "frames": null
+        },
+        {
+          "id": 184,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 4096,
+          "width": 4096,
+          "frames": null
+        },
+        {
+          "id": 212,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": 4704,
+          "width": 3520,
+          "frames": null
+        },
+        {
+          "id": 215,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": 3520,
+          "width": 4704,
+          "frames": null
+        },
+        {
+          "id": 218,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 3040,
+          "width": 5504,
+          "frames": null
+        },
+        {
+          "id": 221,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 5504,
+          "width": 3040,
+          "frames": null
+        },
+        {
+          "id": 224,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 4992,
+          "width": 3328,
+          "frames": null
+        },
+        {
+          "id": 227,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 3328,
+          "width": 4992,
+          "frames": null
+        },
+        {
+          "id": 230,
+          "modelId": "doubao-seedream-5-0-260128",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "21:9",
+          "height": 2656,
+          "width": 6240,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "platformId": "KU_AI",
+      "modelId": "gemini-3.1-flash-image-preview",
+      "modelName": "gemini-3.1-flash-image-preview",
+      "seriesId": 16,
+      "seriesName": "gemini系列",
+      "unitPrice": 0.248,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 46,
+          "type": 3,
+          "modelId": "gemini-3.1-flash-image-preview"
+        },
+        {
+          "id": 45,
+          "type": 4,
+          "modelId": "gemini-3.1-flash-image-preview"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 275,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 276,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 392,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 393,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 394,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 395,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 396,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 397,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 398,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 250,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 277,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 278,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 399,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 400,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 401,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 402,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 403,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 404,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 405,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 251,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 2048,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 279,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 280,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 406,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 407,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 408,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 409,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 410,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 411,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 412,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "platformId": "DUO_YUAN_TAN_SUO",
+      "modelId": "gemini-3.1-flash-image-preview",
+      "modelName": "gemini-3.1-flash-image-preview",
+      "seriesId": 16,
+      "seriesName": "gemini系列",
+      "unitPrice": 1.75,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 46,
+          "type": 3,
+          "modelId": "gemini-3.1-flash-image-preview"
+        },
+        {
+          "id": 45,
+          "type": 4,
+          "modelId": "gemini-3.1-flash-image-preview"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 275,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 276,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 392,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 393,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 394,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 395,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 396,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 397,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 398,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 250,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 277,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 278,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 399,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 400,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 401,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 402,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 403,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 404,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 405,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 251,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 2048,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 279,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 280,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 406,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 407,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 408,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 409,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 410,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 411,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 412,
+          "modelId": "gemini-3.1-flash-image-preview",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "platformId": "DUO_YUAN_TAN_SUO",
+      "modelId": "gpt-image-2",
+      "modelName": "gpt-image-2",
+      "seriesId": 6,
+      "seriesName": "gpt系列",
+      "unitPrice": 1.05,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 97,
+          "type": 3,
+          "modelId": "gpt-image-2"
+        },
+        {
+          "id": 98,
+          "type": 4,
+          "modelId": "gpt-image-2"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 358,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 359,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 1536,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 360,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1024,
+          "width": 1536,
+          "frames": null
+        },
+        {
+          "id": 361,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2048,
+          "width": 1152,
+          "frames": null
+        },
+        {
+          "id": 362,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1152,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 363,
+          "modelId": "gpt-image-2",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2560,
+          "width": 1440,
+          "frames": null
+        },
+        {
+          "id": 364,
+          "modelId": "gpt-image-2",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1440,
+          "width": 2560,
+          "frames": null
+        },
+        {
+          "id": 365,
+          "modelId": "gpt-image-2",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 3840,
+          "width": 2160,
+          "frames": null
+        },
+        {
+          "id": 366,
+          "modelId": "gpt-image-2",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 2160,
+          "width": 3840,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "platformId": "KU_AI",
+      "modelId": "gpt-image-2",
+      "modelName": "gpt-image-2",
+      "seriesId": 6,
+      "seriesName": "gpt系列",
+      "unitPrice": 0.12,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 97,
+          "type": 3,
+          "modelId": "gpt-image-2"
+        },
+        {
+          "id": 98,
+          "type": 4,
+          "modelId": "gpt-image-2"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 358,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 359,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 1536,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 360,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1024,
+          "width": 1536,
+          "frames": null
+        },
+        {
+          "id": 361,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2048,
+          "width": 1152,
+          "frames": null
+        },
+        {
+          "id": 362,
+          "modelId": "gpt-image-2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1152,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 363,
+          "modelId": "gpt-image-2",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2560,
+          "width": 1440,
+          "frames": null
+        },
+        {
+          "id": 364,
+          "modelId": "gpt-image-2",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1440,
+          "width": 2560,
+          "frames": null
+        },
+        {
+          "id": 365,
+          "modelId": "gpt-image-2",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 3840,
+          "width": 2160,
+          "frames": null
+        },
+        {
+          "id": 366,
+          "modelId": "gpt-image-2",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 2160,
+          "width": 3840,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "platformId": "KU_AI",
+      "modelId": "gpt-image-2.5-sunburst-c",
+      "modelName": "gpt-image-2.5-sunburst-c",
+      "seriesId": 6,
+      "seriesName": "gpt系列",
+      "unitPrice": 0.25,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 108,
+          "type": 3,
+          "modelId": "gpt-image-2.5-sunburst-c"
+        },
+        {
+          "id": 109,
+          "type": 4,
+          "modelId": "gpt-image-2.5-sunburst-c"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 425,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 426,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 1536,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 427,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 1024,
+          "width": 1536,
+          "frames": null
+        },
+        {
+          "id": 428,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2048,
+          "width": 1152,
+          "frames": null
+        },
+        {
+          "id": 429,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1152,
+          "width": 2048,
+          "frames": null
+        },
+        {
+          "id": 430,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 2560,
+          "width": 1440,
+          "frames": null
+        },
+        {
+          "id": 431,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 1440,
+          "width": 2560,
+          "frames": null
+        },
+        {
+          "id": 432,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 3840,
+          "width": 2160,
+          "frames": null
+        },
+        {
+          "id": 433,
+          "modelId": "gpt-image-2.5-sunburst-c",
+          "resolution": "4K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 2160,
+          "width": 3840,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "platformId": "DUO_YUAN_TAN_SUO",
+      "modelId": "midjourney-v7",
+      "modelName": "midjourney-v7",
+      "seriesId": 21,
+      "seriesName": "midjourney系列",
+      "unitPrice": 0.6,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 104,
+          "type": 3,
+          "modelId": "midjourney-v7"
+        },
+        {
+          "id": 105,
+          "type": 4,
+          "modelId": "midjourney-v7"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 415,
+          "modelId": "midjourney-v7",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        },
+        {
+          "id": 416,
+          "modelId": "midjourney-v7",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 832,
+          "width": 1216,
+          "frames": null
+        },
+        {
+          "id": 417,
+          "modelId": "midjourney-v7",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 1216,
+          "width": 832,
+          "frames": null
+        },
+        {
+          "id": 418,
+          "modelId": "midjourney-v7",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 816,
+          "width": 1456,
+          "frames": null
+        },
+        {
+          "id": 419,
+          "modelId": "midjourney-v7",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1456,
+          "width": 816,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "platformId": "DUO_YUAN_TAN_SUO",
+      "modelId": "midjourney-v8.2",
+      "modelName": "midjourney-v8.2",
+      "seriesId": 21,
+      "seriesName": "midjourney系列",
+      "unitPrice": 0.6,
+      "unit": "元/条",
+      "genTypes": [
+        {
+          "id": 106,
+          "type": 3,
+          "modelId": "midjourney-v8.2"
+        },
+        {
+          "id": 107,
+          "type": 4,
+          "modelId": "midjourney-v8.2"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 420,
+          "modelId": "midjourney-v8.2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": 1456,
+          "width": 816,
+          "frames": null
+        },
+        {
+          "id": 421,
+          "modelId": "midjourney-v8.2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": 816,
+          "width": 1456,
+          "frames": null
+        },
+        {
+          "id": 422,
+          "modelId": "midjourney-v8.2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": 1216,
+          "width": 832,
+          "frames": null
+        },
+        {
+          "id": 423,
+          "modelId": "midjourney-v8.2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": 832,
+          "width": 1216,
+          "frames": null
+        },
+        {
+          "id": 424,
+          "modelId": "midjourney-v8.2",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": 1024,
+          "width": 1024,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "platformId": "HH",
+      "modelId": "qwen-image-3.0",
+      "modelName": "qwen-image-3.0",
+      "seriesId": 13,
+      "seriesName": "千问系列",
+      "unitPrice": 0.18,
+      "unit": "元/张",
+      "genTypes": [
+        {
+          "id": 83,
+          "type": 3,
+          "modelId": "qwen-image-3.0"
+        },
+        {
+          "id": 84,
+          "type": 4,
+          "modelId": "qwen-image-3.0"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 376,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 378,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 382,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 383,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 384,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 385,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 386,
+          "modelId": "qwen-image-3.0",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 377,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 379,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 387,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "1:1",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 388,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "4:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 389,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "2:3",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 390,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:4",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 391,
+          "modelId": "qwen-image-3.0",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "3:2",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "platformId": "HH",
+      "modelId": "qwen-image-3.0-pro",
+      "modelName": "qwen-image-3.0-pro",
+      "seriesId": 13,
+      "seriesName": "千问系列",
+      "unitPrice": 0.5,
+      "unit": "元/张",
+      "genTypes": [
+        {
+          "id": 85,
+          "type": 3,
+          "modelId": "qwen-image-3.0-pro"
+        },
+        {
+          "id": 86,
+          "type": 4,
+          "modelId": "qwen-image-3.0-pro"
+        }
+      ],
+      "videoStandards": [
+        {
+          "id": 374,
+          "modelId": "qwen-image-3.0-pro",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 380,
+          "modelId": "qwen-image-3.0-pro",
+          "resolution": "1K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 375,
+          "modelId": "qwen-image-3.0-pro",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        },
+        {
+          "id": 381,
+          "modelId": "qwen-image-3.0-pro",
+          "resolution": "2K",
+          "quality": null,
+          "ratio": "9:16",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    }
+  ],
+  "10": [
+    {
+      "id": 67,
+      "platformId": "AI_MEDIA_KIT",
+      "modelId": "ark-erase-video-subtitle-pro",
+      "modelName": "火山去字幕",
+      "seriesId": 18,
+      "seriesName": "火山系列",
+      "unitPrice": 0.0,
+      "unit": "元/条",
+      "genTypes": [],
+      "videoStandards": []
+    },
+    {
+      "id": 26,
+      "platformId": "YU_DIAN",
+      "modelId": "quzimuToB",
+      "modelName": "羽点去字幕",
+      "seriesId": 19,
+      "seriesName": "羽点去字幕",
+      "unitPrice": 0.505,
+      "unit": "元/分钟",
+      "genTypes": [],
+      "videoStandards": []
+    }
+  ],
+  "20": [
+    {
+      "id": 55,
+      "platformId": "RUNNING_HUB",
+      "modelId": "2074071626416742401",
+      "modelName": "SeedVR2视频高清",
+      "seriesId": 1,
+      "seriesName": "seedance系列",
+      "unitPrice": 1.0,
+      "unit": "元/条",
+      "genTypes": [],
+      "videoStandards": [
+        {
+          "id": 303,
+          "modelId": "2074071626416742401",
+          "resolution": "1080p",
+          "quality": "lite",
+          "ratio": "16:9",
+          "height": null,
+          "width": null,
+          "frames": null
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "platformId": "AI_MEDIA_KIT",
+      "modelId": "AI MediaKit",
+      "modelName": "MediaKit",
+      "seriesId": 18,
+      "seriesName": "火山系列",
+      "unitPrice": 0.375,
+      "unit": "元/分钟(1系数)",
+      "genTypes": [],
+      "videoStandards": [
+        {
+          "id": 165,
+          "modelId": "AI MediaKit",
+          "resolution": "1080p",
+          "quality": null,
+          "ratio": "standard",
+          "height": 4,
+          "width": 0,
+          "frames": 31
+        },
+        {
+          "id": 166,
+          "modelId": "AI MediaKit",
+          "resolution": "720p",
+          "quality": null,
+          "ratio": "standard",
+          "height": 2,
+          "width": 0,
+          "frames": 31
+        }
+      ]
+    }
+  ]
+}

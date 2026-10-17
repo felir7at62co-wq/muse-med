@@ -78,7 +78,7 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
-  'dsh-codex-subscription', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
+  'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
@@ -220,8 +220,9 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const manifest = projectManifest(projectDir)
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
+  const retiredCodex = manifest.dsh.profile.bundles.includes('dsh-codex-subscription')
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail')
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== 'dsh-codex-subscription')
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -230,7 +231,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired || retiredPonytail) {
+  if (pending !== undefined || retired || retiredPonytail || retiredCodex) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')

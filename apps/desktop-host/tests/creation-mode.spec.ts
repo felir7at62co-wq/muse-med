@@ -115,7 +115,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
     expect(f.rows.filter(row => /subagent|workflow|ralph|agent-team/u.test(row.name))).toEqual([])
     expect(new Set(f.rows.map(row => row.id)).size).toBe(f.rows.length)
-    for (const id of ['screenplay-project', 'tool-drama-assets', 'tool-shot-script', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate']) {
+    for (const id of ['screenplay-project', 'tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate']) {
       expect(f.rows.map(row => row.id)).toContain(id)
     }
     f.ctx.tools.register(tool('read'))
@@ -136,7 +136,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const catalog = initial.messages.find(message => message.source.kind === 'skill-catalog')
     if (catalog?.source.kind !== 'skill-catalog') throw new Error('The initial creation skill catalog is missing')
     const initialNames = catalog.source.entries.map(entry => entry.name)
-    for (const name of ['muse-creation', 'muse-dialogue-polish', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'xiaohongshu-reference']) {
+    for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+      expect(initialNames).not.toContain(removed)
+    }
+    for (const name of ['muse-script-doctor', 'muse-dialogue-polish', 'xiaohongshu-reference']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
@@ -154,7 +157,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const text = assembly.sections.map(entry => entry.text).join('\n')
     expect(text).toContain('Program-only SDK bindings')
     expect(text).toContain('tools.skill')
-    expect(text).toContain('muse-creation')
+    expect(text).not.toContain('再加载 muse-creation')
     expect(text).toContain('## 创作共用规则')
     expect(text).toContain('视频画面文字先复用已有字幕/转写，支持时用 video_ocr')
     expect(text).toContain('本机 OCR 不支持或不可用时说明能力')
@@ -237,9 +240,9 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     if (skills === undefined) throw new Error('Creation skill registry is missing')
     expect(skills).not.toBe(f.ctx.skills)
     const names = (await skills.list({ scope: f.agent })).map(skill => skill.name)
-    expect(names).toContain('muse-creation')
-    expect(names).toContain('tweet-drama-pipeline')
-    expect(names).toContain('shot-script-creator-16-9-3d')
+    expect(names).not.toContain('muse-creation')
+    expect(names).toContain('muse-script-doctor')
+    expect(names).not.toContain('tweet-drama-pipeline')
     expect(names).toContain('muse-script-editing')
     expect(names).toContain('xiaohongshu-reference')
     expect(names).not.toContain('hidden-authoring')
@@ -252,17 +255,16 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect((await skills.snapshot({ scope: f.agent })).skills.map(skill => skill.name)).not.toContain('office-docx')
     expect(await skills.get('office-docx', { scope: f.agent })).toBeUndefined()
     await f.agent.ctx.plugin({ inject: ['skills'], apply(ctx: Context) {
-      ctx.skills.register({ name: 'muse-creation', description: 'Scoped override',
+      ctx.skills.register({ name: 'muse-script-doctor', description: 'Scoped override',
         source: 'runtime', content: 'Unapproved scoped instructions' })
     } })
-    const source = await f.ctx.skills.get('muse-creation')
-    const loaded = await skills.get('muse-creation', { scope: f.agent })
+    const source = await f.ctx.skills.get('muse-script-doctor')
+    const loaded = await skills.get('muse-script-doctor', { scope: f.agent })
     expect(loaded?.resourceBase).toEqual(source?.resourceBase)
     expect(loaded?.content).toBe(source!.content)
     expect(loaded?.content).not.toContain('Unapproved scoped instructions')
     expect(loaded?.content).not.toContain('当前创作模式的执行限制')
-    expect(loaded?.content).toContain('references/refinement.md')
-    expect(loaded?.content).toContain('references/self-check.md')
+    expect(loaded?.content).toContain('references/doctor-workflow.md')
     const dialogue = await skills.get('muse-dialogue-polish', { scope: f.agent })
     const originalDialogue = await f.ctx.skills.get('muse-dialogue-polish')
     expect(dialogue).toBeDefined()
@@ -281,39 +283,32 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     f.runtime.behavior = async (spec) => {
       const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.skill
       if (binding === undefined) throw new Error('Missing actual skill SDK binding')
-      const resultValue = await binding({ name: 'muse-creation' })
+      const resultValue = await binding({ name: 'muse-script-doctor' })
       value = resultValue
       return { logs: [], value: resultValue }
     }
     const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
-      description: 'Read the optional precision-edit and QA guide', code: 'return await tools.skill({name:"muse-creation"})',
+      description: 'Read the screenplay revision guide', code: 'return await tools.skill({name:"muse-script-doctor"})',
     }, callId: ToolCallId('creation-skill'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
-    expect(value).toMatchObject({ name: 'muse-creation', resourceBase: source!.resourceBase, content: loaded!.content })
-    expect(JSON.stringify(result.content)).toContain('references/refinement.md')
-    const cgSkill = await skills.get('shot-script-creator-16-9-3d', { scope: f.agent })
-    const bundledCg = await readFile(new URL('../../../packages/drama/skills/skills/shot-script-creator-16-9-3d/SKILL.md', import.meta.url), 'utf8')
+    expect(value).toMatchObject({ name: 'muse-script-doctor', resourceBase: source!.resourceBase, content: loaded!.content })
+    expect(JSON.stringify(result.content)).toContain('references/doctor-workflow.md')
+    const cgSkill = await skills.get('anime-3d-assets', { scope: f.agent })
+    const bundledCg = await readFile(new URL('../../../packages/drama/skills/skills/anime-3d-assets/SKILL.md', import.meta.url), 'utf8')
     expect(cgSkill?.content).toBe(bundledCg.replace(/^---\n[\s\S]*?\n---\n/u, '').trim())
     f.runtime.behavior = async (spec) => {
       const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.skill
       if (binding === undefined) throw new Error('Missing actual skill SDK binding')
-      const resultValue = await binding({ name: 'shot-script-creator-16-9-3d' })
+      const resultValue = await binding({ name: 'anime-3d-assets' })
       value = resultValue
       return { logs: [], value: resultValue }
     }
     const cgResult = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
-      description: 'Read the bundled 16:9 CG shot-writing guide', code: 'return await tools.skill({name:"shot-script-creator-16-9-3d"})',
+      description: 'Read the bundled 3D asset guide', code: 'return await tools.skill({name:"anime-3d-assets"})',
     }, callId: ToolCallId('creation-cg-skill'), signal: new AbortController().signal })
     expect(cgResult.isError).toBe(false)
-    expect(value).toMatchObject({ name: 'shot-script-creator-16-9-3d', resourceBase: cgSkill!.resourceBase, content: cgSkill!.content })
-    expect(JSON.stringify(cgResult.content)).toContain('真人项目不适用')
-    expect(JSON.stringify(cgResult.content)).toContain('人物位置保持不变')
-    expect(JSON.stringify(cgResult.content)).toContain('3D项目不能变真人摄影')
-    expect(JSON.stringify(cgResult.content)).toContain('正式参考的父资产ID、材质ID及确认状态须与同一项目当前记录一致')
-    expect(JSON.stringify(cgResult.content)).toContain('历史图、候选图或身份与风格未核的图只能辅助观察')
-    expect(JSON.stringify(cgResult.content)).toContain('服装相似或资产ID正确都不足以确认角色一致')
-    expect(JSON.stringify(cgResult.content)).toContain('关键质量项失败或待确认时，包整体不得通过')
-    expect(JSON.stringify(cgResult.content)).toContain('逐项对照正式参考的造型比例、材质表现、渲染质感与强弱')
-    expect(JSON.stringify(cgResult.content)).toContain('细项差异未解释或细节不足时保持待确认')
+    expect(value).toMatchObject({ name: 'anime-3d-assets', resourceBase: cgSkill!.resourceBase, content: cgSkill!.content })
+    expect(JSON.stringify(cgResult.content)).toContain('画风隔离与质量验收')
+    expect(JSON.stringify(cgResult.content)).toContain('调用生成工具前查看最终实际提交文本')
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })

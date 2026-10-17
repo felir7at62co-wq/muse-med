@@ -40,14 +40,13 @@ export function apply(ctx) {
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'editing', 'creation']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'creation']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the seven product presets; found ' + presets.map(preset => preset.id).join(', '))
+    throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   const inventory = await ctx.agentPresets.compositionInventory()
-  let standardTools
   for (const id of ids) {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
@@ -65,20 +64,14 @@ export function apply(ctx) {
     }
     for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
-    if (id === 'standard') standardTools = names
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
-      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-      'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet', 'video_ocr',
+      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write',
+      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
-        : id === 'editing' ? ['read', 'skill', shell, 'present',
-          'jubian_find', 'jubian_claim', 'jubian_snatch',
-          'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
-          'mcp__muse-account__muse_kb_ingest_script']
         : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
-          'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
+          'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
           'jubian_find', 'jubian_claim', 'jubian_snatch',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
@@ -91,18 +84,11 @@ export function apply(ctx) {
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
-    if (id === 'editing') {
-      if (standardTools === undefined) throw new Error('desktop runtime: standard tool catalog was not checked')
-      const delegationTools = new Set(['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code',
-        'send_message', 'interrupt_agent', 'list_agents', 'workflow'])
-      const missingStandardTools = [...standardTools].filter(name => !delegationTools.has(name) && !names.has(name))
-      if (missingStandardTools.length > 0) {
-        throw new Error('desktop runtime: editing mode missing standard tool ' + missingStandardTools.join(', '))
-      }
+    if (id === 'short-drama') {
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
-      if (persona !== editingModelInput.personaPrefix) {
-        throw new Error('desktop runtime: editing persona changed')
+      if (!persona?.startsWith(editingModelInput.personaPrefix)) {
+        throw new Error('desktop runtime: unified creative persona changed')
       }
       const delivery = assembly.sections.find(section => section.name === 'editing:delivery')?.text
       if (!delivery?.includes('默认使用 Word（.docx）') || !delivery.includes('screenplay_export_docx')) {
@@ -124,7 +110,7 @@ export function apply(ctx) {
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
     const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
     if (id === 'creation') {
-      for (const name of ['muse-creation', 'muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review', 'shot-script-creator-16-9-3d']) {
+      for (const name of ['muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
@@ -132,8 +118,8 @@ export function apply(ctx) {
       if (skills.some(skill => !creationSkillNames.has(skill.name))) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
-      const router = skills.find(skill => skill.name === 'muse-creation')
-      const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'muse-creation', 'SKILL.md')
+      const router = skills.find(skill => skill.name === 'muse-script-editing')
+      const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       if (!router?.path || !existsSync(expected) || realpathSync.native(router.path) !== realpathSync.native(expected)) {
         throw new Error('desktop runtime: creation routing skill is not packaged')
@@ -194,7 +180,7 @@ export function apply(ctx) {
       }
     }
     const editingSkill = skills.find(skill => skill.name === 'muse-script-editing')
-    if (id === 'editing' && (!editingSkill
+    if (id === 'short-drama' && (!editingSkill
       || realpathSync.native(editingSkill.path) !== realpathSync.native(join(root, 'node_modules', '@deepseek-ai',
         'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')))) {
@@ -212,13 +198,10 @@ export function apply(ctx) {
     if (existsSync(join(bundled, 'xiaohongshu-reference')) || skills.some(skill => skill.name === 'xiaohongshu-reference')) {
       throw new Error('desktop runtime: XHS must not ship in the product directory or skill registry')
     }
-    const requiredSkills = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
-      'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
-      'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
+    const requiredSkills = ['tweet-drama-core', 'tweet-drama-script-convert',
+      'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
+      'tweet-drama-shot-asset-match',
       'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
-    if (!existsSync(join(bundled, 'tweet-drama-early-shot-script', 'references', 'director-format.md'))) {
-      throw new Error('desktop runtime: director shot-format guide is missing from the product package')
-    }
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)
       if (!skill || !skill.path || !skill.invocation.modelInvocable) throw new Error('desktop runtime: missing product skill ' + name)

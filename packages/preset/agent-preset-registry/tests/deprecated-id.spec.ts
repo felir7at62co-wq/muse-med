@@ -33,10 +33,10 @@ async function roster(options: { default?: string; extra?: readonly string[] } =
 }
 
 describe('a deprecated preset id', () => {
-  it('resolves to the preset that replaced it', async () => {
+  it.each(['short-drama-local', 'editing'])('resolves %s to the preset that replaced it', async (id) => {
     const ctx = await roster()
 
-    expect((await ctx.agentPresets.resolve('short-drama-local')).id).toBe('short-drama')
+    expect((await ctx.agentPresets.resolve(id)).id).toBe('short-drama')
   })
 
   it('never joins the roster the picker reads', async () => {
@@ -60,12 +60,12 @@ describe('a deprecated preset id', () => {
     await expect(ctx.agentPresets.resolve('never-existed')).rejects.toThrow(/Unknown agent preset/)
   })
 
-  it('composes the successor for an Agent resuming a session recorded before the rename', async () => {
+  it.each(['short-drama-local', 'editing'])('composes the successor when resuming recorded %s', async (id) => {
     // The reported failure: `mount` resolved nothing for the recorded id, so the
     // session could not be composed at all.
     const ctx = await roster()
 
-    const agent = await agentOn(ctx, 'resumed', 'short-drama-local')
+    const agent = await agentOn(ctx, 'resumed', id)
 
     expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('short-drama')
     expect(ctx.tools.schemas(agent).map(tool => tool.name)).toEqual(['short-drama'])

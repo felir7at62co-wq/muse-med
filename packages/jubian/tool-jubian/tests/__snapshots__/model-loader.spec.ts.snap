@@ -53,7 +53,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
   },
   "page_num": 1,
   "page_size": 20,
-  "next": "按 total 与分页读取当前项目；total 未返回时继续到空页。get 读取指定分镜详情；空项目可直接 create，无需模型配置或手工样本。"
+  "next": "按 total 与分页读取当前项目；total 未返回时继续到空页。写提示词默认按分集选择已有视频卡，get 读取详情，再 edit_preview/edit_batch_preview → edit_apply 原位填写；仅已有卡不足或用户明确要求新增时 create/create_batch。空项目无需模型配置或手工样本。"
 }",
     "type": "text",
   },
@@ -132,10 +132,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     },
     "changes": {
       "additionalProperties": false,
-      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。",
+      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是所选模型实际请求的整数秒。",
       "properties": {
         "duration": {
-          "description": "SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。",
+          "description": "正整数秒；SD2.0 为4–15秒，SD2.5 为4–30秒，其他目录模型按各自能力与镜头内容确定。",
           "type": "integer",
         },
         "episode_id": {
@@ -213,6 +213,14 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "可选：集号（\`5\` 与 \`05\` 都规范成 \`EP05\`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 \`EP05｜角色｜陆沉舟\`，处理任务名会加上 \`EP05-P3-\` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。",
       "type": "string",
     },
+    "erase_mode": {
+      "description": "新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。",
+      "enum": [
+        "automatic",
+        "region",
+      ],
+      "type": "string",
+    },
     "estimate_basis": {
       "description": "本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。",
       "type": "string",
@@ -234,7 +242,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "boolean",
     },
     "method": {
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -258,7 +266,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "string",
     },
     "model_id": {
-      "description": "erase_subtitle 必填：quzimuToB（羽点，区域性）或 ark-erase-video-subtitle-pro（自动）。插件不设默认值——省略即在发请求前报错，不会替你挑一个模型。",
+      "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。",
       "type": "string",
     },
     "package_number": {
@@ -272,6 +280,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     "page_size": {
       "description": "每页条数，默认 20，上限 1000。",
       "type": "number",
+    },
+    "platform_id": {
+      "description": "去字幕可选：task_type=10 目录的精确 platformId。",
+      "type": "string",
     },
     "preview_path": {
       "description": "submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。",
@@ -323,7 +335,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "array",
     },
     "storyboards": {
-      "description": "create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
+      "description": "create_batch 必填：仅已有视频卡不足或用户明确要求新增时使用；先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
       "items": {
         "additionalProperties": false,
         "properties": {

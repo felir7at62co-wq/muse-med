@@ -14,11 +14,11 @@ from validate_live_action_skills import validate_skill_package
 
 EXPECTED = {
     "anime-3d-assets",
-    "jubian-asset-library", "jubian-snatch", "shot-script-creator-9-16", "shot-script-creator-16-9-3d", "xiaohongshu-reference",
-    "tweet-drama-asset-extract", "tweet-drama-asset-vision-check",
+    "jubian-snatch", "xiaohongshu-reference",
+    "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",
-    "tweet-drama-draft-build", "tweet-drama-early-shot-script", "tweet-drama-key-manager",
-    "tweet-drama-pipeline", "tweet-drama-project-bible", "tweet-drama-project-inspect", "tweet-drama-script-convert",
+    "tweet-drama-draft-build", "tweet-drama-key-manager",
+    "tweet-drama-project-bible", "tweet-drama-project-inspect", "tweet-drama-script-convert",
     "tweet-drama-script-split", "tweet-drama-shot-asset-match",
     "tweet-drama-voice-continuity",
 }
@@ -36,9 +36,9 @@ class SkillSuite(unittest.TestCase):
                 target = root / "skills" / source.parent.name / source.name
                 target.parent.mkdir(parents=True)
                 shutil.copyfile(source, target)
-            pipeline = root / "skills/tweet-drama-pipeline/SKILL.md"
-            self.assertTrue(pipeline.is_file())
-            pipeline.write_text(pipeline.read_text(encoding="utf-8") + "\n取得本次即时批准\npending 表示可交付\n", encoding="utf-8")
+            core = root / "skills/tweet-drama-core/SKILL.md"
+            self.assertTrue(core.is_file())
+            core.write_text(core.read_text(encoding="utf-8") + "\n取得本次即时批准\npending 表示可交付\n", encoding="utf-8")
             errors = validate_skill_package(root)
             self.assertTrue(any("取得本次即时批准" in error for error in errors))
             self.assertTrue(any("pending 表示可交付" in error for error in errors))
@@ -48,15 +48,8 @@ class SkillSuite(unittest.TestCase):
         self.assertNotIn("<DSH_HOME>/skills/", core)
         self.assertIn("python -B scripts/pipeline_state.py", core)
 
-    def test_current_creative_authority_and_bgm_rules_are_preserved(self):
-        pipeline = (SKILLS / "tweet-drama-pipeline/SKILL.md").read_text(encoding="utf-8")
-        shots = (SKILLS / "tweet-drama-early-shot-script/SKILL.md").read_text(encoding="utf-8")
+    def test_bgm_rules_are_preserved(self):
         render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
-        for required in ("不是普遍硬门禁", "说话人", "旁白/心声", "实时目录", "不能静默换模型"):
-            self.assertIn(required, pipeline)
-        for required in ("编译器的建议性警告不等于项目制作要求可以忽略", "不删字、不换说话人",
-                         "原文要求的旁白与心声不删、不强制变成角色当场对白", "max_submit_seconds", "实时模型目录"):
-            self.assertIn(required, shots)
         for required in ("一集的 BGM 必须多于一首", "按正文情绪分段选曲", "valence/arousal", "仅限非商业用途"):
             self.assertIn(required, render)
 

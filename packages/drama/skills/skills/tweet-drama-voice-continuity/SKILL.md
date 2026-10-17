@@ -25,7 +25,7 @@ python -B <本技能目录>/scripts/prepare_voice_assets.py --project <项目根
 
 按原任务、源字节、角色ID、时期和区间生成稳定候选 ID，重复运行核对文件摘要后复用；旧版未分期请求保留原候选 ID 算法，不同妆造共用角色与时期 ID。并发执行使用同一操作系统锁和原子清单替换，不覆盖其他记录。中断已写入清单的产物可继续复用；未登记的临时文件重新提取，已登记文件变化时报错，不悄悄重建。重新下载成不同字节时建立新候选版本，历史保留。更新认可状态或资产 ID/URL 时总控暂停该清单的 prepare 写入，读取完整当前清单后合并更新，不能覆盖 tracks 或其他角色记录。
 
-资产使用查询用 `drama_assets usage_preview project_dir=<项目> plan_path=<使用索引JSON>`，可加精确 asset_id。使用索引 version=1 的 documents 列出当前 drama_shot compile 完整结果 JSON 的 path、sha256、episode。工具核对每个包 material_bindings 的实际父资产、材质、名字、类别与 URL，输出包、逐镜实际绑定的镜头、妆造版本和项目声线引用。该结果是本地计划引用，不是远端已绑定或已生成证明；远端仍用原卡 GET 回读。登记新资产或修改版本后重新查询当前文件，不能沿用旧摘要或靠名称/列表顺序套用。truncated=true 时按资产分查，不声称展示了全量用途；issues 只用于定位相关引用，不强制全局工作流程。
+资产使用查询用 `drama_assets usage_preview project_dir=<项目> plan_path=<使用索引JSON>`，可加精确 asset_id。使用索引 version=1 的 documents 可用于旧项目，列出已有镜头包完整结果 JSON 的 path、sha256、episode。工具核对每个包 material_bindings 的实际父资产、材质、名字、类别与 URL，输出包、逐镜实际绑定的镜头、妆造版本和项目声线引用。新项目不要求生成旧镜头包格式，可直接读取当前卡片核对用途。该结果是本地计划引用，不是远端已绑定或已生成证明；远端仍用原卡 GET 回读。登记新资产或修改版本后重新查询当前文件，不能沿用旧摘要或靠名称/列表顺序套用。truncated=true 时按资产分查，不声称展示了全量用途；issues 只用于定位相关引用，不强制全局工作流程。
 
 ## 不同账号协作时复用已有声线
 

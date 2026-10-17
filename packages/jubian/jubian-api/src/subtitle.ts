@@ -7,6 +7,7 @@
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { SubtitleBox } from './video.ts'
+import type { PostProcessModel } from './upscale.ts'
 
 export type { SubtitleBox }
 
@@ -17,7 +18,7 @@ function positive(value: unknown): number {
   return value
 }
 
-/** The two erasure models the provider exposes, with their live catalogue identity. */
+/** Erasure models with captured request routes and catalogue identities. */
 export const SUBTITLE_ERASE_MODELS = ['quzimuToB', 'ark-erase-video-subtitle-pro'] as const
 /** The model id that selects the automatic route. */
 export const AUTOMATIC_ERASE_MODEL = 'ark-erase-video-subtitle-pro'
@@ -105,14 +106,19 @@ export interface SubtitleEraseInput {
  * so no catalogue read is needed before submitting.
  * @param modelId - Explicit model selection; there is no fallback route.
  * @param input - Source identities, frame size and an optional explicit rectangle.
+ * @param model - Optional selectors from the live erasure catalogue.
+ * @param eraseMode - Explicit route required for a newly listed model; known routes retain their original mode.
  * @returns The wire body for one erasure task.
  */
 export function buildSubtitleEraseRequest(modelId: string,
-  input: SubtitleEraseInput): Record<string, unknown> {
-  if (modelId !== 'quzimuToB' && modelId !== AUTOMATIC_ERASE_MODEL) invalid()
-  const automatic = modelId === AUTOMATIC_ERASE_MODEL
-  const standardId = SUBTITLE_ERASE_STANDARDS[modelId]
-  const platformId = automatic ? 'AI_MEDIA_KIT' : 'YU_DIAN'
+  input: SubtitleEraseInput, model?: PostProcessModel, eraseMode?: 'automatic' | 'region'): Record<string, unknown> {
+  const known = modelId === 'quzimuToB' || modelId === AUTOMATIC_ERASE_MODEL
+  if (!known && (model === undefined || eraseMode === undefined)) invalid()
+  if (model !== undefined && model.modelId !== modelId) invalid()
+  if (known && eraseMode !== undefined && (eraseMode === 'automatic') !== (modelId === AUTOMATIC_ERASE_MODEL)) invalid()
+  const automatic = eraseMode === undefined ? modelId === AUTOMATIC_ERASE_MODEL : eraseMode === 'automatic'
+  const standardId = model?.standardId ?? SUBTITLE_ERASE_STANDARDS[modelId as typeof SUBTITLE_ERASE_MODELS[number]]
+  const platformId = model?.platformId ?? (automatic ? 'AI_MEDIA_KIT' : 'YU_DIAN')
   const width = positive(input.videoWidth), height = positive(input.videoHeight)
   if (!Number.isFinite(input.duration) || input.duration <= 0) invalid()
   if (!input.taskName.trim() || !input.taskName.isWellFormed()

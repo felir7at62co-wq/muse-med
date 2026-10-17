@@ -8,14 +8,14 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# New tasks expose only the two drama environments; registered legacy compositions remain recoverable.
+# New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama, editing]
+    selectablePresets: [short-drama]
 
 # The upstream preset registry is the engine, and the product declares every preset itself: the
-# six directories under `presets/` become six rows through the adapter in src/index.ts, which
+# composition directories under `presets/` become six rows through the adapter in src/index.ts, which
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's
 # DSH user modes, and those shipped rows are disabled below because a deployment upgrade must not
 # shadow a product preset of the same id.
@@ -41,6 +41,29 @@
   disabled: false
   config:
     includeDefaultRoots: false
+
+# These optional settings providers are not part of the Muse product.
+- id: agent-notes
+  disabled: true
+
+- id: ui-settings-agent-notes
+  disabled: true
+
+# Product navigation offers tasks, skills, MCP and schedules without mode or plugin management.
+- id: ui-agent-preset
+  disabled: true
+
+- id: ui-plan
+  disabled: true
+
+- id: ui-plugin-manager
+  disabled: true
+
+- id: ui-settings-plugins
+  disabled: true
+
+- id: ui-settings-plugin-inventory
+  disabled: true
 
 - id: web-startup
   disabled: false

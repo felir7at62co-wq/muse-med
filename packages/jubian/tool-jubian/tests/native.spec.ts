@@ -457,6 +457,15 @@ async function ready(promise: Promise<void>): Promise<void> {
 }
 
 describe('prepare_video', () => {
+  it('returns the generation check reminder without any provider write', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result.next).toContain('生成前请检查')
+    expect(result.next).toContain('submit_video 或 submit_video_batch')
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
+
   it('refuses empty subjects without creating a preview or reserving a write', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       storyboardMaterialList: [], modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: 'A quiet street' }) } }

@@ -19,7 +19,7 @@ python -B scripts/style_references.py <project> <role_id> check
 python -B scripts/style_references.py <project> <role_id> import --name <角色名> --role-class lead --image <用户图片路径>
 ```
 
-本地历史人物素材库先用 `jubian-asset-library` 的 `character_candidates.py` 分别检索并确认人脸 ID 与全身造型 ID，再用下面的入口一次归档两张已选图。导入前会重新校验库索引、两张裁图、风格与群像状态；不上传，也不调用生图。它只复制两张选中的图到当前项目，不修改素材库。用户还需实看并明确确认本次选择，不能把导入当成使用批准。
+用户已提供可用的本地人物素材库并选定人脸 ID 与全身造型 ID 时，用下面的入口一次归档两张已选图。导入前会重新校验库索引、两张裁图、风格与群像状态；不上传，也不调用生图。它只复制两张选中的图到当前项目，不修改素材库。用户还需实看并明确确认本次选择，不能把导入当成使用批准。
 
 ```powershell
 python -B scripts/style_references.py <project> <role_id> import-library --name <角色名> --role-class lead --library-root <素材库根目录> --face-id <人脸asset_id> --body-id <全身asset_id>

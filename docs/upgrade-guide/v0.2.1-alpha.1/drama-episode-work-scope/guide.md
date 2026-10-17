@@ -17,7 +17,7 @@ Draft projection requires a valid timeline/source pair. Its `completion_basis=ed
 
 ## Migration
 
-1. Update the adjacent `tweet-drama-core`, `tweet-drama-script-split`, `tweet-drama-pipeline`, and `tweet-drama-delivery` skill directories together. Personal installed copies do not synchronize automatically.
+1. Update the adjacent `tweet-drama-core`, `tweet-drama-script-split`, and `tweet-drama-delivery` skill directories together. Personal installed copies do not synchronize automatically.
 2. Back up `episodes/manifest.json`. Confirm the authorized episode list, then add `work_scope.episode_ids` using the [scope schema](../../../../packages/drama/skills/skills/tweet-drama-core/references/io-contract.md#episode-work-scope-and-coverage). Keep the true whole-story total; never infer scope from current files.
 3. Run `episode_coverage.py <project> audit`. Resolve missing sources, stale hashes and uncertain mappings. Run `accept <episode...>` only for reviewed episodes that pass; pending entries cannot be bulk-approved. Freshly accepted episodes receive v2 records.
 4. Run `gate <episode...>` before an authorized submission and `pipeline_state.py <project> sync`. Verify `completion_scope=work_scope` and the exact `scope_episodes`. A nonzero gate result stops submission. These commands do not generate or submit paid media.

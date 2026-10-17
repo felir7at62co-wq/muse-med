@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 FORBIDDEN_ACTIVE_TERMS = (
-    "runninghub",
     "minimax",
     "彩铅",
     "推文模式",
@@ -64,39 +63,6 @@ def validate_skill_package(project_root: Path) -> list[str]:
     for skill_name in OBSOLETE_ACTIVE_SKILLS:
         if (skills_root / skill_name / "SKILL.md").is_file():
             errors.append(f"废弃 skill 仍处于活动目录: {skill_name}")
-
-    pipeline = skills_root / "tweet-drama-pipeline" / "SKILL.md"
-    pipeline_text = pipeline.read_text(encoding="utf-8") if pipeline.is_file() else ""
-    for required in (
-        "真人剧",
-        "正式资产",
-        "自动审核",
-        "确认出演",
-        "jubian_asset",
-        "jubian_storyboard",
-        "asset_confirmation",
-        "max_review_attempts=3",
-        "1–4秒",
-        "8 个有效字",
-        "36",
-        "subtitle_cleanup",
-        "实际发声",
-        "实时目录",
-        "授权范围",
-        "预计费用",
-        "非最终交付",
-        "QA",
-        "同场画外音",
-        "official=true",
-    ):
-        if required not in pipeline_text:
-            errors.append(f"总控缺少真人剧契约字段: {required}")
-
-    shot_skill = skills_root / "tweet-drama-early-shot-script" / "SKILL.md"
-    shot_text = shot_skill.read_text(encoding="utf-8") if shot_skill.is_file() else ""
-    for required in ("当前分镜", "实时模型目录", "max_submit_seconds", "警告", "原文", "说话人"):
-        if required not in shot_text:
-            errors.append(f"镜头门禁缺少字段: {required}")
 
     draft_skill = skills_root / "tweet-drama-draft-build" / "SKILL.md"
     draft_text = draft_skill.read_text(encoding="utf-8").casefold() if draft_skill.is_file() else ""

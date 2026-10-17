@@ -94,13 +94,8 @@ export async function apply(ctx) {
     assert.ok(!catalogs.includes('hidden-authoring'), 'The isolated creative catalog excludes unapproved skills')
     const entries = options.messages.flatMap(message => message.source?.kind === 'skill-catalog'
       ? message.source.entries : [])
-    assert.ok(entries.some(skill => skill.name === 'muse-creation'),
-      `The optional detailed guide remains discoverable: ${JSON.stringify({
-        messages: options.messages.map(message => ({ role: message.role, source: message.source?.kind })),
-        visibleSkillTool: ctx.tools.get('skill', agent)?.name,
-        catalog: (await ctx.agentPresets.serviceFor(agent, 'skills').list({ scope: agent, cwd: agent.session.header.cwd }))
-          .map(skill => skill.name),
-      })}`)
+    assert.ok(!entries.some(skill => skill.name === 'muse-creation'), 'The removed guide is absent from the catalog')
+    assert.ok(entries.some(skill => skill.name === 'muse-script-editing'), 'The current editing skill is discoverable')
     assert.ok(entries.some(skill => skill.name === 'muse-dialogue-polish'), 'The dialogue specialist is discoverable')
     assert.match(entries.find(skill => skill.name === 'muse-dialogue-polish').description, /台词质量|对白互不回应/u,
       'The automatic catalog describes the professional match for this task')

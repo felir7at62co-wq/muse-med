@@ -94,6 +94,38 @@ function imageDeps(
   } }
 }
 
+describe('explicit image catalogue selection', () => {
+  const catalogue = [...IMAGE_CATALOGUE, { ...IMAGE_CATALOGUE[0]!, id: 71,
+    modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU', videoStandards: [
+      { id: 101, ratio: '16:9', resolution: '2K', width: 0, height: 0, genNum: 1 },
+      { id: 102, ratio: '16:9', resolution: '2K', width: 0, height: 0, genNum: 1 },
+    ] }]
+  const selection = { image_model_id: 'doubao-seedream-5-0-260128', image_platform_id: 'FANG_ZHOU',
+    image_resolution: '2K', image_spec_id: 102 }
+
+  it.each(['image_generate', 'image_generate_batch'])('passes explicit model and specification through %s', async (method) => {
+    const { client, calls } = imageProvider(catalogue)
+    const item = { asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: method, ...selection }
+    await videoMethod(client, ledger, method === 'image_generate'
+      ? { method, script_id: 2708, ...item }
+      : { method, script_id: 2708, items: [item] },
+    imageDeps({ selection: { platformId: 'YU_DIAN', standardId: 42 } }))
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({ modelId: selection.image_model_id,
+      platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102 })
+  })
+
+  it('rejects an absent batch model before any paid write', async () => {
+    const { client, calls } = imageProvider(catalogue)
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
+      { asset_name: 'valid', asset_type: 1, prompt: 'ready', idempotency_key: 'valid', ...selection },
+      { asset_name: 'missing', asset_type: 1, prompt: 'ready', idempotency_key: 'missing', image_model_id: 'absent' },
+    ] }, imageDeps())).rejects.toThrow()
+    expect(calls.filter(call => call.method !== 'GET')).toEqual([])
+  })
+})
+
 describe('jubian_video resolution guidance', () => {
   it.each([
     { status: 'succeeded', parent: 42, url: 'https://media.example/result.mp4', ready: 1 },
@@ -138,6 +170,23 @@ describe('jubian_video resolution guidance', () => {
 })
 
 describe('jubian_video upscale', () => {
+  it('resolves an explicit MediaKit model and output standard before the paid write', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList?taskType=20')) return [{ id: 27, modelId: 'AI MediaKit',
+        platformId: 'AI_MEDIA_KIT', videoStandards: [{ id: 88, resolution: '720p' }, { id: 89, resolution: '1080p' }] }]
+      if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
+      if (request.path.includes('/sub/list')) return { total: 1, rows: [{ id: 990,
+        aigcVideoTaskId: 42, duration: 8, firstResultId: 3, parentResultId: 4,
+        resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
+      return 429001
+    })
+    await videoMethod(client, ledger, { method: 'upscale', task_id: 42, idempotency_key: 'mediakit',
+      model_id: 'AI MediaKit', platform_id: 'AI_MEDIA_KIT', resolution: '1080p' })
+    expect(calls.filter(call => call.path.endsWith('/hdConversion'))).toMatchObject([{ body: {
+      taskType: 20, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', standardId: 27, videoStandardId: 89,
+    } }])
+  })
+
   it('posts the workbench HD conversion body once under the same ledger key', async () => {
     const { client, calls } = stubClient((request) => {
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
@@ -234,6 +283,7 @@ describe('jubian_catalog reads', () => {
   it('addresses each catalogue endpoint exactly once', async () => {
     const cases: [MethodArgs, string, string, unknown][] = [
       [{ method: 'models', task_type: 2 }, 'GET', '/model/charge/getSelectList?taskType=2', []],
+      [{ method: 'models', task_type: 20 }, 'GET', '/model/charge/getSelectList?taskType=20', []],
       [{ method: 'rate', standard_id: 42 }, 'GET', '/model/charge/42', { unitPrice: 0.5 }],
       [{ method: 'script', script_id: 2708 }, 'GET', '/aigc/script/2708', { id: 2708, name: 'x', productionType: 2 }],
       [{ method: 'episodes', script_id: 2708, page_num: 1, page_size: 20 }, 'GET',

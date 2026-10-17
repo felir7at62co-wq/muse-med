@@ -7,6 +7,8 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
+视频模型参数从任一匹配的实时 taskType=1 目录行解析；保留已知 Seedance 时长限制，其他模型使用正整数秒而不套用该限制。显式生图选择接受任一 taskType=2 模型及支持的分辨率，省略模型时沿用 GPT Image 2；其他生图模型的目录尺寸允许缺省或取整。后处理从 taskType 10 或 20 解析精确模型、通道与输出规格，缺失或歧义时拒绝。
+
 ## 概述
 
 `@deepseek-ai/dsh-jubian-api` 校验剧变响应数据，并为目录、资产、视频、分镜、图片、去字幕与转高清操作构造请求体；它也下载有大小上限的媒体文件。载荷不匹配时，读取器抛出错误码为 `CONTRACT_CHANGED` 的 `JubianError`，否则返回带类型的值。剧变请求的传输与凭据由 `@deepseek-ai/dsh-jubian` 负责；`@deepseek-ai/dsh-tool-jubian` 使用这些函数。

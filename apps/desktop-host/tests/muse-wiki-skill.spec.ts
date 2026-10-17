@@ -25,7 +25,7 @@ it('discovers Muse Wiki guidance for logged-in navigation, cited synthesis, and 
     expect(input).toMatch(/当前.*登录.*不.*密钥/su)
     const editing = renderSkillContent((await ctx.skills.get('muse-script-editing'))!)
     expect(editing).toContain('muse-llm-wiki')
-    const preset = await readFile(new URL('../presets/editing/agent.cordis.yml', import.meta.url), 'utf8')
+    const preset = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
     expect(preset).not.toContain('muse-llm-wiki')
   } finally {
     await ctx.fiber.dispose()
@@ -48,12 +48,12 @@ it('discovers proactive participation guidance across presets with private recor
     }
     expect(input).toMatch(/不同 Muse 账号.*分开保存.*不将旧账号.*写入新账号/su)
     expect(input).toMatch(/组合查询.*不返回原始资料/su)
-    for (const name of ['standard', 'ptc', 'cordis', 'editing', 'short-drama', 'creation']) {
+    for (const name of ['standard', 'ptc', 'cordis', 'short-drama', 'creation']) {
       const preset = await readFile(new URL('../presets/' + name + '/agent.cordis.yml', import.meta.url), 'utf8')
       if (name === 'creation') {
         expect(preset).toContain('@deepseek-ai/dsh-desktop-host/creation-skills')
         expect(CREATION_SKILL_NAMES).toContain('muse-project-participation')
-      } else if (name === 'editing') {
+      } else if (name === 'short-drama') {
         expect(preset).not.toContain('muse-project-participation')
       } else {
         expect(preset).toContain('muse-project-participation')

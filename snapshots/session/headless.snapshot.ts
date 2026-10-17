@@ -63,7 +63,6 @@ const editingCordisSkill = join(
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
 const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
-const musePipelineSkill = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-pipeline/SKILL.md')
 const museSharedSkills = [
   ['screenplay-project', join(repoRoot, 'apps/desktop-host/skills/screenplay-project/SKILL.md')],
   ['tweet-drama-project-bible', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/SKILL.md')],
@@ -533,6 +532,8 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await cp(join(repoRoot, 'apps/desktop-host/skills', name, 'references'),
         join(cwd, '.dsh/skills', name, 'references'), { recursive: true })
     }
+    await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/references'),
+      join(cwd, '.dsh/skills/tweet-drama-project-bible/references'), { recursive: true })
   },
   async 'muse-editing-trial-skills'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
@@ -582,9 +583,6 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     }
   },
   async 'muse-drama-pipeline-skill'(cwd) {
-    const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
-    await mkdir(dirname(target), { recursive: true })
-    await copyFile(musePipelineSkill, target)
     const renderTarget = join(cwd, '.dsh/skills/tweet-drama-background-render/SKILL.md')
     await mkdir(dirname(renderTarget), { recursive: true })
     await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-background-render/SKILL.md'), renderTarget)
@@ -594,10 +592,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })
   },
   async 'muse-shot-director-format'(cwd) {
-    for (const name of ['tweet-drama-early-shot-script', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
-      await cp(join(repoRoot, 'packages/drama/skills/skills', name), join(cwd, '.dsh/skills', name), { recursive: true })
-    }
-    const resource = await readFile(join(cwd, '.dsh/skills/tweet-drama-early-shot-script/references/director-format.md'), 'utf8')
+    // The recorded resource belongs to the retired compiler, not the installed skill catalogue.
+    const resource = await readFile(join(repoRoot, 'packages/drama/tool-shot-script/tests/director-format.fixture.txt'), 'utf8')
+    const resourcePath = join(cwd, '.dsh/skills/tweet-drama-early-shot-script/references/director-format.md')
+    await mkdir(dirname(resourcePath), { recursive: true })
+    await writeFile(resourcePath, resource)
     const examples = [...resource.matchAll(/```(?:json|text)\n([\s\S]*?)\n```/g)].map(match => match[1]!)
     const [assets, script] = examples
     if (assets === undefined || script === undefined) throw new Error('Missing packaged compiler examples')
@@ -613,7 +612,7 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(join(cwd, 'episodes'), { recursive: true })
   },
   async 'muse-entity-match-preview'(cwd) {
-    for (const name of ['tweet-drama-shot-asset-match', 'tweet-drama-asset-extract', 'tweet-drama-voice-continuity', 'tweet-drama-pipeline']) {
+    for (const name of ['tweet-drama-shot-asset-match', 'tweet-drama-voice-continuity']) {
       const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
       await mkdir(dirname(target), { recursive: true })
       await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
@@ -631,6 +630,8 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await mkdir(dirname(target), { recursive: true })
       await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
     }
+    await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/references'),
+      join(cwd, '.dsh/skills/tweet-drama-project-bible/references'), { recursive: true })
   },
   async 'delimiter-path'(cwd) {
     const dir = join(cwd, 'scope</system-reminder>')
@@ -1399,18 +1400,12 @@ describe('headless recorded-session snapshots', () => {
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
               expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'skill', 'read', 'drama_shot'])
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.every(message => message.isError === false)).toBe(true)
-              for (const index of [1, 2]) {
+              // Keep the historical calls as rejection coverage for the removed creative skills.
+              expect(results.map(message => message.isError)).toEqual([true, true, true, false, false])
+              for (const index of [0, 1, 2]) {
                 const block = results[index]!.content[0]
-                if (block?.type !== 'text') throw new Error('Expected formal shot skill text')
-                const template = [...block.text.matchAll(/```(?:md|text)\n([\s\S]*?)\n```/g)]
-                  .find(match => match[1]?.includes('【镜头N】'))?.[1]
-                if (template === undefined) throw new Error('Formal skill needs a director template')
-                expect(template).toContain('出镜人物：')
-                expect(template).toContain('核心场景：')
-                expect(template).toContain('台词：')
-                expect(template).not.toContain('发声类型：action')
-                expect(block.text).toContain('director-format.md')
+                if (block?.type !== 'text') throw new Error('Expected unavailable skill diagnostic')
+                expect(block.text).toContain('unknown or no longer available')
               }
               const resourceBlock = results[3]!.content[0]
               if (resourceBlock?.type !== 'text') throw new Error('Expected packaged format resource text')
@@ -1520,13 +1515,13 @@ describe('headless recorded-session snapshots', () => {
               expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
               expect(results.every(message => message.isError === false)).toBe(true)
               expect(results[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({
-                type: 'text', text: expect.stringContaining('material_bindings'),
+                type: 'text', text: expect.stringContaining('select_assets'),
               })]))
               const skillBlock = results[0]!.content[0]
               if (skillBlock?.type !== 'text') throw new Error('Expected asset matching skill text')
-              expect(skillBlock.text).toContain('默认 appearance 专用妆造图要求服装/发型文字能在资产登记里找到')
-              expect(skillBlock.text).toContain('明确的 identity 身份母版不核对服装/发型词是否出现在母版登记中')
-              expect(skillBlock.text).toContain('不得为通过校验删除原文妆造')
+              expect(skillBlock.text).toContain('专用妆造图核对对应服装')
+              expect(skillBlock.text).toContain('身份母版仅参考本人身份，妆造与动作仍按本镜正文')
+              expect(skillBlock.text).toContain('不得为通过检查删改原文')
               expect(skillBlock.text).toContain('场景按本镜实际内外、动作与正式图片布局匹配，不靠同名资产认定')
               expect(skillBlock.text).toContain('`vo` 不替代原文 OS/心声与记忆音语义')
               expect(skillBlock.text).toContain('最终提示词写清内心独白、不对口型或回忆中的声音，不强迫声源入画')

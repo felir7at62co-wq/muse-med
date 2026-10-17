@@ -1,4 +1,4 @@
-/** Executable examples shipped with the director-format skill resource. */
+/** Historical director-format examples for compiler compatibility checks. */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,9 +7,9 @@ import type { MatchedPayload } from '../src/types.ts'
 import { parseShotScript } from '../src/script.ts'
 import { call, cleanup, dramaShot, tempDir } from './harness.ts'
 
-const resource = new URL('../../skills/skills/tweet-drama-early-shot-script/references/director-format.md', import.meta.url)
+const resource = new URL('./director-format.fixture.txt', import.meta.url)
 
-/** Extract the real example blocks so documentation changes exercise the tool again. */
+/** Extract the retained legacy compiler examples. */
 async function examples(): Promise<string[]> {
   const markdown = await readFile(resource, 'utf8')
   return [...markdown.matchAll(/```(?:json|text)\n([\s\S]*?)\n```/g)].map(match => match[1]!)

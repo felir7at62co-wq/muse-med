@@ -1,3 +1,25 @@
+# Desktop's Web bundle keeps these Host-level tools disabled.
+- id: plan-mode
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-ptc
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
 # Replay the current product editing preset with the recorded model frames.
 - id: llm-deepseek
   disabled: true

@@ -19,7 +19,7 @@ it('activates four Hongguo tools in every creative preset and leaves minimal unc
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
-    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'creation', 'minimal']) {
+    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'minimal']) {
       const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {
         customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }],
       }) as PresetRow[]

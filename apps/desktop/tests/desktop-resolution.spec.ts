@@ -20,7 +20,7 @@ it('routes product preset packages from the complete runtime dependency closure,
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'desktop-resolution-')))
   try {
     const host = JSON.parse(readFileSync(new URL('../../desktop-host/package.json', import.meta.url), 'utf8')) as { name: string; dependencies: Record<string, string> }
-    const community = ['dsh-codex-subscription', 'dsh-ffmpeg']
+    const community = ['dsh-ffmpeg']
     for (const name of [host.name, ...Object.keys(host.dependencies), ...community]) {
       const dir = join(root, 'runtime/node_modules', name)
       mkdirSync(dir, { recursive: true })
@@ -34,7 +34,7 @@ it('routes product preset packages from the complete runtime dependency closure,
     await ctx.plugin(PluginPackages, { resolution })
     try {
       const profileBase = pathToFileURL(join(home, 'profiles/desktop/')).href
-      for (const name of [...community, ...['guard-drama', 'tool-drama-assets', 'tool-shot-script', 'tool-episode-render', 'perception-bgm'].map(suffix => `@deepseek-ai/dsh-${suffix}`)]) {
+      for (const name of [...community, ...['guard-drama', 'tool-drama-assets', 'tool-episode-render', 'perception-bgm'].map(suffix => `@deepseek-ai/dsh-${suffix}`)]) {
         expect(cli.entries.some(entry => entry.name === name)).toBe(false)
         expect(ctx.get('pluginPackages')?.packageOf(name, profileBase)?.dir).toBe(join(root, 'runtime/node_modules', name))
       }

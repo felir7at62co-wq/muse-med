@@ -279,7 +279,8 @@ describe('model and identity readers', () => {
     for (const duration of [1, 2, 3, 31, 2.5, NaN, Infinity, '30', null]) {
       expect(() => validateVideoDuration('doubao-seedance-2-5-260628', duration)).toThrow('Duration must be an integer')
     }
-    expect(() => validateVideoDuration('doubao-seedance-2-5-unknown', 8)).toThrow('No verified duration capability')
+    expect(validateVideoDuration('doubao-seedance-2-5-unknown', 8)).toBe(8)
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, modelId: 'absent-model' })).toThrow('No catalogue row')
     expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genNum: 2 })).toThrow()
     expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genType: 4 })).toThrow()
   })

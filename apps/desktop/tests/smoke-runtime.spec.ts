@@ -60,16 +60,16 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'editing', 'creation']
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
     writeFileSync(presetPath(id), '[]')
   }
   const skillRoot = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills'))
-  const skillNames = ['tweet-drama-pipeline', 'tweet-drama-core', 'tweet-drama-script-convert',
-    'tweet-drama-script-split', 'tweet-drama-asset-extract', 'tweet-drama-asset-vision-check',
-    'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'tweet-drama-shot-asset-match', 'tweet-drama-early-shot-script',
+  const skillNames = ['tweet-drama-core', 'tweet-drama-script-convert',
+    'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
+    'tweet-drama-shot-asset-match',
     'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
   const skills = skillNames.map((name) => {
     const path = join(skillRoot, name, 'SKILL.md')
@@ -77,9 +77,6 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     return { name, path, invocation: { modelInvocable: true } }
   })
-  const directorGuide = join(skillRoot, 'tweet-drama-early-shot-script/references/director-format.md')
-  mkdirSync(dirname(directorGuide), { recursive: true })
-  writeFileSync(directorGuide, '# fixture director guide')
   const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
   mkdirSync(dirname(customPath), { recursive: true })
   writeFileSync(customPath, '# fixture')
@@ -127,7 +124,7 @@ function fixture(packaged = false) {
   const ocrBridge = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-tool-video-inspect/scripts/ocr_bridge.ps1'))
   mkdirSync(dirname(ocrBridge), { recursive: true })
   writeFileSync(ocrBridge, '# fixture')
-  for (const name of ['muse-creation', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
+  for (const name of ['office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -140,7 +137,7 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-    'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
@@ -171,20 +168,20 @@ function fixture(packaged = false) {
     tools = { schemas: vi.fn((key?: { preset: string }) => {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? names
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write'].includes(name)), ...editingCapabilityNames]
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'editing' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
+          : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_shot', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', ...accountMcpNames]
+              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', ...accountMcpNames]
               : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
                 : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
-      sections: context.scope.preset === 'editing'
+      sections: context.scope.preset === 'short-drama'
         ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix },
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
         : [],
-      tools: context.scope.preset === 'editing'
+      tools: context.scope.preset === 'short-drama'
         ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
         : [],
     })) }
@@ -217,7 +214,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -231,12 +228,12 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   await f.apply(f.ctx)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
-  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'editing' }, scope: { preset: 'editing' } })
+  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
   expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(14)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -244,13 +241,6 @@ it('accepts product skills loaded from the installed ASAR unpack directory', asy
   const f = fixture(true)
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-})
-
-it('rejects an installed product missing the director shot-format guide', async () => {
-  const f = fixture(true)
-  rmSync(join(f.skillRoot, 'tweet-drama-early-shot-script/references/director-format.md'))
-  await expect(f.apply(f.ctx)).rejects.toThrow('director shot-format guide is missing')
-  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects a Cordis authoring skill served from the virtual ASAR path', async () => {
@@ -280,7 +270,7 @@ it.each(['drama_project', 'drama_draft_dir', 'jubian_budget', 'video_contact_she
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['muse-llm-wiki', 'muse-project-participation', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'shot-script-creator-16-9-3d'])('rejects a missing product skill %s', async (name) => {
+it.each(['muse-llm-wiki', 'muse-project-participation', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity'])('rejects a missing product skill %s', async (name) => {
   const f = fixture()
   const index = f.skills.findIndex(skill => skill.name === name)
   f.skills.splice(index, 1)
@@ -348,7 +338,7 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'cordis', 'editing', 'creation'])('rejects missing transcription in %s', async (preset) => {
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missing transcription in %s', async (preset) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
@@ -393,7 +383,7 @@ it('rejects creation without its isolated skill registry', async () => {
   await expect(f.apply(f.ctx)).rejects.toThrow('creation skill registry is not isolated')
 })
 
-it.each(['muse-creation', 'muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review', 'shot-script-creator-16-9-3d'])('rejects creation without %s', async (name) => {
+it.each(['muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review'])('rejects creation without %s', async (name) => {
   const f = fixture()
   f.creationSkills.splice(f.creationSkills.findIndex(skill => skill.name === name), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing creation skill ' + name)
@@ -407,7 +397,8 @@ it.each(['desktop-user-skill', 'editing-cordis-compositions', 'unreviewed-runtim
 
 it('rejects creation with its routing skill outside the packaged Host', async () => {
   const f = fixture()
-  f.creationSkills.find(skill => skill.name === 'muse-creation')!.path = join(f.home, 'skills/desktop-user-skill/SKILL.md')
+  const index = f.creationSkills.findIndex(skill => skill.name === 'muse-script-editing')
+  f.creationSkills[index] = { ...f.creationSkills[index]!, path: join(f.home, 'skills/desktop-user-skill/SKILL.md') }
   await expect(f.apply(f.ctx)).rejects.toThrow('creation routing skill is not packaged')
 })
 
@@ -514,7 +505,7 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the seven product presets')
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
@@ -549,7 +540,7 @@ it('rejects an editing mode without its script-pool reader', async () => {
 it('rejects an editing mode missing a standard tool', async () => {
   const f = fixture()
   f.editingCapabilityNames.splice(f.editingCapabilityNames.indexOf('ask_user_question'), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode missing standard tool ask_user_question')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ask_user_question')
 })
 
 it('accepts editing without locally mounted delegation tools', async () => {
@@ -569,10 +560,10 @@ it('rejects an editing persona that differs from the current identity', async ()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'editing') result.sections[0]!.text = '你是 muse-med 的小说与短剧剧本编辑。'
+    if (context.scope.preset === 'short-drama') result.sections[0]!.text = '你是 muse-med 的小说与短剧剧本编辑。'
     return result
   })
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing persona changed')
+  await expect(f.apply(f.ctx)).rejects.toThrow('unified creative persona changed')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -581,7 +572,7 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'editing') {
+    if (context.scope.preset === 'short-drama') {
       if (change === 'missing') result.sections = result.sections.filter(section => section.name !== 'editing:delivery')
       else result.sections[1]!.text = change === 'without Word' ? 'screenplay_export_docx' : '默认使用 Word（.docx）'
     }
@@ -596,7 +587,7 @@ it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible d
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'editing') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
+    if (context.scope.preset === 'short-drama') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
     return result
   })
   await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed: ' + name)
@@ -606,7 +597,7 @@ it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible d
 it('rejects an editing mode that loses a standard video tool', async () => {
   const f = fixture()
   f.editingCapabilityNames.splice(f.editingCapabilityNames.indexOf('jubian_video'), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing mode missing standard tool jubian_video')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool jubian_video')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

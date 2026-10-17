@@ -20,7 +20,7 @@ Prompt text had already failed once here. [tweet-drama-shot-asset-match](../../.
 身体状态：【孕早期（孕八周）；孕期职场装；长发】；
 ```
 
-That is the machine-readable field the review asked for, and it is the format owner's own block rather than a new artifact: [shot-script-creator-9-16](../../../../packages/drama/skills/skills/shot-script-creator-9-16/SKILL.md) now documents it beside 位置/动作状态/情绪状态, so the state card the asset skill already required lands somewhere a tool reads.
+The [director format](../../../../packages/drama/tool-shot-script/tests/director-format.fixture.txt) documents the machine-readable body-state field beside each character’s position, action and emotion. The compiler reads that field when matching registered asset state.
 
 [`src/state.ts`](../../../../packages/drama/tool-shot-script/src/state.ts) normalizes both sides. Two dimensions have closed vocabularies because they decide the silhouette — pregnancy stage (`孕八周`/`怀孕8周`/`怀孕十三周` → 孕早期, `十四周` → 孕中期, `二十八周` → 孕晚期, `非孕期`, and 孕期待定 for a bare 孕期) and age band (a year, or 儿童/少年/青年/中年/老年). Everything else in the declaration — costume, hair, an injury — stays state text that the registration must contain. A declaration with two different stages is a conflict, and a conflict in any dimension refuses the shot instead of asking for an asset no version could satisfy.
 

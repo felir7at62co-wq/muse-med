@@ -9,6 +9,10 @@ import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { markReselection } from './reselection.ts'
 import { readPreparedJson } from './prepared-file.ts'
 
+/** Prompt-write guidance returned before free edits, without approval state or an additional tool step. */
+export const STORYBOARD_WRITE_REMINDER = '写入前请检查：项目与分集、已有视频卡 ID 及逐卡视频包对应、before/after 与本次修改范围、'
+  + '提示词和原文对白、素材标记与用途、动作和空间关系、所选模型与时长；发现问题先修正。'
+
 type Row = Record<string, unknown>
 const MODEL_KEYS = ['modelId', 'platformId', 'ratio', 'resolution', 'genType', 'duration', 'genNum'] as const
 const BOARD_FIELDS = { name: 'storyboardName', episode_id: 'episodeId', sort_order: 'sortOrder' } as const
@@ -295,7 +299,7 @@ async function apply(client: JubianClient, ledger: JubianLedger, args: MethodArg
  * @param ledger - Claimed previews and target writes; a replay never resends.
  * @param args - Explicit card changes for preview, or project-bound preview path and fingerprint for apply.
  * @param limits - Deployment bounds shared with free storyboard creation.
- * @returns Changed fields, selection diagnostics or verified per-card save outcomes.
+ * @returns Changed fields with a write-review reminder, selection diagnostics or verified per-card save outcomes.
  */
 export async function storyboardEditMethod(client: JubianClient, ledger: JubianLedger, args: MethodArgs,
   limits: ImageBatchOptions): Promise<Row> {
@@ -311,5 +315,7 @@ export async function storyboardEditMethod(client: JubianClient, ledger: JubianL
   await atomicWriteJson(path, plan)
   return { ...plan, status: plan.targets.some(target => target.selection_status === 'needs_reselect') ? 'needs_reselect' : 'ready',
     preview_path: path, paid_requests: 0,
-    next: '核对卡片身份与 before/after；edit_apply 使用本 preview_path 和 idempotency_key=fingerprint。预览未改远端；needs_reselect 保存后必须重新 select_assets。' }
+    next: STORYBOARD_WRITE_REMINDER
+      + '默认写入本分集已有视频卡。自主检查后，edit_apply 使用本 preview_path 和 idempotency_key=fingerprint。'
+      + '预览未改远端；needs_reselect 保存后必须重新 select_assets。' }
 }

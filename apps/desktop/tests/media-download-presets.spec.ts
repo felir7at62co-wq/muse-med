@@ -41,7 +41,7 @@ it('registers local analysis and download tools in creative scopes and leaves mi
     await ctx.plugin(Tools)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SubprocessLocal)
-    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'editing', 'creation', 'minimal']) {
+    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'minimal']) {
       const rows = yaml.load(readFileSync(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), { schema }) as PresetRow[]
       const hongguo = rows.find(row => row.id === 'muse-hongguo-download')
       const douyin = rows.find(row => row.id === 'muse-douyin-download')

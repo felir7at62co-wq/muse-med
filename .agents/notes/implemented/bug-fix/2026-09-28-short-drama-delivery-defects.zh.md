@@ -24,8 +24,6 @@ Status: implemented
 
 [tweet-drama-shot-asset-match](../../../../packages/drama/skills/skills/tweet-drama-shot-asset-match/SKILL.md) 在绑定环节拥有角色状态：每个角色每集先写一张状态卡（含孕周或年龄段的体型、服装版本、发型、时段），取自剧本或已确认大纲，绑定前与该资产设定板逐条对齐。设定板与剧本状态不一致的资产就是错的版本，哪怕名字对得上。状态卡现在落在两处机器可读的地方——镜头的 `身体状态` 字段，以及资产的 `state_or_costume` 加 `episodes` 登记——不一致时 `drama_shot` 直接拒绝绑定；该强制由[状态门禁那份 Note](2026-09-28-character-state-gate-at-binding.zh.md) 拥有。
 
-[shot-script-creator-9-16](../../../../packages/drama/skills/skills/shot-script-creator-9-16/SKILL.md) 拥有表情：反应类表情（惊讶、震惊、瞪眼、挑眉、后退、捂嘴）必须在同一镜或上一镜写明触发事件，且触发事件取自本集台词或 ▲ 动作行。原文只是平常问句的镜头不得写挑眉或瞪眼，同一个表情词也不得跨无关镜头复用。
-
 ## Alternatives considered
 
 **把描边做成插件 `Config` 字段。** 否决：描边与同一个表头固定的画面尺寸、码率一样，属于交付规格；做成随部署变化的字段，就会允许某个项目悄悄交付另一种观感。

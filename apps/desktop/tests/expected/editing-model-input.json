@@ -1,5 +1,5 @@
 {
-  "personaPrefix": "你是muse-med编辑智能体，由{{model}}驱动",
+  "personaPrefix": "你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。",
   "tools": {
     "mcp__muse-account__muse_account_status": "Read the current MUSE account identity. Set verify=true to confirm the saved session with the gateway. No password or cookie is returned.",
     "mcp__muse-account__muse_kb_search": "Search this account’s private scripts and administrator-granted sources or Wiki pages. Results include 类型, 标定, and an ID. Use muse_kb_read for full pages, or muse_kb_read_opening for a viral-script or user-script opening; excerpts are incomplete.",

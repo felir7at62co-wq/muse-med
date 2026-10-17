@@ -18,11 +18,12 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     createPluginProfile(profileDir)
     const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
     const sourceRoot = join(repositoryRoot, 'third_party', 'plugins')
-    const pins = JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string }>
+    const pins = JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8')) as Record<string, { version: string; desktop?: boolean }>
     const version = (JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { version: string }).version
     const artifacts = join(home, 'artifacts')
     mkdirSync(artifacts)
-    for (const [directory, pin] of Object.entries({ ...pins, ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string }> })) {
+    for (const [directory, pin] of Object.entries({ ...pins, ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string; desktop?: boolean }> })) {
+      if (pin.desktop === false) continue
       const source = join(sourceRoot, directory)
       const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as { name: string; version: string; main: string; dependencies?: unknown; dsh?: { bundle?: { patch: string } } }
       const fixture = join(home, directory)
@@ -67,6 +68,19 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       loadOverlayPatches('muse-med', overlay),
     ], message => warnings.push(message))
 
+    for (const id of ['agent-notes', 'ui-settings-agent-notes']) {
+      expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
+    }
+    for (const id of ['ui-agent-preset', 'ui-plugin-manager', 'ui-settings-plugins', 'ui-settings-plugin-inventory']) {
+      expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
+    }
+    for (const id of ['agent-team', 'tool-agent-team', 'ui-agent-team', 'auto-review',
+      'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
+      expect(rows.find(row => row.id === id), id).toBeUndefined()
+    }
+    expect(rows.find(row => row.id === 'codex-subscription')?.disabled ?? true).toBe(true)
+    expect(profile.layers.map(layer => layer.packageName)).not.toContain('dsh-codex-subscription')
+    expect(readFileSync(join(project, 'package.json'), 'utf8')).not.toContain('dsh-codex-subscription')
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])

@@ -202,7 +202,7 @@ These limits define what this package is and is not. They are current constraint
 - **`dispose` can write evidence with no comparison** — on a project that holds no evidence, `dispose` creates one holding only dispositions, `blocking`, `ignored_without_note` and `ready`. The host gate still refuses it, because it requires a fresh `ran_at` that only `reconcile` writes.
 - **The manifest is the only local side** — assets recorded anywhere else (a `matches/*.json`, a pipeline state file) do not count as registered. Registering an asset means a row in `assets_manifest.json` with an integer `jubian_asset_id`.
 - **A string `jubian_asset_id` counts as declared** — the manifest reader keeps integer ids only, so a row whose id is the string `"83840"` is not declared; it is not dangling either, because the dangling check reads the same field the same way, so the row is invisible to both lists.
-- **`cross_project_note` is carried, never written** — the field is preserved from the previous evidence and returned; the cross-project search itself belongs to the `jubian-asset-library` skill.
+- **`cross_project_note` is carried, never written** — the field is preserved from the previous evidence and returned; this tool does not perform cross-project library searches.
 - **The write is not transactional across processes** — the temporary file and the rename make one write atomic, but two concurrent `dispose` calls on one project can still interleave their read-modify-write cycles.
 
 <a id="dev-note"></a>

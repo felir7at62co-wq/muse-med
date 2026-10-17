@@ -48,6 +48,8 @@ Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注�
 
 注册表不写入任何声明。`read` Remote 把一条声明的子插件列表按 entry-list YAML 方言（含 `!!js` 条件）渲染回来，供客户端展示 preset 的组成；没有任何接口接受 YAML 写回。新建 preset 或覆盖内置 preset 都是 bundle 补丁：插入一行 `@deepseek-ai/dsh-agent-preset`，或按该行 id 写覆盖补丁，再用 `plugin_manager` 安装到 profile；创造模式在对话中编写这类 bundle。[显示助手](src/display.ts)通过本地化键解析已知且未命名的预设，包括产品的 `creation` 预设。有名称的声明保留自身名称和描述。
 
+历史 Muse 预设 ID short-drama-local 与 editing 在没有同名定义时解析到 short-drama。此映射保留 Session 原始字节，不把别名加入清单；显式恢复的旧 ID 定义优先。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

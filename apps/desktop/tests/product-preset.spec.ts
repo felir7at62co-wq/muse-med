@@ -19,13 +19,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('offers only short drama and editing while keeping registered legacy compositions recoverable', async () => {
+it('offers one unified Agent while keeping recorded editing sessions recoverable', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'editing'] })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama'] })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
@@ -62,9 +62,9 @@ it('offers only short drama and editing while keeping registered legacy composit
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'creation', 'editing', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['cordis', 'creation', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
-    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'editing'])
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
     await expect(ctx.agentPresets.resolveForCreation('creation')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
     expect(await ctx.agentPresets.resolve('creation')).toMatchObject({ id: 'creation' })
     const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
@@ -74,7 +74,7 @@ it('offers only short drama and editing while keeping registered legacy composit
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
-    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-shot-script', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
       expect(rows.some(row => row.id === id), id).toBe(true)
     }
     expect(rows.find(row => row.id === 'perception-bgm')?.config).toMatchObject({
@@ -84,30 +84,37 @@ it('offers only short drama and editing while keeping registered legacy composit
     expect(source).toContain("subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'")
     expect(source).toContain("watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
-    expect(prompt).toContain('视觉风格只取当前用户对本项目的明确要求和 project_bible.style')
-    expect(prompt).toContain('short-drama 是制作模式，上文“仿真人短剧制作 Agent”的称呼不构成真人默认值')
-    expect(prompt).toContain('不得加入“真人选角审美”“禁止动漫脸”“真人角色设定板”或“真实空间”等真人约束')
-    expect(prompt).toContain('风格缺失或语义不明确时询问确认')
-    expect(prompt.indexOf('视觉风格只取当前用户对本项目的明确要求和 project_bible.style'))
-      .toBeGreaterThan(prompt.indexOf('你是 muse-med 仿真人短剧制作 Agent'))
-    for (const requirement of ['pipeline_state.json', 'assets_manifest.json', '1440×2560', '4.6 Mbps', 'asr_aligned', 'idempotency_key', 'CC-BY-NC-4.0', 'scriptName', 'episodeCount', 'stale']) {
-      expect(prompt, requirement).toContain(requirement)
-    }
-    for (const requirement of ['自主检索', '来源页和许可', 'agent_review', '用户图仍需确认', '不自动安装或启动小红书']) {
-      expect(prompt, requirement).toContain(requirement)
-    }
-    for (const requirement of ['整批提示词', 'image_generate_batch', '逐项验收']) {
-      expect(prompt, requirement).toContain(requirement)
-    }
-    const editingSource = (await ctx.agentPresets.readDocument('editing')).content
+    expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
+    expect(prompt).toContain('主动从已读内容与用户要求分析题材、可能吸引的观众')
+    expect(prompt).toContain('不虚构人口画像、市场数据或热度')
+    expect(prompt).toContain('普通转写、格式转换不额外增加这套分析')
+    expect(prompt).toContain('区分画面媒介、题材类型、情绪观感与美术风格')
+    expect(prompt).toContain('仿真人允许与真人摄影质感融合的玄幻生物')
+    expect(prompt).toContain('不套用人类面部与无面容三视图版式')
+    expect(prompt).not.toContain('3–5个关键动作或场景切换')
+    expect(prompt).not.toContain('以15秒视频包为参考')
+    expect(prompt).toContain('建议每镜1–4秒，有台词时按8个有效字/秒估算')
+    expect(prompt).toContain('对白直接跟在对应画面描述后，逐字引用原文台词')
+    expect(prompt).toContain('禁止写入国旗、国徽、党旗、党徽、军旗、军徽')
+    expect(prompt).toContain('首次仍逐字使用，不预先修改')
+    expect(prompt).toContain('只有确认失败与对应词语有关时')
+    expect(prompt).toContain('最小替换或删除，其余台词逐字保留')
+    expect(prompt).toContain('禁止改写、删减或替换整段台词')
+    expect(prompt).toContain('技术性失败不构成修改台词的理由')
+    expect(prompt).toContain('按项目已定画幅设计构图')
+    expect(prompt).toContain('角色资产图固定为16:9横版、白底')
+    expect(prompt).toContain('右侧是同一角色的无面容全身三视图')
+    expect(prompt).toContain('人物面部同样不写“脸红”“面部发红”')
+    for (const id of ['planning', 'delegation']) expect(rows.some(row => row.id === id)).toBe(false)
+    expect(prompt).not.toContain('pipeline_state.json')
+    expect(rows.some(row => row.id === 'tool-shot-script')).toBe(false)
+    expect((await ctx.agentPresets.resolve('editing')).id).toBe('short-drama')
+    const editingSource = (await ctx.agentPresets.readDocument('short-drama')).content
     const editingRows = yaml.load(editingSource, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     const editingPrompt = editingRows.find(row => row.id === 'persona')?.config?.prefix ?? ''
-    const editingModelInput = JSON.parse(await readFile(new URL('./expected/editing-model-input.json', import.meta.url), 'utf8')) as {
-      personaPrefix: string
-    }
-    expect(editingPrompt).toBe(editingModelInput.personaPrefix)
+    expect(editingPrompt).toBe(prompt)
     expect(editingRows.find(row => row.id === 'persona')?.config).toMatchObject({
-      complete: false, includeRuntimeContext: true,
+      complete: false,
     })
     for (const id of ['agent-instructions', 'tool-fs', 'tool-skill', 'tool-goal', 'tool-web', 'present']) {
       expect(editingRows.some(row => row.id === id), id).toBe(true)
@@ -117,17 +124,6 @@ it('offers only short drama and editing while keeping registered legacy composit
     expect(editingSkill).toContain('检索摘要不等于读过全文')
     expect(editingSkill).not.toContain('不得写正式正文')
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
-    for (const requirement of ['每集至少 2 首不同曲目', '按情绪分段', 'policy_findings', '1.5 秒三角交叉淡化', '24 小时', 'max_review_attempts=3', 'content_duration_ms', '计费云端语音服务', 'purpose=screenplay', 'purpose=subtitles', '不自动删除', '片尾 2 秒', '被委派的子代理只返回调用方要的分片结果', '给了 schema 就用 structured_output 返回']) {
-      expect(prompt, requirement).toContain(requirement)
-    }
-    for (const requirement of ['project_bible.visual_medium', 'drama_project preview/update', 'style 原文独立保留',
-      'animation_3d 的成片与剪映草稿都不新增任何水印或片尾', 'photorealistic 的成片与剪映草稿保留',
-      '旧项目未注明 visual_medium 时明确告警', '不从“写实 3D”等风格词或画幅推断', 'timeline.delivery',
-      '特效按自身原速播放一次，余下为纯定格，不变速或拉伸']) {
-      expect(prompt, requirement).toContain(requirement)
-    }
-    expect(prompt).not.toContain('成片与剪映草稿都在右下角全程显示')
-    expect(prompt).not.toContain('片尾音频、特效与定格严格等长')
     let calls = 0
     ctx.tools.register(defineContentToolFixture({
       name: 'jubian_storyboard', description: 'No-network provider fixture',

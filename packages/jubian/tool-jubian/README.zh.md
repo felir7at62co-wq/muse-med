@@ -7,6 +7,8 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
+模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution，三项均省略时沿用 SeedVR2。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
+
 ## 概述
 
 `dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；计费或改变状态的调用使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
@@ -172,6 +174,8 @@ inherited process environment (read-only, highest)
 | `jubian_media` | `download` | 免费且不需要凭证；写入一个本地文件 |
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
 
+免费 prepare_video 结果的 next 指导包含“生成前请检查”，提醒核对提示词、素材身份与用途、原文对白、空间动作、时长、范围与费用。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
+
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
 - `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。`production_type` 与 `share_target_type` 原样转发为 `productionType` 与 `shareTargetType`，且只对 `mine` 有效：控制台打开「漫剧视频」时自己发的那次请求，就是在同一个 `/aigc/script/list` 上带 `productionType=0` 与 `shareTargetType=1`，所以这一对参数正是列出漫剧项目的方式。两个取值都是提供方自己的编码——本工具既不解释、也不校验、也不给默认值，因此省略的那个根本不会出现在查询串里。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
@@ -182,7 +186,7 @@ inherited process environment (read-only, highest)
 
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
 
-已有卡片用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；旧卡片缺少配置时，预览和执行会按相同的请求字段顺序补齐。显式修复分集归属时，ID 必须属于当前项目的实时分集目录。核对 before/after 后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。真正的新包才用创建。
+写镜头脚本或视频包提示词时，先列出并读取当前分集已有视频卡，默认原位填写，包括新建项目时自带的空卡。本地新建视频包不代表远端需要新建卡。单卡用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；旧卡片缺少配置时，预览和执行会按相同的请求字段顺序补齐。显式修复分集归属时，ID 必须属于当前项目的实时分集目录。两种预览都在 `next` 返回“写入前请检查”，提醒核对项目和分集、目标卡 ID 与视频包对应、before/after 和修改范围、提示词与原文对白、素材标记及用途、动作和空间关系、模型与时长。Agent 自主检查后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`；提醒不增加审校批准、令牌或工具步骤。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。仅已有视频卡不足或用户明确要求新增时才创建。
 
 提示词保存于 `modelConfig.prompt`，不是顶层 `prompt`。按选材顺序在提示词映射中各写一次 `@[名称](material_key)` 引用。`get.material_keys` 表示已经绑定的素材行；新分镜该字段为空不能证明提示词不存在。
 

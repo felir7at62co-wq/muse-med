@@ -21,10 +21,12 @@ it('retains pinned community source and licenses without installed runtime data'
     commit?: string
     archiveSha256?: string
     license: string
+    desktop?: boolean
   }>
   expect(Object.keys(pins).sort()).toEqual([
     'dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
   ])
+  expect(pins['dsh-codex-subscription']?.desktop).toBe(false)
   for (const [directory, pin] of Object.entries(pins)) {
     const sourceDir = join(root, directory)
     const manifest = JSON.parse(await readFile(join(sourceDir, 'package.json'), 'utf8')) as {

@@ -34,8 +34,6 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   // the agent to load them, so the packaged Host has to carry them beside the composition.
   'presets/cordis/skills/cordis-plugin-development/SKILL.md',
   'presets/cordis/skills/editing-cordis-compositions/SKILL.md',
-  'presets/editing/agent.cordis.yml',
-  'presets/editing/preset.yml',
   'skills/editing/SKILL.md',
   'skills/audio-transcribe/SKILL.md',
   'skills/audio-transcribe/scripts/transcribe.py',
@@ -47,7 +45,7 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
 
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-codex-subscription', 'dsh-ffmpeg',
+  'dshmarket', 'dsh-ffmpeg',
   '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download',
