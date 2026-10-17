@@ -133,18 +133,19 @@ export function apply(ctx) {
           throw new Error('desktop runtime: retired Host skill is enabled: ' + directory)
         }
       }
-      if (skills.some(skill => skill.invocation.modelInvocable && skill.path.endsWith('SKILL.md.disabled'))) {
+      if (skills.some(skill => skill.invocation.modelInvocable && skill.path !== undefined
+        && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
       for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
-        if (!skill?.invocation.modelInvocable || !existsSync(expected)
+        if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
-        if (!loaded?.content?.trim() || !existsSync(loaded.path)
+        if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: professional skill did not load from the packaged Host: ' + name)
         }
@@ -213,7 +214,7 @@ export function apply(ctx) {
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
-        if (!loaded?.content?.trim() || !existsSync(expected) || !existsSync(loaded.path)
+        if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shot-writing skill did not load from its packaged resource: ' + name)

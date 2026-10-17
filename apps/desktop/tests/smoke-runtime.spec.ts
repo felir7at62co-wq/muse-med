@@ -190,7 +190,11 @@ function fixture(packaged = false) {
         : [],
     })) }
     skills = {
-      list: vi.fn(async (options: { scope: { preset: string } }) =>
+      list: vi.fn(async (options: { scope: { preset: string } }): Promise<{
+        name: string
+        path?: string
+        invocation: { modelInvocable: boolean }
+      }[]> =>
         options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills),
       get: vi.fn(async (name: string) => loadSkill(skills, name)),
     }
@@ -629,6 +633,27 @@ it('rejects a retired editing alias that resolves to a different preset', async 
   f.ctx.agentPresets.resolve.mockImplementation(id => id === 'editing' ? Promise.resolve({ id: 'editing' }) : resolve(id))
   await expect(f.apply(f.ctx)).rejects.toThrow('retired editing preset must resolve to short-drama')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('accepts an additional model-invocable virtual skill without a filesystem path', async () => {
+  const f = fixture()
+  const list = f.ctx.skills.list.getMockImplementation()!
+  f.ctx.skills.list.mockImplementation(async options => [...await list(options), {
+    name: 'virtual-runtime-guidance', invocation: { modelInvocable: true },
+  }])
+  await f.apply(f.ctx)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.dispose).toHaveBeenCalledTimes(12)
+})
+
+it.each(['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format',
+  'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects required packaged skill %s without a filesystem path', async (name) => {
+  const f = fixture()
+  const list = f.ctx.skills.list.getMockImplementation()!
+  f.ctx.skills.list.mockImplementation(async options => (await list(options)).map(skill =>
+    skill.name === name ? { name: skill.name, invocation: skill.invocation } : skill))
+  await expect(f.apply(f.ctx)).rejects.toThrow(name.startsWith('shot-script-creator-')
+    ? 'missing product skill ' + name : 'missing shared Muse skill ' + name)
 })
 
 it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import'])('rejects re-enabling retired Host skill %s', async (name) => {
