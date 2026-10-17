@@ -7,7 +7,7 @@ import { type Config, ONBOARDING_CONFIG_GLOBAL } from './onboarding-config.ts'
 export { Config } from './onboarding-config.ts'
 
 /**
- * Publish the credential-onboarding choice before browser plugins activate.
+ * Publish the preview-notice and credential-onboarding choices before browser plugins activate.
  * @param ctx - Host context collecting the page's initialization data.
  * @param config - plugin options with schema defaults applied by the Loader.
  */
@@ -16,7 +16,7 @@ export function apply(ctx: Context, config: Config): void {
     table.push({
       kind: 'global',
       name: ONBOARDING_CONFIG_GLOBAL,
-      value: { credentialOnboarding: config.credentialOnboarding },
+      value: { welcomeNotice: config.welcomeNotice, credentialOnboarding: config.credentialOnboarding },
     })
   })
 }

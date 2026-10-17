@@ -11,6 +11,10 @@ English | [中文](README.zh.md)
 
 This directory contains the separately deployed Muse account gateway. It serves account-scoped speech transcription, administrator-granted reference reading, and private script storage. Desktop and workspace packages do not launch it or store its Volcengine or TOS credentials.
 
+## Administrator account overview
+
+An account with `admin: true` can open `/account` → account management, or `/admin`, to see registered, enabled, disabled and administrator counts. The same page counts authenticated connected Desktop installations and deduplicates online accounts across computers. These are a refresh-time snapshot, not activity history: an open Desktop connection does not establish human interaction, and registered accounts include test accounts. Daily and monthly active-user counts are unavailable. Ordinary accounts cannot open the page; viewing totals does not require the separate elevation used for runtime administration or read private conversations and manuscripts.
+
 <a id="shared-voice-registration"></a>
 ## Shared voice registration
 

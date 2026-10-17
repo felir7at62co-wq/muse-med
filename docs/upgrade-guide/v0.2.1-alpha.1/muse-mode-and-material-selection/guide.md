@@ -11,7 +11,7 @@ English | [中文](guide.zh.md)
 
 Muse offers one short-drama director Agent for writing, editing and video production. The `editing` id resolves to `short-drama` for historical sessions. Agent preset controls, plugin-management pages and plan controls are hidden. The unified preset no longer registers subagent, workflow or plan-mode tools and prompt sections. Other preset definitions remain available for historical recovery. Saved defaults outside `selectablePresets` no longer affect new tasks. Explicit new-task requests for excluded presets fail with `agent-preset/not-selectable`.
 
-New Muse sessions default to Full access (`danger-full-access`, approval `never`). Permission selectors, their Settings entry and the `/permission` command are hidden. Existing sessions retain their recorded permissions.
+New Muse sessions default to Full access (`danger-full-access`, approval `never`). Permission selectors, their Settings entry and the `/permission` command are hidden. Existing sessions retain their recorded permissions. Browser access to Muse Desktop no longer displays the upstream preview notice.
 
 The shot compiler writes matched output version 5 with `video_tasks[].material_bindings`. On-screen names resolve exactly; stale or cross-person references fail with `material_reference_mismatch`. Character portraits may explicitly declare `reference_scope: "identity"`; appearance references retain costume checks.
 

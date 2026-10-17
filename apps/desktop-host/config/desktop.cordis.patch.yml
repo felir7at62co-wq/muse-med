@@ -74,6 +74,10 @@
 - id: ui-permission
   disabled: true
 
+- id: ui-settings-models
+  config:
+    welcomeNotice: false
+
 - id: ui-plan
   disabled: true
 

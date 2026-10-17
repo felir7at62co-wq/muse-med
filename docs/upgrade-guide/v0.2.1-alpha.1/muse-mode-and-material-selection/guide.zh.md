@@ -11,7 +11,7 @@ description: Muse 限制新会话可选预设，并在镜头包中返回明确�
 
 Muse 新会话只提供一个短剧编导 Agent，统一写作、编辑与视频制作；历史 editing ID 解析到 short-drama，Agent 预设控制、插件管理页面和计划模式控件均隐藏。统一预设不再注册子代理、workflow 或计划模式的工具与提示词段落。其他预设定义仍支持历史恢复。`selectablePresets` 之外的已存默认值不再影响新会话。显式使用被隐藏预设创建新任务会返回 `agent-preset/not-selectable`。
 
-Muse 新会话默认完全权限（`danger-full-access`，审批策略 `never`）。权限选择器、对应设置项与 `/permission` 命令隐藏；已有会话保留日志中的权限。
+Muse 新会话默认完全权限（`danger-full-access`，审批策略 `never`）。权限选择器、对应设置项与 `/permission` 命令隐藏；已有会话保留日志中的权限。通过浏览器访问 Muse Desktop 也不再显示上游预览版说明。
 
 镜头编译器写出 matched 第 5 版，增加 `video_tasks[].material_bindings`。出镜姓名按完整名称匹配；过期或跨人物引用返回 `material_reference_mismatch`。身份图可明确登记 `reference_scope: "identity"`；专用妆造图保留服装校验。
 

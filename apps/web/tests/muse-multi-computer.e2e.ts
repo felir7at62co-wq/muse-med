@@ -47,10 +47,12 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
     const { fixture } = await import(fixtureUrl.href) as FixtureModule
     account = await fixture({ after: callback => cleanup.push(callback) }, {}, true)
     await mkdir(shotDir, { recursive: true })
+    const productOnboarding = join(shotDir, 'onboarding.patch.yml')
+    await writeFile(productOnboarding, '- id: ui-settings-models\n  config:\n    welcomeNotice: false\n')
     for (const [deviceName, platform] of [['剪辑电脑', 'win32'], ['外出 Mac', 'darwin']] as const) {
       const profile = await launchWebScaffold({
         firstUse: true,
-        extraOverlayPath: fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+        extraOverlayPath: [fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)), productOnboarding],
       })
       profiles.push(profile)
       const exchange = await fetch(profile.authenticatedUrl, { redirect: 'manual' })
@@ -109,6 +111,7 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
       expect(await picker.locator('.computer-open').nth(index).getAttribute('href')).toBe(prefix)
       await page.goto(account.base + prefix)
       await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
+      expect(await page.getByRole('dialog', { name: '预览版说明' }).count()).toBe(0)
       expect(await page.locator('#muse-desktop-context').textContent()).toBe('电脑：' + expected.computers[index]! + expected.switchLabel)
       expect(await page.locator('#muse-desktop-context a').getAttribute('target')).toBe('_blank')
       navigation.push(await page.locator('#muse-desktop-context').ariaSnapshot())

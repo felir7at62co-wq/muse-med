@@ -31,6 +31,8 @@ Supported video models can generate a complete segment up to their verified dura
 
 New Muse tasks use one short-drama director Agent for writing, revision, transcription and video production. The retired editing preset resolves to the same composition for existing Sessions without rewriting their logs. The product hides the Agent preset settings page, mode picker and session label, together with plugin-management navigation and pages. Agent Teams, automatic permission review, the experimental inspector and voice input remain absent from the default profile. The unified preset declares no subagent, workflow or plan-mode contributions, and the product disables the plan UI.
 
+The Desktop product disables the upstream Web preview notice for native and browser access.
+
 New sessions default to Full access (`danger-full-access`, approval `never`). Permission selectors, their Settings entry and `/permission` discovery are hidden. Existing sessions retain their logged permissions; create a new task to use the new default.
 
 Text deliverables default to Word (`.docx`) unless the user specifies another format. The Agent keeps Markdown sources, loads `office-docx`, uses `screenplay_export_docx` for screenplay conversion and presents the checked Word file without transcribing or rewriting the source again. Video-production guidance is scoped to video work; ordinary manuscripts use autonomous source checks, with managed acceptance only when the task adopts such a project.
