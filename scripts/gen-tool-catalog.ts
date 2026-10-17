@@ -140,6 +140,18 @@ class CatalogSettingsForms extends SettingsForms {
   }
 }
 
+/** Mount isolated profile metadata and Settings for schema-only collection. */
+async function mountCatalogSettings(ctx: Context, scope: string): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), `dsh-tool-catalog-${scope}-`))
+  ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
+  await ctx.plugin(Loader)
+  ctx.provide('profileContext', {
+    name: 'catalog', startedBundles: [], dir: home, patchPath: join(home, 'cordis.patch.yml'),
+    installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
+  })
+  await ctx.plugin(CatalogSettingsForms)
+}
+
 /**
  * Register the descriptor needed to mount schema-producing consumers. Declares
  * the full capability set of the shipped in-process providers so consumers
@@ -753,14 +765,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.settings', 'an existing absolute project directory'],
     writes: ['tool/call', 'tool/result', 'project_config.json and project-bible.md', 'the Jianying draft-root Settings value'],
     async mount(ctx) {
-      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-settings-'))
-      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
-      await ctx.plugin(Loader)
-      ctx.provide('profileContext', {
-        name: 'catalog', startedBundles: [], dir: home, patchPath: join(home, 'cordis.patch.yml'),
-        installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
-      })
-      await ctx.plugin(CatalogSettingsForms)
+      await mountCatalogSettings(ctx, 'settings')
       await ctx.plugin(DramaSettings)
     },
     note: 'drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. '
@@ -875,15 +880,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // Schema harvest only: execution is unreachable. Inject the same Host
       // capability name as production without a local index, asset fixture,
       // credential, object-store client or network-capable implementation.
-      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-character-reference-'))
-      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
-      await ctx.plugin(Loader)
-      ctx.provide('profileContext', {
-        name: 'catalog', startedBundles: [], dir: home, patchPath: join(home, 'cordis.patch.yml'),
-        installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
-      })
+      await mountCatalogSettings(ctx, 'character-reference')
       ctx.provide('characterLibrary', {} as CharacterLibrary)
-      await ctx.plugin(CatalogSettingsForms)
       await ctx.plugin(CatalogAttachmentStore)
       await ctx.plugin(LlmRuntime)
       await ctx.plugin(ToolCharacterReference)
