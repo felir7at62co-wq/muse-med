@@ -209,7 +209,8 @@ const ARGS = {
       + '视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。'
       + 'modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、'
       + 'standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。'
-      + '提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。'
+      + '提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。'
+      + '只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。'
       + 'get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。'
       + '主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。' },
   body_path: { type: 'string',
@@ -241,7 +242,7 @@ const ARGS = {
         description: '主体设定行的父资产 ID（materials 返回的 asset_id）。' },
     } },
     description: 'select_assets 必填：有序的 (material_key, 父 asset_id) 列表，'
-      + '顺序必须与提示词里的图片 key 顺序完全一致；已有音频参考自动保留，不传作图片 selections。' },
+      + '每个图片 key 仅传一次，顺序与正文内联引用的图片 key 首次出现顺序一致；不要求包首素材清单。已有音频参考自动保留，不传作图片 selections。' },
   episode: { type: 'string',
     description: '可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。'
       + '给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；'
@@ -661,8 +662,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
       + '且它必须与该分镜已保存的时长一致，否则会在发请求前失败。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
-      + '每包实际用到且已有对应素材的角色、场景、道具、音频，都在该包内至少写一次 `@[素材名称](material_key)` 并明确用途；名称/key来自实际查询，引用与选材绑定一致，不依赖其他包的引用，不添加未用素材。'
-      + 'select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
+      + '每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。'
+      + 'select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
       + 'prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，'
       + '缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。'
       + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
@@ -722,7 +723,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       } },
       expected_fingerprint: { type: 'string', description: 'audio_apply 必填：已检查的 audio_preview fingerprint；idempotency_key 必须相同。' },
       changes: { type: 'object', additionalProperties: false, description: 'edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是所选模型实际请求的整数秒。', properties: {
-        prompt: { type: 'string', description: '新的完整包提示词；素材标记改变后须重新选源。' },
+        prompt: { type: 'string', description: '新的完整包提示词；已有素材按所在镜头内联引用，不以顶部素材清单代替；素材标记或首次出现顺序改变后须重新选源。' },
         duration: { type: 'integer', description: '正整数秒；SD2.0 为4–15秒，SD2.5 为4–30秒，其他目录模型按各自能力与镜头内容确定。' },
         modelId: { type: 'string' }, platformId: { type: 'string' }, ratio: { type: 'string' }, resolution: { type: 'string' },
         genType: { type: 'integer' }, genNum: { type: 'integer' }, name: { type: 'string' },

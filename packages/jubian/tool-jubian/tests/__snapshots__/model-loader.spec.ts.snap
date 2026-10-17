@@ -123,7 +123,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     },
     "body": {
       "additionalProperties": true,
-      "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+      "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
       "type": "object",
     },
     "body_path": {
@@ -158,7 +158,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
           "type": "string",
         },
         "prompt": {
-          "description": "新的完整包提示词；素材标记改变后须重新选源。",
+          "description": "新的完整包提示词；已有素材按所在镜头内联引用，不以顶部素材清单代替；素材标记或首次出现顺序改变后须重新选源。",
           "type": "string",
         },
         "ratio": {
@@ -302,7 +302,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "number",
     },
     "selections": {
-      "description": "select_assets 必填：有序的 (material_key, 父 asset_id) 列表，顺序必须与提示词里的图片 key 顺序完全一致；已有音频参考自动保留，不传作图片 selections。",
+      "description": "select_assets 必填：有序的 (material_key, 父 asset_id) 列表，每个图片 key 仅传一次，顺序与正文内联引用的图片 key 首次出现顺序一致；不要求包首素材清单。已有音频参考自动保留，不传作图片 selections。",
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -341,7 +341,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
         "properties": {
           "body": {
             "additionalProperties": true,
-            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；在提示词开头按素材顺序各写一次 @[素材名](material_key)，后续 selections 使用相同 key 和顺序。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
             "type": "object",
           },
           "body_path": {

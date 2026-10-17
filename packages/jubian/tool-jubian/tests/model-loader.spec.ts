@@ -85,6 +85,10 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     const runContext = { signal: new AbortController().signal } as ToolRunContext
     const storyboard = ctx.tools.get('jubian_storyboard')
     if (!storyboard) throw new Error('Missing jubian_storyboard')
+    const schemaText = JSON.stringify(storyboard.parameters)
+    expect(schemaText).not.toContain('在提示词开头按素材顺序各写一次')
+    expect(schemaText).toContain('后续镜头再次提及时继续引用，不能只在顶部集中列出')
+    expect(schemaText).toContain('每个图片 key 仅传一次')
     expect(validateJsonSchemaValue(storyboard.output.schema, { original_idempotency_key: 'f'.repeat(64) }, '')).toEqual([])
     expect(validateJsonSchemaValue(storyboard.output.schema, { original_idempotency_key: 1 }, '')).not.toEqual([])
     expect(validateJsonSchemaValue(storyboard.output.schema, { status: 'prepared' }, '')).toEqual([])

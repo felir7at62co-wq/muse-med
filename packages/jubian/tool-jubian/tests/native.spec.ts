@@ -461,9 +461,8 @@ describe('prepare_video', () => {
     const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
     const result = await prepareVideoMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, project_dir: await project() })
-    expect(result.next).toContain('生成前请检查')
-    expect(result.next).toContain('角色/场景/道具/音频是否都已@引用')
-    expect(result.next).toContain('引用名称/key与实际选材绑定是否一致')
+    expect(result.next).toContain('生成前请按系统提示词中的固定自检清单')
+    expect(result.next).not.toContain('角色/场景/道具/音频是否都已@引用')
     expect(result.next).toContain('submit_video 或 submit_video_batch')
     expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
   })

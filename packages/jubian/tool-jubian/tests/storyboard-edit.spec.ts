@@ -373,10 +373,8 @@ describe('storyboard editing in place', () => {
     const original = structuredClone(boards[0])
     const plan = await preview({ prompt: '@[阿舟](lead)停在门口', name: 'EP01-P1', duration: 9 })
     expect(writes()).toEqual([])
-    expect(plan.next).toContain('写入前请检查：')
-    expect(plan.next).toContain('按内容分包而非填满空卡')
-    expect(plan.next).toContain('角色/场景/道具/音频是否都已@引用')
-    expect(plan.next).toContain('引用名称/key与拟绑定素材是否一致')
+    expect(plan.next).toContain('写入前请按系统提示词中的固定自检清单')
+    expect(plan.next).not.toContain('角色/场景/道具/音频是否都已@引用')
     expect(plan).toMatchObject({ operation: 'storyboard_edit', targets: [
       { storyboard_id: 1, before: { name: 'board 1', duration: 8 }, after: { name: 'EP01-P1', duration: 9 } },
     ] })
@@ -452,9 +450,7 @@ describe('storyboard editing in place', () => {
     const plan = await storyboardMethod(client, ledger, { method: 'edit_batch_preview', project_dir: root,
       script_id: 2708, edits: [1, 2, 3].map(storyboard_id => ({ storyboard_id, changes: { name: `edited ${storyboard_id}` } })),
     }, { storyboardBatch: { concurrency: 2, maxItems: 3 } })
-    expect(plan.next).toContain('写入前请检查：')
-    expect(plan.next).toContain('按内容分包而非填满空卡')
-    expect(plan.next).toContain('角色/场景/道具/音频是否都已@引用')
+    expect(plan.next).toContain('写入前请按系统提示词中的固定自检清单')
     expect(writes()).toEqual([])
     const bothEntered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     let active = 0; let maximum = 0; let entrants = 0
