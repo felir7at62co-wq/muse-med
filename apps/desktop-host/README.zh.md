@@ -40,6 +40,8 @@ Muse 新任务使用同一个短剧编导 Agent，处理写作、改稿、转写
 
 Desktop 产品在原生窗口和浏览器访问中均关闭上游 Web 预览版说明。
 
+Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排队到下一轮。用户在设置中的明确选择会覆盖此产品默认值。
+
 新会话默认完全权限（`danger-full-access`，审批策略 `never`）。权限选择器、对应设置项与 `/permission` 发现入口均隐藏。已有会话保留日志中的权限；新建任务即可使用新默认值。
 
 文字稿件默认交付 Word（.docx），用户指定其他格式时按其要求。Agent 保留 Markdown 源稿，加载 office-docx，优先用 screenplay_export_docx 转换分场剧本并交付检查后的 Word，不重复转写或重写正文。视频制作要求仅用于视频工作；普通稿件自主核对来源，只有任务采用受管项目时才执行对应验收。

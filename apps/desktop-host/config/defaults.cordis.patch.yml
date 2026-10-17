@@ -9,6 +9,10 @@
     default: short-drama
     selectablePresets: [short-drama]
 
+- id: ui-conversation
+  config:
+    busyEnter: steer
+
 - id: permission
   config:
     defaultPreset: danger-full-access

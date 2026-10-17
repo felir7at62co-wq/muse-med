@@ -39,6 +39,8 @@ New Muse tasks use one short-drama director Agent for writing, revision, transcr
 
 The Desktop product disables the upstream Web preview notice for native and browser access.
 
+While Muse is busy, Enter and the Send button default to Steer; Cmd/Ctrl+Enter queues the message for the next turn. An explicit choice in Settings overrides this product default.
+
 New sessions default to Full access (`danger-full-access`, approval `never`). Permission selectors, their Settings entry and `/permission` discovery are hidden. Existing sessions retain their logged permissions; create a new task to use the new default.
 
 Text deliverables default to Word (`.docx`) unless the user specifies another format. The Agent keeps Markdown sources, loads `office-docx`, uses `screenplay_export_docx` for screenplay conversion and presents the checked Word file without transcribing or rewriting the source again. Video-production guidance is scoped to video work; ordinary manuscripts use autonomous source checks, with managed acceptance only when the task adopts such a project.
