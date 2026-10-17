@@ -7,7 +7,7 @@
  * publish one fixed, current-session-only preset with a synchronous admission
  * check; settings defaults remain limited to the configured table. The read
  * side exposes a process catalog plus the current-value-only `permissions`
- * Session projection; the write side ships as the `/permission` command.
+ * Session projection; the optional `/permission` command exposes the write side.
  *
  * @module dsh-permission-presets
  */
@@ -157,6 +157,8 @@ export interface PermissionSettings {
 
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
+  /** Register the human-facing /permission command and its discovery entry. */
+  registerCommand: boolean
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +
@@ -180,6 +182,7 @@ export interface Config {
 export class PermissionPresetService extends TypertRemoteService {
   // Inline schema call: the config catalog walks `static Config` statically.
   static Config = z.object({
+    registerCommand: z.boolean().default(true),
     presets: z.dict(z.object({
       sandbox: z.union(SANDBOX_MODES as SandboxMode[]).required(),
       approval: z.union(APPROVAL_POLICIES as ApprovalPolicy[]).required(),
@@ -253,6 +256,7 @@ export class PermissionPresetService extends TypertRemoteService {
     // popup contribution submits the picked preset as this line). The child
     // activates only when a command registry is composed.
     ctx.inject(['commands'], (commandCtx) => {
+      if (!config.registerCommand) return
       commandCtx.commands.register({
         definitionId: CommandDefinitionId('@deepseek-ai/dsh-permission-presets'),
         name: 'permission',

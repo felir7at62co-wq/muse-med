@@ -3,11 +3,14 @@ import assert from 'node:assert/strict'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 
 export const name = 'snapshot-short-drama-draft-ending'
-export const inject = ['agentPresets', 'tools', 'systemPrompt', 'llm']
+export const inject = ['agentPresets', 'tools', 'systemPrompt', 'llm', 'permissionPresets']
 
 /** Mount the product preset and check the prompt sent to the replay model. */
 export async function apply(ctx) {
   await mountPreset(ctx, { presetId: 'short-drama', hidePlatformShellTools: true })
+  ctx.on('agent/created', ({ agent }) => {
+    assert.equal(ctx.permissionPresets.current(agent.session), 'danger-full-access', 'new Muse session uses Full access')
+  })
   let requests = 0
   ctx.on('llm/stream', async function* (options, next) {
     const system = options.messages.filter(message => message.role === 'system')

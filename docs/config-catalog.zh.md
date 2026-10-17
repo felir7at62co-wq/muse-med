@@ -2505,6 +2505,8 @@ export interface BgmConfig {
 ```ts config-catalog
 /** The {@link PermissionPresetService} config: preset table and composition default. */
 export interface Config {
+  /** Register the human-facing /permission command and its discovery entry. */
+  registerCommand: boolean
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
    * (workspace-write + ask) and `danger-full-access` (danger-full-access +

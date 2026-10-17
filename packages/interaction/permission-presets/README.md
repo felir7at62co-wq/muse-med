@@ -48,12 +48,13 @@ The plugin config defines the preset table and the default for fresh sessions. E
 |---|---|---|
 | `presets` | `workspace-write`, `danger-full-access` | Table of preset name → sandbox/approval bundle |
 | `defaultPreset` | inferred | Preset pinned into fresh sessions; required when composition defaults match no preset |
+| `registerCommand` | `true` | Register `/permission` and its discovery entry; disabling it preserves defaults, projections and the service API |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-permission-presets) is the exhaustive source for every accepted field and its JSDoc. `custom` is reserved for the derived not-a-preset state, while `auto` is reserved for the Auto review integration. Mounting requires a confining bash executor (one that reports a `sandboxMode`) and the approval service.
 
 ### Switching presets
 
-Switching to Auto first runs its synchronous admission check; every preset switch then changes only the knobs whose effective value differs, and selecting the preset already in effect changes nothing. The current value resolves as the still-matching last recorded selection, including a recorded Auto selection under the `never` approval policy, else the first matching configured entry, else `custom`. Users switch through the `/permission` command: a bare invocation reports the current preset and every available entry, and a preset argument switches to it.
+Switching to Auto first runs its synchronous admission check; every preset switch then changes only the knobs whose effective value differs, and selecting the preset already in effect changes nothing. The current value resolves as the still-matching last recorded selection, including a recorded Auto selection under the `never` approval policy, else the first matching configured entry, else `custom`. When `registerCommand` is enabled, users switch through the `/permission` command: a bare invocation reports the current preset and every available entry, and a preset argument switches to it.
 
 ### What users see
 
@@ -96,7 +97,7 @@ Mounting pins every live and future session: a genuinely fresh session gains the
 
 ### Catalog, projection, and optional command
 
-The service requires `ctx.sessionProjections` and registers a `permissions` projection containing only `currentValue`. Its process-level `catalog()` Remote returns one complete selectable snapshot. Registering or removing Auto emits the payload-free `permission-presets/catalog-changed` notification, so clients subscribe first and then re-read the catalog without appending a Session event, publishing a Session projection frame, or changing Session sequence. The `/permission` command registers only when a `ctx.commands` registry is composed. Calls that derive the current preset or pin an initial selection fail explicitly when the projection key is absent.
+The service requires `ctx.sessionProjections` and registers a `permissions` projection containing only `currentValue`. Its process-level `catalog()` Remote returns one complete selectable snapshot. Registering or removing Auto emits the payload-free `permission-presets/catalog-changed` notification, so clients subscribe first and then re-read the catalog without appending a Session event, publishing a Session projection frame, or changing Session sequence. The `/permission` command registers only when `registerCommand` is enabled and a `ctx.commands` registry is composed. Calls that derive the current preset or pin an initial selection fail explicitly when the projection key is absent.
 
 </details>
 

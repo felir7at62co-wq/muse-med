@@ -1,3 +1,12 @@
+- id: permission
+  config:
+    defaultPreset: danger-full-access
+    registerCommand: false
+    presets:
+      read-only: { sandbox: read-only, approval: ask }
+      workspace-write: { sandbox: workspace-write, approval: ask }
+      danger-full-access: { sandbox: danger-full-access, approval: never }
+
 # Desktop's Web bundle keeps these Host-level tools disabled.
 - id: plan-mode
   disabled: true

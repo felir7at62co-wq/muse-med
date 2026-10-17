@@ -144,6 +144,20 @@ describe('permissions projection unit', () => {
 })
 
 describe('/permission command', () => {
+  it('omits command discovery and invocation while preserving the configured new-session permissions', async () => {
+    const { ctx, session } = await harness({ config: { registerCommand: false, defaultPreset: 'danger-full-access' } })
+    try {
+      const { agent } = await agentFor(ctx, session)
+      expect(ctx.permissionPresets.current(session)).toBe('danger-full-access')
+      expect(ctx.commands.list(agent).some(command => command.name === 'permission')).toBe(false)
+      expect(await ctx.commands.execute(agent, '/permission', [], new AbortController().signal)).toBeUndefined()
+      expect(session.snapshotEvents()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }),
+        expect.objectContaining({ type: 'approval/policy', data: { policy: 'never' } }),
+      ]))
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('lists and switches a contributed current-session preset', async () => {
     const { ctx, session } = await harness()
     await mountAuto(ctx)

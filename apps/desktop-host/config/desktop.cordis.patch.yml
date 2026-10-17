@@ -14,6 +14,24 @@
     default: short-drama
     selectablePresets: [short-drama]
 
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.cwd()
+
+- id: approval
+  config:
+    policy: never
+
+- id: permission
+  config:
+    defaultPreset: danger-full-access
+    registerCommand: false
+    presets:
+      read-only: { sandbox: read-only, approval: ask }
+      workspace-write: { sandbox: workspace-write, approval: ask }
+      danger-full-access: { sandbox: danger-full-access, approval: never }
+
 # The upstream preset registry is the engine, and the product declares every preset itself: the
 # composition directories under `presets/` become six rows through the adapter in src/index.ts, which
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's
@@ -51,6 +69,9 @@
 
 # Product navigation offers tasks, skills, MCP and schedules without mode or plugin management.
 - id: ui-agent-preset
+  disabled: true
+
+- id: ui-permission
   disabled: true
 
 - id: ui-plan

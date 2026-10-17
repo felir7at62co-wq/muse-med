@@ -71,9 +71,12 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     for (const id of ['agent-notes', 'ui-settings-agent-notes']) {
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
-    for (const id of ['ui-agent-preset', 'ui-plugin-manager', 'ui-settings-plugins', 'ui-settings-plugin-inventory']) {
+    for (const id of ['ui-agent-preset', 'ui-permission', 'ui-plugin-manager', 'ui-settings-plugins', 'ui-settings-plugin-inventory']) {
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
+    expect(rows.find(row => row.id === 'permission')?.config).toMatchObject({ defaultPreset: 'danger-full-access', registerCommand: false })
+    expect(rows.find(row => row.id === 'sandbox-policy')?.config).toMatchObject({ mode: 'danger-full-access' })
+    expect(rows.find(row => row.id === 'approval')?.config).toEqual({ policy: 'never' })
     for (const id of ['agent-team', 'tool-agent-team', 'ui-agent-team', 'auto-review',
       'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()

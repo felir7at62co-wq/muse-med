@@ -48,12 +48,13 @@ kind: "package-reference"
 |---|---|---|
 | `presets` | `workspace-write`、`danger-full-access` | 预设名称 → 沙箱／审批捆绑的表 |
 | `defaultPreset` | 推断 | 固定到新会话的预设；组合默认值不匹配任何预设时必填 |
+| `registerCommand` | `true` | 注册 `/permission` 及其发现条目；关闭后仍保留默认值、投影与服务 API |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-permission-presets)是每个受支持字段及其 JSDoc 的穷尽式真源。`custom` 保留给推导出的非预设状态，`auto` 则保留给 Auto review integration。挂载需要具有约束能力的 bash 执行器（会报告 `sandboxMode` 的执行器）与审批服务。
 
 ### 切换预设
 
-切换到 Auto 时，服务先同步执行其准入检查；每次预设切换随后只改变实际值不同的旋钮，再次选择当前已生效的预设不会产生任何变化。当前值解析顺序为：仍匹配的最近一次记录选择（已记录的 Auto 选择在 `never` 审批策略下也匹配），其次是配置表中的第一个匹配项，否则为 `custom`。用户通过 `/permission` 命令切换：不带参数调用时报告当前预设与所有可用条目，带预设参数时切换过去。
+切换到 Auto 时，服务先同步执行其准入检查；每次预设切换随后只改变实际值不同的旋钮，再次选择当前已生效的预设不会产生任何变化。当前值解析顺序为：仍匹配的最近一次记录选择（已记录的 Auto 选择在 `never` 审批策略下也匹配），其次是配置表中的第一个匹配项，否则为 `custom`。启用 `registerCommand` 时，用户通过 `/permission` 命令切换：不带参数调用时报告当前预设与所有可用条目，带预设参数时切换过去。
 
 ### 用户看到什么
 
@@ -96,7 +97,7 @@ kind: "package-reference"
 
 ### 目录、投影与可选命令
 
-该服务要求 `ctx.sessionProjections`，并注册一个只含 `currentValue` 的 `permissions` 投影。进程级 `catalog()` Remote 返回一份完整的可选快照。注册或移除 Auto 会发出无 payload 的 `permission-presets/catalog-changed` 通知，因此客户端先订阅再重新读取目录；该过程不会追加 Session 事件、发布 Session 投影帧或改变 Session 序列。`/permission` 命令仅在组合了 `ctx.commands` 注册表时注册。派生当前预设或固定初始选择的调用会在投影 key 缺失时显式失败。
+该服务要求 `ctx.sessionProjections`，并注册一个只含 `currentValue` 的 `permissions` 投影。进程级 `catalog()` Remote 返回一份完整的可选快照。注册或移除 Auto 会发出无 payload 的 `permission-presets/catalog-changed` 通知，因此客户端先订阅再重新读取目录；该过程不会追加 Session 事件、发布 Session 投影帧或改变 Session 序列。`/permission` 命令仅在启用 `registerCommand` 且组合了 `ctx.commands` 注册表时注册。派生当前预设或固定初始选择的调用会在投影 key 缺失时显式失败。
 
 </details>
 
