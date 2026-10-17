@@ -134,7 +134,7 @@ description: "Chat 过程分组与活动摘要的明细业务规则。"
 
 已结束组的组头展示排序摘要的前三类，不显示次数；没有类别时使用思考标题。运行中的组头展示实时工具类别，没有运行工具时使用思考标题；标准模式附加实时详情。实时标题至少保留 150ms，只保留最新待显示标题。
 
-三个阶段共用下方工具名分类。准备中的 Tool 节点使用对应类别的准备文案；`read` 为「准备读取文件」，`read_image` 为「准备读取图片」，`write` 为「准备写入文件」，`edit` 和 `apply_patch` 为「准备编辑文件」，`todo_write` 及目标工具为「准备更新计划」。标准模式通过与已派发调用相同的读器追加可用参数详情。它计为一次调用，只渲染不可展开的一行。具名实时 delta 可以创建该节点；历史调用直接从 tool/call 开始，不重现准备过程。
+三个阶段共用下方工具名分类。准备中的 Tool 节点使用对应类别的准备文案；`read` 为「准备读取文件」，`read_image` 为「准备读取图片」，`write` 为「准备写入文件」，`edit` 和 `apply_patch` 为「准备编辑文件」，`todo_write`、`todo_update` 及目标工具为「准备更新计划」。标准模式通过与已派发调用相同的读器追加可用参数详情。它计为一次调用，只渲染不可展开的一行。具名实时 delta 可以创建该节点；历史调用直接从 tool/call 开始，不重现准备过程。
 
 以下文案描述已记录的活动，不保证操作成功；例如失败的读取仍参与「已读取文件」类别。
 
@@ -253,7 +253,7 @@ description: "Chat 过程分组与活动摘要的明细业务规则。"
 | `webSearch` | `web_search` |
 | `webFetch` | `web_fetch` |
 | `subagents` | `subagent`，或以 `subagent_` 开头 |
-| `plan` | `todo_write`、`create_goal`、`update_goal`、`get_goal` |
+| `plan` | `todo_write`、`todo_update`、`create_goal`、`update_goal`、`get_goal` |
 | `questions` | `ask_user_question`、`request_user_input` |
 | `tools` | 其他所有名称，包括 `list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource` |
 

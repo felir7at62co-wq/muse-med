@@ -8,6 +8,11 @@
  * artifact.
  */
 
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import { VideoDirectory } from './video-directory.ts'
+import { VideoModelSelect } from './VideoModelSelect.tsx'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -66,6 +71,35 @@ function registerSection(ctx: ClientContext): void {
     describe: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.describe()),
     set: async (value: string): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.set(value)),
     unset: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.unset()),
+  })
+
+  ctx.inject(['sessions', 'remote.jubianVideoSelection'], (scope) => {
+    const directories = new WeakMap<object, VideoDirectory>()
+    const controller = new AbortController()
+    scope.effect(() => () => { controller.abort() })
+    scope.effect(async () => {
+      const available = await scope.remote.jubianVideoSelection.available()
+      if (controller.signal.aborted || !available.ok || !available.value) return () => undefined
+      const registration = scope.slots.inject('conversation.input.right', () => scope.slots.register({
+        name: 'conversation.input.right', id: 'jubian-video-model', order: 80, locale: NS,
+        inject: (sessionId) => {
+          const binding = scope.sessions.binding(sessionId)
+          const sessionScope = scope.sessions.scope(sessionId)
+          if (!binding || !sessionScope) throw new Error('Video selector requires a session scope')
+          let directory = directories.get(binding)
+          if (!directory) {
+            directory = new VideoDirectory(scope.remote.jubianVideoSelection, sessionId)
+            directories.set(binding, directory)
+            const owned = directory
+            const release = scope.effect(() => () => owned.dispose())
+            sessionScope.effect(() => { void owned.load(); return () => release() })
+          }
+          const selected = directory
+          return { hooks: { videoState: selected.store }, load: () => selected.load(), select: (key: string) => selected.select(key) }
+        },
+      }, VideoModelSelect))
+      return registration
+    })
   })
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

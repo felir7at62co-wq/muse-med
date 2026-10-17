@@ -36,6 +36,7 @@ import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.t
 import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
+import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
 import { storyboardAudioMethod } from './storyboard-audio.ts'
 import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
@@ -239,6 +240,8 @@ type ClientResponse = JubianResponse
  * spending three minutes of wall clock.
  */
 export interface ImageMethodOptions {
+  /** Exact catalogue rows permitted by this deployment. */
+  allowedStandardIds?: readonly number[]
   /** Deployment image selection; explicit per-call models replace it. */
   selection?: ImageModelSelection
   /** Total budget for reaching `hsAssetStatus === 'Active'`, in milliseconds. */
@@ -263,6 +266,10 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Resolved advisory term list and result bounds for complete card prompts. */
+  promptRiskReview?: PromptRiskReviewOptions
+  /** Check the current conversation choice immediately before reserving new video charges. */
+  assertVideoModel?: (model: Record<string, unknown>) => void
   /** Current Muse account's exclusive shared voice-registration provider. */
   voiceCoordinator?: VoiceCoordinator
   /** Resolved complete-reference inspection limits before deleting audio assets. */
@@ -613,7 +620,22 @@ function page(args: MethodArgs): string {
  * @param args - Dispatched on `method`.
  * @returns The requested slice, keyed by the `method` that asked for it.
  */
-export async function catalogMethod(client: JubianClient, args: MethodArgs): Promise<Record<string, unknown>> {
+/** Restrict image catalogue rows before any request body or quote is prepared. */
+function imageCatalogue(value: unknown, allowed: readonly number[] | undefined): unknown {
+  if (allowed === undefined) return value
+  if (!Array.isArray(value)) throw new JubianError('CONTRACT_CHANGED', 'Unreadable image catalogue')
+  return value.filter(item => item && typeof item === 'object' && allowed.includes(Number((item as Record<string, unknown>).id)))
+}
+
+/**
+ * Read provider catalogues with an optional deployment image-channel restriction.
+ * @param client - Authenticated read transport.
+ * @param args - Catalogue operation and exact identifiers.
+ * @param allowedImageStandards - Permitted taskType=2 catalogue row IDs; omission keeps all rows.
+ * @returns Requested catalogue or project information.
+ */
+export async function catalogMethod(client: JubianClient, args: MethodArgs,
+  allowedImageStandards?: readonly number[]): Promise<Record<string, unknown>> {
   switch (args.method) {
     case 'models': {
       const taskType = need(args.task_type)
@@ -621,7 +643,7 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs): Pro
         throw new JubianError('CONTRACT_CHANGED')
       }
       const result = await client.request({ method: 'GET', path: `/model/charge/getSelectList?taskType=${taskType}` })
-      return { models: readModels(result.data) }
+      return { models: readModels(taskType === 2 ? imageCatalogue(result.data, allowedImageStandards) : result.data) }
     }
     case 'rate': {
       const standardId = need(args.standard_id)
@@ -869,8 +891,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'image_generate_batch': {
       const limits = deps.imageBatch ?? resolveImageBatchOptions()
       const prepared = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
-      const catalogueRows = (await client.request({
-        method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
+      const catalogueRows = imageCatalogue((await client.request({
+        method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data, deps.image?.allowedStandardIds)
       for (const { item, assetName, assetType } of prepared) {
         const selection: ImageModelSelection = imageSelection(item, deps.image?.selection)
         buildImageRequest({ scriptId: need(args.script_id), assetName,
@@ -952,16 +974,16 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       // preflight catalogue so every row is validated before any paid request.
       let cached: ClientResponse | undefined
       const catalogue = async (): Promise<unknown> => {
-        if (deps.imageCatalogue !== undefined) return deps.imageCatalogue
+        if (deps.imageCatalogue !== undefined) return imageCatalogue(deps.imageCatalogue, deps.image?.allowedStandardIds)
         cached = await client.request({
           method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
-        return cached.data
+        return imageCatalogue(cached.data, deps.image?.allowedStandardIds)
       }
       let selectors: ImageModelSelectors | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
         async () => {
           const rows = await catalogue()
-          selectors = resolveImageModel(rows, selection, args.image_aspect_ratio)
+          selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
           return buildImageRequest({ scriptId: need(args.script_id), assetName,
             assetType, prompt: need(args.prompt), imageStyle, references: args.references ?? [],
             ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
@@ -1098,7 +1120,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'edit_preview':
     case 'edit_batch_preview':
     case 'edit_apply':
-      return storyboardEditMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions())
+      return storyboardEditMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions(), deps.promptRiskReview)
     case 'create_batch': {
       const limits = deps.storyboardBatch ?? resolveStoryboardBatchOptions()
       const scriptId = positiveInteger(need(args.script_id, 'script_id'))
@@ -1209,14 +1231,18 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       // The body reads the project before the budget check; the send step may
       // reach the paid PUT only after the project's authorization passes.
       let projectId: number | undefined
+      let savedModel: Record<string, unknown> | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_generate',
         async () => {
           const current = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
           projectId = positiveInteger((current.data as { scriptId?: unknown } | null)?.scriptId)
-          return withGenerationEnabled(current.data, need(args.content_duration_ms))
+          const payload = withGenerationEnabled(current.data, need(args.content_duration_ms))
+          savedModel = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+          return payload
         },
         body => client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(body) }),
-        () => ({ scriptId: projectId as number }))
+        () => ({ scriptId: projectId as number }),
+        { beforeReserve: () => { if (savedModel) deps.assertVideoModel?.(savedModel) } })
       return { ...result }
     }
     case 'select_assets': {
@@ -1227,15 +1253,16 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'prepare_video':
       // Free and read-only on the provider: the only write is the local preview.
       return await prepareVideoMethod(client, ledger, { storyboard_id: args.storyboard_id,
-        project_dir: args.project_dir, content_duration_ms: args.content_duration_ms })
+        project_dir: args.project_dir, content_duration_ms: args.content_duration_ms }, deps.promptRiskReview)
     case 'submit_video': {
       requireKey(args.idempotency_key)
       return await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
         project_dir: args.project_dir, storyboard_id: args.storyboard_id,
-        idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny, estimate_basis: args.estimate_basis })
+        idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny,
+        estimate_basis: args.estimate_basis }, deps.assertVideoModel)
     }
     case 'submit_video_batch':
-      return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch)
+      return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch, deps.assertVideoModel)
     case 'erase_subtitle': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)

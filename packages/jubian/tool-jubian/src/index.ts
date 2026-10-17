@@ -18,6 +18,8 @@
 import { homedir } from 'node:os'
 import { deletionInspectionReason } from './storyboard-delete.ts'
 import { STORYBOARD_WRITE_REMINDER } from './storyboard-edit.ts'
+import { resolvePromptRiskReview } from './prompt-risk.ts'
+import type { PromptRiskReviewConfig } from './prompt-risk.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -44,6 +46,9 @@ import { organizeMethod } from './organize.ts'
 import { modelMethod } from './model-settings.ts'
 import { resolveVideoBatchOptions } from './native.ts'
 import { JubianToken } from './token.ts'
+import { JubianVideoSelection } from './video-session.ts'
+export { JubianVideoSelection } from './video-session.ts'
+export type { VideoModelOption, SessionVideoSelection } from './video-session-types.ts'
 import { requireArguments } from './write.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 
@@ -56,6 +61,19 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
+  /** Optional literal-term findings in free edit previews and video preparation; never blocks execution. */
+  promptRiskReview?: PromptRiskReviewConfig
+  /** Enable conversation-owned video choices; defaults to false outside Muse. */
+  sessionVideoSelection?: boolean
+  /** Initial live specification for sessions without a saved video choice; never replaces an existing selection. */
+  defaultVideoModel?: {
+    /** Exact live catalogue model identifier. */
+    modelId: string
+    /** Provider channel containing the initial specification. */
+    platformId: string
+    /** Supported resolution of the initial specification. */
+    resolution: string
+  }
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
@@ -283,6 +301,21 @@ const STORYBOARD_OUTPUT = {
   schema: { type: 'object', additionalProperties: true, properties: {
     original_idempotency_key: { type: 'string',
       description: '旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。' },
+    prompt_risk_review: { type: 'object', additionalProperties: false,
+      description: '写卡预览或生成准备的字面命中提示，不拦截；逐处对照剧本核实原台词，修正自行描述后保存回读并重新准备。',
+      properties: {
+        mode: { type: 'string', enum: ['advisory'], required: true },
+        total_matches: { type: 'integer', required: true },
+        matches: { type: 'array', required: true, items: { type: 'object', additionalProperties: false,
+          properties: {
+            storyboard_id: { type: 'integer', required: true },
+            card_name: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+            term: { type: 'string', required: true },
+            offset: { type: 'integer', required: true, description: '完整提示词中的 UTF-16 起始位置，从 0 计数。' },
+            context: { type: 'string', required: true },
+          } } },
+        truncated: { type: 'boolean', required: true }, next: { type: 'string', required: true },
+      } },
   } },
   render: OUTPUT.render,
 } as const
@@ -342,11 +375,28 @@ function guarded<A = MethodArgs>(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export function apply(ctx: Context, config: Config = {}): void {
+  if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
+    throw new Error('sessionVideoSelection must be a boolean')
+  }
+  const initialVideo: unknown = config.defaultVideoModel
+  if (initialVideo !== undefined && (config.sessionVideoSelection !== true
+    || initialVideo === null || typeof initialVideo !== 'object' || Array.isArray(initialVideo)
+    || !('modelId' in initialVideo) || !('platformId' in initialVideo) || !('resolution' in initialVideo)
+    || [initialVideo.modelId, initialVideo.platformId, initialVideo.resolution]
+      .some(value => typeof value !== 'string' || value.trim() === ''))) {
+    throw new Error('defaultVideoModel requires sessionVideoSelection and nonempty modelId, platformId and resolution')
+  }
+  if (config.imageAllowedStandardIds !== undefined && (!Array.isArray(config.imageAllowedStandardIds)
+    || config.imageAllowedStandardIds.length === 0 || config.imageAllowedStandardIds.some(id => !Number.isSafeInteger(id) || id < 1)
+    || new Set(config.imageAllowedStandardIds).size !== config.imageAllowedStandardIds.length)) {
+    throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
+  }
   const watchConfig = resolveWatchConfig(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
   const videoBatch = resolveVideoBatchOptions(config)
   const storyboardBatch = resolveStoryboardBatchOptions(config)
+  const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -395,7 +445,29 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
-  ctx.plugin(JubianImageRoutes, { client })
+  ctx.plugin(JubianImageRoutes, { client,
+    ...(config.imageAllowedStandardIds === undefined ? {} : { allowedStandardIds: config.imageAllowedStandardIds }) })
+  ctx.plugin(JubianVideoSelection, { client, ledger, enabled: config.sessionVideoSelection ?? false,
+    ...(config.defaultVideoModel === undefined ? {} : { defaultModel: config.defaultVideoModel }) })
+  if (config.sessionVideoSelection) {
+    ctx.effect(() => ctx.tools.register(defineTool({
+      name: 'jubian_video_model',
+      description: '读取或请用户选择本会话的视频模型与分辨率。选择后追加上下文，不修改项目默认值。卡片配置不一致时按会话选择同步；切换后视频包超出时长上限时，汇总本批受影响卡并用 duration_conflict 询问保留模型重新拆包或更换可容纳原包的模型，不截断对白。读取时可初始化部署默认值，已有选择优先；选择问题未获回答时不切换模型，不提交计费生成。',
+      parameters: { method: { type: 'string', enum: ['read', 'choose', 'duration_conflict'], required: true },
+        reason: { type: 'string', description: 'choose/duration_conflict 必填：向用户解释选择或超限影响。' },
+        duration_seconds: { type: 'number', description: '本批需保留的最长视频包秒数，用于筛选已知可容纳它的模型。' } },
+      output: OUTPUT,
+      execute: async (args, exec) => {
+        if (!exec.agent) throw new Error('Video model selection requires a conversation')
+        const service = ctx.get('jubianVideoSelection')
+        if (!service) throw new Error('Video model selection unavailable')
+        if (args.method === 'read') return { selection: await service.initialize(exec.agent), models: await service.catalogue() }
+        if (!args.reason) throw new Error('Explain the model choice to the user')
+        return await service.ask(exec.agent, { method: args.method, reason: args.reason,
+          ...(args.duration_seconds === undefined ? {} : { duration_seconds: args.duration_seconds }) }, exec.signal)
+      },
+    })))
+  }
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.name === 'jubian_storyboard') {
       const reason = deletionInspectionReason(exec.arguments)
@@ -415,6 +487,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // `gpt-image-2` row.
   const image = (): ImageMethodOptions => ({
     selection: pinnedImageSelection(ctx, config),
+    ...(config.imageAllowedStandardIds === undefined ? {} : { allowedStandardIds: config.imageAllowedStandardIds }),
     ...(config.imageActiveTimeoutMs === undefined ? {} : { activeTimeoutMs: config.imageActiveTimeoutMs }),
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
   })
@@ -429,7 +502,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       page_num: ARGS.page_num, page_size: ARGS.page_size,
     },
     output: OUTPUT,
-    execute: guarded('jubian_catalog', args => catalogMethod(client, args)),
+    execute: guarded('jubian_catalog', args => catalogMethod(client, args, config.imageAllowedStandardIds)),
   }))
 
   ctx.tools.register(defineTool({
@@ -655,6 +728,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。'
       + '单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。'
       + STORYBOARD_WRITE_REMINDER + '单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。'
+      + '配置词表时，写卡预览与 prepare_video 的 prompt_risk_review 返回命中词、卡号和上下文，仅提示、不拦截。'
+      + '命中须对照剧本来源区分原台词与自行描述；修正后重新预览、保存并核对真实回读，生成前重新 prepare_video。'
       + '支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。'
       + 'delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。'
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
@@ -664,15 +739,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + '每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。'
       + 'select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
-      + 'prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，'
+      + 'prepare_video 读取实时分镜、主体设定与模型目录；启用会话选择时先免费同步本次卡的模型/分辨率，保留比例、时长、提示词与素材，回读后准备预览；无会话选择的部署保留已存模型，'
       + '缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。'
       + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
-      + '在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；'
+      + '同步完成后的预览准备仅在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不创建任务、不收费；'
       + 'submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，'
       + 'PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），'
       + '随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；'
       + '身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。'
-      + '模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。'
+      + '启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；未核实时长能力时报告缺项，不能换模型绕过。'
       + 'Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。'
       + 'submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；'
       + '全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。'
@@ -690,7 +765,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
-          + 'prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；'
+          + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
           + 'erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
@@ -744,7 +819,22 @@ export function apply(ctx: Context, config: Config = {}): void {
       ...VIDEO_ESTIMATE_ARGS,
     },
     output: STORYBOARD_OUTPUT,
-    execute: guarded('jubian_storyboard', args => storyboardMethod(client, ledger, args, { naming, videoBatch, storyboardBatch })),
+    execute: async (args, exec) => {
+      requireArguments('jubian_storyboard', args)
+      if (config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
+        if (!exec.agent) throw new Error('Video generation requires a conversation-owned model selection')
+        const service = ctx.get('jubianVideoSelection')
+        if (!service) throw new Error('Video model selection unavailable')
+        await service.reconcile(exec.agent, args)
+      }
+      const agent = exec.agent
+      const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
+      const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
+      return await guarded('jubian_storyboard', input => storyboardMethod(client, ledger, input, {
+        naming, videoBatch, storyboardBatch, ...(promptRiskReview ? { promptRiskReview } : {}),
+        ...(assertVideoModel ? { assertVideoModel } : {}),
+      }))(args)
+    },
   }))
 
   ctx.tools.register(defineTool({

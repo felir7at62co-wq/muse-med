@@ -25,8 +25,8 @@ function formatDate(date: Date, locale: string, fallback: string): string {
 }
 
 /**
- * Derive the compact todo list from a todo_write call.
- * @param args - Parsed todo_write arguments.
+ * Derive the compact todo list from a recorded whole-list value.
+ * @param args - Parsed replacement arguments or successful update result.
  * @param t - Conversation dictionary translator.
  * @returns Localized todo details, or null for unsupported input.
  */

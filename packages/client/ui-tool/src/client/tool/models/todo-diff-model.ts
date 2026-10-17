@@ -4,7 +4,23 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolDetailsModel } from '../components/ToolDetails.tsx'
 import type { TodoBaseline } from './todo-history.ts'
 import { todosDetail } from './details-card-model.ts'
-import { parsedToolCall } from './raw-tool-call.ts'
+import { parsedToolCall, singleResultText } from './raw-tool-call.ts'
+import { detailJson, detailRecord } from './detail-model-shared.ts'
+
+/**
+ * Read a whole todo list without treating a partial update as the current plan.
+ * @param block - Recorded or running todo call.
+ * @param t - Conversation dictionary translator.
+ * @returns Replacement arguments or a validated successful update result, otherwise null.
+ */
+export function todoListArgs(block: ToolCallBlock, t: TranslateNS<'conversation'>): Record<string, unknown> | null {
+  const call = parsedToolCall(block)
+  if (call?.name === 'todo_write') return call.args
+  if (call?.name !== 'todo_update' || !('kind' in block) || block.isError) return null
+  const text = singleResultText(block)
+  const value = text === undefined ? undefined : detailJson(text)
+  return detailRecord(value) && todosDetail(value, t) !== null ? value : null
+}
 
 /**
  * Compare this write with its predecessor in the loaded call history.
@@ -21,8 +37,8 @@ export function todoDiffModel(
   t: TranslateNS<'conversation'>,
 ): { details: ToolDetailsModel; summary: string | null } | null {
   if (!('kind' in block) || block.isError) return null
-  const call = parsedToolCall(block)
-  const current = call?.name === 'todo_write' ? todosDetail(call.args, t) : null
+  const args = todoListArgs(block, t)
+  const current = args === null ? null : todosDetail(args, t)
   if (current === null) return null
   const previous: ToolDetailsModel | null = baseline?.todos === undefined ? null : { items: baseline.todos.map(todo => ({
     title: todo.content, status: { value: todo.status, label: t(`detail.todo.${todo.status}`) }, fields: [],

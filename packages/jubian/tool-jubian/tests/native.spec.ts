@@ -739,6 +739,20 @@ describe('submit_video', () => {
       idempotencyKey: String(preview.idempotencyKey) }
   }
 
+  it.each(['single', 'batch'])('refuses a changed conversation model before a new %s reservation', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const args = { preview_path: file.previewPath, idempotency_key: file.idempotencyKey,
+      estimated_cost_cny: '1.00', estimate_basis: 'fixture' }
+    const check = vi.fn(() => { throw new Error('SESSION_VIDEO_SELECTION_CHANGED') })
+    const operation = kind === 'single' ? submitVideoMethod(clientFor(provider), ledger, args, check)
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] }, resolveVideoBatchOptions(), check)
+    await expect(operation).rejects.toThrow('SESSION_VIDEO_SELECTION_CHANGED')
+    expect(check).toHaveBeenCalledOnce()
+    expect(provider.calls.filter(call => call.method === 'PUT')).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it.each(['inline', 'empty-prompt', 'nontext-prompt'])('refuses malformed stored replay evidence %s without sending', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const preparedFile = await prepared(provider)

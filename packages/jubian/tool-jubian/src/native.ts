@@ -20,6 +20,8 @@
  * and that conclusion is what authorizes a paid PUT.
  */
 import { readFile, readdir } from 'node:fs/promises'
+import { promptRiskReview } from './prompt-risk.ts'
+import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
@@ -439,14 +441,15 @@ function projectRootOfPreview(previewPath: string): string {
  * @param client - Jubian transport.
  * @param ledger - Account-local selection requirements from in-place edits.
  * @param args - `storyboard_id`, `project_dir` and an optional `content_duration_ms` cross-check.
- * @returns The persisted preview, its path and the exact next step.
+ * @param review - Resolved optional literal-term review settings.
+ * @returns The persisted preview, its path, advisory prompt findings and the next step.
  * @throws {JubianError} `CONTRACT_CHANGED` when any live identity or setting fails.
  */
 export async function prepareVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
   project_dir?: string | undefined
   content_duration_ms?: number | undefined
-}): Promise<Record<string, unknown>> {
+}, review?: PromptRiskReviewOptions): Promise<Record<string, unknown>> {
   const storyboardId = positiveInteger(need(args.storyboard_id))
   const preview = await livePreview(client, storyboardId, new Date().toISOString())
   const binding = await validateProjectBinding(need(args.project_dir), preview.scriptId)
@@ -464,6 +467,9 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
   const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
   return { ...preview, preview_path: destination, content_duration_ms: contentDurationMs,
     storyboard_duration_seconds: duration,
+    ...promptRiskReview([{ storyboard_id: storyboardId,
+      card_name: typeof preview.payload.storyboardName === 'string' ? preview.payload.storyboardName : null,
+      prompt: String(modelConfig.prompt) }], review),
     audio_references: audio.map(material => ({ material_key: material.materialKey, material_url: material.materialUrl,
       duration_seconds: material.audioDuration ?? null,
       duration_basis: material.audioDuration === undefined || material.audioDuration === null
@@ -644,6 +650,7 @@ Promise<{ key: string; outcome: string } | null> {
  * @param client - Authenticated transport for live reads and the optional submission.
  * @param ledger - Write ledger used to reserve the charge and prevent a repeated PUT.
  * @param args - Preview locator, optional project/storyboard identity, and matching idempotency key.
+ * @param assertModel - Optional synchronous conversation choice check before reserving a new paid request.
  * @returns Submission or reconciliation evidence, including unresolved outcomes without automatic resubmission.
  */
 export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: VideoEstimate & {
@@ -651,7 +658,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   project_dir?: string | undefined
   storyboard_id?: number | undefined
   idempotency_key?: string | undefined
-}): Promise<Record<string, unknown>> {
+}, assertModel?: (model: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
   const key = need(args.idempotency_key)
   if (!key.trim()) throw new JubianError('CONTRACT_CHANGED')
   const previewPath = await resolvePreviewPath(args)
@@ -741,9 +748,9 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         response = await client.request({ method: 'PUT', path: '/aigc/storyboard',
           body: payload as Record<string, unknown> })
       } catch (error) {
-        // Every failed PUT is ambiguous: the provider may have applied it, and a
-        // second request is exactly what must never happen. The ledger settle
-        // below records `unknown`, which is the honest verdict.
+      // Every failed PUT is ambiguous: the provider may have applied it, and a
+      // second request is exactly what must never happen. The ledger settle
+      // below records `unknown`, which is the honest verdict.
         state.putFailed = true
         state.putError = submissionFailure(error)
         return { transport: { http_status: null, application_code: null }, response_sha256: null,
@@ -766,7 +773,8 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.reconciliationFailed = true
       }
       return response
-    }, () => estimatedVideoQuote(args), { scriptId: preview.scriptId })
+    }, () => estimatedVideoQuote(args), { scriptId: preview.scriptId,
+      ...(assertModel ? { beforeReserve: () => { assertModel(object(JSON.parse(String(preview.payload.modelConfig)))) } } : {}) })
   const putSent = state.sent || result.replayed
   const putOutcome = result.outcome
   // An accepted PUT whose task no candidate could claim is not "nothing happened": the
@@ -891,10 +899,12 @@ Promise<{ response_sha256: string | null
  * @param ledger - Persistent write and budget ledger.
  * @param args - Ordered preview/key pairs for one project.
  * @param options - Bounded deployment concurrency and batch size.
+ * @param assertModel - Optional conversation choice check before reserving the complete batch.
  * @returns Ordered per-item claims and aggregate status.
  */
 export async function submitVideoBatchMethod(client: JubianClient, ledger: JubianLedger,
-  args: { items?: VideoBatchItem[] | undefined }, options = resolveVideoBatchOptions()):
+  args: { items?: VideoBatchItem[] | undefined }, options = resolveVideoBatchOptions(),
+  assertModel?: (model: Record<string, unknown>) => void):
 Promise<{ total: number; submitted: number; reconcile_required: number; results: Record<string, unknown>[] }> {
   const raw = args.items
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > options.maxItems) {
@@ -978,6 +988,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
     const aggregate = await checkBudget({ ledger, method: 'storyboard_native_submit',
       scriptId: first.preview.scriptId, quote: { amount: (total / 100).toFixed(2), unit: firstBudget.unit } })
     if (aggregate.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', aggregate.reason)
+    for (const item of items) assertModel?.(object(JSON.parse(String(item.preview.payload.modelConfig))))
     return items.map((item, index) => {
       const budget = budgets[index] as { amount: string; unit: string }
       return { idempotencyKey: item.idempotency_key,

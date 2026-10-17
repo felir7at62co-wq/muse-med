@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
-import type { MethodArgs } from '../src/methods.ts'
+import type { MethodArgs, MethodDeps } from '../src/methods.ts'
 import { bodyHash, requireArguments } from '../src/write.ts'
 import { buildImageRequest } from '@deepseek-ai/dsh-jubian-api'
 
@@ -114,6 +114,29 @@ describe('explicit image catalogue selection', () => {
     expect(writes).toHaveLength(1)
     expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({ modelId: selection.image_model_id,
       platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102 })
+  })
+
+  it('generates with the permitted Sunburst row without inheriting a different model pin', async () => {
+    const rows = [{ ...IMAGE_CATALOGUE[0]!, id: 86, standardId: 86, modelId: 'gpt-image-2.5-sunburst-c', platformId: 'KU_AI' }]
+    const { client, calls } = imageProvider(rows)
+    const deps: MethodDeps = imageDeps({ selection: { platformId: 'YU_DIAN', standardId: 42 } })
+    deps.image = { ...deps.image, allowedStandardIds: [76, 66, 86] }
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, asset_name: 'lead', asset_type: 1,
+      prompt: 'ready', idempotency_key: 'sunburst', image_model_id: 'gpt-image-2.5-sunburst-c' }, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({ modelId: 'gpt-image-2.5-sunburst-c',
+      platformId: 'KU_AI', standardId: 86 })
+  })
+
+  it.each(['image_generate', 'image_generate_batch'])('refuses excluded image channels before any charge in %s', async (method) => {
+    const { client, calls } = imageProvider(catalogue)
+    const item = { asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: method, ...selection }
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds: [76, 66, 86] }
+    await expect(videoMethod(client, ledger, method === 'image_generate'
+      ? { method, script_id: 2708, ...item } : { method, script_id: 2708, items: [item] }, deps)).rejects.toThrow()
+    expect(calls.filter(call => call.method !== 'GET')).toEqual([])
   })
 
   it('rejects an absent batch model before any paid write', async () => {

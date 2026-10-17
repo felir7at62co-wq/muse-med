@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/todo/README.md
 /:
-  en: f9468c9e9689351a
-  zh: b56e2a1624ef7d3d
+  en: ef2213d33958c4d7
+  zh: 73646e03e06ef48a
 /packages-todo:
   en: 9402aaa4ac047a22
   zh: 96ff5f09e974cade
 /packages-todo/summary:
-  en: 8e99ed58cb881726
-  zh: a0342c8c1abdb676
+  en: 963c3f3cda7200e6
+  zh: 88c3341ee082818e
 /packages-todo/table-of-contents:
   en: 1eb35b015a6c423f
   zh: a8a3dceee2c9e943
@@ -18,8 +18,8 @@
   en: 812e0f54dc1972a2
   zh: 0acffa7fcffc487f
 /packages-todo/related-documentation:
-  en: c9e3603df924f7ca
-  zh: 3f46dd9c40365da1
+  en: bd28f61bc59b7993
+  zh: 383644d35437b963
 /packages-todo/dev-note:
   en: 5de1d6304e00c58f
   zh: 8d8225361cfa29e5

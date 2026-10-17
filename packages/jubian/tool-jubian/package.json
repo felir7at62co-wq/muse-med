@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-jubian",
-  "description": "Jubian tools for the DeepSeek Harness \u2014 catalogue, assets, storyboards, video tasks, media download \u2014 plus the Web Settings page for their admin token",
+  "description": "Jubian tools for the DeepSeek Harness — catalogue, assets, storyboards, video tasks, media download — plus the Web Settings page for their admin token",
   "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
@@ -36,7 +36,11 @@
     },
     "./src/*": "./src/*",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./video-session-types": {
+      "types": "./lib/types/video-session-types.d.ts",
+      "default": "./lib/types/video-session-types.js"
+    }
   },
   "files": [
     "lib/index.js",
@@ -61,7 +65,9 @@
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-tool-jubian"
+        "@deepseek-ai/dsh-tool-jubian",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session"
       ],
       "platform": "web"
     }
@@ -81,7 +87,12 @@
     "@deepseek-ai/dsh-tools": "workspace:*",
     "@deepseek-ai/dsh-jubian": "workspace:*",
     "@deepseek-ai/dsh-jubian-api": "workspace:*",
-    "@deepseek-ai/dsh-atomic-write": "workspace:*"
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-agent": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-user-questions": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-muse-account": "workspace:*",
@@ -115,6 +126,11 @@
     "react-dom": "^18.2.0",
     "@deepseek-ai/dsh-jubian": "workspace:*",
     "@deepseek-ai/dsh-jubian-api": "workspace:*",
-    "@deepseek-ai/dsh-atomic-write": "workspace:*"
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-user-questions": "workspace:*",
+    "@deepseek-ai/dsh-client-store": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session": "workspace:*",
+    "@deepseek-ai/dsh-api-session-controller": "workspace:*"
   }
 }

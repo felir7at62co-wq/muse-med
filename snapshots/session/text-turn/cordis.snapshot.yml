@@ -11,6 +11,10 @@
 - id: session-title-llm
   disabled: true
 
+- id: skill-filesystem
+  config:
+    museHome: !!js process.env.DSH_HOME
+
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

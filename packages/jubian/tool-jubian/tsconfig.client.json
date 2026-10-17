@@ -10,7 +10,9 @@
     "src/client/index.ts",
     "src/client/JubianTokenSection.tsx",
     "src/client/locales.ts",
-    "src/client/mount.ts"
+    "src/client/mount.ts",
+    "src/client/VideoModelSelect.tsx",
+    "src/client/video-directory.ts"
   ],
   "references": [
     {
@@ -36,6 +38,18 @@
     },
     {
       "path": "../jubian"
+    },
+    {
+      "path": "../../client/store"
+    },
+    {
+      "path": "../../client/ui-conversation/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-session/tsconfig.json"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.client.json"
     }
   ]
 }

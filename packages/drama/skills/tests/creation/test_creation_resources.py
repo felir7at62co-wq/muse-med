@@ -99,7 +99,15 @@ class CreationResourcesTests(unittest.TestCase):
         self.assertIn(guide, manifest["files"])
         self.assertIn("references/audience-and-style.md", text)
         method = (PACK / guide).read_text(encoding="utf-8")
-        for requirement in ("实际读过的版本", "情绪回报", "接受边界", "原文依据", "不编造精确年龄段", "不要求另建报告"):
+        for requirement in (
+            "结合实际读过的剧本和用户要求", "情绪回报",
+            "只有片段时结论限于已读范围",
+            "受众判断是有依据的创作推断，不等于市场验证",
+            "不虚构人口画像、热度或转化率",
+            "不要求固定分析维度、独立报告或每个资产重复分析",
+            "`visual_medium` 仍独立表示交付媒介",
+            "已采用角色保持身份连贯",
+        ):
             self.assertIn(requirement, method)
 
     def test_current_creation_skills_are_packaged(self):
@@ -111,15 +119,16 @@ class CreationResourcesTests(unittest.TestCase):
         text = (SKILLS / "tweet-drama-asset-vision-check/SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("- 通用：真人感、", text)
         for requirement in (
-            "与已确认项目风格一致",
-            "不得因缺少真人感判失败",
-            "媒介或关键观感缺失、冲突且影响验收时集中确认",
-            "不得跨到另一风格分支",
-            "角色身份、外貌、服装与状态",
-            "不强套人类面部或无面容三视图",
-            "不因其具有温和、祥瑞的风格化造型就要求切换动画媒介",
-            "不能只因“很真实”而忽略温暖项目中的恐怖化偏差",
-            "不统一强加亲和要求",
+            "认可的参考和当前项目风格",
+            "仿真人可融合电影级玄幻生物与特效，分别按本剧审美判断",
+            "只在需要 3D 风格参考时加载 `anime-3d-assets`",
+            "用户已定的温暖、祥瑞、浪漫或紧张观感应在实际图像中成立",
+            "不凭风格标签或任务成功宣称达标",
+            "保持人物身份、剧情关键设定、物种与尺度、服装版本",
+            "改写保留 `project_bible.style` 的用户已定方向",
+            "不跨到另一风格分支",
+            "不为每张图重做受众分析或新增报告",
+            "不要求固定分项分数或独立审校报告",
         ):
             self.assertIn(requirement, text)
 

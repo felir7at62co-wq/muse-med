@@ -2,7 +2,7 @@
 
 [English](todo.md) | 中文
 
-本页记录 [`@deepseek-ai/dsh-tool-todo`](../../packages/todo/tool-todo/README.zh.md) 拥有的持久 todo 词汇。面向模型的工具会整体替换一个 agent（智能体）会话的列表；该包还拥有事件声明和回放投影。工具行为与配置见[包 README](../../packages/todo/tool-todo/README.zh.md)。
+本页记录 [`@deepseek-ai/dsh-tool-todo`](../../packages/todo/tool-todo/README.zh.md) 拥有的持久 todo 词汇。计划替换与单项状态更新都提交一个 agent（智能体）会话的完整列表；该包拥有事件声明与回放投影。工具行为与配置见[包 README](../../packages/todo/tool-todo/README.zh.md)。
 
 源码：[`packages/todo/tool-todo/src/types.ts`](../../packages/todo/tool-todo/src/types.ts)
 
@@ -14,8 +14,8 @@
  * whole-list snapshot declared by this package.
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
- * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity. The
+ * `status`. Each snapshot replaces the whole list (last-write-wins);
+ * single-task updates match the unique content without adding an id. The
  * three statuses describe the complete portable lifecycle needed by model and
  * UI consumers.
  */

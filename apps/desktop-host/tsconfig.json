@@ -94,6 +94,9 @@
     },
     {
       "path": "../../packages/core/system-prompt"
+    },
+    {
+      "path": "../../vendor/schemastery"
     }
   ]
 }

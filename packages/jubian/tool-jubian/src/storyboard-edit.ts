@@ -8,6 +8,8 @@ import type { ImageBatchOptions, MethodArgs } from './methods.ts'
 import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { markReselection } from './reselection.ts'
 import { readPreparedJson } from './prepared-file.ts'
+import { promptRiskReview } from './prompt-risk.ts'
+import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 
 /** Prompt-write guidance returned before free edits, without approval state or an additional tool step. */
 export const STORYBOARD_WRITE_REMINDER = '写入前请按系统提示词中的固定自检清单自主核对本次修改。'
@@ -298,10 +300,11 @@ async function apply(client: JubianClient, ledger: JubianLedger, args: MethodArg
  * @param ledger - Claimed previews and target writes; a replay never resends.
  * @param args - Explicit card changes for preview, or project-bound preview path and fingerprint for apply.
  * @param limits - Deployment bounds shared with free storyboard creation.
- * @returns Changed fields with a write-review reminder, selection diagnostics or verified per-card save outcomes.
+ * @param review - Resolved optional literal-term review settings.
+ * @returns Changed fields with advisory prompt findings, selection diagnostics or verified per-card save outcomes.
  */
 export async function storyboardEditMethod(client: JubianClient, ledger: JubianLedger, args: MethodArgs,
-  limits: ImageBatchOptions): Promise<Row> {
+  limits: ImageBatchOptions, review?: PromptRiskReviewOptions): Promise<Row> {
   if (args.method === 'edit_apply') return apply(client, ledger, args, limits)
   if (args.method !== 'edit_preview' && args.method !== 'edit_batch_preview') invalid('Unknown storyboard edit method')
   const edits = editsOf(args.method === 'edit_preview'
@@ -314,6 +317,9 @@ export async function storyboardEditMethod(client: JubianClient, ledger: JubianL
   await atomicWriteJson(path, plan)
   return { ...plan, status: plan.targets.some(target => target.selection_status === 'needs_reselect') ? 'needs_reselect' : 'ready',
     preview_path: path, paid_requests: 0,
+    ...promptRiskReview(plan.targets.map(target => ({ storyboard_id: target.storyboard_id,
+      card_name: typeof target.after.name === 'string' ? target.after.name : null,
+      prompt: typeof target.after.prompt === 'string' ? target.after.prompt : '' })), review),
     next: STORYBOARD_WRITE_REMINDER
       + '默认写入本分集已有视频卡。自主检查后，edit_apply 使用本 preview_path 和 idempotency_key=fingerprint。'
       + '预览未改远端；needs_reselect 保存后必须重新 select_assets。' }

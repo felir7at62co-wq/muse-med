@@ -1,0 +1,83 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps dirty previews actionable, reports saved prompt findings and clears them after a verified free edit > advisory findings before and after readback 1`] = `
+[
+  {
+    "review": {
+      "matches": [
+        {
+          "card_name": "EP01-P1",
+          "context": "全局禁止】不出现国旗国徽。",
+          "offset": 20,
+          "storyboard_id": 1,
+          "term": "国旗",
+        },
+        {
+          "card_name": "EP01-P1",
+          "context": "禁止】不出现国旗国徽。",
+          "offset": 22,
+          "storyboard_id": 1,
+          "term": "国徽",
+        },
+        {
+          "card_name": "EP01-P2",
+          "context": "lead)说：“国旗。”",
+          "offset": 14,
+          "storyboard_id": 2,
+          "term": "国旗",
+        },
+      ],
+      "mode": "advisory",
+      "next": "以下为配置词表的字面命中提示，不是自动违规判定，也不拦截保存或生成。未命中不代表完整审核通过。逐处对照来源，不凭引号认定原台词；自行补写的描述、否定句、负面提示和备注中的禁用词应删去或改为符合剧情的正向描述。核实为剧本原台词时，首次逐字保留；生成失败且确认原因与该词有关后，才最小修改对应词语，禁止改写整段台词。修正后重新预览、保存并核对逐卡真实回读；生成前对已保存卡重新 prepare_video，保留未改动请求的原幂等 key。",
+      "total_matches": 3,
+      "truncated": false,
+    },
+    "status": "ready",
+  },
+  {
+    "review": {
+      "matches": [
+        {
+          "card_name": "EP01-P1",
+          "context": "全局禁止】不出现国旗国徽。",
+          "offset": 20,
+          "storyboard_id": 1,
+          "term": "国旗",
+        },
+        {
+          "card_name": "EP01-P1",
+          "context": "禁止】不出现国旗国徽。",
+          "offset": 22,
+          "storyboard_id": 1,
+          "term": "国徽",
+        },
+      ],
+      "mode": "advisory",
+      "next": "以下为配置词表的字面命中提示，不是自动违规判定，也不拦截保存或生成。未命中不代表完整审核通过。逐处对照来源，不凭引号认定原台词；自行补写的描述、否定句、负面提示和备注中的禁用词应删去或改为符合剧情的正向描述。核实为剧本原台词时，首次逐字保留；生成失败且确认原因与该词有关后，才最小修改对应词语，禁止改写整段台词。修正后重新预览、保存并核对逐卡真实回读；生成前对已保存卡重新 prepare_video，保留未改动请求的原幂等 key。",
+      "total_matches": 2,
+      "truncated": false,
+    },
+    "status": "prepared",
+  },
+  {
+    "review": {
+      "matches": [],
+      "mode": "advisory",
+      "next": "以下为配置词表的字面命中提示，不是自动违规判定，也不拦截保存或生成。未命中不代表完整审核通过。逐处对照来源，不凭引号认定原台词；自行补写的描述、否定句、负面提示和备注中的禁用词应删去或改为符合剧情的正向描述。核实为剧本原台词时，首次逐字保留；生成失败且确认原因与该词有关后，才最小修改对应词语，禁止改写整段台词。修正后重新预览、保存并核对逐卡真实回读；生成前对已保存卡重新 prepare_video，保留未改动请求的原幂等 key。",
+      "total_matches": 0,
+      "truncated": false,
+    },
+    "status": "ready",
+  },
+  {
+    "review": {
+      "matches": [],
+      "mode": "advisory",
+      "next": "以下为配置词表的字面命中提示，不是自动违规判定，也不拦截保存或生成。未命中不代表完整审核通过。逐处对照来源，不凭引号认定原台词；自行补写的描述、否定句、负面提示和备注中的禁用词应删去或改为符合剧情的正向描述。核实为剧本原台词时，首次逐字保留；生成失败且确认原因与该词有关后，才最小修改对应词语，禁止改写整段台词。修正后重新预览、保存并核对逐卡真实回读；生成前对已保存卡重新 prepare_video，保留未改动请求的原幂等 key。",
+      "total_matches": 0,
+      "truncated": false,
+    },
+    "status": "prepared",
+  },
+]
+`;

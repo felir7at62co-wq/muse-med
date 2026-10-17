@@ -86,6 +86,8 @@ Client 的首次 `follow`、重连首屏与 `loadOlder()` 至少请求 50 条以
 
 `SessionVideoReferences` 通过鉴权连接提供 `GET|HEAD /api/video?sessionId=<id>&path=<path>`。它读取已保存会话的工作区，不激活 Agent，并在规范化解析后拒绝工作区之外的路径。MP4/M4V、WebM 和 MOV 容器支持单一字节范围，包括末尾范围和无结束位置的范围；合法范围返回 206，非法范围返回 416。GET 按文件系统窗口流式读取，不缓冲完整文件；HEAD 只读取元数据。可选的 `version` 查询在文件变化时返回 409，流式读取在窗口之间核对源版本。取消会中止待完成读取；卸载会取消并等待元数据查询与字节读取。在 Controller 配置中设置 `video.maxFileBytes`（8 GiB）、`video.chunkBytes`（256 KiB）和 `video.maxStreams`（8）。接受容器并不保证浏览器支持其编码。 流准入在元数据完成后检查取消，再同步创建流；已取消的元数据请求不会开始读取字节。
 
+已交付的视频使用同一路由，以 `sessionId`、`presentedSeq` 和 `presentedIndex` 代替 `path`。Host 读取该位置的确切 `deliverables/presented` 事件，只接受其指定下标的文件，包括工作区之外的普通文件；目录和最终路径上的符号链接会被拒绝。坐标必须完整、唯一，且为非负安全整数；重复参数或混入 `path` 返回 400。事件不存在、事件类型不符、交付数据无效或文件下标不存在时返回 404。交付视频沿用相同的流式读取、版本和取消限制，卸载也会等待待完成的历史读取。
+
 GUI 模型选择要求确切提供方／模型对出现在可用目录中；不可用的选择以 `session/model-unavailable` 拒绝。元数据设为 `selectable: false` 的已注册提供方不进入该目录，也不能成为新的 GUI 选择。提示词准入保留已保存的路由，不按目录可用性阻断发送，因此已有 Session 可继续显示并执行其持久选择，由请求执行报告凭据缺失或模型不可用。`initializeDefaultModel()` 在账号登录后、其他提供方均未配置 API key 时，将第一个可用账号模型保存为默认模型；凭据检查使用已配置的引用，不依赖模型是否可用。提供方没有可用模型时，初始化以 `session/provider-models-unavailable` 拒绝。可用性变化不会替换模型或改写会话选择。
 
 `selectModel` 成功返回表示会话级模型选择已生效，不等待默认 profile 设置保存。默认设置在后台按提交顺序保存；保存失败会记录警告，并保留会话选择。新会话读取最近一次成功保存的默认值。

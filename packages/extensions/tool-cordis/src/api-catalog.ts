@@ -1498,9 +1498,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: '@Remote async routes(): Promise<{ candidates: ImageRouteRow[] }>',
-        description: 'List the `gpt-image-2` catalogue rows this account may buy from.\n\nFree and read-only: the very catalogue read the paid call makes, spending nothing. A Settings page offers these rows so a person picks a platform by its own price instead of reading that price out of a failure message.',
+        description: 'List image catalogue rows permitted by this deployment.\n\nFree and read-only: the very catalogue read the paid call makes, spending nothing. A Settings page offers these rows so a person picks a platform by its own price instead of reading that price out of a failure message.',
         parameters: [],
-        returns: 'one entry per `gpt-image-2` row, in catalogue order.',
+        returns: 'one entry per permitted row, in catalogue order.',
         throws: ['RemoteError when the catalogue cannot be read; its message is what the page shows.'],
       },
     ],
@@ -1529,6 +1529,66 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the same facts {@link describe} reports after the removal.',
         throws: ['RemoteError when the provider refuses the write.'],
+      },
+    ],
+  },
+  {
+    key: 'jubianVideoSelection',
+    summary: 'Host owner shared by the composer, model-facing ask tool and paid executors.',
+    description: 'Host owner shared by the composer, model-facing ask tool and paid executors.',
+    methods: [
+      {
+        signature: 'async initialize(agent: Agent): Promise<SessionVideoSelection | null>',
+        description: 'Initialize the configured default from the live catalogue once, preserving any human choice made during the read.',
+        parameters: [{ name: 'agent', description: 'Owning conversation.' }],
+        returns: 'Existing or newly committed setting, or null when no default is configured.',
+      },
+      {
+        signature: '@Remote available(): boolean',
+        description: 'Read whether this deployment enables conversation-owned video choices.',
+        parameters: [],
+        returns: 'Whether the composer should expose the video menu.',
+      },
+      {
+        signature: '@Remote async catalogue(): Promise<VideoModelOption[]>',
+        description: 'Read the live account catalogue; never writes project defaults.',
+        parameters: [],
+        returns: 'Complete model specifications.',
+      },
+      {
+        signature: '@Remote current(agent: Agent): SessionVideoSelection | null',
+        description: 'Read one conversation\'s durable choice.',
+        parameters: [{ name: 'agent', description: 'Authenticated conversation identity.' }],
+        returns: 'Explicit choice or null.',
+      },
+      {
+        signature: '@Remote async select(agent: Agent, key: string, expectedRevision: number): Promise<SessionVideoSelection>',
+        description: 'Save an exact live option with optimistic revision checking.',
+        parameters: [{ name: 'agent', description: 'Authenticated conversation identity.' }, { name: 'key', description: 'Catalogue row and resolution key.' }, { name: 'expectedRevision', description: 'Revision displayed to the user, zero before selection.' }],
+        returns: 'Committed choice; identical choices produce no event.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *watch(agent: Agent, signal: AbortSignal): AsyncIterable<SessionVideoSelection | null>',
+        description: 'Follow committed changes without polling or waking the dialogue model.',
+        parameters: [{ name: 'agent', description: 'Owning conversation.' }, { name: 'signal', description: 'Remote stream lifetime.' }],
+        returns: 'Initial choice followed by each latest committed choice.',
+      },
+      {
+        signature: 'async ask(agent: Agent, args: { reason: string; method: string; duration_seconds?: number }, signal: AbortSignal): Promise<{ action: \'replan_packages\' | \'unchanged\' | \'selected\'; selection: SessionVideoSelection | null; paid_requests: 0 }>',
+        description: 'Ask for an explicit model selection or resolve a duration conflict once for the affected batch.',
+        parameters: [{ name: 'agent', description: 'Calling conversation.' }, { name: 'args', description: 'Human-readable reason and optional longest affected package.' }, { name: 'signal', description: 'Tool lifetime.' }],
+        returns: 'Chosen setting or instruction to retain the model and replan content.',
+      },
+      {
+        signature: 'assertCurrent(agent: Agent, saved: Record<string, unknown>): void',
+        description: 'Validate the current user choice at the new paid reservation.',
+        parameters: [{ name: 'agent', description: 'Owning conversation.' }, { name: 'saved', description: 'Frozen provider model configuration.' }],
+      },
+      {
+        signature: 'async reconcile(agent: Agent, args: Record<string, unknown>): Promise<void>',
+        description: 'Synchronize only an addressed board before preview; paid previews must match the current choice.',
+        parameters: [{ name: 'agent', description: 'Calling conversation.' }, { name: 'args', description: 'Existing storyboard tool arguments.' }],
+        returns: 'Resolves before the normal executor may continue.',
       },
     ],
   },
@@ -3494,7 +3554,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'readonly config: ResolvedConfig',
-        description: 'Resolved and immutable character budgets.',
+        description: 'Resolved and immutable pruning policy.',
         parameters: [],
       },
       {
@@ -3511,7 +3571,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pruneSession(session: Session): PruneResult',
-        description: 'Prune every over-budget tool result from one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover the replacement input, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter, so pure consumers can subtract it without per-node state.',
+        description: 'Prune over-budget tool results except calls whose logged name is preserved. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover the replacement input, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter, so pure consumers can subtract it without per-node state.',
         parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }],
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
         throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
@@ -5794,7 +5854,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImageRouteRow',
-    declaration: 'export interface ImageRouteRow {\n    readonly standardId: number;\n    readonly platformId: string;\n    readonly unitPrice: number | null;\n    readonly unit: string | null;\n}',
+    declaration: 'export interface ImageRouteRow {\n    readonly modelId?: string;\n    readonly modelName?: string;\n    readonly standardId: number;\n    readonly platformId: string;\n    readonly unitPrice: number | null;\n    readonly unit: string | null;\n}',
   },
   {
     name: 'ImageVariantId',
@@ -7565,6 +7625,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionUpdateQueueValue {\n    readonly accepted: true;\n}',
   },
   {
+    name: 'SessionVideoSelection',
+    declaration: 'export type SessionVideoSelection = VideoModelOption & {\n    revision: number;\n};',
+  },
+  {
     name: 'SessionWireEvent',
     declaration: 'export interface SessionWireEvent {\n    readonly type: string;\n    readonly seq: number;\n    readonly time: number;\n    readonly data: JsonValue;\n    readonly ignorable?: true;\n    readonly sourceEventSeqs?: JsonValue;\n    readonly surfaceOp?: JsonValue;\n}',
   },
@@ -8547,6 +8611,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'VideoModelOption',
+    declaration: 'export type VideoModelOption = {\n    key: string;\n    modelId: string;\n    modelName: string;\n    platformId: string;\n    standardId: number;\n    resolution: string;\n    genTypes: number[];\n    ratios: string[];\n    maxDurationSeconds: number | null;\n};',
   },
   {
     name: 'WebBootBatch',

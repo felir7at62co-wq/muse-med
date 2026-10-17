@@ -1,0 +1,85 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`todo_write assembly (product registrations, no outlet twins) > renders a recorded partial update as the full plan while the dock follows its projection 1`] = `
+<div
+  class="root"
+  data-state="ok"
+  data-tool="todo_update"
+  data-variant="others"
+>
+  <div
+    class="root"
+  >
+    <div
+      aria-expanded="false"
+      class="row row"
+      data-disclosure-row="true"
+      data-expandable="true"
+      role="button"
+      tabindex="0"
+    >
+      <span
+        class="leading leading"
+      >
+        <span
+          class="iconIdle"
+        >
+          <svg
+            aria-hidden="true"
+            data-content="5e4a8332"
+            fill="none"
+            height="14"
+            stroke-width="1"
+            viewBox="0 0 16 16"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          />
+        </span>
+        <svg
+          aria-hidden="true"
+          class="chevronHover"
+          data-content="2b5d7fd1"
+          fill="none"
+          height="14"
+          stroke-width="1"
+          viewBox="0 0 16 16"
+          width="14"
+          xmlns="http://www.w3.org/2000/svg"
+        />
+      </span>
+      <span
+        class="root"
+      >
+        <span
+          class="content"
+        >
+          <span
+            class="text title title"
+          >
+            更新任务清单
+          </span>
+          <span
+            aria-hidden="true"
+            class="sep"
+            data-shimmer-decoration="true"
+          />
+          <span
+            class="summary"
+          >
+            <span
+              class="text"
+            >
+              2/3 已完成 · 浏览器验收
+            </span>
+          </span>
+          <span
+            class="text summarySuffix"
+          >
+            新增 3
+          </span>
+        </span>
+      </span>
+    </div>
+  </div>
+</div>
+`;

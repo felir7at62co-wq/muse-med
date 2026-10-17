@@ -143,8 +143,8 @@ function fixture(packaged = false) {
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
   const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
   const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
-    'ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
-  const editingCapabilityNames = ['ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
+    'ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
+  const editingCapabilityNames = ['ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   class TestContext {
     museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
@@ -168,7 +168,7 @@ function fixture(packaged = false) {
     tools = { schemas: vi.fn((key?: { preset: string }) => {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write'].includes(name)), ...editingCapabilityNames]
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames]
         : key.preset === 'minimal' ? [shell]
           : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',

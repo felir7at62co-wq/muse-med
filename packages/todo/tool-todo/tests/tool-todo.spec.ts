@@ -76,11 +76,11 @@ describe('dsh-tool-todo', () => {
     const result = await callTodo(ctx, { todos }, { agent })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected todo_write success')
-    expect(result.value).toEqual({
+    expect(result.value).toMatchObject({
       todos,
       counts: { pending: 1, inProgress: 1, completed: 0 },
     })
-    expect(text(result)).toContain('1 pending, 1 in progress, 0 completed')
+    expect(JSON.parse(text(result))).toMatchObject({ current: ['plan'], next: 'build' })
 
     const event = agent.session.snapshotEvents().findLast(e => e.type === 'todo/write')!
     expect(event.data.todos).toEqual(todos)
@@ -135,7 +135,7 @@ describe('dsh-tool-todo', () => {
     const result = await callTodo(ctx, { todos }, { agent })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected todo_write success')
-    expect(result.value).toEqual({
+    expect(result.value).toMatchObject({
       todos,
       counts: { pending: 1, inProgress: 2, completed: 0 },
     })
@@ -218,8 +218,10 @@ describe('dsh-tool-todo', () => {
     await ctx.plugin(SessionProjectionRegistry)
     const fiber = await ctx.plugin(tool, { allowParallelInProgress: true })
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(true)
+    expect(ctx.tools.schemas().some(s => s.name === 'todo_update')).toBe(true)
     await fiber.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'todo_write')).toBe(false)
+    expect(ctx.tools.schemas().some(s => s.name === 'todo_update')).toBe(false)
   })
 
   it('has the namespace-plugin export shape (no stray default) so the Loader keeps name/inject/apply', () => {

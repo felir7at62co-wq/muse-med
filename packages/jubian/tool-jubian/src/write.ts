@@ -42,6 +42,8 @@ export function acceptedWriteResponse(transport: { http_status: number | null
 
 /** What one write call states about itself beyond its body. */
 export interface WriteOptions {
+  /** Synchronous caller check after budget validation and before a fresh reservation. */
+  readonly beforeReserve?: () => void
   /** Project the charge belongs to; the budget gate refuses a paid call without it. */
   readonly scriptId?: number | undefined
   /** Authorization file to read instead of the ledger's own; tests set this. */
@@ -246,6 +248,7 @@ export async function writeUnderLedger(
       ...(quoted === undefined ? {} : { quote: quoted }),
       ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
     if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
+    options?.beforeReserve?.()
     return { idempotencyKey: key, method, requestSha256: bodyHash(payload),
       ...(scriptId === undefined ? {} : { scriptId }),
       ...(budget.chargedAmount === undefined ? {} : { quotedAmount: budget.chargedAmount }),

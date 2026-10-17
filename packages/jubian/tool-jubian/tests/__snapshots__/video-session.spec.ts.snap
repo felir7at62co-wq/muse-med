@@ -1,0 +1,32 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records the parent video choice before a fresh spawned child requests its model > fresh child video choice 1`] = `
+{
+  "context": "本会话的视频生成设置：seedance2.0；分辨率 480p；通道 FANG_ZHOU；modelId=doubao-seedance-2-0-260128；standardId=8。单次生成时长上限 15 秒；上限不代表推荐包长。后续生成以此会话选择为准；读取剧变项目不改变此选择，也不修改项目默认值。仅同步本次要生成的视频卡并回读，保留提示词与素材。若原视频包超过新上限，使用 jubian_video_model 的 duration_conflict 询问用户保留模型重新拆包，或选择可容纳原包的模型；同批合并询问，不截断对白。已提交任务保持原配置。",
+  "inherited": {
+    "genTypes": [
+      1,
+      2,
+      3,
+      4,
+    ],
+    "key": "8:480p",
+    "maxDurationSeconds": 15,
+    "modelId": "doubao-seedance-2-0-260128",
+    "modelName": "seedance2.0",
+    "platformId": "FANG_ZHOU",
+    "ratios": [
+      "16:9",
+      "4:3",
+      "1:1",
+      "3:4",
+      "9:16",
+      "21:9",
+      "adaptive",
+    ],
+    "resolution": "480p",
+    "revision": 1,
+    "standardId": 8,
+  },
+}
+`;

@@ -691,7 +691,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
     },
     note:
-      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+      'todo_write replaces the session-owned plan; todo_update changes one task and can start the next pending task. Both append complete todo/write snapshots and return the current work, next task, and advisory progress reminder. `allowParallelInProgress` is required; this catalog uses `true` for parallel work.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',
@@ -749,13 +749,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
         dshHome: join(tmpdir(), 'dsh-tool-catalog'),
         watch: false,
       })
-      await ctx.plugin(ToolJubian, { ledgerRoot: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger') })
+      await ctx.plugin(ToolJubian, { ledgerRoot: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger'), sessionVideoSelection: true })
     },
     note:
       'Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; '
       + 'image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; '
       + 'submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; '
       + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. '
+      + '`jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. '
       + '`jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.',
   },
   {

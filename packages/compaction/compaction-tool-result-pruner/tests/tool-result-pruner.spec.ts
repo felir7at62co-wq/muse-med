@@ -1,7 +1,7 @@
 import { imageOffloadProjection } from '@deepseek-ai/dsh-compaction-image-offload/projection'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId , createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   Session,
@@ -46,6 +46,7 @@ function appendToolStep(
   call: string,
   content: ContentBlock[],
   extra: Record<string, unknown> = {},
+  toolName = 'bash',
 ): number {
   const callId = ToolCallId(call)
   session.append('turn/start', {
@@ -58,14 +59,14 @@ function appendToolStep(
     step: 1,
     message: createMessage({
       role: 'assistant',
-      content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+      content: [{ type: 'tool-call', id: callId, name: toolName, arguments: '{}' }],
       source: {
         kind: 'model',
         ...{ provider: MODEL, model: MODEL },
       },
     }),
   }, { surfaceOp: 'append' })
-  session.append('tool/call', { turn, step: 1, callId, name: 'bash', arguments: '{}' })
+  session.append('tool/call', { turn, step: 1, callId, name: toolName, arguments: '{}' })
   const result = session.append('tool/result', {
     turn,
     step: 1,
@@ -100,10 +101,19 @@ describe('tool-result pruning configuration', () => {
     const raw = { thresholdChars: 100, headChars: 20, tailChars: 10 }
     const resolved = resolveConfig(raw)
     raw.headChars = 1
-    expect(resolved).toEqual({ thresholdChars: 100, headChars: 20, tailChars: 10 })
+    expect(resolved).toEqual({ thresholdChars: 100, headChars: 20, tailChars: 10, preserveToolNames: [] })
     expect(Object.isFrozen(resolved)).toBe(true)
-    expect(DEFAULTS).toEqual({ thresholdChars: 8192, headChars: 4096, tailChars: 1024 })
+    expect(DEFAULTS).toEqual({ thresholdChars: 8192, headChars: 4096, tailChars: 1024, preserveToolNames: [] })
     expect(Object.isFrozen(DEFAULTS)).toBe(true)
+  })
+
+  it('detaches and freezes preserved tool names', () => {
+    const preserveToolNames = ['skill']
+    const resolved = resolveConfig({ preserveToolNames })
+    preserveToolNames.push('bash')
+    expect(resolved.preserveToolNames).toEqual(['skill'])
+    expect(Object.isFrozen(resolved.preserveToolNames)).toBe(true)
+    expect(Object.isFrozen(DEFAULTS.preserveToolNames)).toBe(true)
   })
 
   it('rejects stale keys, invalid scalars, and an output budget above threshold', () => {
@@ -113,6 +123,11 @@ describe('tool-result pruning configuration', () => {
       [{ tailChars: 1.5 }, /tailChars .* non-negative integer/],
       [{ thresholdChars: 50, headChars: 20, tailChars: 20 }, /headChars \+ marker \+ tailChars/],
       [{ threshold: 10 }, /unknown key "threshold"/],
+      [{ preserveToolNames: 'skill' }, /preserveToolNames must be an array/],
+      [{ preserveToolNames: null }, /preserveToolNames must be an array/],
+      [{ preserveToolNames: [''] }, /preserveToolNames must be an array/],
+      [{ preserveToolNames: [' skill'] }, /preserveToolNames must be an array/],
+      [{ preserveToolNames: [42] }, /preserveToolNames must be an array/],
     ] as Array<[unknown, RegExp]>
     for (const [config, pattern] of bad) {
       expect(() => resolveConfig(config as ToolResultPruneConfig)).toThrow(pattern)
@@ -182,6 +197,45 @@ describe('ToolResultPruner content transform', () => {
 })
 
 describe('ToolResultPruner session transaction', () => {
+  it('preserves only exact logged tool names and records no replacement for their results', () => {
+    const session = Session.create(SessionId('preserved-skill'))
+    const body = '镜头规则完整保留。'.repeat(1600)
+    const skillSeq = appendToolStep(session, 1, 'load-1', [{ type: 'text', text: body }], {}, 'skill')
+    appendToolStep(session, 2, 'skill', [{ type: 'text', text: 'skill '.repeat(2500) }])
+    appendToolStep(session, 3, 'load-2', [{ type: 'text', text: body }], {}, 'skill_extra')
+    const prune = service({ preserveToolNames: ['skill'] })
+    const first = prune.pruneSession(session)
+    expect(first.pruned.map(entry => entry.callId)).toEqual([ToolCallId('skill'), ToolCallId('load-2')])
+    expect(session.surface.nodes).toContain(skillSeq)
+    expect(session.snapshotEvents().filter(event => event.type === 'compaction/prune')).toHaveLength(2)
+    expect(session.deriveMessages().some(message => message.role === 'tool'
+      && message.toolCallId === ToolCallId('load-1')
+      && message.content[0]?.type === 'text' && message.content[0].text === body)).toBe(true)
+    expect(prune.pruneSession(session)).toEqual({ pruned: [], charsRemoved: 0 })
+    const replay = Session.create(session.id, session.snapshotEvents())
+    expect(replay.deriveMessages()).toEqual(session.deriveMessages())
+  })
+
+  it('prunes skill results under the default policy', () => {
+    const session = Session.create(SessionId('default-skill'))
+    appendToolStep(session, 1, 'load', [{ type: 'text', text: '规则'.repeat(6500) }], {}, 'skill')
+    expect(service({}).pruneSession(session).pruned.map(entry => entry.callId)).toEqual([ToolCallId('load')])
+  })
+
+  it('does not preserve a result using a tool call hidden from the current conversation', () => {
+    const session = Session.create(SessionId('hidden-skill-call'))
+    appendToolStep(session, 1, 'load', [{ type: 'text', text: '规则'.repeat(6500) }], {}, 'skill')
+    const call = session.snapshotEvents().find(event => event.type === 'assistant/message')
+    if (call === undefined) throw new Error('missing assistant tool call')
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Prior work summarized.' }], source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: call.seq, endSeq: call.seq }, sourceEventSeqs: [call.seq],
+    })
+    const prune = service({ preserveToolNames: ['skill'] })
+    expect(prune.pruneSession(session).pruned.map(entry => entry.callId)).toEqual([ToolCallId('load')])
+  })
+
   it('prunes a stable snapshot, preserves all data, and cites the replaced result', () => {
     const session = Session.create(SessionId('preserve'))
     const originalSeq = appendToolStep(session, 1, 'one', [{

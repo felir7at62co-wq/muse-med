@@ -1,7 +1,7 @@
 import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 
-/** Character-budget policy for deterministic tool-result pruning. */
+/** Character budgets and tool-name exceptions for deterministic result pruning. */
 export interface ToolResultPruneConfig {
   /** Prune when total text exceeds this many Unicode code points. Defaults to `8192`. */
   thresholdChars?: number
@@ -9,6 +9,8 @@ export interface ToolResultPruneConfig {
   headChars?: number
   /** Maximum trailing Unicode code points retained. Defaults to `1024`. */
   tailChars?: number
+  /** Exact logged tool names whose results bypass pruning; summarization still applies. Defaults to `[]`. */
+  preserveToolNames?: string[]
 }
 
 /** Validated, detached, deeply immutable pruning configuration. */
@@ -16,6 +18,7 @@ export interface ResolvedConfig {
   readonly thresholdChars: number
   readonly headChars: number
   readonly tailChars: number
+  readonly preserveToolNames: readonly string[]
 }
 
 /** Cited source event and size accounting for one landed surface replacement. */

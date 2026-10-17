@@ -1,7 +1,7 @@
 /**
- * Model-facing whole-list replacement. Each call appends a `todo/write` snapshot to the calling
- * agent's session; replay is last-write-wins, and UIs render from session events. A non-agent
- * caller has no owning list and is rejected. Named exports preserve loader injection metadata.
+ * Model-facing task planning and single-task updates. Both tools append complete `todo/write`
+ * snapshots to the calling agent's session. Progress reminders describe the next work without
+ * inferring completion from other tools. Named exports preserve loader injection metadata.
  * @module @deepseek-ai/dsh-tool-todo
  */
 
@@ -44,7 +44,8 @@ export const Config: z<Config> = z.object({
 
 const DESCRIPTION_HEAD =
   'Record and update a task list to plan multi-step work and show progress; skip it for trivial '
-  + 'single-step tasks. Add one todo per concrete step before you start. '
+  + 'single-step tasks. Add one todo per concrete step before you start. Use this tool to create or '
+  + 'revise the whole plan; use todo_update for individual status changes. '
 
 const DESCRIPTION_PARALLEL =
   'While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. '
@@ -52,7 +53,55 @@ const DESCRIPTION_PARALLEL =
 const DESCRIPTION_SINGLE =
   'While work remains, keep exactly one todo `in_progress`. '
 
-const DESCRIPTION_TAIL = 'Mark each todo `completed` as soon as it is done.'
+const DESCRIPTION_TAIL =
+  'After each stage, verify its actual result and immediately update the completed task and the work '
+  + 'now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final '
+  + 'delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.'
+
+const PROGRESS_REMINDER =
+  'After each stage, verify the actual result and update only completed tasks and the work now in progress. '
+  + 'Unfinished or failed work stays pending or in_progress. '
+  + 'Video generation success does not complete editing, quality checks, or delivery.'
+
+const TODO_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    todos: {
+      type: 'array', required: true,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          content: { type: 'string', required: true },
+          status: { type: 'string', required: true, enum: STATUSES },
+        },
+      },
+    },
+    counts: {
+      type: 'object', additionalProperties: false, required: true,
+      properties: {
+        pending: { type: 'integer', required: true },
+        inProgress: { type: 'integer', required: true },
+        completed: { type: 'integer', required: true },
+      },
+    },
+    current: { type: 'array', required: true, items: { type: 'string' } },
+    next: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+    reminder: { type: 'string', required: true },
+  },
+} as const
+
+/** Return the committed list with its current work, next pending task, and advisory guidance. */
+function progress(todos: TodoItem[]) {
+  const count = (status: TodoItem['status']): number => todos.filter(todo => todo.status === status).length
+  return {
+    todos,
+    counts: { pending: count('pending'), inProgress: count('in_progress'), completed: count('completed') },
+    current: todos.filter(todo => todo.status === 'in_progress').map(todo => todo.content),
+    next: todos.find(todo => todo.status === 'pending')?.content ?? null,
+    reminder: PROGRESS_REMINDER,
+  }
+}
 
 /**
  * The model-facing description for one activation. The active-status clause is the only part that
@@ -109,8 +158,7 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
 ])
 
 /**
- * Register the `todo_write` tool on `ctx.tools` and the `todos` unit on
- * `ctx.sessionProjections`.
+ * Register the planning tools and the visible and host-only list projections.
  * @param ctx - registrant context carrying the tool and session-projection registries.
  * @param config - deployment's explicit todo policy.
  */
@@ -131,6 +179,13 @@ export function apply(ctx: Context, config: Config): void {
     },
     wire: { viewSchema: todosProjectionSchema, view: state => state },
     stateVersion: 2,
+  })
+  ctx.sessionProjections.register<'latestTodos', TodoItem[] | null>({
+    key: 'latestTodos',
+    stateSchema: todosProjectionSchema,
+    init: () => null,
+    apply: (state, event) => event.type === 'todo/write' ? event.data.todos : state,
+    stateVersion: 1,
   })
   ctx.tools.register(defineTool({
     name: 'todo_write',
@@ -156,38 +211,8 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          todos: {
-            type: 'array',
-            required: true,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                content: { type: 'string', required: true },
-                status: { type: 'string', required: true, enum: [...STATUSES] },
-              },
-            },
-          },
-          counts: {
-            type: 'object',
-            additionalProperties: false,
-            required: true,
-            properties: {
-              pending: { type: 'integer', required: true },
-              inProgress: { type: 'integer', required: true },
-              completed: { type: 'integer', required: true },
-            },
-          },
-        },
-      },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `Updated todo list: ${value.counts.pending} pending, ${value.counts.inProgress} in progress, ${value.counts.completed} completed.`,
-      }],
+      schema: TODO_OUTPUT_SCHEMA,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute(args, exec) {
       const todos = toTodoList(args.todos, allowParallel)
@@ -197,16 +222,50 @@ export function apply(ctx: Context, config: Config): void {
         throw new Error('todo_write requires an owning agent session')
       }
       exec.agent.session.append('todo/write', { todos })
-      const count = (status: TodoItem['status']): number => todos.filter(t => t.status === status).length
-      return Promise.resolve({
-        todos: todos.map(todo => ({ content: todo.content, status: todo.status })),
-        counts: {
-          pending: count('pending'),
-          inProgress: count('in_progress'),
-          completed: count('completed'),
-        },
-      })
+      return Promise.resolve(progress(todos))
     },
     presentCall: args => ({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: args.todos }),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'todo_update',
+    description: 'Update one existing task without resending the list; task must match its full text. '
+      + 'Use status completed with start_next true to finish that task and start the first pending task '
+      + 'when no other task is in progress. Repeating an already completed task does not advance again. '
+      + 'Use todo_write to add, rename, remove, or reorder tasks. '
+      + (allowParallel ? DESCRIPTION_PARALLEL : DESCRIPTION_SINGLE) + DESCRIPTION_TAIL,
+    parameters: {
+      task: { type: 'string', required: true, description: 'Exact content of the existing task; surrounding whitespace is ignored.' },
+      status: { type: 'string', required: true, enum: [...STATUSES], description: 'Actual task state: pending, in_progress, or completed.' },
+      start_next: {
+        type: 'boolean',
+        description: 'Only with completed: on a new completion, start the first pending task if no task remains in_progress.',
+      },
+    },
+    output: {
+      schema: TODO_OUTPUT_SCHEMA,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute(args, exec) {
+      if (!exec.agent) throw new Error('todo_update requires an owning agent session')
+      if (args.start_next === true && args.status !== 'completed') {
+        throw new Error('invalid todo_update: start_next is only allowed with status completed')
+      }
+      const task = args.task.trim()
+      if (!task) throw new Error('invalid todo_update: task must be a non-empty string')
+      const previous = ctx.sessionProjections.stateOf(exec.agent.session, 'latestTodos')
+      if (previous === undefined) throw new Error('todo_update requires the latestTodos projection')
+      if (previous === null) throw new Error('no todo list: create one with todo_write first')
+      const target = previous.find(todo => todo.content === task)
+      if (!target) throw new Error(`unknown todo task ${JSON.stringify(task)}; use its exact content from the task list`)
+      const todos = previous.map(todo => ({ ...todo, status: todo === target ? args.status : todo.status }))
+      if (args.start_next === true && target.status !== 'completed' && !todos.some(todo => todo.status === 'in_progress')) {
+        const next = todos.find(todo => todo.status === 'pending')
+        if (next) next.status = 'in_progress'
+      }
+      const canonical = toTodoList(todos, allowParallel)
+      exec.agent.session.append('todo/write', { todos: canonical })
+      return Promise.resolve(progress(canonical))
+    },
+    presentCall: args => ({ card: 'generic', title: 'Update todo task', kind: 'other', rawInput: args }),
   }))
 }

@@ -117,7 +117,7 @@
           override later tool guidance. Tool availability does not grant permission. Ask only
           for user-owned choices after resolving discoverable facts. State scope, acceptance
           criteria, changes, data flow, failure cases and checks in a complete plan. Present it
-          with exit_plan_mode as the final tool call, not todo_write or a prose approval question.
+          with exit_plan_mode as the final tool call, not todo_write, todo_update, or a prose approval question.
           Conversational agreement does not approve implementation. Remain in plan mode until
           exit_plan_mode succeeds or the user switches modes; rejected review means revise.
 - id: compaction

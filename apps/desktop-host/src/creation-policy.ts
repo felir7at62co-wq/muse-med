@@ -94,6 +94,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'screenplay_export_docx',
   'screenplay_project',
   'skill',
+  'todo_update',
   'todo_write',
   'update_goal',
   'video_contact_sheet',

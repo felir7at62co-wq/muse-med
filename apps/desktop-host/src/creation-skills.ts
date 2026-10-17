@@ -28,6 +28,8 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'reviewing-micro-drama-scripts',
   'screenplay-format',
   'screenplay-project',
+  'shot-script-creator-16-9-3d',
+  'shot-script-creator-9-16',
   'transcript-to-novel',
   'transcript-to-script',
   'trope-adaptation',

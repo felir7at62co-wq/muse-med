@@ -1,0 +1,8 @@
+version: 1
+scenario: todo-incremental
+profile: headless
+composition: default
+recording: authored
+header:
+  class: default
+writerOutput: true

@@ -53,6 +53,8 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、`phase` 判别字
 
 本包拥有 generic fallback，以及 shell/pwsh、read、read_image、write/edit、运行中的 `str_replace_editor` `create`／`str_replace`、grep/glob、web、todo、question 与 PTC dispatch 的内置展示。结构化卡片直接从第一方原始 event 字段派生；Host `presentCall` 与 `presentResult` 值不会进入 Client。运行中的原子工具行以同一道高光从左到右扫过标题、分隔符、摘要与后缀；已完成行保持静态。运行中与已完成的前台标准 `bash`/`pwsh` 和 `terminal_send` 调用，无论位于根还是 PTC dispatch 子调用中，都在通过相同的参数、结果和错误检查后使用 terminal 卡片。持久 `bash`/`pwsh` 调用仅在运行中使用 terminal 卡片。以已识别的 spill 策略提示结尾的 shell 输出，在 shell 行中使用可展开的 generic 输出，在 Details 中使用 generic 输出；位置被改变或被省略的退出标记无法证明成功。已完成的持久 shell 结果保持 generic 展示，因为 reset 与部分输出诊断不一定描述单个进程的退出状态；根调用的持久 shell 结果可展开，后台启动回执则保持折叠。带有 `AUTO_REVIEW_DENIED` 的原生或 PTC dispatch 失败会在折叠行显示 Auto review 裁决，展开时显示一行归一化后的“未执行”原因；原因缺失或只有空白时使用本地化 fallback 文案。`ui-skill` 展示了业务包自行拥有的 `skill` 注册项。
 
+`todo_write` 行从整表替换参数派生完整计划。成功的 `todo_update` 行从记录的 JSON 结果中的 `todos` 列表派生完整计划，不把单任务的 `task`、`status` 和可选 `start_next` 参数当作整表。两种工具在普通调用和 PTC 调用中都保留本地化任务清单标题、当前任务摘要和历史对比。运行中、失败或不支持的局部更新结果保留通用输入输出，不宣称任务已经完成。输入区任务清单仍由 `todos` 投影驱动。
+
 问题行按 id 配对问题与答案；答案来自工具结果，迟到回答则来自 `userQuestions` 投影。可回答的调用提供按钮以重新打开面板。迟到回复进入 agent Inbox 后，问题行显示已提交的答案；等待准入期间，「查看回答」展开只读的行内记录。带有答案的已结算调用则以只读方式打开面板。没有答案的已关闭调用和无效记录不提供按钮。已取消和已中断的行显示裁决，不虚构答案。若面板提供方不接受按钮操作，点击会展开该行。不受支持或含糊的输入回退为压平的工具文本。
 
 回答面板按钮归问题 renderer 所有。它使用 `DisclosureRow` 组合自己的操作与 transcript；通用 `ToolRow` 不选择或派发问题操作。

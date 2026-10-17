@@ -1,0 +1,154 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`runs the configured tools through the real loop and exposes current, next, and completion guidance 1`] = `
+[
+  {
+    "counts": {
+      "completed": 0,
+      "inProgress": 1,
+      "pending": 3,
+    },
+    "current": [
+      "generate video",
+    ],
+    "next": "edit episode",
+    "reminder": "After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.",
+    "todos": [
+      {
+        "content": "generate video",
+        "status": "in_progress",
+      },
+      {
+        "content": "edit episode",
+        "status": "pending",
+      },
+      {
+        "content": "check quality",
+        "status": "pending",
+      },
+      {
+        "content": "deliver episode",
+        "status": "pending",
+      },
+    ],
+  },
+  {
+    "counts": {
+      "completed": 1,
+      "inProgress": 1,
+      "pending": 2,
+    },
+    "current": [
+      "edit episode",
+    ],
+    "next": "check quality",
+    "reminder": "After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.",
+    "todos": [
+      {
+        "content": "generate video",
+        "status": "completed",
+      },
+      {
+        "content": "edit episode",
+        "status": "in_progress",
+      },
+      {
+        "content": "check quality",
+        "status": "pending",
+      },
+      {
+        "content": "deliver episode",
+        "status": "pending",
+      },
+    ],
+  },
+  {
+    "counts": {
+      "completed": 2,
+      "inProgress": 1,
+      "pending": 1,
+    },
+    "current": [
+      "check quality",
+    ],
+    "next": "deliver episode",
+    "reminder": "After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.",
+    "todos": [
+      {
+        "content": "generate video",
+        "status": "completed",
+      },
+      {
+        "content": "edit episode",
+        "status": "completed",
+      },
+      {
+        "content": "check quality",
+        "status": "in_progress",
+      },
+      {
+        "content": "deliver episode",
+        "status": "pending",
+      },
+    ],
+  },
+  {
+    "counts": {
+      "completed": 3,
+      "inProgress": 1,
+      "pending": 0,
+    },
+    "current": [
+      "deliver episode",
+    ],
+    "next": null,
+    "reminder": "After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.",
+    "todos": [
+      {
+        "content": "generate video",
+        "status": "completed",
+      },
+      {
+        "content": "edit episode",
+        "status": "completed",
+      },
+      {
+        "content": "check quality",
+        "status": "completed",
+      },
+      {
+        "content": "deliver episode",
+        "status": "in_progress",
+      },
+    ],
+  },
+  {
+    "counts": {
+      "completed": 4,
+      "inProgress": 0,
+      "pending": 0,
+    },
+    "current": [],
+    "next": null,
+    "reminder": "After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.",
+    "todos": [
+      {
+        "content": "generate video",
+        "status": "completed",
+      },
+      {
+        "content": "edit episode",
+        "status": "completed",
+      },
+      {
+        "content": "check quality",
+        "status": "completed",
+      },
+      {
+        "content": "deliver episode",
+        "status": "completed",
+      },
+    ],
+  },
+]
+`;

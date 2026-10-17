@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps cached menu content and the composer free of loading indicators during refresh > cached video menu while refreshing 1`] = `
+{
+  "loadingIndicators": 0,
+  "rows": [
+    "ModelSeedance 2.5",
+    "Resolution480p",
+  ],
+  "trigger": "Seedance 2.5480p",
+}
+`;

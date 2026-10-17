@@ -11,12 +11,14 @@ export const DEFAULTS: ResolvedConfig = deepFreeze({
   thresholdChars: 8192,
   headChars: 4096,
   tailChars: 1024,
+  preserveToolNames: [],
 })
 
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'thresholdChars',
   'headChars',
   'tailChars',
+  'preserveToolNames',
 ])
 
 /**
@@ -38,7 +40,7 @@ export function resolveConfig(config: ToolResultPruneConfig = {}): ResolvedConfi
     if (!CONFIG_KEYS.has(key)) {
       throw new Error(
         `ToolResultPruneConfig: unknown key "${key}" `
-        + '(allowed: thresholdChars, headChars, tailChars)',
+        + '(allowed: thresholdChars, headChars, tailChars, preserveToolNames)',
       )
     }
   }
@@ -47,10 +49,15 @@ export function resolveConfig(config: ToolResultPruneConfig = {}): ResolvedConfi
     thresholdChars: config.thresholdChars ?? DEFAULTS.thresholdChars,
     headChars: config.headChars ?? DEFAULTS.headChars,
     tailChars: config.tailChars ?? DEFAULTS.tailChars,
+    preserveToolNames: config.preserveToolNames === undefined ? DEFAULTS.preserveToolNames : config.preserveToolNames,
   }
   assertPositiveInteger('thresholdChars', resolved.thresholdChars)
   assertNonNegativeInteger('headChars', resolved.headChars)
   assertNonNegativeInteger('tailChars', resolved.tailChars)
+  if (!Array.isArray(resolved.preserveToolNames)
+    || resolved.preserveToolNames.some(name => typeof name !== 'string' || name.length === 0 || name.trim() !== name)) {
+    throw new Error('ToolResultPruneConfig: preserveToolNames must be an array of non-empty tool names without surrounding whitespace')
+  }
 
   const emittedChars = resolved.headChars
     + codePointLength(PRUNE_MARKER)

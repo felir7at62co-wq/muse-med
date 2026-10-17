@@ -73,6 +73,13 @@ export function apply(ctx: ClientContext): void {
         loadChangesSummary: (sessionId, seq) => summaries.load(sessionId, seq),
         openPresented: (sessionId, seq, index, action, application) => opener.open(sessionId, seq, index, action, application),
         openChanged: (sessionId, seq, index, action, application) => opener.openChanged(sessionId, seq, index, action, application),
+        videoSourceUrl: (sessionId, seq, index) => {
+          const url = new URL('api/video', document.baseURI)
+          url.searchParams.set('sessionId', sessionId)
+          url.searchParams.set('presentedSeq', String(seq))
+          url.searchParams.set('presentedIndex', String(index))
+          return url.href
+        },
         openChangesReview: (coordinates, index) => {
           ctx.sidebarRight.openResource(changesReviewAddress(coordinates), { params: { index } })
         },

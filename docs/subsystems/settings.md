@@ -73,18 +73,97 @@ The namespace reads and never writes, and it carries rows only — the token tha
 
 ```ts cordis-catalog
 /**
- * List the `gpt-image-2` catalogue rows this account may buy from.
+ * List image catalogue rows permitted by this deployment.
  *
  * Free and read-only: the very catalogue read the paid call makes, spending
  * nothing. A Settings page offers these rows so a person picks a platform by its
  * own price instead of reading that price out of a failure message.
- * @returns one entry per `gpt-image-2` row, in catalogue order.
+ * @returns one entry per permitted row, in catalogue order.
  * @throws RemoteError when the catalogue cannot be read; its message is what the page shows.
  */
 @Remote async routes(): Promise<{ candidates: ImageRouteRow[] }>
 ```
 
 Source: [`packages/jubian/tool-jubian/src/image.ts`](../../packages/jubian/tool-jubian/src/image.ts)
+
+<a id="ctxjubianvideoselection--jubianvideoselection"></a>
+
+### `ctx.jubianVideoSelection` — `JubianVideoSelection`
+
+Host owner shared by the composer, model-facing ask tool and paid executors.
+
+```ts cordis-catalog
+/**
+ * Initialize the configured default from the live catalogue once, preserving any human choice made during the read.
+ * @param agent - Owning conversation.
+ * @returns Existing or newly committed setting, or null when no default is configured.
+ */
+async initialize(agent: Agent): Promise<SessionVideoSelection | null>
+
+/**
+ * Read whether this deployment enables conversation-owned video choices.
+ * @returns Whether the composer should expose the video menu.
+ */
+@Remote available(): boolean
+
+/**
+ * Read the live account catalogue; never writes project defaults.
+ * @returns Complete model specifications.
+ */
+@Remote async catalogue(): Promise<VideoModelOption[]>
+
+/**
+ * Read one conversation's durable choice.
+ * @param agent - Authenticated conversation identity.
+ * @returns Explicit choice or null.
+ */
+@Remote current(agent: Agent): SessionVideoSelection | null
+
+/**
+ * Save an exact live option with optimistic revision checking.
+ * @param agent - Authenticated conversation identity.
+ * @param key - Catalogue row and resolution key.
+ * @param expectedRevision - Revision displayed to the user, zero before selection.
+ * @returns Committed choice; identical choices produce no event.
+ */
+@Remote async select(agent: Agent, key: string, expectedRevision: number): Promise<SessionVideoSelection>
+
+/**
+ * Follow committed changes without polling or waking the dialogue model.
+ * @param agent - Owning conversation.
+ * @param signal - Remote stream lifetime.
+ * @returns Initial choice followed by each latest committed choice.
+ */
+@Remote({ mode: 'stream' }) async *watch(agent: Agent, signal: AbortSignal): AsyncIterable<SessionVideoSelection | null>
+
+/**
+ * Ask for an explicit model selection or resolve a duration conflict once for the affected batch.
+ * @param agent - Calling conversation.
+ * @param args - Human-readable reason and optional longest affected package.
+ * @param signal - Tool lifetime.
+ * @returns Chosen setting or instruction to retain the model and replan content.
+ */
+async ask(agent: Agent, args: { reason: string; method: string; duration_seconds?: number }, signal: AbortSignal): Promise<{ action: 'replan_packages' | 'unchanged' | 'selected'; selection: SessionVideoSelection | null; paid_requests: 0 }>
+
+/**
+ * Validate the current user choice at the new paid reservation.
+ * @param agent - Owning conversation.
+ * @param saved - Frozen provider model configuration.
+ */
+assertCurrent(agent: Agent, saved: Record<string, unknown>): void
+
+/**
+ * Synchronize only an addressed board before preview; paid previews must match the current choice.
+ * @param agent - Calling conversation.
+ * @param args - Existing storyboard tool arguments.
+ * @returns Resolves before the normal executor may continue.
+ */
+async reconcile(agent: Agent, args: Record<string, unknown>): Promise<void>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/jubian/tool-jubian/src/video-session.ts`](../../packages/jubian/tool-jubian/src/video-session.ts)
 
 <a id="ctxsettings--settingsforms"></a>
 

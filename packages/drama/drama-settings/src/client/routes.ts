@@ -15,6 +15,9 @@ import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 
 /** One `gpt-image-2` catalogue row the paid route can buy from. */
 export interface DramaImageRoute {
+  /** Live model name and id when several image families are offered. */
+  readonly modelName?: string
+  readonly modelId?: string
   /** The row's own `id`, which the paid request carries as `standardId`. */
   readonly standardId: number
   /** The platform the row buys from, such as `KU_AI`. */

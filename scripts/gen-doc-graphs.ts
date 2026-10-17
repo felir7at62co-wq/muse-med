@@ -133,6 +133,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote.',
   },
   {
+    key: 'jubianVideoSelection',
+    pkg: 'tool-jubian',
+    title: 'Conversation video generation settings',
+    mode: 'core',
+    consumers: ['tool-jubian'],
+    note: 'Records user-selected video specifications, appends context and checks new submissions against the conversation choice.',
+  },
+  {
     key: 'jubianImage',
     pkg: 'tool-jubian',
     title: 'Jubian account image routes',

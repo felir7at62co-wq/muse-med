@@ -73,7 +73,7 @@ const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResult
 
 function rowProps(block: TodoRowProps['block']): TodoRowProps {
   return {
-    useDisclosure, callId: 'c1', toolName: 'todo_write', ...('kind' in block ? { phase: 'result' as const, block: block } : { phase: block.phase, block: block }),
+    useDisclosure, callId: 'c1', toolName: block.name, ...('kind' in block ? { phase: 'result' as const, block: block } : { phase: block.phase, block: block }),
     openFile: vi.fn(),
     sessionId: 's1',
     useSessions: () => undefined,
@@ -162,8 +162,12 @@ describe('TodoRow', () => {
   it('injects the keyed toolview declaration directly', () => {
     expect(todoToolview.name).toBe('todo-toolview')
     expect(todoToolview.inject).toEqual(['slots', 'uiConversation'])
-    const register = vi.fn((_spec: unknown, _component: unknown) => () => undefined)
-    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    const releaseWrite = vi.fn()
+    const releaseUpdate = vi.fn()
+    const register = vi.fn((_spec: unknown, _component: unknown) => releaseWrite)
+      .mockReturnValueOnce(releaseWrite).mockReturnValueOnce(releaseUpdate)
+    let release: (() => void) | undefined
+    const inject = vi.fn((_name: string, callback: () => () => void) => { release = callback(); return release })
     todoToolview.apply({
       slots: { inject, register },
       uiConversation: { events: { register: vi.fn() }, views: { register: vi.fn() } },
@@ -173,5 +177,38 @@ describe('TodoRow', () => {
     expect(spec).toMatchObject({ name: 'tool.call.toolview', key: 'todo_write', locale: NS })
     expect((spec as { inject?: unknown } | undefined)?.inject).toEqual(expect.any(Function))
     expect(component).toBe(TodoRow)
+    expect(register.mock.calls[1]?.[0]).toMatchObject({ name: 'tool.call.toolview', key: 'todo_update', locale: NS })
+    expect(register.mock.calls[1]?.[1]).toBe(TodoRow)
+    release?.()
+    expect(releaseWrite).toHaveBeenCalledOnce()
+    expect(releaseUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('summarizes a partial update from its recorded whole-list result', () => {
+    const argsRaw = JSON.stringify({ task: '写组件', status: 'in_progress' })
+    const block = resultNode(argsRaw, {
+      call: { name: 'todo_update', argsRaw },
+      content: [{ type: 'text', text: JSON.stringify({ todos: LIST, counts: { completed: 1, inProgress: 1, pending: 1 }, current: ['写组件'], next: '补测试' }) }],
+    })
+    render(<TodoRow {...rowProps(block)} />)
+    expect(screen.getByText('更新任务清单')).toBeTruthy()
+    expect(screen.getByText('1/3 已完成 · 写组件')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.getByText('搭骨架')).toBeTruthy()
+    expect(screen.getByText('补测试')).toBeTruthy()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it.each(['running', 'error', 'malformed'] as const)('does not present partial updates as the full plan when %s', (state) => {
+    const argsRaw = JSON.stringify({ task: '写组件', status: 'completed', start_next: true })
+    const block = state === 'running'
+      ? { phase: 'start' as const, args: PartialArguments.fromText(argsRaw), callId: 'c1', name: 'todo_update', argsRaw,
+        turn: 1, step: 1, time: 1000, subCalls: [] }
+      : resultNode(argsRaw, { call: { name: 'todo_update', argsRaw }, isError: state === 'error',
+        content: [{ type: 'text', text: state === 'error' ? 'Unknown task' : '{"todos":[{"content":"写组件","status":"wrong"}]}' }] })
+    const view = render(<TodoRow {...rowProps(block)} />)
+    expect(view.container.textContent).not.toContain('1/1 已完成')
+    expect(view.container.querySelector('[data-state]')?.getAttribute('data-state')).toBe(state === 'running' ? 'running' : state === 'error' ? 'error' : 'ok')
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 })

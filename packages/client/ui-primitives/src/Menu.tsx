@@ -143,6 +143,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * gap and a brief overshoot survivable; coming back cancels the close.
  * @param props.dense - reduce vertical row spacing without changing the standard typography or card width.
  * @param props.compact - use reduced menu typography and spacing.
+ * @param props.opaque - use the theme's opaque base material, matching the composer model picker.
  * @param props.getAnchorRect - portal mode only: supply the anchor rect
  * directly (e.g. from a host-owned trigger button) instead of measuring the
  * Menu's own wrapper span. Required when the wrapper isn't itself laid out at
@@ -165,7 +166,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * document.body outside the owner's DOM subtree.
  * @returns anchor wrapper with the conditional list.
  */
-export function Menu({ open, anchor, items = [], children, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, autoFocus = false, selection = 'check', getAnchorRect, footer, className, listClassName }: {
+export function Menu({ open, anchor, items = [], children, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, opaque = false, autoFocus = false, selection = 'check', getAnchorRect, footer, className, listClassName }: {
   open: boolean
   autoFocus?: boolean
   anchor: ReactNode
@@ -182,6 +183,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
   closeOnPointerLeave?: boolean
   dense?: boolean
   compact?: boolean
+  opaque?: boolean
   selection?: 'check' | 'fill'
   getAnchorRect?: () => DOMRect | null
   className?: string | undefined
@@ -477,7 +479,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
           {selected && selection === 'check' && <IconCheckOutlineRegular className={css.check} />}
         </button>
         {subOpen && entry.submenu !== undefined && (
-          <MenuSurface compact={compact} className={clsx(css.submenu, compact && css.compactList)} role="menu">
+          <MenuSurface compact={compact} opaque={opaque} className={clsx(css.submenu, compact && css.compactList)} role="menu">
             {entry.submenu.map(sub => (
               <button
                 key={sub.id}
@@ -515,7 +517,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
   // already at the final position (with getAnchorRect returning null the
   // list simply stays hidden).
   const list = open && (
-    <MenuSurface compact={compact}
+    <MenuSurface compact={compact} opaque={opaque}
       ref={listRef}
       className={clsx(css.list, listClassName, dense && css.denseList, compact && css.compactList, scrollable && css.scrollable, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
       style={portal ? fixedPos ?? MEASURE_STYLE : undefined}

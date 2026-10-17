@@ -8,7 +8,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明，当前为 `1.0.7`。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 

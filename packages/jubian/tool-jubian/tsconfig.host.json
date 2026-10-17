@@ -26,6 +26,7 @@
     "src/audio-asset-delete.ts",
     "src/json-file.ts",
     "src/prepared-file.ts",
+    "src/prompt-risk.ts",
     "src/reselection.ts",
     "src/naming.ts",
     "src/native.ts",
@@ -34,10 +35,14 @@
     "src/token.ts",
     "src/types.ts",
     "src/write.ts",
-    "src/watch.ts"
+    "src/watch.ts",
+    "src/video-session.ts",
+    "src/video-session-types.ts"
   ],
   "references": [
-    { "path": "../../host/muse-account/tsconfig.host.json" },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
+    },
     {
       "path": "../../../vendor/cordis"
     },
@@ -70,6 +75,18 @@
     },
     {
       "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../interaction/user-questions"
     }
   ]
 }

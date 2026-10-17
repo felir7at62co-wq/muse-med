@@ -40,10 +40,10 @@ export const todoCallDefinition: ConversationNodeDefinition<TodoBaseline> = {
   kind: 'tool-todo-call',
   target: 'tool-todo-history',
   match: (event) => {
-    if (event.type === 'tool/call' && event.data.name === 'todo_write') {
+    if (event.type === 'tool/call' && ['todo_write', 'todo_update'].includes(event.data.name)) {
       return { id: String(event.data.callId), role: 'start' }
     }
-    if (event.type === 'tool/ptc-dispatch-start' && event.data.name === 'todo_write') {
+    if (event.type === 'tool/ptc-dispatch-start' && ['todo_write', 'todo_update'].includes(event.data.name)) {
       return { id: String(event.data.subCallId), role: 'start' }
     }
     return null

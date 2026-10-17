@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { HostObservable, InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
 import { registerTodoHistory, type TodoHistory } from '../models/todo-history.ts'
-import { todoDiffModel } from '../models/todo-diff-model.ts'
+import { todoDiffModel, todoListArgs } from '../models/todo-diff-model.ts'
 import { toolRowModel } from '../models/tool-call-model.ts'
 import { ToolRow } from '../components/ToolRow.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
@@ -27,19 +27,11 @@ interface RowSummary {
   extra: number
 }
 
-function summarize(argsRaw: string | null, t: TodoRowProps['t']): RowSummary | null {
-  if (argsRaw === null) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(argsRaw)
-  } catch {
-    // Mid-stream truncation or malformed model JSON: fall back to the generic summary.
-    return null
-  }
+function summarize(parsed: Record<string, unknown> | null, t: TodoRowProps['t']): RowSummary | null {
   // Valid JSON with invalid todo fields (null root, non-array todos, null items —
   // a rejected tool/call retains such args verbatim): same generic fallback.
-  if (typeof parsed !== 'object' || parsed === null) return null
-  const todos = (parsed as { todos?: unknown }).todos
+  if (parsed === null) return null
+  const todos = parsed.todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
   const { done, total, activeContent, activeExtra } = planSummary(todos)
   const head = t('todo.completed', { done, total })
@@ -55,7 +47,7 @@ export function TodoRow({ toolName, block, inspect, useDisclosure, useTodoHistor
   const hasMore = useSession(snapshot => snapshot.hasMore)
   const diff = useMemo(() => todoDiffModel(block, baseline, hasMore, t), [block, baseline, hasMore, t])
   const model = toolRowModel(toolName, block)
-  const summary = summarize(model.bodyRaw, t) ?? { text: model.summary, extra: 0 }
+  const summary = summarize(todoListArgs(block, t), t) ?? { text: model.summary, extra: 0 }
   return (
     <ToolRow
       useDisclosure={useDisclosure}
@@ -83,12 +75,20 @@ export const todoToolview = {
   inject: ['slots', 'uiConversation'],
   apply(ctx: Context): void {
     registerTodoHistory(ctx)
-    ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({
+    ctx.slots.inject('tool.call.toolview', () => {
+      const releaseWrite = ctx.slots.register({
         name: 'tool.call.toolview', key: 'todo_write', locale: NS,
         inject: (sessionId): TodoHistoryInjected => ({
           hooks: { todoHistory: ctx.uiConversation.binding(sessionId).target('tool-todo-history') },
         }),
-      }, TodoRow))
+      }, TodoRow)
+      const releaseUpdate = ctx.slots.register({
+        name: 'tool.call.toolview', key: 'todo_update', locale: NS,
+        inject: (sessionId): TodoHistoryInjected => ({
+          hooks: { todoHistory: ctx.uiConversation.binding(sessionId).target('tool-todo-history') },
+        }),
+      }, TodoRow)
+      return () => { releaseUpdate(); releaseWrite() }
+    })
   },
 }

@@ -58,6 +58,8 @@ function openProps(controller = new PresentedOpenController(), summaries = new C
       select(controller.host.getSnapshot()),
     openPresented: vi.fn((...args: Parameters<PresentedOpenController['open']>) => controller.open(...args)),
     openChanged: vi.fn((...args: Parameters<PresentedOpenController['openChanged']>) => controller.openChanged(...args)),
+    videoSourceUrl: vi.fn<DeliverablesInjected['videoSourceUrl']>((sessionId, seq, index) =>
+      `http://localhost/api/video?${new URLSearchParams({ sessionId, presentedSeq: String(seq), presentedIndex: String(index) })}`),
     openChangesReview: vi.fn<DeliverablesInjected['openChangesReview']>(),
     usePresentedOpen: <T,>(select: (state: ReturnType<typeof controller.state.getSnapshot>) => T): T =>
       select(controller.state.getSnapshot()),
@@ -809,6 +811,17 @@ describe('plugin registration', () => {
     expect(preview.mock.calls).toEqual(Array.from({ length: 4 }, () => ['out/report.docx']))
     expect(fetcher).not.toHaveBeenCalled()
     const face = entry!.inject!(SessionId('child-session') as never) as unknown as DeliverablesInjected
+    const base = document.createElement('base')
+    base.href = 'https://muse.example/muse/computer/desktop-1/'
+    document.head.append(base)
+    try {
+      const source = new URL(face.videoSourceUrl(SessionId('child-session'), 42, 3))
+      expect(source.pathname).toBe('/muse/computer/desktop-1/api/video')
+      expect(source.searchParams.get('sessionId')).toBe('child-session')
+      expect(source.searchParams.get('presentedSeq')).toBe('42')
+      expect(source.searchParams.get('presentedIndex')).toBe('3')
+      expect([...source.searchParams.keys()]).toEqual(['sessionId', 'presentedSeq', 'presentedIndex'])
+    } finally { base.remove() }
     fetcher.mockResolvedValueOnce(Response.json({ name: 'desktop', available: true, fileManager: 'finder' }))
     await face.reloadPresentedHost()
     expect(face.hooks.presentedHost.getSnapshot()).toMatchObject({ name: 'desktop' })
@@ -970,6 +983,28 @@ it('lets one delivered file span the complete row without an expansion control',
   ] }} openFile={() => {}} sessionId={SessionId('session')} t={makeTranslate(en)} />)
   expect(view.container.querySelector('[data-presented-files-row]')?.getAttribute('data-single')).toBe('true')
   expect(view.queryByRole('button', { name: /delivered files/ })).toBeNull()
+})
+
+it('uses the viewed Session for supported delivered videos and leaves ordinary files unchanged', () => {
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+  const props = openProps()
+  const paths = ['final/episode.MP4', 'final/clip.webm', 'final/clip.mov', 'final/clip.m4v', 'final/report.docx']
+  const recorded = assembler([
+    at(1, 'turn/start', { turn: 1 }),
+    at(2, 'deliverables/presented', { turn: 1, callId: 'episode-delivery', files: paths.map(path => ({ path })) }),
+  ])
+  const owner = tailOwner(deliverablesOf(recorded), 3)
+  const matched = selectDeliverables(owner)!
+  const view = render(<Deliverables {...props} matched={matched} openFile={owner.openFile}
+    sessionId={SessionId('viewed-child')} t={makeTranslate(en)} />)
+  expect(view.container.querySelectorAll('video')).toHaveLength(4)
+  expect(props.videoSourceUrl.mock.calls).toEqual(paths.slice(0, 4).map((_, index) => ['viewed-child', 2, index]))
+  expect(view.container.querySelectorAll('[data-video="true"]')).toHaveLength(4)
+  expect(view.container).toMatchSnapshot()
+  fireEvent.click(view.getByRole('button', { name: 'Show all 5 delivered files' }))
+  expect(view.getByText('report.docx')).toBeTruthy()
+  expect(view.container.querySelectorAll('video')).toHaveLength(4)
 })
 
 

@@ -74,7 +74,8 @@ describe('the jubianImage Remote namespace', () => {
    * @param request - the transport call this test drives.
    * @returns the Host service under its Remote namespace.
    */
-  async function boot(request: (options: { path: string }) => Promise<{ data: unknown }>): Promise<JubianImageRoutes> {
+  async function boot(request: (options: { path: string }) => Promise<{ data: unknown }>,
+    allowedStandardIds?: number[]): Promise<JubianImageRoutes> {
     const ctx = new Context()
     class CatalogueClient extends JubianClient {
       override async request(options: JubianRequest): Promise<JubianResponse> {
@@ -83,7 +84,7 @@ describe('the jubianImage Remote namespace', () => {
       }
     }
     const client = new CatalogueClient({ credential: async () => 'fixture-token' })
-    await ctx.plugin(JubianImageRoutes, { client })
+    await ctx.plugin(JubianImageRoutes, { client, ...(allowedStandardIds ? { allowedStandardIds } : {}) })
     return ctx.jubianImage
   }
 
@@ -99,6 +100,14 @@ describe('the jubianImage Remote namespace', () => {
     ] })
     // The account's own image catalogue, read once, exactly as the paid call reads it.
     expect(paths).toEqual(['/model/charge/getSelectList?taskType=2'])
+  })
+
+  it('offers only the three permitted channels, retaining distinct model names', async () => {
+    const routes = await boot(async () => ({ data: [...CATALOGUE,
+      { id: 86, modelId: 'gpt-image-2.5-sunburst-c', platformId: 'KU_AI', unitPrice: 0.3, unit: '元/条' }] }), [76, 66, 86])
+    const result = await routes.routes()
+    expect(result.candidates.map(row => row.standardId)).toEqual([66, 76, 86])
+    expect(result.candidates[2]).toMatchObject({ modelId: 'gpt-image-2.5-sunburst-c' })
   })
 
   it('reports an unreadable catalogue with the transport\'s own reason', async () => {

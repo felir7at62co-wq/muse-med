@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 2b3e56d4a0263575
-  zh: 59627d3d37e21a53
+  en: effdf7cf7865391b
+  zh: 2e52321414609c3b
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -311,9 +311,12 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-todo:
   en: dea62d26fb18ff68
   zh: dea62d26fb18ff68
+/tool-schema-catalog/deepseek-ai-dsh-tool-todo/todo-update:
+  en: 723854822deeccd3
+  zh: 7afdafad87e364b1
 /tool-schema-catalog/deepseek-ai-dsh-tool-todo/todo-write:
-  en: 8c64fe5f2e58a890
-  zh: 9cbfdaeb7e25b59c
+  en: 368e1e3c31aeb024
+  zh: ebfe59b29ecce77c
 /tool-schema-catalog/deepseek-ai-dsh-tool-workflow:
   en: bb38a9d29f46563c
   zh: bb38a9d29f46563c
@@ -366,14 +369,17 @@
   en: ef79792a93ef7942
   zh: bce1b71863aea019
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-storyboard:
-  en: d7bb15e9a2170b14
-  zh: d7bb15e9a2170b14
+  en: e90c7959fab9c623
+  zh: 15503b06dd10b2de
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video:
   en: f82076e0eb293342
   zh: f82076e0eb293342
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video-model:
+  en: b697278a40736e8b
+  zh: f6f631d755a726f6
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-watch:
-  en: 921b97021b0afd52
-  zh: 02e9d8e9ad438408
+  en: e19795e3533a2ecd
+  zh: ab1140e34c47652d
 /tool-schema-catalog/deepseek-ai-dsh-drama-settings:
   en: fc842c4d7c20694d
   zh: fc842c4d7c20694d

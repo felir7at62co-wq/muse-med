@@ -44,11 +44,11 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
-| `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+| `@deepseek-ai/dsh-tool-todo` | `todo_update`, `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write replaces the session-owned plan; todo_update changes one task and can start the next pending task. Both append complete todo/write snapshots and return the current work, next task, and advisory progress reminder. `allowParallelInProgress` is required; this catalog uses `true` for parallel work. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`, `drama_project` | `ctx.tools`, `ctx.settings`, `an existing absolute project directory` | `tool/call`, `tool/result`, `project_config.json and project-bible.md`, `the Jianying draft-root Settings value` | - | drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root. |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)` | `tool/call`, `tool/result`, `on compile: the compiled prompt, the matched JSON, and the episode package under the project root` | - | The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package's `content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. A script with any hard failure returns that failure list and writes nothing. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
@@ -3733,9 +3733,44 @@ All nine tools are scoped to implicit Team Leads and durable teammates. The ship
 
 ## `@deepseek-ai/dsh-tool-todo`
 
+### `todo_update`
+
+Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "description": "Exact content of the existing task; surrounding whitespace is ignored."
+    },
+    "status": {
+      "type": "string",
+      "description": "Actual task state: pending, in_progress, or completed.",
+      "enum": [
+        "pending",
+        "in_progress",
+        "completed"
+      ]
+    },
+    "start_next": {
+      "type": "boolean",
+      "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+    }
+  },
+  "required": [
+    "task",
+    "status"
+  ]
+}
+```
+
+Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
+
 ### `todo_write`
 
-Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done.
+Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.
 
 ```json
 {
@@ -3777,7 +3812,7 @@ Record and update a task list to plan multi-step work and show progress; skip it
 
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
-todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
+todo_write replaces the session-owned plan; todo_update changes one task and can start the next pending task. Both append complete todo/write snapshots and return the current work, next task, and advisory progress reminder. `allowParallelInProgress` is required; this catalog uses `true` for parallel work.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 
@@ -4519,7 +4554,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请按系统提示词中的固定自检清单自主核对本次修改。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请按系统提示词中的固定自检清单自主核对本次修改。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。配置词表时，写卡预览与 prepare_video 的 prompt_risk_review 返回命中词、卡号和上下文，仅提示、不拦截。命中须对照剧本来源区分原台词与自行描述；修正后重新预览、保存并核对真实回读，生成前重新 prepare_video。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 读取实时分镜、主体设定与模型目录；启用会话选择时先免费同步本次卡的模型/分辨率，保留比例、时长、提示词与素材，回读后准备预览；无会话选择的部署保留已存模型，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，同步完成后的预览准备仅在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -4527,7 +4562,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -5110,6 +5145,39 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_video_model`
+
+读取或请用户选择本会话的视频模型与分辨率。选择后追加上下文，不修改项目默认值。卡片配置不一致时按会话选择同步；切换后视频包超出时长上限时，汇总本批受影响卡并用 duration_conflict 询问保留模型重新拆包或更换可容纳原包的模型，不截断对白。读取时可初始化部署默认值，已有选择优先；选择问题未获回答时不切换模型，不提交计费生成。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "read",
+        "choose",
+        "duration_conflict"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "description": "choose/duration_conflict 必填：向用户解释选择或超限影响。"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "description": "本批需保留的最长视频包秒数，用于筛选已知可容纳它的模型。"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 ### `jubian_watch`
 
 只读后台观察已受理的剧变操作，立即返回 job_id；task_id 必须是本次生成/转高清/去字幕操作的任务 ID，不是源视频任务 ID。只读同一任务及其完整子结果，严格核对身份、阶段和成功状态；旧 URL 或 hdCount 不代表本次完成。完成后由 jobs 通知，用 job_output 取结果；job_kill 只停观察，不取消提供方操作。进程重启不恢复，超时失败不重投收费请求。提供方完成不等于视觉审核通过：结果仍需抽帧、音频和交付分辨率检查。
@@ -5141,7 +5209,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
-Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
+Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
 
 <a id="deepseek-aidsh-drama-settings"></a>
 

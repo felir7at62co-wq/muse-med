@@ -7,7 +7,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionSeq, ToolResultMessage } from '@deepseek-ai/dsh-session'
 // Type-only: the `compaction/*` SessionEventMap merges (the shadow-price event).
 import type {} from '@deepseek-ai/dsh-compaction'
@@ -50,9 +50,10 @@ export class ToolResultPruner extends Service {
     thresholdChars: z.number().step(1).min(1).default(DEFAULTS.thresholdChars),
     headChars: z.number().step(1).min(0).default(DEFAULTS.headChars),
     tailChars: z.number().step(1).min(0).default(DEFAULTS.tailChars),
+    preserveToolNames: z.array(z.string()).default([]),
   })
 
-  /** Resolved and immutable character budgets. */
+  /** Resolved and immutable pruning policy. */
   readonly config: ResolvedConfig
 
   constructor(ctx: Context, config: ToolResultPruneConfig = {}) {
@@ -122,7 +123,7 @@ export class ToolResultPruner extends Service {
   }
 
   /**
-   * Prune every over-budget tool result from one stable current-surface snapshot.
+   * Prune over-budget tool results except calls whose logged name is preserved.
    * Each replacement preserves the complete event data except for `content`,
    * cites the shadowed node so replay can recover the replacement input, and is
    * immediately preceded by a `compaction/prune` shadow-price event pricing the
@@ -134,12 +135,25 @@ export class ToolResultPruner extends Service {
    * earlier in the pass remain durable.
    */
   pruneSession(session: Session): PruneResult {
+    const preservedCalls = new Set<ToolCallId>()
+    if (this.config.preserveToolNames.length > 0) {
+      for (const message of session.deriveMessages()) {
+        if (message.role !== 'assistant') continue
+        for (const block of message.content) {
+          if (block.type === 'tool-call' && this.config.preserveToolNames.includes(block.name)) {
+            preservedCalls.add(block.id)
+          }
+        }
+      }
+    }
     const candidates: SnapshotCandidate[] = []
     for (const seq of [...session.surface.nodes]) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const event = session.eventAt(seq)
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
-      if (event?.type === 'tool/result') candidates.push({ seq, event })
+      if (event?.type === 'tool/result' && !preservedCalls.has(event.data.message.source.callId)) {
+        candidates.push({ seq, event })
+      }
     }
 
     const pruned: PrunedEntry[] = []

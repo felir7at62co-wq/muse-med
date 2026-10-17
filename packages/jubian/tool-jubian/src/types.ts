@@ -20,6 +20,9 @@ import type {} from '@deepseek-ai/dsh-typert-protocol'
  * boundary has to live in a module the package exports by name.
  */
 export interface ImageRouteRow {
+  /** Optional explicit name for deployments exposing several image families. */
+  readonly modelId?: string
+  readonly modelName?: string
   /** The row's own `id`, which the paid request carries as `standardId`. */
   readonly standardId: number
   /** The platform the row buys from, such as `KU_AI`. */

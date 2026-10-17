@@ -83,4 +83,27 @@ describe('recorded todo history', () => {
     const inserted = todoDiffModel(call([{ content: 'New', status: 'pending' }, ...first]), { todos: first }, false, t)
     expect(inserted?.summary).toBe('1 added')
   })
+
+  it('indexes root and nested partial updates and compares the recorded full result without removing untouched tasks', () => {
+    const assembler = runtime()
+    const updated = first.map(todo => todo.content === 'Build' ? { ...todo, status: 'completed' } : todo)
+    const args = { task: 'Build', status: 'completed', start_next: false }
+    assembler.replaceWindow([
+      entry(5, 'todo/write', { todos: first }),
+      entry(10, 'tool/call', { callId: 'second', name: 'todo_update', arguments: JSON.stringify(args), turn: 1, step: 1 }),
+    ], false)
+    const baseline = history(assembler).get('second')
+    expect(baseline?.todos).toEqual(first)
+    const result = { ...call(updated), name: 'todo_update', call: { name: 'todo_update', argsRaw: JSON.stringify(args) },
+      content: [{ type: 'text' as const, text: JSON.stringify({ todos: updated, counts: { completed: 1, inProgress: 0, pending: 2 }, current: [], next: 'Review' }) }] }
+    const diff = todoDiffModel(result, baseline, false, t)
+    expect(diff?.summary).toBe('1 updated')
+    expect(diff?.details.items).toMatchObject([{ title: 'Build', previousStatus: 'In progress', change: { value: 'updated' } }])
+    expect(diff?.details.unchanged?.items.map(item => item.title)).toEqual(['Review', 'Old task'])
+    assembler.append(entry(11, 'todo/write', { todos: updated }))
+    assembler.append(entry(12, 'tool/ptc-dispatch-start', { parentCallId: 'root', rootCallId: 'root', subCallId: 'nested', name: 'todo_update', arguments: args }))
+    expect(history(assembler).get('nested')?.todos).toEqual(updated)
+    expect(history(assembler).get('second')).toEqual(baseline)
+    expect(todoDiffModel({ ...result, isError: true }, baseline, false, t)).toBeNull()
+  })
 })

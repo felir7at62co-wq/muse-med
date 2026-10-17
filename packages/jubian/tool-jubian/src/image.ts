@@ -44,6 +44,8 @@ declare module '@deepseek-ai/cordis' {
 
 /** The composition fields the paid image route reads. */
 export interface ImageRouteConfig {
+  /** Exact image catalogue rows this deployment exposes and permits. Undefined leaves the catalogue unrestricted. */
+  imageAllowedStandardIds?: number[]
   /**
    * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
    * such as `KU_AI`. The account catalogue can list one model id once per
@@ -109,21 +111,23 @@ export class JubianImageRoutes extends TypertRemoteService {
    * @param ctx - Host context carrying the Remote assembly.
    * @param options - the transport the tools already read the account over.
    */
-  constructor(ctx: Context, options: { client: JubianClient }) {
+  constructor(ctx: Context, options: { client: JubianClient; allowedStandardIds?: number[] }) {
     super(ctx, 'jubianImage')
     this.client = options.client
+    this.allowedStandardIds = options.allowedStandardIds
   }
 
   /** Transport shared with the tools: one origin, one credential, one timeout. */
   private readonly client: JubianClient
+  private readonly allowedStandardIds: number[] | undefined
 
   /**
-   * List the `gpt-image-2` catalogue rows this account may buy from.
+   * List image catalogue rows permitted by this deployment.
    *
    * Free and read-only: the very catalogue read the paid call makes, spending
    * nothing. A Settings page offers these rows so a person picks a platform by its
    * own price instead of reading that price out of a failure message.
-   * @returns one entry per `gpt-image-2` row, in catalogue order.
+   * @returns one entry per permitted row, in catalogue order.
    * @throws RemoteError when the catalogue cannot be read; its message is what the page shows.
    */
   @Remote
@@ -131,7 +135,13 @@ export class JubianImageRoutes extends TypertRemoteService {
     try {
       const response = await this.client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${MODEL_TASK_TYPES.image}` })
-      return { candidates: imageCandidates(readModels(response.data)) }
+      const models = readModels(response.data)
+      const allowed = this.allowedStandardIds
+      if (allowed === undefined) return { candidates: imageCandidates(models) }
+      return { candidates: models.filter(model => allowed.includes(Number(model.id)))
+        .map(model => ({ standardId: Number(model.id), platformId: String(model.platformId), modelId: String(model.modelId),
+          modelName: String(model.modelName ?? model.modelId),
+          unitPrice: typeof model.unitPrice === 'number' ? model.unitPrice : null, unit: typeof model.unit === 'string' ? model.unit : null })) }
     } catch (error: unknown) {
       throw new RemoteError('jubian-image/catalogue-unreadable',
         error instanceof Error ? error.message : String(error), {}, { cause: error })

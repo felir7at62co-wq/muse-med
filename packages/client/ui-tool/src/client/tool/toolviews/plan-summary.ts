@@ -1,5 +1,5 @@
 /**
- * Pure plan derivation for the todo_write row's one-line summary. Several items
+ * Pure plan derivation for the todo rows' one-line summary. Several items
  * may be `in_progress` at once — parallel work runs concurrent tasks, so a
  * summary built from one active item would silently drop the rest. The plan
  * strip header derives its own counts inline and shares nothing with this, so

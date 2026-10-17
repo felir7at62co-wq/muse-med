@@ -866,7 +866,7 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 - `source`: [`packages/compaction/compaction-tool-result-pruner/src/types.ts:5`](../packages/compaction/compaction-tool-result-pruner/src/types.ts)
 
 ```ts config-catalog
-/** Character-budget policy for deterministic tool-result pruning. */
+/** Character budgets and tool-name exceptions for deterministic result pruning. */
 export interface ToolResultPruneConfig {
   /** Prune when total text exceeds this many Unicode code points. Defaults to `8192`. */
   thresholdChars?: number
@@ -874,6 +874,8 @@ export interface ToolResultPruneConfig {
   headChars?: number
   /** Maximum trailing Unicode code points retained. Defaults to `1024`. */
   tailChars?: number
+  /** Exact logged tool names whose results bypass pruning; summarization still applies. Defaults to `[]`. */
+  preserveToolNames?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
@@ -4164,11 +4166,24 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:58`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:63`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
+  /** Optional literal-term findings in free edit previews and video preparation; never blocks execution. */
+  promptRiskReview?: PromptRiskReviewConfig
+  /** Enable conversation-owned video choices; defaults to false outside Muse. */
+  sessionVideoSelection?: boolean
+  /** Initial live specification for sessions without a saved video choice; never replaces an existing selection. */
+  defaultVideoModel?: {
+    /** Exact live catalogue model identifier. */
+    modelId: string
+    /** Provider channel containing the initial specification. */
+    platformId: string
+    /** Supported resolution of the initial specification. */
+    resolution: string
+  }
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
@@ -4241,6 +4256,8 @@ export interface Config extends ImageRouteConfig {
 
 /** The composition fields the paid image route reads. */
 export interface ImageRouteConfig {
+  /** Exact image catalogue rows this deployment exposes and permits. Undefined leaves the catalogue unrestricted. */
+  imageAllowedStandardIds?: number[]
   /**
    * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
    * such as `KU_AI`. The account catalogue can list one model id once per
@@ -4254,6 +4271,16 @@ export interface ImageRouteConfig {
    * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
    */
   imageStandardId?: number
+}
+
+/** Deployment-owned terms and output bounds for advisory prompt review. */
+export interface PromptRiskReviewConfig {
+  /** Exact terms to find, including inside quotes and negative instructions. */
+  terms: string[]
+  /** Unicode characters on each side of a match; defaults to 24, range 0..200. */
+  contextChars?: number
+  /** Maximum findings returned across all addressed cards; defaults to 100, range 1..1000. */
+  maxMatches?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-jubian -->

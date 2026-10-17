@@ -17,6 +17,7 @@ flowchart LR
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
   pkg_tool_jubian["tool-jubian"]
+  svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
@@ -437,6 +438,7 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
+  pkg_tool_jubian --> svc_jubianVideoSelection
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
@@ -504,6 +506,7 @@ flowchart LR
   svc_jobs --> pkg_tool_terminal
   svc_jubianImage --> pkg_drama_settings
   svc_jubianToken --> pkg_tool_jubian
+  svc_jubianVideoSelection --> pkg_tool_jubian
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
@@ -612,6 +615,7 @@ flowchart LR
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote. |
+| `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Records user-selected video specifications, appends context and checks new submissions against the conversation choice. |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |

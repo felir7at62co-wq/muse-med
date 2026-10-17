@@ -1,7 +1,7 @@
 /** The changed-files card, shown only while the Host serves the turn's summary, and explicitly declared files for a closing turn. */
 import { useEffect, useState } from 'react'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, fileExtension, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GlobalStandardProps, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PresentedOpenController } from './present-open.ts'
@@ -33,6 +33,8 @@ export interface DeliverablesInjected {
   loadChangesSummary: ChangesSummaryStore['load']
   openPresented: PresentedOpenController['open']
   openChanged: PresentedOpenController['openChanged']
+  /** Resolve the viewed Session's authenticated, document-relative video stream. */
+  videoSourceUrl: (sessionId: SessionStandardProps['sessionId'], seq: number, index: number) => string
   /** Open one turn's review in the right Sidebar on the file at an index. */
   openChangesReview: (coordinates: ChangesReviewCoordinates, index: number) => void
 }
@@ -67,7 +69,7 @@ export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail
  */
 export function Deliverables({
   matched, openFile, t, sessionId, useSessions, openPresented, openChangesReview, usePresentedOpen, usePresentedHost,
-  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff, renderSlot,
+  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff, renderSlot, videoSourceUrl,
 }: Pick<TurnTailOwnerProps, 'openFile'> & {
   matched: DeliverablesMatch
 } & PropsLocale<typeof NS> & Pick<SessionStandardProps, 'sessionId'> & Pick<GlobalStandardProps, 'useSessions'> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions'>) {
@@ -109,6 +111,8 @@ export function Deliverables({
           phase={states[presentedFileUrl(sessionId, file.seq, file.index)]}
           host={host === 'error' ? null : host} t={t}
           onPreview={() => { openFile(file.path) }}
+          videoSource={['mp4', 'm4v', 'webm', 'mov'].includes(fileExtension(file.path).toLowerCase())
+            ? videoSourceUrl(sessionId, file.seq, file.index) : undefined}
           actions={renderSlot('deliverables.file.actions', {
             actionUrl: presentedFileUrl(sessionId, file.seq, file.index),
             available: host !== null && host !== 'error' && host.available,

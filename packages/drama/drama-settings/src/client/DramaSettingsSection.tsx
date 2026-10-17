@@ -121,7 +121,7 @@ function routeLabel(route: DramaImageRoute, t: DramaSettingsSectionProps['t']): 
   const price = route.unitPrice === null || route.unit === null
     ? t('imageRoutePriceUnknown')
     : `${String(route.unitPrice)} ${route.unit}`
-  return t('imageRouteOption', { platform: route.platformId, price, id: String(route.standardId) })
+  return (route.modelName ? `${route.modelName} · ` : '') + t('imageRouteOption', { platform: route.platformId, price, id: String(route.standardId) })
 }
 
 /**

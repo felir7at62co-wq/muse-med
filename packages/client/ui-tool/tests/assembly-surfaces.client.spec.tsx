@@ -148,6 +148,28 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     expect(view.container.querySelector('[data-tool="todo_write"]')).not.toBeNull()
     await runtime.dispose()
   })
+
+  it('renders a recorded partial update as the full plan while the dock follows its projection', async () => {
+    const argsRaw = JSON.stringify({ task: '实现 fixture 样本', status: 'completed', start_next: true })
+    const updated: TodoItem[] = [TODOS[0]!, { ...TODOS[1]!, status: 'completed' }, { ...TODOS[2]!, status: 'in_progress' }]
+    const node: ToolResultNode = { ...todoResult(5), name: 'todo_update', call: { name: 'todo_update', argsRaw },
+      content: [{ type: 'text', text: JSON.stringify({ todos: updated, counts: { completed: 2, inProgress: 1, pending: 0 }, current: ['浏览器验收'], next: null }) }] }
+    const runtime = await bench([todoResult(3), node])
+    runtime.sessions.behavior(SID).projections.set('todos', updated)
+    const view = runtime.renderRoot()
+    const row = view.container.querySelector('[data-tool="todo_update"]')
+    expect(row).not.toBeNull()
+    expect(row!.textContent).toContain('2/3 已完成')
+    expect(row!.textContent).toContain('浏览器验收')
+    const panel = view.container.querySelector('[data-testid="todo-panel"]')!
+    expect(panel.textContent).toContain('2 已完成')
+    fireEvent.click(panel.querySelector('button')!)
+    expect([...panel.querySelectorAll('li')].map(item => item.getAttribute('data-status'))).toEqual(['completed', 'completed', 'in_progress'])
+    expect(panel.textContent).toContain('梳理需求')
+    expect(panel.textContent).toContain('实现 fixture 样本')
+    expect(row).toMatchSnapshot()
+    await runtime.dispose()
+  })
 })
 
 describe('terminal card assembly', () => {

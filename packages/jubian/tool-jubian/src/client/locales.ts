@@ -10,6 +10,11 @@
  */
 export const zh = {
   nav: '剧变',
+  videoSelector: '视频模型',
+  videoModel: '视频模型',
+  videoResolution: '分辨率',
+  videoUnset: '未选择',
+  videoLoading: '正在读取视频模型…',
   loading: '正在读取令牌状态…',
   fieldLabel: '剧变 Admin Token',
   statusConfigured: '已配置',
@@ -32,6 +37,11 @@ export type JubianLocaleKey = keyof typeof zh
 /** English dictionary checked against the Chinese key set. */
 export const en = {
   nav: 'Jubian',
+  videoSelector: 'Video model',
+  videoModel: 'Model',
+  videoResolution: 'Resolution',
+  videoUnset: 'Not selected',
+  videoLoading: 'Loading video models…',
   loading: 'Reading the token status…',
   fieldLabel: 'Jubian admin token',
   statusConfigured: 'Configured',

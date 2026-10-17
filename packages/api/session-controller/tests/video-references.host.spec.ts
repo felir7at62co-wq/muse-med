@@ -1,10 +1,11 @@
-/** Authenticated video route reads byte windows in the addressed Session's workspace. */
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
+/** Authenticated video reads require workspace containment or an exact recorded delivery. */
+import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { FsError, FsVersion } from '@deepseek-ai/dsh-fs'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as media from '../src/media-references.ts'
 
@@ -27,6 +28,13 @@ async function mount() {
     return unregister
   } } } as never)
   ctx.provide('sessionPersistence', { stat: async (id: string) => id === 'owner-session' ? { header: { cwd: root } } : undefined } as never)
+  const events = new Map<number, { type: string; data: unknown }>([[7, { type: 'deliverables/presented', data: { files: [{ path: 'clip.mp4' }] } }]])
+  const readEvent = vi.fn(async (request: { sessionId: string; seq: number; before?: number; after?: number }, _signal?: AbortSignal) => {
+    const target = events.get(request.seq)
+    if (!target) throw new SessionQueryError('fixture event missing', 'SESSION_QUERY_EVENT_NOT_FOUND')
+    return { target }
+  })
+  ctx.provide('sessionQuery', { readEvent } as never)
   await ctx.plugin(LocalFileSystem, { cwd: root }).await()
   // The route is a contribution of the existing session media owner.
   expect('SessionVideoReferences' in media).toBe(true)
@@ -35,7 +43,11 @@ async function mount() {
   await videoFiber.await()
   const file = join(root, 'clip.mp4')
   await writeFile(file, Uint8Array.from({ length: 10 }, (_, index) => index))
-  return { root, file, fs: ctx.fs, ctx, videoFiber, unregister,
+  return { root, file, fs: ctx.fs, ctx, videoFiber, unregister, events, readEvent,
+    query: (query: URLSearchParams, init?: RequestInit) => {
+      if (!handler) throw new Error('video route missing')
+      return handler(new Request(`http://localhost/api/video?${query}`, init))
+    },
     call: (path = 'clip.mp4', init?: RequestInit, session = 'owner-session', version?: string) => {
       if (!handler) throw new Error('video route missing')
       const query = new URLSearchParams({ sessionId: session, path })
@@ -44,6 +56,151 @@ async function mount() {
     },
   }
 }
+
+function deliveryQuery(seq = '7', index = '0'): URLSearchParams {
+  return new URLSearchParams({ sessionId: 'owner-session', presentedSeq: seq, presentedIndex: index })
+}
+
+it('streams only the recorded delivery path outside the workspace with the same Range and HEAD behavior', async () => {
+  const h = await mount()
+  const outside = await mkdtemp(join(tmpdir(), 'dsh-presented-video-'))
+  roots.push(outside)
+  const file = join(outside, '剪辑 #1.mp4')
+  await writeFile(file, Uint8Array.from({ length: 10 }, (_, index) => index))
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  const whole = vi.spyOn(h.fs, 'readBytes')
+  for (const path of [file, join('..', outside.split(/[\\/]/).at(-1)!, '剪辑 #1.mp4')]) {
+    h.events.set(7, { type: 'deliverables/presented', data: { files: [{ path: 'unused.mp4' }, { path }] } })
+    const response = await h.query(deliveryQuery('7', '1'), { headers: { range: 'bytes=2-5' } })
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 2-5/10')
+    expect(response.headers.get('content-length')).toBe('4')
+    expect(response.headers.get('content-type')).toBe('video/mp4')
+    expect(response.headers.get('content-disposition')).toBeNull()
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([2, 3, 4, 5])
+    expect((await h.call(path)).status).toBe(403)
+  }
+  const count = read.mock.calls.length
+  const head = await h.query(deliveryQuery('7', '1'), { method: 'HEAD' })
+  expect(head.status).toBe(200)
+  expect(head.headers.get('content-length')).toBe('10')
+  expect(head.body).toBeNull()
+  expect(read).toHaveBeenCalledTimes(count)
+  expect(whole).not.toHaveBeenCalled()
+  expect(read.mock.calls.every(([, range]) => range.length <= 3)).toBe(true)
+  expect(h.readEvent).toHaveBeenCalledWith({ sessionId: 'owner-session', seq: 7, before: 0, after: 0 }, expect.any(AbortSignal))
+})
+
+it.each([
+  'sessionId=owner-session&presentedSeq=7', 'sessionId=owner-session&presentedIndex=0',
+  'sessionId=owner-session&presentedSeq=&presentedIndex=0', 'sessionId=owner-session&presentedSeq=-1&presentedIndex=0',
+  'sessionId=owner-session&presentedSeq=1.5&presentedIndex=0', 'sessionId=owner-session&presentedSeq=9007199254740992&presentedIndex=0',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=-1', 'sessionId=owner-session&presentedSeq=7&presentedIndex=0.5',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=9007199254740992', 'sessionId=owner-session&presentedSeq=7&presentedIndex=',
+  'sessionId=owner-session&presentedSeq=7&presentedSeq=8&presentedIndex=0',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=0&presentedIndex=1',
+  'sessionId=owner-session&sessionId=other&presentedSeq=7&presentedIndex=0',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=0&version=a&version=b',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=0&path=clip.mp4',
+  'sessionId=owner-session&presentedSeq=7&presentedIndex=0&path=',
+])('refuses incomplete, invalid, duplicate, or mixed delivery coordinates before I/O: %s', async (query) => {
+  const h = await mount()
+  const stat = vi.spyOn(h.ctx.sessionPersistence, 'stat')
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  expect((await h.query(new URLSearchParams(query))).status).toBe(400)
+  expect(stat).not.toHaveBeenCalled()
+  expect(h.readEvent).not.toHaveBeenCalled()
+  expect(read).not.toHaveBeenCalled()
+})
+
+it('refuses missing Sessions, missing events, other event types, absent indexes, and malformed delivery paths', async () => {
+  const h = await mount()
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  const missing = deliveryQuery()
+  missing.set('sessionId', 'missing')
+  expect((await h.query(missing)).status).toBe(404)
+  expect(h.readEvent).not.toHaveBeenCalled()
+  expect((await h.query(deliveryQuery('8'))).status).toBe(404)
+  expect((await h.query(deliveryQuery('7', '1'))).status).toBe(404)
+  for (const event of [
+    { type: 'user/message', data: { files: [{ path: h.file }] } },
+    ...[null, 'bad', {}, { files: 'bad' }, { files: [null] }, { files: ['bad'] },
+      { files: [{}] }, { files: [{ path: 123 }] }, { files: [{ path: ' ' }] }, { files: [{ path: 'bad\0.mp4' }] }]
+      .map(data => ({ type: 'deliverables/presented', data })),
+  ]) {
+    h.events.set(7, event)
+    expect((await h.query(deliveryQuery())).status).toBe(404)
+  }
+  expect(read).not.toHaveBeenCalled()
+})
+
+it('applies source, container, version, and size checks to declared deliveries before byte reads', async () => {
+  const h = await mount()
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  for (const [path, status] of [['missing.mp4', 404], ['directory.mp4', 403], ['secret.txt', 415]] as const) {
+    if (path === 'directory.mp4') await mkdir(join(h.root, path))
+    if (path === 'secret.txt') await writeFile(join(h.root, path), 'secret')
+    h.events.set(7, { type: 'deliverables/presented', data: { files: [{ path }] } })
+    expect((await h.query(deliveryQuery())).status).toBe(status)
+  }
+  h.events.set(7, { type: 'deliverables/presented', data: { files: [{ path: h.file }] } })
+  const stale = deliveryQuery()
+  stale.set('version', 'stale-version')
+  expect((await h.query(stale)).status).toBe(409)
+  await writeFile(h.file, Buffer.alloc(101))
+  expect((await h.query(deliveryQuery())).status).toBe(413)
+  expect(read).not.toHaveBeenCalled()
+})
+
+it.skipIf(process.platform === 'win32')('refuses final delivery symlinks before resolving or reading their target (POSIX symlink privileges)', async () => {
+  const h = await mount()
+  const link = join(h.root, 'linked.mp4')
+  await symlink(h.file, link)
+  h.events.set(7, { type: 'deliverables/presented', data: { files: [{ path: link }] } })
+  const resolve = vi.spyOn(h.fs, 'resolve')
+  const read = vi.spyOn(h.fs, 'readByteRange')
+  expect((await h.query(deliveryQuery())).status).toBe(403)
+  expect(resolve).not.toHaveBeenCalled()
+  expect(read).not.toHaveBeenCalled()
+})
+
+it('cancels and awaits pending delivery history during disposal without starting filesystem reads', async () => {
+  const h = await mount()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const cancelled = Promise.withResolvers<undefined>()
+  h.readEvent.mockImplementationOnce(async (_request, signal) => {
+    signal?.addEventListener('abort', () => { cancelled.resolve(undefined) }, { once: true })
+    entered.resolve(undefined)
+    await release.promise
+    return { target: { type: 'deliverables/presented', data: { files: [{ path: h.file }] } } }
+  })
+  const lstat = vi.spyOn(h.fs, 'lstat'), read = vi.spyOn(h.fs, 'readByteRange')
+  const request = h.query(deliveryQuery())
+  await entered.promise
+  const disposing = h.videoFiber.dispose()
+  let settled = false
+  void disposing.then(() => { settled = true })
+  try {
+    await cancelled.promise
+    await Promise.resolve()
+    expect(settled).toBe(false)
+  } finally { release.resolve(undefined) }
+  expect((await request).status).toBe(499)
+  await disposing
+  expect(lstat).not.toHaveBeenCalled()
+  expect(read).not.toHaveBeenCalled()
+  expect(h.unregister).toHaveBeenCalledOnce()
+})
+
+it('maps history lookup errors without exposing file paths', async () => {
+  const h = await mount()
+  for (const [code, status] of [['SESSION_QUERY_SESSION_NOT_FOUND', 404], ['SESSION_QUERY_CORRUPT_SESSION', 500]] as const) {
+    h.readEvent.mockRejectedValueOnce(new SessionQueryError('/private/history', code))
+    const response = await h.query(deliveryQuery())
+    expect(response.status).toBe(status)
+    expect(await response.text()).toBe('presented video unavailable')
+  }
+})
 
 it('streams full video and bounded, suffix, and open-ended ranges without whole-file reads', async () => {
   const h = await mount()

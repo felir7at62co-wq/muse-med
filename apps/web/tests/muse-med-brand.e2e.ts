@@ -12,7 +12,7 @@ it('follows the application theme for brand marks while keeping the favicon blac
       const page = await newEnglishPage(browser)
       await page.emulateMedia({ colorScheme: 'light' })
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-      await page.getByText('Muse', { exact: true }).first().waitFor({ timeout: 60000 })
+      await page.getByText('Muse-Med', { exact: true }).first().waitFor({ timeout: 60000 })
       expect(await page.title()).toBe('Muse')
       const assertArtwork = async (color: 'black' | 'white') => {
         const url = `./muse-med-logo-${color}.webp`
@@ -39,10 +39,10 @@ it('follows the application theme for brand marks while keeping the favicon blac
       await assertArtwork('white')
       await page.keyboard.press('Escape')
       await page.reload({ waitUntil: 'load' })
-      await page.getByText('Muse', { exact: true }).first().waitFor({ timeout: 60000 })
+      await page.getByText('Muse-Med', { exact: true }).first().waitFor({ timeout: 60000 })
       await assertArtwork('white')
-      expect({ title: await page.title(), name: await page.getByText('Muse', { exact: true }).first().textContent() })
-        .toEqual({ title: 'Muse', name: 'Muse' })
+      expect({ title: await page.title(), name: await page.getByText('Muse-Med', { exact: true }).first().textContent() })
+        .toEqual({ title: 'Muse', name: 'Muse-Med' })
     } finally {
       await browser.close()
     }

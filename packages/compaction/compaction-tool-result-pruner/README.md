@@ -41,7 +41,7 @@ With these rows, oversized tool results are trimmed automatically as part of con
 
 ### What gets trimmed
 
-Every tool result whose text exceeds the threshold is replaced by a trimmed version: the configured head, a short "middle pruned" marker, and the configured tail. Rich content such as images and structured blocks keeps its order and all logged image-offload selections. The replacement keeps the tool call, step, errors, and metadata — only the text content changes. If a replacement cannot be recorded, the run fails and the trims already applied stay in place.
+Every tool result whose text exceeds the threshold is replaced by a trimmed version unless its exact logged tool name appears in `preserveToolNames`: the configured head, a short "middle pruned" marker, and the configured tail. Rich content such as images and structured blocks keeps its order and all logged image-offload selections. The replacement keeps the tool call, step, errors, and metadata — only the text content changes. If a replacement cannot be recorded, the run fails and the trims already applied stay in place.
 
 ### Setting the size limits
 
@@ -52,8 +52,11 @@ All settings are optional; the defaults trim any result with more than 8,192 tex
 | `thresholdChars` | `8192` | Trim when combined text exceeds this many Unicode code points. |
 | `headChars` | `4096` | Leading Unicode code points retained. |
 | `tailChars` | `1024` | Trailing Unicode code points retained. |
+| `preserveToolNames` | `[]` | Exact tool names whose results bypass session pruning, matched by call ID to logged assistant tool calls in the current conversation. |
 
 Character counts are Unicode code points, so slicing never splits an emoji pair, though a multi-character grapheme can still be cut. The head plus the marker plus the tail must fit within the threshold, so a valid configuration trims every over-budget result without growth or repeated rewriting. An unknown setting rejects the plugin at construction.
+
+For example, `preserveToolNames: [skill]` retains complete skill-tool results while other tools keep their size limits. Names must be non-empty strings without surrounding whitespace. This exception applies only to `pruneSession`; `pruneContent` still applies its character budgets without a tool identity. Preserved results can still be summarized by compaction-basic, so this setting does not pin instructions permanently in context.
 
 ### When trimming runs
 
@@ -117,7 +120,7 @@ Once a compaction trigger qualifies, future requests see the retained head, `\n\
 
 #### Token effect
 
-Each rewritten tool result has at most `thresholdChars` text code points. Pruning itself makes no model call; compaction-basic skips summarization when the remeasured request falls below pressure, otherwise the summarizer reads the pruned surface.
+Each rewritten tool result has at most `thresholdChars` text code points. Results from `preserveToolNames` retain their full text and token cost. Pruning itself makes no model call; compaction-basic skips summarization when the remeasured request falls below pressure, otherwise the summarizer reads the pruned surface.
 
 #### KV Cache effect
 

@@ -13,8 +13,8 @@
  * whole-list snapshot declared by this package.
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
- * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity. The
+ * `status`. Each snapshot replaces the whole list (last-write-wins);
+ * single-task updates match the unique content without adding an id. The
  * three statuses describe the complete portable lifecycle needed by model and
  * UI consumers.
  */
@@ -35,6 +35,8 @@ declare module '@deepseek-ai/dsh-session/types' {
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     todos: TodoItem[] | null
+    /** Latest committed list for task updates, retained across turn boundaries. Host-only. */
+    latestTodos: TodoItem[] | null
   }
   interface SessionProjectionMap {
     /**

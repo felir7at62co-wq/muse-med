@@ -17,7 +17,8 @@
     "lib/creation-policy.js",
     "lib/creation-skills.js",
     "lib/short-drama-guidance.js",
-    "lib/editing-policy.js"
+    "lib/editing-policy.js",
+    "lib/hindsight.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -69,7 +70,8 @@
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-skill": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
-    "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
+    "@deepseek-ai/dsh-bgm-license-info": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:~"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -78,7 +80,8 @@
     "./creation-policy": "./lib/creation-policy.js",
     "./creation-skills": "./lib/creation-skills.js",
     "./short-drama-guidance": "./lib/short-drama-guidance.js",
-    "./editing-policy": "./lib/editing-policy.js"
+    "./editing-policy": "./lib/editing-policy.js",
+    "./hindsight": "./lib/hindsight.js"
   },
   "dsh": {
     "bundle": {

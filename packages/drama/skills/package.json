@@ -115,7 +115,12 @@
     "skills/anime-3d-assets/references/style-and-quality.md",
     "skills/anime-3d-assets/references/updates-and-reuse.md",
     "skills/anime-3d-assets/scripts/validate_asset_records.py",
-    "skills/anime-3d-assets/scripts/validate_generation_request.py"
+    "skills/anime-3d-assets/scripts/validate_generation_request.py",
+    "skills/shot-script-creator-16-9-3d/SKILL.md",
+    "skills/shot-script-creator-9-16/SKILL.md",
+    "skills/shot-script-creator-9-16/references/another-spice.md",
+    "skills/shot-script-creator-9-16/references/soccer-field-space.md",
+    "skills/tweet-drama-early-shot-script/references/director-format.md"
   ],
   "scripts": {
     "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch && python -B -m unittest discover -s tests/anime_3d"

@@ -80,6 +80,7 @@ const TOOL_TITLE_KEYS: Record<string, ToolTitleKey> = {
   pwsh: 'tool.title.pwsh',
   read_image: 'tool.title.readImage',
   todo_write: 'todo.rowTitle',
+  todo_update: 'todo.rowTitle',
   ask_user_question: 'ask.rowTitle',
   create_goal: 'tool.title.createGoal',
   get_goal: 'tool.title.getGoal',

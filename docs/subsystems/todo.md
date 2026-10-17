@@ -2,7 +2,7 @@
 
 English | [中文](todo.zh.md)
 
-The durable todo vocabulary owned by [`@deepseek-ai/dsh-tool-todo`](../../packages/todo/tool-todo/README.md). The model-facing tool replaces one agent session's whole list; the package also owns the event declaration and replay projection. Tool behavior and configuration are on the [package README](../../packages/todo/tool-todo/README.md).
+The durable todo vocabulary owned by [`@deepseek-ai/dsh-tool-todo`](../../packages/todo/tool-todo/README.md). Plan replacement and single-task status updates both commit one agent session's complete list; the package owns the event declaration and replay projections. Tool behavior and configuration are on the [package README](../../packages/todo/tool-todo/README.md).
 
 Source: [`packages/todo/tool-todo/src/types.ts`](../../packages/todo/tool-todo/src/types.ts)
 
@@ -14,8 +14,8 @@ Source: [`packages/todo/tool-todo/src/types.ts`](../../packages/todo/tool-todo/s
  * whole-list snapshot declared by this package.
  *
  * Deliberately minimal: a human-readable `content` line and a three-state
- * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity. The
+ * `status`. Each snapshot replaces the whole list (last-write-wins);
+ * single-task updates match the unique content without adding an id. The
  * three statuses describe the complete portable lifecycle needed by model and
  * UI consumers.
  */

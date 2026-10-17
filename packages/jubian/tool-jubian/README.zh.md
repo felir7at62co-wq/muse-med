@@ -33,6 +33,18 @@ kind: "package-bundle"
 
 当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为十二个 schema 在挂载期间始终对模型可见。
 
+### 会话视频模型选择
+
+配置 `sessionVideoSelection: true` 会增加会话视频模型／分辨率菜单与 `jubian_video_model` 提问工具。菜单沿用语言模型选择器的不透明、受窗口高度限制的样式：“模型／分辨率”入口进入同一面板内的可滚动列表，按通道分组并标记当前选择。会话聊天框挂载时提前读取账号模型目录；打开菜单时保留已有选项并刷新，重叠读取共用一个请求。只有尚无目录数据时才在已打开的菜单内部显示加载提示，聊天框与按钮位置保持稳定。可选 `defaultVideoModel` 用 `modelId`、`platformId` 和 `resolution` 指定未保存选择的会话默认值；Muse 配置为 FANG_ZHOU 通道的 Seedance 2.5、480p。打开聊天框、读取选择工具或准备新生成时，核对实时目录并只记录一次默认值，已有选择始终保留；默认值不可用时报告错误，用户仍可明确选择其他可用规格。读取项目不替用户选模型，也不修改项目默认值。用户确认后记录 `jubian/video-selection`，在下一个正常模型步骤前注入带来源的上下文消息；不会单独发起模型请求或替换系统提示词。动态上下文在压缩或恢复后重建最新选择。
+
+没有已存选择的全新子代理，在创建时记录父级当前视频选择，并使用自己的修订序号。继承对话的子代理保留已有选择，不重复追加事件；子代理已有选择不会被替换。父级切换只影响新建子代理，子代理后续选择不会修改父级。父级未选择时，子代理沿用正常的配置默认值流程。这些记录和上下文注入不读取目录，也不发起付费请求。
+
+生成以会话选择为准。`prepare_video` 先通过免费的 `isGenerate=0` 保存，仅同步本次指定的已有视频卡，并核对回读的设置、提示词与素材，保留画幅和时长。选择不同模型后，旧的冻结预览不能发起新的付费请求。原来已记录的提交 key 仍可对账；已提交任务保留原设置。
+
+视频包超过已知时长上限时，模型对本批受影响视频包统一调用一次 `jubian_video_model duration_conflict`。用户选择保留模型并重新规划完整视频包，或选择能够容纳原最长视频包的模型。工具不会悄悄缩短时长。Seedance 2.0 上限为 15 秒，Seedance 2.5 上限为 30 秒；上限不代表推荐包长。其他模型在核实前保留未知上限。
+
+`imageAllowedStandardIds` 按实时目录行 ID 限制生图目录、设置选项和单张／批量生图执行器。Muse 使用 `[76, 66, 86]`：两条 `gpt-image-2` 通道及 `gpt-image-2.5-sunburst-c`。被排除的行在付费请求前即校验失败；原来已记录的 key 仍可对账。不配置该限制的已有部署保留完整目录。
+
 ### 最小配置
 
 ```yaml
@@ -79,6 +91,7 @@ kind: "package-bundle"
 | `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
 | `videoBatchConcurrency` | `3` | 整包预检后同时发送的分镜 PUT 上限；整数 1..8 |
 | `videoBatchMaxItems` | `100` | 一批不同分镜 preview 的项数上限；整数 1..100 |
+| `promptRiskReview` | 无 | 字面命中提示：`terms` 必填且为不重复的非空词语；`contextChars` 默认 24，范围 0..200；`maxMatches` 默认 100，范围 1..1000 |
 | `nameSeparator` | `｜` | 由 `episode` 参数组合出来的名字里，各段之间的分隔符 |
 | `seriesLabel` | `全剧` | 服务全剧的资产的集号 token；调用方把它当作 `episode` 原样传入 |
 | `assetIndexPath` | `_probe/asset-index.md` | `jubian_organize` 写索引的位置，相对于项目目录 |
@@ -200,7 +213,7 @@ inherited process environment (read-only, highest)
 
 `jubian_claim.inspect` 只读检查一个 ID 的账号专属 `can_claim`。工具 schema 在查询账号前验证认领方法和观察范围。`jubian_claim.claim` 要求用户明确授权依据、同一个剧本 ID 和调用方给出的 `idempotency_key`；它读取 `viewRole`、完整扫描池子，只有该 ID 是 `canClaim=1` 才发送一次 POST。组长使用 `/script/center/pool/claim/{id}`，组员使用 `/script/center/pool/memberClaim/{id}`，未知角色直接拒绝。账本在提交前记录无请求体的认领尝试。超时或收据不清楚时按已登录账号 ID 回读；同一账本里给这本换一个 key 不会再发送请求。
 
-`jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../apps/desktop-host/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
+`jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../packages/drama/skills/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
 
 ### 后台观察操作
 
@@ -278,6 +291,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 项目和分集预览在 `excluded_invalid` 中报告异常卡片，只规划有效成员。缺少可用 `episodeId` 的孤立卡片不会阻塞其他分集。精确 `storyboards` 范围仍报告该卡片的错误；用 `edit_preview` 显式修复分集绑定或时长，再重新预览目标模型范围。工具不会把显示用 `episodeCount` 推断为远端分集 ID。
 
 ### 主体视频的分镜原生通道
+
+配置 `promptRiskReview` 后，`edit_preview`、`edit_batch_preview` 和 `prepare_video` 在正常成功结果中返回 `prompt_risk_review`，扫描完整的拟写入或已保存提示词，包括否定清单、备注和引号内文字。每条命中包含 `storyboard_id`、`card_name`、`term`、以 UTF-16 计数的 `offset` 和保留完整 Unicode 字符的 `context`。`total_matches` 包含未展示的命中；共享 `maxMatches` 限制截断明细时，`truncated` 为真。报告不修改提示词、指纹、保存权限或提交权限。字面命中不等于内容违规，也不能确认原台词；Agent 须对照来源，首次保留原台词，仅在确认生成失败与该词有关后最小修改对应词语。修正后重新预览编辑、核对保存回读，再重新准备视频。没有命中不代表完整审核通过。Muse 在 Desktop Host 配置中提供词表，其他部署没有隐含词表。
 
 已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。
 

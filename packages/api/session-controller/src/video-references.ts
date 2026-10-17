@@ -5,7 +5,8 @@ import Schema from '@deepseek-ai/schemastery'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 
 /** Deployment bounds for one file, buffered window, and concurrent streams. */
 export interface VideoPlaybackConfig {
@@ -27,6 +28,32 @@ export const VideoPlaybackConfig: Schema<VideoPlaybackConfig> = Schema.object({
 const VIDEO_TYPES: Readonly<Record<string, string>> = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' }
 const HEADERS = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Accept-Ranges': 'bytes' }
 
+type VideoSource = { kind: 'workspace'; path: string } | { kind: 'presented'; seq: SessionSeq; index: number }
+
+/** Validate either a workspace path or an exact delivery coordinate, never both. */
+function videoSource(query: URLSearchParams): VideoSource | undefined {
+  if (!query.has('presentedSeq') && !query.has('presentedIndex')) {
+    const path = query.get('path')
+    return path && !path.includes('\0') ? { kind: 'workspace', path } : undefined
+  }
+  if (query.has('path') || query.getAll('presentedSeq').length !== 1 || query.getAll('presentedIndex').length !== 1
+    || query.getAll('sessionId').length !== 1 || query.getAll('version').length > 1) return undefined
+  const seq = query.get('presentedSeq'), index = query.get('presentedIndex')
+  if (seq === null || index === null || !/^\d+$/.test(seq) || !/^\d+$/.test(index)
+    || !Number.isSafeInteger(Number(seq)) || !Number.isSafeInteger(Number(index))) return undefined
+  return { kind: 'presented', seq: SessionSeq(Number(seq)), index: Number(index) }
+}
+
+/** Read only a declared delivery's path; persisted event payloads are untrusted. */
+function presentedPath(event: { type: string; data: unknown }, index: number): string | undefined {
+  if (event.type !== 'deliverables/presented' || typeof event.data !== 'object' || event.data === null
+    || !('files' in event.data) || !Array.isArray(event.data.files)) return undefined
+  const file: unknown = event.data.files[index]
+  if (typeof file !== 'object' || file === null || !('path' in file) || typeof file.path !== 'string'
+    || file.path.trim().length === 0 || file.path.includes('\0')) return undefined
+  return file.path
+}
+
 /** Parse a single HTTP byte range; false denotes a refused range. */
 function byteRange(value: string | null, size: number): { start: number; end: number } | false {
   if (value === null) return { start: 0, end: size - 1 }
@@ -42,14 +69,14 @@ function byteRange(value: string | null, size: number): { start: number; end: nu
   return { start, end: Math.min(end, size - 1) }
 }
 
-/** Connection authentication precedes this contribution; a Session and its workspace scope every read. */
+/** Authenticated streams require workspace containment or an exact recorded file delivery. */
 export const SessionVideoReferences = {
   name: 'session-video-references',
-  inject: ['connection', 'fs', 'sessionPersistence'],
+  inject: ['connection', 'fs', 'sessionPersistence', 'sessionQuery'],
   Config: VideoPlaybackConfig,
   /**
    * Register bounded video streams; disposal cancels and awaits metadata lookups and byte reads.
-   * @param ctx - Authenticated connection, Session persistence and filesystem.
+   * @param ctx - Authenticated connection, Session history, persistence and filesystem.
    * @param config - Validated per-deployment playback limits.
    */
   apply(ctx: Context, config: VideoPlaybackConfig): void {
@@ -69,17 +96,31 @@ export const SessionVideoReferences = {
           const fail = (status: number, message: string, extra: Record<string, string> = {}): Response =>
             new Response(request.method === 'HEAD' ? null : message, { status, headers: { ...HEADERS, ...extra } })
           if (disposed || cancelled()) return fail(499, 'request cancelled')
-          const url = new URL(request.url), path = url.searchParams.get('path'), id = url.searchParams.get('sessionId')
-          if (!id || id.length > 256 || !path || path.includes('\0')) return fail(400, 'sessionId and video path required')
+          const url = new URL(request.url), id = url.searchParams.get('sessionId'), source = videoSource(url.searchParams)
+          if (!id || id.length > 256 || source === undefined) return fail(400, 'sessionId and a video path or delivery coordinates required')
           try {
             const session = await ctx.sessionPersistence.stat(SessionId(id), { signal: requestSignal })
             if (cancelled()) return fail(499, 'request cancelled')
             if (!session) return fail(404, 'session not found')
             const cwd = session.header.cwd
             if (!cwd) return fail(403, 'session has no workspace')
+            let path: string
+            if (source.kind === 'presented') {
+              const read = await ctx.sessionQuery.readEvent({
+                sessionId: SessionId(id), seq: source.seq, before: 0, after: 0,
+              }, requestSignal)
+              if (cancelled()) return fail(499, 'request cancelled')
+              const declared = presentedPath(read.target, source.index)
+              if (declared === undefined) return fail(404, 'presented video not found')
+              path = declared
+              const entry = await ctx.fs.lstat(path, { cwd }, requestSignal)
+              if (cancelled()) return fail(499, 'request cancelled')
+              if (!entry) return fail(404, 'not found')
+              if (entry.type !== 'file') return fail(403, 'not a regular file')
+            } else path = source.path
             const root = await ctx.fs.resolve(cwd, { signal: requestSignal })
             const target = await ctx.fs.resolve(path, { cwd, signal: requestSignal })
-            if (!ctx.fs.contains(root, target)) return fail(403, 'video is outside this workspace')
+            if (source.kind === 'workspace' && !ctx.fs.contains(root, target)) return fail(403, 'video is outside this workspace')
             const info = await ctx.fs.stat(target, requestSignal)
             if (cancelled()) return fail(499, 'request cancelled')
             if (!info) return fail(404, 'not found')
@@ -157,6 +198,10 @@ export const SessionVideoReferences = {
             return new Response(body, { status, headers })
           } catch (error) {
             if (cancelled()) return fail(499, 'request cancelled')
+            if (error instanceof SessionQueryError) {
+              const missing = error.code === 'SESSION_QUERY_SESSION_NOT_FOUND' || error.code === 'SESSION_QUERY_EVENT_NOT_FOUND'
+              return fail(missing ? 404 : 500, 'presented video unavailable')
+            }
             if (!(error instanceof FsError)) throw error
             const statuses: Partial<Record<FsError['code'], number>> = { FS_NOT_FOUND: 404, FS_NOT_REGULAR_FILE: 403,
               FS_PERMISSION_DENIED: 403, FS_SANDBOX_DENIED: 403, FS_TOO_LARGE: 413, FS_ABORTED: 499 }

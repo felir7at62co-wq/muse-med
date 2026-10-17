@@ -8,6 +8,7 @@ import type { Config } from '../src/index.ts'
 import { JubianImageRoutes } from '../src/image.ts'
 import { JubianToken } from '../src/token.ts'
 import { JubianBudgets } from '../src/budget.ts'
+import { JubianVideoSelection } from '../src/video-session.ts'
 
 interface Registered {
   name: string
@@ -123,9 +124,9 @@ describe('tool-jubian registration', () => {
     expect(inject).toEqual(['tools', 'credentials'])
   })
 
-  it('mounts both Remote namespaces beside the tools', async () => {
+  it('mounts account and conversation Remote services beside the tools', async () => {
     const { mounted } = await mount()
-    expect(mounted).toEqual([JubianToken, JubianBudgets, JubianImageRoutes])
+    expect(mounted).toEqual([JubianToken, JubianBudgets, JubianImageRoutes, JubianVideoSelection])
   })
 
   it('registers the domain tools and background watcher', async () => {
