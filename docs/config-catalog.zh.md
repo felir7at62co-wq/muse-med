@@ -2350,7 +2350,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:37`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:38`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -4160,7 +4160,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:57`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:58`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */

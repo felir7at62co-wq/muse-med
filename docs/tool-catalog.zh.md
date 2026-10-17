@@ -4159,7 +4159,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 
 ### `jubian_catalog`
 
-剧变（Jubian）目录与项目只读查询：账户模型目录与报价、剧本、分集。全部只读，不产生费用。
+剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。
 
 ```json
 {
@@ -4177,7 +4177,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "task_type": {
       "type": "number",
-      "description": "models 必填：1=视频，2=图片，10=去字幕。"
+      "description": "models 必填：1=视频，2=图片，10=去字幕，20=转高清。"
     },
     "standard_id": {
       "type": "number",
@@ -4202,7 +4202,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_claim`
 
@@ -4408,7 +4408,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
         },
         "duration": {
           "type": "number",
-          "description": "模型允许的整数秒数，包含末尾自然收束：SD2.0 为4–15秒，SD2.5 为4–30秒，具体修订须已核实。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。"
+          "description": "当前所选模型的正整数秒数：已知 SD2.0 为4–15秒，SD2.5 为4–30秒；其他目录模型按其能力选时长，不套用 Seedance 上限。按每包内容确定，不必填满上限。未提供时保留各分镜已存时长；未保存时长的分镜必须按该包内容补齐，不能为探测随意填数。"
         },
         "genNum": {
           "type": "number",
@@ -4523,7 +4523,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 
 ### `jubian_storyboard`
 
-剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。修改已有任务卡用 edit_preview 或 edit_batch_preview 检查 before/after，再 edit_apply；保持分镜 ID，不因秒数或提示词变化新建卡。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，默认先 list/get 当前项目和分集的已有视频卡并原位填写；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请检查：项目与分集、已有视频卡 ID 及逐卡视频包对应、before/after 与本次修改范围、提示词和原文对白、素材标记与用途、动作和空间关系、所选模型与时长；发现问题先修正。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，且它必须与该分镜已保存的时长一致，否则会在发请求前失败。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：select_assets 的素材按提示词 key 首次出现的顺序选一次，提示词后文可重复引用同一 key。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 只读实时分镜、主体设定与模型目录，保留已存 modelId/比例/分辨率/时长，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不 PUT、不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。模型和平台沿用 jubian_catalog script 返回的 project_settings；未核实时长能力时报告缺项，不能换模型绕过。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -4531,7 +4531,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
   "properties": {
     "method": {
       "type": "string",
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=存为不生成；edit_preview/edit_batch_preview=原位修改单卡/多卡预览；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=只读准备并落 preview（免费）；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -4579,11 +4579,23 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "model_id": {
       "type": "string",
-      "description": "erase_subtitle 必填：quzimuToB（羽点，区域性）或 ark-erase-video-subtitle-pro（自动）。插件不设默认值——省略即在发请求前报错，不会替你挑一个模型。"
+      "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。"
     },
     "task_name": {
       "type": "string",
       "description": "erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。"
+    },
+    "platform_id": {
+      "type": "string",
+      "description": "去字幕可选：task_type=10 目录的精确 platformId。"
+    },
+    "erase_mode": {
+      "type": "string",
+      "description": "新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。",
+      "enum": [
+        "automatic",
+        "region"
+      ]
     },
     "episode": {
       "type": "string",
@@ -4608,7 +4620,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "storyboards": {
       "type": "array",
-      "description": "create_batch 必填：先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
+      "description": "create_batch 必填：仅已有视频卡不足或用户明确要求新增时使用；先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -4709,7 +4721,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
     },
     "changes": {
       "type": "object",
-      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是实际请求的整数秒，按精确 SD 模型范围验证。",
+      "description": "edit_preview 必填：仅修改提供的字段，其余原样保留；duration 是所选模型实际请求的整数秒。",
       "additionalProperties": false,
       "properties": {
         "prompt": {
@@ -4718,7 +4730,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
         },
         "duration": {
           "type": "integer",
-          "description": "SD2.0：4–15 秒；SD2.5：4–30 秒；按镜头内容计算。"
+          "description": "正整数秒；SD2.0 为4–15秒，SD2.5 为4–30秒，其他目录模型按各自能力与镜头内容确定。"
         },
         "modelId": {
           "type": "string"
@@ -4872,11 +4884,11 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_video`
 
-剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。锁定行由人在 Web 设置的「短剧 → 资产图生成通道」里选，或由部署在插件配置里给 imagePlatformId/imageStandardId；本次改道可显式给 image_platform_id。遇到未锁定的多候选时把候选念给用户，请他在设置里选一行，不要自己挑。**upscale 会真实计费（SeedVR2 视频高清，1 元/条）**：把成片转成 1080p。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -4978,6 +4990,18 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
               "anime"
             ]
           },
+          "image_spec_id": {
+            "type": "integer",
+            "description": "本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。"
+          },
+          "image_model_id": {
+            "type": "string",
+            "description": "本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。"
+          },
+          "image_resolution": {
+            "type": "string",
+            "description": "本项可选的目录分辨率，如 1K、2K、4K。"
+          },
           "image_platform_id": {
             "type": "string",
             "description": "本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。"
@@ -5009,13 +5033,25 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
         "anime"
       ]
     },
+    "image_spec_id": {
+      "type": "integer",
+      "description": "image_generate 可选：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。"
+    },
+    "image_model_id": {
+      "type": "string",
+      "description": "image_generate 可选：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。"
+    },
+    "image_resolution": {
+      "type": "string",
+      "description": "image_generate 可选：所选模型目录支持的分辨率，如 1K、2K、4K。"
+    },
     "image_platform_id": {
       "type": "string",
       "description": "image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。"
     },
     "image_aspect_ratio": {
       "type": "string",
-      "description": "image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，不接受直接传入规格 ID。",
+      "description": "image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。",
       "enum": [
         "16:9",
         "9:16"
@@ -5053,6 +5089,18 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
       "type": "string",
       "description": "erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。"
     },
+    "model_id": {
+      "type": "string",
+      "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。"
+    },
+    "platform_id": {
+      "type": "string",
+      "description": "upscale 可选：task_type=20 实时目录中的精确 platformId。"
+    },
+    "resolution": {
+      "type": "string",
+      "description": "upscale 可选：所选高清模型目录中的输出分辨率，默认1080p。"
+    },
     "idempotency_key": {
       "type": "string",
       "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
@@ -5064,7 +5112,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_watch`
 

@@ -1734,6 +1734,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'Signed-out status after the gateway accepts the logout.',
       },
+      {
+        signature: '@Remote(\'startBrowserLogin\') async startBrowserLogin(): Promise<MuseBrowserLoginAttempt>',
+        description: 'Start browser approval for this Desktop Host.',
+        parameters: [],
+        returns: 'A browser approval URL and matching code, without its redemption secret.',
+      },
+      {
+        signature: '@Remote(\'checkBrowserLogin\') async checkBrowserLogin(id: MuseBrowserLoginId): Promise<MuseBrowserLoginResult>',
+        description: 'Complete an approved login and refresh account consumers.',
+        parameters: [{ name: 'id', description: 'Attempt owned by this Host.' }],
+        returns: 'Pending or terminal browser-safe state after local session persistence.',
+      },
+      {
+        signature: '@Remote(\'cancelBrowserLogin\') async cancelBrowserLogin(id: MuseBrowserLoginId): Promise<MuseAccountStatus>',
+        description: 'Cancel an unredeemed approval and read the account after any already-running commit settles.',
+        parameters: [{ name: 'id', description: 'Exact attempt to cancel.' }],
+        returns: 'Current local account state.',
+      },
     ],
   },
   {
@@ -6329,6 +6347,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseAsrSegment',
     declaration: 'export interface MuseAsrSegment {\n    readonly start: number;\n    readonly end: number;\n    readonly text: string;\n    readonly speaker_id?: string;\n    readonly words?: readonly {\n        readonly start: number;\n        readonly end: number;\n        readonly text: string;\n    }[];\n}',
+  },
+  {
+    name: 'MuseBrowserLoginAttempt',
+    declaration: 'export interface MuseBrowserLoginAttempt {\n    readonly id: MuseBrowserLoginId;\n    readonly authorizeUrl: string;\n    readonly code: string;\n    readonly expiresAt: number;\n    readonly pollIntervalMs: number;\n}',
+  },
+  {
+    name: 'MuseBrowserLoginId',
+    declaration: 'export type MuseBrowserLoginId = Branded<\'MuseBrowserLoginId\'>;',
+  },
+  {
+    name: 'MuseBrowserLoginResult',
+    declaration: 'export type MuseBrowserLoginResult = {\n    readonly state: \'pending\' | \'expired\' | \'cancelled\';\n} | {\n    readonly state: \'signed-in\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n};',
   },
   {
     name: 'MuseDesktopConnectionState',
