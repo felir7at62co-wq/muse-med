@@ -38,23 +38,28 @@ async function bench() {
   const status = vi.fn(async () => ({ ok: true as const, value: { state: 'signed-out' as const } }))
   const login = vi.fn(async () => ({ ok: false as const, error: { code: 'muse-account/invalid-credentials', message: 'private' } }))
   const logout = vi.fn(async () => ({ ok: true as const, value: { state: 'signed-out' as const } }))
+  const browser = {
+    startBrowserLogin: vi.fn(async () => ({ ok: false as const, error: { code: 'muse-account/gateway-unavailable', message: 'private' } })),
+    checkBrowserLogin: vi.fn(async (_id: string) => ({ ok: true as const, value: { state: 'pending' as const } })),
+    cancelBrowserLogin: vi.fn(async (_id: string) => ({ ok: true as const, value: { state: 'signed-out' as const } })),
+  }
   const feedback = vi.fn(async (_request: unknown): Promise<RemoteResult<MuseFeedbackReceipt>> => ({
     ok: true, value: { id: 'a'.repeat(32) as MuseFeedbackReceipt['id'], revision: 1 },
   }))
   ctx.provide('remote', {
     $mount: mount,
     get museAccount() {
-      return ctx.get('remote.museAccount') as { status: typeof status; login: typeof login; logout: typeof logout; feedback: typeof feedback }
+      return ctx.get('remote.museAccount') as { status: typeof status; login: typeof login; logout: typeof logout; feedback: typeof feedback } & typeof browser
     },
   })
-  ctx.provide('remote.museAccount', { status, login, logout, feedback })
+  ctx.provide('remote.museAccount', { status, login, logout, feedback, ...browser })
   const slots = ctx.get('slots') as SlotRegistry
   slots.register({ name: 'root', children: {
     'settings.section': { kind: 'list', scope: 'root' },
     'settings.launcher': { kind: 'single', scope: 'root' },
     'settings.onboarding': { kind: 'list', scope: 'root' },
   } } as never, () => null)
-  return { ctx, slots, locale, mount, disposeMount, status, login, logout, feedback }
+  return { ctx, slots, locale, mount, disposeMount, status, login, logout, feedback, ...browser }
 }
 
 describe('MUSE account browser plugin', () => {
@@ -150,6 +155,12 @@ describe('MUSE account browser plugin', () => {
     await injected.status({ verify: false })
     const refusal = await injected.login({ username: 'writer', password: 'private-password', registerIfMissing: false })
     await injected.logout()
+    const id = 'attempt' as import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId
+    expect(await injected.startBrowserLogin()).toEqual({ ok: false, code: 'muse-account/gateway-unavailable' })
+    expect(await injected.checkBrowserLogin(id)).toEqual({ ok: true, value: { state: 'pending' } })
+    expect(await injected.cancelBrowserLogin(id)).toEqual({ ok: true, value: { state: 'signed-out' } })
+    expect(b.checkBrowserLogin).toHaveBeenCalledWith(id)
+    expect(b.cancelBrowserLogin).toHaveBeenCalledWith(id)
 
     expect(b.status).toHaveBeenCalledWith({ verify: false })
     expect(b.login).toHaveBeenCalledWith({ username: 'writer', password: 'private-password', registerIfMissing: false })

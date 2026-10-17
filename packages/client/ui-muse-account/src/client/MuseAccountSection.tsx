@@ -5,6 +5,7 @@ import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
 import type { MuseAccountLocaleKey } from './locales.ts'
+import type { MuseBrowserLoginAttempt, MuseBrowserLoginId, MuseBrowserLoginResult } from '@deepseek-ai/dsh-muse-account/types'
 import css from './MuseAccountSection.module.css'
 
 /** Successful Host value or a bounded Remote failure code. */
@@ -18,6 +19,12 @@ export interface MuseAccountInjected {
   login: (request: MuseAccountLoginRequest) => Promise<MuseAccountOutcome<MuseAccountLoginResult>>
   /** Remove the saved session cookie. */
   logout: () => Promise<MuseAccountOutcome<MuseAccountStatus>>
+  /** Start browser authorization without exposing its private redemption secret. */
+  startBrowserLogin: () => Promise<MuseAccountOutcome<MuseBrowserLoginAttempt>>
+  /** Redeem only the Host-owned attempt. */
+  checkBrowserLogin: (id: MuseBrowserLoginId) => Promise<MuseAccountOutcome<MuseBrowserLoginResult>>
+  /** Cancel pending approval and report any commit that already completed. */
+  cancelBrowserLogin: (id: MuseBrowserLoginId) => Promise<MuseAccountOutcome<MuseAccountStatus>>
 }
 
 /** Full props assembled by the Settings slot renderer. */
@@ -42,7 +49,7 @@ const ERROR_COPY: Record<string, MuseAccountLocaleKey> = {
  * @returns the page element tree.
  */
 export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
-  const { t, status, login, logout, onSignedIn } = props
+  const { t, status, login, logout, onSignedIn, startBrowserLogin, checkBrowserLogin, cancelBrowserLogin } = props
   const [account, setAccount] = useState<MuseAccountStatus | undefined>(undefined)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -50,6 +57,8 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<MuseAccountLocaleKey | undefined>(undefined)
   const lifecycle = useRef(0)
+  const [browserAttempt, setBrowserAttempt] = useState<MuseBrowserLoginAttempt | undefined>(undefined)
+  const activeBrowser = useRef<MuseBrowserLoginId | undefined>(undefined)
 
   const showStatus = (result: MuseAccountOutcome<MuseAccountStatus>): void => {
     if (result.ok) {
@@ -64,8 +73,86 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
       if (current !== lifecycle.current) return
       showStatus(result)
     }).catch(() => { if (current === lifecycle.current) setNotice('error.generic') })
-    return () => { lifecycle.current++ }
+    return () => {
+      lifecycle.current++
+      const id = activeBrowser.current
+      activeBrowser.current = undefined
+      if (id !== undefined) void cancelBrowserLogin(id).catch(() => undefined)
+    }
   }, [status])
+
+  useEffect(() => {
+    if (browserAttempt === undefined) return
+    let closed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<void> => {
+      try {
+        const result = await checkBrowserLogin(browserAttempt.id)
+        if (closed || activeBrowser.current !== browserAttempt.id) return
+        if (!result.ok) {
+          setNotice(ERROR_COPY[result.code] ?? 'error.generic')
+          return
+        }
+        if (result.value.state === 'pending') {
+          timer = setTimeout(() => { void poll() }, browserAttempt.pollIntervalMs)
+          return
+        }
+        activeBrowser.current = undefined
+        setBrowserAttempt(undefined)
+        if (result.value.state === 'signed-in') {
+          setAccount(result.value.status)
+          setNotice('signedIn')
+          onSignedIn?.()
+        } else setNotice(result.value.state === 'expired' ? 'browserExpired' : 'browserCancelled')
+      } catch {
+        if (!closed) setNotice('error.generic')
+      }
+    }
+    void poll()
+    return () => { closed = true; clearTimeout(timer) }
+  }, [browserAttempt, checkBrowserLogin])
+
+  const browserSignIn = async (): Promise<void> => {
+    if (busy || activeBrowser.current !== undefined) return
+    const current = lifecycle.current
+    setBusy(true)
+    setNotice(undefined)
+    try {
+      const result = await startBrowserLogin()
+      if (current !== lifecycle.current) {
+        if (result.ok) await cancelBrowserLogin(result.value.id)
+        return
+      }
+      if (!result.ok) { setNotice(ERROR_COPY[result.code] ?? 'error.generic'); return }
+      activeBrowser.current = result.value.id
+      setBrowserAttempt(result.value)
+      window.open(result.value.authorizeUrl, '_blank', 'noopener,noreferrer')
+    } catch {
+      if (current === lifecycle.current) setNotice('error.generic')
+    } finally {
+      if (current === lifecycle.current) setBusy(false)
+    }
+  }
+
+  const cancelBrowser = async (): Promise<void> => {
+    const id = activeBrowser.current
+    if (id === undefined) return
+    const current = lifecycle.current
+    activeBrowser.current = undefined
+    setBrowserAttempt(undefined)
+    setBusy(true)
+    try {
+      const result = await cancelBrowserLogin(id)
+      if (current === lifecycle.current) {
+        showStatus(result)
+        if (result.ok) setNotice(result.value.state === 'signed-in' ? 'signedIn' : 'browserCancelled')
+      }
+    } catch {
+      if (current === lifecycle.current) setNotice('error.generic')
+    } finally {
+      if (current === lifecycle.current) setBusy(false)
+    }
+  }
 
   const readStatus = async (): Promise<void> => {
     const current = lifecycle.current
@@ -152,23 +239,37 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
               <Button disabled={busy} onClick={() => { void signOut() }}>{t('signOut')}</Button>
             </div>
           </div>
-          : <form className={css.group} onSubmit={(event) => { void signIn(event) }}>
-            <label className={css.field}>
-              <span>{t('username')}</span>
-              <Input className={css.input} autoComplete="username" value={username} disabled={busy} onChange={(event) => { setUsername(event.currentTarget.value) }} />
-            </label>
-            <label className={css.field}>
-              <span>{t('password')}</span>
-              <Input className={css.input} type="password" autoComplete="current-password" value={password} disabled={busy} onChange={(event) => { setPassword(event.currentTarget.value) }} />
-            </label>
-            <label className={css.checkbox}>
-              <input type="checkbox" checked={registerIfMissing} disabled={busy} onChange={(event) => { setRegisterIfMissing(event.currentTarget.checked) }} />
-              <span>{t('registerIfMissing')}</span>
-            </label>
-            <div className={css.actions}>
-              <Button type="submit" variant="primary" disabled={busy || username.trim().length === 0 || password.length === 0}>{busy ? t('signingIn') : t('signIn')}</Button>
-            </div>
-          </form>}
+          : <div className={css.group}>
+            {browserAttempt === undefined
+              ? <div className={css.actions}>
+                <Button variant="primary" disabled={busy} onClick={() => { void browserSignIn() }}>{t('browserSignIn')}</Button>
+              </div>
+              : <div className={css.group}>
+                <p className={css.status} role="status">{t('browserWaiting', { code: browserAttempt.code })}</p>
+                <div className={css.actions}>
+                  <Button onClick={() => { window.open(browserAttempt.authorizeUrl, '_blank', 'noopener,noreferrer') }}>{t('browserReopen')}</Button>
+                  {notice === undefined ? null : <Button onClick={() => { setNotice(undefined); setBrowserAttempt({ ...browserAttempt }) }}>{t('browserCheck')}</Button>}
+                  <Button disabled={busy} onClick={() => { void cancelBrowser() }}>{t('browserCancel')}</Button>
+                </div>
+              </div>}
+            {browserAttempt !== undefined ? null : <form className={css.group} onSubmit={(event) => { void signIn(event) }}>
+              <label className={css.field}>
+                <span>{t('username')}</span>
+                <Input className={css.input} autoComplete="username" value={username} disabled={busy} onChange={(event) => { setUsername(event.currentTarget.value) }} />
+              </label>
+              <label className={css.field}>
+                <span>{t('password')}</span>
+                <Input className={css.input} type="password" autoComplete="current-password" value={password} disabled={busy} onChange={(event) => { setPassword(event.currentTarget.value) }} />
+              </label>
+              <label className={css.checkbox}>
+                <input type="checkbox" checked={registerIfMissing} disabled={busy} onChange={(event) => { setRegisterIfMissing(event.currentTarget.checked) }} />
+                <span>{t('registerIfMissing')}</span>
+              </label>
+              <div className={css.actions}>
+                <Button type="submit" variant="primary" disabled={busy || username.trim().length === 0 || password.length === 0}>{busy ? t('signingIn') : t('signIn')}</Button>
+              </div>
+            </form>}
+          </div>}
       {notice === undefined ? null : <p className={css.notice} role="status">{t(notice)}</p>}
     </div>
   )

@@ -91,6 +91,17 @@ export async function apply(ctx) {
     request.on('data', chunk => { body += chunk.toString('utf8') })
     request.once('end', () => {
       try {
+        if (request.url === '/api/desktop-login/start') {
+          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({
+            id: 'a'.repeat(43), secret: 's'.repeat(43), code: 'A1B2C3D4', expiresAt: Date.now() + 600000,
+            pollIntervalMs: 2000, authorizeUrl: baseUrl + '/desktop-login?attempt=' + 'a'.repeat(43),
+          })); return
+        }
+        if (request.url === '/api/desktop-login/check') {
+          assert.equal(new URLSearchParams(body).get('secret'), 's'.repeat(43))
+          response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': '__Host-muse=snapshot-session; Path=/; HttpOnly' })
+          response.end(JSON.stringify({ state: 'signed-in' })); return
+        }
         if (request.url === '/login') {
           response.writeHead(303, { 'set-cookie': '__Host-muse=snapshot-session; Path=/; HttpOnly', location: '/' }); response.end(); return
         }
@@ -249,8 +260,10 @@ export async function apply(ctx) {
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
   ctx.on('agent/created', async () => {
-    const login = await service.login({ username: 'snapshot', password: 'fixture-password', registerIfMissing: false })
-    assert.equal(login.outcome, 'signed-in')
+    const attempt = await service.startBrowserLogin()
+    assert.ok(!JSON.stringify(attempt).includes('s'.repeat(43)))
+    const login = await service.checkBrowserLogin(attempt.id)
+    assert.equal(login.state, 'signed-in')
   })
   ctx.effect(() => ctx.tools.register(defineContentToolFixture({
     name: 'muse_selected_models', description: 'Read the signed-in Muse account model catalog.', parameters: {},
@@ -297,6 +310,7 @@ export async function apply(ctx) {
     assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
     assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
+    assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('s'.repeat(43)))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('supplier-fixture-'))
     if (direct) {

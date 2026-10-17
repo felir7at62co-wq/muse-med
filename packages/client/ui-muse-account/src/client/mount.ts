@@ -46,6 +46,9 @@ function registerSection(ctx: ClientContext): void {
     status: async request => outcomeOf(await ctx.remote.museAccount.status(request)),
     login: async request => outcomeOf(await ctx.remote.museAccount.login(request)),
     logout: async () => outcomeOf(await ctx.remote.museAccount.logout()),
+    startBrowserLogin: async () => outcomeOf(await ctx.remote.museAccount.startBrowserLogin()),
+    checkBrowserLogin: async id => outcomeOf(await ctx.remote.museAccount.checkBrowserLogin(id)),
+    cancelBrowserLogin: async id => outcomeOf(await ctx.remote.museAccount.cancelBrowserLogin(id)),
   }
   const injected = (): MuseAccountInjected => account
   ctx.slots.inject('settings.section', () => ctx.slots.register({

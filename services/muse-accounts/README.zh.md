@@ -24,6 +24,12 @@ kind: "package-reference"
 
 网关需要 Node 22 或更新版本，以及账号、模型、知识库路由使用的发布根目录 DSH 依赖。云端工作区模式和管理员运行时上下文还需要对应版本的 `muse-runtime` 与 `global` 发布目录；桌面工作区模式不启动云端 Agent。复制进每个新的不可变发布目录后，在本目录运行 `npm ci --omit=dev`；`package-lock.json` 锁定 TOS SDK 和 WebSocket 传输依赖。启用 ASR 时，服务器必须具备 `ffprobe`。账号数据库、知识库文件、凭据和 ASR 任务账本不得复制进发布树。
 
+### 桌面端浏览器登录
+
+`POST /api/desktop-login/start` 签发私密兑换密钥、公开授权网址与核对码。`/desktop-login` 网页复用已有登录，或在登录与注册过程中保留本次请求，再要求明确的同源授权确认。`POST /api/desktop-login/check` 必须携带原始密钥；授权仅可兑换一次，通过 `Set-Cookie` 签发独立的桌面会话。`POST /api/desktop-login/cancel` 取消尚未兑换的请求。密钥不进入 URL，首次签发后也不再出现在响应正文；授权和状态响应禁止缓存。兑换前退出网页登录、重置密码或撤销账号会使授权失效；兑换完成后，网页与桌面端分别退出。
+
+请求仅存在内存中，十分钟后到期，每进程最多1,000个；告知桌面端的轮询间隔为两秒。工厂参数 `desktopLoginOptions` 可配置 `ttlMs`、`maxAttempts` 与 `pollIntervalMs`。网关重启会清除待完成授权，单次兑换的结果丢失时需要重新登录。兑换后沿用既有的持久化会话策略。网关与桌面改动须配套部署；不需要注册操作系统 URL 协议或启动本地回调监听器。
+
 ### 账号会话
 
 网关会把 `MUSE_ACCOUNTS_FILE` 解析为绝对路径，并默认将登录会话写入同目录的 `sessions.json`；也可用 `MUSE_SESSIONS_FILE` 指定另一个绝对路径。两个文件都应位于不可变发布目录之外、不会暴露给用户的同一私有持久化目录。会话写入复用账号存储的仅所有者可访问目录和 0600 原子文件机制。文件只包含 token 的 SHA-256 摘要、账号 ID、账号 revision 与到期时间，不包含 bearer token 或 cookie 明文。一个会话文件只能由一个网关进程使用。

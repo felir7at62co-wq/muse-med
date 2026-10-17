@@ -7,6 +7,7 @@ import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MuseAccountController } from './account.ts'
+import { MuseBrowserLogin } from './browser-login.ts'
 import { MuseAsrClient } from './asr.ts'
 import { MuseVoiceSlotsClient } from './voice-slots.ts'
 import { MuseModels } from './models.ts'
@@ -160,7 +161,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     secrets: () => feedbackSecrets(ctx) })
   const voiceSlots = new MuseVoiceSlotsClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs })
-  const service = ctx.plugin(MuseAccountService, { controller, asr, models, feedback, voiceSlots,
+  const browserLogin = new MuseBrowserLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
+  ctx.effect(() => () => browserLogin.dispose(), 'muse-account: browser login')
+  const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots,
     ...(remote === undefined ? {} : { remote }) })
   await service.await()
 

@@ -34,6 +34,9 @@ interface PageFixture {
     status(request: MuseAccountStatusRequest): Promise<RemoteResult<MuseAccountStatus>>
     login(request: MuseAccountLoginRequest): Promise<RemoteResult<MuseAccountLoginResult>>
     logout(): Promise<RemoteResult<MuseAccountStatus>>
+    startBrowserLogin(): Promise<RemoteResult<import('../../../host/muse-account/src/types.ts').MuseBrowserLoginAttempt>>
+    checkBrowserLogin(id: import('../../../host/muse-account/src/types.ts').MuseBrowserLoginId): Promise<RemoteResult<import('../../../host/muse-account/src/types.ts').MuseBrowserLoginResult>>
+    cancelBrowserLogin(id: import('../../../host/muse-account/src/types.ts').MuseBrowserLoginId): Promise<RemoteResult<MuseAccountStatus>>
   }) => Promise<{ container: HTMLElement; registrations: () => number; dispose: () => Promise<void> }>
 }
 const { mountAccountPage } = await vi.importActual<PageFixture>('./account-host-page.client.tsx')
@@ -85,6 +88,9 @@ async function bench() {
         status: request => outcome(() => service.status(request)),
         login: request => outcome(() => service.login(request)),
         logout: () => outcome(() => service.logout()),
+        startBrowserLogin: () => outcome(() => service.startBrowserLogin()),
+        checkBrowserLogin: id => outcome(() => service.checkBrowserLogin(id)),
+        cancelBrowserLogin: id => outcome(() => service.cancelBrowserLogin(id)),
       })
       onTestFinished(page.dispose)
       return page

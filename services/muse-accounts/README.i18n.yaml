@@ -17,6 +17,9 @@
 /muse-accounts-gateway/release-inputs:
   en: cc1c5f9f8891e2f9
   zh: e99986fa909e9b88
+/muse-accounts-gateway/release-inputs/desktop-browser-sign-in:
+  en: af4d2ef62dc1cca8
+  zh: 1d6d66b170989ce3
 /muse-accounts-gateway/release-inputs/account-sessions:
   en: fb0191a5e31f7c23
   zh: f26d30d869fcc9b4

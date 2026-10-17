@@ -9,6 +9,23 @@ import type { FeedbackCategory } from '@deepseek-ai/dsh-command-feedback/types'
 /** Durable record ID returned by the Muse opinion inbox. */
 export type MuseFeedbackId = Branded<'MuseFeedbackId'>
 
+/** Short-lived Desktop login attempt issued by the account gateway. */
+export type MuseBrowserLoginId = Branded<'MuseBrowserLoginId'>
+
+/** Public approval fields; the Host retains the redemption secret privately. */
+export interface MuseBrowserLoginAttempt {
+  readonly id: MuseBrowserLoginId
+  readonly authorizeUrl: string
+  readonly code: string
+  readonly expiresAt: number
+  readonly pollIntervalMs: number
+}
+
+/** Browser approval state; successful identity is returned only after private local persistence. */
+export type MuseBrowserLoginResult =
+  | { readonly state: 'pending' | 'expired' | 'cancelled' }
+  | { readonly state: 'signed-in'; readonly status: Extract<MuseAccountStatus, { readonly state: 'signed-in' }> }
+
 /** Explicitly submitted desktop feedback; diagnostics are opt-in. */
 export interface MuseFeedbackRequest {
   readonly sessionId: SessionId

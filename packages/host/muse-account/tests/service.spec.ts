@@ -15,6 +15,56 @@ import type { MuseAccountStatus } from '../src/types.ts'
 
 const contexts: Context[] = []
 
+it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {
+  const context = new Context(), operations: string[] = []
+  contexts.push(context)
+  const id = 'attempt' as import('../src/types.ts').MuseBrowserLoginId
+  const attempt = { id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/desktop-login', expiresAt: Date.now() + 60_000, pollIntervalMs: 2000 }
+  const status = { state: 'signed-in', username: 'writer', verified: true } as const
+  const check = vi.fn<NonNullable<import('../src/service.ts').MuseAccountServiceOptions['browserLogin']>['check']>()
+    .mockResolvedValueOnce({ state: 'pending' }).mockResolvedValueOnce({ state: 'signed-in', status })
+  const controller = { status: async () => status, login: async () => { operations.push('login'); return { outcome: 'signed-in' as const, status } },
+    logout: async () => { operations.push('logout'); return { state: 'signed-out' as const } } }
+  await context.plugin(MuseAccountService, { controller, browserLogin: {
+    start: async () => attempt, check, cancel: async () => { operations.push('cancel') },
+  }, models: { refresh: async () => { operations.push('models') } }, remote: {
+    refresh: async () => { operations.push('remote') }, pause: async () => { operations.push('pause') },
+  } })
+  const service = context.get('museAccount') as MuseAccountService
+  expect(await service.startBrowserLogin()).toEqual(attempt)
+  expect(await service.checkBrowserLogin(id)).toEqual({ state: 'pending' })
+  expect(operations).toEqual([])
+  expect(await service.checkBrowserLogin(id)).toEqual({ state: 'signed-in', status })
+  expect(operations).toEqual(['remote', 'models'])
+  expect(await service.cancelBrowserLogin(id)).toEqual(status)
+  await service.login({ username: 'writer', password: 'password', registerIfMissing: false })
+  await service.logout()
+  expect(operations).toEqual(['remote', 'models', 'cancel', 'cancel', 'login', 'remote', 'models', 'cancel', 'pause', 'logout', 'models'])
+})
+
+it('bounds browser login failures and reports unavailable Hosts without exposing errors', async () => {
+  const context = new Context()
+  contexts.push(context)
+  const controller = { status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
+    login: async () => { throw new Error('unused') }, logout: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }) }
+  const id = 'attempt' as import('../src/types.ts').MuseBrowserLoginId
+  const empty = await context.plugin(MuseAccountService, { controller })
+  const service = context.get('museAccount') as MuseAccountService
+  await expect(service.startBrowserLogin()).rejects.toMatchObject({ code: 'muse-account/gateway-unavailable' })
+  await expect(service.checkBrowserLogin(id)).rejects.toMatchObject({ code: 'muse-account/gateway-unavailable' })
+  expect(await service.cancelBrowserLogin(id)).toEqual({ state: 'signed-out' })
+  await empty.dispose()
+  await context.plugin(MuseAccountService, { controller, browserLogin: {
+    start: async () => { throw new MuseGatewayError('rate-limited') },
+    check: async () => { throw new MuseGatewayError('gateway-rejected') },
+    cancel: async () => { throw new Error('private secret') },
+  } })
+  const failed = context.get('museAccount') as MuseAccountService
+  await expect(failed.startBrowserLogin()).rejects.toMatchObject({ code: 'muse-account/rate-limited' })
+  await expect(failed.checkBrowserLogin(id)).rejects.toMatchObject({ code: 'muse-account/gateway-rejected' })
+  await expect(failed.cancelBrowserLogin(id)).rejects.toMatchObject({ code: 'muse-account/storage-failed', message: 'MUSE account session could not be read or updated' })
+})
+
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async context => context.fiber.dispose()))
 })
@@ -30,7 +80,7 @@ it('publishes account setup and explicit inbox submission over the authenticated
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService
 
-  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout'])
+  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
   await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/unavailable', details: {} })
   await expect(service.login({ username: 'writer', password: 'secret-value', registerIfMissing: false }))
@@ -70,7 +120,7 @@ it('forwards the receipt purpose through the Host service without adding transcr
     expect(await service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay')).toEqual({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2' })
     await service.audioStatus(id)
     expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
-    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout'])
+    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
     const controller = new AbortController(), reason = new Error('cancelled service call')
     controller.abort(reason)
     await expect(service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay', controller.signal)).rejects.toBe(reason)

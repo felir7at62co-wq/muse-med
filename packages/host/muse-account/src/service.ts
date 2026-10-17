@@ -4,6 +4,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountController, MuseAccountInputError } from './account.ts'
 import { MuseGatewayError } from './gateway.ts'
+import type { MuseBrowserLogin } from './browser-login.ts'
+import type { MuseBrowserLoginAttempt, MuseBrowserLoginId, MuseBrowserLoginResult } from './types.ts'
 import { MuseAsrClient, type MuseAsrJob, type MuseAsrPurpose } from './asr.ts'
 import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
@@ -25,6 +27,7 @@ declare module '@deepseek-ai/cordis' {
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
   readonly controller: AccountOperations
+  readonly browserLogin?: Pick<MuseBrowserLogin, 'start' | 'check' | 'cancel'>
   readonly asr?: MuseAsrClient
   readonly models?: Pick<MuseModels, 'refresh'>
   readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
@@ -36,6 +39,7 @@ export interface MuseAccountServiceOptions {
 export class MuseAccountService extends TypertRemoteService {
   private readonly logger: Context['logger']
   private readonly controller: AccountOperations
+  private readonly browserLogin: MuseAccountServiceOptions['browserLogin']
   private readonly asr: MuseAsrClient | undefined
   private readonly models: Pick<MuseModels, 'refresh'> | undefined
   private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
@@ -50,6 +54,7 @@ export class MuseAccountService extends TypertRemoteService {
     super(ctx, 'museAccount')
     this.logger = ctx.logger
     this.controller = options.controller
+    this.browserLogin = options.browserLogin
     this.asr = options.asr
     this.models = options.models
     this.feedbackClient = options.feedback
@@ -120,16 +125,7 @@ export class MuseAccountService extends TypertRemoteService {
   async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus> {
     try {
       const status = await this.controller.status(request)
-      try {
-        await this.remote?.refresh()
-      } catch (error) {
-        this.logger.warn('Muse desktop connection refresh failed while reading account status; the saved account state remains authoritative.', error)
-      }
-      try {
-        await this.models?.refresh()
-      } catch (error) {
-        this.logger.warn('Muse model catalog refresh failed while reading account status; the saved account state remains authoritative.', error)
-      }
+      await this.refreshConsumers('status')
       return status
     } catch (error) {
       throw remoteFailure(error)
@@ -144,17 +140,9 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('login')
   async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult> {
     try {
+      await this.browserLogin?.cancel()
       const result = await this.controller.login(request)
-      try {
-        await this.remote?.refresh()
-      } catch (error) {
-        this.logger.warn('Muse desktop connection refresh failed after login; the saved account remains signed in.', error)
-      }
-      try {
-        await this.models?.refresh()
-      } catch (error) {
-        this.logger.warn('Muse model catalog refresh failed after login; the saved account remains signed in.', error)
-      }
+      await this.refreshConsumers('login')
       return result
     } catch (error) {
       throw remoteFailure(error)
@@ -168,6 +156,7 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('logout')
   async logout(): Promise<MuseAccountStatus> {
     try {
+      await this.browserLogin?.cancel()
       await this.remote?.pause()
       const status = await this.controller.logout()
       await this.models?.refresh()
@@ -175,6 +164,56 @@ export class MuseAccountService extends TypertRemoteService {
     } catch (error) {
       throw remoteFailure(error)
     }
+  }
+
+  private async refreshConsumers(phase: 'status' | 'login'): Promise<void> {
+    const context = phase === 'status'
+      ? 'while reading account status; the saved account state remains authoritative.'
+      : 'after login; the saved account remains signed in.'
+    try { await this.remote?.refresh() }
+    catch (error) { this.logger.warn(`Muse desktop connection refresh failed ${context}`, error) }
+    try { await this.models?.refresh() }
+    catch (error) { this.logger.warn(`Muse model catalog refresh failed ${context}`, error) }
+  }
+
+  /**
+   * Start browser approval for this Desktop Host.
+   * @returns A browser approval URL and matching code, without its redemption secret.
+   */
+  @Remote('startBrowserLogin')
+  async startBrowserLogin(): Promise<MuseBrowserLoginAttempt> {
+    try {
+      if (this.browserLogin === undefined) throw new MuseGatewayError('gateway-unavailable')
+      return await this.browserLogin.start()
+    } catch (error) { throw remoteFailure(error) }
+  }
+
+  /**
+   * Complete an approved login and refresh account consumers.
+   * @param id - Attempt owned by this Host.
+   * @returns Pending or terminal browser-safe state after local session persistence.
+   */
+  @Remote('checkBrowserLogin')
+  async checkBrowserLogin(id: MuseBrowserLoginId): Promise<MuseBrowserLoginResult> {
+    try {
+      if (this.browserLogin === undefined) throw new MuseGatewayError('gateway-unavailable')
+      const result = await this.browserLogin.check(id)
+      if (result.state === 'signed-in') await this.refreshConsumers('login')
+      return result
+    } catch (error) { throw remoteFailure(error) }
+  }
+
+  /**
+   * Cancel an unredeemed approval and read the account after any already-running commit settles.
+   * @param id - Exact attempt to cancel.
+   * @returns Current local account state.
+   */
+  @Remote('cancelBrowserLogin')
+  async cancelBrowserLogin(id: MuseBrowserLoginId): Promise<MuseAccountStatus> {
+    try {
+      await this.browserLogin?.cancel(id)
+      return await this.controller.status()
+    } catch (error) { throw remoteFailure(error) }
   }
 }
 

@@ -8,6 +8,8 @@ import type { MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/d
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const SIGNED_OUT: MuseAccountStatus = { state: 'signed-out' }
@@ -18,12 +20,87 @@ function props(overrides: Partial<MuseAccountInjected> = {}): MuseAccountSection
     status: vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT })),
     login: vi.fn(async () => ({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } })),
     logout: vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT })),
+    startBrowserLogin: vi.fn(async () => ({ ok: false as const, code: 'muse-account/gateway-unavailable' })),
+    checkBrowserLogin: vi.fn(async () => ({ ok: true as const, value: { state: 'pending' as const } })),
+    cancelBrowserLogin: vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT })),
     ...overrides,
   }
   return { t: (key: string) => key, ...injected } as MuseAccountSectionProps
 }
 
 describe('MuseAccountSection', () => {
+  it.each(['saved', 'failed'] as const)('shows the actual account after cancellation races a commit: %s', async (outcome) => {
+    const id = 'attempt' as import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    const cancelBrowserLogin = vi.fn<MuseAccountInjected['cancelBrowserLogin']>().mockResolvedValue(outcome === 'saved'
+      ? { ok: true, value: SIGNED_IN } : { ok: false, code: 'muse-account/gatewayUnavailable' })
+    render(<MuseAccountSection {...props({ cancelBrowserLogin,
+      startBrowserLogin: async () => ({ ok: true, value: { id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/', expiresAt: Date.now() + 60_000, pollIntervalMs: 2000 } }),
+      checkBrowserLogin: async () => ({ ok: true, value: { state: 'pending' } }),
+    })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'browserCancel' }))
+    expect(await screen.findByText(outcome === 'saved' ? 'signedIn' : 'error.generic')).toBeDefined()
+    expect(screen.queryByText('browserCancelled')).toBeNull()
+  })
+
+  it('recovers an interrupted result check without starting or opening another login', async () => {
+    const id = 'attempt' as import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const startBrowserLogin = vi.fn<MuseAccountInjected['startBrowserLogin']>().mockResolvedValue({ ok: true,
+      value: { id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/', expiresAt: Date.now() + 60_000, pollIntervalMs: 2000 } })
+    const checkBrowserLogin = vi.fn<MuseAccountInjected['checkBrowserLogin']>()
+      .mockResolvedValueOnce({ ok: false, code: 'muse-account/gateway-unavailable' })
+      .mockResolvedValueOnce({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } })
+    render(<MuseAccountSection {...props({ startBrowserLogin, checkBrowserLogin })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'browserCheck' }))
+    expect(await screen.findByText('signedIn')).toBeDefined()
+    expect(startBrowserLogin).toHaveBeenCalledOnce()
+    expect(open).toHaveBeenCalledOnce()
+  })
+
+  it('opens browser approval and automatically shows the saved account after polling', async () => {
+    const id = 'attempt' as import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId
+    const startBrowserLogin = vi.fn(async () => ({ ok: true as const, value: {
+      id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/desktop-login?attempt=attempt', expiresAt: Date.now() + 600_000, pollIntervalMs: 2000,
+    } }))
+    const checkBrowserLogin = vi.fn<MuseAccountInjected['checkBrowserLogin']>()
+      .mockResolvedValueOnce({ ok: true, value: { state: 'pending' } })
+      .mockResolvedValueOnce({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null), onSignedIn = vi.fn()
+    const page = render(<MuseAccountSection {...props({ startBrowserLogin, checkBrowserLogin })} onSignedIn={onSignedIn} />)
+    const button = await screen.findByRole('button', { name: 'browserSignIn' })
+    vi.useFakeTimers()
+    await act(async () => { fireEvent.click(button) })
+    expect(open).toHaveBeenCalledExactlyOnceWith('https://muse.test/desktop-login?attempt=attempt', '_blank', 'noopener,noreferrer')
+    expect(checkBrowserLogin).toHaveBeenCalledExactlyOnceWith(id)
+    expect(screen.getByText('browserWaiting')).toBeDefined()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(screen.getByText('signedIn')).toBeDefined()
+    expect(onSignedIn).toHaveBeenCalledOnce()
+    page.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancels an approval when the page closes and ignores its late result', async () => {
+    const id = 'attempt' as import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId
+    const cancelBrowserLogin = vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT }))
+    let finish!: (value: Awaited<ReturnType<MuseAccountInjected['checkBrowserLogin']>>) => void
+    const onSignedIn = vi.fn()
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    const page = render(<MuseAccountSection {...props({
+      startBrowserLogin: async () => ({ ok: true, value: { id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/', expiresAt: Date.now() + 60_000, pollIntervalMs: 2000 } }),
+      checkBrowserLogin: () => new Promise((resolve) => { finish = resolve }), cancelBrowserLogin,
+    })} onSignedIn={onSignedIn} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
+    await screen.findByText('browserWaiting')
+    page.unmount()
+    expect(cancelBrowserLogin).toHaveBeenCalledWith(id)
+    await act(async () => { finish({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } }) })
+    expect(onSignedIn).not.toHaveBeenCalled()
+  })
+
   it('requires credentials and signs in without registration by default', async () => {
     const login = vi.fn(async () => ({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } }))
     render(<MuseAccountSection {...props({ login })} />)

@@ -13,6 +13,9 @@ interface AccountTransport {
   status(request: MuseAccountStatusRequest): Promise<RemoteResult<MuseAccountStatus>>
   login(request: MuseAccountLoginRequest): Promise<RemoteResult<MuseAccountLoginResult>>
   logout(): Promise<RemoteResult<MuseAccountStatus>>
+  startBrowserLogin(): Promise<RemoteResult<import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginAttempt>>
+  checkBrowserLogin(id: import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId): Promise<RemoteResult<import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginResult>>
+  cancelBrowserLogin(id: import('@deepseek-ai/dsh-muse-account/types').MuseBrowserLoginId): Promise<RemoteResult<MuseAccountStatus>>
 }
 
 function AccountRoot({ renderSlot }: PropsRenderSlots<'settings.section'>) {

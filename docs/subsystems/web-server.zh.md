@@ -170,6 +170,26 @@ async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
  * @returns Signed-out status after the gateway accepts the logout.
  */
 @Remote('logout') async logout(): Promise<MuseAccountStatus>
+
+/**
+ * Start browser approval for this Desktop Host.
+ * @returns A browser approval URL and matching code, without its redemption secret.
+ */
+@Remote('startBrowserLogin') async startBrowserLogin(): Promise<MuseBrowserLoginAttempt>
+
+/**
+ * Complete an approved login and refresh account consumers.
+ * @param id - Attempt owned by this Host.
+ * @returns Pending or terminal browser-safe state after local session persistence.
+ */
+@Remote('checkBrowserLogin') async checkBrowserLogin(id: MuseBrowserLoginId): Promise<MuseBrowserLoginResult>
+
+/**
+ * Cancel an unredeemed approval and read the account after any already-running commit settles.
+ * @param id - Exact attempt to cancel.
+ * @returns Current local account state.
+ */
+@Remote('cancelBrowserLogin') async cancelBrowserLogin(id: MuseBrowserLoginId): Promise<MuseAccountStatus>
 ```
 
 Source: [`packages/host/muse-account/src/service.ts`](../../packages/host/muse-account/src/service.ts)
