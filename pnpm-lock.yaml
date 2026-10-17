@@ -880,7 +880,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
       '@deepseek-ai/schemastery':
-        specifier: workspace:~
+        specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis-plugin-loader':
