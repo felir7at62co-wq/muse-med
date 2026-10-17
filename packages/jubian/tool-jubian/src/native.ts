@@ -468,7 +468,8 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
       duration_seconds: material.audioDuration ?? null,
       duration_basis: material.audioDuration === undefined || material.audioDuration === null
         ? 'unavailable' : 'saved_metadata', duration_verified: false })),
-    next: '生成前请检查：提示词、素材用途与身份、原文对白、动作与空间关系、时长、生成范围和费用；发现问题先修正。'
+    next: '生成前请检查：提示词、每包用到且有对应素材的角色/场景/道具/音频是否都已@引用并明确用途、'
+      + '引用名称/key与实际选材绑定是否一致、原文对白、动作与空间关系、时长、生成范围和费用；发现问题先修正。'
       + 'prepare 只写 preview：不 PUT、不创建任务、不收费。自主检查后调用 submit_video 或 submit_video_batch，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
 }

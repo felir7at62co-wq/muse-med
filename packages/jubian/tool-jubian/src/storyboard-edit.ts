@@ -11,7 +11,8 @@ import { readPreparedJson } from './prepared-file.ts'
 
 /** Prompt-write guidance returned before free edits, without approval state or an additional tool step. */
 export const STORYBOARD_WRITE_REMINDER = '写入前请检查：项目与分集、已有视频卡 ID 及逐卡视频包对应、before/after 与本次修改范围、'
-  + '提示词和原文对白、素材标记与用途、动作和空间关系、所选模型与时长；发现问题先修正。'
+  + '按内容分包而非填满空卡、提示词和原文对白、每包用到且有对应素材的角色/场景/道具/音频是否都已@引用并明确用途、'
+  + '引用名称/key与拟绑定素材是否一致、动作和空间关系、所选模型与时长；发现问题先修正。'
 
 type Row = Record<string, unknown>
 const MODEL_KEYS = ['modelId', 'platformId', 'ratio', 'resolution', 'genType', 'duration', 'genNum'] as const

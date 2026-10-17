@@ -1169,7 +1169,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         path: `/aigc/storyboard/list?scriptId=${scriptId}&${page(args)}` })
       return { storyboards: readStoryboardPage(result.data, scriptId), page_num: args.page_num ?? 1,
         page_size: args.page_size ?? 20,
-        next: '按 total 与分页读取当前项目；total 未返回时继续到空页。写提示词默认按分集选择已有视频卡，get 读取详情，'
+        next: '按 total 与分页读取当前项目；total 未返回时继续到空页。先按内容确定视频包，不按空卡数量分包，多余空卡保留不用。'
+          + '再按分集选择已有视频卡，get 读取详情，'
           + '再 edit_preview/edit_batch_preview → edit_apply 原位填写；仅已有卡不足或用户明确要求新增时 create/create_batch。空项目无需模型配置或手工样本。' }
     }
     case 'get': {
