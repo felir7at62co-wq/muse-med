@@ -8,15 +8,14 @@ import tarfile
 package = Path(__file__).resolve().parents[1]
 manifest = json.loads((package / "package.json").read_text(encoding="utf-8"))
 
-# All authored skill resources must ship except the retained, non-product XHS
-# directory. Bytecode and the .gitignore-owned local ASR cache are not source.
+# All authored skill resources must ship. Bytecode and the .gitignore-owned
+# local ASR cache are not source.
 def authored(directory):
     return {
         path.relative_to(package).as_posix()
         for path in (package / directory).rglob("*")
         if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
         and "tests" not in path.relative_to(package / directory).parts
-        and path.relative_to(package / directory).parts[0] != "xiaohongshu-reference"
         and not path.is_relative_to(package / "skills/tweet-drama-draft-build/models")
     }
 

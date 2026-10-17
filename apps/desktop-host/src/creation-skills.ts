@@ -44,7 +44,6 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'tweet-drama-voice-continuity',
   'video-review',
   'wechat-shortdrama-harvest',
-  'xiaohongshu-reference',
 ]
 const allowed = new Set(CREATION_SKILL_NAMES)
 const forwardingChanges = new WeakSet<Context>()

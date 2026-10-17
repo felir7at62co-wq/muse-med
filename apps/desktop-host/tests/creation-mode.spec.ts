@@ -136,10 +136,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const catalog = initial.messages.find(message => message.source.kind === 'skill-catalog')
     if (catalog?.source.kind !== 'skill-catalog') throw new Error('The initial creation skill catalog is missing')
     const initialNames = catalog.source.entries.map(entry => entry.name)
-    for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+    for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['muse-script-doctor', 'muse-dialogue-polish', 'xiaohongshu-reference']) {
+    for (const name of ['muse-script-doctor', 'muse-dialogue-polish']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
@@ -244,7 +244,7 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(names).toContain('muse-script-doctor')
     expect(names).not.toContain('tweet-drama-pipeline')
     expect(names).toContain('muse-script-editing')
-    expect(names).toContain('xiaohongshu-reference')
+    expect(names).not.toContain('xiaohongshu-reference')
     expect(names).not.toContain('hidden-authoring')
     expect(names).not.toContain('tweet-drama-key-manager')
     const removeOffice = f.ctx.skills.register({ name: 'office-docx', description: 'Late Office resource',
@@ -270,14 +270,8 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(dialogue).toBeDefined()
     expect(dialogue?.content).toBe(originalDialogue?.content)
     expect(dialogue?.resourceBase).toEqual(originalDialogue?.resourceBase)
-    const xiaohongshu = await skills.get('xiaohongshu-reference', { scope: f.agent })
-    const originalXiaohongshu = await f.ctx.skills.get('xiaohongshu-reference')
-    expect(xiaohongshu).toBeDefined()
-    expect(xiaohongshu?.content).toBe(originalXiaohongshu?.content)
-    expect(xiaohongshu?.resourceBase).toEqual(originalXiaohongshu?.resourceBase)
-    expect(xiaohongshu?.content).toContain('用户明确另选小红书')
-    expect(xiaohongshu?.content).toContain('不安装或启动服务')
-    expect(xiaohongshu?.content).toContain('未明确提供 endpoint 时暂停')
+    expect(await skills.get('xiaohongshu-reference', { scope: f.agent })).toBeUndefined()
+    expect(await f.ctx.skills.get('xiaohongshu-reference')).toBeUndefined()
     expect(await skills.get('hidden-authoring', { scope: f.agent })).toBeUndefined()
     let value: unknown
     f.runtime.behavior = async (spec) => {

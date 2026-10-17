@@ -237,10 +237,7 @@ class StyleReferencesTests(unittest.TestCase):
         vision = (skills / "tweet-drama-asset-vision-check/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("同一候选", vision)
         self.assertIn("新候选", vision)
-        optional = (skills / "xiaohongshu-reference/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("未明确提供 endpoint 时暂停", optional)
-        self.assertNotIn("默认短剧流程使用用户本地参考图", optional)
-        self.assertNotIn("2. 运行 `scripts/start_xiaohongshu_mcp.ps1`", optional)
+        self.assertFalse((skills / "xiaohongshu-reference").exists())
 
 
 if __name__ == "__main__":

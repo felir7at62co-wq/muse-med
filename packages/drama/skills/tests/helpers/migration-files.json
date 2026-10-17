@@ -13,13 +13,5 @@
   "tweet-drama-key-manager/scripts/check_keys.py",
   "tweet-drama-project-inspect/SKILL.md",
   "tweet-drama-project-inspect/agents/openai.yaml",
-  "tweet-drama-project-inspect/references/io-contract.md",
-  "xiaohongshu-reference/SKILL.md",
-  "xiaohongshu-reference/agents/openai.yaml",
-  "xiaohongshu-reference/references/usage-contract.md",
-  "xiaohongshu-reference/references/LICENSE.xiaohongshu-mcp.txt",
-  "xiaohongshu-reference/scripts/install_xiaohongshu_mcp.ps1",
-  "xiaohongshu-reference/scripts/start_xiaohongshu_mcp.ps1",
-  "xiaohongshu-reference/scripts/xhs_reference_search.py",
-  "xiaohongshu-reference/scripts/xhs_release_manifest.json"
+  "tweet-drama-project-inspect/references/io-contract.md"
 ]

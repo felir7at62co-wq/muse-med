@@ -104,7 +104,7 @@ export async function apply(ctx) {
       'The automatic catalog instructs matching tasks to load the full skill')
     assert.ok(catalogs.includes('This catalog contains summaries only; do not infer or follow'),
       'The automatic catalog does not substitute summaries for full skill instructions')
-    assert.ok(entries.some(skill => skill.name === 'xiaohongshu-reference'), 'The optional reference skill remains discoverable')
+    assert.ok(!entries.some(skill => skill.name === 'xiaohongshu-reference'), 'The removed reference skill is absent from the catalog')
     const source = await ctx.skills.get('muse-dialogue-polish', { scope: agent, cwd: agent.session.header.cwd })
     assert.ok(source, 'The original professional skill is available')
     assert.equal(source.resourceBase.kind, 'directory')

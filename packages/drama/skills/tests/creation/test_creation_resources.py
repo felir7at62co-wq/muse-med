@@ -141,8 +141,6 @@ class CreationResourcesTests(unittest.TestCase):
         """
         checked = 0
         for path in sorted(SKILLS.rglob("*.md")):
-            if "xiaohongshu-reference" in path.parts:
-                continue
             with self.subTest(path=path):
                 text = path.read_text(encoding="utf-8")
                 self.assertIsNone(FIXED_INSTALL_ROOT.search(text),

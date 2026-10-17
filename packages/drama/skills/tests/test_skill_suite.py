@@ -15,7 +15,7 @@ from validate_live_action_skills import validate_skill_package
 EXPECTED = {
     "anime-3d-assets",
     "character-reference-library",
-    "jubian-snatch", "xiaohongshu-reference",
+    "jubian-snatch",
     "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",
     "tweet-drama-draft-build", "tweet-drama-key-manager",

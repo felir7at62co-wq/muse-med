@@ -311,16 +311,6 @@ class HelperMigrationTests(unittest.TestCase):
                     result = module.main()
             self.assertEqual(result, 0)
 
-    def test_xhs_runtime_is_user_owned_and_shared_with_installer(self):
-        scripts = SKILLS / "xiaohongshu-reference/scripts"
-        installer = (scripts / "install_xiaohongshu_mcp.ps1").read_text(encoding="utf-8")
-        starter = (scripts / "start_xiaohongshu_mcp.ps1").read_text(encoding="utf-8")
-        for text in (installer, starter):
-            self.assertIn("$env:DSH_HOME", text)
-            self.assertIn("$env:XIAOHONGSHU_RUNTIME", text)
-        self.assertIn("-InstallDir $runtime", starter)
-        self.assertIn("python -B $client", starter)
-
     def test_convert_text_preserves_dialogue(self):
         module = load("tweet-drama-script-convert", "convert_script.py")
         self.assertEqual(module.normalize_text("第1集\r\n旁白：你好。\r\n角色OS：再见。"), "第1集\n旁白：你好。\n角色OS：再见。\n")
@@ -331,13 +321,6 @@ class HelperMigrationTests(unittest.TestCase):
         text = (SKILLS / "tweet-drama-project-inspect/SKILL.md").read_text(encoding="utf-8")
         for rule in ("至少 2 首", "情绪", "旁白", "OS", "实时目录允许时长", "比例和分辨率"):
             self.assertIn(rule, text)
-
-    def test_xhs_write_tools_rejected_without_network(self):
-        module = load("xiaohongshu-reference", "xhs_reference_search.py")
-        client = module.XhsMcpClient("http://127.0.0.1:1/mcp")
-        with patch.object(client, "_rpc", side_effect=AssertionError("network forbidden")):
-            with self.assertRaises(PermissionError):
-                client.call_tool("like_feed", {})
 
 
 if __name__ == "__main__":
