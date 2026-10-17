@@ -16,6 +16,8 @@ import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import * as yaml from 'js-yaml'
 import {
+  DESKTOP_DRAMA_SKILLS_PACKAGE,
+  DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
   DESKTOP_HOST_PACKAGE,
   DESKTOP_HOST_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
@@ -121,12 +123,25 @@ function packedPackages(inputs: readonly string[]): Map<string, PackedDesktopPac
  * @returns Nothing.
  */
 export function assertDesktopHostPackageFiles(files: readonly string[]): void {
+  assertPackageFiles(DESKTOP_HOST_PACKAGE, DESKTOP_HOST_RUNTIME_FILES, files)
+}
+
+/**
+ * Require the shot-writing skills from the selected drama resource tarball.
+ * @param files - Tarball paths rooted at `package/`.
+ * @returns Nothing.
+ */
+export function assertDesktopDramaSkillPackageFiles(files: readonly string[]): void {
+  assertPackageFiles(DESKTOP_DRAMA_SKILLS_PACKAGE, DESKTOP_DRAMA_SKILL_RUNTIME_FILES, files)
+}
+
+function assertPackageFiles(name: string, required: readonly string[], files: readonly string[]): void {
   const available = new Set(files)
-  const missing = DESKTOP_HOST_RUNTIME_FILES
+  const missing = required
     .map(file => `package/${file}`)
     .filter(file => !available.has(file))
   if (missing.length > 0) {
-    throw new Error(`desktop package set: ${DESKTOP_HOST_PACKAGE} tarball omits required file(s): ${missing.join(', ')}`)
+    throw new Error(`desktop package set: ${name} tarball omits required file(s): ${missing.join(', ')}`)
   }
 }
 
@@ -136,6 +151,9 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const host = selected.find(packed => packed.manifest.name === DESKTOP_HOST_PACKAGE)
   if (host === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_HOST_PACKAGE}`)
   assertDesktopHostPackageFiles(tarballFiles(host.tarball))
+  const dramaSkills = selected.find(packed => packed.manifest.name === DESKTOP_DRAMA_SKILLS_PACKAGE)
+  if (dramaSkills === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_DRAMA_SKILLS_PACKAGE}`)
+  assertDesktopDramaSkillPackageFiles(tarballFiles(dramaSkills.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

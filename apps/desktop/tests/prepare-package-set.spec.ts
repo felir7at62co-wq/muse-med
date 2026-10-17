@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
+  assertDesktopDramaSkillPackageFiles,
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
   type PackedDesktopPackage,
@@ -133,12 +134,11 @@ describe('desktop package-set selection', () => {
       ]),
       'package/presets/cordis/skills/cordis-plugin-development/SKILL.md',
       'package/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
-      'package/skills/editing/SKILL.md',
       'package/skills/audio-transcribe/SKILL.md',
       'package/skills/audio-transcribe/scripts/transcribe.py',
-      'package/skills/transcript-to-novel/SKILL.md',
-      'package/skills/transcript-to-script/SKILL.md',
-      'package/skills/media-link-import/SKILL.md',
+      'package/skills/muse-script-doctor/SKILL.md',
+      'package/skills/reviewing-micro-drama-scripts/SKILL.md',
+      'package/skills/screenplay-format/SKILL.md',
       'package/skills/media-link-import/scripts/import_media.py',
     ]
     for (const required of files.slice(1)) {
@@ -152,5 +152,20 @@ describe('desktop package-set selection', () => {
       assertDesktopHostPackageFiles(files.slice(1))
     }).toThrow(/lib\/index\.js/u)
     expect(() => { assertDesktopHostPackageFiles(files.slice(0, 1)) }).toThrow(/lib\/cli\.js/u)
+    const disabled = ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']
+      .map(name => `package/skills/${name}/SKILL.md.disabled`)
+    expect(() => { assertDesktopHostPackageFiles([...files, ...disabled]) }).not.toThrow()
+  })
+
+  it('requires both shot-writing skills from the drama resource package', () => {
+    const files = [
+      'package/skills/shot-script-creator-16-9-3d/SKILL.md',
+      'package/skills/shot-script-creator-9-16/SKILL.md',
+    ]
+    expect(() => { assertDesktopDramaSkillPackageFiles(files) }).not.toThrow()
+    for (const required of files) {
+      expect(() => { assertDesktopDramaSkillPackageFiles(files.filter(file => file !== required)) }).toThrow(required)
+      expect(() => { assertDesktopDramaSkillPackageFiles(files.map(file => file === required ? `${file}.disabled` : file)) }).toThrow(required)
+    }
   })
 })

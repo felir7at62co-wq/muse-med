@@ -13,6 +13,9 @@ export const DESKTOP_PACKAGES_DIR = 'desktop-packages'
 /** Private package installed beside dsh to boot the Desktop Host process. */
 export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 
+/** Maintained short-drama resources installed beside the private Host. */
+export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
+
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -34,13 +37,18 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   // the agent to load them, so the packaged Host has to carry them beside the composition.
   'presets/cordis/skills/cordis-plugin-development/SKILL.md',
   'presets/cordis/skills/editing-cordis-compositions/SKILL.md',
-  'skills/editing/SKILL.md',
   'skills/audio-transcribe/SKILL.md',
   'skills/audio-transcribe/scripts/transcribe.py',
-  'skills/transcript-to-novel/SKILL.md',
-  'skills/transcript-to-script/SKILL.md',
-  'skills/media-link-import/SKILL.md',
+  'skills/muse-script-doctor/SKILL.md',
+  'skills/reviewing-micro-drama-scripts/SKILL.md',
+  'skills/screenplay-format/SKILL.md',
   'skills/media-link-import/scripts/import_media.py',
+] as const
+
+/** Shot-writing skills required from their independently packed resource package. */
+export const DESKTOP_DRAMA_SKILL_RUNTIME_FILES = [
+  'skills/shot-script-creator-16-9-3d/SKILL.md',
+  'skills/shot-script-creator-9-16/SKILL.md',
 ] as const
 
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
