@@ -20,7 +20,7 @@ import {
 import { smokePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
-import { verifyCodexRuntime } from './verify-codex-runtime.ts'
+import { resolveCodexRuntimeVersion, verifyCodexRuntime } from './verify-codex-runtime.ts'
 import { desktopFetchTimeout } from './desktop-fetch-timeout.ts'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
@@ -134,6 +134,7 @@ async function main(): Promise<void> {
       `--fetch-timeout=${desktopFetchTimeout(process.env)}`,
     ]))
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
+    const packageNames = packageSet.packages.map(entry => entry.name)
     const targetName = resolveDesktopBuildTarget()
     const target = { platform: process.platform, arch: desktopTargetPlatform(targetName).arch }
     const modules = join(BUILD_ROOT, 'node_modules')
@@ -172,13 +173,11 @@ async function main(): Promise<void> {
     }
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))
-    const sourceProvider = JSON.parse(readFileSync(resolve(APP_ROOT, '../../packages/subagent/subagent-codex/package.json'), 'utf8')) as {
-      dependencies?: Record<string, unknown>
+    const codexVersion = resolveCodexRuntimeVersion(packageNames, resolve(APP_ROOT, '../../packages/subagent/subagent-codex/package.json'))
+    if (codexVersion !== undefined) {
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-codex', () => verifyCodexRuntime(DSH_OUTPUT_ROOT, NODE, codexVersion, target))
     }
-    const codexVersion = sourceProvider.dependencies?.['@openai/codex']
-    if (typeof codexVersion !== 'string') throw new Error('desktop runtime: source Codex provider has no CLI dependency pin')
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-codex', () => verifyCodexRuntime(DSH_OUTPUT_ROOT, NODE, codexVersion, target))
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageNames, target))
     const descriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     if (!process.argv.includes('--defer-runtime-smoke')) {
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor))

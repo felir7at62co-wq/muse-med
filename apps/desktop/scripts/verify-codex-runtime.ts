@@ -14,6 +14,22 @@ interface PackageManifest {
   bin?: { codex?: string }
 }
 
+const CODEX_PROVIDER_PACKAGE = '@deepseek-ai/dsh-subagent-codex'
+
+/**
+ * Read the source CLI pin only when the validated package set selects its provider.
+ * @param packageNames - Packages selected for this Desktop runtime.
+ * @param sourceProviderManifest - Source manifest that owns the Codex CLI dependency.
+ * @returns The required CLI version, or undefined when Codex is absent from the package set.
+ */
+export function resolveCodexRuntimeVersion(packageNames: readonly string[], sourceProviderManifest: string): string | undefined {
+  if (!packageNames.includes(CODEX_PROVIDER_PACKAGE)) return undefined
+  const provider = JSON.parse(readFileSync(sourceProviderManifest, 'utf8')) as PackageManifest
+  const version = provider.dependencies?.['@openai/codex']
+  if (typeof version !== 'string') throw new Error('desktop runtime: source Codex provider has no CLI dependency pin')
+  return version
+}
+
 /**
  * Resolve only payload-local packages and run the CLI without profile credentials.
  * @param root - Final copied Desktop runtime, before its descriptor is published.
@@ -36,7 +52,7 @@ export async function verifyCodexRuntime(
   }
   const manifest = (path: string): PackageManifest => JSON.parse(readFileSync(owned(path), 'utf8')) as PackageManifest
   // Package-set roots are direct runtime dependencies; bypass the build launcher's workspace aliases.
-  const providerPath = owned(join(directory, 'node_modules/@deepseek-ai/dsh-subagent-codex/package.json'))
+  const providerPath = owned(join(directory, 'node_modules', CODEX_PROVIDER_PACKAGE, 'package.json'))
   if (manifest(providerPath).dependencies?.['@openai/codex'] !== expectedVersion) {
     throw new Error('desktop runtime: Codex provider dependency differs from its source pin')
   }

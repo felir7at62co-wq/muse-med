@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
-import { verifyCodexRuntime } from '../scripts/verify-codex-runtime.ts'
+import { resolveCodexRuntimeVersion, verifyCodexRuntime } from '../scripts/verify-codex-runtime.ts'
 
 const provider = JSON.parse(readFileSync(new URL('../../../packages/subagent/subagent-codex/package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> }
 const version = provider.dependencies['@openai/codex']!
@@ -31,6 +31,27 @@ function fixture() {
   put(wrapper, `if(process.argv[2] !== '--version' || process.env.CODEX_HOME === undefined) process.exit(2); console.log('codex-cli ${version}')\n`)
   return { temporary, root, providerManifest, cliManifest, platformManifest, wrapper }
 }
+
+it('does not require a source Codex manifest for a runtime that omits its provider', () => {
+  expect(resolveCodexRuntimeVersion(['@deepseek-ai/dsh-desktop-host'], 'missing-codex-provider.json')).toBeUndefined()
+})
+
+it('reads the source CLI pin when its provider is selected', () => {
+  const value = fixture()
+  expect(resolveCodexRuntimeVersion(['@deepseek-ai/dsh-subagent-codex'], value.providerManifest)).toBe(version)
+})
+
+it('rejects a selected provider without a source CLI pin', () => {
+  const value = fixture()
+  put(value.providerManifest, '{}')
+  expect(() => resolveCodexRuntimeVersion(['@deepseek-ai/dsh-subagent-codex'], value.providerManifest)).toThrow(/pin/u)
+})
+
+it('rejects a selected provider missing from the materialized runtime', async () => {
+  const value = fixture()
+  rmSync(dirname(value.providerManifest), { recursive: true })
+  await expect(verifyCodexRuntime(value.root, process.execPath, version, target)).rejects.toThrow()
+})
 
 it('executes the payload wrapper with the supplied Node and the source provider pin', async () => {
   await expect(verifyCodexRuntime(fixture().root, process.execPath, version, target)).resolves.toBeUndefined()

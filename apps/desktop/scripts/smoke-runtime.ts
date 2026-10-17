@@ -22,8 +22,8 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
  * @param home - Disposable smoke home and workspace.
- * @returns ESM plugin source requiring shared editing tools, its current identity and Word delivery guidance,
- * bundled skills, and completed Agent disposal. Editing delegation tools may be absent or inherited.
+ * @returns ESM plugin source checking current product tools, professional skills, disabled resources,
+ * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -46,6 +46,9 @@ export function apply(ctx) {
     throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
+  if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
+    throw new Error('desktop runtime: retired editing preset must resolve to short-drama')
+  }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
   const preset = await ctx.agentPresets.resolve(id)
@@ -66,7 +69,7 @@ export function apply(ctx) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
-      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
+      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
       'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
@@ -110,7 +113,7 @@ export function apply(ctx) {
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
     const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
     if (id === 'creation') {
-      for (const name of ['muse-script-editing', 'office-docx', 'office-xlsx', 'office-pptx', 'video-review']) {
+      for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
@@ -118,38 +121,42 @@ export function apply(ctx) {
       if (skills.some(skill => !creationSkillNames.has(skill.name))) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
-      const router = skills.find(skill => skill.name === 'muse-script-editing')
-      const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
-        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
-      if (!router?.path || !existsSync(expected) || realpathSync.native(router.path) !== realpathSync.native(expected)) {
-        throw new Error('desktop runtime: creation routing skill is not packaged')
-      }
     }
     if (names.has('skill')) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
-      for (const name of ['audio-transcribe', 'transcript-to-novel', 'transcript-to-script', 'media-link-import',
-        'novel-to-script', 'trope-adaptation', 'muse-llm-wiki', 'muse-project-participation', 'jubian-snatch', 'wechat-shortdrama-harvest']) {
+      for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
+        'muse-dialogue-polish', 'muse-episode-design', 'muse-llm-wiki', 'muse-project-participation',
+        'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
+        'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
+        if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
+          throw new Error('desktop runtime: retired Host skill is enabled: ' + directory)
+        }
+      }
+      if (skills.some(skill => skill.invocation.modelInvocable && skill.path.endsWith('SKILL.md.disabled'))) {
+        throw new Error('desktop runtime: disabled skill is model-invocable')
+      }
+      for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !existsSync(expected)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
+        }
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        if (!loaded?.content?.trim() || !existsSync(loaded.path)
+          || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
+          throw new Error('desktop runtime: professional skill did not load from the packaged Host: ' + name)
         }
       }
       for (const [name, guide] of [
-        ['muse-episode-design', 'episode-workflow.md'],
         ['muse-script-doctor', 'doctor-workflow.md'],
-        ['muse-dialogue-polish', 'dialogue-workflow.md'],
+        ['screenplay-format', 'writing-quality.md'],
+        ['screenplay-format', 'narrative-layers.md'],
+        ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],
       ]) {
-        const skill = skills.find(value => value.name === name)
-        const expected = join(productSkills, name, 'SKILL.md')
-        if (!skill?.invocation.modelInvocable || !existsSync(expected)
-          || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
-          throw new Error('desktop runtime: missing shared Muse skill ' + name)
-        }
         if (!existsSync(join(productSkills, name, 'references', guide))) {
-          throw new Error('desktop runtime: missing editing method guide ' + name)
+          throw new Error('desktop runtime: missing professional method guide ' + name + '/' + guide)
         }
       }
       for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1']) {
@@ -179,13 +186,6 @@ export function apply(ctx) {
         throw new Error('desktop runtime: cordis authoring skill is not mounted')
       }
     }
-    const editingSkill = skills.find(skill => skill.name === 'muse-script-editing')
-    if (id === 'short-drama' && (!editingSkill
-      || realpathSync.native(editingSkill.path) !== realpathSync.native(join(root, 'node_modules', '@deepseek-ai',
-        'dsh-desktop-host', 'skills', 'editing', 'SKILL.md')
-        .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')))) {
-      throw new Error('desktop runtime: editing skill is not mounted')
-    }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
     if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
       || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
@@ -200,7 +200,8 @@ export function apply(ctx) {
     }
     const requiredSkills = ['tweet-drama-core', 'tweet-drama-script-convert',
       'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
-      'tweet-drama-shot-asset-match',
+      'tweet-drama-shot-asset-match', 'jubian-snatch',
+      'shot-script-creator-16-9-3d', 'shot-script-creator-9-16',
       'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
     for (const name of requiredSkills) {
       const skill = skills.find(value => value.name === name)
@@ -208,6 +209,15 @@ export function apply(ctx) {
       const path = relative(bundled, realpathSync.native(skill.path))
       if (isAbsolute(path) || path === '..' || path.startsWith('../') || path.startsWith('..\\\\')) {
         throw new Error('desktop runtime: skill outside product bundle ' + name)
+      }
+      if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
+        const expected = join(bundled, name, 'SKILL.md')
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        if (!loaded?.content?.trim() || !existsSync(expected) || !existsSync(loaded.path)
+          || realpathSync.native(skill.path) !== realpathSync.native(expected)
+          || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
+          throw new Error('desktop runtime: shot-writing skill did not load from its packaged resource: ' + name)
+        }
       }
     }
     }
