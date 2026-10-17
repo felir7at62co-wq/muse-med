@@ -44,6 +44,8 @@ Desktop 产品在原生窗口和浏览器访问中均关闭上游 Web 预览版�
 
 文字稿件默认交付 Word（.docx），用户指定其他格式时按其要求。Agent 保留 Markdown 源稿，加载 office-docx，优先用 screenplay_export_docx 转换分场剧本并交付检查后的 Word，不重复转写或重写正文。视频制作要求仅用于视频工作；普通稿件自主核对来源，只有任务采用受管项目时才执行对应验收。
 
+内置的[微短剧剧本审核技能](skills/reviewing-micro-drama-scripts/SKILL.md)用于用户要求的剧本内容安全审核及相关创作咨询。技能按需加载，随包包含用户提供的[平台创作规范参考](skills/reviewing-micro-drama-scripts/references/platform-guidelines.md)。该本地参考不能证明平台当前的官方规则或审核结论。添加技能不改变系统人设，也不增加工具层审批要求。
+
 ## 创作模式
 
 `creation` 预设将编辑与短剧的原生工具合并到 PTC `run_code`，由一个模型执行，不提供委派、工作流模型或团队工具。现有预设与 `short-drama` 默认值保持可用。此模式使用隔离的创作与 Office 已审核技能目录，不发现目录名单外的技能名，包括插件编写技能名。名单内技能的项目或全局同名覆盖仍沿 Host 注册表的通常优先级；名称目录不认证指令正文来源。后续工具注册仍受已审核白名单约束，包括 Agent 自身作用域的贡献。

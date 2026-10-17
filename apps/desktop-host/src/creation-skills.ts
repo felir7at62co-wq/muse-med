@@ -25,6 +25,7 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'office-docx',
   'office-pptx',
   'office-xlsx',
+  'reviewing-micro-drama-scripts',
   'screenplay-format',
   'screenplay-project',
   'transcript-to-novel',

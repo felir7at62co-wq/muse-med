@@ -43,6 +43,8 @@ New sessions default to Full access (`danger-full-access`, approval `never`). Pe
 
 Text deliverables default to Word (`.docx`) unless the user specifies another format. The Agent keeps Markdown sources, loads `office-docx`, uses `screenplay_export_docx` for screenplay conversion and presents the checked Word file without transcribing or rewriting the source again. Video-production guidance is scoped to video work; ordinary manuscripts use autonomous source checks, with managed acceptance only when the task adopts such a project.
 
+The bundled [micro-drama script review skill](skills/reviewing-micro-drama-scripts/SKILL.md) supports requested script safety reviews and related creative guidance. It loads on demand and includes the user-supplied [platform guidance](skills/reviewing-micro-drama-scripts/references/platform-guidelines.md). This local reference does not establish current official platform policy or approval. Adding the skill does not change the system persona or add a tool-level approval requirement.
+
 ## Creation mode
 
 The `creation` preset combines the native editing and short-drama tools behind PTC `run_code`, with one model and no delegation, workflow-agent or Team tools. The existing presets and `short-drama` default remain available. The preset uses an isolated approved creative/Office skill catalog; skill names outside that catalog, including plugin-authoring names, are not discovered in this mode. Approved-name workspace or global overrides still follow the Host registry's normal precedence; the name list does not authenticate instruction bodies. Future tool registration stays inside the reviewed allowlist, including Agent-local contributions.
