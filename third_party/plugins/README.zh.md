@@ -32,6 +32,8 @@ pnpm --dir third_party/plugins/toolchain run test:build
 
 `dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
 
+Muse 面板及其嵌套技能提供方排除共享用户目录 `~/.agents/skills`，也不使用 `DSH_AGENTS_HOME` 指定的共享目录。为编程助手安装在其中的技能不会出现在 Muse 的管理列表或嵌套目录中。Muse 自有用户技能和明确引用的工作区技能仍然可用，共享技能文件保持不变。Host 文件系统提供方另行将发现范围限制在产品配置的根目录内。
+
 构建脚本导入每个生成的 Host 入口。显式 Codex 构建针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
 
 [桌面打包入口](../../apps/desktop/scripts/package-target.ts)在 S6 步骤构建两份清单中启用桌面的条目，并将压缩包放在第一方打包输入旁。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)将[源码插件包名](../../apps/desktop/src/core-package-set.ts)选为显式根，并拒绝注册表替代。桌面开发启动同样构建并暂存其中启用桌面的条目。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。

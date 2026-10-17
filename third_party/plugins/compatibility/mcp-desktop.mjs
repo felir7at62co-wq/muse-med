@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false }
+export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false }
 
 /** Apply the Desktop panel overlay to an isolated build directory. */
 export function applyMcpDesktopCompatibility(directory) {
@@ -14,6 +14,17 @@ export function applyMcpDesktopCompatibility(directory) {
   }
   edit('src/index.ts', 'import { ensureGlobalShim } from "./global-shim.js";\n', '')
   edit('src/index.ts', '  ensureGlobalShim(ctx.logger);\n', '')
+  edit('src/index.ts', '      agentsHome: resolvePath(process.env.DSH_AGENTS_HOME?.trim() ? process.env.DSH_AGENTS_HOME : join(homedir(), ".agents"))',
+    '      agentsHome: undefined')
+  edit('src/index.ts', '    push(join(agentsHome, "skills"), "user-agents", undefined);\n', '')
+  edit('src/index.ts', '    const userRoots = [join(dshHome, "skills"), join(agentsHome, "skills")];',
+    '    const userRoots = [join(dshHome, "skills")];')
+  edit('src/index.ts', '      ? [{ path: join(dshHome, "skills"), source: "user-dsh" }, { path: join(agentsHome, "skills"), source: "user-agents" }]',
+    '      ? [{ path: join(dshHome, "skills"), source: "user-dsh" }]')
+  edit('src/provider.ts', '    const agentsHome = process.env.DSH_AGENTS_HOME ?? join(homedir(), ".agents");',
+    '    const agentsHome = undefined;')
+  edit('src/provider.ts', '    return [join(agentsHome, "skills"), join(dshHome, "skills")];',
+    '    return [join(dshHome, "skills")];')
   edit('src/mcp/gateway.ts', '      return { servers, externalServers, patch };', `      const known = new Set([...servers, ...externalServers].map(row => row.serverName));
       const counts = new Map<string, number>();
       for (const tool of this.C.tools?.schemas?.() ?? []) {
