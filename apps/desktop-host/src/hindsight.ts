@@ -23,7 +23,7 @@ export interface Config {
   readonly recallTimeoutMs: number
   /** Token ceiling for recalled facts. */
   readonly recallMaxTokens: number
-  /** Maximum facts returned to the Agent. */
+  /** Maximum returned facts and same-bank source-verification lookups per recall. */
   readonly maxResults: number
 }
 
@@ -55,6 +55,10 @@ const argumentsSchema = z.object({
   operation_id: z.uuid().optional(),
 }).strict()
 const recordSchema = z.record(z.string(), z.unknown())
+const factSchema = z.object({
+  id: z.string(), text: z.string().max(20000), document_id: z.string().nullish(),
+  metadata: z.record(z.string(), z.string()).nullish(),
+})
 type MemoryArguments = z.infer<typeof argumentsSchema>
 const hash = (value: string): string => createHash('sha256').update(value).digest('hex')
 
@@ -104,13 +108,13 @@ export class LocalHindsight {
     }
     const path = '/v1/default/banks/' + bank
     const call = async (suffix: string,
-      options: { method?: string; body?: object; missing?: boolean; recall?: boolean } = {},
+      options: { method?: string; body?: object; missing?: boolean; recall?: boolean; signal?: AbortSignal } = {},
     ): Promise<Record<string, unknown> | null> => {
       let response: Response
       try {
         response = await this.fetcher(connection.baseUrl.replace(/\/$/, '') + suffix, {
           method: options.method ?? 'GET', redirect: 'error',
-          signal: AbortSignal.any([signal,
+          signal: AbortSignal.any([options.signal ?? signal,
             AbortSignal.timeout(options.recall ? this.config.recallTimeoutMs : this.config.requestTimeoutMs)]),
           headers: { authorization: 'Bearer ' + connection.token, accept: 'application/json',
             ...(options.body ? { 'content-type': 'application/json' } : {}) },
@@ -146,12 +150,33 @@ export class LocalHindsight {
     }
     if (args.action === 'recall') {
       if (args.query === undefined) throw new HindsightError('invalid-arguments')
-      const result = await call(path + '/memories/recall', { method: 'POST', missing: true, recall: true,
+      const recallSignal = AbortSignal.any([signal, AbortSignal.timeout(this.config.recallTimeoutMs)])
+      const result = await call(path + '/memories/recall', { method: 'POST', missing: true, recall: true, signal: recallSignal,
         body: { query: args.query, types: ['world', 'experience'], budget: 'low', max_tokens: this.config.recallMaxTokens } })
-      const facts = z.array(z.object({ id: z.string(), text: z.string().max(20000), metadata: z.record(z.string(), z.string()).nullish() }))
-        .safeParse(result === null ? [] : result.results)
+      const facts = z.array(factSchema).safeParse(result === null ? [] : result.results)
       if (!facts.success) throw new HindsightError('invalid-response')
-      const sourced = facts.data.filter(fact => fact.metadata?.source?.trim())
+      const sourced: z.infer<typeof factSchema>[] = []
+      let lookups = 0
+      for (const fact of facts.data) {
+        let verified = fact
+        // Graph-only recall results can omit metadata that is present on the stored fact.
+        if (!fact.metadata?.source?.trim() && fact.document_id?.trim()
+          && sourced.length < this.config.maxResults && lookups < this.config.maxResults) {
+          lookups++
+          try {
+            const raw = await call(path + '/memories/' + encodeURIComponent(fact.id), { missing: true, recall: true, signal: recallSignal })
+            const detail = factSchema.extend({ state: z.literal('valid') }).safeParse(raw)
+            if (detail.success && detail.data.id === fact.id && detail.data.text === fact.text
+              && detail.data.document_id === fact.document_id) verified = { ...fact, metadata: detail.data.metadata }
+          } catch (error) {
+            signal.throwIfAborted()
+            if (recallSignal.aborted) throw new HindsightError('unavailable')
+            if (!(error instanceof HindsightError)) throw error
+            // An absent, malformed or unavailable detail cannot establish a source.
+          }
+        }
+        if (verified.metadata?.source?.trim()) sourced.push(verified)
+      }
       return JSON.stringify({ state: 'ready', scope: args.scope, omitted_unsourced: facts.data.length - sourced.length,
         memories: sourced.slice(0, this.config.maxResults).map(fact => ({
           id: fact.id, text: fact.text.slice(0, 6000), key: fact.metadata?.key,

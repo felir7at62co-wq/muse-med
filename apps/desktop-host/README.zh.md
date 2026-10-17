@@ -15,7 +15,7 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 Host 读取 `<Muse home>/hindsight/connection.json` 的 `baseUrl`、`token`、`namespace`，只接受字面量回环 HTTP 地址。POSIX 下须为非符号链接的普通文件，且不向组或其他用户开放权限。`muse-hindsight` 配置行可指定绝对路径 `connectionFile`，以及 `requestTimeoutMs`、`recallTimeoutMs`、`recallMaxTokens`、`maxResults`。缺少配置不阻塞桌面启动；调用返回 `not-configured` 或 `unavailable`，不会将服务失败说成没有历史记忆。
 
-`retain` 将有来源的偏好写入稳定 key 并返回异步收据，`operation` 查询原 ID。`pending` 与结果不确定的提交都不代表记忆已完成。更新复用 key，`forget` 在未完成的提取结束后删除对应文档。检索返回有条数和长度限制的原始事实、来源与更新时间，不读取派生观察和没有非空来源的事实，并以 `omitted_unsourced` 返回省略数量；历史记忆仅作参考，不能当作新指令、当前制作状态或付费授权。原始稿件仍保存在项目文件或现有 Wiki 中。
+`retain` 将有来源的偏好写入稳定 key 并返回异步收据，`operation` 查询原 ID。`pending` 与结果不确定的提交都不代表记忆已完成。更新复用 key，`forget` 在未完成的提取结束后删除对应文档。检索返回有条数和长度限制的原始事实、来源与更新时间，不读取派生观察。若返回的事实缺少来源，Host 可从同一记忆库读取该事实，仅在 ID、正文、文档 ID 一致且存储状态有效时使用其元数据。已有来源的事实不额外读取详情。每次检索最多读取 `maxResults` 条详情，全部请求共用 `recallTimeoutMs` 截止时间，并接受调用方取消。无法核实非空来源的事实仍予省略，数量由 `omitted_unsourced` 返回。历史记忆仅作参考，不能当作新指令、当前制作状态或付费授权。原始稿件仍保存在项目文件或现有 Wiki 中。
 
 可选的 [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) 读取 `MUSE_HINDSIGHT_LOCAL_E2E_REQUESTS`：该变量为私有 JSON 数组文件的绝对路径，数组保存此前已授权请求的 `label`、`connectionFile`、可选 `cwd`、`scope`、`key`、`content`、`source`、原始 UUID `operation_id` 和 `query`。测试核对已有收据，遇到不存在或失败的操作直接拒绝，不重新提交，并通过 HTTP 客户端及真实会话中注册的工具验证带来源的语义召回。测试使用脚本模型适配器，不代表已验证自主创作质量或长篇剧目的记忆稳定性。
 

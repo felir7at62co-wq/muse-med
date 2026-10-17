@@ -108,6 +108,104 @@ it('omits unsourced upstream facts without inventing their origin or allowing th
   expect(output).toHaveProperty('memories', [expect.objectContaining({ id: 'confirmed' })])
 })
 
+it('verifies a graph-only result source through its same-bank fact without changing ranking', async () => {
+  const fact = { id: 'graph/fact', text: '好看、情绪到位、故事讲好优先。', document_id: 'muse-preferences', metadata: null }
+  const f = await fixture(path => path.endsWith('/recall')
+    ? json({ results: [fact, { id: 'existing', text: '保留次世代 CG/PBR。', metadata: { source: '已确认原话' } }] })
+    : json({ ...fact, state: 'valid', metadata: { source: '用户确认的审美取舍', key: '短剧审美', updated_at: '2026-10-17' } }))
+  const output: unknown = JSON.parse(await f.client.request({ action: 'recall', scope: 'user', query: '画面老气时怎么办？' }, undefined, f.signal))
+  expect(output).toMatchObject({ omitted_unsourced: 0, memories: [
+    { id: 'graph/fact', source: '用户确认的审美取舍', key: '短剧审美' }, { id: 'existing', source: '已确认原话' },
+  ] })
+  expect(f.calls.map(call => [call.path, call.init?.method])).toEqual([
+    ['/v1/default/banks/fixture-muse-user/memories/recall', 'POST'],
+    ['/v1/default/banks/fixture-muse-user/memories/graph%2Ffact', 'GET'],
+  ])
+})
+
+it.each([
+  ['different id', { id: 'another-fact' }],
+  ['different document', { document_id: 'another-bank-document' }],
+  ['different text', { text: '另一条事实' }],
+  ['missing document', { document_id: null }],
+  ['malformed metadata', { metadata: { source: 42 } }],
+  ['invalidated fact', { state: 'invalid' }],
+  ['blank source', { metadata: { source: '  ' } }],
+])('does not borrow a source from a fact detail with %s', async (_label, patch) => {
+  const fact = { id: 'graph', text: '好看、情绪和故事优先。', document_id: 'own-document', metadata: null }
+  const f = await fixture(path => path.endsWith('/recall') ? json({ results: [fact] })
+    : json({ ...fact, state: 'valid', metadata: { source: '外部或无法核实的来源' }, ...patch }))
+  expect(JSON.parse(await f.client.request({ action: 'recall', scope: 'user', query: '审美' }, undefined, f.signal)))
+    .toMatchObject({ omitted_unsourced: 1, memories: [] })
+  expect(f.calls).toHaveLength(2)
+})
+
+it.each([404, 503])('omits an unverified source when its detail responds %s', async (status) => {
+  const f = await fixture(path => path.endsWith('/recall')
+    ? json({ results: [{ id: 'graph', text: '待核实的事实', document_id: 'own-document', metadata: {} }] }) : json({}, status))
+  expect(JSON.parse(await f.client.request({ action: 'recall', scope: 'user', query: '审美' }, undefined, f.signal)))
+    .toMatchObject({ omitted_unsourced: 1, memories: [] })
+})
+
+it('bounds fact-detail lookups by maxResults while keeping directly sourced results', async () => {
+  const f = await fixture(path => path.endsWith('/recall') ? json({ results: [
+    { id: 'first', text: '无来源一', document_id: 'document' },
+    { id: 'second', text: '无来源二', document_id: 'document' },
+    { id: 'sourced', text: '有来源', metadata: { source: '用户已确认' } },
+  ] }) : json({}, 404))
+  const client = new LocalHindsight(Config({ connectionFile: f.file, maxResults: 1 }), f.fetcher)
+  expect(JSON.parse(await client.request({ action: 'recall', scope: 'user', query: '审美' }, undefined, f.signal)))
+    .toMatchObject({ omitted_unsourced: 2, memories: [{ id: 'sourced', source: '用户已确认' }] })
+  expect(f.calls.map(call => call.path)).toEqual([
+    '/v1/default/banks/fixture-muse-user/memories/recall', '/v1/default/banks/fixture-muse-user/memories/first',
+  ])
+})
+
+it('propagates cancellation during source verification instead of reporting an empty recall', async () => {
+  const controller = new AbortController()
+  const f = await fixture((path) => {
+    if (path.endsWith('/recall')) return json({ results: [{ id: 'graph', text: '待核实', document_id: 'document' }] })
+    controller.abort(new Error('Caller cancelled the recall'))
+    throw controller.signal.reason
+  })
+  await expect(f.client.request({ action: 'recall', scope: 'user', query: '审美' }, undefined, controller.signal))
+    .rejects.toThrow('Caller cancelled the recall')
+})
+
+it('shares the recall deadline with detail verification rather than using the ordinary request timeout', async () => {
+  const started = Promise.withResolvers<undefined>()
+  const deadlines: AbortController[] = []
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+    const controller = new AbortController()
+    deadlines.push(controller)
+    return controller.signal
+  })
+  try {
+    const f = await fixture((path, init) => {
+      if (path.endsWith('/recall')) return json({ results: [{ id: 'graph', text: '待核实', document_id: 'document' }] })
+      const signal = init?.signal
+      if (!signal) throw new Error('Source verification requires cancellation')
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          const reason: unknown = signal.reason
+          reject(reason instanceof Error ? reason : new Error('Recall deadline expired'))
+        }, { once: true })
+        started.resolve(undefined)
+      })
+    })
+    const client = new LocalHindsight(Config({ connectionFile: f.file, recallTimeoutMs: 500, requestTimeoutMs: 30000 }), f.fetcher)
+    const result = expect(client.request({ action: 'recall', scope: 'user', query: '审美' }, undefined, f.signal)).rejects.toThrow('unavailable')
+    await started.promise
+    expect(timeout.mock.calls).toEqual([[500], [500], [500]])
+    deadlines[0]!.abort(new DOMException('Recall deadline expired', 'TimeoutError'))
+    await result
+    expect(f.calls).toHaveLength(2)
+  } finally {
+    for (const controller of deadlines) controller.abort()
+    timeout.mockRestore()
+  }
+})
+
 it('retains one sourced preference asynchronously under a stable key and returns its original receipt', async () => {
   const f = await fixture((path, init) => {
     if (path.includes('/operations/')) return json({}, 404)
@@ -179,5 +277,39 @@ it('logs sourced memory as a tool result through a real Agent loop without extra
     expect(results[0]!.data.message.isError).toBeFalsy()
     expect(results[0]!.data.message.content).toMatchSnapshot('local creative preference with source')
     expect(f.calls).toHaveLength(1)
+  } finally { fetch.mockRestore(); await ctx.fiber.dispose() }
+})
+
+it('logs verified graph facts and omitted mismatches through a real Session', async () => {
+  const good = { id: 'graph-good', text: '好看、情绪到位、故事讲好优先。', document_id: 'preferences' }
+  const bad = { id: 'graph-mismatch', text: '另一条需要来源核对的事实。', document_id: 'preferences' }
+  const f = await fixture((path) => {
+    if (path.endsWith('/recall')) return json({ results: [good, bad] })
+    if (path.endsWith('/graph-good')) return json({ ...good, state: 'valid', metadata: { key: '短剧审美', source: '用户在当前会话确认', updated_at: '2026-10-17' } })
+    return json({ ...bad, state: 'valid', document_id: 'different-document', metadata: { source: '不可借用的来源' } })
+  })
+  const ctx = new Context()
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(f.fetcher)
+  try {
+    await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(Llm)
+    await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(Hindsight, Config({ connectionFile: f.file }))
+    const adapter = new MockAdapter([
+      toolCallResponse('graph-memory-query', 'hindsight_memory', { action: 'recall', scope: 'user', query: '人物显得老气时怎样取舍？' }),
+      textResponse('历史记忆确认好看、情绪和故事优先。'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('hindsight-graph-owner'), { provider: 'mock', model: 'mock' }, { cwd: f.root })
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '人物显得老气时怎样取舍？' }] }))
+    await agent.whenIdle()
+    expect(adapter.requests).toHaveLength(2)
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+    expect(results).toHaveLength(1)
+    expect(results[0]!.data.message.isError).toBeFalsy()
+    expect(results[0]!.data.message.content).toMatchSnapshot('verified graph fact and refused mismatched source')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('用户在当前会话确认')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).not.toContain('不可借用的来源')
+    expect(f.calls).toHaveLength(3)
   } finally { fetch.mockRestore(); await ctx.fiber.dispose() }
 })
