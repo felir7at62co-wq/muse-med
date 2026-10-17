@@ -233,3 +233,11 @@ test('preload resolution rejects a different episode and the obsolete unkeyed re
     assert.deepEqual(f.counts(), { starts: 0, signs: 0 });
   }
 });
+
+
+test('a batch requires every requested keyed model and never substitutes an unrelated video', async t => {
+  const f = await fixture(t, { data: { first: { video_model: model }, unrelated: { video_model: model } } });
+  await assert.rejects(f.source.videoUrls(['first', 'second'], new AbortController().signal), { code: 'missing_episode_url' });
+  assert.deepEqual(f.calls[0].body.mixed_video_id_map, { '1004': ['first', 'second'] });
+  assert.equal(f.calls.length, 1);
+});

@@ -126,18 +126,9 @@ export function codexFilesystemPath(value) {
       cpSync(join(sourceRoot, 'checks/codex-pi-ai.mjs'), join(directory, '.muse-pi-ai.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-pi-ai.test.mjs', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
     } else if (name !== 'dsh-bridge' && name !== 'muse-hongguo-search') {
-      if (name === 'dsh-ponytail') {
-        writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
-          target: 'ES2024', module: 'NodeNext', moduleResolution: 'NodeNext', rootDir: 'src', outDir: 'lib/types',
-          declaration: true, rewriteRelativeImportExtensions: true, strict: true, skipLibCheck: true,
-        }, include: ['src/index.ts'] }))
-      }
       run([tsc, '-p', 'tsconfig.json', '--types', 'node'], directory)
       if (name === 'dsh-skill-mcp-panel') run(['scripts/strip-client-export.mjs'], directory)
-      if (name === 'dsh-ponytail') {
-        writeFileSync(join(directory, '.muse-tsdown.mjs'), `export default { entry: { index: 'src/index.ts' }, outDir: 'lib', format: 'esm', platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false, deps: { neverBundle: Object.keys(${JSON.stringify(manifest.peerDependencies)}) } }\n`)
-        run([tsdown, '--config-loader', 'native', '--config', '.muse-tsdown.mjs'], directory)
-      } else if (name !== 'dsh-ffmpeg' && name !== 'dsh-skill-mcp-panel') {
+      if (name !== 'dsh-ffmpeg' && name !== 'dsh-skill-mcp-panel') {
         run([tsdown, '--config-loader', 'native', '--config', 'tsdown.config.ts'], directory)
         if (name === 'dshmarket') run(['scripts/normalize-client-banner.mjs'], directory)
       }

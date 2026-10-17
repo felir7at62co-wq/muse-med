@@ -142,9 +142,9 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供七个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、Ponytail、技能/MCP 面板、`@wenbin_wb/dsh-bridge` 及红果数据工具是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供六个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge` 及红果数据工具是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
-应用 → 桌面插件把七个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
+应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
 除极简模式外，各预设提供 `hongguo_search`、`hongguo_detail`、`hongguo_rankings` 和 `hongguo_collections`，无需登录、key 或初始配置。工具检索红果公开数据，分别保留收藏、点赞、热度、来源链接及未完整覆盖的情况。搜索覆盖首屏窗口，榜单覆盖所选公开榜单；工具不下载视频。源码构建器保留恢复的原发行包，在各预设自己的工具作用域启用 provider 前核对源码清单。
 
@@ -186,7 +186,7 @@ macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的�
 
 开发环境应用菜单提供“刷新页面”（macOS 为 Cmd+R，其他平台为 Ctrl+R）和“重启应用与 Host”。重启会等待 Host 关闭，再重新启动 Electron 和新的 Host；这两项操作都不会重新构建源码。
 
-`dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，通过现有源码构建器构建七个固定的社区插件，再将其已校验 tarball、冻结的运行依赖及已构建的 CLI 包和私有 Desktop Host 包连同其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
+`dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，通过现有源码构建器构建六个固定的社区插件，再将其已校验 tarball、冻结的运行依赖及已构建的 CLI 包和私有 Desktop Host 包连同其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
 
 ```sh
 pnpm run dev:desktop
@@ -296,7 +296,7 @@ Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安
 
 [Office 转换提供方](../../packages/document/office-to-pdf/README.zh.md)携带目标已声明的原生引擎；kit 未声明匹配原生目标时携带 WASM 引擎。准备阶段在打包前拒绝缺少目标引擎的情况。完整 Office 依赖（CLI、JavaScript 库和选定引擎的可执行文件、数据、许可证及 notices）解包到 `resources/app.asar.unpacked/dsh/node_modules/` 下。Desktop Host 将引擎清单解析到这些物理目录，并向加载的技能提供独立 Node 和解包后 CLI 的绝对路径。Node 位于 `resources/runtime/primary-runtime/dependencies/node/bin/`；CLI 位于解包后的 `@deepseek-ai/libreoffice-kit/lib/cli.js`。macOS 上的原生辅助程序获得 [LibreOffice UNO 桥](https://github.com/LibreOffice/core/blob/master/sysui/desktop/macosx/hardened_runtime.xcent.in)所需的 JIT entitlement。
 
-[Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。
+[Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。编辑模式需通过共享常规工具、当前身份及默认 Word 交付指导检查；委派工具可以缺省，也可以继承。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。
 
 打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 发布清单前，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。可选下载缺失或可执行文件版本不符都会使准备失败。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
 

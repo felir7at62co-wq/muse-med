@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.md
+/:
+  en: 0a8f029b1759946d
+  zh: efc0280941443fd5
+/desktop-ponytail-removal:
+  en: 50d9466e463770bf
+  zh: 61a40fb4df2e77c1
+/desktop-ponytail-removal/change:
+  en: 315f106f7d42b8f4
+  zh: 2c0fd02168a67b54
+/desktop-ponytail-removal/migration:
+  en: 274ff618605b4f8a
+  zh: e6ada36e36b8b34a

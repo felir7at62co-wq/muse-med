@@ -265,21 +265,27 @@ export interface MethodDeps {
 }
 
 /** Read the task's parent identity before its generated child results. */
-async function taskAndSubtasks(client: JubianClient, taskId: number) {
+async function taskAndSubtasks(client: JubianClient, taskId: number, order: 'provider' | 'newest') {
   const task = readTaskPage((await client.request({
     method: 'GET', path: `/admin/aigc/video/task/${taskId}` })).data)
   const page = readSubtaskPage((await client.request({ method: 'POST',
-    path: '/admin/aigc/video/task/sub/list', body: { aigcVideoTaskId: taskId } })).data)
+    path: order === 'newest'
+      ? '/admin/aigc/video/task/sub/list?orderByColumn=createTime&orderBy=desc'
+      : '/admin/aigc/video/task/sub/list', body: { aigcVideoTaskId: taskId } })).data)
   return { task, page }
 }
 
-/** Resolve the original media and provider identities required for paid video processing. */
-async function taskMediaRequest(client: JubianClient, taskId: number, fallbackScriptId: number | undefined) {
-  const { task, page } = await taskAndSubtasks(client, taskId)
-  const source = page.rows.find(row => row.video_url !== null) ?? page.rows[0]
+/** Resolve the selected media version and provider identities for paid video processing. */
+async function taskMediaRequest(client: JubianClient, taskId: number, fallbackScriptId: number | undefined,
+  version: 'original' | 'current') {
+  const { task, page } = await taskAndSubtasks(client, taskId, version === 'current' ? 'newest' : 'provider')
+  const source = version === 'current'
+    ? page.rows.find(row => row.video_url !== null && (row.status === null
+      || (SUCCESS_STATUSES as readonly string[]).includes(row.status.trim().toLowerCase())))
+    : page.rows.find(row => row.video_url !== null) ?? page.rows[0]
   if (source === undefined) throw new JubianError('CONTRACT_CHANGED')
-  const baseUrl = source.base_video_url ?? source.video_url
-  if (baseUrl === null || source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
+  const sourceUrl = version === 'current' ? source.video_url : source.base_video_url ?? source.video_url
+  if (sourceUrl === null || source.duration_seconds === null) throw new JubianError('CONTRACT_CHANGED')
   return { task, media: {
     scriptId: need(task.script_id ?? fallbackScriptId, 'script_id'),
     episodeId: need(task.episode_id ?? undefined),
@@ -287,7 +293,7 @@ async function taskMediaRequest(client: JubianClient, taskId: number, fallbackSc
     firstResultId: need(source.first_result_id ?? source.subtask_id),
     parentResultId: source.parent_result_id ?? source.first_result_id ?? source.subtask_id,
     duration: source.duration_seconds,
-    videoUrl: baseUrl,
+    videoUrl: sourceUrl,
   } }
 }
 
@@ -988,7 +994,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           // The upscale body needs identities the provider splits across two
           // reads: the parent task carries the episode, the child result carries
           // the source identities and duration.
-          const { task, media } = await taskMediaRequest(client, taskId, args.script_id)
+          const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'current')
           projectId = media.scriptId
           return buildVideoUpscaleRequest({
             ...media,
@@ -1013,7 +1019,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           // (`NoClassDefFoundError` after a successful re-submit), so the gate is
           // read first and from complete evidence: a retry is only sent for a
           // fully terminal failure that produced no file and no real cost.
-          const { task, page } = await taskAndSubtasks(client, taskId)
+          const { task, page } = await taskAndSubtasks(client, taskId, 'provider')
           const status = (task.status ?? '').trim().toLowerCase()
           const terminalFailure = (FAILED_STATUSES as readonly string[]).includes(status)
           const settledChild = page.rows.some(row => row.video_url !== null
@@ -1215,7 +1221,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           // rectangle is derived from the source frame rather than drawn by the
           // caller: the workbench scales its preview canvas into video
           // coordinates in a way no caller can reproduce.
-          const { task, media } = await taskMediaRequest(client, taskId, args.script_id)
+          const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
           return buildSubtitleEraseRequest(need(args.model_id, 'model_id'), {
             ...media,

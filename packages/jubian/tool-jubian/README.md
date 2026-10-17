@@ -385,6 +385,8 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 `needs_upscale` only compares actual resolution with `delivery_resolution`: `true` means below target, `false` means at or above it, and `null` means unknown. It neither declares content unusable nor creates a paid-processing obligation. SD2.5 uses the original clip by default, without automatic HD submission or waiting. No model authorizes paid processing merely through `needs_upscale=true`; call `upscale` only when the user explicitly requests or authorizes the specific HD operation, including for SD2.5. Report ordinary export dimensions separately from the real source resolution; local scaling does not restore source detail.
 
+`upscale` reads child results in descending provider creation time and selects the first URL-bearing result that is successful or has no legacy status. It submits that result’s current `video_url`, including prior subtitle erasure, rather than its original `base_video_url`. Known unfinished and failed results are skipped; no usable result means no paid submission. Subtitle erasure retains its existing original-source selection. Existing idempotency keys continue to replay their recorded outcome.
+
 After an authorized submission, do other work and read `subtasks` later; use the operation watcher above to verify completion rather than the initial response.
 
 `image_generate` is the one exception, and only because its result is unusable without it: that method waits inside the call for its own image to become available, bounded by `imageActiveTimeoutMs`, and reports the timeout as `asset_status: timeout` instead of throwing.

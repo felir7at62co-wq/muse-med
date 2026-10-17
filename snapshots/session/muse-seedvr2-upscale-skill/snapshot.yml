@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-seedvr2-upscale-skill
+profile: headless
+composition: muse-drama-pipeline-skill
+recording: authored
+header:
+  class: muse-drama-pipeline-skill
+workspace:
+  setup: muse-drama-pipeline-skill
+writerOutput: true

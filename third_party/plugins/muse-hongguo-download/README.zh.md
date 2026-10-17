@@ -4,7 +4,7 @@
 
 `hongguo_download_info` 检查来源及总集数；`hongguo_download` 接受多部 `seriesIds`，省略 `episodes` 时下载完整列表。工具默认使用 `legacy`，读取所提供完整 `Hongguo Downloader/app` 目录及其原接口。真实多部全集验收要求下载成功并完成媒体验证；源码文件齐全本身不代表验收通过。
 
-下载先检查来源声明总集数和从 1 到 N 的连续集号，再按 `/novel/player/multi_video_model/preload/v1` 接口逐集请求媒体模型，携带 `dr_scene: "preload"` 和只含当前视频 ID 的 `mixed_video_id_map`，每 5 集组织下载并保留全部结果。预加载请求不附带原生签名头，只接受当前视频 ID 对应的响应；目录查询仍使用本地签名器。媒体查询及失败处理均不切换其他来源或试看。每集检查传输长度和来源声明大小，经原离线模块处理加密视频，再用 ffprobe 检查可播放媒体流、ffmpeg 完整解码每个视频，并计算最终 SHA256。整批所有请求集完成后才发布目录及 `download-manifest.json`；某集失败或取消会等待所有工作停止并清理本次文件。Muse 默认写入发起会话工作区的 `downloads`。在 `danger-full-access`（完全权限）下，显式绝对 `outputDir` 直接写入指定目录；相对路径仍基于工作区。`read-only` 拒绝下载，`workspace-write` 及没有 `sandboxPolicy` 的 profile 保留仅工作区输出。已存在的父路径别名会转换为真实路径；子目录链接及执行中被替换的输出目录被拒绝。文件和收据直接使用最终位置，无需再搬运。文件路径和摘要会进入会话工具结果，带签名的媒体地址、设备值、Cookie、签名器响应、密钥和令牌不会写入结果。
+下载先检查来源声明总集数和从 1 到 N 的连续集号，再按 `/novel/player/multi_video_model/preload/v1` 接口每批请求最多 5 集媒体模型，携带 `dr_scene: "preload"` 和包含请求视频 ID 的 `mixed_video_id_map`，当前批下载时预取下一批地址，并保留全部结果。预加载请求不附带原生签名头，只接受各请求视频 ID 对应的响应；目录查询仍使用本地签名器。媒体查询及失败处理均不切换其他来源或试看。较大媒体在长度已知、支持字节范围且提供强 ETag 时可并行分段下载。每段必须匹配请求范围、长度和 ETag；可恢复的分段故障会取消并等待全部分段退出，再回退一次完整传输，安全拒绝和取消不会回退。连接预算按每次下载调用计算。每集检查传输长度和来源声明大小，经原离线模块处理加密视频，再用 ffprobe 检查可播放媒体流、ffmpeg 完整解码每个视频，并计算最终 SHA256。整批所有请求集完成后才发布目录及 `download-manifest.json`；某集失败或取消会等待所有工作停止并清理本次文件。Muse 默认写入发起会话工作区的 `downloads`。在 `danger-full-access`（完全权限）下，显式绝对 `outputDir` 直接写入指定目录；相对路径仍基于工作区。`read-only` 拒绝下载，`workspace-write` 及没有 `sandboxPolicy` 的 profile 保留仅工作区输出。已存在的父路径别名会转换为真实路径；子目录链接及执行中被替换的输出目录被拒绝。文件和收据直接使用最终位置，无需再搬运。文件路径和摘要会进入会话工具结果，带签名的媒体地址、设备值、Cookie、签名器响应、密钥和令牌不会写入结果。
 
 `complete: true` 表示下载集号覆盖来源声明的 1–N。成功下载返回 `fullDecodeChecked: true` 和 `validationLevel: 'ffprobe-full-decode-sha256'`。所有来源模式都需要配置 ffmpeg 和 ffprobe；原加密视频还需要兼容的 Python 运行时及离线模块。缺少运行时、HLS、不支持的加密、网页响应及长度不完整的文件都会明确失败。插件不合并或转码。Desktop 将解密桥接脚本放在 ASAR 外，供外部解释器读取。
 
@@ -27,6 +27,10 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 | `catalogPath` | 空 | 修复源码 `HG_SOURCE_CATALOG` 格式的本地 JSON 绝对路径 |
 | `outputRoot` | 空 | 独立客户端显式工作区；Muse 工具使用发起会话的工作区 |
 | `mediaUserAgent` | `Mozilla/5.0 (Linux; Android 12)` | 媒体请求标识；原源媒体请求不携带官网 Referer 或会话凭据 |
+| `mediaBatchSize` | 5 | 每次预加载请求和下载分组的集数，范围 1–5；预取下一组。 |
+| `mediaConnections` / `mediaConnectionLimit` | 4 / 12 | 单集分段连接上限 / 每次调用的媒体连接预算；按集下载并发数分配预算。预算不能小于 `concurrency`。 |
+| `mediaIdleTimeoutMs` | 20000 | 媒体连接持续无网络进展时中断；持续传输仍受单集总时限约束。 |
+| `mediaSegmentMinBytes` | 2097152 | 每段的最小字节数；更小文件保留单流。 |
 | `mediaRequestIntervalMs` | 6000 | 上次媒体 API 请求完成后的最短间隔，跨并发调用及剧集共用；排队可取消，单次请求超时在等待结束后开始。CDN 下载仍按配置并发。 |
 | `emptySourceCooldownMs` | 120000 | 已正确解析过预加载模型后，每个媒体查询遇到空正文可保留原设备配置等待接口恢复后重试一次，计入重试预算；所有媒体调用共用可取消的恢复等待。首次即为空或再次为空时停止。 |
 | `retryDelayMs` | 1500 | 来源或下载暂时失败后有限重试前的等待；媒体下载重试重新查询同一集的模型 |

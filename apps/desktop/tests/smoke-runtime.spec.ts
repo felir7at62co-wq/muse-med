@@ -145,8 +145,9 @@ function fixture(packaged = false) {
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
   const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
-  const standardCapabilityNames = ['subagent', 'workflow', 'ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
-  const editingCapabilityNames = [...standardCapabilityNames]
+  const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
+    'ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
+  const editingCapabilityNames = ['ask_user_question', 'todo_write', 'jubian_video', 'audio_transcribe']
   class TestContext {
     museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
@@ -180,7 +181,8 @@ function fixture(packaged = false) {
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'editing'
-        ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix }]
+        ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix },
+          { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
         : [],
       tools: context.scope.preset === 'editing'
         ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
@@ -550,7 +552,19 @@ it('rejects an editing mode missing a standard tool', async () => {
   await expect(f.apply(f.ctx)).rejects.toThrow('editing mode missing standard tool ask_user_question')
 })
 
-it('rejects an editing persona without the chosen-outline workflow', async () => {
+it('accepts editing without locally mounted delegation tools', async () => {
+  const f = fixture()
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('accepts inherited delegation tools in editing', async () => {
+  const f = fixture()
+  f.editingCapabilityNames.push('subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow')
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+})
+
+it('rejects an editing persona that differs from the current identity', async () => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
@@ -559,6 +573,21 @@ it('rejects an editing persona without the chosen-outline workflow', async () =>
     return result
   })
   await expect(f.apply(f.ctx)).rejects.toThrow('editing persona changed')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['missing', 'without Word', 'without export'])('rejects editing delivery guidance %s', async (change) => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'editing') {
+      if (change === 'missing') result.sections = result.sections.filter(section => section.name !== 'editing:delivery')
+      else result.sections[1]!.text = change === 'without Word' ? 'screenplay_export_docx' : '默认使用 Word（.docx）'
+    }
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing Word delivery guidance is missing')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

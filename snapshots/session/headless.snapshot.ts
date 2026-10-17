@@ -585,6 +585,9 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     const target = join(cwd, '.dsh', 'skills', 'tweet-drama-pipeline', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
     await copyFile(musePipelineSkill, target)
+    const renderTarget = join(cwd, '.dsh/skills/tweet-drama-background-render/SKILL.md')
+    await mkdir(dirname(renderTarget), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-background-render/SKILL.md'), renderTarget)
   },
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
@@ -925,6 +928,11 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   for (const [logIndex, log] of actualLogs.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    if (scenario.name === 'muse-editing-tool-catalog') {
+      expect(prompts.join('\n'), 'editing prompt excludes the retired persona').not.toContain('PONYTAIL MODE')
+      expect(log.content, 'editing skill catalog excludes retired Ponytail skills')
+        .not.toMatch(/ponytail-(?:review|audit|debt|gain|help)/u)
+    }
     if (headers.length > 0) {
       expect(systemPromptPrecedesRequests(log.content), `${scenario.name}: a system/message precedes the first request/header`).toBe(true)
       expect(prompts.length, `${scenario.name}: system/message count`)
