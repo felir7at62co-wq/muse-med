@@ -1,6 +1,7 @@
 // Real Web profiles and pinned Muse tunnels share an account but retain separate browser tabs.
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -47,7 +48,9 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
     const { fixture } = await import(fixtureUrl.href) as FixtureModule
     account = await fixture({ after: callback => cleanup.push(callback) }, {}, true)
     await mkdir(shotDir, { recursive: true })
-    const productOnboarding = join(shotDir, 'onboarding.patch.yml')
+    const onboardingRoot = await mkdtemp(join(tmpdir(), 'muse-web-onboarding-'))
+    cleanup.push(() => rm(onboardingRoot, { recursive: true, force: true }))
+    const productOnboarding = join(onboardingRoot, 'onboarding.patch.yml')
     await writeFile(productOnboarding, '- id: ui-settings-models\n  config:\n    welcomeNotice: false\n')
     for (const [deviceName, platform] of [['剪辑电脑', 'win32'], ['外出 Mac', 'darwin']] as const) {
       const profile = await launchWebScaffold({
