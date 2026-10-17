@@ -322,11 +322,14 @@ describe('desktop external plugin profile', () => {
     expect(manifestBackups(manager.paths.profile)).toEqual([])
   })
 
-  it('does not authorize native builds for dependencies absent from the Desktop runtime', () => {
+  it('keeps dependency builds strict and skips compilation of the shipped TOS CRC runtime', () => {
     const root = temporaryRoot()
     createDevelopmentProjectMetadata(root, { schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
-    expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).not.toContain('fs-ext: true')
+    const workspace = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')
+    expect(workspace).toContain('strictDepBuilds: true')
+    expect(workspace).toContain('tos-crc64-js: false')
+    expect(workspace).not.toContain('fs-ext: true')
   })
 
   it('changes runtime generations without deleting legacy host links', async () => {

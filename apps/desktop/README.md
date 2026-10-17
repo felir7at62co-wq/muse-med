@@ -537,7 +537,7 @@ An unpackaged Electron process uses `.desktop-build/development/project` under i
 - MUSE knowledge-base and cloud speech require enabled gateway routes and server-managed ASR quotas. Unavailable services report errors; Desktop has no user ASR credential page or automatic offline fallback.
 
 - Release signing, notarization, update hosting, and previous-version installed-artifact qualification require the production release environment.
-- Desktop plugins with dependency lifecycle scripts are rejected unless their package appears in the desktop project's reviewed `allowBuilds` policy.
+- Desktop plugins with dependency lifecycle scripts are rejected unless their package appears in the desktop project's reviewed `allowBuilds` policy. Production and development projects explicitly disable the TOS CRC package's build script because its published package includes the compiled JavaScript runtime.
 - The independent product does not migrate existing DSH sessions or credentials. Users configure their accounts in the product; explicitly pointing `MUSE_MED_HOME` at an existing DSH home opts out of data isolation and is not a migration.
 - Unpackaged startup on an Electron win32-arm64 host now succeeds, but the payload remains x64: the architecture check in `packages/skill/tool-workspace-dependencies/src/index.ts` compares the recorded payload architecture against the host `process.arch`, so the `load_workspace_dependencies` tool can still reject the primary runtime.
 

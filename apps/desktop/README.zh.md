@@ -541,7 +541,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 - MUSE 知识库和云端语音依赖已启用的网关接口及服务器管理的 ASR 额度。服务不可用时会报错；桌面版没有用户 ASR 凭据设置页，也不会自动回退到离线识别。
 
 - 发布签名、公证、更新托管和跨上一版本的已安装产物验证需要生产发布环境。
-- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。
+- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。生产和开发项目明确禁用 TOS CRC 包的构建脚本，因为其发布包已包含编译好的 JavaScript 运行时。
 - 独立产品不迁移现有 DSH 会话或凭据，用户在产品内配置自己的账号。显式把 `MUSE_MED_HOME` 指向已有 DSH home 会退出数据隔离，这不构成数据迁移。
 - 在 Electron win32-arm64 宿主上，未打包启动现在可以成功，但载荷仍为 x64：`packages/skill/tool-workspace-dependencies/src/index.ts` 的架构校验会把载荷记录的架构与宿主 `process.arch` 比较，因此 `load_workspace_dependencies` 工具仍可能拒绝 primary runtime。
 
