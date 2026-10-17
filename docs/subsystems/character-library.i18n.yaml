@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for character-library.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/character-library.md
+/character-reference-library:
+  en: 18a8106bdc5b47b1
+  zh: 7bd123cfeaacf5c7

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -325,7 +325,7 @@ it('registers bounded search and image view in a Cordis composition', async () =
       }]
     }
   }
-  const root = await mkdtemp(join(tmpdir(), 'muse-character-reference-role-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-character-reference-role-')))
   const configPath = join(root, 'project_config.json')
   const recordSecret = 'DO_NOT_LEAK_PROJECT_CHARACTER_RECORD'
   const config = (characters?: readonly object[]): string => `${JSON.stringify({

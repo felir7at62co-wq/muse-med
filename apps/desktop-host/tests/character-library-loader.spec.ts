@@ -6,7 +6,7 @@
  * fakes that record operations; no TOS, provider, or paid path participates.
  */
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -237,7 +237,7 @@ afterEach(async () => {
 })
 
 async function loadFixture() {
-  const root = await mkdtemp(join(tmpdir(), 'muse-character-library-loader-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-character-library-loader-')))
   roots.push(root)
   const configPath = join(root, 'cordis.yml')
   const skillRoot = fileURLToPath(new URL('../../../packages/drama/skills/skills/', import.meta.url))
@@ -344,6 +344,7 @@ describe('character library real Loader composition', () => {
     })
     expect(JSON.stringify(skill.value)).toContain('pending_review')
     expect(JSON.stringify(skill.value)).toContain('drama_character_reference_view')
+    expect(JSON.stringify(skill.value)).not.toContain('drama_character_library_ingest_current_file')
 
     const recommendation = await context.tools.execute({
       callId: ToolCallId('recommend-character-reference'),

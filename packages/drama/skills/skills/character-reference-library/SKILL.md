@@ -23,9 +23,9 @@ description: Use when a short-drama role needs a public character reference, whe
 
 没有有效审批时不得调用 `jubian_asset upload_reference`，不得把人物库图片放进 `jubian_video image_generate` 或批量生图的 `references`。审批通过后仍只把人物库图片作为生成参考；生成图需要单独视觉审核、`confirm_casting` 回读和正式资产登记，人物库记录本身不成为正式出演资产。
 
-## 非主线的入库能力
+## 只读范围
 
-当前短剧预设注册了 `drama_character_library_ingest_current_file`，但生产 TOS 写入仍关闭；注册不等于可写入成功。它只接受当前人类消息明确指定的原始文件附件，由 Host 校验附件、分类和来源，不能用于保存 Agent 自选候选图、任意本地路径或 TOS key。人物匹配任务不以入库为前置，也不因此建设人工上传工作台。若当前任务确需入库但生产写入未配置，报告未配置并停止，不回退到历史只读身份或前缀。后续任何新记录都从 `pending_review` 开始，写入失败不得显示为成功；不要把 mock、预览或本地草稿描述成真实 TOS 素材。
+当前人物库只提供检索与看图，不提供入库、审核或项目绑定工具。人物匹配任务不以入库为前置。用户要求新增素材时如实说明当前能力，不声称已经写入 TOS，也不把本地草稿或测试数据描述成云端素材。
 
 ## 安全边界
 

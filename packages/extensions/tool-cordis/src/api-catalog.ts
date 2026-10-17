@@ -599,6 +599,80 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'characterLibrary',
+    summary: 'Host domain service.',
+    description: 'Host domain service. The store provider owns credentials and all network behavior.',
+    methods: [
+      {
+        signature: 'status(): CharacterLibraryStatus',
+        description: 'Report the mounted service boundary without doing object-store IO.',
+        parameters: [],
+        returns: 'Read and pending-ingest readiness for the mounted provider.',
+      },
+      {
+        signature: 'async browse( request: CharacterLibraryBrowseRequest = {}, signal?: AbortSignal, ): Promise<CharacterLibraryBrowseResult>',
+        description: 'List and adapt a bounded set of catalog metadata records.',
+        parameters: [{ name: 'request', description: 'Collection, filter, page size, and optional cursor.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'A bounded page of catalog entries and its continuation cursor.',
+      },
+      {
+        signature: 'async detail( request: CharacterLibraryDetailRequest, signal?: AbortSignal, ): Promise<CharacterLibraryEntry>',
+        description: 'Resolve one stable catalog identity without reading its image.',
+        parameters: [{ name: 'request', description: 'Stable catalog asset identity to resolve.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'The adapted catalog entry.',
+      },
+      {
+        signature: 'async preview( request: CharacterLibraryPreviewRequest, signal?: AbortSignal, ): Promise<CharacterLibraryPreview>',
+        description: 'Read and verify one bounded image preview entirely in memory.',
+        parameters: [{ name: 'request', description: 'Catalog identity and optional image byte bound.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'Verified raster bytes with their measured identity.',
+      },
+      {
+        signature: 'async recommend( request: CharacterRecommendationRequest, signal?: AbortSignal, ): Promise<CharacterRecommendationResult>',
+        description: 'Select one best read-only reference or require review for an exact top-score tie.',
+        parameters: [{ name: 'request', description: 'Bounded role and appearance requirements.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'A recommendation, review request, or no-match result without use permission.',
+      },
+      {
+        signature: 'async matchCandidates( request: CharacterRecommendationRequest, signal?: AbortSignal, ): Promise<CharacterMatchResult>',
+        description: 'Rank at most three metadata matches and measure their original-image digests.',
+        parameters: [{ name: 'request', description: 'Bounded role and appearance requirements.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'Verified image identities for visual selection, without use permission.',
+      },
+    ],
+  },
+  {
+    key: 'characterLibraryObjectStore',
+    summary: 'Least-capability object store.',
+    description: 'Least-capability object store. It deliberately has no delete, copy, ACL, policy or presigned-URL operation.',
+    methods: [
+      {
+        signature: 'abstract status(): CharacterLibraryObjectStoreStatus',
+        description: 'Report deployment readiness without constructing an SDK client or doing network IO.',
+        parameters: [],
+        returns: 'The provider\'s read and write readiness flags.',
+      },
+      {
+        signature: 'abstract list( request: CharacterLibraryObjectListRequest, signal?: AbortSignal, ): Promise<CharacterLibraryObjectListPage>',
+        description: 'List one bounded page below a fixed reviewed prefix.',
+        parameters: [{ name: 'request', description: 'Prefix, cursor, and page bound.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'A page of object descriptors and continuation cursor.',
+      },
+      {
+        signature: 'abstract head(key: string, signal?: AbortSignal): Promise<CharacterLibraryObjectHead | null>',
+        description: 'Read metadata without fetching the object body.',
+        parameters: [{ name: 'key', description: 'Object key to inspect.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'Object metadata, or null when absent.',
+      },
+      {
+        signature: 'abstract get(key: string, maxBytes: number, signal?: AbortSignal): Promise<CharacterLibraryObjectGet>',
+        description: 'Read at most maxBytes into memory; providers enforce the bound before or during transfer.',
+        parameters: [{ name: 'key', description: 'Object key to read.' }, { name: 'maxBytes', description: 'Maximum accepted object body length.' }, { name: 'signal', description: 'Optional cancellation signal.' }],
+        returns: 'The bounded object body and provider metadata.',
+      },
+    ],
+  },
+  {
     key: 'claudeCodeMods',
     summary: 'The bridge service: loaded mods, their hooks, and the harness listeners that raise their events.',
     description: 'The bridge service: loaded mods, their hooks, and the harness listeners that raise their events. Mods join through ClaudeCodeMods.add, which defineMod calls when a mod plugin mounts. The Remote methods let a Client draw each session\'s band above the prompt and press its buttons.',
@@ -4937,8 +5011,96 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ButtonProps {\n    readonly label: string;\n    readonly hotkey?: string | undefined;\n    readonly disabled?: boolean | undefined;\n    readonly onPress?: (() => unknown) | undefined;\n}',
   },
   {
+    name: 'CatalogAssetId',
+    declaration: 'export type CatalogAssetId = Branded<\'character-catalog-asset-id\'>;',
+  },
+  {
     name: 'ChangeResult',
     declaration: 'export interface ChangeResult {\n    changed: boolean;\n    application: \'applied\' | \'restart-required\' | \'overridden\' | \'failed\' | \'cancelled\';\n    stage: \'install\' | \'enable\' | \'remove\';\n    target: string;\n    enabled?: boolean;\n    error?: ManagementError;\n    warnings?: string[];\n    packageResult?: PackageResult;\n    bundle?: string;\n    version?: string;\n    pendingBuilds?: string[];\n    approvedBuilds?: string[];\n    registries?: Registry[];\n    failedAt?: \'registry\' | \'spec-host\';\n}',
+  },
+  {
+    name: 'CharacterLibraryBrowseRequest',
+    declaration: 'export interface CharacterLibraryBrowseRequest {\n    readonly collection?: CharacterLibraryCollection | \'all\';\n    readonly query?: string;\n    readonly metadataStatus?: MetadataStatusClass;\n    readonly cursor?: string;\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'CharacterLibraryBrowseResult',
+    declaration: 'export interface CharacterLibraryBrowseResult {\n    readonly entries: readonly CharacterLibraryEntry[];\n    readonly nextCursor: string | null;\n    readonly scanned: number;\n}',
+  },
+  {
+    name: 'CharacterLibraryCollection',
+    declaration: 'export type CharacterLibraryCollection = \'ancient\' | \'urban\';',
+  },
+  {
+    name: 'CharacterLibraryDetailRequest',
+    declaration: 'export interface CharacterLibraryDetailRequest {\n    readonly catalogAssetId: CatalogAssetId | string;\n}',
+  },
+  {
+    name: 'CharacterLibraryEntry',
+    declaration: 'export interface CharacterLibraryEntry {\n    readonly catalogAssetId: CatalogAssetId;\n    readonly originalAssetId: OriginalCharacterAssetId;\n    readonly collection: CharacterLibraryCollection;\n    readonly format: MetadataFormat;\n    readonly metadataStatus: MetadataStatusClass;\n    readonly metadataKey: string;\n    readonly imageKey: string;\n    readonly category: string | null;\n    readonly setting: string | null;\n    readonly artStyle: string | null;\n    readonly era: readonly string[];\n    readonly gender: string | null;\n    readonly appearance: readonly string[];\n    readonly tags: readonly string[];\n    readonly safety: {\n        readonly canPublish: false;\n        readonly canReuse: false;\n        readonly canBind: false;\n        readonly applyAllowed: false;\n    };\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectGet',
+    declaration: 'export interface CharacterLibraryObjectGet extends CharacterLibraryObjectHead {\n    readonly data: Uint8Array;\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectHead',
+    declaration: 'export interface CharacterLibraryObjectHead {\n    readonly key: string;\n    readonly bytes: number;\n    readonly etag: string | null;\n    readonly contentType: string | null;\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectListItem',
+    declaration: 'export interface CharacterLibraryObjectListItem {\n    readonly key: string;\n    readonly bytes: number;\n    readonly etag: string | null;\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectListPage',
+    declaration: 'export interface CharacterLibraryObjectListPage {\n    readonly objects: readonly CharacterLibraryObjectListItem[];\n    readonly nextCursor: string | null;\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectListRequest',
+    declaration: 'export interface CharacterLibraryObjectListRequest {\n    readonly prefix: CharacterLibraryPrefix;\n    readonly cursor?: string;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'CharacterLibraryObjectStoreStatus',
+    declaration: 'export interface CharacterLibraryObjectStoreStatus {\n    readonly readConfigured: boolean;\n    readonly writeConfigured: boolean;\n}',
+  },
+  {
+    name: 'CharacterLibraryPrefix',
+    declaration: 'export type CharacterLibraryPrefix = \'assets/reference/characters/stylized/ancient/ancient/\' | \'assets/reference/characters/stylized/urban/urban/\';',
+  },
+  {
+    name: 'CharacterLibraryPreview',
+    declaration: 'export interface CharacterLibraryPreview {\n    readonly catalogAssetId: CatalogAssetId;\n    readonly metadataStatus: MetadataStatusClass;\n    readonly data: Uint8Array;\n    readonly contentType: \'image/jpeg\' | \'image/png\' | \'image/webp\';\n    readonly bytes: number;\n    readonly sha256: string;\n    readonly safety: CharacterLibraryEntry[\'safety\'];\n}',
+  },
+  {
+    name: 'CharacterLibraryPreviewRequest',
+    declaration: 'export interface CharacterLibraryPreviewRequest extends CharacterLibraryDetailRequest {\n    readonly maxBytes?: number;\n    readonly expectedSha256?: string;\n}',
+  },
+  {
+    name: 'CharacterLibraryStatus',
+    declaration: 'export interface CharacterLibraryStatus {\n    readonly configured: boolean;\n    readonly sourceId: \'muse-character-reference-qa\';\n    readonly readOnly: true;\n    readonly uploadPending: \'available\' | \'unavailable\';\n}',
+  },
+  {
+    name: 'CharacterMatchCandidate',
+    declaration: 'export interface CharacterMatchCandidate extends CharacterRecommendationCandidate {\n    readonly imageSha256: string;\n}',
+  },
+  {
+    name: 'CharacterMatchResult',
+    declaration: 'export type CharacterMatchResult = {\n    readonly status: \'candidates\';\n    readonly candidates: readonly CharacterMatchCandidate[];\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n} | {\n    readonly status: \'no_match\';\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n};',
+  },
+  {
+    name: 'CharacterRecommendationCandidate',
+    declaration: 'export interface CharacterRecommendationCandidate {\n    readonly entry: CharacterLibraryEntry;\n    readonly score: number;\n    readonly matched: readonly string[];\n}',
+  },
+  {
+    name: 'CharacterRecommendationRequest',
+    declaration: 'export interface CharacterRecommendationRequest {\n    readonly roleClass: CharacterRoleClass;\n    readonly supportingUseReason?: string;\n    readonly collection?: CharacterLibraryCollection | \'all\';\n    readonly query?: string;\n    readonly requiredEra?: string;\n    readonly gender?: string;\n    readonly styleTerms?: readonly string[];\n    readonly traitTerms?: readonly string[];\n    readonly roleTerms?: readonly string[];\n}',
+  },
+  {
+    name: 'CharacterRecommendationResult',
+    declaration: 'export type CharacterRecommendationResult = {\n    readonly status: \'recommended\';\n    readonly candidate: CharacterRecommendationCandidate;\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n} | {\n    readonly status: \'needs_review\';\n    readonly candidates: readonly CharacterRecommendationCandidate[];\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n} | {\n    readonly status: \'no_match\';\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n};',
+  },
+  {
+    name: 'CharacterRoleClass',
+    declaration: 'export type CharacterRoleClass = \'lead\' | \'important_support\' | \'support\' | \'extra\';',
   },
   {
     name: 'ClientArtifactBaseline',
@@ -6065,6 +6227,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n    \'system-prompt\': SystemPromptMessageSource;\n}',
   },
   {
+    name: 'MetadataFormat',
+    declaration: 'export type MetadataFormat = \'phase1_v2\' | \'legacy_v1\' | \'legacy_aliases\' | \'flat\';',
+  },
+  {
+    name: 'MetadataStatusClass',
+    declaration: 'export type MetadataStatusClass = \'pending_review\' | \'approved_claim\' | \'rejected_claim\' | \'unknown\';',
+  },
+  {
     name: 'ModDefinition',
     declaration: 'export interface ModDefinition {\n    readonly name: string;\n    readonly version?: string;\n    readonly root?: string;\n    readonly options?: PluginOptions;\n    readonly register: ModRegister;\n}',
   },
@@ -6251,6 +6421,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OptionalSessionSeq',
     declaration: 'export type OptionalSessionSeq = SessionSeq | null;',
+  },
+  {
+    name: 'OriginalCharacterAssetId',
+    declaration: 'export type OriginalCharacterAssetId = Branded<\'original-character-asset-id\'>;',
   },
   {
     name: 'OTelEventRecord',

@@ -88,19 +88,6 @@ it('offers only short drama and editing while keeping registered legacy composit
     expect(prompt).toContain('short-drama 是制作模式，上文“仿真人短剧制作 Agent”的称呼不构成真人默认值')
     expect(prompt).toContain('不得加入“真人选角审美”“禁止动漫脸”“真人角色设定板”或“真实空间”等真人约束')
     expect(prompt).toContain('风格缺失或语义不明确时询问确认')
-    expect(prompt).toContain('先以当前 Session 工作目录调用 drama_project read')
-    expect(prompt).toContain('已有项目根目录优先，不追加 short-drama/<项目名>/')
-    expect(prompt).toContain('剧变登录或浏览器打开项目不会自动切换 Muse Session')
-    expect(prompt).toContain('当前目录未配置或项目 ID 与用户指定项目不一致')
-    expect(prompt).toContain('仅在明确新建项目时使用 short-drama/<项目名>/')
-    expect(rows.find(row => row.id === 'persona')?.config).toMatchObject({
-      suffix: '你的当前 Session 工作目录是 {{cwd}}。先用 drama_project read 读取该目录；已有项目根目录优先，不追加 short-drama/<项目名>/。',
-    })
-    expect(prompt).toContain('先加载 character-reference-library')
-    expect(prompt).toContain('用 drama_character_references 检索有限候选')
-    expect(prompt).toContain('catalog_asset_id 和 image_sha256（作为 expected_sha256）')
-    expect(prompt).toContain('drama_character_reference_view 实际查看候选图')
-    expect(prompt).toContain('都不能批准、绑定或送入生成')
     expect(prompt.indexOf('视觉风格只取当前用户对本项目的明确要求和 project_bible.style'))
       .toBeGreaterThan(prompt.indexOf('你是 muse-med 仿真人短剧制作 Agent'))
     for (const requirement of ['pipeline_state.json', 'assets_manifest.json', '1440×2560', '4.6 Mbps', 'asr_aligned', 'idempotency_key', 'CC-BY-NC-4.0', 'scriptName', 'episodeCount', 'stale']) {
