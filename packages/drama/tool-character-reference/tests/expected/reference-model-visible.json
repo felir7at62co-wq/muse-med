@@ -1,51 +1,24 @@
 {
-  "schemas": [
-    {
-      "name": "drama_character_references",
-      "description": "仅从部署配置指定的本地公共人物参考草稿读取一个最佳参考。输入角色描述、风格与已知外观标签；返回理由和不确定项。这是 QA 只读建议，不是已批准素材或剧变资产。不得调用导入、select_assets、生成或任何写入工具。年代未被明确证实或候选同分时不推荐。调用方提供的角色需求尚未自动核验剧本原文。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "role_description": {
-            "type": "string",
-            "description": "角色需求摘要；必须来自当前剧本，不可编造。"
-          },
-          "style": {
-            "type": "string",
-            "description": "已知风格，未确认时省略。",
-            "enum": [
-              "urban",
-              "ancient"
-            ]
-          },
-          "desired_tags": {
-            "type": "array",
-            "description": "从需求中提取的具体服装或外观标签。",
-            "items": {
-              "type": "string"
-            }
-          },
-          "era": {
-            "type": "string",
-            "description": "明确要求的年代；草稿未确认该年代则不给出推荐。"
-          }
-        },
-        "required": [
-          "role_description"
-        ]
-      }
-    }
+  "tool_names": [
+    "drama_character_references",
+    "drama_character_reference_view"
   ],
-  "noMatch": [
+  "parameter_names": [
+    "character_id",
+    "role_description",
+    "role_class",
+    "supporting_use_reason",
+    "collection",
+    "required_era",
+    "gender",
+    "style_terms",
+    "trait_terms",
+    "role_terms"
+  ],
+  "result": [
     {
       "type": "text",
-      "text": "{\n  \"search_scope\": \"local_draft_public_reference\",\n  \"read_only\": true,\n  \"apply_allowed\": false,\n  \"local_writes\": 0,\n  \"remote_writes\": 0,\n  \"paid_requests\": 0,\n  \"status\": \"no_match\",\n  \"reason\": \"本地草稿索引没有足够证据支持此角色需求。\",\n  \"evidence\": [],\n  \"uncertainty\": [\n    \"角色需求来自调用方，未与剧本原文核验；未做视觉模型或人工复核。\"\n  ]\n}"
-    }
-  ],
-  "tied": [
-    {
-      "type": "text",
-      "text": "{\n  \"search_scope\": \"local_draft_public_reference\",\n  \"read_only\": true,\n  \"apply_allowed\": false,\n  \"local_writes\": 0,\n  \"remote_writes\": 0,\n  \"paid_requests\": 0,\n  \"status\": \"needs_review\",\n  \"reason\": \"多个人物参考的现有证据同分，不能可靠选出唯一最佳。\",\n  \"evidence\": [],\n  \"uncertainty\": [\n    \"需要补充更具体的服装或外观要求；不自动以编号打破平局。\"\n  ]\n}"
+      "text": "{\n  \"character_id\": \"heroine\",\n  \"reason\": \"Metadata-ranked candidates for visual inspection.\",\n  \"uncertainty\": [\n    \"metadata_status:pending_review\"\n  ],\n  \"read_only\": true,\n  \"can_publish\": false,\n  \"can_reuse\": false,\n  \"can_bind\": false,\n  \"apply_allowed\": false,\n  \"local_writes\": 0,\n  \"remote_writes\": 0,\n  \"paid_requests\": 0,\n  \"status\": \"candidates\",\n  \"candidates\": [\n    {\n      \"catalog_asset_id\": \"character:muse-character-reference-qa:char_3d_0003\",\n      \"original_asset_id\": \"char_3d_0003\",\n      \"image_sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"collection\": \"urban\",\n      \"format\": \"phase1_v2\",\n      \"metadata_status\": \"pending_review\",\n      \"category\": \"甜宠女主\",\n      \"setting\": \"modern\",\n      \"art_style\": \"stylized\",\n      \"era\": [\n        \"modern\"\n      ],\n      \"gender\": \"female\",\n      \"appearance\": [\n        \"温柔\",\n        \"少女感\"\n      ],\n      \"tags\": [\n        \"甜妹\"\n      ],\n      \"matched_evidence\": [\n        \"era\",\n        \"trait:少女感\"\n      ]\n    }\n  ]\n}"
     }
   ]
 }

@@ -6,6 +6,11 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../core/tools" },
+    { "path": "../../attachment/attachment" },
+    { "path": "../character-library" },
+    { "path": "../drama-settings/tsconfig.host.json" },
+    { "path": "../../settings/settings" },
+    { "path": "../../util/values" },
     { "path": "../../llm/llm" }
   ]
 }

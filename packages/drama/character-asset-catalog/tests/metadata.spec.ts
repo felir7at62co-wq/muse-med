@@ -46,6 +46,17 @@ function v2(): Record<string, unknown> {
   }
 }
 
+function v1(): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    id: 'char_legacy_001',
+    images: ['portrait.jpg'],
+    source: { platform: 'synthetic-test', rights_status: 'unconfirmed' },
+    status: 'pending_review',
+    style: 'ancient',
+  }
+}
+
 function parse(metadata: Record<string, unknown>, key = flatKey) {
   return parseCharacterMetadata(JSON.stringify(metadata), source, key)
 }
@@ -178,6 +189,97 @@ describe('character catalog metadata adaptation', () => {
     })
   })
 
+  it('adapts numeric v1 string-image metadata without inventing approval or role identity', () => {
+    const metadata = v1()
+    const item = parse(metadata, v2Key)
+    expect(item.raw.format).toBe('legacy_v1')
+    expect(item.raw.id_field).toBe('id')
+    expect(item.raw.file_field).toBe('images[0]')
+    expect(item.raw.metadata).toEqual(metadata)
+    expect(item.raw.source).toEqual(metadata.source)
+    expect(item.identity).toEqual({
+      catalog_asset_id: 'character:character-reference:char_legacy_001',
+      original_asset_id: 'char_legacy_001',
+      reference_id: null,
+    })
+    expect(item.adapted).toMatchObject({
+      file_name: 'portrait.jpg',
+      setting: null,
+      art_style: null,
+      metadata_status_class: 'pending_review',
+    })
+    expect(item.derived).toMatchObject({
+      image_key: v2Key.replace('metadata.json', 'portrait.jpg'),
+      declared_sha256: null,
+      declared_bytes: null,
+    })
+    expect(item.unknown.authoritative_review).toBeNull()
+    expect(item.safety).toEqual({ can_publish: false, can_reuse: false, can_bind: false })
+  })
+
+  it('checks v1 aliases for agreement instead of silently selecting a conflicting ID or image', () => {
+    const metadata = v1()
+    const consistent = parse({ ...metadata, asset_id: 'char_legacy_001', file_name: 'portrait.jpg' }, v2Key)
+    expect(consistent.raw.id_field).toBe('both')
+    expect(consistent.raw.file_field).toBe('both')
+    expect(consistent.raw.format).toBe('legacy_v1')
+    expect(code(() => parse({ ...metadata, asset_id: 'another_id' }, v2Key))).toBe('CONFLICTING_ID')
+    expect(code(() => parse({ ...metadata, file_name: 'another.jpg' }, v2Key)))
+      .toBe('CONFLICTING_FILE_NAME')
+    const noId = { ...metadata }
+    delete noId.id
+    expect(code(() => parse({ ...noId, asset_id: 'char_legacy_001' }, v2Key)))
+      .toBe('INVALID_FIELD')
+    const noImage = { ...metadata }
+    delete noImage.images
+    expect(code(() => parse({ ...noImage, file_name: 'portrait.jpg' }, v2Key)))
+      .toBe('INVALID_FIELD')
+  })
+
+  it('rejects unsafe v1 image strings and unknown version spellings', () => {
+    for (const imageName of [
+      '', ' ', '.', '..', '../escape.jpg', 'nested/portrait.jpg',
+      'nested\\portrait.jpg', 'https://example.invalid/p.jpg',
+      'C:portrait.jpg', 'portrait\n.jpg', 'portrait\u0000.jpg',
+      'portrait\u200b.jpg', 'portrait\u2028.jpg',
+    ]) {
+      expect(code(() => parse({ ...v1(), images: [imageName] }, v2Key)))
+        .toBe('INVALID_FILE_NAME')
+    }
+    for (const images of [[], [null], [{ filename: 'portrait.jpg' }], 'portrait.jpg']) {
+      expect(code(() => parse({ ...v1(), images }, v2Key))).toBe('MISSING_FILE_NAME')
+    }
+    for (const schema_version of ['1', '2', 0, 3, null, true]) {
+      expect(code(() => parse({ ...v1(), schema_version }, v2Key)))
+        .toBe('UNSUPPORTED_METADATA_VERSION')
+    }
+    expect(parse(v2(), v2Key).raw.format).toBe('phase1_v2')
+    const unversioned = v2()
+    delete unversioned.schema_version
+    expect(parse(unversioned, v2Key).raw.format).toBe('legacy_aliases')
+  })
+
+  it('reads only the v1 image in the metadata directory and observes its bytes and hash', async () => {
+    const imageKey = v2Key.replace('metadata.json', 'portrait.jpg')
+    const reads: string[] = []
+    const metadata = v1()
+    const assets = await loadCharacterAssets(source, [v2Key], {
+      read: async (_source, key) => {
+        reads.push(key)
+        if (key === v2Key) return Buffer.from(JSON.stringify(metadata))
+        if (key === imageKey) return picture
+        throw new Error('Unexpected synthetic key')
+      },
+    })
+    expect(reads).toEqual([v2Key, imageKey])
+    expect(assets).toHaveLength(1)
+    expect(assets[0]?.raw.format).toBe('legacy_v1')
+    expect(assets[0]?.observed).toEqual({ sha256: digest, bytes: picture.byteLength })
+    expect(assets[0]?.derived.declared_sha256).toBeNull()
+    expect(assets[0]?.derived.declared_bytes).toBeNull()
+    expect(assets[0]?.safety).toEqual({ can_publish: false, can_reuse: false, can_bind: false })
+  })
+
   it('accepts consistent old and new aliases in one v2 record', () => {
     const metadata = { ...v2(), asset_id: 'char_3d_0004', file_name: 'old.jpg' }
     const item = parse(metadata, v2Key)
@@ -237,6 +339,7 @@ describe('character catalog metadata adaptation', () => {
     expect(code(() => parse({ ...flat(), images: [] }))).toBe('MISSING_FILE_NAME')
     expect(code(() => parse({ ...flat(), images: [{}] }))).toBe('MISSING_FILE_NAME')
     expect(code(() => parse({ ...flat(), images: [{ filename: 1 }] }))).toBe('INVALID_FILE_NAME')
+    expect(code(() => parse({ ...v2(), images: ['old.jpg'] }, v2Key))).toBe('MISSING_FILE_NAME')
     expect(code(() => parse({ ...v2(), images: [{ filename: 'old.jpg', sha256: 'wrong' }] }, v2Key)))
       .toBe('INVALID_DECLARED_IMAGE')
     expect(code(() => parse({ ...v2(), images: [{ filename: 'old.jpg', bytes: -1 }] }, v2Key)))

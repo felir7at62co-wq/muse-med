@@ -59,7 +59,7 @@
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。`prepare` 构建渲染输入并保存项目画布和视觉类型快照，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。3D 漫不新增片尾或水印；仿真人保留 AI 标记及真实尾帧定格的两秒片尾。旧项目缺类型时告警并保留带标识交付；目标码率 24M、上限 30M、下限 4.6 Mbps。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
-| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_references` | `ctx.tools`, `an absolute deployment-configured local character reference draft index path` | `tool/call`, `tool/result` | - | `drama_character_references` 是按需启用的隔离 QA 检索工具，读取部署配置指定的本地草稿索引。它最多返回一个带有证据、理由和不确定项的参考，并明确报告本地写入、远程写入与付费请求均为零。它不上传、导入、绑定、批准、生成或发布素材，也不在生产 profile 中注册。 |
+| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_view`、`drama_character_references` | `ctx.tools`、`ctx.settings`、`ctx.characterLibrary（Host 管理的只读人物素材库）`、`ctx.attachments` 与 `ctx.llm`（看图时） | `tool/call`、`tool/result`；看图时保存图像附件 | - | `drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 和原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当当前模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。两个工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。 |
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -5267,7 +5267,7 @@ Read the authoritative project bible, preview a confirmed change and its downstr
         },
         "characters": {
           "type": "array",
-          "description": "Stable character identities and approved voice guidance. Provider reference-audio support must be checked separately.",
+          "description": "Stable character identities, role importance and approved voice guidance. Character-library use is decided by Host tools; catalog metadata never decides lead/support policy.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -5286,6 +5286,16 @@ Read the authoritative project bible, preview a confirmed change and its downstr
               },
               "asset_id": {
                 "type": "integer"
+              },
+              "role_class": {
+                "type": "string",
+                "description": "Project-owned role importance. The public character library is searched for lead characters by default; another role requires a recorded story-specific reason.",
+                "enum": [
+                  "lead",
+                  "important_support",
+                  "support",
+                  "extra"
+                ]
               },
               "voice_profile": {
                 "type": "object",
@@ -5825,44 +5835,109 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
 
 ## `@deepseek-ai/dsh-tool-character-reference`
 
-### `drama_character_references`
+### `drama_character_reference_view`
 
-仅从部署配置指定的本地公共人物参考草稿读取一个最佳参考。输入角色描述、风格与已知外观标签；返回理由和不确定项。这是 QA 只读建议，不是已批准素材或剧变资产。不得调用导入、select_assets、生成或任何写入工具。年代未被明确证实或候选同分时不推荐。调用方提供的角色需求尚未自动核验剧本原文。
+实际查看先前检索到的一张人物候选图片。传入候选的 catalog_asset_id 和 image_sha256；Host 重新读取并核对图片身份与原图 SHA-256，然后把图片作为图像内容交给当前支持看图的模型。看图不授予素材使用、绑定或发布许可。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "role_description": {
+    "catalog_asset_id": {
       "type": "string",
-      "description": "角色需求摘要；必须来自当前剧本，不可编造。"
+      "description": "检索结果中的稳定 Catalog ID；不是项目 character_id 或供应商资产 ID。"
     },
-    "style": {
+    "expected_sha256": {
       "type": "string",
-      "description": "已知风格，未确认时省略。",
-      "enum": [
-        "urban",
-        "ancient"
-      ]
-    },
-    "desired_tags": {
-      "type": "array",
-      "description": "从需求中提取的具体服装或外观标签。",
-      "items": {
-        "type": "string"
-      }
-    },
-    "era": {
-      "type": "string",
-      "description": "明确要求的年代；草稿未确认该年代则不给出推荐。"
+      "description": "检索结果中的原图 SHA-256；不得自行编造。"
     }
   },
   "required": [
-    "role_description"
+    "catalog_asset_id",
+    "expected_sha256"
   ]
 }
 ```
 
-Source: [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+来源：[`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
 
-`drama_character_references` 是按需启用的隔离 QA 检索工具，读取部署配置指定的本地草稿索引。它最多返回一个带有证据、理由和不确定项的参考，并明确报告本地写入、远程写入与付费请求均为零。它不上传、导入、绑定、批准、生成或发布素材，也不在生产 profile 中注册。
+### `drama_character_references`
+
+根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角默认可检索；配角默认跳过，只有提供剧情相关例外理由才检索。工具返回候选身份、原图 SHA-256 与文字匹配依据；检索本身不代表已经看图。agent 可按候选 ID 调用 `drama_character_reference_view` 实际查看图片，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "character_id": {
+      "type": "string",
+      "description": "当前项目角色 ID；只用于关联本次建议，不等于 catalog_asset_id。"
+    },
+    "role_description": {
+      "type": "string",
+      "description": "从当前剧本提取的角色需求摘要，不可编造。"
+    },
+    "role_class": {
+      "type": "string",
+      "description": "项目角色类型声明；Host 会与当前 Session 项目圣经中的权威值核对，不一致时拒绝。",
+      "enum": [
+        "lead",
+        "important_support",
+        "support",
+        "extra"
+      ]
+    },
+    "supporting_use_reason": {
+      "type": "string",
+      "description": "非主角使用公共参考库的剧情相关例外理由；缺失时非主角默认不检索。"
+    },
+    "collection": {
+      "type": "string",
+      "description": "已知人物风格范围；不确定时省略。",
+      "enum": [
+        "ancient",
+        "urban",
+        "all"
+      ]
+    },
+    "required_era": {
+      "type": "string",
+      "description": "剧本明确要求的年代；不得从素材状态推断。"
+    },
+    "gender": {
+      "type": "string",
+      "description": "剧本明确要求的性别；不确定时省略。"
+    },
+    "style_terms": {
+      "type": "array",
+      "description": "从剧本提取的风格关键词。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trait_terms": {
+      "type": "array",
+      "description": "从剧本提取的外观或气质关键词。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "role_terms": {
+      "type": "array",
+      "description": "从剧本提取的角色适配关键词。",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "character_id",
+    "role_description",
+    "role_class"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+
+`drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 与原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。两个工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。

@@ -52,10 +52,12 @@ export const PROJECT_BIBLE_CHANGES = {
       episode_id: { type: 'integer' },
     },
   } },
-  characters: { type: 'array', description: 'Stable character identities and approved voice guidance. Provider reference-audio support must be checked separately.', items: {
+  characters: { type: 'array', description: 'Stable character identities, role importance and approved voice guidance. Character-library use is decided by Host tools; catalog metadata never decides lead/support policy.', items: {
     type: 'object', additionalProperties: false, properties: {
       character_id: { type: 'string', required: true }, name: { type: 'string' },
       aliases: { type: 'array', items: { type: 'string' } }, asset_id: { type: 'integer' },
+      role_class: { type: 'string', enum: ['lead', 'important_support', 'support', 'extra'],
+        description: 'Project-owned role importance. The public character library is searched for lead characters by default; another role requires a recorded story-specific reason.' },
       voice_profile: { type: 'object', additionalProperties: false, description: 'Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.', properties: VOICE_PROFILE_FIELDS },
       voice_profiles: { type: 'array', description: 'Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.', items: {
         type: 'object', additionalProperties: false, properties: {
@@ -286,6 +288,10 @@ function validateBible(bible: JsonObject): void {
     identities.add(id)
     const name = text(row.name, 'characters.name')
     if (row.asset_id !== undefined) positive(row.asset_id, 'characters.asset_id')
+    if (row.role_class !== undefined && row.role_class !== 'lead' && row.role_class !== 'important_support'
+      && row.role_class !== 'support' && row.role_class !== 'extra') {
+      throw new Error('characters.role_class must be lead, important_support, support or extra.')
+    }
     if (row.aliases !== undefined && (!Array.isArray(row.aliases) || !row.aliases.every(alias => typeof alias === 'string' && alias.trim()))) {
       throw new Error('characters.aliases must be nonempty text entries.')
     }

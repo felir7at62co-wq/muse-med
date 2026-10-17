@@ -179,14 +179,15 @@ export function parseCharacterMetadata(
     fail('INVALID_METADATA_JSON', safeKey)
   }
   if (!object(raw)) fail('INVALID_METADATA_JSON', safeKey)
-  if (has(raw, 'schema_version') && raw.schema_version !== 2) {
+  if (has(raw, 'schema_version') && raw.schema_version !== 1 && raw.schema_version !== 2) {
     fail('UNSUPPORTED_METADATA_VERSION', safeKey)
   }
   const hasAssetId = has(raw, 'asset_id')
   const hasId = has(raw, 'id')
   const hasFlatName = has(raw, 'file_name')
   const format: MetadataFormat = raw.schema_version === 2 ? 'phase1_v2'
-    : hasAssetId || hasFlatName ? 'flat' : 'legacy_aliases'
+    : raw.schema_version === 1 ? 'legacy_v1'
+      : hasAssetId || hasFlatName ? 'flat' : 'legacy_aliases'
   const newId = hasAssetId ? originalId(raw.asset_id) : null
   const oldId = hasId ? originalId(raw.id) : null
   if (newId !== null && oldId !== null && newId !== oldId) fail('CONFLICTING_ID', safeKey)
@@ -197,17 +198,25 @@ export function parseCharacterMetadata(
   let image: Record<string, unknown> | null = null
   let oldName: string | null = null
   if (has(raw, 'images')) {
-    if (!Array.isArray(raw.images) || !object(raw.images[0])) fail('MISSING_FILE_NAME', safeKey)
-    image = raw.images[0]
-    if (!has(image, 'filename')) fail('MISSING_FILE_NAME', safeKey)
-    oldName = fileName(image.filename)
+    if (!Array.isArray(raw.images) || raw.images.length === 0) fail('MISSING_FILE_NAME', safeKey)
+    if (format === 'legacy_v1') {
+      if (typeof raw.images[0] !== 'string') fail('MISSING_FILE_NAME', safeKey)
+      if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(raw.images[0])) fail('INVALID_FILE_NAME', safeKey)
+      oldName = fileName(raw.images[0])
+    } else {
+      if (!object(raw.images[0])) fail('MISSING_FILE_NAME', safeKey)
+      image = raw.images[0]
+      if (!has(image, 'filename')) fail('MISSING_FILE_NAME', safeKey)
+      oldName = fileName(image.filename)
+    }
   }
   if (flatName !== null && oldName !== null && flatName !== oldName) {
     fail('CONFLICTING_FILE_NAME', safeKey)
   }
   const selectedName = flatName ?? oldName
   if (selectedName === null) fail('MISSING_FILE_NAME', safeKey)
-  if (format === 'phase1_v2' && (oldId === null || oldName === null)) fail('INVALID_FIELD', safeKey)
+  if ((format === 'phase1_v2' || format === 'legacy_v1')
+    && (oldId === null || oldName === null)) fail('INVALID_FIELD', safeKey)
 
   if (!has(raw, 'source')) fail('MISSING_SOURCE', safeKey)
   if ((typeof raw.source !== 'string' || !raw.source.trim()) && !object(raw.source)) {
@@ -237,7 +246,8 @@ export function parseCharacterMetadata(
       source: raw.source as CharacterMetadataJsonValue,
       status: raw.status,
       id_field: hasAssetId && hasId ? 'both' : hasAssetId ? 'asset_id' : 'id',
-      file_field: hasFlatName && oldName !== null ? 'both' : hasFlatName ? 'file_name' : 'images[0].filename',
+      file_field: hasFlatName && oldName !== null ? 'both' : hasFlatName ? 'file_name'
+        : format === 'legacy_v1' ? 'images[0]' : 'images[0].filename',
     },
     adapted: {
       asset_id: id,

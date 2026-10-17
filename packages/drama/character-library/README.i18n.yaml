@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/character-library/README.md
+/:
+  en: b8cd23309f32e98a
+  zh: 5363e68097e8b5c2
+/deepseek-ai-dsh-character-library:
+  en: 8a5d7926121017eb
+  zh: e61da393b909af95
+/deepseek-ai-dsh-character-library/summary:
+  en: 91e779253586757e
+  zh: 9f413cfc160105f7
+/deepseek-ai-dsh-character-library/table-of-contents:
+  en: 8d4537dc3642d55d
+  zh: 571233bd4b137e8a
+/deepseek-ai-dsh-character-library/use-this-package:
+  en: 29ae4dba9a7c5001
+  zh: 059d7487be544011
+/deepseek-ai-dsh-character-library/recommendation-policy:
+  en: 65ed00e0e6740379
+  zh: 01942331f1ab2c64
+/deepseek-ai-dsh-character-library/object-store-boundary:
+  en: 91998906cc7aa1da
+  zh: 0ebc05310c30fbcf
+/deepseek-ai-dsh-character-library/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-character-library/model-experience/character-reference-recommendation:
+  en: 70cd9869d4226a59
+  zh: 35ec3378f1f953de
+/deepseek-ai-dsh-character-library/model-experience/character-reference-recommendation/what-the-model-sees:
+  en: 794bef78c12025e7
+  zh: 75f969efee7c23db
+/deepseek-ai-dsh-character-library/model-experience/character-reference-recommendation/token-effect:
+  en: 9028abd73c6c0661
+  zh: b0a549be67cbe299
+/deepseek-ai-dsh-character-library/model-experience/character-reference-recommendation/kv-cache-effect:
+  en: 4a26573217715378
+  zh: da00d5d36491dc30
+/deepseek-ai-dsh-character-library/known-limitations-and-deferred-work:
+  en: fbbee919a7dd0ee3
+  zh: 1900339da524c85e
+/deepseek-ai-dsh-character-library/known-limitations-and-deferred-work/dev-note:
+  en: 6424d7b907fae31c
+  zh: b73cefe508e88499

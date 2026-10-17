@@ -13,6 +13,7 @@ export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
   DRAMA_SETTINGS_DEFAULTS, DRAMA_SETTINGS_NAMESPACE, DramaSettingsSchema,
 } from './settings.ts'
+export { readProjectBible } from './project-bible.ts'
 export type { DramaDeliverySpec, DramaSettings, DramaSettingsField } from './settings.ts'
 
 /** Cordis plugin name used by loader diagnostics. */

@@ -28,7 +28,8 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(names).toEqual([
       'ask_user_question', 'audio_transcribe', 'bash', 'bash', 'bgm_match',
       'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'drama_assets', 'drama_bgm',
-      'drama_character_references', 'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
+      'drama_character_reference_view', 'drama_character_references',
+      'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
       'interrupt_agent', 'interrupt_agent', 'job_kill', 'job_list', 'job_output',
       'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media',

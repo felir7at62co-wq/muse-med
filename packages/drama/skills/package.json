@@ -12,6 +12,7 @@
     "README.md",
     "README.zh.md",
     "README.i18n.yaml",
+    "skills/character-reference-library/SKILL.md",
     "skills/jubian-snatch/SKILL.md",
     "skills/jubian-snatch/references/api-notes.md",
     "skills/jubian-snatch/scripts/check_pool_live.py",

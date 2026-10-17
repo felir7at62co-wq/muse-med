@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-character-reference/README.md
 /:
-  en: 1afd279383e70e40
-  zh: dd6937392d224ed0
+  en: 730bd24249c4518f
+  zh: dc4192c6e9155819
 /deepseek-ai-dsh-tool-character-reference:
   en: 86a0fe4ac93bafbc
   zh: 1181bdd69e834010
 /deepseek-ai-dsh-tool-character-reference/summary:
-  en: fd7abfde8e4b8280
-  zh: f866f8dc7a39c208
+  en: c808088df5f4931d
+  zh: 55097f7a94828405
 /deepseek-ai-dsh-tool-character-reference/table-of-contents:
   en: 76368b6b1da79c80
   zh: c7d57a49ff713e9a
 /deepseek-ai-dsh-tool-character-reference/use-this-package:
-  en: b2cb95ac002c2c9f
-  zh: 8a139717cbd5322f
+  en: 058e8dcb9b809caa
+  zh: a8fca24fb88ffe69
 /deepseek-ai-dsh-tool-character-reference/understand-the-implementation:
-  en: 6952c14fd1120bf3
-  zh: be034a6ed93e697b
+  en: 1fc9a4be344d01f1
+  zh: 981008ef965f1099
 /deepseek-ai-dsh-tool-character-reference/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -27,17 +27,17 @@
   en: 7a1dee06a6359796
   zh: 61bf1c926602b636
 /deepseek-ai-dsh-tool-character-reference/model-experience/the-drama-character-references-tool/what-the-model-sees:
-  en: 95013902a5c2ccf1
-  zh: f0079eef1acfc192
+  en: 65db2c5f149a7950
+  zh: ca6feb44b2c7fc52
 /deepseek-ai-dsh-tool-character-reference/model-experience/the-drama-character-references-tool/token-effect:
-  en: 71c29d30064c6df8
-  zh: 4c0dbc62bd7cab5c
+  en: 07f36c9d750239af
+  zh: 57bd41ed2cf2bdcc
 /deepseek-ai-dsh-tool-character-reference/model-experience/the-drama-character-references-tool/kv-cache-effect:
-  en: 20044b9b787fc904
-  zh: b66a768bc5655d6c
+  en: 32fa9095e5799ed6
+  zh: 8e22cf382ddd6d61
 /deepseek-ai-dsh-tool-character-reference/known-limitations-and-deferred-work:
-  en: db1fe85ad6a9d382
-  zh: 3299f731c3f3dc68
+  en: c953e7dd8d285042
+  zh: 8c01ce080a60d91d
 /deepseek-ai-dsh-tool-character-reference/known-limitations-and-deferred-work/dev-note:
-  en: 0a1253c6f7b5e8b9
-  zh: 9f56528562c7c914
+  en: c6efc4736b80666c
+  zh: 12191c98cb5f31be

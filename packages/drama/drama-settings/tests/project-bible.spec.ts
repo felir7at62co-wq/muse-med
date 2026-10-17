@@ -252,6 +252,21 @@ it('preserves character identity and approved voice guidance through later packa
     .rejects.toThrow('ambiguous')
 })
 
+it('persists project-owned role importance without inferring it from catalog metadata', async () => {
+  const { ctx, home } = await bench()
+  const changes = { characters: [
+    { character_id: 'lead-1', name: '苏晚', role_class: 'lead' },
+    { character_id: 'support-1', name: '同事', role_class: 'support' },
+  ] }
+  const preview = await previewProjectBible(ctx.settings, home, changes, '确认角色重要性')
+  const updated = await updateProjectBible(ctx.settings, home, changes, '确认角色重要性',
+    preview.expected_revision, preview.preview_fingerprint)
+  expect(updated.config).toMatchObject({ project_bible: { characters: changes.characters } })
+  await expect(previewProjectBible(ctx.settings, home, {
+    characters: [{ character_id: 'extra-1', name: '路人', role_class: 'catalog_default' }],
+  }, '无效角色类型')).rejects.toThrow('characters.role_class')
+})
+
 it('stores a measured remote voice asset on the stable character through costume changes', async () => {
   const { ctx, home } = await bench()
   const voice = { description: '青年女性，清亮温柔，普通话',

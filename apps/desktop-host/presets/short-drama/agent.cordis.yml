@@ -56,6 +56,9 @@
   name: '@deepseek-ai/dsh-tool-skill'
 - id: drama-gate
   name: '@deepseek-ai/dsh-guard-drama'
+- id: tool-character-reference
+  name: '@deepseek-ai/dsh-tool-character-reference'
+
 - id: tool-drama-assets
   name: '@deepseek-ai/dsh-tool-drama-assets'
 - id: tool-bgm-compose

@@ -50,6 +50,8 @@ export { REGION_BEGIN, REGION_END }
  * errors, so the partition can never silently drift from the service API.
  */
 export const SERVICE_PAGE: Record<string, string> = {
+  characterLibrary: 'character-library.md',
+  characterLibraryObjectStore: 'character-library.md',
   speechToText: 'voice-input.md',
   speechController: 'voice-input.md',
   otel: 'otel.md',
@@ -848,6 +850,21 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  CharacterLibraryStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryBrowseRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryBrowseResult: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryDetailRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryEntry: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryPreview: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryPreviewRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterRecommendationRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterRecommendationResult: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterMatchResult: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryObjectStoreStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryObjectListPage: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryObjectListRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryObjectHead: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryObjectGet: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
   AgentNotesCatalog: 'Agent Notes catalog fields are owned by packages/api/agent-notes/README.md',
   AgentNoteText: 'complete note reads and versions are owned by packages/api/agent-notes/README.md',
   AgentNoteWriteResult: 'version-fenced note save outcomes are owned by packages/api/agent-notes/README.md',

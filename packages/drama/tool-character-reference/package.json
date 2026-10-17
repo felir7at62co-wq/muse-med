@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-character-reference",
-  "description": "Read-only lookup of local unpublished character references for isolated short-drama QA",
+  "description": "Read-only Agent lookup over the Host-owned public character reference library",
   "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
@@ -23,17 +23,25 @@
     "lib/index.js",
     "lib/types/**/*.d.ts"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "@deepseek-ai/dsh-character-library": "workspace:*",
+    "@deepseek-ai/dsh-drama-settings": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-attachment": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-settings": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/cordis-plugin-include": "workspace:~",
-    "@deepseek-ai/cordis-plugin-loader": "workspace:~",
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
+    "@deepseek-ai/dsh-attachment": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-settings": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   }

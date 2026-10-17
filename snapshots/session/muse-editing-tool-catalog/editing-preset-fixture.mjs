@@ -8,7 +8,7 @@ import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpClient,
-  { createMuseAccountMcpServer }, { createMuseKbReader }] = await Promise.all([
+  { createMuseAccountMcpServer }, { createMuseKbReader }, CharacterLibrary, CharacterLibraryTos] = await Promise.all([
   importSnapshotPackage('@deepseek-ai/cordis', new URL('../../../apps/desktop-host/package.json', import.meta.url)),
   importSnapshotPackage('@deepseek-ai/dsh-system-prompt', new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url)),
   importSnapshotModule(new URL('../../../apps/desktop-host/src/native-preset.ts', import.meta.url),
@@ -19,6 +19,10 @@ const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpCl
     new URL('../../../packages/host/muse-account/lib/types/mcp-server.js', import.meta.url)),
   importSnapshotModule(new URL('../../../packages/host/muse-account/src/kb.ts', import.meta.url),
     new URL('../../../packages/host/muse-account/lib/types/kb.js', import.meta.url)),
+  importSnapshotModule(new URL('../../../packages/drama/character-library/src/index.ts', import.meta.url),
+    new URL('../../../packages/drama/character-library/lib/index.js', import.meta.url)),
+  importSnapshotModule(new URL('../../../packages/drama/character-library-tos/src/index.ts', import.meta.url),
+    new URL('../../../packages/drama/character-library-tos/lib/index.js', import.meta.url)),
 ])
 
 export const name = 'snapshot-editing-preset'
@@ -91,6 +95,8 @@ export async function apply(ctx, config) {
   }, 'snapshot-hongguo-source-resolver')
   class SnapshotAccount extends Service { constructor(ctx) { super(ctx, 'museAccount') } }
   await ctx.plugin(SnapshotAccount)
+  await ctx.plugin(CharacterLibraryTos, CharacterLibraryTos.Config({})).await()
+  await ctx.plugin(CharacterLibrary.default).await()
   const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))
   const importSdk = async name => {
     const manifestUrl = new URL('../package.json', pathToFileURL(requireSdk.resolve(name)))

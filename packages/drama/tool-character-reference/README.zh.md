@@ -1,5 +1,5 @@
 ---
-description: "在隔离 QA 中从未发布的本地草稿索引最多推荐一个经过文件校验的人物参考，不上传、不绑定、不写入。"
+description: "让 Agent 有界检索人物参考并查看经过校验的图片，不暴露存储位置，也不授予使用权限。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-在隔离 QA profile 中使用 `drama_character_references`，把有长度限制的角色需求与未发布的本地人物参考草稿比较。工具先核验索引、v2 metadata 和图片哈希，再最多返回一个参考及其证据与不确定项。年代未经确认、证据不足或评分相同时不推荐。检索从不上传素材、绑定生产项目、写入文件或发起付费请求。
+`drama_character_references` 返回最多三张由 metadata 初排、带实测原图 SHA-256 的候选。Host 在访问素材库前，通过 Agent Session 的 `project_config.json` 核对角色和所声明的角色类型。模型不能提供存储位置或凭据。`drama_character_reference_view` 按 Catalog ID 重新读取候选，图片身份变化时拒绝，并且只向支持图片输入的模型返回持久图片块。只有文字检索不等于已经看图。
+
+所有结果都禁止发布、复用、绑定和应用。`pending_review` 素材可以辅助选择，但仍不可用于正式制作。
 
 ## 目录
 
@@ -24,13 +26,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-只在隔离 QA composition 中挂载本插件，并提供未发布 `character_reference_index.draft.json` 的绝对路径。正式 profile 不加载本插件。
+仅在已经提供 `tools`、`settings` 和只读 `characterLibrary` 服务的 Host composition 中挂载本插件。本插件没有路径、TOS 位置、上传、写入或供应商操作配置。
 
-| 字段 | 默认值 | 含义 |
-|---|---|---|
-| `referenceIndexPath` | 必填 | QA profile 固定的绝对路径；它不会成为 Agent 工具参数，也不是 TOS URL。 |
+Agent 提供当前项目的 `character_id`、从剧本提取的 `role_description` 和 `role_class` 声明。Host 只从当前 Session 的 `cwd` 获取项目根目录，通过 `readProjectBible` 读取已验证项目圣经；工作区缺失、项目未配置、角色不存在、角色未持久化 `role_class` 或声明冲突时，都会在调用素材库前拒绝。主角默认可以检索。任何非主角都由 domain 服务默认跳过，只有 `supporting_use_reason` 给出有长度限制且与剧情相关的例外理由时才检索。可选的分类、年代、性别、风格、特征和角色关键词用于缩小内部检索范围。
 
-插件只注册 `drama_character_references`。调用方提供从剧本提取的 `role_description`，以及确有依据的风格、标签或年代要求。`pending_review` 条目可以继续参与候选比较，但返回参考不等于批准或素材绑定。
+`character_id` 表示项目角色，`catalog_asset_id` 表示素材库候选，`image_sha256` 标识原始图片字节。Agent 将候选中的后两项传给 `drama_character_reference_view`，可查看、比较、选择或放弃候选；这些身份与供应商资产 ID 也必须分开。
 
 -----
 
@@ -40,7 +40,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-[`src/index.ts`](src/index.ts)在部署配置中固定索引路径并注册只读工具。[`src/reference.ts`](src/reference.ts)确保引用的 metadata 和图片位于配置的草稿根目录内，核验草稿与文件哈希，再按明确登记的证据评分。结果报告 `read_only=true`、`apply_allowed=false`、`local_writes=0`、`remote_writes=0` 和 `paid_requests=0`。
+[`src/index.ts`](src/index.ts)注册有界检索和图片查看，在读取图片前核对当前模型路由的图片能力，并在返回图片块前把校验过的预览保存为 Session 附件。[`src/project-role.ts`](src/project-role.ts)通过公开的项目圣经读取器解析 Session 工作区。[`src/reference.ts`](src/reference.ts)校验模型声明、要求权威值严格匹配，只投影有界 Catalog 字段而不暴露存储 key。
 
 </details>
 
@@ -53,27 +53,29 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-模型获得固定的 `drama_character_references` 工具，输入包含 `role_description` 以及可选的 `style`、`desired_tags` 和 `era`。结果是 `recommended`、`no_match` 或 `needs_review`；它最多包含一个本地 QA 参考、理由、带来源的证据、不确定项和明确的零写入标记。模型必须把该条目说明为参考，不得写成已批准或已绑定的生产素材。
+`drama_character_references` 的结果最多包含三个 Catalog 身份、原图摘要、匹配证据、不确定项及明确的禁止使用标志，不包含图片块。`drama_character_reference_view` 返回一张图片块及其稳定 Catalog ID、原图摘要、当前 metadata 状态和不可绑定标志。Agent 可凭图片选择或放弃，但不能把候选说成已批准或已绑定。
 
 #### Token 影响
 
-工具 schema 固定。追加的一条结果最多包含一个推荐及其证据，或无法可靠推荐的简短说明。
+固定 schema 增加两个有界工具定义。检索最多返回三条简短候选记录；每次明确看图会在模型上下文中增加一张图片，受部署附件和模型限制约束。
 
 #### KV Cache 影响
 
-工具结果只追加，不改写此前消息。工具描述或 schema 变化会改变可复用的请求前缀；本地草稿变化只影响后续工具结果。
+工具调用和结果追加到对话。schema 变化会影响可复用请求前缀；检索文字和查看的图片块只影响后续模型请求。模型附件可能经过规范化，但报告的原图 SHA-256 始终标识源字节。
 
 ## 已知限制与后续工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 本包仅供明确配置的隔离 QA profile 使用；正式发布的生产 profile 不注册它。
-- 本包只读取一个固定的本地草稿，不提供上传、TOS 发布、索引写入、正式人物素材库 UI、导入操作或生产项目绑定。
-- 匹配使用本地已登记标签和明确证据，不调用视觉模型，不做语义评分，也不核验调用方提供的角色描述是否符合剧本原文。
-- `pending_review` 不代表批准。版权、复用权利、身份、年龄、性别和制作适用性仍须由负责人完成人工审核。
-- 离线工具检查和模拟 Agent Session 不等于真实模型验收；真实 Agent Session 仍单独待验。
+- Host 管理的素材库及其部署 provider 必须已配置；本包不会回退到本地草稿、任意文件或调用方指定的对象存储位置。
+- 当前 Agent Session 必须有现存工作区，并且项目圣经必须包含请求的稳定角色 ID 和已持久化角色类型。本工具不会推断这些字段，也不会修复项目数据。
+- 图片查看要求持久附件服务，且当前精确模型路由明确支持图片输入。文字模型可以检索，但不能声称已经看过图片。
+- 本包不上传素材、不发布 metadata、不修改审核状态、不绑定项目角色、不调用供应商，也不发起付费生成。
+- `pending_review`、`approved_claim` 等 metadata 状态都只是描述性声明。本工具不能证明版权、复用权、项目批准或正式制作适用性。
+- 非主角规则归业务服务所有，不进入 catalog metadata。配角例外理由只允许检索，不授予使用权限。
+- 真实 Agent 验收和后续审批到绑定的链路仍需独立端到端证据。
 
 <a id="dev-note"></a>
 ### 开发备注
 
-无。
+两种语言的 README 修改后，使用仓库 translation-pairing 生成器重新生成 `README.i18n.yaml`。

@@ -535,6 +535,13 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/references'),
       join(cwd, '.dsh/skills/tweet-drama-project-bible/references'), { recursive: true })
   },
+  async 'muse-character-reference-skill'(cwd) {
+    await workspaceSetups['muse-editing-skill']!(cwd)
+    const target = join(cwd, '.dsh/skills/character-reference-library')
+    await mkdir(target, { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/character-reference-library/SKILL.md'),
+      join(target, 'SKILL.md'))
+  },
   async 'muse-editing-trial-skills'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     for (const name of ['muse-episode-design', 'muse-script-doctor', 'muse-dialogue-polish']) {

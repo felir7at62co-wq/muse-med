@@ -74,7 +74,7 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
-    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-character-reference', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
       expect(rows.some(row => row.id === id), id).toBe(true)
     }
     expect(rows.find(row => row.id === 'perception-bgm')?.config).toMatchObject({

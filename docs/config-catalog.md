@@ -512,6 +512,36 @@ export type Config = LocalConfig
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-bash-sandbox -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-character-library-tos -->
+<a id="deepseek-aidsh-character-library-tos"></a>
+
+## `@deepseek-ai/dsh-character-library-tos`
+
+- `source`: [`packages/drama/character-library-tos/src/index.ts:33`](../packages/drama/character-library-tos/src/index.ts)
+
+```ts config-catalog
+/** Deployment configuration. No read identity is configured by default. */
+export interface Config extends CharacterLibraryTosOptions {
+  /** Per-request connection timeout in milliseconds. */
+  readonly connectionTimeoutMs: number
+  /** Per-request total timeout in milliseconds. */
+  readonly requestTimeoutMs: number
+}
+
+/** Deployment configuration. Historical read prefixes are fixed by the provider. */
+export interface CharacterLibraryTosOptions {
+  /** Credential reference for the read-only identity's access key id. */
+  readonly readAccessKeyIdRef?: string
+  /** Credential reference for the read-only identity's secret access key. */
+  readonly readSecretAccessKeyRef?: string
+  /** Per-request connection timeout in milliseconds. @default 10000 */
+  readonly connectionTimeoutMs?: number
+  /** Per-request total timeout in milliseconds. @default 30000 */
+  readonly requestTimeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-character-library-tos -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-connection -->
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -3939,23 +3969,6 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
 
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
-<a id="deepseek-aidsh-tool-character-reference"></a>
-
-## `@deepseek-ai/dsh-tool-character-reference`
-
-- `inject`: `tools`
-- `source`: [`packages/drama/tool-character-reference/src/index.ts:12`](../packages/drama/tool-character-reference/src/index.ts)
-
-```ts config-catalog
-/** Deployment-owned location of the local QA reference draft. */
-export interface Config {
-  /** Absolute local path to the unpublished draft index; never an Agent argument or TOS URL. */
-  referenceIndexPath: string
-}
-```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-character-reference -->
-
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 
@@ -5166,6 +5179,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-subprocess-ssh` | `ssh` | [`packages/ssh/subprocess-ssh/src/index.ts`](../packages/ssh/subprocess-ssh/src/index.ts) |
 | `@deepseek-ai/dsh-terminal` | — | [`packages/terminal/terminal/src/index.ts`](../packages/terminal/terminal/src/index.ts) |
 | `@deepseek-ai/dsh-tool-call-timeout-policy` | `tools` | [`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts) |
+| `@deepseek-ai/dsh-tool-character-reference` | `tools` · `characterLibrary` · `settings` | [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts) |
 | `@deepseek-ai/dsh-tool-cordis` | `tools` · `cordisInspect` | [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts) |
 | `@deepseek-ai/dsh-tool-schedule` | `tools` | [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-tool-subagent-control` | `tools` · `subagents` | [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts) |
@@ -5214,6 +5228,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-bgm-license-info` | — | [`packages/drama/bgm-license-info/src/index.ts`](../packages/drama/bgm-license-info/src/index.ts) |
 | `@deepseek-ai/dsh-brand` | — | [`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts) |
 | `@deepseek-ai/dsh-character-asset-catalog` | — | [`packages/drama/character-asset-catalog/src/index.ts`](../packages/drama/character-asset-catalog/src/index.ts) |
+| `@deepseek-ai/dsh-character-library` | — | [`packages/drama/character-library/src/index.ts`](../packages/drama/character-library/src/index.ts) |
 | `@deepseek-ai/dsh-chunked-list` | — | [`packages/util/chunked-list/src/index.ts`](../packages/util/chunked-list/src/index.ts) |
 | `@deepseek-ai/dsh-client-store` | — | [`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts) |
 | `@deepseek-ai/dsh-client-test-runtime` | — | [`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts) |

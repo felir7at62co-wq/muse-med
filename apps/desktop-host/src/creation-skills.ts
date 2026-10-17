@@ -11,6 +11,7 @@ export const inject = ['skills']
 export const CREATION_SKILL_NAMES: readonly string[] = [
   'anime-3d-assets',
   'audio-transcribe',
+  'character-reference-library',
   'douyin-download',
   'jubian-snatch',
   'media-link-import',

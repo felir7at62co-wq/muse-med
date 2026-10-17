@@ -55,7 +55,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`, `ctx.subprocess`, `ffmpeg and ffprobe on PATH (or configured)`, `an episode timeline and explicit BGM plan` | `tool/call`, `tool/result`, `on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root` | - | `preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection. |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`, `drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `on drama_video ban/unban: project-local video-bans.json; media bytes are unchanged` | - | `drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. `drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. Its methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. Prepare snapshots project delivery canvas and medium. Animation adds no ending or watermark; photorealistic keeps the AI-content mark and a two-second ending frozen from the proved tail frame. Missing legacy medium preserves marked delivery with a warning. The bitrate target is 24M, ceiling 30M and floor 4.6 Mbps. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs. |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
-| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_references` | `ctx.tools`, `an absolute deployment-configured local character reference draft index path` | `tool/call`, `tool/result` | - | `drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile. |
+| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_view`, `drama_character_references` | `ctx.tools`, `ctx.settings`, `ctx.characterLibrary (the Host-owned read-only character library)`, `ctx.attachments and ctx.llm for image view` | `tool/call`, `tool/result with image attachment on view` | - | `drama_character_references` returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. `drama_character_reference_view` rechecks a candidate and saves its verified image as a model-visible attachment only when the model route supports images. Main roles are eligible by default; supporting roles require a bounded story-specific reason. Neither tool grants approval, reuse, binding or production rights, writes TOS, or requests paid generation. |
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -5263,7 +5263,7 @@ Read the authoritative project bible, preview a confirmed change and its downstr
         },
         "characters": {
           "type": "array",
-          "description": "Stable character identities and approved voice guidance. Provider reference-audio support must be checked separately.",
+          "description": "Stable character identities, role importance and approved voice guidance. Character-library use is decided by Host tools; catalog metadata never decides lead/support policy.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -5282,6 +5282,16 @@ Read the authoritative project bible, preview a confirmed change and its downstr
               },
               "asset_id": {
                 "type": "integer"
+              },
+              "role_class": {
+                "type": "string",
+                "description": "Project-owned role importance. The public character library is searched for lead characters by default; another role requires a recorded story-specific reason.",
+                "enum": [
+                  "lead",
+                  "important_support",
+                  "support",
+                  "extra"
+                ]
               },
               "voice_profile": {
                 "type": "object",
@@ -5821,44 +5831,109 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
 
 ## `@deepseek-ai/dsh-tool-character-reference`
 
-### `drama_character_references`
+### `drama_character_reference_view`
 
-仅从部署配置指定的本地公共人物参考草稿读取一个最佳参考。输入角色描述、风格与已知外观标签；返回理由和不确定项。这是 QA 只读建议，不是已批准素材或剧变资产。不得调用导入、select_assets、生成或任何写入工具。年代未被明确证实或候选同分时不推荐。调用方提供的角色需求尚未自动核验剧本原文。
+实际查看先前检索到的一张人物候选图片。传入候选的 catalog_asset_id 和 image_sha256；Host 重新读取并核对图片身份与原图 SHA-256，然后把图片作为图像内容交给当前支持看图的模型。看图不授予素材使用、绑定或发布许可。
 
 ```json
 {
   "type": "object",
   "properties": {
-    "role_description": {
+    "catalog_asset_id": {
       "type": "string",
-      "description": "角色需求摘要；必须来自当前剧本，不可编造。"
+      "description": "检索结果中的稳定 Catalog ID；不是项目 character_id 或供应商资产 ID。"
     },
-    "style": {
+    "expected_sha256": {
       "type": "string",
-      "description": "已知风格，未确认时省略。",
-      "enum": [
-        "urban",
-        "ancient"
-      ]
-    },
-    "desired_tags": {
-      "type": "array",
-      "description": "从需求中提取的具体服装或外观标签。",
-      "items": {
-        "type": "string"
-      }
-    },
-    "era": {
-      "type": "string",
-      "description": "明确要求的年代；草稿未确认该年代则不给出推荐。"
+      "description": "检索结果中的原图 SHA-256；不得自行编造。"
     }
   },
   "required": [
-    "role_description"
+    "catalog_asset_id",
+    "expected_sha256"
   ]
 }
 ```
 
 Source: [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
 
-`drama_character_references` is an opt-in isolated-QA lookup over a deployment-configured local draft index. It returns at most one evidence-backed reference with reasons and uncertainty, and reports explicit zero local writes, remote writes, and paid requests. It does not upload, import, bind, approve, generate, or publish assets and is not registered in the production profile.
+### `drama_character_references`
+
+根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角默认可检索；配角默认跳过，只有提供剧情相关例外理由才检索。返回候选身份、原图 SHA-256 和文字匹配依据；这是检索，不代表已经看图。可按候选 ID 调用 drama_character_reference_view 实际看图，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "character_id": {
+      "type": "string",
+      "description": "当前项目角色 ID；只用于关联本次建议，不等于 catalog_asset_id。"
+    },
+    "role_description": {
+      "type": "string",
+      "description": "从当前剧本提取的角色需求摘要，不可编造。"
+    },
+    "role_class": {
+      "type": "string",
+      "description": "项目角色类型声明；Host 会与当前 Session 项目圣经中的权威值核对，不一致时拒绝。",
+      "enum": [
+        "lead",
+        "important_support",
+        "support",
+        "extra"
+      ]
+    },
+    "supporting_use_reason": {
+      "type": "string",
+      "description": "非主角使用公共参考库的剧情相关例外理由；缺失时非主角默认不检索。"
+    },
+    "collection": {
+      "type": "string",
+      "description": "已知人物风格范围；不确定时省略。",
+      "enum": [
+        "ancient",
+        "urban",
+        "all"
+      ]
+    },
+    "required_era": {
+      "type": "string",
+      "description": "剧本明确要求的年代；不得从素材状态推断。"
+    },
+    "gender": {
+      "type": "string",
+      "description": "剧本明确要求的性别；不确定时省略。"
+    },
+    "style_terms": {
+      "type": "array",
+      "description": "从剧本提取的风格关键词。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trait_terms": {
+      "type": "array",
+      "description": "从剧本提取的外观或气质关键词。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "role_terms": {
+      "type": "array",
+      "description": "从剧本提取的角色适配关键词。",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "character_id",
+    "role_description",
+    "role_class"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+
+`drama_character_references` returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. `drama_character_reference_view` rechecks a candidate and saves its verified image as a model-visible attachment only when the model route supports images. Main roles are eligible by default; supporting roles require a bounded story-specific reason. Neither tool grants approval, reuse, binding or production rights, writes TOS, or requests paid generation.

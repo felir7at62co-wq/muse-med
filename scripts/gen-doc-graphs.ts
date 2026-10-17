@@ -108,6 +108,23 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'characterLibrary',
+    pkg: 'character-library',
+    title: 'Read-only character reference catalog',
+    mode: 'core',
+    consumers: ['tool-character-reference'],
+    note: 'Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission.',
+  },
+  {
+    key: 'characterLibraryObjectStore',
+    pkg: 'character-library',
+    title: 'Character reference object reads',
+    mode: 'seam',
+    implementations: ['character-library-tos'],
+    consumers: ['character-library'],
+    note: 'Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials.',
+  },
+  {
     key: 'agentNotes',
     pkg: 'api-agent-notes',
     title: 'Configured Agent Notes editor',
