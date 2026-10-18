@@ -203,13 +203,22 @@ class GitHub:
         require(len(assets) < 100, 'asset pagination required')
         return assets
 
+    def download_request(self, path):
+        if re.fullmatch(f'/repos/{REPO}/actions/artifacts/[0-9]+/zip', path):
+            media = 'application/vnd.github+json'
+        else:
+            require(re.fullmatch(f'/repos/{REPO}/releases/assets/[0-9]+', path) is not None,
+                    'unexpected download endpoint')
+            media = 'application/octet-stream'
+        return urllib.request.Request('https://api.github.com' + path,
+                headers={**self.headers(), 'Accept': media, 'Accept-Encoding': 'identity'})
+
     def download(self, path, destination, expected_size, expected_hash):
         if destination.exists():
             require(destination.is_file() and destination.stat().st_size == expected_size
                     and hash_file(destination) == expected_hash, 'existing downloaded file differs')
             return
-        request = urllib.request.Request('https://api.github.com' + path,
-                headers={**self.headers(), 'Accept': 'application/octet-stream', 'Accept-Encoding': 'identity'})
+        request = self.download_request(path)
         try:
             response = self.opener.open(request, timeout=180)
         except urllib.error.HTTPError as error:

@@ -15,6 +15,18 @@ spec.loader.exec_module(t)
 
 
 class TransportTests(unittest.TestCase):
+    def test_download_headers_use_each_github_endpoint_media_without_network(self):
+        client = t.GitHub('synthetic')
+        for path, media in [(f'/repos/{t.REPO}/actions/artifacts/12142398719/zip', 'application/vnd.github+json'),
+                            (f'/repos/{t.REPO}/releases/assets/653900001', 'application/octet-stream')]:
+            request = client.download_request(path)
+            self.assertEqual(request.full_url, 'https://api.github.com' + path)
+            self.assertEqual(request.get_header('Accept'), media)
+            self.assertEqual(request.get_header('Accept-encoding'), 'identity')
+            self.assertEqual(request.get_header('Authorization'), 'Bearer synthetic')
+        with self.assertRaises(t.TransportError):
+            client.download_request(f'/repos/{t.REPO}/unexpected')
+
     def test_workflow_shell_passes_the_same_runner_directory_to_both_python_phases(self):
         workflow = Path(__file__).resolve().parents[1] / 'workflows' / 'muse-desktop.yml'
         commands = [line.split('run: ', 1)[1] for line in workflow.read_text().splitlines()
