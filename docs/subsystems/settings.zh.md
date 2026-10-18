@@ -107,6 +107,12 @@ async initialize(agent: Agent): Promise<SessionVideoSelection | null>
 @Remote available(): boolean
 
 /**
+ * Read deployment defaults without resuming an Agent or writing a selection.
+ * @returns The initial model, channel and resolution, or null when not configured.
+ */
+@Remote defaults(): VideoModelDefault | null
+
+/**
  * Read the live account catalogue; never writes project defaults.
  * @returns Complete model specifications.
  */

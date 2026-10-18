@@ -636,7 +636,7 @@ Source: [`packages/compaction/compaction-image-offload/src/projection.ts:25`](..
 'jubian/video-selection': { selection: SessionVideoSelection }
 ```
 
-Source: [`packages/jubian/tool-jubian/src/video-session-types.ts:30`](../packages/jubian/tool-jubian/src/video-session-types.ts)
+Source: [`packages/jubian/tool-jubian/src/video-session-types.ts:47`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 ### `llm/*`
 
@@ -4641,7 +4641,7 @@ Sources: [`packages/session/session-title/src/types.ts:28`](../packages/session/
 
 SHA-256: `34ffea2b49d0fb384aefb364d8d0e9e6121a1ae40dccacb77c61bb1bb08df8a0`
 
-Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:23`](../packages/jubian/tool-jubian/src/video-session-types.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:25`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -6688,7 +6688,7 @@ Sources: [`packages/workflow/workflow/src/types.ts:127`](../packages/workflow/wo
 
 SHA-256: `5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9`
 
-Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:46`](../packages/jubian/tool-jubian/src/video-session-types.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:63`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7784,7 +7784,7 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:64`](../packages/web
 
 SHA-256: `be95d182aef39a3613e14a7fe8e5bcb9c87ea67fe74883764a6754e63772629e`
 
-Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:30`](../packages/jubian/tool-jubian/src/video-session-types.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:47`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|

@@ -870,6 +870,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentNoteText: 'complete note reads and versions are owned by packages/api/agent-notes/README.md',
   AgentNoteWriteResult: 'version-fenced note save outcomes are owned by packages/api/agent-notes/README.md',
   VideoModelOption: 'session video specifications are owned by packages/jubian/tool-jubian/README.md',
+  VideoModelDefault: 'configured initial video specification fields are owned by packages/jubian/tool-jubian/README.md',
   SessionVideoSelection: 'explicit session video choices are owned by packages/jubian/tool-jubian/README.md',
   ImageRouteRow: 'account image-route catalog rows are owned by packages/jubian/tool-jubian/README.md',
   MuseDesktopTunnel: 'desktop connection lifetime is owned by packages/host/muse-account/README.md',

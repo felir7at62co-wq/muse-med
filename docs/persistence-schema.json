@@ -23214,7 +23214,7 @@
         "packages/jubian/tool-jubian/src/video-session-types.ts#SessionVideoSelection"
       ],
       "sources": [
-        "packages/jubian/tool-jubian/src/video-session-types.ts:23"
+        "packages/jubian/tool-jubian/src/video-session-types.ts:25"
       ]
     },
     {
@@ -23817,7 +23817,7 @@
       "digest": "5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9",
       "names": [],
       "sources": [
-        "packages/jubian/tool-jubian/src/video-session-types.ts:46"
+        "packages/jubian/tool-jubian/src/video-session-types.ts:63"
       ]
     },
     {
@@ -25360,7 +25360,7 @@
       "digest": "be95d182aef39a3613e14a7fe8e5bcb9c87ea67fe74883764a6754e63772629e",
       "names": [],
       "sources": [
-        "packages/jubian/tool-jubian/src/video-session-types.ts:30"
+        "packages/jubian/tool-jubian/src/video-session-types.ts:47"
       ]
     },
     {

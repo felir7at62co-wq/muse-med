@@ -1550,6 +1550,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Whether the composer should expose the video menu.',
       },
       {
+        signature: '@Remote defaults(): VideoModelDefault | null',
+        description: 'Read deployment defaults without resuming an Agent or writing a selection.',
+        parameters: [],
+        returns: 'The initial model, channel and resolution, or null when not configured.',
+      },
+      {
         signature: '@Remote async catalogue(): Promise<VideoModelOption[]>',
         description: 'Read the live account catalogue; never writes project defaults.',
         parameters: [],
@@ -8611,6 +8617,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'VideoModelDefault',
+    declaration: 'export type VideoModelDefault = Pick<VideoModelOption, \'modelId\' | \'platformId\' | \'resolution\'>;',
   },
   {
     name: 'VideoModelOption',
