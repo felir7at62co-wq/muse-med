@@ -2,8 +2,10 @@
 import copy
 import importlib.util
 import io
+import os
 from pathlib import Path
 import stat
+import subprocess
 import unittest
 import zipfile
 
@@ -13,6 +15,23 @@ spec.loader.exec_module(t)
 
 
 class TransportTests(unittest.TestCase):
+    def test_workflow_shell_passes_the_same_runner_directory_to_both_python_phases(self):
+        workflow = Path(__file__).resolve().parents[1] / 'workflows' / 'muse-desktop.yml'
+        commands = [line.split('run: ', 1)[1] for line in workflow.read_text().splitlines()
+                    if 'run: python3 -B' in line]
+        self.assertEqual(len(commands), 2)
+        runner = '/tmp/Muse transport runner'
+        def arguments(command):
+            result = subprocess.run(['bash', '-c', 'python3() { printf "%s\\0" "$@"; }\n' + command],
+                                    env={**os.environ, 'RUNNER_TEMP': runner}, check=True, capture_output=True)
+            return result.stdout.decode().rstrip('\0').split('\0')
+        for command in commands:
+            values = arguments(command)
+            self.assertEqual(values[values.index('--work-directory') + 1], runner + '/muse-116-transport')
+        escaped = commands[0].replace('"$RUNNER_TEMP/muse-116-transport"', '\\"$RUNNER_TEMP/muse-116-transport\\"')
+        bad_values = arguments(escaped)
+        self.assertNotEqual(bad_values[bad_values.index('--work-directory') + 1], runner + '/muse-116-transport')
+
     def test_exact_seal_has_twelve_files_and_three_large_binaries(self):
         manifest = t.identity()
         self.assertEqual(len(manifest['assets']), 12)
