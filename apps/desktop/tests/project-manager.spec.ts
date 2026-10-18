@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { load } from 'js-yaml'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import { createDevelopmentProjectMetadata, DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -448,6 +449,18 @@ describe('desktop external plugin profile', () => {
     expect(workspace).toContain('strictDepBuilds: true')
     expect(workspace).toContain('tos-crc64-js: false')
     expect(workspace).not.toContain('fs-ext: true')
+  })
+
+  it('skips only the reviewed Baileys engine check in development without allowing other dependency scripts', () => {
+    const root = temporaryRoot()
+    createDevelopmentProjectMetadata(root, { schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+      nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
+    const workspace: unknown = load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'))
+    expect(workspace).toHaveProperty('strictDepBuilds', true)
+    expect(workspace).toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc14'], false)
+    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys'])
+    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc15'])
+    expect(workspace).not.toHaveProperty(['allowBuilds', '*'])
   })
 
   it('changes runtime generations without deleting legacy host links', async () => {

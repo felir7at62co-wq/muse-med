@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { load } from 'js-yaml'
+import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import {
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
@@ -57,6 +60,18 @@ afterEach(() => {
 })
 
 describe('desktop core package set', () => {
+  it('keeps production dependency builds strict while skipping only the reviewed Baileys engine check', () => {
+    const { root } = packageSetProject()
+    createRuntimeProjectMetadata(root, { schemaVersion: 1, version: '1.2.3', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+      nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
+    const workspace: unknown = load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'))
+    expect(workspace).toHaveProperty('strictDepBuilds', true)
+    expect(workspace).toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc14'], false)
+    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys'])
+    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc15'])
+    expect(workspace).not.toHaveProperty(['allowBuilds', '*'])
+  })
+
   it('pins the direct dsh dependency and every internal package to local tarballs', () => {
     const { root } = packageSetProject()
     const packageSet = verifyDesktopCorePackageSet(root, '1.2.3')
