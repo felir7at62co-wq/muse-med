@@ -58,6 +58,7 @@ export function videoOptions(data: unknown): VideoModelOption[] {
  * @returns Last user selection, or null before a selection.
  */
 export function selectedVideo(session: Session): SessionVideoSelection | null {
+  // oxlint-disable-next-line typescript/no-deprecated -- Retain the existing durable-selection fold.
   const events = session.snapshotEvents()
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
@@ -81,6 +82,7 @@ export function videoSelectionContext(selection: SessionVideoSelection | null): 
 export class JubianVideoSelection extends TypertRemoteService {
   static inject = ['agents', 'sessions', 'systemPrompt', 'sessionProjections']
   private readonly initializing = new WeakMap<Agent, Promise<SessionVideoSelection | null>>()
+  private readonly contextReviewers = new Set<{ reviewer: (agent: Agent, selection: SessionVideoSelection) => string }>()
   constructor(ctx: Context, private readonly options: {
     client: JubianClient
     ledger: JubianLedger
@@ -163,6 +165,20 @@ export class JubianVideoSelection extends TypertRemoteService {
   @Remote
   current(agent: Agent): SessionVideoSelection | null { return selectedVideo(agent.session) }
   /**
+   * Add synchronous advice to the same logged context as each committed selection.
+   * Reviewer errors produce a retry warning and never reject the selected model.
+   * @param reviewer - Pure synchronous check returning additional context, or an empty string.
+   * @returns Fiber-owned disposer; removed reviewers are never called by later commits.
+   */
+  registerContextReviewer(reviewer: (agent: Agent, selection: SessionVideoSelection) => string): () => void {
+    const entry = { reviewer }
+    const dispose = this.ctx.effect(() => {
+      this.contextReviewers.add(entry)
+      return () => { this.contextReviewers.delete(entry) }
+    }, 'jubianVideoSelection.registerContextReviewer()')
+    return () => { void dispose() }
+  }
+  /**
    * Save an exact live option with optimistic revision checking.
    * @param agent - Authenticated conversation identity.
    * @param key - Catalogue row and resolution key.
@@ -182,7 +198,20 @@ export class JubianVideoSelection extends TypertRemoteService {
     if (previous?.key === option.key && stableJson({ ...previous, revision: 0 }) === stableJson({ ...option, revision: 0 })) return previous
     const selection = { ...option, revision: expectedRevision + 1 }
     agent.session.append('jubian/video-selection', { selection })
-    agent.inject(createUserMessage({ content: [{ type: 'text', text: videoSelectionContext(selection) }],
+    const context = [videoSelectionContext(selection)]
+    let reviewFailed = false
+    for (const entry of [...this.contextReviewers]) {
+      if (!this.contextReviewers.has(entry)) continue
+      try {
+        const advice = entry.reviewer(agent, selection)
+        if (advice !== '') context.push(advice)
+      } catch (error) {
+        this.ctx.logger.warn('Video selection advisory check failed: %s', String(error))
+        reviewFailed = true
+      }
+    }
+    if (reviewFailed) context.push('视频模型选择已保存；自动检查暂不可用，请重新运行 drama_shot 核对现有视频包。检查未完成不表示视频包已通过。')
+    agent.inject(createUserMessage({ content: [{ type: 'text', text: context.join('\n') }],
       source: { kind: 'jubian-video-selection' } }))
     return selection
   }

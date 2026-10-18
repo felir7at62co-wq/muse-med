@@ -80,6 +80,8 @@ Pinning a row here beats the tool row's own `imageStandardId`/`imagePlatformId` 
 
 The page ends with the composition, in pipeline order, and what the read-only plugin inventory reports about each package right now: `@deepseek-ai/dsh-guard-drama` (the tool-dispatch gate), `@deepseek-ai/dsh-tool-drama-assets` (asset reconciliation before image generation), `@deepseek-ai/dsh-tool-shot-script` (`drama_shot`), `@deepseek-ai/dsh-perception-bgm` (`bgm_match`), `@deepseek-ai/dsh-tool-bgm-compose` (`drama_bgm`) and `@deepseek-ai/dsh-tool-episode-render` (`drama_render`). The matcher is an independent plugin rather than part of the drama packages; its row says so, and the BGM **directory** is a separate setting above it.
 
+The shot-script row is labeled “Shot-script checks and package suggestions (drama_shot)”. Muse Short Drama configures its [advisory review mode](../tool-shot-script/README.md#review-modes); the settings page neither selects this mode nor turns content warnings into a blocking check.
+
 Each row carries one status: 已加载, 启动中, 加载失败, 按条件加载, 未加载, 清单里没有, or 无法查询. The page reads `pluginInventory` — the Host's read-only Loader and preset projection — through `ctx.get`, so the namespace is optional: a deployment that composes no inventory shows 无法查询 for every package plus the note that these packages load with the short-drama preset or the host cordis patch. Silence is never rendered as `已加载`.
 
 -----

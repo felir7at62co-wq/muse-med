@@ -7,8 +7,8 @@ import { inspect } from 'node:util'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory } from './bundled-skills.ts'
-import { bundledBridgeModules } from './bundled-bridge.ts'
-import { feishuGateLayer } from './feishu-gate.ts'
+import { bundledBridgeModules, verifyBundledImClient } from './bundled-bridge.ts'
+import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -46,12 +46,14 @@ interface DesktopComposition {
   readonly moduleOverrides: Readonly<Record<string, string>>
 }
 
-function desktopComposition(
+async function desktopComposition(
   runtimeDir: string,
   projectDir: string,
   allowLinkedPackages: boolean,
-): DesktopComposition {
+): Promise<DesktopComposition> {
   const installAnchor = packageManifestPath(runtimeDir, '@deepseek-ai/dsh')
+  verifyBundledImClient(runtimeDir, projectDir)
+  await migrateFeishuProfileName(projectDir, resolveDshHome())
   const profile = loadProfileDirectory('muse-med', projectDir, installAnchor)
   for (const layer of profile.layers) {
     if (!allowLinkedPackages && !isProjectPath(projectDir, layer.packageDir) && !isProjectPath(runtimeDir, layer.packageDir)) {
@@ -131,7 +133,7 @@ async function main(): Promise<void> {
   }
   installOfficeEngineResolution(runtimeDir)
   const installAnchor = join(runtimeDir, 'package.json')
-  const { profile, patches, moduleOverrides } = desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
+  const { profile, patches, moduleOverrides } = await desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
   reportSkippedBundles('muse-med', profile)
   // JSON is YAML-compatible; inherited bundle rows remain owned by runProfile.
   const overlayPath = join(projectDir, 'desktop.product.patch.yml')

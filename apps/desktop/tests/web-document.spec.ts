@@ -1,8 +1,11 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
+import { once } from 'node:events'
+import { createServer } from 'node:http'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { authenticateWebHost, forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
+import { authenticateWebHost, authenticatedWebHostRequest, forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
+import { connectDesktopWelcome } from '../src/welcome-backend.ts'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -33,6 +36,72 @@ it('requires the Host authentication exchange and retains only its cookie value'
   vi.stubGlobal('fetch', fetch)
   expect(await authenticateWebHost('http://127.0.0.1:1234/?token=owned')).toBe('session=owned')
   await expect(authenticateWebHost('http://127.0.0.1:1234/')).rejects.toThrow('authentication failed')
+})
+
+it('binds native requests to the current Host cookie and refuses another origin before sending', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response('ok'))
+  vi.stubGlobal('fetch', fetch)
+  const send = authenticatedWebHostRequest('http://127.0.0.1:1234/?token=owned', 'current=only')
+  await send('http://127.0.0.1:1234/api/read', { headers: { cookie: 'stale=unrelated', 'x-request': 'retained' }, redirect: 'follow' })
+  const [target, init] = fetch.mock.calls[0] as [URL, RequestInit]
+  expect(target.href).toBe('http://127.0.0.1:1234/api/read')
+  expect(new Headers(init.headers).get('cookie')).toBe('current=only')
+  expect(new Headers(init.headers).get('x-request')).toBe('retained')
+  expect(init.redirect).toBe('error')
+  await expect(send('http://127.0.0.1:4321/api/read')).rejects.toThrow('origin mismatch')
+  await expect(send('https://elsewhere.example/api/read')).rejects.toThrow('origin mismatch')
+  expect(fetch).toHaveBeenCalledOnce()
+})
+
+it('avoids a real HTTP 431 from accumulated browser cookies for native welcome and RPC', async () => {
+  const received: { path: string; cookie: string | undefined }[] = []
+  const cookie = 'dsh-auth-current=owned'
+  const server = createServer((request, response) => {
+    received.push({ path: request.url ?? '', cookie: request.headers.cookie })
+    if (request.url === '/?token=owned') {
+      response.writeHead(303, { location: '/', 'set-cookie': `${cookie}; HttpOnly; SameSite=Strict; Path=/` })
+      response.end()
+    } else if (request.url === '/redirect') {
+      response.writeHead(302, { location: '/followed' }).end()
+    } else if (request.url === '/api/settings/describe') {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        const { rpcId } = JSON.parse(body) as { rpcId: string }
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ type: 'server-response', rpcId,
+          result: { ok: true, value: { namespaces: [{ ns: 'locale', value: { preference: 'zh' } }] } } }))
+      })
+    } else {
+      response.writeHead(request.headers.cookie === cookie ? 200 : 401).end()
+    }
+  })
+  onTestFinished(async () => {
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('HTTP fixture has no address')
+  const origin = `http://127.0.0.1:${String(address.port)}`
+  const accumulated = Array.from({ length: 300 }, (_, index) => `dsh-auth-${String(index)}=${'x'.repeat(160)}`).join('; ')
+  const overflow = await fetch(`${origin}/`, { headers: { cookie: accumulated } })
+  await overflow.body?.cancel()
+  expect(overflow.status).toBe(431)
+  expect(received).toEqual([])
+  const current = await authenticateWebHost(`${origin}/?token=owned`)
+  expect(current).toBe(cookie)
+  received.length = 0
+  const send = authenticatedWebHostRequest(origin, current)
+  const corrected = await send(`${origin}/`, { headers: { cookie: accumulated } })
+  await corrected.body?.cancel()
+  expect(corrected.status).toBe(200)
+  const backend = await connectDesktopWelcome(`${origin}/`, send, () => Promise.resolve(current))
+  expect(await backend.readLocalePreference()).toBe('zh')
+  await expect(send(`${origin}/redirect`)).rejects.toThrow()
+  expect(received.map(request => request.path)).toEqual(['/', '/', '/api/settings/describe', '/redirect'])
+  expect(received.every(request => request.cookie === current)).toBe(true)
 })
 
 it('forwards upload bytes and cancellation with Host credentials while keeping the response streaming', async () => {

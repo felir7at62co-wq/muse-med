@@ -132,6 +132,7 @@ const UPSTREAM_PLUGIN_DIRECTORIES = [
   'third_party/plugins/dsh-codex-subscription/',
   'third_party/plugins/dsh-bridge/',
   'third_party/plugins/dsh-feishu/',
+  'third_party/plugins/dsh-im/',
   'third_party/plugins/dsh-ffmpeg/',
   'third_party/plugins/dsh-skill-mcp-panel/',
   'third_party/plugins/muse-hongguo-search/',

@@ -485,6 +485,7 @@ export function isRescopeExcluded(file: string): boolean {
   if (file === 'scripts/dependency-catalog/package-lock.json') return true
   // Fixed upstream registry resolutions and source-verification scripts are not Harness package references.
   if (file === 'third_party/plugins/dsh-bridge/package-lock.json'
+    || file === 'third_party/plugins/dsh-im/package-lock.json'
     || file === 'third_party/plugins/dshmarket/package-lock.json') return true
   if (/^vendor\/[^/]+\/(README\.md|LICENSE)$/.test(file)) return true // upstream files kept verbatim
   return !EXTENSIONS.some(extension => file.endsWith(extension))

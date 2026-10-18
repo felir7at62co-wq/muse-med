@@ -308,7 +308,8 @@ vi.mock('../src/host-process.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/host-process.ts')>(),
   DesktopHostProcess: harness.FakeHost,
 }))
-vi.mock('../src/web-document.ts', () => ({
+vi.mock('../src/web-document.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/web-document.ts')>(),
   serveWebDocument: vi.fn(async () => new Response('<html></html>', { status: 200 })),
   authenticateWebHost: vi.fn(async () => 'session=test'),
   forwardWebRequest: vi.fn(async () => new Response('', { status: 200 })),

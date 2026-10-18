@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import type { IncomingMessage } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { accountView, desktopAccountBackend } from '../src/account-backend.ts'
@@ -53,18 +54,22 @@ it('receives live expiry separately from account snapshots', async () => {
   })
   const address = server.address()
   if (typeof address === 'string' || address === null) throw new Error('missing server address')
-  const connected = once(server, 'connection')
+  const connected = Promise.withResolvers<IncomingMessage>()
+  server.once('connection', (_socket, request) => { connected.resolve(request) })
   const expired = vi.fn()
   const onAnalyticsEnabledChanged = vi.fn()
   const snapshot = { status: 'signed-out', attempt: null,
     links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' } }
   const received = Promise.withResolvers<undefined>()
-  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), () => Promise.resolve(''))
+  const cookie = 'dsh-auth-current=owned'
+  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), () => Promise.resolve(cookie))
   const stop = backend.watch(
     (value) => { expect(value).toEqual(snapshot); received.resolve(undefined) }, vi.fn(), expired, onAnalyticsEnabledChanged,
   )
   onTestFinished(stop)
-  await connected
+  const request = await connected.promise
+  expect(request.headers.cookie).toBe(cookie)
+  expect(request.headers.origin).toBe(`http://127.0.0.1:${address.port}`)
   // Logical streams share the socket; observe their opening frames before sending data.
   const streams = new Map<string, string>()
   const opened = Promise.withResolvers<undefined>()

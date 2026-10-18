@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { Context } from '@deepseek-ai/cordis'
+import { Context, FiberState } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { RemoteError, type RemoteResult, type TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import { createElement } from 'react'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 import { inject, mountFeishuSettings, NS, type FeishuSetupInjected } from '../src/client/mount.ts'
@@ -42,10 +43,24 @@ async function bench() {
     forget: vi.fn(async () => ({ ok: true as const, value: OFF })),
   }
   ctx.provide('remote', { $mount: mount, get feishuSetup() { return ctx.get('remote.feishuSetup') as typeof calls } })
-  ctx.provide('remote.feishuSetup', calls)
+  const setup = ctx.plugin((scope) => { scope.provide('remote.feishuSetup', calls) })
+  await setup
+  const disposeSetup = async () => { await setup.dispose() }
   const slots = ctx.get('slots') as SlotRegistry
   slots.register({ name: 'root', children: { 'settings.section': { kind: 'list', scope: 'root' } } } as never, () => null)
-  return { ctx, slots, locale, mount, disposeMount, calls }
+  return { ctx, slots, locale, mount, disposeMount, calls, disposeSetup }
+}
+
+async function nativeClient(ctx: Context) {
+  const service = {
+    version: 1,
+    render: () => createElement('div', { 'data-testid': 'native-im' }),
+    setSettingsVisible: vi.fn(),
+    settingsVisible: () => true,
+  }
+  const provider = ctx.plugin((scope) => { scope.provide('dshImClient', service) })
+  await provider
+  return { provider, service }
 }
 
 it('mounts the browser entry, follows locale changes, and disposes its page and Remote namespace', async () => {
@@ -83,4 +98,92 @@ it('releases its mounted Remote namespace when dictionary registration fails', a
   await expect(mountFeishuSettings(b.ctx, REMOTE)).rejects.toBe(failure)
   expect(b.disposeMount).toHaveBeenCalledOnce()
   expect(b.slots.entries('settings.section')).toEqual([])
+})
+
+it('waits behind an existing native IM client and restores the legacy page when it unloads', async () => {
+  const b = await bench()
+  const native = await nativeClient(b.ctx)
+  const register = vi.spyOn(b.slots, 'register')
+  const dispose = await apply(b.ctx)
+  expect(b.slots.entries('settings.section')).toEqual([])
+  expect(register).not.toHaveBeenCalled()
+  expect(b.mount).toHaveBeenCalledExactlyOnceWith(REMOTE)
+
+  await native.provider.dispose()
+
+  expect(b.slots.entries('settings.section')).toHaveLength(1)
+  expect(b.slots.entries('settings.section')[0]!.component).toBe(FeishuSection)
+  expect(register).toHaveBeenCalledOnce()
+  expect(native.service.setSettingsVisible).not.toHaveBeenCalled()
+  await dispose()
+  expect(b.slots.entries('settings.section')).toEqual([])
+  expect(b.disposeMount).toHaveBeenCalledOnce()
+})
+
+it('restores the legacy page when native IM disappears while its settings owner is loading', async () => {
+  const b = await bench()
+  const native = await nativeClient(b.ctx)
+  let stopped = false
+  let teardown = Promise.resolve()
+  const off = b.ctx.on('internal/status', (fiber) => {
+    if (stopped || fiber.state !== FiberState.LOADING || !('dshImClient' in fiber.inject)) return
+    stopped = true
+    teardown = native.provider.dispose()
+  })
+
+  const dispose = await apply(b.ctx)
+  off()
+  expect(stopped).toBe(true)
+  await teardown
+
+  expect(b.slots.entries('settings.section')).toHaveLength(1)
+  expect(b.slots.entries('settings.section')[0]!.component).toBe(FeishuSection)
+  await dispose()
+})
+
+it('withdraws the legacy page for a late native client without duplicating registrations across reloads', async () => {
+  const b = await bench()
+  const dispose = await apply(b.ctx)
+  expect(b.slots.entries('settings.section')).toHaveLength(1)
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    const native = await nativeClient(b.ctx)
+    await vi.waitFor(() => { expect(b.slots.entries('settings.section')).toEqual([]) })
+    await native.provider.dispose()
+    expect(b.slots.entries('settings.section')).toHaveLength(1)
+  }
+  expect(b.mount).toHaveBeenCalledOnce()
+  expect(b.disposeMount).not.toHaveBeenCalled()
+  await dispose()
+  expect(b.slots.entries('settings.section')).toEqual([])
+})
+
+it('does not restore the legacy page when native IM and its owner unload together', async () => {
+  const b = await bench()
+  const dispose = await apply(b.ctx)
+  const native = await nativeClient(b.ctx)
+  await vi.waitFor(() => { expect(b.slots.entries('settings.section')).toEqual([]) })
+  const register = vi.spyOn(b.slots, 'register')
+
+  await Promise.all([dispose(), native.provider.dispose()])
+
+  expect(b.slots.entries('settings.section')).toEqual([])
+  expect(register).not.toHaveBeenCalled()
+  expect(b.disposeMount).toHaveBeenCalledOnce()
+})
+
+it('does not restore a page without its setup service when native IM leaves during dependency unload', async () => {
+  const b = await bench()
+  const dispose = await apply(b.ctx)
+  const native = await nativeClient(b.ctx)
+  await vi.waitFor(() => { expect(b.slots.entries('settings.section')).toEqual([]) })
+  const register = vi.spyOn(b.slots, 'register')
+
+  await Promise.all([b.disposeSetup(), native.provider.dispose()])
+
+  expect(b.slots.entries('settings.section')).toEqual([])
+  expect(register).not.toHaveBeenCalled()
+  b.ctx.provide('remote.feishuSetup', b.calls)
+  await vi.waitFor(() => { expect(b.slots.entries('settings.section')).toHaveLength(1) })
+  expect(register).toHaveBeenCalledOnce()
+  await dispose()
 })

@@ -25,6 +25,7 @@ describe('rescope file selection', () => {
 
   it.each([
     'third_party/plugins/dsh-bridge/package-lock.json',
+    'third_party/plugins/dsh-im/package-lock.json',
     'third_party/plugins/dshmarket/package-lock.json',
   ])('preserves the fixed upstream file %s', (file) => {
     expect(isRescopeExcluded(file)).toBe(true)
@@ -39,6 +40,8 @@ describe('rescope file selection', () => {
     'packages/example/src/index.ts',
     'packages/example/package.json',
     'third_party/plugins/dsh-bridge/package.json',
+    'third_party/plugins/dsh-im/package.json',
+    'third_party/plugins/compatibility/im-desktop.mjs',
     'third_party/plugins/dshmarket/src/index.ts',
   ])('keeps %s subject to upstream package-name checks', (file) => {
     expect(isRescopeExcluded(file)).toBe(false)

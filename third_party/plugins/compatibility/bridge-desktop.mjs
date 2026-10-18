@@ -80,7 +80,7 @@ export function applyBridgeDesktopCompatibility(directory) {
   manifest.scripts = {}
   delete manifest.bin
   delete manifest.dsh.client
-  manifest.dependencies = { ws: '8.21.3', '@larksuiteoapi/node-sdk': '1.73.0', '@deepseek-ai/schemastery': '3.18.5-alpha.1', '@deepseek-ai/dsh-muse-account': '0.2.1-alpha.1' }
+  manifest.dependencies = { ws: '8.21.3', '@larksuiteoapi/node-sdk': '1.73.0', '@deepseek-ai/schemastery': '3.18.5-alpha.1', '@deepseek-ai/dsh-muse-account': '0.2.1-alpha.1', '@xmanrui/dsh-im': '5.1.0' }
   for (const path of ['client', 'scripts', 'locale']) rmSync(join(directory, path), { recursive: true, force: true })
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }

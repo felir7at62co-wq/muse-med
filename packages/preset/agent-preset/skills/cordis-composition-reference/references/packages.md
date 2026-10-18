@@ -190,7 +190,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-tool-character-reference` | no | Read-only Agent lookup over the Host-owned public character reference library |
 | `@deepseek-ai/dsh-tool-drama-assets` | yes | Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads |
 | `@deepseek-ai/dsh-tool-episode-render` | yes | Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result |
-| `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script gate and episode compiler: the model-facing drama_shot tool |
+| `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script checks, advisory packaging suggestions and strict episode compilation |
 
 ## experimental
 

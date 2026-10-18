@@ -8,6 +8,7 @@
     "test:build": "node --test ../compatibility/host-runtime.test.mjs ../build.test.mjs ../hongguo-build.test.mjs",
     "test:host": "node --test ../compatibility/host-runtime.test.mjs ../compatibility/bridge-desktop.test.mjs ../compatibility/codex-model-visibility.test.mjs ../compatibility/mcp-desktop.test.mjs",
     "test:feishu": "node --test ../feishu-build.test.mjs",
+    "test:im": "node --test ../im-build.test.mjs",
     "test:hongguo": "node --test ../hongguo-build.test.mjs"
   },
   "dependencies": {
@@ -33,9 +34,21 @@
     "react-dom": "18.3.1",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
-    "undici": "7.29.0",
+    "undici": "7.29.1",
     "ws": "8.21.3",
     "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "@matrix-org/olm": "3.2.15",
+    "@tencent-connect/qqbot-connector": "1.2.0",
+    "@tencent-connect/qqbot-nodejs": "1.0.4",
+    "@wecom/aibot-node-sdk": "1.0.7",
+    "dingtalk-stream": "2.1.4",
+    "imapflow": "2.0.5",
+    "mailparser": "3.9.28",
+    "nodemailer": "10.0.10",
+    "qrcode": "1.5.4",
+    "esbuild": "0.25.9",
+    "semver": "7.8.5",
+    "@whiskeysockets/baileys": "7.0.0-rc14"
   }
 }

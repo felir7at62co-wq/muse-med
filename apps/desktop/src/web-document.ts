@@ -50,6 +50,26 @@ export async function authenticateWebHost(url: string): Promise<string> {
 }
 
 /**
+ * Create a Node HTTP transport bound to one owned Host's authentication cookie.
+ * @param host - Owned Host URL whose origin may receive the cookie.
+ * @param cookie - Exact cookie returned by the Host launch-token exchange.
+ * @returns Requests that replace supplied cookies and reject redirects or another origin.
+ */
+export function authenticatedWebHostRequest(
+  host: string,
+  cookie: string,
+): (input: string, init?: RequestInit) => Promise<Response> {
+  const origin = new URL(host).origin
+  return async (input, init) => {
+    const target = new URL(input)
+    if (target.origin !== origin) throw new Error('Desktop Host request origin mismatch')
+    const headers = new Headers(init?.headers)
+    headers.set('cookie', cookie)
+    return await fetch(target, { ...init, headers, redirect: 'error' })
+  }
+}
+
+/**
  * Response headers not relayed to the renderer. `set-cookie` would hand the
  * Host's authentication cookie to the page's cookie jar, which the shell owns
  * instead; the rest describe the Node `fetch` connection (its encoding, length,

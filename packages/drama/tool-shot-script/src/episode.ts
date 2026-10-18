@@ -10,11 +10,12 @@
  * @module @deepseek-ai/dsh-tool-shot-script/episode
  */
 
-import { access, copyFile, mkdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { access, copyFile, lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   BoundAsset,
   CompiledShot,
+  DramaShotReport,
   ManifestAsset,
   MaterialBinding,
   MatchedAsset,
@@ -213,7 +214,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
  * @returns Runs of shots, each packable on its own.
  */
 function splitContinuityUnits(
-  shots: readonly CompiledShot[], maxContentSeconds: number,
+  shots: readonly CompiledShot[], maxContentSeconds: number, advisory = false,
 ): CompiledShot[][] {
   const units: CompiledShot[][] = []
   let current: CompiledShot[] = []
@@ -221,6 +222,13 @@ function splitContinuityUnits(
   for (const item of shots) {
     const duration = item.shot.durationSeconds
     if (duration > maxContentSeconds) {
+      if (advisory) {
+        if (current.length > 0) units.push(current)
+        units.push([item])
+        current = []
+        scene = undefined
+        continue
+      }
       throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
     }
     const declared = item.scene === '' ? undefined : item.scene
@@ -240,6 +248,90 @@ function splitContinuityUnits(
   }
   if (current.length > 0) units.push(current)
   return units
+}
+
+/** Optional non-blocking review; strict generation packaging remains the default. */
+export interface EpisodeReviewOptions {
+  /** Advisory packages preserve authored prompts and may exceed the model duration limit. */
+  reviewMode?: 'strict' | 'advisory'
+  /** Findings accumulated by the caller, including any package-level warnings. */
+  issues?: ShotIssue[]
+}
+
+/** Review raw prompts without inventing references or accepting disputed material identities. */
+function advisoryPackages(
+  shots: readonly CompiledShot[], maxContentSeconds: number, issues: ShotIssue[],
+): PackedTask[] {
+  const candidates = new Map<string, MaterialBinding>()
+  const rejectedKeys = new Set<string>()
+  const parents = new Map<string, string>()
+  const rejectedParents = new Set<string>()
+  const warn = (item: CompiledShot, code: ShotIssue['code'], message: string): void => {
+    issues.push({ severity: 'warning', code, shot: item.shot.shot, line: item.shot.line, message })
+  }
+  for (const item of shots) {
+    if (item.shot.durationSeconds > maxContentSeconds) {
+      warn(item, 'shot_exceeds_package_budget', `镜头${item.shot.shot}原时长${item.shot.durationSeconds}秒超过内容预算${maxContentSeconds}秒；`
+        + '检查草稿保留完整镜头与原时长，未截断，生成前核对模型能力与分包。')
+    }
+    const referenced = new Set<string>()
+    for (const asset of item.assets) {
+      if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') {
+        warn(item, asset.official ? 'incomplete_asset' : 'unconfirmed_asset', `镜头${item.shot.shot}资产「${asset.name}」未确认出演或缺少父资产、material ID、URL；`
+          + '原文保留，检查草稿不补造资产或生成该素材绑定。')
+      }
+      if (asset.assetId !== '') {
+        const identity = JSON.stringify([asset.name, asset.type, asset.materialId, asset.url])
+        const previous = parents.get(asset.assetId)
+        if (previous !== undefined && previous !== identity) {
+          rejectedParents.add(asset.assetId)
+          warn(item, 'material_reference_mismatch', `镜头${item.shot.shot}父资产${asset.assetId}对应的登记身份不一致；检查草稿不猜选版本，不输出该父资产的素材绑定。`)
+        } else parents.set(asset.assetId, identity)
+      }
+    }
+    for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
+      const key = placeholderKey(match)
+      const selected = item.assets.filter(asset => asset.name === placeholderLabel(match))
+      const asset = selected.length === 1 ? selected[0] : undefined
+      if (asset === undefined || !asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === ''
+        || (key.startsWith('asset_') && key !== `asset_${asset.assetId}`)) {
+        rejectedKeys.add(key)
+        warn(item, 'material_reference_mismatch', `镜头${item.shot.shot}引用${match[0]}没有唯一且完整的已确认资产对应；原文保留，检查草稿不输出该key的素材绑定。`)
+        continue
+      }
+      referenced.add(asset.name)
+      const binding: MaterialBinding = { material_key: key, name: asset.name, type: asset.type,
+        official: asset.official, asset_id: asset.assetId, material_id: asset.materialId, url: asset.url,
+        reference_scope: asset.referenceScope ?? 'appearance' }
+      const previous = candidates.get(key)
+      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(binding)) {
+        rejectedKeys.add(key)
+        warn(item, 'material_reference_mismatch', `镜头${item.shot.shot}引用key「${key}」对应多个素材；检查草稿保留原文，不猜选其中一个绑定。`)
+      } else candidates.set(key, binding)
+    }
+    for (const asset of item.assets) {
+      if (asset.official && asset.assetId !== '' && asset.materialId !== '' && asset.url !== '' && !referenced.has(asset.name)) {
+        warn(item, 'material_reference_mismatch', `镜头${item.shot.shot}资产「${asset.name}」没有可核对的内联引用；检查草稿保留原文，不自动补写引用。`)
+      }
+    }
+  }
+  const tasks: PackedTask[] = []
+  for (const unit of splitContinuityUnits(shots, maxContentSeconds, true)) {
+    const packs = unit.length === 1 ? [unit] : splitUnitEvenly(unit, maxContentSeconds)
+    for (const pack of packs) {
+      const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
+      const prompt = pack.map(item => item.shot.visual).join('\n\n')
+      const bindings = materialKeys(prompt).flatMap((key) => {
+        const binding = candidates.get(key)
+        return binding === undefined || rejectedKeys.has(key) || rejectedParents.has(binding.asset_id) ? [] : [binding]
+      })
+      tasks.push({ index: tasks.length + 1, shots: pack.map(item => item.shot.shot), contentSeconds,
+        submitSeconds: Math.max(MIN_SUBMIT_SECONDS, contentSeconds + NATURAL_HOLD_SECONDS), prompt,
+        materialKeys: bindings.map(binding => binding.material_key), materialNames: [...new Set(bindings.map(binding => binding.name))],
+        materialBindings: bindings })
+    }
+  }
+  return tasks
 }
 
 /**
@@ -305,20 +397,23 @@ function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readon
 /**
  * Pack an episode's shots into the packages one submission each renders.
  *
- * A package holds a run of complete, continuous shots of one scene, never exceeds
- * the content budget, and is split as evenly as the run allows. A package below
+ * A package holds a run of complete, continuous shots of one scene and is split
+ * as evenly as the run allows. Strict packages stay within the content budget;
+ * advisory drafts preserve overlong complete shots and report their budgets. A package below
  * {@link MIN_CONTENT_SECONDS} receives enough natural hold to meet the four-second
  * request floor, without adding dialogue or crossing a scene boundary.
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
+ * @param options - Advisory draft review and its findings; omitted options retain strict packaging.
  * @returns Packages in submission order.
- * @throws {Error} When a bound asset is unconfirmed or lacks its remote identity,
- *   a prompt reference disagrees, or a complete shot exceeds the budget.
+ * @throws {Error} When the budget is unusable, or in strict mode when a bound
+ *   asset is unconfirmed or incomplete, references disagree, or a shot exceeds the budget.
  */
-export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: number): PackedTask[] {
+export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: number, options: EpisodeReviewOptions = {}): PackedTask[] {
   if (!Number.isSafeInteger(maxContentSeconds) || maxContentSeconds < MIN_CONTENT_SECONDS) {
     throw new Error(`内容预算至少为${MIN_CONTENT_SECONDS}秒，提交总时长至少为${MIN_SUBMIT_SECONDS}秒。`)
   }
+  if (options.reviewMode === 'advisory') return advisoryPackages(shots, maxContentSeconds, options.issues ?? [])
   for (const item of shots) {
     for (const asset of item.assets) {
       if (!asset.official || asset.assetId === '' || asset.materialId === '' || asset.url === '') {
@@ -525,5 +620,52 @@ export async function writeEpisode(input: EpisodeWrite): Promise<string[]> {
     await copyFile(copy.source, copy.target)
     written.push(copy.target)
   }
+  return written
+}
+
+/** Inputs for a review draft, separate from generation prompts and delivery packages. */
+export interface AdvisoryReviewWrite {
+  /** Existing project root receiving only its `shot_reviews/<episode>/` draft. */
+  project: string
+  /** Episode directory name resolved from the requested positive integer. */
+  episode: string
+  /** Source script copied byte-for-byte into the review directory. */
+  scriptPath: string
+  /** Findings and draft packaging; its saved written list names the two review files. */
+  report: DramaShotReport
+}
+
+/**
+ * Write a source copy and findings without changing formal episode outputs or copying assets.
+ * @param input - Source script, project episode and review report.
+ * @returns The two review paths after both files have been written.
+ * @throws When a source cannot be read, a destination uses a symlink or unsafe path, or any write fails.
+ */
+export async function writeAdvisoryReview(input: AdvisoryReviewWrite): Promise<string[]> {
+  const root = resolve(input.project)
+  const reviewRoot = join(root, 'shot_reviews')
+  const directory = resolve(reviewRoot, input.episode)
+  const source = await readFile(input.scriptPath)
+  const suffix = relative(reviewRoot, directory)
+  if (isAbsolute(suffix) || suffix === '..' || suffix.startsWith(`..${sep}`)) {
+    throw new Error('检查草稿目标必须位于项目的 shot_reviews 目录内。')
+  }
+  const scriptCopy = join(directory, 'shot_script.txt')
+  const reviewPath = join(directory, 'review.json')
+  const written = [scriptCopy, reviewPath]
+  const directories = [root, reviewRoot, directory]
+  for (const path of [...directories, ...written]) {
+    const info = await lstat(path).catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+      throw error
+    })
+    if (info !== undefined && (info.isSymbolicLink() || (directories.includes(path) ? !info.isDirectory() : !info.isFile()))) {
+      throw new Error(`${path}: 检查草稿目标不允许符号链接或不匹配的文件类型。`)
+    }
+  }
+  const json = `${JSON.stringify({ ...input.report, written }, null, 2)}\n`
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  await writeFile(scriptCopy, source, { mode: 0o600 })
+  await writeFile(reviewPath, json, { encoding: 'utf8', mode: 0o600 })
   return written
 }

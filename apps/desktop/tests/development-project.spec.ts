@@ -44,6 +44,71 @@ afterEach(() => {
 })
 
 describe('desktop development project', () => {
+  it.each([
+    ['^5.1.0', 'links a forward community dependency to the verified batch instead of the toolchain'],
+    ['^6.0.0', 'rejects an incompatible batch dependency before replacing the existing project'],
+  ])('%s: %s', (nativeVersionRange) => {
+    const root = temporaryRoot()
+    const { repositoryRoot, communityArtifactsDir } = communityFixture(root)
+    const cliDir = join(root, 'cli')
+    const hostDir = join(root, 'host')
+    const dependencyDir = join(root, 'hoisted')
+    const projectDir = join(root, 'development')
+    mkdirSync(cliDir)
+    mkdirSync(join(hostDir, 'lib'), { recursive: true })
+    mkdirSync(join(dependencyDir, 'plain-dependency'), { recursive: true })
+    mkdirSync(projectDir)
+    writeFileSync(join(cliDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '1.2.3' }))
+    writeFileSync(join(hostDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-desktop-host', version: '1.2.3' }))
+    writeFileSync(join(hostDir, 'lib/index.js'), '')
+    writeFileSync(join(dependencyDir, 'plain-dependency/package.json'), JSON.stringify({ name: 'plain-dependency', version: '1.0.0', main: 'index.js' }))
+    writeFileSync(join(dependencyDir, 'plain-dependency/index.js'), 'module.exports = 1\n')
+    const source = join(repositoryRoot, 'third_party/plugins')
+    const toolchainIm = join(source, 'toolchain/node_modules/@xmanrui/dsh-im')
+    mkdirSync(toolchainIm, { recursive: true })
+    writeFileSync(join(toolchainIm, 'package.json'), JSON.stringify({ name: '@xmanrui/dsh-im', version: '6.2.0', main: 'index.js' }))
+    writeFileSync(join(toolchainIm, 'index.js'), 'module.exports = 999\n')
+    const definitions = [
+      { source: 'dsh-bridge', name: '@wenbin_wb/dsh-bridge', version: '2.12.1',
+        dependencies: { '@xmanrui/dsh-im': nativeVersionRange, 'plain-dependency': '1.0.0' },
+        body: 'module.exports = require("@xmanrui/dsh-im") + require("plain-dependency")\n' },
+      { source: 'dsh-im', name: '@xmanrui/dsh-im', version: '5.1.0', dependencies: {}, body: 'module.exports = 42\n' },
+    ]
+    writeFileSync(join(source, 'sources.json'), JSON.stringify(Object.fromEntries(
+      definitions.map(pkg => [pkg.source, { version: pkg.version }]),
+    )))
+    for (const pkg of definitions) {
+      const build = join(root, `build-${pkg.source}`)
+      const directory = join(build, 'package')
+      mkdirSync(join(directory, 'lib'), { recursive: true })
+      mkdirSync(join(source, pkg.source))
+      const manifest = { name: pkg.name, version: pkg.version, main: 'lib/index.js', dependencies: pkg.dependencies }
+      writeFileSync(join(source, pkg.source, 'package.json'), JSON.stringify(manifest))
+      writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest))
+      writeFileSync(join(directory, 'SOURCE.json'), JSON.stringify({ hostVersion: '1.2.3' }))
+      writeFileSync(join(directory, 'lib/index.js'), pkg.body)
+      c({ sync: true, gzip: true, cwd: build,
+        file: join(communityArtifactsDir, `${pkg.name.replace('@', '').replace('/', '-')}-${pkg.version}.tgz`) }, ['package'])
+    }
+    const previous = join(projectDir, 'existing-state')
+    writeFileSync(previous, 'previous project must survive failed preparation\n')
+    const options = { repositoryRoot, communityArtifactsDir, cliDir, hostDir, dependencyDir, projectDir,
+      release: release(), target: 'mac-arm64' } as const
+    if (nativeVersionRange === '^6.0.0') {
+      expect(() => prepareDevelopmentProject(options)).toThrow(
+        /incompatible pinned community dependency @xmanrui\/dsh-im@\^6\.0\.0; batch contains 5\.1\.0/u,
+      )
+      expect(readFileSync(previous, 'utf8')).toBe('previous project must survive failed preparation\n')
+      return
+    }
+    prepareDevelopmentProject(options)
+    const modules = join(projectDir, 'node_modules')
+    expect(realpathSync(join(modules, '@wenbin_wb/dsh-bridge/node_modules/@xmanrui/dsh-im')))
+      .toBe(realpathSync(join(modules, '@xmanrui/dsh-im')))
+    expect(createRequire(join(projectDir, 'package.json'))('@wenbin_wb/dsh-bridge')).toBe(43)
+    expect(readFileSync(join(toolchainIm, 'index.js'), 'utf8')).toBe('module.exports = 999\n')
+  })
+
   it('includes declared workspace packages missing from the hoist directory in the runtime inventory', () => {
     const root = temporaryRoot()
     const cli = join(root, 'cli')

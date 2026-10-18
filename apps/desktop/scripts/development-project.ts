@@ -127,7 +127,8 @@ function mirrorWorkspaceDependencies(roots: readonly string[], destinationRoot: 
 }
 
 /**
- * Replace one disposable project with links to the current built workspace.
+ * Replace one disposable project after validating its archives and dependency versions.
+ * Community dependencies resolve to the same batch's verified package before toolchain links.
  * @param options - Project destination, CLI package, release identity, and build target.
  * @returns the absolute project directory supplied by the caller.
  */
@@ -160,7 +161,14 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   }
   mkdirSync(dirname(options.projectDir), { recursive: true })
   const staging = mkdtempSync(join(dirname(options.projectDir), '.community-'))
-  const packages: Array<{ directory: string; name: string; version: string; dependencies: Array<[string, string]> }> = []
+  const destinationModules = join(options.projectDir, 'node_modules')
+  const packages: Array<{
+    directory: string
+    name: string
+    version: string
+    dependencySpecs: Array<[string, string]>
+    dependencies: Array<[string, string]>
+  }> = []
   try {
     for (const [source, pin] of Object.entries(pins)) {
       if (pin.desktop === false) continue
@@ -188,17 +196,31 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
         || !main || main.startsWith('..') || isAbsolute(main) || !existsSync(join(directory, main))) {
         throw new Error(`desktop development: incompatible community artifact ${name}; rebuild with pnpm run dev:desktop`)
       }
-      const dependencies: Array<[string, string]> = []
-      for (const [dependency, version] of Object.entries(manifest.dependencies ?? {})) {
+      const dependencySpecs = Object.entries(manifest.dependencies ?? {})
+      for (const [dependency] of dependencySpecs) {
         if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u.test(dependency)) throw new Error('desktop development: invalid community dependency')
+      }
+      if (packages.some(pkg => pkg.name === name)) throw new Error(`desktop development: duplicate community package ${name}`)
+      packages.push({ directory, name, version: pin.version, dependencySpecs, dependencies: [] })
+    }
+    const community = new Map(packages.map(pkg => [pkg.name, pkg]))
+    for (const pkg of packages) {
+      for (const [dependency, version] of pkg.dependencySpecs) {
+        const sibling = community.get(dependency)
+        if (sibling !== undefined) {
+          if (!satisfies(sibling.version, version)) {
+            throw new Error(`desktop development: incompatible pinned community dependency ${dependency}@${version}; batch contains ${sibling.version}`)
+          }
+          pkg.dependencies.push([dependency, join(destinationModules, dependency)])
+          continue
+        }
         const tool = join(sourceRoot, 'toolchain', 'node_modules', dependency)
         const target = !dependency.startsWith('@deepseek-ai/') && existsSync(tool) ? tool : join(options.dependencyDir, dependency)
         if (!existsSync(target) || !satisfies(readManifest(join(target, 'package.json')).version ?? '', version)) {
           throw new Error(`desktop development: missing pinned community dependency ${dependency}@${version}; run pnpm run dev:desktop`)
         }
-        dependencies.push([dependency, target])
+        pkg.dependencies.push([dependency, target])
       }
-      packages.push({ directory, name, version: pin.version, dependencies })
     }
   } catch (error) {
     rmSync(staging, { recursive: true, force: true })
@@ -208,7 +230,6 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   try {
     removeOwnedPath(options.projectDir)
     createDevelopmentProjectMetadata(options.projectDir, options.release)
-    const destinationModules = join(options.projectDir, 'node_modules')
     mkdirSync(destinationModules, { recursive: true })
     const names = [
       ...mirrorDependencyLinks(options.dependencyDir, destinationModules),
@@ -225,6 +246,9 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
       removeOwnedPath(destination)
       mkdirSync(dirname(destination), { recursive: true })
       renameSync(pkg.directory, destination)
+    }
+    for (const pkg of packages) {
+      const destination = join(destinationModules, pkg.name)
       for (const [dependency, target] of pkg.dependencies) linkDirectory(target, join(destination, 'node_modules', dependency))
     }
     const manifestPath = join(options.projectDir, 'package.json')

@@ -21,6 +21,9 @@
       "path": "../../packages/boot/app-boot"
     },
     {
+      "path": "../../packages/util/atomic-write"
+    },
+    {
       "path": "../../packages/boot/cmdline"
     },
     {
@@ -85,6 +88,9 @@
     },
     {
       "path": "../../packages/drama/screenplay-project"
+    },
+    {
+      "path": "../../packages/drama/tool-shot-script"
     },
     {
       "path": "../../packages/deliverables/tool-present"

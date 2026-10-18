@@ -1568,6 +1568,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Explicit choice or null.',
       },
       {
+        signature: 'registerContextReviewer(reviewer: (agent: Agent, selection: SessionVideoSelection) => string): () => void',
+        description: 'Add synchronous advice to the same logged context as each committed selection. Reviewer errors produce a retry warning and never reject the selected model.',
+        parameters: [{ name: 'reviewer', description: 'Pure synchronous check returning additional context, or an empty string.' }],
+        returns: 'Fiber-owned disposer; removed reviewers are never called by later commits.',
+      },
+      {
         signature: '@Remote async select(agent: Agent, key: string, expectedRevision: number): Promise<SessionVideoSelection>',
         description: 'Save an exact live option with optimistic revision checking.',
         parameters: [{ name: 'agent', description: 'Authenticated conversation identity.' }, { name: 'key', description: 'Catalogue row and resolution key.' }, { name: 'expectedRevision', description: 'Revision displayed to the user, zero before selection.' }],

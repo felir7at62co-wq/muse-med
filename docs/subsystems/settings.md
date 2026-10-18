@@ -126,6 +126,14 @@ async initialize(agent: Agent): Promise<SessionVideoSelection | null>
 @Remote current(agent: Agent): SessionVideoSelection | null
 
 /**
+ * Add synchronous advice to the same logged context as each committed selection.
+ * Reviewer errors produce a retry warning and never reject the selected model.
+ * @param reviewer - Pure synchronous check returning additional context, or an empty string.
+ * @returns Fiber-owned disposer; removed reviewers are never called by later commits.
+ */
+registerContextReviewer(reviewer: (agent: Agent, selection: SessionVideoSelection) => string): () => void
+
+/**
  * Save an exact live option with optimistic revision checking.
  * @param agent - Authenticated conversation identity.
  * @param key - Catalogue row and resolution key.

@@ -88,7 +88,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', '@dsh-feishu/dsh-feishu', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -104,6 +104,15 @@ describe('desktop package-set selection', () => {
     const available = new Map(names.map(name => [name, packed(name)]))
     expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
       .not.toContain('dsh-codex-subscription')
+  })
+
+  it('selects the IM package and account bridge without retaining the retired Feishu archive', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, '@dsh-feishu/dsh-feishu']
+    const available = new Map(names.map(name => [name, packed(name)]))
+    const selected = selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
+    expect(selected).toContain('@xmanrui/dsh-im')
+    expect(selected).toContain('@wenbin_wb/dsh-bridge')
+    expect(selected).not.toContain('@dsh-feishu/dsh-feishu')
   })
 
   it('leaves independently published Office packages to npm resolution', () => {
@@ -170,15 +179,12 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('requires the Feishu entry, card controllers, source record and license', () => {
+  it('requires the IM Host, native client, migration helper, source record and license', () => {
     const files = [
       'package/lib/index.js',
-      'package/lib/muse-feishu-runtime.mjs',
-      'package/lib/muse-feishu-reliability.mjs',
-      'package/lib/muse-feishu-migration.mjs',
-      'package/lib/upstream/index.js',
-      'package/lib/upstream/cards/StreamingCardController.js',
-      'package/lib/upstream/cards/InteractionCardController.js',
+      'package/lib/upstream.js',
+      'package/lib/client.js',
+      'package/lib/muse-im-migration.mjs',
       'package/cordis.patch.yml',
       'package/LICENSE',
       'package/SOURCE.json',

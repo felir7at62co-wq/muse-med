@@ -22,7 +22,8 @@
     "repository": "https://github.com/PGZXB/dsh-feishu",
     "version": "0.3.6",
     "commit": "f10ef5f6efb5beb5bd5d10e3e31a8f68f48b6e75",
-    "license": "MIT"
+    "license": "MIT",
+    "desktop": false
   },
   "dsh-ffmpeg": {
     "repository": "https://github.com/STARDUSTLC666/dsh-ffmpeg",
@@ -45,6 +46,12 @@
       "RECOVERY.md",
       "SOURCES.md"
     ],
+    "license": "MIT"
+  },
+  "dsh-im": {
+    "repository": "https://github.com/xmanrui/dsh-im",
+    "version": "5.1.0",
+    "commit": "ca949ee276cc8cfb5a60b4ebd8e2fb616959e136",
     "license": "MIT"
   }
 }

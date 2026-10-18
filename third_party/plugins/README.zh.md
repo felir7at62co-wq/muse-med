@@ -16,7 +16,7 @@
 pnpm --dir third_party/plugins/toolchain run build --out ../../../.artifacts/community-plugins
 pnpm --dir third_party/plugins/toolchain run test:host
 pnpm --dir third_party/plugins/toolchain run test:build
-pnpm --dir third_party/plugins/toolchain run test:feishu
+pnpm --dir third_party/plugins/toolchain run test:im
 ```
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
@@ -47,9 +47,13 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 远程 provider 复用 `CustomTunnelClient` 的连接建立和原生 WebSocket 升级处理。Muse 适配器直接流式转发原生字节，不积累完整数据帧，包含 Host Ping 和浏览器 Pong；同时提供账号/设备认证、流式 HTTP 上传与下载、逐块确认、取消、按配置间隔持续重连和等待完成的关闭。本地传输测试覆盖二进制上传、Range 响应、不完整原生数据帧、`/api/remote.mux` 心跳往返、取消及凭证拒绝。握手在安装 UUID 之外增加电脑名称和操作系统。云端 relay 验证账号，把每个浏览器标签页路由到其选择的安装，并保持其他电脑连接；桌面仅转发至自身回环 Host。这是一条私有出站连接，不创建公共隧道域名。
 
-`@dsh-feishu/dsh-feishu` 提供飞书通道。保留的 PGZXB 源码版本为 0.3.6，使用 MIT 许可证；[sources.json](sources.json) 固定其修订。[飞书覆盖](compatibility/feishu-desktop.mjs)只修改私有暂存副本，使用审核后的 Host 编译保留的 TypeScript，并将卡片与传输实现放在 `lib/upstream`。根入口由 Muse 维护，保留 `feishu-channel` 设置且默认关闭。空 bundle 补丁不会重复添加服务器、工作区、提问工具或调度器行，产物不暴露独立 CLI。Muse 账号远程访问与此通道相互独立。
+`@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。
 
-飞书专用构建检查编译并打包两次，比较完整压缩包字节，在禁用状态下导入实际产物入口，检查卡片模块、来源记录和许可证，并确认保留源码未被修改。另一个产物检查通过离线飞书传输启动真实 Loader、预设注册表、Agent 循环和 JSONL 存储，覆盖会话恢复、重复消息、提问归属、文件校验、GUI 会话接管及清理。Desktop 包集合在安装前也要求这些运行时文件齐全。这些检查不认证真实飞书应用、不发送平台消息，也不证明租户权限可用；这些行为须单独进行产品验收。
+导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。导入的机器人要求群消息精确 @ 当前机器人，并保留原允许群的使用范围；在其他群中，仅已登记的主人可以使用。原生访问策略仍然生效，新群的其他成员不会因此获得本机权限，控制命令和操作卡片仍仅向主人开放。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
+
+同一飞书机器人的私聊和群聊都使用其 IM 设置中选择的工作区。各聊天共享该目录的文件和素材，但分别保存 Session 历史。启动时会清除单个聊天的工作区覆盖，并解除 Session 工作目录与机器人工作区不同的绑定；目录匹配的绑定保留原 Session ID。后续对话命令不能重新建立私有目录覆盖，也不能绑定其他聊天当前使用的 Session。选择其他机器人工作区后，其所有聊天的后续工作都使用新目录。旧 Session 日志与文件留在原位置，适配层不会搬迁。
+
+Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence` 依赖，使工作区校验可以读取活跃或已持久化的 Session 头部信息。隔离 IM 检查以离线平台传输验证迁移、真实 Loader 和 Agent API、群提及、控制归属及原 Session 历史恢复。服务访问受限的 Cordis 插件通过真实 Host gateway 新建私聊和群聊 Session，验证两者使用同一所选工作区且历史独立；缺少依赖的反例会在请求模型前拒绝未声明的 Session 访问。构建检查比较两份完整 tarball，核对原生 Client 和许可证，并确认保留的上游文件未被改动。这些检查不认证真实机器人，也不能证明租户权限已配置。
 
 ### 红果公开数据
 

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-shot-advisory
+profile: headless
+composition: muse-shot-advisory
+recording: authored
+header:
+  class: muse-shot-advisory
+  pin: true
+writerOutput: true

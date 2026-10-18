@@ -80,6 +80,8 @@ kind: "package-bundle"
 
 页面最后是按流水线顺序排列的组成，以及只读插件清单此刻对每个包的结论：`@deepseek-ai/dsh-guard-drama`（工具分发门禁）、`@deepseek-ai/dsh-tool-drama-assets`（生图前的资产对账）、`@deepseek-ai/dsh-tool-shot-script`（`drama_shot`）、`@deepseek-ai/dsh-perception-bgm`（`bgm_match`）、`@deepseek-ai/dsh-tool-bgm-compose`（`drama_bgm`）与 `@deepseek-ai/dsh-tool-episode-render`（`drama_render`）。匹配器是独立插件，不属于短剧包；行文案如此说明，而 BGM **目录**仍是它上面的一项独立设置。
 
+镜头脚本行显示“镜头脚本检查与分包建议（drama_shot）”。Muse 短剧模式配置其[提示型检查模式](../tool-shot-script/README.zh.md#review-modes)；设置页不选择此模式，也不把内容警告变成阻塞检查。
+
 每一行带一个状态：已加载、启动中、加载失败、按条件加载、未加载、清单里没有，或无法查询。页面通过 `ctx.get` 读取 `pluginInventory`——宿主那份只读的 Loader 与 preset 投影——因此该命名空间是可选的：没有组合插件清单的部署对每个包都显示无法查询，并附上「这些包随 short-drama preset 或宿主 cordis patch 加载」的说明。沉默永远不会被渲染成「已加载」。
 
 -----

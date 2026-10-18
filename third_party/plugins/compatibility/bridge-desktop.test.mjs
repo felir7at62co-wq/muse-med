@@ -23,6 +23,10 @@ test('packs only the authenticated Muse transport and optional Feishu entry', as
     assert.equal(manifest.exports['./client'], undefined)
     assert.equal(manifest.dependencies['@deepseek-ai/dsh-muse-account'], '0.2.1-alpha.1')
     assert.equal(manifest.dependencies['@deepseek-ai/schemastery'], '3.18.5-alpha.1')
+    assert.equal(manifest.dependencies['@xmanrui/dsh-im'], '5.1.0')
+    const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+    assert.match(patch, /id: feishu-channel\n\s+name: '@xmanrui\/dsh-im'/u)
+    assert.doesNotMatch(patch, /name: '@wenbin_wb\/dsh-bridge'/u)
     assert.match(readFileSync(join(root, 'LICENSE'), 'utf8'), /MIT License/)
     for (const path of ['lib/index.js', 'lib/remote.mjs', 'lib/upstream/tunnel-client.mjs']) {
       assert.ok(existsSync(join(root, path)), `${path} must ship`)

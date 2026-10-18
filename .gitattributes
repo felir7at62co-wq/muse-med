@@ -19,6 +19,11 @@ third_party/plugins/dsh-feishu/docs/architecture.md whitespace=-blank-at-eof
 third_party/plugins/dsh-feishu/docs/architecture.zh.md whitespace=-blank-at-eof
 third_party/plugins/dsh-feishu/docs/ux-specification.zh.md whitespace=-blank-at-eof
 
+# Preserve whitespace in these files from the pinned dsh-im source snapshot.
+third_party/plugins/dsh-im/CHANGELOG.md whitespace=-blank-at-eof
+third_party/plugins/dsh-im/docs/方案/PR-222-飞书话题首文去重修复方案.md whitespace=-blank-at-eol
+third_party/plugins/dsh-im/lib/index.js whitespace=-blank-at-eol
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

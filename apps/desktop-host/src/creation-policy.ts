@@ -25,6 +25,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'drama_project',
   'drama_render',
   'drama_video',
+  'dsh_im_return_file',
   'edit',
   'exit_plan_mode',
   'fanqie_download',

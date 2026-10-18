@@ -7,7 +7,7 @@
  * artifact.
  */
 
-import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { FiberState, type Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -73,8 +73,31 @@ function registerSection(ctx: ClientContext): void {
   }, FeishuSection))
 }
 
+/** Keep the legacy section available only while the native IM client is absent. */
+async function registerAvailableSection(ctx: ClientContext): Promise<void> {
+  const addSection = () => ctx.inject(['slots', 'locale', 'remote.feishuSetup'], registerSection)
+  let legacy = ctx.get('dshImClient') ? undefined : addSection()
+  const initial = legacy
+  const native = ctx.inject(['dshImClient'], async () => {
+    const previous = legacy
+    legacy = undefined
+    await previous?.dispose()
+    return async () => {
+      if ((ctx.fiber.state !== FiberState.ACTIVE && ctx.fiber.state !== FiberState.LOADING) || ctx.get('dshImClient')) return
+      legacy = addSection()
+      await legacy
+    }
+  })
+  await initial
+  await native
+  if (!ctx.get('dshImClient') && legacy === undefined) {
+    legacy = addSection()
+    await legacy
+  }
+}
+
 /**
- * Mount one generated setup Remote contribution, then register the page over it.
+ * Mount one setup Remote contribution and show its page while native IM is unavailable.
  * @param ctx - Client context carrying the slot registry, locale, and Remote service.
  * @param contribution - the generated `feishuSetup` descriptors this page calls.
  * @returns a disposer that removes the page registrations and the namespace.
@@ -84,7 +107,7 @@ export async function mountFeishuSettings(
   contribution: TypertRemoteContribution,
 ): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(contribution)
-  const section = ctx.inject(['slots', 'locale', 'remote.feishuSetup'], registerSection)
+  const section = ctx.inject(['slots', 'locale', 'remote.feishuSetup'], registerAvailableSection)
   try {
     await section
   } catch (error) {

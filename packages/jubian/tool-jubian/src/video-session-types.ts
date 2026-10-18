@@ -57,7 +57,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     /**
-     * Explicit video-model transition; consumers preserve its text as ordinary context.
+     * Video-model selection and related advisory checks; consumers preserve the text as ordinary context.
      * @persistenceAttribution
      */
     'jubian-video-selection': { kind: 'jubian-video-selection' }

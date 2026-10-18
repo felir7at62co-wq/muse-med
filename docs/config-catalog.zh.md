@@ -4424,18 +4424,25 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:54`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:44`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**
- * Plugin config. `actionShotSeconds` is the only deployment-varying choice: it is
- * the packing budget for a silent shot that carries no `动作复杂度` label, matching
- * the compiler flag the drama skills used to pass.
+ * Review policy and the estimated duration of an unlabelled silent shot.
  */
 export interface Config {
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
+  /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
+  reviewMode?: DramaShotReviewMode
+  /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */
+  sessionVideoSelection?: boolean
+  /** Maximum characters in each model-switch review context; at least 400, defaults to 2000. */
+  selectionReviewMaxChars?: number
 }
+
+/** Whether content diagnostics block compilation or remain review suggestions. */
+export type DramaShotReviewMode = 'strict' | 'advisory'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-shot-script -->
 

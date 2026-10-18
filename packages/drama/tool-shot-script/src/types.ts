@@ -35,6 +35,27 @@ export type DurationSource =
 /** The three operations `drama_shot` accepts. */
 export type DramaShotMethod = 'validate' | 'preview' | 'compile'
 
+/** Whether content diagnostics block compilation or remain review suggestions. */
+export type DramaShotReviewMode = 'strict' | 'advisory'
+
+/** Session specification used to evaluate a review's duration budget. */
+export interface ReviewVideoSelection {
+  model_id: string
+  model_name: string
+  platform_id: string
+  standard_id: number
+  resolution: string
+  max_duration_seconds: number | null
+  revision: number
+}
+
+/** Actual duration capability used by this call, independent of authored shot lengths. */
+export interface DurationBudget {
+  source: 'session' | 'argument'
+  max_submit_seconds: number | null
+  selection: ReviewVideoSelection | null
+}
+
 /** Whether an issue blocks compilation or only asks for a better script. */
 export type IssueSeverity = 'failure' | 'warning'
 
@@ -82,6 +103,10 @@ export type IssueCode =
   | 'asset_episodes_unregistered'
   | 'asset_episode_mismatch'
   | 'asset_state_missing'
+  | 'session_video_budget_ignored'
+  | 'session_video_unavailable'
+  | 'session_video_duration_unknown'
+  | 'session_video_selection_changed'
 
 /** One decidable problem found in a shot script or its asset binding. */
 export interface ShotIssue {
@@ -325,7 +350,11 @@ export interface PackageReport {
 export interface DramaShotReport {
   /** The operation that produced this report. */
   method: DramaShotMethod
-  /** Whether the script compiled; true means no failure-severity issue was found. */
+  /** Advisory reports do not certify creative quality or readiness for generation. */
+  review_mode: DramaShotReviewMode
+  /** Model and duration capability actually used; a null ceiling is unknown. */
+  duration_budget: DurationBudget
+  /** No blocking content issues in strict mode; check completion in advisory mode. */
   ok: boolean
   /** Absolute path of the judged shot script. */
   script: string

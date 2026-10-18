@@ -27,7 +27,7 @@ The `drama/` group holds the short-drama pipeline's formats, operations, and set
 | [`character-asset-catalog/`](character-asset-catalog/README.md) | Source-scoped character metadata adaptation and image byte verification through a caller-owned reader, without approval or storage writes |
 | [`screenplay-project/`](screenplay-project/README.md) | Source-backed writing, independent fact and episode review, generated source references, and resumable character knowledge |
 | [`tool-audio-transcribe/`](tool-audio-transcribe/README.md) | The model-facing `audio_transcribe` tool: account-bound cloud transcription of local media with durable job receipts and versioned transcripts |
-| [`tool-shot-script/`](tool-shot-script/README.md) | The model-facing `drama_shot` tool: script validation with hard failures and warnings separated, the package budget preview, and the matched JSON and episode package compile |
+| [`tool-shot-script/`](tool-shot-script/README.md) | The model-facing `drama_shot` tool: strict script compilation by default, or advisory content checks, package suggestions and separate review drafts in Muse Short Drama |
 | [`bgm-license-info/`](bgm-license-info/README.md) | Music-rights declarations, explicit unknown metadata and advisory intended-use conflicts shared by catalog and rendering consumers |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.md) | The model-facing `drama_bgm` tool: source analysis, deterministic crossfaded composition, no-clobber publication, and fixed WAV verification |
 | [`tool-episode-render/`](tool-episode-render/README.md) | The model-facing `drama_render` tool: the render-input layout, project-canvas delivery with subtitle and audio style, medium-controlled ending and watermark, and the post-render checks |

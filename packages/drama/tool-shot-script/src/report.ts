@@ -13,6 +13,8 @@ import type {
   CompiledShot,
   DramaShotMethod,
   DramaShotReport,
+  DramaShotReviewMode,
+  DurationBudget,
   IssueReport,
   PackedTask,
   PackageReport,
@@ -24,6 +26,10 @@ import type {
 export interface ReportInput {
   /** The operation that produced the result. */
   method: DramaShotMethod
+  /** Content review policy used for this call. */
+  reviewMode: DramaShotReviewMode
+  /** Explicit resolved budget; omitted by callers producing reports without packaging. */
+  durationBudget?: DurationBudget
   /** Absolute path of the judged shot script. */
   script: string
   /** Absolute path of the asset manifest, or an empty string when none was given. */
@@ -107,6 +113,8 @@ export function buildReport(input: ReportInput): DramaShotReport {
   const warnings = input.issues.filter(issue => issue.severity === 'warning').map(issueReport)
   return {
     method: input.method,
+    review_mode: input.reviewMode,
+    duration_budget: input.durationBudget ?? { source: 'argument', max_submit_seconds: null, selection: null },
     ok: failures.length === 0,
     script: input.script,
     assets_manifest: input.assetsManifest,

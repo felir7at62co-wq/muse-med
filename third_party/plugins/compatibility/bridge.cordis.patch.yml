@@ -1,5 +1,5 @@
 - insert:
     - id: feishu-channel
-      name: '@wenbin_wb/dsh-bridge'
+      name: '@xmanrui/dsh-im'
       config:
         enabled: false

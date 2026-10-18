@@ -1,4 +1,4 @@
-/** Build the pinned Feishu source twice and inspect the exact Desktop npm payload. */
+/** Explicitly build the retained Feishu source without activating it as the Desktop provider. */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -9,6 +9,7 @@ import test from 'node:test'
 
 const root = resolve(import.meta.dirname, '../..')
 const source = join(import.meta.dirname, 'dsh-feishu')
+const pin = JSON.parse(readFileSync(join(import.meta.dirname, 'sources.json'), 'utf8'))['dsh-feishu']
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
 function fingerprint(directory, prefix = '') {
@@ -26,7 +27,8 @@ function readMember(archive, name) {
   return result.stdout
 }
 
-test('packs a reproducible Muse Feishu entry with the retained card UI and no standalone launcher', { timeout: 180_000 }, () => {
+test('explicitly packs the retired Feishu source with its retained cards and no standalone launcher', { timeout: 180_000 }, () => {
+  assert.equal(pin.desktop, false, 'the retired source must remain outside the default Desktop package set')
   const before = fingerprint(source)
   const outputs = [mkdtempSync(join(tmpdir(), 'muse-feishu-first-')), mkdtempSync(join(tmpdir(), 'muse-feishu-second-'))]
   try {
@@ -60,6 +62,7 @@ test('packs a reproducible Muse Feishu entry with the retained card UI and no st
       assert.ok(readMember(archives[0], path).trim(), `missing packaged ${path}`)
     }
     const metadata = JSON.parse(readMember(archives[0], 'SOURCE.json'))
+    assert.deepEqual(metadata.upstream, pin)
     assert.equal(metadata.upstream.repository, 'https://github.com/PGZXB/dsh-feishu')
     assert.equal(metadata.upstream.commit, 'f10ef5f6efb5beb5bd5d10e3e31a8f68f48b6e75')
     assert.equal(metadata.hostVersion, '0.2.1-alpha.1')

@@ -87,6 +87,11 @@
 
 - id: tool-drama-assets
   name: '@deepseek-ai/dsh-tool-drama-assets'
+- id: tool-shot-script
+  name: '@deepseek-ai/dsh-tool-shot-script'
+  config:
+    reviewMode: advisory
+    sessionVideoSelection: true
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'
 - id: tool-episode-render

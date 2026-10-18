@@ -84,6 +84,7 @@ const DESKTOP_PROFILE_BUNDLES = [
   DESKTOP_FEISHU_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
+const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/u
@@ -227,8 +228,12 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
   const retiredCodex = manifest.dsh.profile.bundles.includes('dsh-codex-subscription')
+  const retiredFeishu = manifest.dsh.profile.bundles.includes(RETIRED_FEISHU_PACKAGE)
+  if (new Set(manifest.dsh.profile.bundles).size !== manifest.dsh.profile.bundles.length) {
+    throw new Error('desktop project: profile bundle list contains a duplicate package')
+  }
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== 'dsh-codex-subscription')
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== 'dsh-codex-subscription' && bundle !== RETIRED_FEISHU_PACKAGE)
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -237,13 +242,13 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired || retiredPonytail || retiredCodex) {
+  if (pending !== undefined || retired || retiredPonytail || retiredCodex || retiredFeishu) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')
       const oldPatch = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
       if (existsSync(patchPath)) copyFileSync(patchPath, `${patchPath}.${String(Date.now())}.bak`)
-      writeFileSync(patchPath, `${oldPatch.trimEnd()}\n\n- id: feishu\n  config:\n    enabled: false\n- id: feishu-channel\n  name: '@wenbin_wb/dsh-bridge'\n  disabled: false\n`, { mode: 0o600 })
+      writeFileSync(patchPath, `${oldPatch.trimEnd()}\n\n- id: feishu\n  config:\n    enabled: false\n- id: feishu-channel\n  name: '@xmanrui/dsh-im'\n  disabled: false\n`, { mode: 0o600 })
     }
     writeJson(join(projectDir, 'package.json'), {
       ...manifest,

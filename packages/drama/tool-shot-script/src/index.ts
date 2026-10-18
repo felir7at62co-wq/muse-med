@@ -1,16 +1,6 @@
 /**
- * `drama_shot`: the short-drama pipeline's shot-script gate and episode compiler,
- * as one model-facing tool.
- *
- * The pipeline's hard rules used to live in skill prose, where a model could skip
- * them. They are decidable — a rule is enforced here exactly when the script
- * text, the asset manifest, and the package budget settle it — so this plugin
- * judges them in the operation that produces the artifact. Creative guidance
- * (how a shot should read, how a cut should feel) stays in the skills.
- *
- * `validate` and `preview` read only; `compile` writes the matched JSON and the
- * episode package, and a script with any failure-severity issue writes nothing.
- *
+ * Shot-script checks and episode packaging. Strict deployments compile canonical
+ * artifacts; advisory deployments preserve source and save separate review drafts.
  * @module @deepseek-ai/dsh-tool-shot-script
  */
 
@@ -32,10 +22,12 @@ import {
   prepareShotPrompts,
   materialReferenceIssues,
   writeEpisode,
+  writeAdvisoryReview,
 } from './episode.ts'
 import { buildReport } from './report.ts'
 import { parseShotScript } from './script.ts'
-import type { CompiledShot, DramaShotMethod, DramaShotReport, ManifestAsset, PackedTask, ShotIssue } from './types.ts'
+import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from './session-video.ts'
+import type { CompiledShot, DramaShotMethod, DramaShotReport, DramaShotReviewMode, DurationBudget, ManifestAsset, PackedTask, ShotIssue } from './types.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-shot-script'
@@ -47,24 +39,37 @@ export const inject = ['tools']
 const DEFAULT_ACTION_SHOT_SECONDS = 2
 
 /**
- * Plugin config. `actionShotSeconds` is the only deployment-varying choice: it is
- * the packing budget for a silent shot that carries no `动作复杂度` label, matching
- * the compiler flag the drama skills used to pass.
+ * Review policy and the estimated duration of an unlabelled silent shot.
  */
 export interface Config {
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
+  /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
+  reviewMode?: DramaShotReviewMode
+  /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */
+  sessionVideoSelection?: boolean
+  /** Maximum characters in each model-switch review context; at least 400, defaults to 2000. */
+  selectionReviewMaxChars?: number
 }
 
 /** Validated config schema: the fallback budget must stay inside the 1–4 second shot rule. */
 export const Config: z<Config> = z.object({
   actionShotSeconds: z.number().step(1).min(1).max(4).default(DEFAULT_ACTION_SHOT_SECONDS),
+  reviewMode: z.union(['strict', 'advisory']).default('strict'),
+  sessionVideoSelection: z.boolean().default(false),
+  selectionReviewMaxChars: z.number().step(1).min(400).default(2000),
 })
 
 /** One resolved compiler configuration. */
 interface ResolvedConfig {
   /** Seconds charged to a silent shot without a complexity label. */
   actionShotSeconds: number
+  /** Whether content diagnostics remain suggestions. */
+  reviewMode: DramaShotReviewMode
+  /** Whether session-owned video capabilities replace the old budget argument. */
+  sessionVideoSelection: boolean
+  /** Complete review-context text limit. */
+  selectionReviewMaxChars: number
 }
 
 /** One call's arguments, exactly as the parameter schema declares them. */
@@ -183,6 +188,7 @@ function compileShots(
   shots: ReturnType<typeof parseShotScript>['shots'],
   manifest: ManifestAsset[] | undefined,
   episode: number | undefined,
+  reviewMode: DramaShotReviewMode,
 ): {
   compiled: CompiledShot[]
   issues: ShotIssue[]
@@ -205,7 +211,7 @@ function compileShots(
     cursor += shot.durationSeconds
   }
   if (manifest !== undefined) issues.push(...materialReferenceIssues(compiled, manifest))
-  return { compiled: prepareShotPrompts(compiled, manifest), issues }
+  return { compiled: reviewMode === 'advisory' ? compiled : prepareShotPrompts(compiled, manifest), issues }
 }
 
 /**
@@ -237,9 +243,11 @@ async function writeTarget(
  * Judge, and for `compile` write, one episode of the short-drama pipeline.
  * @param args - The dispatched arguments.
  * @param config - The resolved compiler configuration.
- * @returns The canonical result; a script with failures never reaches the filesystem.
+ * @returns Diagnostics and optional packages; advisory drafts never replace canonical artifacts.
  */
-async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): Promise<DramaShotReport> {
+async function runDramaShot(
+  args: DramaShotArguments, config: ResolvedConfig, durationBudget: DurationBudget, initialIssues: ShotIssue[],
+): Promise<DramaShotReport> {
   const call = resolveCall(args)
   const scriptText = await readText(call.script)
   const delivery = await readProjectDelivery(call.script, call.project)
@@ -249,13 +257,13 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
   })
   const manifestRead = call.assets === undefined ? undefined : await readManifest(call.assets)
   const manifest = manifestRead?.assets
-  const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest, call.episode)
-  const issues = [...parsed.issues, ...(manifestRead?.issues ?? []), ...bindingIssues]
+  const { compiled, issues: bindingIssues } = compileShots(parsed.shots, manifest, call.episode, config.reviewMode)
+  const issues = [...initialIssues, ...parsed.issues, ...(manifestRead?.issues ?? []), ...bindingIssues]
   let maxContentSeconds = 0
   let tasks: PackedTask[] = []
-  if (args.method !== 'validate') {
-    const maximum = args.max_submit_seconds
-    if (maximum === undefined || !Number.isSafeInteger(maximum) || maximum < MIN_SUBMIT_SECONDS) {
+  if (args.method !== 'validate' && (durationBudget.source !== 'session' || durationBudget.max_submit_seconds !== null)) {
+    const maximum = durationBudget.max_submit_seconds
+    if (maximum === null || !Number.isSafeInteger(maximum) || maximum < MIN_SUBMIT_SECONDS) {
       throw new Error('preview/compile 需要 max_submit_seconds：单包提交时长上限（至少4秒，含收束秒），且在已确认模型能力内；不要默认取模型最大值。')
     }
     maxContentSeconds = maximum - NATURAL_HOLD_SECONDS
@@ -265,8 +273,8 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
           message: `镜头${shot.shot}为${shot.durationSeconds}秒，超过本次内容预算${maxContentSeconds}秒（提交上限${maximum}秒，含${NATURAL_HOLD_SECONDS}秒收束）；请选择支持的分镜时长或按原文语义拆镜，不能截断。` })
       }
     }
-    if (!issues.some(issue => issue.severity === 'failure')) {
-      tasks = packEpisode(compiled, maxContentSeconds)
+    if (config.reviewMode === 'advisory' || !issues.some(issue => issue.severity === 'failure')) {
+      tasks = packEpisode(compiled, maxContentSeconds, { reviewMode: config.reviewMode, issues })
       for (const task of tasks) {
         if (task.contentSeconds >= MIN_CONTENT_SECONDS) continue
         const first = compiled.find(item => item.shot.shot === task.shots[0])
@@ -278,23 +286,37 @@ async function runDramaShot(args: DramaShotArguments, config: ResolvedConfig): P
       }
     }
   }
-  const failed = issues.some(issue => issue.severity === 'failure')
+  const reviewIssues: ShotIssue[] = config.reviewMode === 'advisory'
+    ? issues.map(issue => ({ ...issue, severity: 'warning', message: issue.code === 'multiple_speech_lines'
+      ? `${issue.message} 检查字段 text 只解析首条发声；完整台词保留在原文与包正文中，不能将 text 当作完整字幕。`
+      : issue.message }))
+    : issues
+  const failed = reviewIssues.some(issue => issue.severity === 'failure')
   if (failed) tasks = []
-  const written = args.method === 'compile' ? await writeTarget(call, compiled, tasks, failed) : []
-  return buildReport({
+  const written = args.method === 'compile' && config.reviewMode === 'strict'
+    ? await writeTarget(call, compiled, tasks, failed) : []
+  const report = buildReport({
     method: args.method,
+    reviewMode: config.reviewMode,
+    durationBudget,
     script: call.script,
     assetsManifest: call.assets ?? '',
     assetsChecked: manifest !== undefined,
     shots: compiled,
-    issues,
+    issues: reviewIssues,
     tasks,
     written,
   })
+  if (args.method === 'compile' && config.reviewMode === 'advisory' && call.target !== undefined) {
+    report.written = await writeAdvisoryReview({
+      project: call.target.project, episode: call.target.episode, scriptPath: call.script, report,
+    })
+  }
+  return report
 }
 
 /** The one sentence every issue-field description repeats. */
-const ISSUE_SHAPE = 'severity=failure 表示必须先修好再编译，warning 不阻塞编译。'
+const ISSUE_SHAPE = 'strict 下 failure 阻止正式编译；advisory 下内容问题均为 warning，仅供结合原剧本与 Skill 判断，不阻止继续创作。'
 
 /** Shared issue fields for both severities. */
 const ISSUE_ITEM_SCHEMA = {
@@ -316,8 +338,21 @@ const RESULT_SCHEMA = {
   properties: {
     method: { type: 'string', required: true, enum: ['validate', 'preview', 'compile'],
       description: '产生本结果的操作。' },
+    review_mode: { type: 'string', required: true, enum: ['strict', 'advisory'], description: '本次检查策略。advisory 只给建议。' },
+    duration_budget: { type: 'object', required: true, additionalProperties: false,
+      description: '本次实际采用的模型能力；上限未知时不猜测，不代表内容验收。',
+      properties: {
+        source: { type: 'string', required: true, enum: ['session', 'argument'] },
+        max_submit_seconds: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+        selection: { required: true, oneOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, properties: {
+          model_id: { type: 'string', required: true }, model_name: { type: 'string', required: true },
+          platform_id: { type: 'string', required: true }, standard_id: { type: 'integer', required: true },
+          resolution: { type: 'string', required: true }, revision: { type: 'integer', required: true },
+          max_duration_seconds: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+        } }] },
+      } },
     ok: { type: 'boolean', required: true,
-      description: '是否通过全部硬失败；false 时没有写任何文件、也没有打包方案。' },
+      description: 'strict 表示无阻塞问题；advisory 仅表示检查已完成，不代表创作验收通过或可付费生成。' },
     script: { type: 'string', required: true, description: '被判定镜头脚本的绝对路径。' },
     assets_manifest: { type: 'string', required: true,
       description: '资产清单绝对路径；空串表示本次没有给清单（validate 未做资产绑定判定）。' },
@@ -332,7 +367,7 @@ const RESULT_SCHEMA = {
           voice_type: { type: 'string', required: true, enum: ['dialogue', 'vo', 'action'],
             description: 'dialogue=画面内台词；vo=画外发声，含旁白/心声；action=无发声。' },
           speaker: { type: 'string', required: true, description: '说话人；无声镜为空串。' },
-          text: { type: 'string', required: true, description: '去掉说话人前缀后的台词原文；无声镜为空串。' },
+          text: { type: 'string', required: true, description: '解析到的首条台词；多条发声时不是完整字幕，以原文为准；无声镜为空串。' },
           effective_chars: { type: 'integer', required: true, description: '有效字：汉字/字母/数字，标点与空格不计。' },
           duration_seconds: { type: 'integer', required: true, description: '本镜计入打包预算的整秒数。' },
           duration_source: { type: 'string', required: true, enum: ['speech', 'declared', 'complexity', 'default'],
@@ -358,7 +393,7 @@ const RESULT_SCHEMA = {
         },
       } },
     packages: { type: 'array', required: true,
-      description: '每包对应一次剧变提交；硬失败时为空数组。',
+      description: 'strict 为提交包；advisory 为可调整的分包草案，不能当作生成准备完成。',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -366,7 +401,7 @@ const RESULT_SCHEMA = {
           index: { type: 'integer', required: true, description: '包序号，从 1 开始。' },
           shots: { type: 'array', required: true, items: { type: 'integer' },
             description: '本包镜头号，按脚本顺序。' },
-          content_seconds: { type: 'integer', required: true, description: '本包内容时长（整秒），加收束不超过 max_submit_seconds。' },
+          content_seconds: { type: 'integer', required: true, description: '本包内容时长（整秒）；advisory 保留超长单镜，超预算时参考 warnings。' },
           content_duration_ms: { type: 'integer', required: true,
             description: '提交 jubian_storyboard generate 的 content_duration_ms（整千毫秒）。' },
           submit_seconds: { type: 'integer', required: true,
@@ -374,7 +409,7 @@ const RESULT_SCHEMA = {
           natural_hold_seconds: { type: 'integer', required: true, description: '自然收束秒数，至少 1；短包增加停留以达到 4 秒最低提交时长。' },
           hold_instruction: { type: 'string', required: true, description: '写进提示词的收束要求，不新增台词。' },
           prompt: { type: 'string', required: true,
-            description: '可直接保存到分镜 modelConfig.prompt 的完整镜头正文、已绑定素材映射与自然收束要求。' },
+            description: 'strict 为编译提示词；advisory 保留原镜头正文，需结合警告核对后自行决定修改。' },
           material_keys: { type: 'array', required: true, items: { type: 'string' },
             description: '本包提示词里 @[名称](key) 的 key，按出现顺序去重；select_assets 必须按这个顺序提交。' },
           material_names: { type: 'array', required: true, items: { type: 'string' },
@@ -392,7 +427,7 @@ const RESULT_SCHEMA = {
     failures: { type: 'array', required: true, description: ISSUE_SHAPE, items: ISSUE_ITEM_SCHEMA },
     warnings: { type: 'array', required: true, description: ISSUE_SHAPE, items: ISSUE_ITEM_SCHEMA },
     written: { type: 'array', required: true, items: { type: 'string' },
-      description: '本次写入的绝对路径；只有 compile 通过后才非空。' },
+      description: '本次实际写入路径；advisory compile 仅写 shot_reviews/<集号>/，不覆盖正式视频包。' },
     summary: {
       type: 'object',
       required: true,
@@ -409,7 +444,7 @@ const RESULT_SCHEMA = {
 } as const
 
 /** What the model reads before calling: what each method does and which rules decide the verdict. */
-const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）。'
+const STRICT_DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）。'
   + 'validate=只读校验：逐镜给出推导时长（8 有效字/秒）、有效字、发声类型、画外音合法性、资产绑定，'
   + '硬失败与警告分开列出；'
   + 'preview=只读预算：在 validate 之上算出每包内容时长与打包方案，不落盘，用于提交前看预算；'
@@ -436,40 +471,82 @@ const DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水线）�
   + '只合并同场连续完整镜头，内容加1秒收束不得超过该值，超长单镜拒绝，禁止截断。'
   + '硬失败时不会写任何文件，也不给打包方案。'
 
+/** Advisory checks support the creative Skills without imposing the legacy compiler format. */
+const ADVISORY_DESCRIPTION = '镜头脚本检查与分包建议（提示模式）。'
+  + 'validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；'
+  + 'compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。'
+  + '所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。'
+  + '以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。'
+  + '保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。'
+  + '已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。'
+  + '估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。'
+  + 'ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。'
+  + '分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。'
+  + '部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。'
+  + '切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。'
+  + '参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。'
+
 /**
  * Register the `drama_shot` tool.
  * @param ctx - Host context carrying the tool registry.
- * @param config - The silent-shot budget for shots without a complexity label.
+ * @param config - Review policy and the silent-shot duration estimate.
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved: ResolvedConfig = {
     actionShotSeconds: config.actionShotSeconds ?? DEFAULT_ACTION_SHOT_SECONDS,
+    reviewMode: config.reviewMode ?? 'strict',
+    sessionVideoSelection: config.sessionVideoSelection ?? false,
+    selectionReviewMaxChars: config.selectionReviewMaxChars ?? 2000,
   }
-  ctx.tools.register(defineTool({
-    name: 'drama_shot',
-    description: DESCRIPTION,
-    parameters: {
-      method: { type: 'string', required: true, enum: ['validate', 'preview', 'compile'],
-        description: 'validate=只读校验；preview=只读预算（不落盘）；compile=判定通过后写入 matched JSON 与单集 package。' },
-      script: { type: 'string', required: true,
-        description: '镜头脚本路径（绝对，或相对当前工作目录）。' },
-      assets: { type: 'string',
-        description: '资产清单 assets_manifest.json 的路径；preview 与 compile 必填，'
-          + 'validate 可选——给了才判定资产绑定。' },
-      project: { type: 'string',
-        description: '项目根目录（含 episodes/、prompts/、matches/、episode_packages/）；compile 必填。'
-          + '给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；'
-          + 'validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。' },
-      max_submit_seconds: { type: 'integer',
-        description: 'preview/compile 必填：本次打包的单包总时长上限，包含收束。项目模型 SD2.0 支持4–15秒，SD2.5 支持4–30秒；具体修订须已核实。按内容确定，不必取最大值；编译后将各包 submit_seconds 写入对应分镜。' },
-      episode: { type: 'integer',
-        description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。'
-          + 'validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。' },
-    },
-    output: {
-      schema: RESULT_SCHEMA,
-      render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-    },
-    execute: async args => await runDramaShot(args, resolved),
-  }))
+  const register = (owner: Context): void => {
+    const definition = defineTool({
+      name: 'drama_shot',
+      description: resolved.reviewMode === 'advisory' ? ADVISORY_DESCRIPTION : STRICT_DESCRIPTION,
+      parameters: {
+        method: { type: 'string', required: true, enum: ['validate', 'preview', 'compile'],
+          description: resolved.reviewMode === 'advisory'
+            ? 'validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。'
+            : 'validate=只读校验；preview=只读预算（不落盘）；compile=判定通过后写入 matched JSON 与单集 package。' },
+        script: { type: 'string', required: true,
+          description: '镜头脚本路径（绝对，或相对当前工作目录）。' },
+        assets: { type: 'string',
+          description: '资产清单 assets_manifest.json 的路径；preview 与 compile 必填，'
+            + 'validate 可选——给了才判定资产绑定。' },
+        project: { type: 'string',
+          description: '项目根目录；compile 必填。advisory 仅创建 shot_reviews/<集号>/，无需 episodes/ 或本地素材图片。'
+            + '给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；'
+            + 'validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。' },
+        max_submit_seconds: { type: 'integer',
+          description: '启用会话视频选择时自动读取当前会话模型上限，此参数忽略；否则 preview/compile 必填，表示含收束的单包参考上限（至少4秒），须核实模型能力。上限不代表推荐包长；advisory 超预算仅提示，submit_seconds 需核对后再用于生成。' },
+        episode: { type: 'integer',
+          description: '集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。'
+            + 'validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。' },
+      },
+      output: {
+        schema: RESULT_SCHEMA,
+        ...(resolved.sessionVideoSelection ? { presentationMeta: reviewPresentationMeta } : {}),
+        render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      execute: async (args, exec) => {
+        const issues: ShotIssue[] = []
+        const budget: DurationBudget = resolved.sessionVideoSelection
+          ? await sessionDurationBudget(owner, exec.agent, args.max_submit_seconds, issues)
+          : { source: 'argument', max_submit_seconds: args.max_submit_seconds ?? null, selection: null }
+        const report = await runDramaShot(args, resolved, budget, issues)
+        if (resolved.sessionVideoSelection && exec.agent !== undefined) {
+          const current = owner.get('jubianVideoSelection')?.current(exec.agent)
+          if (current !== undefined && current !== null && budget.selection?.revision !== current.revision) {
+            report.warnings.push({ severity: 'warning', code: 'session_video_selection_changed', shot: 0, line: 0,
+              message: '检查期间视频模型已切换；本报告记录的是开始检查时的选择，请按追加上下文中的最新上限重新预览，不直接据此生成。' })
+            report.summary.warnings = report.warnings.length
+          }
+        }
+        return report
+      },
+    })
+    owner.tools.register(definition)
+    if (resolved.sessionVideoSelection) installSessionReview(owner, definition, resolved.selectionReviewMaxChars)
+  }
+  if (resolved.sessionVideoSelection) ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)
+  else register(ctx)
 }

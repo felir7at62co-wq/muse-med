@@ -778,15 +778,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-shot-script',
     dir: 'tool-shot-script',
     source: 'packages/drama/tool-shot-script/src/index.ts',
-    requires: ['ctx.tools', 'the project layout it reads and writes (episodes/, prompts/, matches/, episode_packages/)'],
-    writes: ['tool/call', 'tool/result', 'on compile: the compiled prompt, the matched JSON, and the episode package under the project root'],
+    requires: ['ctx.tools', 'a source script; asset manifest for preview/compile; project and episode for compile',
+      'session video selection and projections when sessionVideoSelection is enabled'],
+    writes: ['tool/call', 'tool/result', 'on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json'],
     async mount(ctx) {
       await ctx.plugin(ToolShotScript)
     },
     note:
-      'The three methods share one schema: `validate` and `preview` only read, and `compile` writes the matched JSON and the episode package, returning each package\'s '
-      + '`content_duration_ms`, its submitted whole-second length, and the prompt-ordered `material_keys` that `jubian_storyboard` `select_assets` must match. '
-      + 'A script with any hard failure returns that failure list and writes nothing.',
+      'The three methods share one schema and report `review_mode`. `validate` and `preview` only read. '
+      + 'Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: '
+      + 'content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. '
+      + 'With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. '
+      + 'Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; '
+      + 'they do not rewrite scripts, cards, or the system prompt. '
+      + '`ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail.',
   },
   {
     pkg: '@deepseek-ai/dsh-perception-bgm',

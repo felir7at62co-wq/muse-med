@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import Sessions, { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import Agents from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm from '@deepseek-ai/dsh-llm'
@@ -16,6 +16,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianVideoSelection, selectedVideo, videoOptions, videoSelectionContext } from '../src/video-session.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionVideoSelection } from '../src/video-session-types.ts'
 
 const catalogue = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixtures/catalogue-20261016.json', import.meta.url), 'utf8')) as Record<string, unknown[]>
 const cleanup: Array<() => Promise<void>> = []
@@ -308,4 +310,84 @@ it('reads configured defaults without resuming or changing a session, and projec
   expect(await f.service.initialize(f.agent)).toEqual(explicit)
   expect(f.requests).toHaveLength(0)
   expect(f.inject).not.toHaveBeenCalled()
+})
+
+it('adds synchronous review advice to one selection context after the choice is committed', async () => {
+  const f = await fixture()
+  const option = videoOptions(catalogue['1']).find(option => option.maxDurationSeconds === 15)!
+  const reviewer = vi.fn((agent: Agent, selection: SessionVideoSelection) => {
+    expect(agent).toBe(f.agent)
+    expect(f.service.current(agent)).toEqual(selection)
+    return '上次检查的第2包请求21秒，超过当前15秒上限；完整台词未截断。'
+  })
+  const unregister = f.service.registerContextReviewer(reviewer)
+  const before = f.agent.session.seq
+  const selected = await f.service.select(f.agent, option.key, 0)
+  expect(reviewer).toHaveBeenCalledOnce()
+  expect(f.agent.session.eventAt(SessionSeq(before))?.type).toBe('jubian/video-selection')
+  const afterSelection = f.agent.session.seq
+  expect(f.inject).toHaveBeenCalledOnce()
+  expect(f.inject.mock.calls[0]?.[0]).toMatchObject({ source: { kind: 'jubian-video-selection' }, content: [{ type: 'text',
+    text: `${videoSelectionContext(selected)}\n上次检查的第2包请求21秒，超过当前15秒上限；完整台词未截断。` }] })
+  expect(await f.service.select(f.agent, option.key, 1)).toEqual(selected)
+  expect(reviewer).toHaveBeenCalledOnce()
+  expect(f.inject).toHaveBeenCalledOnce()
+  expect(f.agent.session.seq).toBe(afterSelection)
+  unregister()
+  unregister()
+  const other = videoOptions(catalogue['1']).find(candidate => candidate.key !== option.key)!
+  const next = await f.service.select(f.agent, other.key, 1)
+  expect(reviewer).toHaveBeenCalledOnce()
+  expect(f.inject.mock.calls[1]?.[0]).toMatchObject({ content: [{ type: 'text', text: videoSelectionContext(next) }] })
+})
+
+it('removes a plugin-owned reviewer when its registering fiber is disposed', async () => {
+  const f = await fixture()
+  const reviewer = vi.fn(() => '插件检查建议。')
+  const plugin = f.ctx.plugin({ inject: ['jubianVideoSelection'], apply(scope) {
+    scope.jubianVideoSelection.registerContextReviewer(reviewer)
+  } })
+  await plugin
+  const options = videoOptions(catalogue['1'])
+  const first = options[0]!
+  await f.service.select(f.agent, first.key, 0)
+  expect(reviewer).toHaveBeenCalledOnce()
+  await plugin.dispose()
+  const second = options.find(option => option.key !== first.key)!
+  const selected = await f.service.select(f.agent, second.key, 1)
+  expect(reviewer).toHaveBeenCalledOnce()
+  expect(f.inject.mock.calls[1]?.[0]).toMatchObject({ content: [{ type: 'text', text: videoSelectionContext(selected) }] })
+})
+
+it('keeps a committed choice and other advice when one reviewer throws', async () => {
+  const f = await fixture()
+  f.service.registerContextReviewer(() => { throw new Error('synthetic reviewer failure') })
+  const succeeding = vi.fn(() => '其余检查仍完成，仅供参考。')
+  f.service.registerContextReviewer(succeeding)
+  const option = videoOptions(catalogue['1'])[0]!
+  const selected = await f.service.select(f.agent, option.key, 0)
+  expect(f.service.current(f.agent)).toEqual(selected)
+  expect(succeeding).toHaveBeenCalledOnce()
+  expect(f.inject).toHaveBeenCalledOnce()
+  const message = f.inject.mock.calls[0]?.[0]
+  expect(message).toMatchObject({ source: { kind: 'jubian-video-selection' } })
+  const content = JSON.stringify(message)
+  expect(content).toContain(videoSelectionContext(selected))
+  expect(content).toContain('其余检查仍完成，仅供参考。')
+  expect(content).toContain('视频模型选择已保存；自动检查暂不可用')
+  expect(content).not.toContain('synthetic reviewer failure')
+  expect(f.adapter.requests).toHaveLength(0)
+})
+
+it('does not call a reviewer removed earlier in the same synchronous review', async () => {
+  const f = await fixture()
+  let unregisterLater: () => void = () => undefined
+  f.service.registerContextReviewer(() => { unregisterLater(); return '' })
+  const later = vi.fn(() => '已卸载检查不应进入上下文。')
+  unregisterLater = f.service.registerContextReviewer(later)
+  const option = videoOptions(catalogue['1'])[0]!
+  const selected = await f.service.select(f.agent, option.key, 0)
+  expect(later).not.toHaveBeenCalled()
+  expect(f.inject).toHaveBeenCalledOnce()
+  expect(f.inject.mock.calls[0]?.[0]).toMatchObject({ content: [{ type: 'text', text: videoSelectionContext(selected) }] })
 })

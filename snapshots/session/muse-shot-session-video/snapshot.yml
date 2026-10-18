@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-shot-session-video
+profile: headless
+composition: muse-shot-session-video
+recording: authored
+header:
+  class: muse-shot-session-video
+  pin: true
+writerOutput: true

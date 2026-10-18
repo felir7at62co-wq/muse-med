@@ -138,7 +138,7 @@ export function assertDesktopDramaSkillPackageFiles(files: readonly string[]): v
 }
 
 /**
- * Require the Muse Feishu entry and its retained streaming and interaction cards.
+ * Require the Muse IM Host, native client and migration files.
  * @param files - Tarball paths rooted at `package/`.
  * @returns Nothing.
  */

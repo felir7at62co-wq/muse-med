@@ -3,35 +3,41 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-shot-script/README.md
 /:
-  en: a85fa35781492ca6
-  zh: 77a2be517badcd84
+  en: 2bd758fbbf79d6b8
+  zh: ed538faafa5c36a1
 /deepseek-ai-dsh-tool-shot-script:
   en: b6097b098f876aea
   zh: b64e23903a2698f3
 /deepseek-ai-dsh-tool-shot-script/summary:
-  en: 3e05ecb643ad4a33
-  zh: a30c14707d35cac2
+  en: 460e32751598b59c
+  zh: 34642fb1ea38cc80
 /deepseek-ai-dsh-tool-shot-script/table-of-contents:
   en: 76368b6b1da79c80
   zh: c7d57a49ff713e9a
 /deepseek-ai-dsh-tool-shot-script/use-this-package:
-  en: 7a1ba81c22c60ebf
-  zh: f4e48f342ebba941
+  en: d258923a05cb98fd
+  zh: bf17d25a13567cd3
+/deepseek-ai-dsh-tool-shot-script/use-this-package/review-modes:
+  en: 04144af398e2c126
+  zh: 3b92704d071ff807
+/deepseek-ai-dsh-tool-shot-script/use-this-package/session-video-settings:
+  en: 2c55fd86263b24f4
+  zh: a9333b7475178546
 /deepseek-ai-dsh-tool-shot-script/use-this-package/character-state-and-the-asset-s-own-registration:
   en: ac37eb5bb37cb088
   zh: 60da0f72190f786b
 /deepseek-ai-dsh-tool-shot-script/use-this-package/project-requirements:
-  en: d2da67368023b073
-  zh: ad0d12107861cc74
+  en: 0af92af74a7bdbe5
+  zh: 11da4eda9f2fdcc2
 /deepseek-ai-dsh-tool-shot-script/use-this-package/script-and-timing:
-  en: 30a2a9886cb21ddd
-  zh: 7b4712441faf4dfe
+  en: 0b902fc6ddcc4f0c
+  zh: d5c707e4d56c6fe7
 /deepseek-ai-dsh-tool-shot-script/use-this-package/files:
-  en: 06ca53f96764a8e5
-  zh: e2e11c800d5ebc13
+  en: 2f5b2e436a6ad707
+  zh: fb39cf1bc5338118
 /deepseek-ai-dsh-tool-shot-script/understand-the-implementation:
-  en: ab7510032e0d34ac
-  zh: 258835b71a8cf6b2
+  en: 6b674fb901b9793d
+  zh: 62f59dccab309dbb
 /deepseek-ai-dsh-tool-shot-script/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -39,17 +45,17 @@
   en: ec78493bbab82a22
   zh: 306010d0ea406e8f
 /deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/what-the-model-sees:
-  en: c97d9c2e090ae433
-  zh: 11663cf1a5898678
+  en: f4abdcc5074dc4af
+  zh: 0b225b88d2e34720
 /deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/token-effect:
-  en: a353be1049667519
-  zh: 03f3e4e700c04376
+  en: 4364f2a29be7b2c6
+  zh: fb31b30233a41f7d
 /deepseek-ai-dsh-tool-shot-script/model-experience/the-drama-shot-tool/kv-cache-effect:
-  en: 2dc996280d267da4
-  zh: 1495671619a84c93
+  en: 145df6d225fcd519
+  zh: fe964ef4ca30655d
 /deepseek-ai-dsh-tool-shot-script/known-limitations-and-deferred-work:
-  en: d1594e6f905d3f43
-  zh: 049b52ffc893ffd6
+  en: 92cd75e1762edc1a
+  zh: 1ba3b4ff63da9bff
 /deepseek-ai-dsh-tool-shot-script/known-limitations-and-deferred-work/dev-note:
   en: 0a1253c6f7b5e8b9
   zh: 9f56528562c7c914

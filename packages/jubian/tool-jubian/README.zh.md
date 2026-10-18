@@ -41,6 +41,8 @@ kind: "package-bundle"
 
 选择服务要求提供 `sessionProjections`，并通过已有选择事件折叠出 `jubianVideoSelection` 投影。聊天框通过投影读取已存选择，不会恢复 Agent 或启动原来的选择订阅。独立的只读 `defaults` 调用返回 `VideoModelDefault`（`modelId`、`platformId`、`resolution`），未配置默认值时返回 `null`。聊天框仅在投影确认没有已存选择后使用该初始显示值，不会记录尚未核对的目录身份。恢复或目录读取失败时，保留当前模型并显示紧凑警告；打开菜单即可重试或展开诊断详情，重连成功后清除错误。
 
+Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到已提交选择的同一条已记录上下文消息。返回的释放函数用于注销检查器。检查器出错时追加重试警告，不拒绝模型选择，也不另发模型请求。Muse 的[镜头脚本检查](../../drama/tool-shot-script/README.zh.md#session-video-settings)通过此扩展点比较最近已检查分包与新的时长上限，不修改系统提示词或平台视频卡。
+
 生成以会话选择为准。`prepare_video` 先通过免费的 `isGenerate=0` 保存，仅同步本次指定的已有视频卡，并核对回读的设置、提示词与素材，保留画幅和时长。选择不同模型后，旧的冻结预览不能发起新的付费请求。原来已记录的提交 key 仍可对账；已提交任务保留原设置。
 
 视频包超过已知时长上限时，模型对本批受影响视频包统一调用一次 `jubian_video_model duration_conflict`。用户选择保留模型并重新规划完整视频包，或选择能够容纳原最长视频包的模型。工具不会悄悄缩短时长。Seedance 2.0 上限为 15 秒，Seedance 2.5 上限为 30 秒；上限不代表推荐包长。其他模型在核实前保留未知上限。

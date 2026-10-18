@@ -1,5 +1,8 @@
 import { fileURLToPath } from 'node:url'
-vi.mock('../src/web-document.ts', () => ({ authenticateWebHost: async () => 'test-cookie', serveWebDocument: vi.fn(), forwardWebRequest: vi.fn() }))
+vi.mock('../src/web-document.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/web-document.ts')>(),
+  authenticateWebHost: async () => 'test-cookie', serveWebDocument: vi.fn(), forwardWebRequest: vi.fn(),
+}))
 /** Muse startup opens the workspace without the legacy welcome flow. */
 
 import { afterEach, expect, it, vi } from 'vitest'

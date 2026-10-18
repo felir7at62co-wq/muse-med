@@ -9,6 +9,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_BGM_DIR, DRAMA_SETTINGS_DEFAULTS, type DramaSettings,
@@ -18,7 +19,7 @@ import type { DramaSettingsSectionProps } from '../src/client/DramaSettingsSecti
 import { DRAMA_COMPONENTS, type DramaComponentState } from '../src/client/components.ts'
 import type { DramaImageRoute, DramaImageRoutes } from '../src/client/routes.ts'
 import { draftOf, type DramaWriteOutcome } from '../src/client/section.ts'
-import { en, STATUS_COPY, type DramaLocaleKey } from '../src/client/locales.ts'
+import { en, zh, STATUS_COPY, type DramaLocaleKey } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -80,6 +81,7 @@ function states(status: DramaComponentState['status'] = 'loaded'): DramaComponen
 function mount(
   initial: Partial<ConfigFormSnapshot<DramaSettings>> = {},
   answers: {
+    t?: DramaSettingsSectionProps['t']
     write?: DramaWriteOutcome
     restoreDefaults?: DramaWriteOutcome
     components?: DramaComponentState[]
@@ -96,7 +98,7 @@ function mount(
     answers.imageRoutes ?? { status: 'ok', routes: ROUTES })
   const props = (): DramaSettingsSectionProps => ({
     close: vi.fn(),
-    t,
+    t: answers.t ?? t,
     useDrama: ((selector: (value: ConfigFormSnapshot<DramaSettings>) => unknown) => selector(current)),
     write,
     restoreDefaults,
@@ -380,6 +382,15 @@ describe('DramaSettingsSection — the asset-image route', () => {
 })
 
 describe('DramaSettingsSection — the component list', () => {
+  it.each([
+    ['zh', zh, '镜头脚本检查与分包建议（drama_shot）'],
+    ['en', en, 'Shot-script checks and package suggestions (drama_shot)'],
+  ] as const)('presents shot-script review as checks and package suggestions: %s', async (_locale, dictionary, label) => {
+    const bench = mount({}, { t: makeTranslate(dictionary) })
+    await bench.settle()
+    expect(screen.getByText(label)).toBeDefined()
+  })
+
   it('names every composed package, its role and its reported status', async () => {
     const bench = mount({}, { components: states('inactive') })
     expect(screen.getByText(en.componentsLoading)).toBeDefined()

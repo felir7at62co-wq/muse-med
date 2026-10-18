@@ -22,6 +22,18 @@
     },
     {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../jubian/tool-jubian/tsconfig.host.json"
     }
   ]
 }

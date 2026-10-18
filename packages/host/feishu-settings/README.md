@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 Configure the bundled Feishu bot from Settings → Feishu. Save an existing app's credentials or register an app by scanning a QR code. Save credentials and enabled state separately, then restart the backend to apply them. An enabled entry does not confirm message delivery or a live connection.
 
+The native IM client replaces this legacy Feishu page while it is available. The legacy page returns if that client unloads; the Host setup service remains available for importing existing configuration.
+
 ## Table of Contents
 
 - [Storing credentials](#storing-credentials)

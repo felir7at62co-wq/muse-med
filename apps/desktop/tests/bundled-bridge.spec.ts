@@ -28,9 +28,9 @@ function fixture(exports: Record<string, string> = { './remote': './remote.mjs' 
   writeFileSync(join(bridge, 'package.json'), JSON.stringify({ name: '@wenbin_wb/dsh-bridge', exports }))
   writeFileSync(join(bridge, 'index.js'), '')
   writeFileSync(join(bridge, 'remote.mjs'), '')
-  const feishu = join(runtime, 'node_modules', '@dsh-feishu', 'dsh-feishu')
+  const feishu = join(runtime, 'node_modules', '@xmanrui', 'dsh-im')
   mkdirSync(feishu, { recursive: true })
-  writeFileSync(join(feishu, 'package.json'), JSON.stringify({ name: '@dsh-feishu/dsh-feishu', exports: feishuExports }))
+  writeFileSync(join(feishu, 'package.json'), JSON.stringify({ name: '@xmanrui/dsh-im', exports: feishuExports }))
   writeFileSync(join(feishu, 'index.js'), '')
   const profile = join(root, 'profiles', 'desktop')
   const upstream = join(profile, 'node_modules', '@wenbin_wb', 'dsh-bridge')
@@ -50,6 +50,7 @@ it('pins both entries to bundled exports without changing the installed profile'
   expect(bundledBridgeModules(runtime)).toEqual({
     '@wenbin_wb/dsh-bridge/remote': pathToFileURL(join(bridge, 'remote.mjs')).href,
     '@wenbin_wb/dsh-bridge': pathToFileURL(join(feishu, 'index.js')).href,
+    '@xmanrui/dsh-im': pathToFileURL(join(feishu, 'index.js')).href,
   })
   expect(readFileSync(join(profile, 'package.json'), 'utf8')).toBe(original)
 })

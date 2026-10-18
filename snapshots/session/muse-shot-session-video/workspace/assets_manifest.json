@@ -1,0 +1,53 @@
+{
+  "assets": [
+    {
+      "name": "王明",
+      "type": "角色",
+      "id": "id-71001",
+      "official": true,
+      "jubian_asset_id": "71001",
+      "jubian_material_id": "81001",
+      "url": "https://cdn.example.test/71001.png",
+      "image_path": "",
+      "aliases": [
+        "王总"
+      ],
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "王强",
+      "type": "角色",
+      "id": "id-71002",
+      "official": true,
+      "jubian_asset_id": "71002",
+      "jubian_material_id": "81002",
+      "url": "https://cdn.example.test/71002.png",
+      "image_path": "",
+      "aliases": [
+        "王总"
+      ],
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    },
+    {
+      "name": "后厨",
+      "type": "场景",
+      "id": "id-72001",
+      "official": true,
+      "jubian_asset_id": "72001",
+      "jubian_material_id": "82001",
+      "url": "https://cdn.example.test/72001.png",
+      "image_path": "",
+      "aliases": [],
+      "episodes": [
+        1
+      ],
+      "state_or_costume": "非孕期；青年；家常装"
+    }
+  ]
+}

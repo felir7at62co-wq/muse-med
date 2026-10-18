@@ -305,3 +305,29 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(JSON.stringify(cgResult.content)).toContain('实际查看生成图')
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
+
+it('permits the scoped IM file binding through the real creation PTC policy', async () => {
+  const f = await fixture()
+  try {
+    expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('dsh_im_return_file')
+    expect(f.ctx.tools.schemas(f.agent).some(entry => entry.name === 'dsh_im_return_file')).toBe(false)
+    let deliveries = 0
+    f.agent.ctx.tools.register(tool('dsh_im_return_file', () => {
+      deliveries++
+      return Promise.resolve('queued')
+    }))
+    f.agent.ctx.tools.register(tool('unreviewed_im_upload'))
+    f.runtime.behavior = async (spec) => {
+      const bindings = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions
+      expect(bindings?.unreviewed_im_upload).toBeUndefined()
+      if (bindings?.dsh_im_return_file === undefined) throw new Error('Missing approved IM file SDK binding')
+      return { logs: [], value: await bindings.dsh_im_return_file({}) }
+    }
+    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+      description: 'Return an approved IM file', code: 'return await tools.dsh_im_return_file({})',
+    }, callId: ToolCallId('creation-im-file'), signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    expect(deliveries).toBe(1)
+    expect(JSON.stringify(result.content)).toContain('queued')
+  } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
+})

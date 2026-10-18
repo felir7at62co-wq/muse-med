@@ -6,6 +6,8 @@
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
+原生欢迎页和 RPC 请求只使用当前 Host 握手返回的 cookie，拒绝重定向和其他源，不读取 Chromium 的 cookie 存储。账号状态流使用同一次捕获的 cookie。
+
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
 Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
@@ -142,13 +144,13 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供六个必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。Codex 订阅、FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge` 及红果数据工具是内置 profile bundle。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
 应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 
 除极简模式外，各预设提供 `hongguo_search`、`hongguo_detail`、`hongguo_rankings` 和 `hongguo_collections`，无需登录、key 或初始配置。工具检索红果公开数据，分别保留收藏、点赞、热度、来源链接及未完整覆盖的情况。搜索覆盖首屏窗口，榜单覆盖所选公开榜单；工具不下载视频。源码构建器保留恢复的原发行包，在各预设自己的工具作用域启用 provider 前核对源码清单。
 
-可选飞书通道要求后端启动时产品的 `feishu.enabled` 开关已开启，且凭证完整。[依赖层](../desktop-host/src/feishu-gate.ts)让桥接在[设置插件](../../packages/host/feishu-settings/README.zh.md)之后解析配置；设置插件通过运行时配置钩子保留可编辑的 profile 值。关闭或缺少凭证时该行仍保持挂载，使 Settings 能保存凭证；启用需再重启一次后端才生效。从旧内置桥接迁移时保留凭证值和备份，并关闭开关。保存或确认凭证、显式启用飞书，再重启后端。真实扫码注册、消息收发及租户权限仍未验证。
+原生 IM 提供方管理设置 → IM机器人及其机器人连接。旧 `feishu.enabled` 开关仅控制已配置应用的一次性导入，不会关闭原生设置页或新配置的机器人。导入的机器人要求群消息精确 @ 当前机器人，并保留原允许群的使用范围，已登记的主人也可在新群使用。原生访问策略仍然生效；新群其他成员不会因此获得本机权限，控制命令和操作卡片仍仅向主人开放。凭证通过 Host 凭据服务迁移，原 Session 日志保持不变；已有私聊绑定需要真实入站消息证明旧聊天对应的发送者。同一飞书机器人的私聊和群聊共享其设置中选择的工作区，聊天历史各自独立。旧工作区绑定及文件的处理详见 [IM 迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
 
 桥接的独立 `./remote` provider 为 Muse 账号访问提供私有出站桌面连接。账号认证与设备绑定选择该账号自己的 Host；本地 HTTP 转发与原生 `/api/remote.mux` WebSocket 帧保留应用既有路由。审核后的产物不启动局域网代理、公共 Cloudflare 隧道或上游独立服务端。复用模块与已测传输行为见[源码与兼容性审核](../../third_party/plugins/README.zh.md)。
 
@@ -184,6 +186,8 @@ macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的�
 
 ## 开发
 
+macOS 开发启动器会持久保存已准备的 primary runtime 路径，使 LaunchServices 冷启动不依赖父 shell 的环境。
+
 开发环境应用菜单提供“刷新页面”（macOS 为 Cmd+R，其他平台为 Ctrl+R）和“重启应用与 Host”。重启会等待 Host 关闭，再重新启动 Electron 和新的 Host；这两项操作都不会重新构建源码。
 
 `dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，通过现有源码构建器构建六个固定的社区插件，再将其已校验 tarball、冻结的运行依赖及已构建的 CLI 包和私有 Desktop Host 包连同其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
@@ -191,6 +195,8 @@ macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的�
 ```sh
 pnpm run dev:desktop
 ```
+
+社区插件之间的依赖必须匹配同批已校验 tarball 的版本。所有归档和依赖版本均在替换一次性项目之前检查。
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 

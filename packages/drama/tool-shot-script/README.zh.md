@@ -1,5 +1,5 @@
 ---
-description: "校验镜头脚本、报告创作建议，并按明确的分镜时长预算编译带资产绑定的单集包。"
+description: "检查镜头脚本、给出分包建议，并按所配置的检查模式保存检查草稿或编译带资产绑定的单集包。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `drama_shot` 校验导演格式脚本、预演打包时长或编译 matched JSON 与单集文件。长镜头、慢台词、旁白与心声可以通过，并附建议性警告。字段格式错误、已绑定资产未确认或信息不完整、角色状态与资产自己登记的值不一致、超过项目自己声明的每镜上限，以及超出调用方明确时长预算的包仍阻止编译。工具保留台词原文与说话人身份，不调用提供方。
+使用 `drama_shot` 检查导演格式脚本并预演分包时长。默认 `strict` 模式仅在内容检查通过后编译 matched JSON 和单集文件。Muse 短剧模式使用 `advisory` 及当前会话的视频模型时长上限：内容问题作为警告返回，编译仅保存独立检查草稿。输入、配置及文件系统错误仍会失败。工具保留台词原文与说话人身份，不提交生成请求，也不代表生成质量达标。
 
 ## 目录
 
@@ -24,17 +24,38 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在短剧预设中把插件挂载到工具注册表旁。`actionShotSeconds` 默认 2，接受 1–4 整数秒；它用于估算没有明确时长或复杂度的无声镜，不是镜头时长上限。
+在短剧预设中把插件挂载到工具注册表旁。`actionShotSeconds` 默认 2，接受 1–4 整数秒；它用于估算没有明确时长或复杂度的无声镜，不是镜头时长上限。`reviewMode` 接受 `strict` 和 `advisory`，默认 `strict`。`sessionVideoSelection` 默认 `false`；启用后读取调用 Agent 的剧变视频选择服务，不采用调用方传入的分包上限。`selectionReviewMaxChars` 限制完整追加选择复核文字，默认 2000 字符，至少 400；始终保留计数，并注明省略的细节。Muse 短剧预设采用 `advisory` 并启用会话选择。这些是部署配置，不是模型可选择的工具参数。
+
+<a id="review-modes"></a>
+### 检查模式
+
+`strict` 模式中，failure 级内容问题会阻止打包和编译。下文资产、状态及时长规则描述此默认模式。除非部署明确修改 `reviewMode`，既有消费者保持原行为。
+
+`advisory` 模式中，所有内容问题都作为 `warnings` 返回，`failures` 列表为空。`ok: true` 表示检查已完成，不代表脚本可直接生成或质量验收通过。分包时长仅为建议，不截断超限镜头或原台词。工具不会生成缺失资产，也不会在平台上绑定素材。`compile` 仅保存 `shot_reviews/<episode>/shot_script.txt` 和 `review.json`，保留原始脚本，不改动正式 `prompts`、`matches` 和 `episode_packages` 产物。必需参数缺失、文件不可读、资产清单 JSON 无效、插件配置无效及写入错误仍会失败。
 
 | 方法 | 必填输入 | 结果 |
 |---|---|---|
 | `validate` | `script`；可选 `assets`、`project`、`episode` | 只读镜头事实、失败与警告 |
-| `preview` | `script`、`assets`、`max_submit_seconds`；可选 `project`、`episode` | 只读打包方案 |
-| `compile` | preview 输入加 `project`、`episode` | matched JSON 与单集文件；校验失败不写入 |
+| `preview` | `script`、`assets`；关闭会话选择时需 `max_submit_seconds`；可选 `project`、`episode` | 只读打包方案 |
+| `compile` | preview 输入加 `project`、`episode` | strict：matched JSON 与单集文件；advisory：独立检查草稿 |
 
 任何方法给了 `episode` 都会保留，因此单独的 `validate` 也能拒绝登记集数不覆盖本集的资产。
 
-`max_submit_seconds` 是依据项目所选模型能力确定的单包提交总时长上限，包含至少一秒自然收束。已核实的模型修订中，Seedance 2.0 为 4–15 秒，Seedance 2.5 为 4–30 秒。每个分镜的实际时长按对应包返回的 `submit_seconds` 填写，不把这个上限套给全部分镜。编译器不读取提供方能力。
+`sessionVideoSelection: false` 时，`preview` 和 `compile` 仍须明确提供至少四秒的整秒单包提交总时长上限 `max_submit_seconds`，其中包含至少一秒自然收束。既有独立严格编译工作流保持此行为。调用方必须核实预算是否符合生成模型能力；编译器不读取提供方能力。各分镜实际时长应依据经核对的对应包 `submit_seconds` 填写，不把上限套给全部分镜。
+
+<a id="session-video-settings"></a>
+### 会话视频设置
+
+`sessionVideoSelection: true` 时，当前会话选择的模型及已核实的时长上限决定分包建议，项目默认值不会覆盖它们。传入的 `max_submit_seconds` 会被忽略；与会话上限冲突时返回警告。结果的 `duration_budget` 标明 `source`（`session` 或 `argument`）、实际采用的 `max_submit_seconds` 或 `null`，以及 `selection` 或 `null`。选择包含 `model_id`、`model_name`、`platform_id`、`standard_id`、`resolution`、`max_duration_seconds` 和 `revision`。选择不可用或时长未知时返回警告，不给分包建议，保留原脚本；工具不会借用其他模型的 15 秒或 30 秒上限。
+
+切换选择时，同步检查器把最近一次实际 advisory `preview` 或 `compile` 分包的 `submit_seconds` 与新上限比较，在既有已记录的选择上下文消息中点名超限包与镜头，不修改系统提示词，也不另发模型请求。仅 Host 使用的 `dramaShotReview` 投影从已记录工具结果恢复最近检查，在重载和上下文压缩后仍可使用。工具结果完成时若模型 revision 已过期，也会追加警告上下文。此比较不会重读修改后的源稿、检查图片、重新分包、写文件或改卡；需要针对新选择重算方案时应重新调用 `preview`。没有发现超限不代表创作质量验收通过。
+
+| 警告代码 | 含义与后续操作 |
+|---|---|
+| `session_video_budget_ignored` | 已忽略冲突的 `max_submit_seconds`；读取来自会话的 `duration_budget` |
+| `session_video_unavailable` | 未取得可用会话选择；核对当前会话的选择后重新预览 |
+| `session_video_duration_unknown` | 所选模型没有已核实的时长上限；分包前先核实能力 |
+| `session_video_selection_changed` | 本次检查期间选择已变化；读取追加上下文，并按最新 revision 重新预览 |
 
 ### 角色状态与资产自己的登记值
 
@@ -60,7 +81,7 @@ kind: "package-reference"
 
 ### 项目自己的要求
 
-每个方法都会读取所属项目自己的要求：调用给了 `project` 就用它，否则从脚本所在目录向上找最近的 `project_config.json`（最多四层）——与流水线自己的脚本定位项目根的方式一致。目前读取的唯一要求是 `delivery.max_effective_chars_per_shot`，即项目自己声明的每镜有效字上限。它的效力高于本工具的内建数值：超过它判失败而不是警告，因为项目写明的要求不是建议；拒绝文案同时给出两条正当出路——按原文语义拆句，或改掉该项目的这条要求。项目配置没有这个键、或根本解析不了时，内建数值仍然只作建议。键存在但不是正整数时会直接让本次调用失败，而不是被忽略。
+每个方法都会读取所属项目自己的要求：调用给了 `project` 就用它，否则从脚本所在目录向上找最近的 `project_config.json`（最多四层）——与流水线自己的脚本定位项目根的方式一致。目前读取的唯一要求是 `delivery.max_effective_chars_per_shot`，即项目自己声明的每镜有效字上限。strict 模式中，它的效力高于本工具的内建数值：超过它判失败，修复文案同时给出两条正当出路——按原文语义拆句，或改掉该项目的这条要求。advisory 模式将相同冲突作为警告返回。项目配置没有这个键、或根本解析不了时，内建数值仍然只作建议。键存在但不是正整数时会直接让本次调用失败，而不是被忽略。
 
 ### 脚本与时长
 
@@ -68,7 +89,7 @@ kind: "package-reference"
 
 独占一行的 `场次54-1：地点 时段 内/外` 标题归属于随后的镜头，直到下一条同格式标题；不会进入前一镜。每个所属提示词以 `来源场次（原文段落）` 保留标题在 `｜` 或 `|` 注释之前的原文，首镜前的标题也保留。出场人物注释、场次对照汇总及动作或台词中的提及不提供此上下文。它保留原文段落的时段与地点，不参与资产选择，也不覆盖本镜的内外插镜：具体视野和登记场景仍以本镜画面与 `核心场景` 为准。源文件偏移和问题行号不变。
 
-结果区分 `failures` 与 `warnings`；只有失败阻止打包方案与写入。
+结果区分 `failures` 与 `warnings`；strict 模式中，失败会阻止打包方案与写入。advisory 模式将相同内容问题作为非阻塞警告返回。
 
 风格声明保留项目的媒介选择：真人项目用 `真人短剧写实风格`，3D CG 项目用 `写实3D CG渲染风格`。编译器保留已声明的行，不会把一种媒介替换为另一种。matched 的 `production_mode: "live_action"` 是历史编译流水线标签，不是媒介选择开关。实际风格以每镜明确声明和项目确认的画面参考为准；提供方尚未映射的代码（例如 `0`）不能证明是真人风格。
 
@@ -95,11 +116,11 @@ kind: "package-reference"
 | 未绑定场景 | 警告 |
 | 单个不可拆镜头超过 `max_submit_seconds - 1` | 失败（`shot_exceeds_package_budget`），绝不截断镜头 |
 
-打包保留完整连续镜头，在场景变化或 `子任务边界：是` 时切包，并确保内容加至少一秒收束不超过明确预算。短包增加自然停留至四秒请求下限，不新增台词。提交前用实际分镜核对 `submit_seconds`；编译不会修改分镜已存时长。
+打包保留完整连续镜头，在场景变化或 `子任务边界：是` 时切包，并确保内容加至少一秒收束不超过实际采用的预算。短包增加自然停留至四秒请求下限，不新增台词。提交前用实际分镜核对 `submit_seconds`；编译不会修改分镜已存时长。
 
 ### 文件
 
-编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`，以及含 `package.json`、`shot_script.txt`、`matched.json`、`episode.txt` 和本地绑定资产的 `episode_packages/<episode>/`。集号补成两位。提示词文件是不变的源文件副本；matched 镜头画面去掉时长字段，并包含补齐的素材引用。每个 `video_tasks` 行保存完整包 `prompt`、有序 `material_keys` 与对应的 `material_bindings`。分集正文或本地资产文件缺失会在写入前失败。结果列出全部写入路径、逐镜时长、包时长与有序素材键。
+strict 编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`，以及含 `package.json`、`shot_script.txt`、`matched.json`、`episode.txt` 和本地绑定资产的 `episode_packages/<episode>/`。集号补成两位。提示词文件是不变的源文件副本；matched 镜头画面去掉时长字段，并包含补齐的素材引用。每个 `video_tasks` 行保存完整包 `prompt`、有序 `material_keys` 与对应的 `material_bindings`。分集正文或本地资产文件缺失会在写入前失败。结果列出全部写入路径、逐镜时长、包时长与有序素材键。advisory 编译写入前述独立检查文件，不要求或复制本地资产图到正式单集包。
 
 -----
 
@@ -109,7 +130,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-解析器收集结构失败与创作警告；资产绑定检查清单；[`src/state.ts`](src/state.ts) 把两侧的声明归一化，[`src/assets.ts`](src/assets.ts) 据此比较。打包器执行明确的内容预算，并拒绝未确认出演、缺父资产 ID、缺 material ID 或缺 URL 的资产，包括直接调用其源码辅助函数的情况。提示词引用不一致时拒绝打包，不会输出不完整的素材映射。注册工具通过校验与编译共用的规范 JSON 报告返回这些问题。见 [`src/script.ts`](src/script.ts)、[`src/episode.ts`](src/episode.ts) 与 [`src/index.ts`](src/index.ts)。不发布运行时不变式伴随组件：本包没有在调用间独立变化的观测。
+解析器收集结构失败与创作警告；资产绑定检查清单；[`src/state.ts`](src/state.ts) 把两侧的声明归一化，[`src/assets.ts`](src/assets.ts) 据此比较。strict 打包执行内容预算，并拒绝未确认出演、缺父资产 ID、缺 material ID 或缺 URL 的资产，包括直接调用其源码辅助函数的情况。提示词引用不一致时拒绝打包，不会输出不完整的素材映射。advisory 检查报告内容问题，不把草稿转成这些正式产物。注册工具通过校验与编译共用的规范 JSON 报告返回这些问题。会话模式注册仅 Host 使用的结果投影，以及随插件卸载的选择上下文检查器。原生工具结果在 `presentationMeta` 中保留精简分包事实，输出转存或裁剪不会丢失复核依据。最新 PTC 分包结果不可读时将依据标为不可用，不沿用更早方案；`validate` 不替换最近分包检查。报告保留绝对源稿路径，选择上下文使用相对 Agent 工作目录的路径。见 [`src/script.ts`](src/script.ts)、[`src/episode.ts`](src/episode.ts) 与 [`src/index.ts`](src/index.ts)。
 
 </details>
 
@@ -122,28 +143,28 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。 同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
+[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `review_mode`、`duration_budget`、`shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。advisory 模式中，`ok: true` 表示检查完成，`warnings` 保留需要 Agent 考虑的内容问题；它不是生成或质量批准。advisory 的 `material_bindings` 仅列出身份完整、已确认且无歧义的显式引用；未能确定的引用保留在原文中，并附警告。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。strict 模式中，同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
 
 #### Token 影响
 
-schema 固定；结果随镜头、完整包提示词与问题数增长。失败时不打包、不写入，但保留诊断行。
+结果随镜头、分包建议与问题数增长。strict 失败时不打包、不写入，但保留诊断行。advisory 警告对模型可见，不阻止写入独立检查草稿。会话模型变化时，可在普通选择上下文中追加对最近已记录分包的检查，不会另启模型步骤。
 
 #### KV Cache 影响
 
-工具结果追加，不改写已有消息。工具描述或 schema 改动会改变可复用请求前缀。
+工具结果与选择复核上下文只追加，不改写已有消息或系统提示词。部署的工具描述或 schema 改动会改变可复用请求前缀。
 
 ## 已知限制与后续工作
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 编译只在本地进行。调用方提供已确认的分镜预算；计费提交必须独立校验实际模型设置与主体身份。
+- 编译只在本地进行。独立调用提供已确认的分镜预算；会话模式采用所选模型的已知上限。计费提交必须独立校验实际模型设置与主体身份。
 - 估算不是实测音频时间。最终剪辑交付前核对录制的发声。
 - 资产匹配使用本地清单名、aliases、适用集数和声明状态；不核验远端项目归属，也不从自由画面正文推断尚未登记的角色。
-- 状态门禁比对的是声明的维度与镜头写出的服装文字，不比对资产设定板图片本身：登记值对而图不对的情况仍由模型复核负责，短剧技能要求在提交前完成该复核。
+- 状态检查比对声明的维度和服装文字，不比对资产图片。冲突会阻止 strict 编译，在 advisory 模式中仍为警告；登记值对而图片不对的资产仍需模型在提交前视觉复核。
 - 场景是连续性键；时间/服装变化需要明确切包标记。
 - 写入前会预检，但不是跨并发进程的事务。
 
-镜头边界使包数超过理论最少值时，打包会增加包数。每个输出包均复核内容时长上限；单个不可拆镜头超限时失败并指出镜号。
+strict 打包在镜头边界使包数超过理论最少值时增加包数。每个 strict 输出包均复核内容时长上限；单个不可拆镜头超限时失败并指出镜号。advisory 建议可能超过上限，使用前必须按实际所选生成模型复核。
 
 <a id="dev-note"></a>
 ### 开发备注

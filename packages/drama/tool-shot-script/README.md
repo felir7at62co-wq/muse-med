@@ -1,5 +1,5 @@
 ---
-description: "Validate shot scripts, report creative guidance, and compile asset-bound episode packages within an explicit storyboard duration budget."
+description: "Check shot scripts, suggest packages, and save review drafts or compile asset-bound episodes according to the configured review mode."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `drama_shot` to validate director-format scripts, preview package timing, or compile matched JSON and episode files. Long shots, slow delivery, narration and inner monologue are allowed with advisory warnings. Malformed fields, incomplete or unconfirmed bound assets, a character state that disagrees with the asset's own registration, speech above a ceiling the project declares for itself, and packages exceeding the caller's explicit duration budget still prevent compilation. The tool preserves spoken text and speaker identity and makes no provider calls.
+Use `drama_shot` to check director-format scripts and preview package timing. The default `strict` mode compiles matched JSON and episode files only when content checks pass. Muse Short Drama uses `advisory` and the current session's video-model duration limit: content issues become warnings, and compilation saves a separate review draft. Input, configuration and filesystem errors still fail. The tool preserves spoken text and speaker identity, submits no generation requests, and does not establish generated quality.
 
 ## Table of Contents
 
@@ -24,17 +24,38 @@ Use `drama_shot` to validate director-format scripts, preview package timing, or
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin beside the tool registry in the drama preset. `actionShotSeconds` defaults to 2 and accepts whole seconds from 1–4; it estimates silent shots without explicit duration or complexity, not a maximum shot length.
+Mount this plugin beside the tool registry in the drama preset. `actionShotSeconds` defaults to 2 and accepts whole seconds from 1–4; it estimates silent shots without explicit duration or complexity, not a maximum shot length. `reviewMode` accepts `strict` and `advisory`, defaulting to `strict`. `sessionVideoSelection` defaults to `false`; enabling it uses the calling Agent's Jubian video-selection service instead of a caller-supplied package ceiling. `selectionReviewMaxChars` limits the complete appended selection-review text, defaults to 2000 characters and accepts at least 400; counts remain visible and omitted details are identified. Muse's Short Drama preset selects `advisory` and enables session selection. These are deployment settings, not model-selectable tool arguments.
+
+<a id="review-modes"></a>
+### Review modes
+
+In `strict` mode, failure-severity content issues prevent packaging and compilation. The asset, state and timing rules below describe this default mode. Existing consumers keep this behavior unless their deployment explicitly changes `reviewMode`.
+
+In `advisory` mode, all content issues are returned as `warnings`, with an empty `failures` list. `ok: true` means the check completed, not that the script is ready for generation or that its quality passed review. Package timing is a suggestion; over-budget shots and original dialogue are not truncated. The tool does not generate missing assets or bind materials on the platform. `compile` saves only `shot_reviews/<episode>/shot_script.txt` and `review.json`, retaining the original script and leaving formal `prompts`, `matches` and `episode_packages` outputs untouched. Required arguments, unreadable files, invalid asset-manifest JSON, invalid plugin configuration and write errors still fail.
 
 | Method | Required inputs | Result |
 |---|---|---|
 | `validate` | `script`; optional `assets`, `project`, `episode` | Read-only shot facts, failures and warnings |
-| `preview` | `script`, `assets`, `max_submit_seconds`; optional `project`, `episode` | Read-only packaging plan |
-| `compile` | Preview inputs plus `project`, `episode` | Matched JSON and episode files; no writes on validation failure |
+| `preview` | `script`, `assets`; `max_submit_seconds` when session selection is disabled; optional `project`, `episode` | Read-only packaging plan |
+| `compile` | Preview inputs plus `project`, `episode` | Strict: matched JSON and episode files; advisory: separate review draft |
 
 An `episode` given to any method is kept, so `validate` alone can refuse an asset whose registration does not cover the episode being compiled.
 
-`max_submit_seconds` is the explicit per-package submission ceiling chosen within the project's selected model capability, including at least one second of natural hold. Seedance 2.0 permits 4–15 total seconds and Seedance 2.5 permits 4–30 for verified model revisions. Set each storyboard's actual duration to its package's returned `submit_seconds`; do not copy this ceiling to every storyboard. The compiler does not fetch provider capabilities.
+With `sessionVideoSelection: false`, `max_submit_seconds` remains the required explicit whole-second per-package submission ceiling of at least four seconds for `preview` and `compile`, including at least one second of natural hold. Existing standalone strict workflows keep this behavior. The caller must verify the budget against the generation model; the compiler does not fetch provider capabilities. Set each storyboard's actual duration from its reviewed package's `submit_seconds`, rather than copying the ceiling to every storyboard.
+
+<a id="session-video-settings"></a>
+### Session video settings
+
+With `sessionVideoSelection: true`, the current session's selected model and verified duration ceiling control package suggestions. Project defaults do not override them. A passed `max_submit_seconds` is ignored; a conflicting value produces a warning. The report's `duration_budget` identifies `source` (`session` or `argument`), the applied `max_submit_seconds` or `null`, and `selection` or `null`. A selection contains `model_id`, `model_name`, `platform_id`, `standard_id`, `resolution`, `max_duration_seconds` and `revision`. An unavailable choice or unknown duration produces warnings and no package suggestions, retaining the original script; the tool never borrows another model's 15- or 30-second limit.
+
+When the selection changes, a synchronous reviewer compares the latest actual advisory `preview` or `compile` package `submit_seconds` with the new limit. It identifies over-limit packages and shots in the existing logged selection-context message, without changing the system prompt or issuing another model request. The host-only `dramaShotReview` projection recovers that latest check from logged tool results across reload and context compaction. A result that completes after its model revision became stale also adds a warning context. This comparison does not reread edited source, inspect pictures, repack, write files or alter cards; rerun `preview` to calculate a layout for the new selection. Finding no over-limit package does not establish creative quality.
+
+| Warning code | Meaning and next action |
+|---|---|
+| `session_video_budget_ignored` | A conflicting `max_submit_seconds` was ignored; read the session-derived `duration_budget` |
+| `session_video_unavailable` | No usable session choice could be obtained; verify the conversation's selection and preview again |
+| `session_video_duration_unknown` | The chosen model has no verified duration ceiling; verify its capability before packaging |
+| `session_video_selection_changed` | The choice changed during this check; use the appended context and preview under the latest revision |
 
 ### Character state and the asset's own registration
 
@@ -60,7 +81,7 @@ Prompt completion states each shot's selected human identities and an upper head
 
 ### Project requirements
 
-Every method reads its project's own requirements: the `project` argument when the call names one, otherwise the nearest `project_config.json` at or above the script, up to four directories — the same ancestor lookup the pipeline's own scripts use. Today the one requirement read is `delivery.max_effective_chars_per_shot`, the project's per-shot ceiling in effective characters. It outranks this tool's built-in numbers: speech above it is a failure rather than a warning, because a project's stated requirement is not advice, and the repair text names both honest ways out — split the line along the original semantics, or change that project's requirement. A project config that declares no such key, or none that parses, leaves the built-in numbers as advice. A key that is present but not a positive integer fails the call instead of being ignored.
+Every method reads its project's own requirements: the `project` argument when the call names one, otherwise the nearest `project_config.json` at or above the script, up to four directories — the same ancestor lookup the pipeline's own scripts use. Today the one requirement read is `delivery.max_effective_chars_per_shot`, the project's per-shot ceiling in effective characters. In strict mode, it outranks this tool's built-in numbers: speech above it is a failure, and the repair text names both honest ways out — split the line along the original semantics, or change that project's requirement. Advisory mode reports the same conflict as a warning. A project config that declares no such key, or none that parses, leaves the built-in numbers as advice. A key that is present but not a positive integer fails the call instead of being ignored.
 
 ### Script and timing
 
@@ -68,7 +89,7 @@ Shots use consecutive `【镜头N】` blocks. An optional `时长：N秒` declar
 
 A standalone `场次54-1：地点 时段 内/外` heading applies to subsequent shots until the next such heading; it never enters the previous shot. Each affected prompt retains the literal heading before any `｜` or `|` annotation as `来源场次（原文段落）` context, including an initial heading before the first shot. Cast-list annotations, scene-summary lines and mentions inside directions or dialogue do not supply this context. It preserves the source paragraph's time and location without selecting assets or overriding a shot's own interior/exterior insert: the shot's picture and `核心场景` still determine its view and registered scene. Source offsets and issue line numbers remain unchanged.
 
-The result separates `failures` from `warnings`; only failures prevent a packaging plan and writes.
+The result separates `failures` from `warnings`; in strict mode, failures prevent a packaging plan and writes. Advisory mode reports the same content issues as non-blocking warnings.
 
 Style declarations preserve the project medium: `真人短剧写实风格` for live action or `写实3D CG渲染风格` for 3D CG. The compiler retains the declared line and never substitutes one medium for another. Matched `production_mode: "live_action"` is a legacy compilation-pipeline label, not a medium selector. Use each shot's explicit style and the project's confirmed visual references; an unmapped provider code such as `0` does not establish live action.
 
@@ -95,11 +116,11 @@ Style declarations preserve the project medium: `真人短剧写实风格` for l
 | No scene binding | Warning |
 | One indivisible shot longer than `max_submit_seconds - 1` | Failure (`shot_exceeds_package_budget`), never truncate a shot |
 
-Packing preserves complete continuous shots, splits on scene changes or `子任务边界：是`, and ensures content plus at least one second of hold fits the explicit budget. Short packages extend natural hold to the four-second request floor without adding dialogue. Review `submit_seconds` against the actual storyboard before submission; compilation does not change its stored duration.
+Packing preserves complete continuous shots, splits on scene changes or `子任务边界：是`, and ensures content plus at least one second of hold fits the resolved budget. Short packages extend natural hold to the four-second request floor without adding dialogue. Review `submit_seconds` against the actual storyboard before submission; compilation does not change its stored duration.
 
 ### Files
 
-Compilation writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, and `episode_packages/<episode>/` containing `package.json`, `shot_script.txt`, `matched.json`, `episode.txt`, and local bound assets. Episode numbers are padded to two digits. The prompt file is an unchanged source copy; matched shot visuals omit duration fields and include completed material references. Each `video_tasks` row stores the complete package `prompt`, its ordered `material_keys` and corresponding `material_bindings`. Missing episode text or local asset files fails before writes begin. Results include every written path, per-shot timing, package durations and ordered material keys.
+Strict compilation writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, and `episode_packages/<episode>/` containing `package.json`, `shot_script.txt`, `matched.json`, `episode.txt`, and local bound assets. Episode numbers are padded to two digits. The prompt file is an unchanged source copy; matched shot visuals omit duration fields and include completed material references. Each `video_tasks` row stores the complete package `prompt`, its ordered `material_keys` and corresponding `material_bindings`. Missing episode text or local asset files fails before writes begin. Results include every written path, per-shot timing, package durations and ordered material keys. Advisory compilation writes the separate review files described above and does not require or copy local asset images into a formal episode package.
 
 -----
 
@@ -109,7 +130,7 @@ Compilation writes `prompts/<episode>.txt`, `matches/<episode>.matched.json`, an
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The parser collects structural failures and creative warnings; asset binding checks the manifest; [`src/state.ts`](src/state.ts) normalizes both sides' declarations and [`src/assets.ts`](src/assets.ts) compares them. The packer enforces an explicit content budget and rejects unconfirmed assets or missing parent IDs, material IDs or URLs, including calls directly to its source helper. It refuses inconsistent prompt references rather than emitting an incomplete material map. The registered tool returns issues through the same canonical JSON report used by validation and compilation. See [`src/script.ts`](src/script.ts), [`src/episode.ts`](src/episode.ts), and [`src/index.ts`](src/index.ts). No runtime invariant companion is published: this package owns no independently changing observation between calls.
+The parser collects structural failures and creative warnings; asset binding checks the manifest; [`src/state.ts`](src/state.ts) normalizes both sides' declarations and [`src/assets.ts`](src/assets.ts) compares them. Strict packing enforces a content budget and rejects unconfirmed assets or missing parent IDs, material IDs or URLs, including calls directly to its source helper. It refuses inconsistent prompt references rather than emitting an incomplete material map. Advisory review reports content issues without promoting a draft to these formal outputs. The registered tool returns issues through the same canonical JSON report used by validation and compilation. Session-aware review registers a host-only result projection and a disposable selection-context reviewer. Native tool results retain compact package facts in `presentationMeta`, so output spilling or pruning does not remove the recheck basis. An unreadable latest PTC packaging result marks that basis unavailable instead of reusing an older plan; `validate` does not replace the latest packaging check. Reports keep absolute source paths, while selection context displays paths relative to the Agent's working directory. See [`src/script.ts`](src/script.ts), [`src/episode.ts`](src/episode.ts), and [`src/index.ts`](src/index.ts).
 
 </details>
 
@@ -122,28 +143,28 @@ The parser collects structural failures and creative warnings; asset binding che
 
 #### What the model sees
 
-The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-shot-script) records the method schema. Results expose `shots`, `packages`, `failures`, `warnings`, `written` and summary counts. Warnings carry an actionable message and never require deleting or rewriting spoken text. `duration_source: declared` identifies explicit timing. Same-named character, scene and prop registrations retain the selected remote IDs. Scene and prop versions require unique episode coverage; multiple eligible registrations report `asset_binding_ambiguous`.
+The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-shot-script) records the method schema. Results expose `review_mode`, `duration_budget`, `shots`, `packages`, `failures`, `warnings`, `written` and summary counts. In advisory mode, `ok: true` reports a completed check while `warnings` retains content problems for the Agent to consider; it is not a generation or quality approval. Advisory `material_bindings` lists only unambiguous explicit references with complete confirmed identities; unresolved references stay in the original text with warnings. Warnings carry an actionable message and never require deleting or rewriting spoken text. `duration_source: declared` identifies explicit timing. In strict mode, same-named character, scene and prop registrations retain the selected remote IDs. Scene and prop versions require unique episode coverage; multiple eligible registrations report `asset_binding_ambiguous`.
 
 #### Token effect
 
-The schema is fixed; results grow with shots, complete package prompts and issues. Failures suppress packaging and writes but retain diagnostic rows.
+Results grow with shots, package suggestions and issues. Strict failures suppress packaging and writes but retain diagnostic rows. Advisory warnings remain model-visible and do not prevent writing the separate review draft. A session-model change can add a check of the last recorded packages to the ordinary selection context; it does not start another model step.
 
 #### KV Cache effect
 
-Tool results append without rewriting previous messages. Changes to the tool description or schema change the reusable request prefix.
+Tool results and selection-review context append without rewriting previous messages or the system prompt. Changes to the deployment's tool description or schema change the reusable request prefix.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Compilation is local. The caller supplies the verified storyboard budget; paid submission must independently validate actual model settings and subject identity.
+- Compilation is local. Standalone calls supply a verified storyboard budget; session-aware calls use the selected model's known ceiling. Paid submission must independently validate actual model settings and subject identity.
 - Estimates are not measured audio timing. Review recorded speech before final editing and delivery.
 - Asset matching uses local manifest names, aliases, episode coverage and declared state. It does not verify remote project ownership or infer an unregistered character from free visual prose.
-- The state gate compares the declared dimensions and the costume text a shot names. It does not compare the asset's own board image: an asset whose registered text is right and whose picture is not stays the model's review, which the drama skills require before submission.
+- State checks compare declared dimensions and costume text rather than the asset image. Conflicts block strict compilation and remain warnings in advisory mode; an asset whose registered text is right and whose picture is wrong still needs the model's visual review before submission.
 - Scene is the continuity key; time/costume changes require an explicit package break.
 - Writes are prechecked but not transactional across concurrent processes.
 
-Packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted package is checked against the content ceiling; one indivisible overlong shot fails with its shot number.
+Strict packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted strict package is checked against the content ceiling; one indivisible overlong shot fails with its shot number. Advisory suggestions may exceed the ceiling and must be reviewed against the actual selected generation model before use.
 
 <a id="dev-note"></a>
 ### Dev Note
