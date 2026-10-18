@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "state": "assembled-not-published",
+  "version": "1.1.6",
+  "sourceCommit": "0064a968241e80645892ee7268167cc7f4a7cd4c",
+  "unsigned": true,
+  "targets": [
+    "mac-arm64",
+    "win-x64"
+  ],
+  "releaseAssetsDirectory": "/Users/Admin/工作间/aa muse-med dev/.artifacts/muse-release-1.1.6-20261018/release-assets",
+  "assetCount": 12,
+  "assets": [
+    {
+      "filename": "latest-mac.yml",
+      "size": 512,
+      "sha256": "ab6bde4c32f21bb443139847e1fddabc885f80234255b744f7559c9baf57e9f8",
+      "sha512": "pD8WeafYmlhpPc82MG7aja5idnP6n6qMi6i4m1qpUXOcA73hFiLorOlNyHD1XcLYVavztd39P/svdDoMWn+1/Q=="
+    },
+    {
+      "filename": "latest.yml",
+      "size": 349,
+      "sha256": "e84e146b5b9434939d9830b3cfbacb7c488b73ad93d322025ef4b74d19b8c3c9",
+      "sha512": "+foTTrhLnGODYTaZmpw3QZ5oSMkKieck1JkqWv78l41/gDEy7OX4AGc3MxDsS5Pixh6ZZtBVdJ9+5DGNntqeWQ=="
+    },
+    {
+      "filename": "muse-desktop-builds.json",
+      "size": 2458,
+      "sha256": "72bd6cc6f8debe99265d7a3dd3e91d67d66a11d8294c0eece3e695ae4f466c42",
+      "sha512": "KQleyybk8f5bbEceWu4EkZlvuFPCds5tBh95Rqt0q4QFVi9kqJxHHTBVFTKq2M4Ykzp3DuK0A3Z91oIFvl82gg=="
+    },
+    {
+      "filename": "muse-installer-acceptance.json",
+      "size": 1634,
+      "sha256": "e763feba29abc3ba40b12d98b0e598dad6e0c922787b875d54e432f625881b30",
+      "sha512": "450MMJPIeAAw0h6acngPcaoq49R3fLwo1gIuVWdDfJftnxFw+FglKdztZxTuFfgwqlbDlcBrJzw+pSqMWXWR2w=="
+    },
+    {
+      "filename": "muse-med-1.1.6-mac-arm64.dmg",
+      "size": 781147422,
+      "sha256": "d5485e651dfcc5700c9e978c871dcc48d524d0d37e36fb32695ce1e7904a56ba",
+      "sha512": "hf/9M8btUADHzAbcM6LBVWSpAFeTnLRKTPXot6/+v+SoiGY+o+5xggpZtv40z0kYhQPLs4GDlxXAPYoi/32ABQ=="
+    },
+    {
+      "filename": "muse-med-1.1.6-mac-arm64.zip",
+      "size": 787266748,
+      "sha256": "c1a0c9b1347dbf13aeb778b96f1a980c15d218a971cdb44ec58c93ad173d287f",
+      "sha512": "Zc8NGJQ97NFrweYDJu/l53Rxkv2LhQtfIIerEAEA6TTliTxjWvLd2VILAyUW4j5R17rs5aurTP+mg3y3tZUPiw=="
+    },
+    {
+      "filename": "muse-med-1.1.6-mac-arm64.zip.blockmap",
+      "size": 791399,
+      "sha256": "11f0447846f0b4f891a9d55be98d4d2175c4cf3331222bb57fea8e4cce360921",
+      "sha512": "A0vYT8wWO7ujgHx1yhcvtz942K4YYVcV4hxvtEucY1TPkSX31xP2bJ5h7QMVqpct2UlBCHSM853+UjjPw4ik6w=="
+    },
+    {
+      "filename": "muse-med-1.1.6-win-x64.exe",
+      "size": 763909506,
+      "sha256": "4a8793c20127134a8f764aa59babe61723f4f89ec2d86580fcf52fc6b4749292",
+      "sha512": "n2jUS9F+0/w0FyI0VN2W8zz0MrPx3C2plqwSnwoHWgQ3XwymepGDcHdHAJDDFknjdQDizoW1N0IgJOaVq2uTGQ=="
+    },
+    {
+      "filename": "muse-med-1.1.6-win-x64.exe.blockmap",
+      "size": 793780,
+      "sha256": "df7a220d057e7340bd8ad458dc19760515917f326b467ab948323194bbc84b86",
+      "sha512": "wzyZC/caHZtuIfAPTHzEu4PPpOgHqQ+zJJ3oWNQmSWJEi2sPXWgeXFnqQddJFptgBOfhqA6OJfGgdlXnqJ+OpA=="
+    },
+    {
+      "filename": "rc-mac.yml",
+      "size": 512,
+      "sha256": "ab6bde4c32f21bb443139847e1fddabc885f80234255b744f7559c9baf57e9f8",
+      "sha512": "pD8WeafYmlhpPc82MG7aja5idnP6n6qMi6i4m1qpUXOcA73hFiLorOlNyHD1XcLYVavztd39P/svdDoMWn+1/Q=="
+    },
+    {
+      "filename": "rc.yml",
+      "size": 349,
+      "sha256": "e84e146b5b9434939d9830b3cfbacb7c488b73ad93d322025ef4b74d19b8c3c9",
+      "sha512": "+foTTrhLnGODYTaZmpw3QZ5oSMkKieck1JkqWv78l41/gDEy7OX4AGc3MxDsS5Pixh6ZZtBVdJ9+5DGNntqeWQ=="
+    },
+    {
+      "filename": "muse-desktop-SHA256SUMS.txt",
+      "size": 985,
+      "sha256": "c9788cb5d5eaecfa1c3cb522cfeabab6587598fb0362b81b5f6211fe88d94006",
+      "sha512": "QOHMC2dnW5ulg/D3GFM12LDmD+FLYmtTzxHx/rOSnQtOF9fyP4BppjdUWL1JlieaEdFsVwHu/8sGtVOfKDPXuQ=="
+    }
+  ]
+}

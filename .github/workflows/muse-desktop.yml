@@ -1,142 +1,69 @@
-name: Muse unsigned desktop packages
+name: Muse 1.1.6 sealed release transport
 
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: Installer platform
+      destination:
+        description: Transfer the already accepted release; never build or publish
         type: choice
+        options: [both, github, tos]
+        default: both
         required: true
-        default: all
-        options: [all, win-x64, mac-arm64]
-      verify_hongguo_live:
-        description: Require complete Hongguo downloads from the genuine installed application
-        type: boolean
-        default: false
-      hongguo_series_ids:
-        description: Comma-separated series IDs for opt-in installed download acceptance
-        type: string
-        default: '7687998333729639449,7691176265872591896'
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 concurrency:
-  group: muse-desktop-${{ github.ref }}
+  group: muse-release-116-sealed-transport
   cancel-in-progress: false
 
 jobs:
-  build:
-    if: github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
-    name: ${{ matrix.target }} unsigned installer
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(inputs.target == 'win-x64' && '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"}]' || inputs.target == 'mac-arm64' && '[{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]' || '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"},{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]') }}
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
+  transport:
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.ref == 'refs/heads/codex/muse-116-transport-20261019'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Install immutable dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install model gateway dependencies
-        run: npm ci --prefix services/muse-accounts --ignore-scripts
-      - name: Check model relay behavior
-        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
-      - name: Check download bundle packaging
-        run: node --test third_party/plugins/download-pack.test.mjs apps/desktop/tests/hongguo-live-smoke.test.mjs
-      - name: Check bundled 3D anime skill preflight
-        run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
-      - name: Check offline OCR process protocol
-        run: python -B -m unittest discover -s packages/perception/tool-video-inspect/tests -p test_ocr_bridge.py
-      - name: Verify shipped drama skill resources
+      - name: Verify offline transfer checks
         run: |
-          python -m unittest discover -s packages/drama/skills/tests -p test_pack.py
-          pnpm --dir packages/drama/skills pack --pack-destination ../../../.artifacts/drama-skill-pack
-          python -c "from pathlib import Path; import subprocess, sys; files=list(Path('.artifacts/drama-skill-pack').glob('*.tgz')); assert len(files)==1, files; subprocess.run([sys.executable, 'packages/drama/skills/tests/verify_pack.py', str(files[0])], check=True)"
-      - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/package-resume.spec.ts
-      - name: Configure unsigned Muse packaging
+          python3 -B -m unittest discover -s .github/muse-release-116 -p test_transport.py
+          node --test .github/muse-release-116/publish-tos-capability.spec.mjs
+      - name: Fetch exact accepted CI bytes and sealed metadata
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -B .github/muse-release-116/transport.py --phase prepare --work-directory "$RUNNER_TEMP/muse-116-transport" --execute
+      - name: Fill both GitHub drafts without publishing
+        if: inputs.destination != 'tos'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -B .github/muse-release-116/transport.py --phase github --work-directory "$RUNNER_TEMP/muse-116-transport" --workers 4 --execute
+      - name: Transfer and verify only the scoped TOS capability
+        if: inputs.destination != 'github'
+        env:
+          MUSE_RELEASE_116_TOS_PLAN: ${{ secrets.MUSE_RELEASE_116_TOS_PLAN }}
         run: >-
-          node --input-type=module -e "import { writeFileSync } from 'node:fs';
-          writeFileSync('apps/desktop/.env.' + (process.platform === 'win32' ? 'windows' : 'macos'),
-          'DSH_DESKTOP_APP_ID=cn.muse.med\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false\n');"
-      - name: Check native Windows install and automatic update UI
-        if: matrix.target == 'win-x64'
-        run: pnpm --dir apps/desktop run test:installer
-      - name: Build and verify the assembled application
-        run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
-      - name: Check bundled Feishu integration against built dependencies
-        run: |
-          pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts
-          node --test third_party/plugins/compatibility/muse-feishu-channel.test.mjs third_party/plugins/compatibility/muse-feishu-reliability.test.mjs
-          node --import tsx/esm --test third_party/plugins/compatibility/feishu-desktop.test.mjs
-      - name: Replay the Feishu file-delivery Session
-        if: matrix.target == 'mac-arm64'
-        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays muse-feishu-send-file through'
-      - name: Record the exact unsigned build
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
-      - name: Accept the genuine installer in an isolated directory
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-          MUSE_HONGGUO_LIVE_REQUIRED: ${{ inputs.verify_hongguo_live && '1' || '0' }}
-          MUSE_HONGGUO_LIVE_IDS: ${{ inputs.hongguo_series_ids }}
-        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
-      - name: Upload installers, update metadata and build identity
-        uses: actions/upload-artifact@v4
-        with:
-          name: muse-${{ matrix.target }}-${{ github.sha }}
-          path: |
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.zip
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.blockmap
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.yml
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
-      - name: Retain native installer acceptance evidence
-        if: always() && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/muse-installer-acceptance-*/acceptance.json
-            ${{ runner.temp }}/muse-installer-acceptance-*/processes/
-          if-no-files-found: warn
-          retention-days: 30
-      - name: Retain packaging diagnostics
+          node .github/muse-release-116/publish-tos-capability.mjs
+          --manifest .github/muse-release-116/manifest.json
+          --assets "$RUNNER_TEMP/muse-116-transport/assets"
+          --receipt "$RUNNER_TEMP/muse-116-transport/receipts/tos-capability.json"
+          --execute
+      - name: Require complete public TOS readback
+        if: inputs.destination != 'github'
+        run: >-
+          node --input-type=module -e
+          'import { readFileSync } from "node:fs";
+          const receipt = JSON.parse(readFileSync(process.argv[1], "utf8"));
+          if (receipt.stage !== "published-verified" || receipt.binaries.length !== 5 || receipt.feeds.length !== 4)
+          throw new Error("Incomplete TOS public readback");'
+          "$RUNNER_TEMP/muse-116-transport/receipts/tos-capability.json"
+      - name: Preserve sanitized transport receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
-          path: apps/desktop/.desktop-build/packaging-runs/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Retain Windows installer UI evidence
-        if: always() && matrix.target == 'win-x64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: muse-win-x64-installer-ui-${{ github.sha }}
-          path: apps/desktop/.desktop-build/installer-tests/
+          name: muse-116-transport-receipts-${{ github.run_id }}
+          path: ${{ runner.temp }}/muse-116-transport/receipts/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
