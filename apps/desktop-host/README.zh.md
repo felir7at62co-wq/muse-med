@@ -36,7 +36,7 @@ Muse 不在桌面构建和加载中包含 Codex 订阅插件。产品覆盖同�
 
 ## 内置桥接选择
 
-Host 从内置桥接包的 remote 导出解析 `muse-desktop-bridge`，并将原有 `feishu-channel` 配置项交给内置 `@xmanrui/dsh-im` 提供方。IM 配置项的规范包名也用于发现其原生浏览器模块。启动时先对 profile 原文件做私有字节备份，再迁移已知旧包名的匹配条件；凭证、启用开关、发送者策略和无关字节保持不变。共享 home patch 中仍有旧包名匹配条件，或 profile 安装的 IM 包遮蔽了内置产物时，启动会停止并给出诊断。内置导出缺失时，组合阶段会明确报出受影响的入口；其他 profile 插件仍按普通规则解析。
+Host 从内置桥接包的 remote 导出解析 `muse-desktop-bridge`，并将原有 `feishu-channel` 配置项交给内置 `@xmanrui/dsh-im` 提供方。IM 配置项的规范包名也用于发现其原生浏览器模块。正式包的 profile 通过安装目录回退解析 Host 和浏览器两部分，不创建 profile 包链接；开发环境指向同一包的链接也可使用。启动时先对 profile 原文件做私有字节备份，再迁移已知旧包名的匹配条件；凭证、启用开关、发送者策略和无关字节保持不变。共享 home patch 中仍有旧包名匹配条件，或 profile 安装的 IM 包遮蔽了内置产物时，启动会停止并给出诊断。内置导出缺失时，组合阶段会明确报出受影响的入口；其他 profile 插件仍按普通规则解析。
 
 [飞书迁移辅助模块](src/feishu-migration.ts)依据内存或已持久化的 Session 头部核实先前的 `activeSessionId`，并保留头部记录的工作目录。它优先检查原有 profile，再检查 `dsh-bridge/config.json` 中同一应用及扫码者的状态；它不复制凭证，也不编辑 Session 日志。旧状态没有持久化聊天归属，因此恢复需要授权聊天中的明确选择。已有聊天绑定优先，一个旧 Session 只能绑定一个聊天。
 

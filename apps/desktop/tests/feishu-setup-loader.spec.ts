@@ -18,7 +18,7 @@ it.each([
   ['legacy', 'requires the product switch even when the bridge section stores enabled true'],
   ['expressions', 'evaluates credential expressions before deciding startup activation'],
   ['other-rows', 'leaves other entries and inherited child configs unchanged without a bridge row'],
-  ['profile-shadow', 'pins native IM, includes its browser boot entry and retains remote despite an upstream profile package'],
+  ['profile-shadow', 'loads native IM and its browser entry through production resolution without links while rejecting profile shadows'],
 ])('%s: %s', async (scenario) => {
   // The source-mode launcher resolves the staged bridge's workspace dependencies through tsconfig paths.
   const result = await execute(process.execPath, ['--import', 'tsx/esm',

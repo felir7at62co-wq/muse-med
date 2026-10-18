@@ -1,6 +1,6 @@
 /** Keep Muse bridge providers on the application's reviewed package. */
 
-import { realpathSync } from 'node:fs'
+import { lstatSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -32,22 +32,37 @@ export function bundledBridgeModules(runtimeDir: string): Readonly<Record<string
 
 /**
  * Require the IM row's Host and browser metadata to resolve to the same reviewed artifact.
+ * An unlinked profile uses the installation fallback established by the profile runner.
  * @param runtimeDir - Application runtime containing the reviewed IM package.
- * @param projectDir - Root Include directory used by client-module discovery.
+ * @param projectDir - Root Include directory checked for a profile-local IM package.
  * @throws When a profile installation shadows the bundled IM entry or it is unavailable.
  */
 export function verifyBundledImClient(runtimeDir: string, projectDir: string): void {
   const specifier = '@xmanrui/dsh-im'
   let bundled: string
+  let bundledPackage: string
   let selected: string
+  let selectedPackage: string
   try {
-    const anchor = realpathSync(join(runtimeDir, 'node_modules', specifier, 'package.json'))
+    bundledPackage = realpathSync(join(runtimeDir, 'node_modules', specifier))
+    const anchor = realpathSync(join(bundledPackage, 'package.json'))
     bundled = realpathSync(createRequire(anchor).resolve(specifier))
+  } catch (error) {
+    throw new Error('muse-med: the bundled IM package is unavailable', { cause: error })
+  }
+  try {
+    lstatSync(join(projectDir, 'node_modules', specifier))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  try {
+    selectedPackage = realpathSync(join(projectDir, 'node_modules', specifier))
     selected = realpathSync(createRequire(join(projectDir, 'package.json')).resolve(specifier))
   } catch (error) {
-    throw new Error('muse-med: the bundled IM package must be resolvable from the Desktop profile', { cause: error })
+    throw new Error('muse-med: the profile-installed IM package is invalid; remove the profile-installed copy before starting Muse', { cause: error })
   }
-  if (selected !== bundled) {
+  if (selected !== bundled || selectedPackage !== bundledPackage) {
     throw new Error('muse-med: profile package @xmanrui/dsh-im conflicts with the bundled IM package; remove the profile-installed copy before starting Muse')
   }
 }

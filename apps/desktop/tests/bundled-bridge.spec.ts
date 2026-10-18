@@ -1,12 +1,12 @@
 /** Product bridge entry selection when a profile installs an upstream package with the same name. */
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import { bundledBridgeModules } from '../../desktop-host/src/bundled-bridge.ts'
+import { bundledBridgeModules, verifyBundledImClient } from '../../desktop-host/src/bundled-bridge.ts'
 
 const roots: string[] = []
 
@@ -76,4 +76,73 @@ it('does not fall back to a package above the application runtime', () => {
   rmSync(bridge, { recursive: true })
   expect(createRequire(join(runtime, 'package.json')).resolve('@wenbin_wb/dsh-bridge')).toBe(join(ancestor, 'index.js'))
   expect(() => bundledBridgeModules(runtime)).toThrow(/muse-med: bundled bridge entry .* is unavailable/u)
+})
+
+it('accepts an unlinked production profile without writing package links', () => {
+  const { runtime, profile } = fixture()
+  const manifest = readFileSync(join(profile, 'package.json'), 'utf8')
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  expect(() => createRequire(join(profile, 'package.json')).resolve('@xmanrui/dsh-im')).toThrow()
+  verifyBundledImClient(runtime, profile)
+  expect(existsSync(localIm)).toBe(false)
+  expect(readFileSync(join(profile, 'package.json'), 'utf8')).toBe(manifest)
+})
+
+it('accepts a development profile link to the reviewed package', () => {
+  const { runtime, feishu, profile } = fixture()
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  mkdirSync(join(localIm, '..'), { recursive: true })
+  symlinkSync(feishu, localIm, process.platform === 'win32' ? 'junction' : 'dir')
+  verifyBundledImClient(runtime, profile)
+  expect(realpathSync(localIm)).toBe(feishu)
+})
+
+it('rejects a profile IM copy that would supply different browser metadata', () => {
+  const { runtime, profile } = fixture()
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  mkdirSync(localIm, { recursive: true })
+  writeFileSync(join(localIm, 'package.json'), JSON.stringify({
+    name: '@xmanrui/dsh-im', exports: { '.': './index.js', './client': './client.js' },
+  }))
+  writeFileSync(join(localIm, 'index.js'), '')
+  writeFileSync(join(localIm, 'client.js'), '')
+  expect(() => { verifyBundledImClient(runtime, profile) }).toThrow(/conflicts with the bundled IM package/u)
+})
+
+it('rejects profile browser metadata even when its Host export forwards to the bundled entry', () => {
+  const { runtime, feishu, profile } = fixture()
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  mkdirSync(localIm, { recursive: true })
+  writeFileSync(join(localIm, 'package.json'), JSON.stringify({
+    name: '@xmanrui/dsh-im', exports: { '.': './forward/index.js', './client': './client.js' },
+  }))
+  symlinkSync(feishu, join(localIm, 'forward'), process.platform === 'win32' ? 'junction' : 'dir')
+  writeFileSync(join(localIm, 'client.js'), '')
+  expect(realpathSync(createRequire(join(profile, 'package.json')).resolve('@xmanrui/dsh-im'))).toBe(join(feishu, 'index.js'))
+  expect(() => { verifyBundledImClient(runtime, profile) }).toThrow(/conflicts with the bundled IM package/u)
+})
+
+it.each(['manifest', 'export', 'broken-link'] as const)('rejects an invalid profile IM %s instead of treating it as an unlinked profile', (kind) => {
+  const { runtime, profile } = fixture()
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  mkdirSync(join(localIm, '..'), { recursive: true })
+  if (kind === 'broken-link') {
+    symlinkSync(join(profile, 'missing-im'), localIm, process.platform === 'win32' ? 'junction' : 'dir')
+  } else {
+    mkdirSync(localIm)
+    writeFileSync(join(localIm, 'package.json'), kind === 'manifest' ? '{invalid' : JSON.stringify({
+      name: '@xmanrui/dsh-im', exports: { './client': './client.js' },
+    }))
+  }
+  expect(() => { verifyBundledImClient(runtime, profile) }).toThrow(/profile-installed IM package is invalid/u)
+})
+
+it.each(['missing', 'export'] as const)('requires the bundled IM package even when its %s case has a profile fallback', (kind) => {
+  const { runtime, feishu, profile } = fixture(undefined, kind === 'export' ? {} : undefined)
+  if (kind === 'missing') rmSync(feishu, { recursive: true })
+  const localIm = join(profile, 'node_modules', '@xmanrui', 'dsh-im')
+  mkdirSync(localIm, { recursive: true })
+  writeFileSync(join(localIm, 'package.json'), JSON.stringify({ name: '@xmanrui/dsh-im', exports: './index.js' }))
+  writeFileSync(join(localIm, 'index.js'), '')
+  expect(() => { verifyBundledImClient(runtime, profile) }).toThrow(/bundled IM package is unavailable/u)
 })

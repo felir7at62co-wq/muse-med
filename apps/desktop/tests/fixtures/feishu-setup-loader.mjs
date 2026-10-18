@@ -1,11 +1,12 @@
 /** Real Loader/Settings and Muse Config/mount; native Feishu transport activation is tested in the built artifact. */
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { FiberState } from '@deepseek-ai/cordis'
-import { boot, composeEntries, initProfile, loadOverlayPatches, PluginPackages, readProfilePatches, reconcileProfilePatches } from '@deepseek-ai/dsh-app-boot'
+import { boot, composeEntries, createRuntimeResolution, initProfile, loadOverlayPatches, loadProfileDirectory, PluginPackages, readProfilePatches, reconcileProfilePatches } from '@deepseek-ai/dsh-app-boot'
 import ConfigEditor from '@deepseek-ai/dsh-config-editor'
 import Settings from '@deepseek-ai/dsh-settings'
 import ClientModules from '@deepseek-ai/dsh-client-modules'
@@ -67,6 +68,9 @@ try {
     mkdirSync(dirname(runtimeFeishuLink), { recursive: true })
     symlinkSync(feishuRoot, runtimeFeishuLink, process.platform === 'win32' ? 'junction' : 'dir')
     runtimeFeishuLinked = true
+    writeFileSync(join(runtime, 'package.json'), JSON.stringify({
+      name: 'test-runtime', version: '1.0.0', dependencies: { '@xmanrui/dsh-im': '5.1.0' },
+    }))
   }
   const dir = join(home, 'profiles/test')
   initProfile(dir, ['test-bundle'])
@@ -110,9 +114,15 @@ try {
     writeFileSync(join(shadowIm, 'index.js'), 'throw new Error("profile IM must not activate")\n')
     writeFileSync(join(shadowIm, 'client.js'), 'throw new Error("profile IM client must not load")\n')
     assert.throws(() => verifyBundledImClient(runtime, shadowProfile), /conflicts with the bundled IM package/)
-    const nativeLink = join(dir, 'node_modules/@xmanrui/dsh-im')
-    mkdirSync(dirname(nativeLink), { recursive: true })
-    symlinkSync(feishuRoot, nativeLink, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.equal(existsSync(join(dir, 'node_modules/@xmanrui/dsh-im')), false)
+    assert.throws(() => createRequire(join(dir, 'package.json')).resolve('@xmanrui/dsh-im'), { code: 'MODULE_NOT_FOUND' })
+    const ancestorIm = join(home, 'profiles/node_modules/@xmanrui/dsh-im')
+    mkdirSync(ancestorIm, { recursive: true })
+    writeFileSync(join(ancestorIm, 'package.json'), JSON.stringify({
+      name: '@xmanrui/dsh-im', version: '999.0.0', type: 'module', exports: './index.js',
+    }))
+    writeFileSync(join(ancestorIm, 'index.js'), 'throw new Error("ancestor IM must not activate")\n')
+    assert.equal(createRequire(join(dir, 'package.json')).resolve('@xmanrui/dsh-im'), join(ancestorIm, 'index.js'))
     verifyBundledImClient(runtime, dir)
     const external = join(dir, 'node_modules/synthetic-external-plugin')
     mkdirSync(external, { recursive: true })
@@ -156,14 +166,12 @@ try {
         editor: ConfigEditor, settings: Settings, feishu: FeishuSettings, bridge,
         other: { name: 'other', apply() {} },
       })
-      if (scenario === 'profile-shadow') await host.plugin(PluginPackages, { resolution: {
-        profilesDir: join(home, 'profiles'), profileDir: dir, linkedRoots: [],
-        localPackageNames: ['@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'synthetic-external-plugin'],
-        entries: [{ name: '@wenbin_wb/dsh-bridge', packageDir: bridgeRoot,
-          version: '2.12.1', declarer: join(runtime, 'package.json'), scope: 'installation' },
-        { name: '@xmanrui/dsh-im', packageDir: feishuRoot,
-          version: '5.1.0', declarer: join(runtime, 'package.json'), scope: 'installation' }],
-      } })
+      if (scenario === 'profile-shadow') {
+        const installAnchor = join(runtime, 'package.json')
+        await host.plugin(PluginPackages, { resolution: await createRuntimeResolution({
+          installAnchor, home, profile: loadProfileDirectory('muse-feishu-loader', dir, installAnchor),
+        }) })
+      }
     }, undefined, moduleOverrides)
     await ctx.loader.await()
     if (scenario === 'profile-shadow' && nativeArtifact === undefined) await ctx.plugin(ClientModules)
@@ -241,6 +249,7 @@ try {
     assert.deepEqual(child.config, other.fiber.config)
     assert.equal((await ctx.feishuSetup.status()).row, 'unavailable')
   } else if (scenario === 'profile-shadow') {
+    assert.equal(existsSync(join(dir, 'node_modules/@xmanrui/dsh-im')), false)
     const channelName = [...ctx.loader.entries()].find(row => row.options.id === 'feishu-channel').options.name
     assert.equal(channelName, '@xmanrui/dsh-im')
     if (nativeArtifact === undefined) {
