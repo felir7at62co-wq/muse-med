@@ -1,0 +1,107 @@
+name: Release
+
+# Publish @dsh-feishu/dsh-feishu to npm and create a GitHub Release.
+# Triggered by a `v*` tag (e.g. v0.1.0). The tag must point at a commit on
+# merged `main` and match the version in package.json (see the two-phase
+# scripts/release.mjs: `prepare` opens the release PR, `tag` cuts the tag on
+# merged main). npm publish uses the NPM_TOKEN secret (registry-url + token
+# auth — the same pattern the DeepSeek Harness release workflow uses).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub Release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm + GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the main-ancestry guard below needs both the tag commit
+      # and main to resolve their merge-base.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard — the tag must point at merged main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
+            echo "::error::Tag ${{ github.ref_name }} does not point at merged main. Releases publish from tags cut on merged main (scripts/release.mjs tag) — see docs/development.md → Publishing."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Release gates: the exact CI commands, then the publish bytes.
+      - name: Lint
+        run: pnpm run lint
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Build
+        run: pnpm run build
+      # The integration suite needs the same prepared profiles as CI — one
+      # dsh home per suite (each suite writes its own session-map state).
+      - name: Prepare integration-test profile (attachments)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-attachments
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare integration-test profile (rich-text)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-rich-text
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare integration-test profile (wait-instruction)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-wait-instruction
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare integration-test profile (real-composition)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-real
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare integration-test profile (outbound)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-outbound
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare integration-test profile (turn-produced-files)
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-turn-produced-files
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Prepare scenario integration-test profile
+        env:
+          DSH_HOME: ${{ github.workspace }}/_dev/dsh-home-scenarios
+        run: pnpm exec dsh plugin --profile feishu-dev add "link:${{ github.workspace }}"
+      - name: Test (unit + integration)
+        env:
+          DSH_BIN: ${{ github.workspace }}/node_modules/.bin/dsh
+          FEISHU_INT_REQUIRED: '1'
+        run: pnpm run test
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm publish --access public --no-git-checks
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          gh release create "$tag" \
+            --title "dsh-feishu $tag" \
+            --generate-notes

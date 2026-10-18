@@ -215,6 +215,8 @@ export interface ResolvedProfileRuntime {
   profile: Profile
   /** Absolute package.json path of the application's dsh installation. */
   installAnchor: string
+  /** Exact application-owned root Include specifiers resolved to packaged module URLs. */
+  moduleOverrides?: Readonly<Record<string, string>>
 }
 
 /** Options for {@link runProfile}. */
@@ -312,7 +314,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         exit: code => void shutdown.shutdown(code),
         ready: appReady.service,
       })
-    })
+    }, undefined, options.resolvedProfile?.moduleOverrides)
     app.current = ctx
     if (!signalShutdown.signal.aborted
       && ctx.fiber.state === FiberState.ACTIVE

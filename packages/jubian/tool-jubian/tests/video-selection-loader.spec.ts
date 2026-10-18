@@ -59,6 +59,7 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
       expect({ choice: service.current(child), contexts }).toMatchSnapshot('spawned child current video choice')
     } finally { await run.dispose() }
     await ctx.loader.resolve(entry).fiber!.dispose()
+    expect(ctx.sessionProjections.snapshot(parent.session, ['jubianVideoSelection']).values).toEqual({})
     const afterDispose = (await ctx.agents.create({ sessionId: SessionId('video-child-after-dispose'), parentAgent: parent,
       agentOptions: { provider: 'mock', model: 'mock' }, meta: { cwd: home, origin: 'subagent', parentSession: parent.id } })).agent
     expect(afterDispose.session.snapshotEvents().some(event => event.type === 'jubian/video-selection')).toBe(false)

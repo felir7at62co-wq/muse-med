@@ -68,6 +68,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
+    'lib/hindsight.js', 'lib/feishu-migration.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -565,7 +566,8 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }
-    skillNames.add(match[1])
+    // Both active shot-writing skills share this example without activating the retired skill.
+    if (file !== 'skills/tweet-drama-early-shot-script/references/director-format.md') skillNames.add(match[1])
   }
   if (skillNames.size === 0) errors.push(`${label}: resource package must include at least one skill`)
   for (const name of skillNames) {

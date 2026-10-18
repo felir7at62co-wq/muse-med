@@ -42,6 +42,8 @@ const ctx = await boot('dsh', resolveConfigPath(argv[2], process.env.DSH_SNAPSHO
 
 `installFailLoud` 会为未处理 rejection 或未捕获异常向 stderr 写一条带标签的 `util.inspect` 诊断，在固定超时内等待界面的 release 钩子，然后以 1 退出；控制流不会回到失败的操作，因为只有抛出点知道哪些状态仍然完整，事件循环只运行到 release 结束或超时。有了这个入口，启动会保留所有能够激活的插件。启用但失败的插件会产生带标签的警告。required entry 失败时，启动会拆卸整个应用并以非零码退出；profile 中不存在的 required id 和已禁用的 required entry 不影响启动。全局 required list 覆盖共享 Agent 执行、应用 endpoint，以及 Web 启动与传输：`agent-loop`、`webserver`、`modules`、`connection`、`headless-runner`、`acp` 和 `sdk-jsonrpc-server`。
 
+嵌入应用可向 `boot()` 或 `mountRootInclude()` 传入精确的 `moduleOverrides`，指定应用自有插件入口。这些映射在普通入口解析之前选择模块 URL，并在 patch 热重载期间保留于根 Include。未映射的入口以及已加载包内部的导入仍按普通规则解析。映射不会改写配置、插件清单或 profile 文件。
+
 <a id="profiles"></a>
 ### Profile
 

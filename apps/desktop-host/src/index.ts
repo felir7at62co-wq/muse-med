@@ -7,6 +7,7 @@ import { inspect } from 'node:util'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory } from './bundled-skills.ts'
+import { bundledBridgeModules } from './bundled-bridge.ts'
 import { feishuGateLayer } from './feishu-gate.ts'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -42,6 +43,7 @@ function isProjectPath(projectDir: string, target: string): boolean {
 interface DesktopComposition {
   readonly profile: Profile
   readonly patches: PatchOptions[]
+  readonly moduleOverrides: Readonly<Record<string, string>>
 }
 
 function desktopComposition(
@@ -106,7 +108,7 @@ function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat() }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: bundledBridgeModules(runtimeDir) }
 }
 
 async function main(): Promise<void> {
@@ -129,7 +131,7 @@ async function main(): Promise<void> {
   }
   installOfficeEngineResolution(runtimeDir)
   const installAnchor = join(runtimeDir, 'package.json')
-  const { profile, patches } = desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
+  const { profile, patches, moduleOverrides } = desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
   reportSkippedBundles('muse-med', profile)
   // JSON is YAML-compatible; inherited bundle rows remain owned by runProfile.
   const overlayPath = join(projectDir, 'desktop.product.patch.yml')
@@ -137,7 +139,7 @@ async function main(): Promise<void> {
   const application = runProfile({
     environment: loadLayeredEnv('muse-med'),
     profile: 'desktop',
-    resolvedProfile: { profile, installAnchor },
+    resolvedProfile: { profile, installAnchor, moduleOverrides },
     patchFiles: [overlayPath],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
     ...(pnpm === undefined ? {} : {

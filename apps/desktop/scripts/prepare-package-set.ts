@@ -18,6 +18,8 @@ import * as yaml from 'js-yaml'
 import {
   DESKTOP_DRAMA_SKILLS_PACKAGE,
   DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
+  DESKTOP_FEISHU_PACKAGE,
+  DESKTOP_FEISHU_RUNTIME_FILES,
   DESKTOP_HOST_PACKAGE,
   DESKTOP_HOST_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
@@ -135,6 +137,15 @@ export function assertDesktopDramaSkillPackageFiles(files: readonly string[]): v
   assertPackageFiles(DESKTOP_DRAMA_SKILLS_PACKAGE, DESKTOP_DRAMA_SKILL_RUNTIME_FILES, files)
 }
 
+/**
+ * Require the Muse Feishu entry and its retained streaming and interaction cards.
+ * @param files - Tarball paths rooted at `package/`.
+ * @returns Nothing.
+ */
+export function assertDesktopFeishuPackageFiles(files: readonly string[]): void {
+  assertPackageFiles(DESKTOP_FEISHU_PACKAGE, DESKTOP_FEISHU_RUNTIME_FILES, files)
+}
+
 function assertPackageFiles(name: string, required: readonly string[], files: readonly string[]): void {
   const available = new Set(files)
   const missing = required
@@ -154,6 +165,9 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const dramaSkills = selected.find(packed => packed.manifest.name === DESKTOP_DRAMA_SKILLS_PACKAGE)
   if (dramaSkills === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_DRAMA_SKILLS_PACKAGE}`)
   assertDesktopDramaSkillPackageFiles(tarballFiles(dramaSkills.tarball))
+  const feishu = selected.find(packed => packed.manifest.name === DESKTOP_FEISHU_PACKAGE)
+  if (feishu === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_FEISHU_PACKAGE}`)
+  assertDesktopFeishuPackageFiles(tarballFiles(feishu.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

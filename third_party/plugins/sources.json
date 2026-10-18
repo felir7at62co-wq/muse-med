@@ -18,6 +18,12 @@
     "commit": "27a600d15e0be74ac152eaa64e82d19a07c612e5",
     "license": "MIT"
   },
+  "dsh-feishu": {
+    "repository": "https://github.com/PGZXB/dsh-feishu",
+    "version": "0.3.6",
+    "commit": "f10ef5f6efb5beb5bd5d10e3e31a8f68f48b6e75",
+    "license": "MIT"
+  },
   "dsh-ffmpeg": {
     "repository": "https://github.com/STARDUSTLC666/dsh-ffmpeg",
     "version": "0.4.3",

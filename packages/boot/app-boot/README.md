@@ -42,6 +42,8 @@ const ctx = await boot('dsh', resolveConfigPath(argv[2], process.env.DSH_SNAPSHO
 
 `installFailLoud` writes one labelled `util.inspect` diagnostic to stderr for an unhandled rejection or an uncaught exception, awaits the surface's release hook under a fixed timeout, and exits 1; control never returns to the failed operation, because only the throw site knows which state is intact, and the event loop runs only until the release settles or times out. With that entry point, startup keeps every plugin that can activate. An enabled failed plugin produces a labelled warning. A failed required entry makes startup dispose the whole app and exit nonzero; required ids absent from a profile and disabled required entries do not affect startup. The global required list covers shared Agent execution, application endpoints, and Web bootstrap/transport: `agent-loop`, `webserver`, `modules`, `connection`, `headless-runner`, `acp`, and `sdk-jsonrpc-server`.
 
+An embedding application can pass exact `moduleOverrides` to `boot()` or `mountRootInclude()` for application-owned plugin entries. These mappings select module URLs before ordinary entry resolution and remain attached to the root Include during patch reloads. Unmapped entries and imports inside loaded packages retain normal resolution. The mappings do not rewrite configuration, plugin manifests or profile files.
+
 <a id="profiles"></a>
 ### Profiles
 

@@ -8,9 +8,10 @@ import { resolveVideoModel, stableJson } from '@deepseek-ai/dsh-jubian-api'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-questions'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { readFile } from 'node:fs/promises'
 import { modelMethod } from './model-settings.ts'
-import type { SessionVideoSelection, VideoModelOption } from './video-session-types.ts'
+import { videoSelectionSchema, type SessionVideoSelection, type VideoModelOption, type VideoModelDefault } from './video-session-types.ts'
 import './video-session-types.ts'
 declare module '@deepseek-ai/cordis' { interface Context { jubianVideoSelection: JubianVideoSelection } }
 
@@ -57,7 +58,6 @@ export function videoOptions(data: unknown): VideoModelOption[] {
  * @returns Last user selection, or null before a selection.
  */
 export function selectedVideo(session: Session): SessionVideoSelection | null {
-  // oxlint-disable-next-line typescript/no-deprecated -- Selection state must survive surface compaction.
   const events = session.snapshotEvents()
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
@@ -79,7 +79,7 @@ export function videoSelectionContext(selection: SessionVideoSelection | null): 
 }
 /** Host owner shared by the composer, model-facing ask tool and paid executors. */
 export class JubianVideoSelection extends TypertRemoteService {
-  static inject = ['agents', 'sessions', 'systemPrompt']
+  static inject = ['agents', 'sessions', 'systemPrompt', 'sessionProjections']
   private readonly initializing = new WeakMap<Agent, Promise<SessionVideoSelection | null>>()
   constructor(ctx: Context, private readonly options: {
     client: JubianClient
@@ -88,6 +88,11 @@ export class JubianVideoSelection extends TypertRemoteService {
     defaultModel?: Pick<VideoModelOption, 'modelId' | 'platformId' | 'resolution'>
   }) {
     super(ctx, 'jubianVideoSelection')
+    ctx.sessionProjections.register<'jubianVideoSelection', SessionVideoSelection | null>({
+      key: 'jubianVideoSelection', stateSchema: videoSelectionSchema, init: () => null,
+      apply: (state, event) => event.type === 'jubian/video-selection' ? event.data.selection : state,
+      wire: { viewSchema: videoSelectionSchema, view: state => state }, stateVersion: 1,
+    })
     ctx.effect(() => ctx.systemPrompt.context({ name: 'jubian:video-selection', order: 55,
       text: ({ agent }) => {
         if (agent === undefined || !options.enabled) return ''
@@ -136,6 +141,12 @@ export class JubianVideoSelection extends TypertRemoteService {
    */
   @Remote
   available(): boolean { return this.options.enabled }
+  /**
+   * Read deployment defaults without resuming an Agent or writing a selection.
+   * @returns The initial model, channel and resolution, or null when not configured.
+   */
+  @Remote
+  defaults(): VideoModelDefault | null { return this.options.defaultModel ?? null }
   /**
    * Read the live account catalogue; never writes project defaults.
    * @returns Complete model specifications.

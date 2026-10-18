@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
+import { applyFeishuDesktopCompatibility, finishFeishuDesktopCompatibility, feishuDesktopCompatibility } from './compatibility/feishu-desktop.mjs'
 
 import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
 import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/codex-pi-ai.mjs'
@@ -92,6 +93,10 @@ for (const name of values.only ? [values.only] : desktopSources) {
       applyBridgeDesktopCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     }
+    if (name === 'dsh-feishu') {
+      applyFeishuDesktopCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    }
     if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
     if (name === 'muse-hongguo-search') {
       applyHongguoHostCompatibility(directory)
@@ -126,6 +131,10 @@ export function codexFilesystemPath(value) {
       cpSync(join(sourceRoot, 'checks/codex-subagent.mjs'), join(directory, '.muse-subagent.test.mjs'))
       cpSync(join(sourceRoot, 'checks/codex-pi-ai.mjs'), join(directory, '.muse-pi-ai.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-pi-ai.test.mjs', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
+    } else if (name === 'dsh-feishu') {
+      run([tsc, '-p', 'tsconfig.build.json', '--types', 'node'], directory)
+      finishFeishuDesktopCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     } else if (name !== 'dsh-bridge' && name !== 'muse-hongguo-search') {
       run([tsc, '-p', 'tsconfig.json', '--types', 'node'], directory)
       if (name === 'dsh-skill-mcp-panel') run(['scripts/strip-client-export.mjs'], directory)
@@ -149,6 +158,12 @@ export function codexFilesystemPath(value) {
       cpSync(join(sourceRoot, 'checks/bridge-desktop-runtime.mjs'), join(directory, '.muse-bridge.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-bridge.test.mjs'], directory)
     }
+    if (name === 'dsh-feishu') {
+      cpSync(join(sourceRoot, 'checks/feishu-desktop-runtime.mjs'), join(directory, '.muse-feishu.test.mjs'))
+      cpSync(join(sourceRoot, 'checks/feishu-reliability-runtime.mjs'), join(directory, '.muse-feishu-reliability.test.mjs'))
+      cpSync(join(sourceRoot, 'checks/feishu-muse-activation.mjs'), join(directory, '.muse-feishu-activation.test.mjs'))
+      run(['--test', '--test-concurrency=1', '.muse-feishu.test.mjs', '.muse-feishu-reliability.test.mjs', '.muse-feishu-activation.test.mjs'], directory)
+    }
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
       run(['--test', '.muse-mcp.test.mjs'], directory)
@@ -158,7 +173,7 @@ export function codexFilesystemPath(value) {
     }
     manifest = qualifyCommunityManifest(manifest)
     manifest.scripts = {}
-    if (name === 'dsh-skill-mcp-panel') delete manifest.bin
+    if (name === 'dsh-skill-mcp-panel' || name === 'dsh-feishu') delete manifest.bin
     manifest.packageManager = tools.packageManager
     for (const dependency of Object.keys(manifest.dependencies ?? {})) {
       if (tools.dependencies[dependency]) manifest.dependencies[dependency] = tools.dependencies[dependency]
@@ -173,6 +188,7 @@ export function codexFilesystemPath(value) {
         ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility
+            : name === 'dsh-feishu' ? feishuDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility
               : name === 'muse-hongguo-search' ? hongguoHostCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),

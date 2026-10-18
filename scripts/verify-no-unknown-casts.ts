@@ -68,6 +68,8 @@ export function findUnknownCasts(file: string, text: string): UnknownCast[] {
 function isSource(file: string): boolean {
   return /\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file)
     && !file.startsWith('vendor/')
+    // This exact source snapshot is pinned in sources.json; owned sibling adapters remain scanned.
+    && !file.startsWith('third_party/plugins/dsh-feishu/')
     && !file.startsWith('.agents/notes/archived/')
 }
 

@@ -1,23 +1,31 @@
-/** Source-mode fixture: real Loader, Settings, and reviewed bridge; no network services are supplied. */
+/** Real Loader/Settings and Muse Config/mount; native Feishu transport activation is tested in the built artifact. */
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { FiberState } from '@deepseek-ai/cordis'
-import { boot, composeEntries, initProfile, loadOverlayPatches, readProfilePatches } from '@deepseek-ai/dsh-app-boot'
+import { boot, composeEntries, initProfile, loadOverlayPatches, PluginPackages, readProfilePatches, reconcileProfilePatches } from '@deepseek-ai/dsh-app-boot'
 import ConfigEditor from '@deepseek-ai/dsh-config-editor'
 import Settings from '@deepseek-ai/dsh-settings'
 import * as FeishuSettings from '@deepseek-ai/dsh-feishu-settings'
 import { applyBridgeDesktopCompatibility } from '../../../../third_party/plugins/compatibility/bridge-desktop.mjs'
 import { feishuGateLayer } from '../../../desktop-host/src/feishu-gate.ts'
+import { bundledBridgeModules } from '../../../desktop-host/src/bundled-bridge.ts'
 
 const root = fileURLToPath(new URL('../../../..', import.meta.url))
 const home = realpathSync(mkdtempSync(join(tmpdir(), 'muse-feishu-loader-')))
+const scenario = process.argv[2]
+const nativeArtifact = process.argv[3]
+const runtime = join(home, 'runtime')
 const bridgeRoot = join(home, 'bridge')
+const feishuRoot = join(home, 'native-feishu')
+const runtimeBridgeLink = join(runtime, 'node_modules/@wenbin_wb/dsh-bridge')
+const runtimeFeishuLink = join(runtime, 'node_modules/@dsh-feishu/dsh-feishu')
 const dependencyLink = join(bridgeRoot, 'node_modules')
 let dependencyLinked = false
-const scenario = process.argv[2]
+let runtimeBridgeLinked = false
+let runtimeFeishuLinked = false
 let ctx
 let networkCalls = 0
 const originalFetch = globalThis.fetch
@@ -30,7 +38,32 @@ try {
   applyBridgeDesktopCompatibility(bridgeRoot)
   symlinkSync(join(root, 'node_modules'), dependencyLink, process.platform === 'win32' ? 'junction' : 'dir')
   dependencyLinked = true
-  const bridge = await import(pathToFileURL(join(bridgeRoot, 'lib/index.js')).href)
+  if (nativeArtifact !== undefined) {
+    cpSync(nativeArtifact, feishuRoot, { recursive: true })
+    const manifest = JSON.parse(readFileSync(join(feishuRoot, 'package.json'), 'utf8'))
+    for (const name of Object.keys(manifest.dependencies)) {
+      const destination = join(feishuRoot, 'node_modules', name)
+      mkdirSync(dirname(destination), { recursive: true })
+      symlinkSync(join(root, 'third_party/plugins/toolchain/node_modules', name), destination,
+        process.platform === 'win32' ? 'junction' : 'dir')
+    }
+  } else {
+    mkdirSync(join(feishuRoot, 'lib'), { recursive: true })
+    writeFileSync(join(feishuRoot, 'package.json'), JSON.stringify({
+      name: '@dsh-feishu/dsh-feishu', version: '0.3.6', type: 'module', exports: { '.': './lib/index.js' },
+    }))
+    // No agent services are mounted: upstream activation must remain dormant while credentials are edited.
+    writeFileSync(join(feishuRoot, 'lib/index.js'), `import { Config, name, mountMuseFeishu } from ${JSON.stringify(pathToFileURL(join(root, 'third_party/plugins/compatibility/muse-feishu-runtime.mjs')).href)}\nexport { Config, name }\nexport function apply(ctx, config) { return mountMuseFeishu(ctx, config, {}, {}) }\n`)
+  }
+  const bridge = await import(pathToFileURL(join(feishuRoot, 'lib/index.js')).href)
+  if (scenario === 'profile-shadow') {
+    mkdirSync(dirname(runtimeBridgeLink), { recursive: true })
+    symlinkSync(bridgeRoot, runtimeBridgeLink, process.platform === 'win32' ? 'junction' : 'dir')
+    runtimeBridgeLinked = true
+    mkdirSync(dirname(runtimeFeishuLink), { recursive: true })
+    symlinkSync(feishuRoot, runtimeFeishuLink, process.platform === 'win32' ? 'junction' : 'dir')
+    runtimeFeishuLinked = true
+  }
   const dir = join(home, 'profiles/test')
   initProfile(dir, ['test-bundle'])
   const bundle = join(dir, 'node_modules/test-bundle')
@@ -46,6 +79,27 @@ try {
     { id: 'other-row', name: 'cordis:other', config: { enabled: true, appId: 'other' } },
   ]
   if (scenario !== 'other-rows') rows.push({ id: 'feishu-channel', name: 'cordis:bridge', config: { enabled: false } })
+  if (scenario === 'profile-shadow') {
+    rows.find(row => row.id === 'feishu-channel').name = '@wenbin_wb/dsh-bridge'
+    rows.push({ id: 'muse-desktop-bridge', name: '@wenbin_wb/dsh-bridge/remote' },
+      { id: 'external-plugin', name: 'synthetic-external-plugin' })
+    const manifestPath = join(dir, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, dependencies: {
+      ...manifest.dependencies, '@wenbin_wb/dsh-bridge': '2.14.2', 'synthetic-external-plugin': '1.0.0',
+    } }))
+    const upstream = join(dir, 'node_modules/@wenbin_wb/dsh-bridge')
+    mkdirSync(upstream, { recursive: true })
+    writeFileSync(join(upstream, 'package.json'), JSON.stringify({
+      name: '@wenbin_wb/dsh-bridge', version: '2.14.2', type: 'module', exports: { '.': './index.js' },
+      peerDependencies: { '@deepseek-ai/dsh-agent': '^999.0.0' },
+    }))
+    writeFileSync(join(upstream, 'index.js'), 'throw new Error("profile upstream bridge must not activate")\n')
+    const external = join(dir, 'node_modules/synthetic-external-plugin')
+    mkdirSync(external, { recursive: true })
+    writeFileSync(join(external, 'package.json'), JSON.stringify({ name: 'synthetic-external-plugin', version: '1.0.0', type: 'module', exports: './index.js' }))
+    writeFileSync(join(external, 'index.js'), 'export const name = "synthetic-external-plugin"\nexport function apply(ctx) { ctx.provide("externalMarker", "profile") }\n')
+  }
   const defaults = loadOverlayPatches('muse-feishu-loader', join(root, 'apps/desktop-host/config/defaults.cordis.patch.yml'))
     .filter(patch => patch.id === 'feishu-channel' && scenario !== 'other-rows')
   writeFileSync(join(bundle, 'cordis.patch.yml'), JSON.stringify([{ insert: rows }, ...defaults]))
@@ -55,7 +109,8 @@ try {
     installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
   }
   if (scenario === 'legacy') writeFileSync(profile.patchPath, JSON.stringify([
-    { id: 'feishu-channel', config: { enabled: true, appId: 'cli_legacy', appSecret: 'synthetic-legacy-secret' } },
+    { id: 'feishu-channel', config: { enabled: true, appId: 'cli_legacy', appSecret: 'synthetic-legacy-secret',
+      registeredBy: 'ou_legacy', allowFrom: ['oc_original_group', 'ou_legacy'], activeSessionId: 'original-session' } },
   ]))
   if (scenario === 'expressions') writeFileSync(profile.patchPath, JSON.stringify([
     { id: 'feishu', config: { enabled: true } },
@@ -67,15 +122,25 @@ try {
     const patches = readProfilePatches('muse-feishu-loader', { ...profile, overlays: [] })
     const product = loadOverlayPatches('muse-feishu-loader', join(root, 'apps/desktop-host/config/desktop.cordis.patch.yml'))
       .filter(patch => patch.id === 'feishu-channel' && scenario !== 'other-rows')
-    const current = { ...profile, overlays: [...product, ...feishuGateLayer(composeEntries([patches, product]))] }
-    ctx = await boot('muse-feishu-loader', join(dir, 'cordis.yml'), readProfilePatches('muse-feishu-loader', current), host => {
+    const composed = composeEntries([patches, product])
+    const moduleOverrides = scenario === 'profile-shadow' ? bundledBridgeModules(runtime) : undefined
+    const current = { ...profile, overlays: [...product, ...feishuGateLayer(composed)] }
+    ctx = await boot('muse-feishu-loader', join(dir, 'cordis.yml'), readProfilePatches('muse-feishu-loader', current), async host => {
       host.provide('profileContext', current)
       host.provide('appReady', { onReady: listener => { listener(); return () => {} } })
       Object.assign(host.loader.builtins, {
         editor: ConfigEditor, settings: Settings, feishu: FeishuSettings, bridge,
         other: { name: 'other', apply() {} },
       })
-    })
+      if (scenario === 'profile-shadow') await host.plugin(PluginPackages, { resolution: {
+        profilesDir: join(home, 'profiles'), profileDir: dir, linkedRoots: [],
+        localPackageNames: ['@wenbin_wb/dsh-bridge', '@dsh-feishu/dsh-feishu', 'synthetic-external-plugin'],
+        entries: [{ name: '@wenbin_wb/dsh-bridge', packageDir: bridgeRoot,
+          version: '2.12.1', declarer: join(runtime, 'package.json'), scope: 'installation' },
+        { name: '@dsh-feishu/dsh-feishu', packageDir: feishuRoot,
+          version: '0.3.6', declarer: join(runtime, 'package.json'), scope: 'installation' }],
+      } })
+    }, undefined, moduleOverrides)
     await ctx.loader.await()
   }
   const restart = async () => { await ctx.fiber.dispose(); ctx = undefined; await start() }
@@ -130,6 +195,10 @@ try {
     assert.equal(config().enabled, false)
     assert.equal(config().appId.get(), 'cli_legacy')
     assert.equal(config().appSecret.get(), 'synthetic-legacy-secret')
+    assert.equal(config().registeredBy.get(), 'ou_legacy')
+    assert.deepEqual(config().allowFrom.get(), ['oc_original_group', 'ou_legacy'])
+    assert.equal(config().activeSessionId.get(), 'original-session')
+    assert.equal(config().requireMention, true)
     const entry = [...ctx.loader.entries()].find(row => row.options.id === 'feishu-channel')
     const child = entry.fiber.ctx.plugin(() => {}, { enabled: true, appId: 'child', appSecret: 'synthetic-child' })
     await child.await()
@@ -146,6 +215,34 @@ try {
     await child.await()
     assert.deepEqual(child.config, other.fiber.config)
     assert.equal((await ctx.feishuSetup.status()).row, 'unavailable')
+  } else if (scenario === 'profile-shadow') {
+    assert.equal(config().enabled, false)
+    assert.equal(typeof ctx.get('museDesktopBridge')?.createTunnel, 'function')
+    assert.equal(ctx.get('externalMarker'), 'profile')
+    const remote = [...ctx.loader.entries()].find(row => row.options.id === 'muse-desktop-bridge')
+    assert.equal(remote.fiber.state, FiberState.ACTIVE)
+    assert.equal(remote.options.name, '@wenbin_wb/dsh-bridge/remote')
+    const storedProfile = readFileSync(join(dir, 'package.json'), 'utf8')
+    await ctx.feishuSetup.setCredentials({ appId: 'cli_retained', appSecret: 'synthetic-retained-secret' })
+    assert.equal(config().appId.get(), 'cli_retained')
+    const previousRemote = ctx.get('museDesktopBridge')
+    const channel = [...ctx.loader.entries()].find(row => row.options.id === 'feishu-channel')
+    const warnings = await reconcileProfilePatches(ctx,
+      [...readProfilePatches('muse-feishu-loader', ctx.profileContext),
+        { id: 'muse-desktop-bridge', config: { revision: 2 } },
+        { id: 'feishu-channel', config: { ...channel.options.config, requireMention: false } }], 'muse-feishu-loader')
+    assert.deepEqual(warnings, [])
+    assert.equal(config().appSecret.get(), 'synthetic-retained-secret')
+    assert.equal(typeof ctx.get('museDesktopBridge')?.createTunnel, 'function')
+    assert.notEqual(ctx.get('museDesktopBridge'), previousRemote)
+    assert.equal(ctx.get('externalMarker'), 'profile')
+    await restart()
+    assert.equal(config().appId.get(), 'cli_retained')
+    assert.equal(config().appSecret.get(), 'synthetic-retained-secret')
+    assert.equal(config().enabled, false)
+    assert.equal((await ctx.feishuSetup.status()).writable, true)
+    assert.equal(typeof ctx.get('museDesktopBridge')?.createTunnel, 'function')
+    assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), storedProfile)
   } else {
     throw new Error(`Unexpected scenario ${scenario}`)
   }
@@ -155,6 +252,8 @@ try {
   await ctx?.fiber.dispose()
   globalThis.fetch = originalFetch
   if (dependencyLinked) unlinkSync(dependencyLink)
+  if (runtimeBridgeLinked) unlinkSync(runtimeBridgeLink)
+  if (runtimeFeishuLinked) unlinkSync(runtimeFeishuLink)
   assert.equal(realpathSync(dirname(home)), realpathSync(tmpdir()))
   assert.ok(basename(home).startsWith('muse-feishu-loader-'))
   rmSync(home, { recursive: true, force: true })

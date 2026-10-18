@@ -52,7 +52,14 @@ export function applyBridgeDesktopCompatibility(directory) {
   mkdirSync(join(source, 'upstream'), { recursive: true })
   for (const [path, original] of retained) {
     mkdirSync(join(source, 'upstream', path, '..'), { recursive: true })
-    let text = path === 'feishu/gateway.js' ? original.replace("import LarkSdk from './lark-bundled.mjs'", "import LarkSdk from '@larksuiteoapi/node-sdk'") : original
+    let text = original
+    if (path === 'feishu/gateway.js') {
+      const botLookup = 'this.client.bot.v3.bot.get({}).catch(() => null)'
+      if (original.split(botLookup).length !== 3) throw new Error('community plugins: bridge bot identity lookup requires source review')
+      text = original
+        .replace("import LarkSdk from './lark-bundled.mjs'", "import LarkSdk from '@larksuiteoapi/node-sdk'\nimport { requestFeishuBotInfo } from '../../muse-feishu-identity.mjs'")
+        .replaceAll(botLookup, 'requestFeishuBotInfo(this.client)')
+    }
     if (path === 'tunnel-client.mjs') text = text.replace("this._sendMessage({ type: 'ws-frame', wsId, data: Buffer.from(rest, 'binary').toString('base64') });", "wsFrameBuf = this._processWsFrames(wsId, Buffer.from(rest, 'binary'), sock);")
     if (path === 'platform/session-catalog.js') text = text.replace('const projCache = getSessionProjCache(node.ctx)', 'const projCache = await getSessionProjCache(node.ctx)')
     writeFileSync(join(source, 'upstream', path), text)
@@ -62,6 +69,7 @@ export function applyBridgeDesktopCompatibility(directory) {
   writeFileSync(join(source, 'remote.mjs'), `import { MuseDesktopBridge } from '@deepseek-ai/dsh-muse-account/desktop-bridge'\nimport { createMuseDesktopTunnel } from './muse-desktop-tunnel.mjs'\nexport const name = 'muse-desktop-bridge'\nclass Provider extends MuseDesktopBridge {\n  createTunnel(options) { return createMuseDesktopTunnel(options) }\n}\nexport function apply(ctx) { ctx.plugin(Provider) }\nexport { createMuseDesktopTunnel }\n`)
   cpSync(join(import.meta.dirname, 'muse-feishu-channel.mjs'), join(source, 'index.js'))
   cpSync(join(import.meta.dirname, 'muse-feishu-files.mjs'), join(source, 'muse-feishu-files.mjs'))
+  cpSync(join(import.meta.dirname, 'muse-feishu-identity.mjs'), join(source, 'muse-feishu-identity.mjs'))
   cpSync(join(import.meta.dirname, 'bridge.cordis.patch.yml'), join(directory, 'cordis.patch.yml'))
   const manifestPath = join(directory, 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))

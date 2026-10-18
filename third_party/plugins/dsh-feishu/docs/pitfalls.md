@@ -1,0 +1,454 @@
+# Development Pitfalls
+
+English | [中文](pitfalls.zh.md)
+
+Field notes from building this plugin — the traps that cost real hours.
+Each entry states the symptom, the root cause, and the fix. Keep this page
+updated when you hit something new.
+
+## Feishu card layout constraints
+
+The interactive-card wire format is the least forgiving part of this
+integration. The rules below were verified on real devices (a Feishu app in
+the sandbox) and are the reason several card designs were reworked.
+
+- **Use the v1 layout: root-level `elements`, no `schema` field.** A
+  `schema: '2.0'` card rejects the interactive `action` tag with
+  `ErrCode 200861` ("unknown property `elements`" when the body shape is
+  wrong). Only the v1 root-`elements` layout accepts `action` buttons. All
+  control cards (status buttons, panel, repo picker) use it. botmux's
+  control cards use the same layout.
+- **`form`, `select_static`, and `input` are silently dropped inside a
+  `form` container** in this layout — the card renders without them and
+  without an error, which makes the bug invisible. `select_static` **does**
+  work when placed directly inside an `action` container: choosing an
+  option fires a card callback whose `option` field carries the selected
+  value, and the select's own `value` field carries the action marker
+  (botmux pattern: `value: { key: 'repo_switch' }`). The repo picker uses
+  this for its dropdown.
+- **Card callbacks are a separate receive mode from events.** The bot must
+  switch both "events" and "card callbacks" to the long-connection receive
+  mode in the Feishu console; otherwise buttons return
+  "该应用尚未配置卡片回调". See `docs/feishu-setup.md`.
+- **`message.patch` is silent** (no unread indicator), which is exactly
+  right for a live streaming card. One card per turn: posted when the turn
+  starts (that send notifies), patched as output arrives, and **finalized in
+  place** — a completed or stopped turn sends no second bubble.
+- **Card size cap ≈ 109 KB** — long outputs are tail-truncated before
+  render (`MAX_CARD_CHARS`).
+- **`lark_md` has no reliable escape syntax** — `**` is collapsed to `*`
+  in untrusted text rather than escaped.
+
+## Environment and proxy quirks (sandbox)
+
+The harness sandbox (and this checkout's environment) has specific rules:
+
+- **`HTTPS_PROXY`/`HTTP_PROXY` break axios**, which lark-oapi uses: TLS
+  handshakes fail (`ERR_TLS_CERT_ALTNAME_INVALID` or connect failures)
+  because axios does not honor the env vars without an agent. Unset them
+  when running the bot (`unset https_proxy HTTPS_PROXY http_proxy HTTP_PROXY
+  ALL_PROXY all_proxy`).
+- **Node's built-in fetch honors the proxy only with `NODE_USE_ENV_PROXY=1`;**
+  undici-based clients (modlens's bundled undici) ignore env proxy entirely
+  and fail with `fetch failed`. The preload shim
+  `_dev/proxy-preload.cjs` installs `EnvHttpProxyAgent` as the global
+  dispatcher; load it via `NODE_OPTIONS='-r …/proxy-preload.cjs'`.
+- **Direct egress to some LLM providers is blocked** — the proxy is
+  required for them; the preload above is what makes those providers work.
+- **`~/.dsh`, `~/.npm` (and other tools' own state dirs) are read-only
+  mounts** unless the shell has `danger-full-access`. All dev state lives under the repo's
+  `_dev/` (home dir, bin, corepack, dsh-home).
+- **An ambient `DSH_HOME` exported by the harness points at its own home** —
+  integration tests must point at their own `FEISHU_INT_DSH_HOME` (or
+  `_dev/dsh-home`), never the ambient value.
+- **`kill $!` kills the bash wrapper, not the child** — `nohup` children
+  survive and pile up concurrent dsh processes (a corrupt-session
+  incident, and a "cards update chaotically" incident: N bot processes all
+  connected to the same Feishu app, each with its own in-memory panel
+  state, overwriting each other's cards). The actual process is
+  `node …/dsh/lib/bin.js --profile <name>` — `pkill -f "dsh --profile …"`
+  does NOT match it (the `node` prefix). Kill by the real command line and
+  VERIFY exactly one process remains:
+
+  ```sh
+  pkill -f "bin.js --profile feishu-d[e]v"   # the [e] guards against self-match
+  sleep 2
+  ps aux | grep "bin.js --profile" | grep -v grep   # expect exactly one (or zero)
+  ```
+
+  Before/after any restart, always count the bot processes — a stray
+  second bot is the first suspect when cards misbehave.
+- **Debug tracing needs `FEISHU_DEBUG=1` AND the exporter's `levels`.** The
+  console exporter filters debug records unless `process.env.FEISHU_DEBUG`
+  is `1`, and cordis further skips records above the exporter's `levels`
+  threshold — set `levels: { default: 3 }` on the exporter so debug
+  (level 3) reaches it. Debug lines then trace a message/card/session
+  through the whole pipeline (see `docs/development.md` → "Debug
+  logging"): panel lines show exactly which card each action targets
+  (`panel action <kind> on card <messageId>` → `panel update card
+  <messageId>`), the tool for diagnosing "which card updated" questions.
+  The logger interfaces every module receives (`StreamingLogger`,
+  `InteractionLogger`, `TransportLogger`, the panel context logger) all
+  expose `debug`; a NEW module that logs must accept a logger with
+  `debug` and use it for tracing — production stays quiet without the env
+  var.
+
+## Feishu SDK (lark-oapi) and Open Platform API
+
+- **The SDK's default axios instance honors `http(s)_proxy` env vars.**
+  Behind a proxy, WS endpoint discovery and REST calls crash with
+  follow-redirects `Protocol "https:" not supported. Expected "http:"`.
+  Inject a shared `proxy: false` axios instance into both `Client` and
+  `WSClient` (the `FEISHU_HTTP` instance).
+- **A custom `httpInstance` must mirror the SDK default's response
+  interceptor.** The default unwraps `resp.data`; without it, `request()`
+  resolves to the AxiosResponse wrapper and the SDK's `{code, data:{URL},
+  msg}` destructure comes back undefined (`code: undefined`). Mirror the
+  unwrap and the `$return_headers` passthrough.
+- **QR login init requires `x-locale` and `x-terminal-type` headers.**
+  `POST accounts.feishu.cn/accounts/qrlogin/init` without them fails with
+  4401 "请求无效" — a body like `{"unit":"eu_nc"}` is a red herring. Send
+  `x-locale: zh-CN` + `x-terminal-type: 2`.
+
+## Gemini / modlens
+
+- New keys use the new API-key format (`AQ.…`). Older model names can be
+  gated for new users (404) or 503 under load — treat the concrete model
+  name as environment-dependent; modlens keeps its provider config under
+  its own state directory and needs the undici proxy preload (above) to
+  reach providers that require a proxy.
+
+## pnpm
+
+- pnpm ≥ 10 reads settings from `pnpm-workspace.yaml`, **not** `.npmrc`.
+  `minimumReleaseAge` can quarantine a freshly released harness package and
+  silently install an older one — the workspace keeps an
+  `minimumReleaseAgeExclude` list (currently `@deepseek-ai/*` + schemastery);
+  add a package there when a new release is needed immediately.
+- **pnpm ≥ 11 blocks dependency build scripts by default.** A profile
+  `dsh plugin add @dsh-feishu/dsh-feishu` fails with
+  `ERR_PNPM_IGNORED_BUILDS` (the lark SDK's `protobufjs` postinstall) unless
+  the build is approved. pnpm 11 ignores `pnpm.*` fields in package.json
+  entirely — the only fixes are `pnpm add --allow-build=protobufjs` (dsh
+  forwards the flag) or an `allowBuilds` entry in the profile's
+  `pnpm-workspace.yaml`.
+- The default store directory sits on a read-only fs — pin `store-dir`
+  under the repo (`_dev/pnpm-store`).
+- **pnpm ≥ 11 defaults `minimumReleaseAge` to 1440 minutes (24 h).** A
+  freshly generated lockfile can contain transitive deps published within
+  the last day; pnpm ≥ 11 then refuses the whole install with
+  `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`. Set `minimumReleaseAge: 0`
+  explicitly in `pnpm-workspace.yaml` (the `allowBuilds` allowlist — the
+  supply-chain control — stays).
+- **`pnpm run <script> -- <args>` forwards the `--` verbatim on pnpm ≥ 11.**
+  The script receives `-- --new …` and rejects `--` as an unknown option.
+  CLI arg parsers must skip a leading `--` run-argument separator.
+- **Harness `@deepseek-ai/*` packages must be `peerDependencies`, never
+  `dependencies`.** Listing a harness core package (e.g. `dsh-tools`,
+  `dsh-llm`, `dsh-storage` ×3, `dsh-workspace`) in `dependencies` makes pnpm
+  place a REAL physical copy in the profile's `node_modules`, shadowing the
+  dsh host's flat symlink fallback — the same package loads twice in one
+  process. Module-identity state keyed by a module-local Symbol (the
+  `dsh-tools` tool-runtime scheduler) mismatches between the two copies, so a
+  tool call crashes with
+  `Cannot read properties of undefined (reading 'prepare')`, and the
+  interrupted turn leaves a dangling `tool_calls` that the provider rejects as
+  `INVALID_REQUEST` on the next request. Text-only replies work; any reply
+  that calls a tool fails. Fix: move the harness package to
+  `peerDependencies` so the host supplies one instance (the dsh-TUI surface
+  keeps every `@deepseek-ai/*` package out of `dependencies`, including
+  `@deepseek-ai/schemastery`). Guarded by the `check-conventions.mjs`
+  "@deepseek-ai packages are peerDependencies" check.
+- **Version forks of the base packages split dsh's module identity even when
+  every harness package is correctly a peerDependency.** An incremental
+  version bump can leave two versions of a foundation package in the
+  lockfile (the plugins still resolving `@deepseek-ai/cordis@^4.0.1` while
+  the fresh CLI carries 4.0.2); pnpm's peer hashing then forks the whole
+  `dsh-agent` graph per peer combination, and `dsh-tools` loads multiple
+  times in one process. `dsh-tools` keys its tool-runtime scheduler in a
+  module-local `Symbol`, so each copy mints its own identity: the agent
+  loop's `ctx.tools[TOOL_RUNTIME_SCHEDULER]` reads `undefined` and every
+  tool call dies with
+  `Cannot read properties of undefined (reading 'prepare')` — the exact
+  symptom of the peerDependencies pitfall above, with the manifest
+  declared correctly. Text-only turns stream fine, which makes it look
+  like a plugin bug. Fix: `pnpm dedupe` (each base package —
+  `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, … — resolves to ONE
+  version) plus a fresh install; the lockfile must never carry two
+  versions of a `@deepseek-ai/*` package. Run it as part of every dsh
+  bump (see AGENTS.md → "Adapting to a new dsh release"). Guarded by the
+  `check-conventions.mjs` "one resolved @deepseek-ai instance per package"
+  check.
+
+## Mention gate
+
+- The mention gate is **bot-side**: Feishu delivers group messages to the
+  bot regardless of mentions; the bot decides whether to respond.
+  `groupMentionMode: always` (default) is botmux-compatible
+  (always/never/ambient/topic). In 1-person-1-bot solo groups the `@`
+  requirement is relaxed (`isSoloGroup`).
+- `allowedChats` is an allowlist; chats outside it are ignored entirely.
+- **`bot/v3/info` nests the bot's own open id under `bot.open_id`, not
+  `data.open_id`.** The mention gate compares each inbound group message's
+  mention list against `transport.getBotOpenId()`; if that id is never
+  resolved, `mentioned` is always false and every group message (even a
+  real `@`) reads as "not mentioned" under `always`/`topic` — the bot
+  silently ignores all group traffic. Symptom: "ignoring group message: bot
+  not mentioned" while the user did `@` the bot, with no error anywhere.
+  Fix: parse both shapes (`parseBotOpenId`), and warn loudly at boot when
+  the response carries no open id instead of failing silently. Verify the
+  live shape with the real app — the SDK's `request` returns the raw body
+  with `bot` at the top level.
+
+## Git discovery vs. scan roots
+
+- A `.git` marker that is fake or partial (a directory without a real
+  object store, or a gitfile pointing nowhere) makes git **walk up the
+  tree** looking for the nearest real repository. When the scan root is
+  inside a real repo (e.g. `_dev` under the plugin repo, or `~` under a
+  repo), `git rev-parse --git-common-dir` from a candidate dir can resolve
+  to an *ancestor* repo, silently collapsing the whole scan into one bogus
+  project. Fix: pass `GIT_CEILING_DIRECTORIES=<scan root>` on every git
+  subprocess so discovery cannot escape the root (see
+  `src/projects.ts`). botmux has this latent bug; its scan roots are real
+  repos so it never trips it.
+
+## Reference
+
+- Card/layout patterns: botmux `src/im/lark/card-builder.ts` (select-in-
+  action), `card-handler.ts` (callback normalization), `project-scanner.ts`
+  (recursive scan semantics). Future slash-command UI/UX should be checked
+  against botmux first — it has already solved most Feishu card UX problems.
+
+## Web-only harness commands
+
+- Some dsh commands exist only on the web client, not in the host command
+  registry. `/export` (`dsh-session-log-export`) is a browser-download
+  observer ("Register the Web-only `/export` command that the browser
+  download plugin observes") — nothing downloads on a non-web surface.
+  `/model` (`ui-model-selection`) registers on `commandUi` as a
+  `popupSelect` client contribution with no host command. Check the harness
+  source for "Web-only" before promising a command; implement a
+  surface-native equivalent (`/model` reads `ctx.llm.listProviders` ×
+  `listModels` and `ctx.agentDefaultModel`).
+
+## Compaction is not a turn
+
+- `/compact` runs a durable transaction — `compaction/start → summary →
+  end` — and emits NO `turn/end`. A surface that only finalizes its card on
+  `turn/end` leaves the chat "working" forever: every later command is
+  refused with "a turn is running — stop it first." (user report). Own the
+  compaction card lifecycle instead: open on `compaction/start` (immediate
+  button feedback), render `compaction/summary`, and finalize on
+  `compaction/end` — which the seam emits on success AND failure (a failed
+  close carries `error`). The checkpoint `user/message` (plugin source
+  `compact`) is a surface-replacement marker, not a turn start.
+
+## Service seams: getters vs methods
+
+- A structural `ctx.get(name)` seam must mirror the REAL service shape, and
+  the shapes MOVE between rc releases. `ctx.permissionPresets.names` is a
+  **property getter** (write `names`, not `names()`). The preset `current`
+  shape has already flip-flopped: in one rc it folded the session's events
+  itself (`current(events)` — passing the session failed with "events is
+  not iterable"), and the next release (`0.1.2-rc.1`) reverted to taking
+  the session (`current(session: Session)`, folding
+  `session.snapshotEvents()` internally — passing the events array then
+  failed with "session.snapshotEvents is not a function"). Either way the
+  crash names the service's own internal member, not the seam — locate the
+  installed `.d.ts` (`@deepseek-ai/dsh-permission-presets`) and match it
+  exactly before adapting; wrong shapes typecheck cleanly because the seam
+  is structural on both sides. `ctx.planMode.get(agent)` / `set(agent,
+  active)` take the Agent.
+
+## Buttons must be state-aware, not pass-throughs
+
+- A panel button whose handler runs the bare command is broken for commands
+  with a choice/toggle dimension: `/permission` with no args only REPORTS
+  the current preset, `/plan` with no args only ENTERS plan mode, `/model`
+  with no args only displays. Fix: `/permission` and `/model` open picker
+  cards (a `select_static` dropdown inside an `action` container, with
+  `initial_option` preselecting the current value — supported by the SDK;
+  omit it when the effective state is `custom`/unknown); bare `/plan`
+  toggles through `ctx.planMode` (read `get`, write `set(!active)`).
+- A palette button that opens the panel itself is the panel launching
+  itself — hide it (`SurfaceCommand.hiddenFromPanel`).
+
+## Working-directory gate
+
+- The surface refuses turns in a chat with no pinned working directory
+  (/repo or /cd); `defaultCwd` is a fallback, never an implicit choice.
+  New chat-state flows must respect it: `/resume` adopts the resumed
+  session's cwd (the session detail's Resume button carries it in its
+  value; a typed `/resume` looks it up from the session list), or the
+  resumed chat
+  is stuck behind the gate.
+
+## Activation-time snapshots of host services
+
+- Never read a host service's live value once at plugin activation and
+  cache it. `@deepseek-ai/dsh-base/cordis.patch.yml` mounts
+  `agent-default-model` with a hardcoded composition entry, and its
+  settings-backed user layer is wired in **after** the plugin may already
+  have run (mount-order race). The surface used to snapshot
+  `agentDefaultModel.currentSelection()` at activation and pass it as
+  static `agentOptions` on every create/resume — so after a restart the
+  FIRST turn of every fresh session ran the composition entry default
+  (`deepseek-official/deepseek-v4-flash`) while the `/model` panel showed
+  the saved default from `settings.yaml`: displayed model ≠ served model,
+  and only a `/model` in that chat fixed it. The same staleness also meant
+  a later `/model` `saveSelection` never reached agents created afterwards
+  until a restart. Fix: resolve agent options **lazily at each create/resume**
+  (by then every service is mounted and the live selection is read). The
+  dsh-base comment says it outright: "Settings may supply a saved selection;
+  consumers read it at creation time." Regression tests:
+  `tests/index.spec.ts` (lazy create + later-saveSelection cases) and
+  `tests/integration/real-composition.spec.ts` →
+  "fresh sessions run the saved default model, not the dsh-base entry (#62)".
+
+## Integration-test traps
+
+- The integration suite shares the real profile (`_dev/dsh-home`). A test
+  that writes state through the surface (`/model` → `saveSelection` writes
+  `settings.yaml`) must restore the original value, or later runs and the
+  real bot inherit the change.
+- Every new session fires a **title-generation completion** ("Create a
+  concise title for an AI coding…"). Never assert an exact LLM completion
+  count; assert card contents.
+- **After `holdNextResponse()`, await `waitForHold()` before driving a
+  stop/panel action.** The working card appears as soon as the turn starts,
+  but the agent's LLM request is established asynchronously (buildRequest →
+  resolveApiKey → fetch). A stop issued before the request reaches the mock
+  (and its abort signal binds to the in-flight body) cancels nothing and the
+  turn completes normally — no stopped card / ERROR reaction, a timeout on
+  slow or loaded CI runners. `waitForHold()` resolves when the held request
+  is actually in flight, making the abort deterministic.
+- Message ids built from `Date.now()` collide when two messages are written
+  in the same millisecond (and the surface's dedup silently drops the
+  second). Append a random suffix. waitFor predicates that match ANY chat's
+  reply pass early on a prior chat's text — filter by `r.chatId`.
+- A mock that answers a scripted error must decide the status BEFORE
+  writing the 200 headers — `writeHead(500)` after `writeHead(200)` throws
+  "headers already sent" and hangs the adapter on an open body.
+- Each mock completion request must consume the script exactly once —
+  consuming in both the error check and the stream writer doubles
+  consumption and silently shifts every subsequent scripted response.
+- **The integration suites run the BUILT `lib/`, not `src/`.** A change to
+  `src/` does not reach the spawned process until `pnpm run build`; a
+  "works locally, fails in integration" symptom is usually a stale lib
+  (the real-process `/model` case: the command was "Unknown" until the
+  rebuild landed).
+- **Two real-process suites must not share a dsh home.** vitest runs test
+  files in parallel; both suites boot dsh children that persist the session
+  map + logs, and concurrent writes race (a pinned `/cd` is lost, turns get
+  refused). The scenario suite uses its own `_dev/dsh-home-scenarios`
+  (`FEISHU_INT_SCENARIOS_DSH_HOME`), and CI prepares both profiles.
+- **Schemastery materializes absent optional arrays as `[]`.** A config
+  key declared `z.array(z.string()).required(false)` reads as `[]`, not
+  `undefined` — gate logic that checks `config.x !== undefined` then treats
+  an empty list as "no restriction" is silently ALWAYS off. The
+  allowlist resolvers (`resolveAllowedUsers` & friends) normalize
+  `[]` → `undefined`; regression-tested in `tests/index.spec.ts`.
+- **Assert card-markdown content, not `JSON.stringify`d cards.** A mention
+  in a card renders as `<at id="ou_x"></at>`; `JSON.stringify(card.elements)`
+  escapes the quotes to `\"`, so `.includes('<at id="ou_x"></at>')` never
+  matches. Read the `markdown` element's `content` field instead.
+- **The `ask_user_question` tool schema is snake_case.** The wire argument
+  is `multi_select` (not `multiSelect`); camelCase is silently dropped by
+  the tool schema and the question arrives single-select.
+- **Toggle re-posts retarget the interaction to the newest card.** After a
+  multi-select toggle, the Submit action must carry the NEWEST question
+  card's message id — the original card id is stale and the registry
+  rejects it (the turn then hangs on an unanswered question).
+
+## Commit hygiene: local "green" vs CI green
+
+- `pnpm run lint` runs `biome check src tests` — the exact CI command.
+  `biome check --write` (the local convenience) applies only SAFE fixes;
+  unsafe diagnostics (`lint/style/useTemplate`, `lint/complexity/useIndexOf`)
+  stay in the tree and make plain `check` fail. If local work used
+  `--write`, still run `pnpm run lint` and check the exit code before
+  committing — a CI failure shipped here because the final gate only read
+  the last output line (`Found 3 infos.`) instead of the exit status.
+- Rule: before every commit, run `pnpm run lint`, `pnpm run typecheck`,
+  `pnpm run test`, `pnpm run build` and confirm each exits 0 — never trust
+  an output tail or a `--write` run as the lint verdict.
+
+## Card actions must address the clicked card's message id
+
+- Every `card.action.trigger` callback carries `context.open_message_id` —
+  the message id of the CARD THE BUTTON LIVES ON. A chat accumulates many
+  finished streaming cards; any handler that keys state by chat id alone
+  cross-wires clicks on historical cards to whichever card is currently the
+  latest (real report: expand/collapse on an old card re-rendered the newest
+  one).
+- Rule: when a card action mutates card state, resolve the target by
+  `action.messageId` first (the live card when the ids match, otherwise a
+  frozen final render retained per message id). If the id is unretained
+  (e.g. after a restart), log and ignore — silently re-rendering the current
+  card is exactly the bug. See `StreamingCardController.toggle-rows`.
+
+## Live model output is not a session event
+
+- The session event log is the **durable settlement** record. dsh used to
+  publish in-flight model output into it as `assistant/chunk`; since 0.1.5
+  that event is gone. Streaming text now arrives as a separate, agent-scoped
+  process-local publication — `agent/assistant-stream` frames (`start` /
+  `chunk` / `end`, each attempt carrying an id and a monotone `revision`) —
+  while the log commits only `assistant/message` (assembled message + its
+  `stream` records + usage) or `assistant/attempt` (an attempt that
+  committed no surface message: failed, retried, cancelled).
+- A surface that only rewires the removed event to a no-op still typechecks
+  and still passes settle-based tests, but shows **nothing until the turn
+  settles** — the live card silently becomes a blank card that fills in at
+  the end. Verify live streaming through a stop-mid-turn case (stop while
+  the model is streaming, then read the partial output back), not just the
+  final render.
+- Rule: the live channel and the durable log are two subscriptions with two
+  shapes. Keep the live path keyed by the agent's live session
+  (`agent.session.id`), drop frames whose `revision` is older than the
+  latest seen for the same attempt (a replaced/reattached lifecycle replays
+  them), and treat `assistant/attempt` as "streamed but not committed" —
+  it must not overwrite what the user already saw.
+
+## The mocked wire protocol is a seam too
+
+- Vendor adapters move. dsh ships the official DeepSeek adapter, but our
+  integration suites never call the real API — they point `DEEPSEEK_BASE_URL` at
+  a **mock LLM server** that has to speak whatever protocol the adapter speaks.
+  When the adapter migrated from Chat Completions to the Anthropic-style
+  Messages API (`POST /v1/messages`, `message_start` / `content_block_*` /
+  `message_delta` / `message_stop`), every turn started failing with
+  `HTTP_404: DeepSeek Messages request failed` — the mock kept answering
+  `/chat/completions`, and nothing in the type system or the unit suite noticed,
+  because the mock is reached over a socket, not through an imported type.
+- Rule: when a dsh release changes a provider adapter, treat the mock as part of
+  the adaptation surface. Check the adapter's own README/`lib` for the endpoint
+  path, the request fields and the SSE event names it consumes, and port the
+  mock in the same change. A green typecheck plus green unit tests prove nothing
+  about a wire protocol.
+- Same class of trap on the event side: dsh 0.1.7 removed the shared `plugin`
+  message-source kind in favour of per-producer kinds in a merge-extensible
+  `MessageSourceMap` (`schedule`, `compact-checkpoint`, `subagent-settled`,
+  `goal`, …). A consumer that matched the literal `'plugin'` silently stops
+  matching rather than failing to compile — the type only errors because the
+  comparison became impossible, and a cast would have hidden it. The documented
+  rule is to switch on `kind` and **fall through unknown kinds**, never to
+  enumerate the kinds that exist today.
+
+## A dsh release can gate installation on our peer ranges
+
+dsh 0.2.0 added an install-time compatibility gate: `dsh plugin add` refuses a
+bundle whose `peerDependencies` do not accept the running dsh version, and says
+so (`installation rejected: Plugin @dsh-feishu/dsh-feishu@0.3.5 is incompatible
+with dsh 0.2.0-rc.2`). npm itself installed the package happily — the rejection
+happens when dsh loads the bundle — so the release-compat workflow (published
+artifact vs dsh `@latest`) is the only run that sees it.
+
+- Symptom: the canary is green (the source tree still works) while the
+  published package cannot be installed at all, so every user on dsh `@latest`
+  is blocked until a new release ships.
+- Rule: when dsh `@latest` moves, the version-track refresh (label + CLI pin +
+  harness peer ranges) is an **install-time contract**, not a badge. Check the
+  release-compat workflow after refreshing, and cut a release when it is red
+  for this reason — the published peer ranges only change in a new version.

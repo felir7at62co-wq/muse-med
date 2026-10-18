@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "text",
+    "chatId": "offline-chat",
+    "text": "Offline delivery check"
+  },
+  {
+    "kind": "file",
+    "chatId": "offline-chat",
+    "name": "delivery.txt",
+    "bytes": 28,
+    "receipt": "offline-file-1"
+  }
+]

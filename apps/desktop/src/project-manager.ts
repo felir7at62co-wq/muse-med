@@ -20,6 +20,7 @@ import {
 } from 'node:fs'
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import {
+  DESKTOP_FEISHU_PACKAGE,
   DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
   verifyDesktopCorePackageSet,
@@ -80,6 +81,7 @@ const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
+  DESKTOP_FEISHU_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
@@ -175,9 +177,9 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
  *
  * A profile stores the built-in bundle list of the release that wrote it, followed by its own
  * third-party bundles, so a release that appends a built-in bundle leaves the built-in list as a
- * true prefix of the stored list and the remainder is still that profile's third-party list. Any
- * other mismatch — a missing middle bundle, a reordered list, or an unknown bundle ahead of the
- * built-in list — leaves a built-in name in the remainder and is reported instead of repaired.
+ * true prefix of the stored list and the remainder is still that profile's third-party list. An
+ * existing external Feishu bundle is promoted into its newly built-in position. Other missing
+ * middle bundles, reordered built-ins, and unknown bundles ahead of them remain invalid.
  *
  * @param stored - `dsh.profile.bundles` as an earlier release wrote it.
  * @returns Bundles stored after an incomplete built-in prefix, or undefined when the prefix is complete.
@@ -186,10 +188,14 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
   const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => stored[index] !== bundle)
   if (missingAt === -1) return undefined
   const tail = stored.slice(missingAt)
-  if (tail.some(bundle => BUILT_IN_BUNDLE_LIST.includes(bundle))) {
+  if (tail.filter(bundle => bundle === DESKTOP_FEISHU_PACKAGE).length > 1) {
+    throw new Error('desktop project: profile bundle list contains a duplicate package')
+  }
+  const plugins = tail.filter(bundle => bundle !== DESKTOP_FEISHU_PACKAGE)
+  if (plugins.some(bundle => BUILT_IN_BUNDLE_LIST.includes(bundle))) {
     throw new Error('desktop project: profile must begin with the built-in desktop bundle list')
   }
-  return tail
+  return plugins
 }
 
 /**

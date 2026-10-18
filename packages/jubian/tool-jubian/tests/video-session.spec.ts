@@ -294,3 +294,18 @@ it('reports an unavailable default while allowing an explicit supported replacem
   expect(await f.service.initialize(f.agent)).toMatchObject({ key: choice.key })
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
+
+it('reads configured defaults without resuming or changing a session, and projects legacy selections unchanged', async () => {
+  const f = await fixture(defaults)
+  const before = f.agent.session.seq
+  expect(f.service.defaults()).toEqual(defaults)
+  expect(f.requests).toHaveLength(0)
+  expect(f.agent.session.seq).toBe(before)
+  expect(f.ctx.sessionProjections.snapshot(f.agent.session, ['jubianVideoSelection']).values).toEqual({ jubianVideoSelection: null })
+  const explicit = { ...videoOptions(catalogue['1']).find(option => option.maxDurationSeconds === 15)!, revision: 7 }
+  f.agent.session.append('jubian/video-selection', { selection: explicit })
+  expect(f.ctx.sessionProjections.snapshot(f.agent.session, ['jubianVideoSelection']).values).toEqual({ jubianVideoSelection: explicit })
+  expect(await f.service.initialize(f.agent)).toEqual(explicit)
+  expect(f.requests).toHaveLength(0)
+  expect(f.inject).not.toHaveBeenCalled()
+})

@@ -14,6 +14,11 @@ integrations/muse-kb/*.patch whitespace=-blank-at-eol
 # Preserve the pinned panel client's upstream whitespace in the source snapshot.
 third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol
 
+# These pinned PGZXB documents retain upstream end-of-file blank lines.
+third_party/plugins/dsh-feishu/docs/architecture.md whitespace=-blank-at-eof
+third_party/plugins/dsh-feishu/docs/architecture.zh.md whitespace=-blank-at-eof
+third_party/plugins/dsh-feishu/docs/ux-specification.zh.md whitespace=-blank-at-eof
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

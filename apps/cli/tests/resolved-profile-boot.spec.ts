@@ -222,7 +222,8 @@ describe('runProfile with an application-owned profile', () => {
       }],
     }
     const environment = createLaunchEnvironmentSnapshot([{ source: 'process', values: { HTTPS_PROXY: 'http://localhost:8080' } }])
-    const runtime = { profile, installAnchor: join(home, 'runtime/package.json') }
+    const moduleOverrides = { 'product-owned-plugin': 'file:///packaged/product-owned-plugin.mjs' }
+    const runtime = { profile, installAnchor: join(home, 'runtime/package.json'), moduleOverrides }
     try {
       const { shutdown } = await runProfile({
         environment, profile: 'desktop', resolvedProfile: runtime,
@@ -244,6 +245,8 @@ describe('runProfile with an application-owned profile', () => {
       ctx.appReady!.onReady(ready)
       expect(ready).toHaveBeenCalledOnce()
       const patches = vi.mocked(boot).mock.calls[0]![2]!
+      expect(vi.mocked(boot).mock.calls[0]![4]).toBeUndefined()
+      expect(vi.mocked(boot).mock.calls[0]![5]).toBe(moduleOverrides)
       const rows = composeEntries([patches])
       expect(patches.slice(1, 4)).toEqual([
         { id: 'target', config: { profile: true, priority: 'profile' } },

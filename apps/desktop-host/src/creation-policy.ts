@@ -85,6 +85,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'present',
   'pwsh',
   'read',
+  'send_file',
   'read_image',
   'read_mcp_resource',
   'schedule_create',

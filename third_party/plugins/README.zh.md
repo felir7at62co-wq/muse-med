@@ -16,6 +16,7 @@
 pnpm --dir third_party/plugins/toolchain run build --out ../../../.artifacts/community-plugins
 pnpm --dir third_party/plugins/toolchain run test:host
 pnpm --dir third_party/plugins/toolchain run test:build
+pnpm --dir third_party/plugins/toolchain run test:feishu
 ```
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
@@ -42,11 +43,13 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 ### Muse 远程桌面与飞书
 
-`@wenbin_wb/dsh-bridge` 保留上游 2.12.1 版本及 [sources.json](sources.json) 中的固定修订，并保留 MIT 署名。[规范化记录](dsh-bridge/MUSE_SOURCE_NORMALIZATION.json)记录了 21 个规范化尾部空白或文件末尾换行的文本文件的上游与本地 SHA-256。[审核后的覆盖](compatibility/bridge-desktop.mjs)固定该记录，在打包前检查每个规范化文件及保留模块，并将记录写入 `SOURCE.json`。私有产物通过 `./remote` 暴露 Muse 远程 provider，通过根入口暴露可选飞书 provider。产物排除上游应用 bin、局域网代理、独立隧道服务端、Cloudflare、自更新和上游密码/二维码认证。
+`@wenbin_wb/dsh-bridge` 保留上游 2.12.1 版本及 [sources.json](sources.json) 中的固定修订，并保留 MIT 署名。[规范化记录](dsh-bridge/MUSE_SOURCE_NORMALIZATION.json)记录了 21 个规范化尾部空白或文件末尾换行的文本文件的上游与本地 SHA-256。[审核后的覆盖](compatibility/bridge-desktop.mjs)固定该记录，在打包前检查每个规范化文件及保留模块，并将记录写入 `SOURCE.json`。Muse 使用它的 `./remote` provider 提供账号绑定的桌面访问；该包保留的旧根 provider 不再作为活动飞书通道。产物排除上游应用 bin、局域网代理、独立隧道服务端、Cloudflare、自更新和上游密码/二维码认证。
 
 远程 provider 复用 `CustomTunnelClient` 的连接建立和原生 WebSocket 升级处理。Muse 适配器直接流式转发原生字节，不积累完整数据帧，包含 Host Ping 和浏览器 Pong；同时提供账号/设备认证、流式 HTTP 上传与下载、逐块确认、取消、按配置间隔持续重连和等待完成的关闭。本地传输测试覆盖二进制上传、Range 响应、不完整原生数据帧、`/api/remote.mux` 心跳往返、取消及凭证拒绝。握手在安装 UUID 之外增加电脑名称和操作系统。云端 relay 验证账号，把每个浏览器标签页路由到其选择的安装，并保持其他电脑连接；桌面仅转发至自身回环 Host。这是一条私有出站连接，不创建公共隧道域名。
 
-飞书 provider 通过维护中的 SDK 复用上游网关、会话节点、命令、卡片和审批。适配器通过当前 Host 服务读取工作区与会话元数据及标题，保留 `feishu-channel` 凭证段，在下载媒体前检查提及/发送者策略，拒绝物理路径位于活动工作区外的出站文件，并在卸载时等待自有工作结束。provider 默认关闭，启用前必须保存凭证。桌面 profile 迁移保留凭证值及备份，并关闭产品开关；更换应用或扫码者时清除先前发送者与会话绑定。真实飞书扫码注册、消息收发及租户权限仍未验证。
+`@dsh-feishu/dsh-feishu` 提供飞书通道。保留的 PGZXB 源码版本为 0.3.6，使用 MIT 许可证；[sources.json](sources.json) 固定其修订。[飞书覆盖](compatibility/feishu-desktop.mjs)只修改私有暂存副本，使用审核后的 Host 编译保留的 TypeScript，并将卡片与传输实现放在 `lib/upstream`。根入口由 Muse 维护，保留 `feishu-channel` 设置且默认关闭。空 bundle 补丁不会重复添加服务器、工作区、提问工具或调度器行，产物不暴露独立 CLI。Muse 账号远程访问与此通道相互独立。
+
+飞书专用构建检查编译并打包两次，比较完整压缩包字节，在禁用状态下导入实际产物入口，检查卡片模块、来源记录和许可证，并确认保留源码未被修改。另一个产物检查通过离线飞书传输启动真实 Loader、预设注册表、Agent 循环和 JSONL 存储，覆盖会话恢复、重复消息、提问归属、文件校验、GUI 会话接管及清理。Desktop 包集合在安装前也要求这些运行时文件齐全。这些检查不认证真实飞书应用、不发送平台消息，也不证明租户权限可用；这些行为须单独进行产品验收。
 
 ### 红果公开数据
 

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-feishu-send-file
+profile: headless
+composition: muse-feishu-send-file
+recording: authored
+header:
+  class: muse-feishu-send-file
+  pin: true
+writerOutput: true
+workspace:
+  final: true

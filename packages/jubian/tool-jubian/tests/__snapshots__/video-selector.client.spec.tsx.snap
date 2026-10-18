@@ -10,3 +10,12 @@ exports[`keeps cached menu content and the composer free of loading indicators d
   "trigger": "Seedance 2.5480p",
 }
 `;
+
+exports[`keeps resume diagnostics inside the menu with a retry and optional details, and removes them after recovery > recoverable video settings error 1`] = `
+{
+  "detailsExpanded": "true",
+  "retry": "Retry",
+  "summary": "Video settings unavailable. Retry to reconnect.",
+  "trigger": "Seedance 2.5480p",
+}
+`;

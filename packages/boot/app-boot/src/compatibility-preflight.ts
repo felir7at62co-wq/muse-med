@@ -68,11 +68,13 @@ function manifestOf(ctx: Context, name: string, parentURL: string): object | und
  * @param entries Complete effective entry list, after patch composition.
  * @param parentURL Resolution base of the tree that will import these rows.
  * @param binName Diagnostic prefix for a denied row; defaults to `dsh`.
+ * @param moduleOverrides Application-owned exact specifiers whose compatibility metadata comes from the selected module URL.
  * @returns Detached rows with incompatible entries denied; reads the profile compatibility file once.
  * @throws For malformed compatibility permissions or a profile composition without a resolution base.
  */
 export function prepareProfileEntries(
   ctx: Context, entries: readonly EntryOptions[], parentURL: string | undefined, binName = 'dsh',
+  moduleOverrides?: Readonly<Record<string, string>>,
 ): EntryOptions[] {
   // Admission runs before the composed tree mounts, so no plugin-owned logger exporter exists yet;
   // composition-stage diagnostics go to stderr like the profile launcher's skipped-bundle report.
@@ -80,7 +82,7 @@ export function prepareProfileEntries(
     // Preset rows may omit ids, and a bundle row's name is its resolved module URL.
     const label = typeof row.id === 'string' ? `row ${JSON.stringify(row.id)}` : row.name
     process.stderr.write(`${binName}: disabling profile plugin ${label}: ${reason}\n`)
-  }).rows
+  }, moduleOverrides).rows
 }
 
 /** Denial reporter invoked once per denied row. */
@@ -88,6 +90,7 @@ type DenialReporter = (row: EntryOptions, reason: string) => void
 
 function preflight(
   ctx: Context, entries: readonly EntryOptions[], parentURL: string | undefined, report: DenialReporter,
+  moduleOverrides?: Readonly<Record<string, string>>,
 ) {
   const rows = structuredClone(entries) as EntryOptions[]
   const profile = ctx.get('profileContext')
@@ -100,7 +103,8 @@ function preflight(
   /** Only a compatibility conflict denies a row; every other failure keeps the Loader's own diagnosis. */
   const denial = (row: EntryOptions, base: string): string | undefined => {
     try {
-      const manifest = manifestOf(ctx, row.name, base)
+      const name = moduleOverrides !== undefined && Object.hasOwn(moduleOverrides, row.name) ? moduleOverrides[row.name] : undefined
+      const manifest = manifestOf(ctx, name ?? row.name, base)
       if (manifest === undefined) return undefined
       const issue = evaluatePluginCompatibility(manifest, exemptions)
       return issue === undefined || issue.exempted ? undefined : pluginCompatibilityWarning(issue)
@@ -175,13 +179,15 @@ function preflight(
  * @param patches Original ordered profile patches; these remain unchanged.
  * @param parentURL Root Include's resolution base.
  * @param binName Diagnostic prefix for a denied row; defaults to `dsh`.
+ * @param moduleOverrides Application-owned exact specifiers whose metadata must match the root Include's selected modules.
  * @returns One prepared insertion patch for profiles, or the original patches for non-profile callers.
  */
 export function prepareProfilePatches(
   ctx: Context, patches: PatchOptions[], parentURL: string, binName = 'dsh',
+  moduleOverrides?: Readonly<Record<string, string>>,
 ): PatchOptions[] {
   if (ctx.get('profileContext') === undefined) return patches
   const entries = applyEntryPatches([], patches, patchWarning(ctx))
-  const rows = prepareProfileEntries(ctx, entries, parentURL, binName)
+  const rows = prepareProfileEntries(ctx, entries, parentURL, binName, moduleOverrides)
   return rows.length === 0 ? [] : [{ insert: rows }]
 }

@@ -18,7 +18,8 @@
     "lib/creation-skills.js",
     "lib/short-drama-guidance.js",
     "lib/editing-policy.js",
-    "lib/hindsight.js"
+    "lib/hindsight.js",
+    "lib/feishu-migration.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -81,7 +82,8 @@
     "./creation-skills": "./lib/creation-skills.js",
     "./short-drama-guidance": "./lib/short-drama-guidance.js",
     "./editing-policy": "./lib/editing-policy.js",
-    "./hindsight": "./lib/hindsight.js"
+    "./hindsight": "./lib/hindsight.js",
+    "./feishu-migration": "./lib/feishu-migration.js"
   },
   "dsh": {
     "bundle": {

@@ -10,7 +10,7 @@ import { load } from 'js-yaml'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   PROFILE_COMPATIBILITY_FILENAME, PluginPackages, boot, getDshRuntimeVersion,
-  prepareProfileEntries, prepareProfilePatches, type ProfileContext,
+  prepareProfileEntries, prepareProfilePatches, reconcileProfilePatches, type ProfileContext,
 } from '../src/index.ts'
 
 const runtime = getDshRuntimeVersion()
@@ -59,18 +59,24 @@ export function apply() { record('apply:${name}') }
   exemptions({})
 
   /** Boot the profile with these patches and return the recorded plugin effects. */
-  async function run(patches: PatchOptions[], packages = false): Promise<string[]> {
+  async function run(patches: PatchOptions[], packages = false, moduleOverrides?: Readonly<Record<string, string>>): Promise<string[]> {
     ctx = await boot('preflight', configPath, patches, async (host) => {
       host.provide('profileContext', profile)
       if (packages) await host.plugin(PluginPackages)
       host.logger.exporter({ levels: { default: 3 }, export(message) {
         if (message.type === 'warn' || message.type === 'error') warnings.push(String(message.args[0]))
       } })
-    })
+    }, undefined, moduleOverrides)
     return existsSync(effects) ? readFileSync(effects, 'utf8').trim().split('\n') : []
   }
 
-  return { dir, profile, configPath, warnings, plugin, exemptions, run }
+  async function reload(patches: PatchOptions[]): Promise<string[]> {
+    if (ctx === undefined) throw new Error('fixture has not booted')
+    await reconcileProfilePatches(ctx, patches, 'preflight')
+    return existsSync(effects) ? readFileSync(effects, 'utf8').trim().split('\n') : []
+  }
+
+  return { dir, profile, configPath, warnings, plugin, exemptions, run, reload }
 }
 
 const insert = (...names: string[]) => [{ insert: names.map((name, index) => ({ id: `row-${String(index)}`, name })) }]
@@ -83,6 +89,33 @@ it('blocks an incompatible plugin before its module is imported while a compatib
   expect(effects).toEqual(['import:allowed-plugin', 'apply:allowed-plugin'])
   expect(f.warnings.join('\n')).toContain('denied-plugin@1.0.0')
   expect(f.warnings.join('\n')).toContain('data loss')
+})
+
+it('checks and imports exact application-selected modules through a configuration reload', async () => {
+  const f = fixture()
+  f.plugin('profile-shadow', { peer: '^9.0.0' })
+  f.plugin('bundled-provider')
+  f.plugin('ordinary-profile-plugin')
+  const moduleOverrides = { 'profile-shadow': pathToFileURL(join(f.dir, 'node_modules/bundled-provider/index.mjs')).href }
+  const patches = insert('profile-shadow', 'ordinary-profile-plugin')
+  const first = await f.run(patches, true, moduleOverrides)
+  expect(first).toContain('apply:bundled-provider')
+  expect(first).toContain('apply:ordinary-profile-plugin')
+  expect(first).not.toContain('import:profile-shadow')
+  expect(f.warnings).toEqual([])
+  const reloaded = await f.reload([...patches, { id: 'row-0', config: { revision: 2 } }])
+  expect(reloaded.filter(value => value === 'apply:bundled-provider')).toHaveLength(2)
+  expect(reloaded).not.toContain('import:profile-shadow')
+  expect(f.warnings).toEqual([])
+})
+
+it('still refuses an incompatible application-selected module before importing it', async () => {
+  const f = fixture()
+  f.plugin('allowed-profile-plugin')
+  f.plugin('denied-provider', { peer: '^9.0.0' })
+  const moduleOverrides = { 'allowed-profile-plugin': pathToFileURL(join(f.dir, 'node_modules/denied-provider/index.mjs')).href }
+  expect(await f.run(insert('allowed-profile-plugin'), true, moduleOverrides)).toEqual([])
+  expect(f.warnings.join('\n')).toContain('denied-provider@1.0.0')
 })
 
 it('admits the same plugin only for its exact version and the running runtime', async () => {

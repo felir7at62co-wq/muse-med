@@ -88,7 +88,8 @@ function registerSection(ctx: ClientContext): void {
           if (!binding || !sessionScope) throw new Error('Video selector requires a session scope')
           let directory = directories.get(binding)
           if (!directory) {
-            directory = new VideoDirectory(scope.remote.jubianVideoSelection, sessionId)
+            directory = new VideoDirectory(scope.remote.jubianVideoSelection, sessionId,
+              binding.session.projections.faceOf('jubianVideoSelection'))
             directories.set(binding, directory)
             const owned = directory
             const release = scope.effect(() => () => owned.dispose())

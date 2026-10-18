@@ -18,7 +18,10 @@ const HOST_DEPENDENCY_PACKAGES: readonly string[] = [
 /** Required Cordis services whose Host imports are type-only. */
 const REQUIRED_SERVICE_PEERS = {
   '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
-  '@deepseek-ai/dsh-tool-jubian': ['@deepseek-ai/dsh-muse-account'],
+  '@deepseek-ai/dsh-tool-jubian': [
+    '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-session',
+    '@deepseek-ai/dsh-session-projection', '@deepseek-ai/dsh-system-prompt', '@deepseek-ai/dsh-user-questions',
+  ],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
 /** Development-only package relationships not represented by source imports. */
@@ -81,11 +84,13 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'readMaterialList', 'readModels', 'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
-    'resolveImageModel', 'resolveImageStyle', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
+    'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled', 'withGenerationEnabled',
+    'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
+  '@deepseek-ai/dsh-llm': ['createUserMessage'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],

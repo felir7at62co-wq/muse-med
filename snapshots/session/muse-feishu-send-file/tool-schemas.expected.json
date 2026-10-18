@@ -1,0 +1,25 @@
+{
+  "initial": [
+    {
+      "name": "send_file",
+      "description": "把当前会话工作区内的文件或图片发送到对应飞书聊天。视频以可下载文件附件发送。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "工作区内的相对或绝对文件路径。"
+          },
+          "description": {
+            "type": "string",
+            "description": "随文件显示的简短说明。"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

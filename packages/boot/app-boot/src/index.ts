@@ -256,7 +256,10 @@ export function loadLayeredEnv(
   ])
 }
 
-const bootstrapIncludes = new WeakMap<Context, Entry>()
+const bootstrapIncludes = new WeakMap<Context, {
+  readonly entry: Entry
+  readonly moduleOverrides?: Readonly<Record<string, string>>
+}>()
 
 // The include's YAML dialect (`!!js` scalars become expression nodes the
 // Loader interpolates against each entry's injection-ready context), imported
@@ -275,8 +278,9 @@ const userPatchesSchema = entryListSchema
 export async function reconcileProfilePatches(
   ctx: Context, patches: PatchOptions[], binName: string, requiredIds: readonly string[] = [],
 ): Promise<string[]> {
-  const entry = bootstrapIncludes.get(ctx)
-  if (entry === undefined) throw new Error(`${binName}: profile reload requires the root Include entry`)
+  const bootstrap = bootstrapIncludes.get(ctx)
+  if (bootstrap === undefined) throw new Error(`${binName}: profile reload requires the root Include entry`)
+  const { entry, moduleOverrides } = bootstrap
   const previousFailures = (await inactiveEntries(ctx)).map(failure => ({
     ...failure, diagnostic: inactiveDiagnostic(failure), fiber: failure.entry.fiber, options: JSON.stringify(failure.entry.options),
   }))
@@ -287,7 +291,7 @@ export async function reconcileProfilePatches(
   const { patches: _previous, ...includeConfig } = entry.options.config as Include.Config
   // The recomposition judges the rows the launch judged, resolved from the file this Include read.
   const parentURL = new URL('.', new URL(includeConfig.path, entry.parent.tree.ctx.baseUrl)).href
-  const prepared = prepareProfilePatches(ctx, patches, parentURL, binName)
+  const prepared = prepareProfilePatches(ctx, patches, parentURL, binName, moduleOverrides)
   await entry.update({ config: { ...includeConfig, patches: prepared } })
   const results = await Promise.allSettled(previousFibers.map(({ fiber }) => fiber.await()))
   await ctx.loader.await()
@@ -533,6 +537,8 @@ function groupedDump(
  * @param bareModuleBaseUrl - optional installed-host base for bare package
  * names; relative names continue to resolve beside the configuration file.
  * @param binName - diagnostic prefix for a profile plugin denied by compatibility policy; defaults to `dsh`.
+ * @param moduleOverrides - application-owned exact specifiers redirected to packaged module URLs;
+ * other imports keep their existing resolution.
  * @returns the created root Include entry, or `undefined` when a surface
  * disposed the whole tree (taking the Loader service with it) while the
  * entry creation was in flight.
@@ -543,13 +549,16 @@ export async function mountRootInclude(
   patches: readonly PatchOptions[] = [],
   bareModuleBaseUrl?: string,
   binName = 'dsh',
+  moduleOverrides?: Readonly<Record<string, string>>,
 ): Promise<Entry | undefined> {
-  ctx.loader.builtins.include = bareModuleBaseUrl === undefined
+  ctx.loader.builtins.include = bareModuleBaseUrl === undefined && moduleOverrides === undefined
     ? Include
     : class HostResolvedRootInclude extends Include {
       override import(name: string, getOuterStack?: () => string[]): unknown {
+        const overridden = moduleOverrides !== undefined && Object.hasOwn(moduleOverrides, name) ? moduleOverrides[name] : undefined
+        if (overridden !== undefined) return super.import(overridden, getOuterStack)
         const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
-        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
+        if (bareModuleBaseUrl === undefined || name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
         const internal = this.ctx.loader.internal
         /* v8 ignore next -- Node supplies the internal loader; this preserves the
            original diagnostic for hypothetical embedders without it. */
@@ -568,7 +577,7 @@ export async function mountRootInclude(
   // diagnostics unstable across runs (and snapshot fixtures).
   // The launcher's own copy is prepared here: compatibility decisions must be made before the root
   // Include imports anything, and they change no profile patch layer, manifest, or bundle list.
-  const prepared = prepareProfilePatches(ctx, [...patches], pathToFileURL(dirname(absoluteConfigPath)).href + '/', binName)
+  const prepared = prepareProfilePatches(ctx, [...patches], pathToFileURL(dirname(absoluteConfigPath)).href + '/', binName, moduleOverrides)
   const includeConfig: Include.Config = {
     path: pathToFileURL(absoluteConfigPath).href,
     ...prepared.length > 0 ? { patches: prepared } : {},
@@ -582,7 +591,7 @@ export async function mountRootInclude(
   const loader = ctx.get('loader')
   if (loader === undefined) return undefined
   const entry = loader.resolve(includeId)
-  bootstrapIncludes.set(ctx, entry)
+  bootstrapIncludes.set(ctx, { entry, ...(moduleOverrides === undefined ? {} : { moduleOverrides }) })
   return entry
 }
 
@@ -930,7 +939,7 @@ export async function auditStartupEntries(
   warn: (line: string) => void = line => void process.stderr.write(line),
 ): Promise<void> {
   const failures = await inactiveEntries(ctx)
-  const required = new Set(failures.filter(({ entry }) => entry === bootstrapIncludes.get(ctx)
+  const required = new Set(failures.filter(({ entry }) => entry === bootstrapIncludes.get(ctx)?.entry
     || requiredStartupEntryIds.has(entry.options.id)).map(({ entry }) => entry))
   if (required.size > 0) {
     throw new StartupError(startupDiagnostic(binName, failures, required), failures.map(({ entry, outcome }) => ({
@@ -963,6 +972,7 @@ export async function auditStartupEntries(
  * @param bareModuleBaseUrl - optional installed-host base for bare package
  * names; use it when the host, rather than the configuration project, owns the
  * complete plugin set.
+ * @param moduleOverrides - application-owned exact specifiers redirected to packaged module URLs for the lifetime of the root Include.
  * @returns the root context after the initial startup audit, or as soon as a
  * surface disposed the tree while startup was still in flight.
  * @throws {@link StartupError} for an inactive required entry, including all inactive plugins in its message;
@@ -977,6 +987,7 @@ export async function boot(
   patches?: PatchOptions[],
   prepare?: (ctx: Context) => Promise<void> | void,
   bareModuleBaseUrl?: string,
+  moduleOverrides?: Readonly<Record<string, string>>,
 ): Promise<Context> {
   const ctx = new Context()
   const startupLogs: StartupLogRecord[] = []
@@ -1003,7 +1014,7 @@ export async function boot(
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
-    await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl, binName)
+    await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl, binName, moduleOverrides)
     // A surface can finish and dispose the whole tree while startup is still
     // in flight, before the last entry settles. The Loader service goes with
     // it, and the activation audit describes a live tree — reading `ctx.loader`

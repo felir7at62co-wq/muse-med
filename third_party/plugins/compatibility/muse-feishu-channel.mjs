@@ -2,6 +2,7 @@
 import { once } from 'node:events'
 import z from '@deepseek-ai/schemastery'
 import { sendWorkspaceFile } from './muse-feishu-files.mjs'
+import { isFeishuBotMentioned } from './muse-feishu-identity.mjs'
 
 /** Stable Cordis plugin name for the optional channel. */
 export const name = 'muse-feishu-channel'
@@ -72,7 +73,7 @@ export function apply(ctx, config) {
           if (closing) return
           const sender = event.isGroup ? event.peerId : event.senderId
           if ((this.config.allowFrom.length > 0 && !this.config.allowFrom.includes(sender)) || (this.config.allowFrom.length === 0 && !event.text)) return
-          if (event.isGroup && config.requireMention && !event.raw?.message?.mentions?.some(mention => mention.id?.open_id === gateway.botInfo?.openId && gateway.botInfo?.openId)) return
+          if (event.isGroup && config.requireMention && !isFeishuBotMentioned(event, gateway.botInfo?.openId)) return
           return track(super._handleInbound(event))
         }
         _handleAction(event) {

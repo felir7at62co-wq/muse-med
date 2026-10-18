@@ -82,6 +82,7 @@ const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
+  '@dsh-feishu/dsh-feishu',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {
@@ -193,7 +194,7 @@ describe('desktop external plugin profile', () => {
     expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
   })
 
-  it('completes the rc8 bundle prefix with Hongguo while preserving external plugins', async () => {
+  it.each(['rc8', '1.1.4'])('completes the %s bundle prefix while preserving external plugins', async (sourceVersion) => {
     const { manager } = setup()
     await manager.applyRelease()
     await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
@@ -202,6 +203,7 @@ describe('desktop external plugin profile', () => {
       '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
       'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
       '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host',
+      ...sourceVersion === '1.1.4' ? ['muse-hongguo-search'] : [],
       'plugin',
     ])
     const written = readFileSync(manifestPath, 'utf8')
@@ -217,6 +219,70 @@ describe('desktop external plugin profile', () => {
     expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
     await expect(manager.applyRelease()).resolves.toBe(false)
     expect(manifestBackups(manager.paths.profile)).toEqual(backups)
+  })
+
+  it('promotes an already installed Feishu bundle without reordering other plugins or rewriting their config', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'first-plugin@1.0.0' }, hooks())
+    await manager.mutate({ type: 'plugin-add', spec: 'last-plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
+    manifest.dependencies['@dsh-feishu/dsh-feishu'] = '0.3.6'
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    const directory = join(manager.paths.profile, 'node_modules', '@dsh-feishu/dsh-feishu')
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: '@dsh-feishu/dsh-feishu', version: '0.3.6', dsh: { bundle: { patch: './bundle.yml' } } }))
+    writeFileSync(join(directory, 'bundle.yml'), '[]\n')
+    writeBundles(manifestPath, [
+      ...BUILT_IN_BUNDLES.slice(0, -1), 'first-plugin', '@dsh-feishu/dsh-feishu', 'last-plugin',
+    ])
+    const written = readFileSync(manifestPath, 'utf8')
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const patch = '- id: feishu-channel\n  config:\n    appId: synthetic-app\n    appSecret: synthetic-secret\n- id: custom-plugin\n  config:\n    retained: true\n'
+    writeFileSync(patchPath, patch)
+
+    await expect(manager.applyRelease()).resolves.toBe(false)
+
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES, 'first-plugin', 'last-plugin'])
+    expect((JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }).dependencies).toEqual(manifest.dependencies)
+    expect(readFileSync(patchPath, 'utf8')).toBe(patch)
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+    await expect(manager.applyRelease()).resolves.toBe(false)
+    expect(manifestBackups(manager.paths.profile)).toEqual(backups)
+  })
+
+  it('still refuses reordered older built-ins when Feishu was installed externally', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeBundles(manifestPath, [
+      BUILT_IN_BUNDLES[1], BUILT_IN_BUNDLES[0], ...BUILT_IN_BUNDLES.slice(2, -1),
+      'plugin', '@dsh-feishu/dsh-feishu',
+    ])
+    const written = readFileSync(manifestPath, 'utf8')
+
+    await expect(manager.applyRelease()).rejects.toThrow('desktop project: profile must begin with the built-in desktop bundle list')
+
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
+  })
+
+  it('refuses duplicate external Feishu bundles instead of silently promoting both', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeBundles(manifestPath, [
+      ...BUILT_IN_BUNDLES.slice(0, -1), 'plugin', '@dsh-feishu/dsh-feishu', '@dsh-feishu/dsh-feishu',
+    ])
+    const written = readFileSync(manifestPath, 'utf8')
+
+    await expect(manager.applyRelease()).rejects.toThrow('desktop project: profile bundle list contains a duplicate package')
+
+    expect(readFileSync(manifestPath, 'utf8')).toBe(written)
+    expect(manifestBackups(manager.paths.profile)).toEqual([])
   })
 
   it('refuses a stored bundle list that is not a prefix of the built-in list', async () => {

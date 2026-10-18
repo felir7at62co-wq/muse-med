@@ -90,4 +90,4 @@
   config:
     enabled: false
     requireMention: true
-    denyTools: [ask_user_question, exit_plan_mode]
+    denyTools: [exit_plan_mode]

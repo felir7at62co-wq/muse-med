@@ -1,4 +1,4 @@
-/** Editable Feishu credentials and startup activation through the shipped bridge and real Loader. */
+/** Editable credentials and activation metadata through the new Muse Config/mount and real Loader. */
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -14,6 +14,7 @@ it.each([
   ['legacy', 'requires the product switch even when the bridge section stores enabled true'],
   ['expressions', 'evaluates credential expressions before deciding startup activation'],
   ['other-rows', 'leaves other entries and inherited child configs unchanged without a bridge row'],
+  ['profile-shadow', 'pins native Feishu and the retained remote despite a profile-installed upstream package'],
 ])('%s: %s', async (scenario) => {
   // The source-mode launcher resolves the staged bridge's workspace dependencies through tsconfig paths.
   const result = await execute(process.execPath, ['--import', 'tsx/esm',

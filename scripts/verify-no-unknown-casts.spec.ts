@@ -236,6 +236,24 @@ describe('unknown assertion source discovery', () => {
     expect(verifyNoUnknownCasts(root)).toBe(0)
   })
 
+  it('excludes only the pinned Feishu source directory while checking owned adapters and neighboring plugins', () => {
+    const root = fixture()
+    write(root, 'third_party/plugins/dsh-feishu/src/index.ts', assertion)
+    write(root, 'third_party/plugins/dsh-feishu/tests/bridge.spec.ts', assertion)
+    git(root, 'add', '.')
+    expect(scanUnknownCasts(root)).toEqual([])
+    expect(verifyNoUnknownCasts(root)).toBe(0)
+    const owned = [
+      'third_party/plugins/compatibility/feishu-owned.ts',
+      'third_party/plugins/checks/feishu-owned.mts',
+      'third_party/plugins/dsh-feishu-owned/src/index.ts',
+      'third_party/plugins/dsh-feishu.ts',
+    ]
+    for (const file of owned) write(root, file, assertion)
+    expect(scanUnknownCasts(root).map(cast => cast.file)).toEqual(owned.toSorted())
+    expect(() => verifyNoUnknownCasts(root)).toThrow(/new assertions to unknown/u)
+  })
+
   it.each(['packages', 'apps', 'scripts', 'website'])('rejects discovery missing %s', (area) => {
     const root = fixture()
     unlinkSync(join(root, `${area}/seed.ts`))

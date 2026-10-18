@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopDramaSkillPackageFiles,
+  assertDesktopFeishuPackageFiles,
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
   type PackedDesktopPackage,
@@ -87,7 +88,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', '@dsh-feishu/dsh-feishu', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -166,6 +167,25 @@ describe('desktop package-set selection', () => {
     for (const required of files) {
       expect(() => { assertDesktopDramaSkillPackageFiles(files.filter(file => file !== required)) }).toThrow(required)
       expect(() => { assertDesktopDramaSkillPackageFiles(files.map(file => file === required ? `${file}.disabled` : file)) }).toThrow(required)
+    }
+  })
+
+  it('requires the Feishu entry, card controllers, source record and license', () => {
+    const files = [
+      'package/lib/index.js',
+      'package/lib/muse-feishu-runtime.mjs',
+      'package/lib/muse-feishu-reliability.mjs',
+      'package/lib/muse-feishu-migration.mjs',
+      'package/lib/upstream/index.js',
+      'package/lib/upstream/cards/StreamingCardController.js',
+      'package/lib/upstream/cards/InteractionCardController.js',
+      'package/cordis.patch.yml',
+      'package/LICENSE',
+      'package/SOURCE.json',
+    ]
+    expect(() => { assertDesktopFeishuPackageFiles(files) }).not.toThrow()
+    for (const required of files) {
+      expect(() => { assertDesktopFeishuPackageFiles(files.filter(file => file !== required)) }).toThrow(required)
     }
   })
 })

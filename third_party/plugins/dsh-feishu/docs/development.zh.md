@@ -1,0 +1,397 @@
+# dsh-feishu 开发指南
+[English](development.md) | 中文
+
+dsh-feishu 的安装、构建、测试与本地验证工作流。
+
+## 前置要求
+
+- Node.js >= 22.13（ESM，NodeNext）
+- pnpm（dsh profile 工具会转发给 pnpm）
+- 一个 dsh 安装：`npm install -g @deepseek-ai/dsh`（`@deepseek-ai/dsh` 的 npx 缓存也可用于本地验证）
+
+## 安装依赖
+
+```sh
+pnpm install
+```
+
+> 本地环境说明：pnpm 10+ 从 `pnpm-workspace.yaml` 和用户配置目录读取设置；默认的 store 位置在某些主机上可能不可写（例如只读的 home 挂载）。这种情况下，通过重定向 HOME，一次性把 store 指向一个可写路径：
+>
+> ```sh
+> mkdir -p _dev/home && export HOME="$(pwd)/_dev/home"
+> pnpm config set store-dir "$(pwd)/_dev/pnpm-store"
+> pnpm config set cache-dir "$(pwd)/_dev/pnpm-cache"
+> # keep HOME exported for every pnpm invocation in this shell
+> ```
+
+### 本地工具链
+
+如果 `pnpm` 不在 `PATH` 中，请使用本地安装，并把每次 pnpm 调用——包括 profile 派生出的 `pnpm`（因为 `dsh plugin` 会转发给它）——都指向仓库 `_dev/` 下可写的 store/cache 路径：
+
+```sh
+export PATH="$(pwd)/_dev/pnpm/node_modules/.bin:$PATH"
+export npm_config_store_dir="$(pwd)/_dev/pnpm-store"
+export npm_config_cache_dir="$(pwd)/_dev/pnpm-cache"
+export XDG_CACHE_HOME="$(pwd)/_dev/xdg-cache"  # node-gyp builds
+```
+
+`npm_config_*` 环境变量会覆盖项目配置，因此 `dsh plugin` 内部的 `pnpm add` 会使用同一个 store，而无需编辑 profile。`XDG_CACHE_HOME` 重定向 node-gyp 的头文件缓存（默认的 `~/.cache/node-gyp` 可能位于只读挂载上）——没有它，node-pty 等原生模块将无法构建。
+
+## 质量门槛
+
+```sh
+pnpm run lint        # Biome: lint + format check on src/ and tests/
+pnpm run typecheck   # tsc --noEmit over src/ and tests/
+pnpm run test        # Vitest unit + integration tests
+pnpm run build       # tsc emit to lib/ (declaration + source maps)
+```
+
+提交前这四项必须全部通过；CI 运行同样的四项。
+
+## 目录结构
+
+```
+src/                  # plugin source; one module per concern, each with tests
+tests/                # vitest suites (never under src/)
+docs/                 # documentation (EN + .zh.md)
+scripts/              # repo tooling
+```
+
+测试采用 "fake context"（假上下文）模式做插件级覆盖：手工构造模块所接触的 cordis 服务的 stub（见 `tests/index.spec.ts`），再加上针对模块逻辑的纯函数测试。
+
+### 集成测试
+
+`tests/integration/real-composition.spec.ts` 从真实 profile 启动一个**真实的 dsh 进程**并运行一次真实的 agent turn，只 mock 两个外部服务：
+
+- **Feishu** —— `FEISHU_TRANSPORT=memory` 把传输层换成基于文件通道的内存传输（`src/memory-transport.ts`）：测试把一条消息放入 `inbox/`，surface 处理它，每一次 send/update 都会落入 `outbox/`。
+- **LLM API** —— `DEEPSEEK_BASE_URL` 把真实的 DeepSeek adapter 指向本地 mock 服务器（`tests/integration/mock-llm-server.ts`）。
+
+该套件断言完整的 surface：消息 → session → agent turn → 卡片发布并被 patch → **由卡片承载的最终答案**（它就地以绿色收尾），此外还有卡片操作、session 生命周期、web 命令包装器，以及工作目录 gate。脚本化的 mock LLM（`setScripts`、`holdNextResponse`，以及一个应答 HTTP 500 的 `error` 块）驱动工具调用、推理、错误 turn 和重试。除非满足前置条件，否则套件会自行跳过：
+
+- dsh CLI 可解析（`$DSH_BIN`，或 `PATH` 上的 `dsh`）。
+- dsh CLI 可解析（`$DSH_BIN`，或 `PATH` 上的 `dsh`）。
+- 在 `$FEISHU_INT_*_DSH_HOME/profiles/feishu-dev` 存在一个准备好的 profile（默认 `_dev/dsh-home-<套件>/profiles/feishu-dev`——用 `dsh plugin --profile feishu-dev add link:<checkout>` 创建，见下文"在真实 dsh profile 中验证 bundle"一节）。刻意与环境的 `DSH_HOME` 相互独立，这样测试永远不会碰到另一个 dsh home。**每个集成套件使用自己的 home**（`dsh-home-attachments`、`dsh-home-rich-text`、`dsh-home-wait-instruction`、`dsh-home-real`、`dsh-home-scenarios`）：vitest 并行运行各套件，共享一个 `_dev/dsh-home/feishu/session-map.json` 会让并发的 dsh 进程竞争写入、静默丢掉某个套件的 chat→session 绑定（CI-only flaky，例如 session-lifecycle 测试读文件发现自己的 chat 缺失）。
+- checkout 已构建（`pnpm run build`）。
+
+CI 在每次 push 时都运行该套件（两个 node 版本分支都跑）：workflow 构建 checkout、准备 profile，并以 `FEISHU_INT_REQUIRED=1` 运行测试——这样缺少前置条件会响亮地让任务失败，而不是静默跳过。dsh CLI 是 devDependency（`@deepseek-ai/dsh`），原生构建脚本（node-pty 及其同类）在 `pnpm-workspace.yaml` 中获准——不涉及任何凭据；正是上面这些 Feishu 和 LLM mock 让套件在无需密钥的情况下也能运行。
+
+另有独立的 **canary workflow**（`.github/workflows/canary.yml`）每天（UTC 02:00）及按需对 **npm `@latest` 的 CLI**（用户真正会装的版本，不是 lockfile 锁定的那个）运行同一套件：它把 `@deepseek-ai/dsh` 钉到 `@latest`，其余家族成员设为该版本的 caret（把子包指向 dist-tag 会装到远古的 `0.0.1-rc.x` 线——只有 CLI 的 `latest` 是当前的）。canary 变红意味着上游破坏性变更波及我们的代码；见 AGENTS.md → "Adapting to a new dsh release"。
+
+```sh
+pnpm run build        # ensure lib/ is current (the profile links the checkout)
+pnpm run test         # unit + integration (integration self-skips as needed)
+DSH_BIN=/path/to/dsh pnpm run test -- tests/integration/real-composition.spec.ts
+FEISHU_INT_REQUIRED=1 pnpm run test   # fail (not skip) when a prerequisite is missing
+```
+
+运行 turn 的测试会先固定一个工作目录（`/cd`，工作目录 gate 所要求）；分组测试通过 `FEISHU_MOCK_BOT_OPEN_ID` 注入机器人的 open id。新 session 会额外触发一次标题生成的 LLM completion——请断言卡片内容，绝不要断言精确的 completion 次数。
+
+`FEISHU_TRANSPORT=memory` 这个 seam 对手工调试也很方便：在 surface 运行期间，向 `$FEISHU_MEMORY_DIR/inbox/` 写入一个 JSON 文件即可注入一条假消息。
+
+#### 场景套件（两套真实进程套件、两个 dsh home）
+
+`tests/integration/scenarios.spec.ts` 是第二个真实进程套件，覆盖边缘场景：守护进程重启后的持久性、群组提及模式与允许列表（通过 `FEISHU_*` 环境变量 seam）、`/group` + `/repo`、每一种问题卡片变体、主动提及、去重、passthrough，以及停止 turn 时的表情切换。（Session 回放只有一个 surface——`/export`；`/history` 因冗余且难看，经决策被移除。）由于 vitest 并行运行测试**文件**，两套件不得共享同一个 dsh home（两者都会持久化 session map 与日志）：场景套件默认使用 `_dev/dsh-home-scenarios`（可用 `FEISHU_INT_SCENARIOS_DSH_HOME` 覆盖），用相同的 `dsh plugin --profile feishu-dev add link:<checkout>` 配方准备。CI 会准备两个 profile。
+
+##### 场景覆盖矩阵
+
+| 场景 | 测试 |
+|---|---|
+| 守护进程重启后恢复同一 session；重启后 `/export` 导出的 transcript 横跨两端 | `restart resumes the same session` |
+| turn 运行期间 `/status` 只读 | `/status is read-only` |
+| 裸 `/repo` 发布选择器卡片 | `bare /repo posts the project picker card` |
+| `/group` 创建群组；@-turn 在其中可用 | `/group creates a group chat` |
+| 提及模式 `never` / `ambient` / `topic` | 三个 `groupMentionMode=` 测试 |
+| `allowedChats`（环境变量）对整个聊天设门禁 | `allowedChats env` |
+| 单人群组放宽（`1u,1b`）接受不带 @ 的消息 | `solo-group relaxation` |
+| 多选切换 + Submit（重定向的卡片） | `multi-select question` |
+| 由聊天消息回答的自由文本问题 | `free-text question` |
+| 问题 Cancel 时以空答案收场 | `question Cancel` |
+| 群组审批/问题卡片 @ 请求者；p2p 卡片不 @ | 两个 mention 测试 |
+| 重投递的消息 id 被去重 | `message dedup` |
+| `unknownCommand=passthrough` 把未知斜杠命令路由给模型 | `unknownCommand=passthrough` |
+| 中途停止 turn 会把表情切换为停止表情 | `stop mid-turn swaps the received reaction` |
+| `/export` transcript 包含工具行 | `/export after a tool-calling turn` |
+
+
+### 真实客户端 E2E（feishu.cn 网页版）
+
+E2E 套件在无头浏览器中驱动**真实的 feishu.cn 网页客户端**，像用户一样操作 bot：打开群聊、发送斜杠命令、点击卡片按钮、断言渲染结果。它运行真实的 dsh 进程（专用 bot 应用、mock LLM）加真实浏览器——是唯一同时使用真实飞书通道与真实客户端的测试层。先运行一次 `pnpm run e2e:setup`（专用测试账号；扫码是唯一的人工步骤，且 setup 幂等——重跑不会对已导出的登录重新扫码），之后 `pnpm run e2e:ui` 完全免人工。每个测试用例通过后台创建自己的群聊（`<caseId>-<runId>`，与 `/group` 相同的 `im.v1.chat.create` 调用），用例之间永不共享聊天页面。它**不**属于 CI：需要真实的 bot 应用与浏览器会话。设计、约束、运行手册与捕获到的网页选择器都在 `docs/e2e-testing.md`。
+
+## 运行真实测试 bot
+## 在真实 dsh profile 中验证 bundle
+
+bundle 必须挂载进一个真实的 dsh profile。请使用隔离的 `DSH_HOME`，这样验证永远不会碰到生产 profile：
+
+> 关于 Feishu 应用本身的创建/配置——一次扫码、无需 web 控制台操作——见 `docs/feishu-setup.md` → "Quick setup"（`pnpm run setup:feishu`）。
+
+```sh
+# From the checkout root:
+export DSH_HOME="$(pwd)/_dev/dsh-home"   # git-ignored
+dsh plugin --profile feishu-dev add "link:$(pwd)"
+dsh --profile feishu-dev --dump-config   # confirm the feishu row is composed
+timeout 30 dsh --profile feishu-dev       # boot; expect the "[feishu]" log lines
+```
+
+- 第一次 `dsh plugin` 调用会初始化 profile（bundles = `['@deepseek-ai/dsh-base']`），在其内部运行 `pnpm add link:<checkout>`，并把 `@dsh-feishu/dsh-feishu` 追加到 `dsh.profile.bundles`，因为 manifest 声明了 `dsh.bundle.patch`。如果 profile 的 pnpm store 不可写，请把 `storeDir` / `cacheDir` 加到 profile 的 `pnpm-workspace.yaml`（该文件是 pnpm 10+ 设置的大本营）。
+- 无凭据启动会记录"未配置"通知并注册 `feishu-status`；凭据来自 `appId`/`appSecret` 配置键或 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 环境变量。
+- 清理：`rm -rf _dev/dsh-home`（或删除 `feishu-dev` profile）。
+
+
+需要对着**真实飞书平台**做端到端验证时（某些卡只在真机上出错、时序问题、面板交互），用仓库自带的测试应用凭据启动 bot，而不是集成测试的 mock。checkout 里有一个 git-ignored 的测试 bot 环境：
+
+```sh
+source _dev/bot-env.sh        # 设置 DSH_HOME=_dev/dsh-home 并 source _dev/secrets.env
+```
+
+`_dev/secrets.env` 存放测试应用的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `DEEPSEEK_API_KEY`；`bot-env.sh` 同时会 unset 代理环境变量（飞书长连接**不能**走沙箱代理）。
+
+- **调试追踪**：设置 `FEISHU_DEBUG=1` 打印整个 surface 的调试行（完整行图见下文 "Debug logging" 一节）。面板日志会精确显示每个动作更新的是哪张卡——排查"哪张卡响应了"的问题就靠它。
+- **只能有 ONE 个 bot 进程**：每次启动/重启前后都确认只有一个进程连着测试应用（见 `docs/pitfalls.md` → "环境与代理坑"——残留的第二个 bot 会让卡片更新乱套，因为每个进程各自维护自己的面板状态）。
+- **脱离 bash 作业启动**，防止作业结束时回收进程：
+
+  ```sh
+  source _dev/bot-env.sh && export FEISHU_DEBUG=1
+  nohup ./node_modules/.bin/dsh --profile feishu-dev > _dev/bot.log 2>&1 < /dev/null & disown
+  sleep 15 && grep "bridge ready" _dev/bot.log
+  ```
+
+  停止用 `pkill -f "bin.js --profile feishu-d[e]v"`，并确认进程数为零。
+
+## Debug logging（调试日志）
+
+`FEISHU_DEBUG=1` 会打开整个 surface 的 `logger.debug(...)` 追踪（由 console exporter 门控；不设置环境变量时生产环境保持安静——见 `docs/pitfalls.md` → "调试追踪需要 FEISHU_DEBUG=1 且 exporter 的 levels"）。每行日志遵循 `<module> <action> <entities>` 格式并带真实 id，可以沿着一条消息、一张卡、一个 session 或聊天在管道里走一遍：
+
+| 模块 | 你会看到的行 | 回答的问题 |
+|---|---|---|
+| `index` | `[feishu] starting surface`、`routing: …`、`host services: …` | 生效的配置是什么；哪些宿主服务已装载（rename/archive/permission/plan/llm） |
+| `session-map` | `session map: minted/remint/chat X now Y/cwd …` | 聊天为什么换了新 session；cwd 变更 |
+| `bridge` | `message <id> -> slash/turn`、`command /x -> <kind>`、`agent resolve … live/resume/create/rebind`、`session event <type>`、`card action <kind> on card <id>` | 消息路由；命令结果；agent 阶梯；每个入站事件 |
+| `transport` | `transport ws state -> …`、`sendText/sendCard/updateCard/…` | 长连接健康；每个出站消息/卡片及其 id |
+| `streaming` | `streaming open/patch/finalize`、`streaming event <type> -> chat`、`tool/call`/`tool/result` | 回合生命周期；哪张卡在何时被 patch；工具活动 |
+| `panel` | `panel action <kind> on card <id>`、`panel OPEN/PUSH/POP/…`、`panel update card <id>` | 每次点击更新的是哪张卡（每卡状态机） |
+| `interactions` | `approval request <id>`、`approval <id> settled`、`question <id> settled` | 审批/提问生命周期 |
+| `actions` | `panel action <kind>: transition/refused/operation` | 面板 gate 与生命周期决策 |
+
+一次完整回合自顶向下读像这样：`inbound message m1 -> turn` → `streaming beginTurn` → `streaming assistant-stream chunk` → `streaming tool/call` → `transport updateCard <card-id>` → `streaming event turn/end` → `streaming finalize <status>`。行为异常时，grep 消息/卡片/session id，链条断裂处就是 surface 丢失它的位置。
+
+## 国际化（i18n）
+
+用户可见文案保存在 `src/i18n/` 下的语言目录中，不内联在卡片/按钮代码里：
+
+- `src/i18n/en-US.ts` —— 基础目录，也是 `MessageKey` 的类型来源
+  （`as const`)。新增用户可见文案先加在这里。
+- `src/i18n/zh-CN.ts` —— 类型为 `Record<MessageKey, string>`；键的一致性
+  在编译期强制（缺失或多余的翻译会让 `pnpm run typecheck` 失败），
+  另有 `tests/i18n.spec.ts` 兜底。
+- `src/i18n/index.ts` —— 引擎：扁平点分命名空间键、`{name}` 插值令牌、
+  未知键大声报错，以及活动语言单例（`apply()` 启动时调用
+  `setActiveLocale`；各模块导入纯函数 `t(key, params?)`）。
+
+约定：
+
+1. Emoji 放在目录值内部，每种语言拥有完整标签。
+2. 值中的每个 `{token}` 必须由调用方传入；占位符名称必须跨语言一致
+   （`tests/i18n.spec.ts` 逐键比较）。
+3. 永远在调用时翻译。模块级的 `t(...)` 初始化会把默认语言冻结在
+   `apply()` 配置之前（回归案例：状态卡连接标签）。
+4. 范围：卡片、按钮、面板视图/操作、命令反馈、门控与通知均翻译。
+   面向注册表的命令 `description`/`usage`（暴露给 harness 工具的契约文本）、
+   agent 提示内容与调试日志按设计保持英文。
+
+活动语言的解析顺序：profile 的 `locale` 选项 → `FEISHU_LOCALE`
+环境变量 → `en-US`（见 `docs/feishu-setup.zh.md` 的「Surface 语言」）。
+`tests/i18n-rendering.spec.ts` 会切换到 zh-CN 并断言主要界面的真实渲染
+输出——新增用户可见界面时请扩展它。
+
+## 添加功能模块
+
+1. 创建 `src/<module>.ts`，在模块及其导出的函数上写 JSDoc。
+2. 创建 `tests/<module>.spec.ts` 覆盖其行为（若它注册进某个 registry，还要覆盖 disposal）。
+3. 通过 `src/index.ts` 接入（用 `ctx.get` 对可选服务做 feature-detect）。
+4. 更新相关的 `docs/` 页面。
+5. 运行全部质量门槛；用 Conventional Commit 消息提交。
+
+## 文档映射
+
+每个文档都有对应的变更类型；改动到该层面的 PR 必须在同一个 PR 里更新对应文档（见 AGENTS.md → "Docs move with their feature"）。标 `*` 的文档变更需维护者审核后才能落地。
+
+| 文档 | 何时更新 |
+| --- | --- |
+| `README.md` / `README.zh.md` `*` | 用户可见面：安装、快速开始、功能、兼容性、徽章——任何改动都需维护者审核后才能落地 |
+| `docs/architecture.md`（+ `.zh.md`） | 结构、状态机、surface、数据流 |
+| `docs/ux-specification.md`（+ `.zh.md`） | 交互行为：卡片、面板、动作、审批、提问 |
+| `docs/feishu-setup.md`（+ `.zh.md`） | 飞书配置、权限、事件、回调（与 `src/setup/feishu-manifest.json` 同步） |
+| `docs/development.md`（+ `.zh.md`） | 开发流程、命令、门槛、工具链、PR/CI 流程 |
+| `docs/features.md`（+ `.zh.md`） | 功能列表 / TODO 追踪——每个已实现或计划中的功能都更新其行 |
+| `src/i18n/en-US.ts` + `src/i18n/zh-CN.ts` | 任何用户可见文案变更：在同一个 PR 中同时向两个目录添加键 |
+| `docs/e2e-testing.md`（+ `.zh.md`） | E2E UI 套件：场景、运行手册、约束、捕获到的网页选择器 |
+| `docs/pitfalls.md`（+ `.zh.md`） | 实战踩坑；每条都伴随回归测试 |
+| `docs/portable-deployment.md`（+ `.zh.md`） | 绿色/便携部署包：构建方式、多实例模型、每实例部署 |
+| `AGENTS.md` | agent 指南、约定、流程（本文件） |
+| `CONTRIBUTING.md` / `SECURITY.md` | 贡献指南 / 安全姿态（低频、刻意为之） |
+
+行为变更如果确实不影响任何文档，必须在 PR body 的 `## Docs` 里写明："none — no doc surface affected"。README 改动总是放在独立 commit 里，便于维护者单独审核或丢弃。
+
+## Pull requests 与 CI
+
+_仅维护者使用的自动化——贡献者请直接通过 GitHub UI 提 PR。_
+
+只能通过 CI 全绿的 PR 合并——绝不直接 push 到 main。GitHub API 访问使用位于 `_dev/gh-token` 的 repo 级 fine-grained PAT（chmod 600，由开发者持有，绝不提交）。每次调用时把它读入变量，绝不回显：
+
+```sh
+TOKEN=$(cat _dev/gh-token)
+```
+
+打开 PR（head = 你 push 的分支，base = `main`）。PR 标题必须是 Conventional Commit（`feat: …`、`fix: …`、`docs: …`、`chore: …`，可带 scope 如 `chore(ci): …`）——它最终会成为 main 上的 merge title，历史保持统一：
+
+```sh
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' \
+  https://api.github.com/repos/PGZXB/dsh-feishu/pulls \
+  --data '{"title":"...","head":"<branch>","base":"main","body":"..."}'
+```
+
+PR body 遵循固定模板——改了什么、为什么、同步更新了哪些文档、如何验证（评审者读 body 而不是 commits；merge 只保留标题）：
+
+```md
+## What
+
+<每个变更一行，具体>
+
+## Why
+
+<背景：解决的问题，相关 issue/PR 引用>
+
+## Docs
+
+<本 PR 按文档映射更新的文档，或 "none — no doc surface affected"。
+README 改动：等待维护者审核。>
+
+## Verification
+
+<运行的门槛 + 行为如何确认（手动步骤、测试名）>
+```
+
+等待 CI 得出结论——workflow 会运行完整的门槛矩阵，包括 real-composition 集成套件：
+
+```sh
+SHA=$(git rev-parse HEAD)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/PGZXB/dsh-feishu/actions/runs?head_sha=$SHA"
+```
+
+一旦 PR 的 `mergeable_state` 变为 `clean`（checks 全绿）即可合并。一律使用 **squash 合并**（`merge_method: "squash"`），`commit_title` 为 `"<PR title> (#<number>)"`——每个 PR 在 main 上只留一个 Conventional Commit，且能追溯到 PR 号：
+
+```sh
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
+  -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' \
+  https://api.github.com/repos/PGZXB/dsh-feishu/pulls/<number>/merge \
+  --data '{"commit_title":"<PR title> (#<number>)","merge_method":"squash"}'
+```
+
+不要用 "merge"（会产生 merge commit）或 "rebase"（多 commit PR 会在 main 上拆成多个 commit、丢失 PR 追溯）。
+
+打开 PR 之前，先 rebase 到最新的 `origin/main` 并重新运行质量门槛：main 树在并发工作下会移动，在 PR 存在之前解决冲突成本最低。如果 CI 变红，在 worktree 中修复并重新 push——GitHub 会在新的 head 上重新运行 checks。端到端实践见 AGENTS.md → "Worktree + PR workflow"。
+
+## 发布
+
+一次发布 = **先合并一个经过 review 的 release PR，然后在合并后的 `main` 上
+打 tag**——绝不从侧分支直接推 tag。版本号的更新本身仍然在从"恰好要发布的
+那个 commit"切出的冻结 `release/vX.Y.Z` 分支上准备（main 是开发分支，可能
+带着未发布的工作，如下一轮 dsh 适配），但它和其它改动一样走 PR review 落
+到 main；发布只在 PR 合并之后由 tag 触发。
+
+这个顺序不是形式主义。GitHub 生成的 release notes（`--generate-notes`）以
+"新 tag 历史中可达的上一个 tag"为基线。如果 tag 打在稍后被 squash merge 的
+release 分支上，它永远不会成为后续提交的祖先，于是下一次发布就会静默回退到
+很老的 tag，列出几个月无关的 PR。打在合并后 main 上的 tag 保证相邻 tag 的
+祖先链完整；Release workflow 还会拒绝不在 main 上的 tag（`release.yml` 的
+"Guard" 步骤）。
+
+### 版本轨道
+
+dsh-feishu 只跟踪**一个** dsh 版本：**dsh `@latest`**。`main` 分支（从 git
+安装）与 npm `@latest` release 都适配它，因此仓库只做**一个**兼容性承诺：
+
+| dsh-feishu 轨道 | 发布内容 | 适配的 DSH | 用户怎么装（README 小节） |
+|---|---|---|---|
+| `main` 分支 | 下一个 release 的工作 | **dsh `@latest`** | "从源码安装" |
+| npm `@latest`（GitHub latest release） | 当前稳定 release | **dsh `@latest`** | "从 npm 安装" |
+
+其余 dsh dist-tag——预发布线与 alpha 线——**一律故意忽略**。只有用户从 npm
+`@latest` 装到的那个版本才是承诺；为预发布线再维护一个承诺，意味着只要它跑到
+`@latest` 前面，同一份代码就要适配两遍（先适配 `@latest` 并发版，再适配预发布
+线），同时还要给用户讲两套兼容故事。更新的预发布版本本身不是改动任何东西的
+理由。
+
+只有 dsh **CLI** 有真正有意义的 npm `latest` tag：家族里的子包只发布预发布
+tag，它们自己的 `latest` 仍停在远古的 `0.0.1-rc.x` 线上。所以
+"dsh `@latest`"指的是 `npm view @deepseek-ai/dsh@latest version`，子包按该
+CLI 自己声明的 caret 解析——这正是用户 `npm i @deepseek-ai/dsh@latest` 得到的
+组合。
+
+验证方式：
+- `ci.yml` 每次 push 都用 lockfile 锁定的组合跑门禁；
+- `Canary (main vs dsh@latest)` workflow 每天把 CLI 钉到 npm `@latest` 版本并
+  用这个新组合跑套件——它是该轨道的唯一裁决者（变红即 `main` 需要兼容性修复）；
+- `Release compat (npm latest vs dsh@latest)` workflow 把**已发布**的 npm 包
+  与 `@latest` 装在一起并引导，证明发布的产物仍可安装（它变红而 canary 绿，
+  只说明 release 落后于 `main`）。
+
+被跟踪的版本声明在仓库根部的 `dsh-version.json`（`dsh.latest`），它是唯一
+事实来源：README Note 由它生成（`node scripts/render-version-note.mjs`），
+`pnpm run check`（`checkVersionTrack()`）会在 Note、`package.json` 里的 CLI
+pin 或任一 harness peer 范围与它不一致时失败。`dsh-version-track` skill
+（`.dsh/skills/dsh-version-track/`）负责诊断 canary / release-compat 的结果，
+红灯时适配代码、绿灯时刷新标签，并以 worktree PR 落地（merge 与 npm 发布仍是
+人工闸门）。
+
+### 发版步骤
+
+发版驱动脚本（`scripts/release.mjs`)分两个阶段，按顺序执行：
+
+**阶段 1 —— 准备 release PR**（在新的 `release/vX.Y.Z` 分支上）：
+
+```sh
+git checkout -b release/vX.Y.Z <commit>   # 从要发布的那个 commit 切出
+node scripts/release.mjs prepare <major|minor|patch>
+```
+
+`prepare` 会更新 `package.json`、运行 CI 门禁（通过
+`scripts/run-gates.mjs`——直接调二进制，不依赖 pnpm store）和真机 E2E
+验收（`--skip-e2e` 是给 E2E 环境确实无法准备时用的显式逃生门——绝非默认），
+提交 `chore: release vX.Y.Z`，推送分支，并向 `main` 发起 release PR（装了
+`gh` 就直接创建，否则打印 compare URL）。**本阶段不打 tag、不发布。**
+
+**E2E 验收目前还没接进发版。** 真实客户端套件（`docs/e2e-testing.md`）仍在开发
+中，其 docker 镜像也尚未在发版环境就位，因此当前发版都以 `--skip-e2e` 准备。
+这道门禁仍然留在驱动脚本里：等套件稳定后去掉该参数，它就重新成为硬性要求。
+
+**阶段 2 —— review、合并、打 tag**（release PR 合并之后）：
+
+```sh
+git checkout main && git pull
+node scripts/release.mjs tag
+```
+
+`tag` 校验 main 干净且与 `origin/main` 一致、拒绝已存在的 tag，在合并后
+main 的 HEAD 上打 `vX.Y.Z`（版本号取自 `package.json`）并推送。
+[Release workflow](../.github/workflows/release.yml) 随之重跑门禁、发布到
+npm（`NODE_AUTH_TOKEN`，沿用 DeepSeek Harness 发布 workflow 的
+registry-token 认证）并创建带生成 notes 的 GitHub Release。workflow 的
+"Guard" 步骤会拒绝不指向合并后 main 的 tag，误推的侧分支 tag 无法发布。
+
+workflow 变绿之后：
+
+1. 核对 Actions 运行与 npm dist-tag；
+2. 确认 `dsh-version.json` 的 `dshFeishu.npmLatest` 指向本次发布的版本：它既可
+   以随 release PR 一起进来（v0.3.6 就是这么做的），也可以在发布后补一个一行
+   PR。无论哪种方式，它记录的都是已发布的事实，所以若 workflow 失败，必须在下一
+   次发布前修正该字段。main 的改动仍然只经 review 合入；
+3. 过一眼 release 的 What's Changed——祖先链完整时它恰好列出上一个 tag
+   以来的 PR；万一必须从 release 分支打热修 tag，用显式基线重新生成 notes
+   （`POST /repos/…/releases/generate-notes` 带 `previous_tag_name`）并修正
+   release body。
+
+首次公开发布前，轮换飞书 app secret（见 `SECURITY.md`）。

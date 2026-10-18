@@ -5,9 +5,12 @@
 .trigger:disabled { opacity: 0.5; cursor: default; }
 .chevron { width: 12px; height: 12px; flex-shrink: 0; }
 .status { display: flex; justify-content: center; padding: 8px; }
-.error { position: absolute; bottom: 100%; right: 0; width: max-content; max-width: 320px; padding: 8px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 13px; }
+.warning { color: var(--dsw-alias-label-secondary); flex-shrink: 0; }
+.error { padding: 8px; border-top: 0.5px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.error p { margin: 0 0 4px; }
+.diagnostics { margin: 4px 0 0; max-height: 100px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .resolution { color: var(--dsw-alias-label-caption); }
-.menu { min-width: min(240px, calc(100vw - 32px)); max-width: min(420px, calc(100vw - 32px)); max-height: min(360px, calc(100vh - 96px)); overflow: hidden; }
+.menu { min-width: min(240px, calc(100vw - 32px)); max-width: min(420px, calc(100vw - 32px)); max-height: min(360px, calc(100vh - 96px)); overflow: auto; }
 .cell { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; padding: 0 8px; border: 0; border-radius: var(--dsw-radius-md); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }
 .cell:hover:not(:disabled), .cell:focus-visible { background: var(--dsw-alias-interactive-bg-hover); }
 .cell:disabled { opacity: 0.5; cursor: default; }

@@ -16,6 +16,9 @@ export const DESKTOP_HOST_PACKAGE = '@deepseek-ai/dsh-desktop-host'
 /** Maintained short-drama resources installed beside the private Host. */
 export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
 
+/** Reviewed Feishu card surface installed beside the account's independent remote bridge. */
+export const DESKTOP_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
+
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -51,10 +54,24 @@ export const DESKTOP_DRAMA_SKILL_RUNTIME_FILES = [
   'skills/shot-script-creator-9-16/SKILL.md',
 ] as const
 
+/** Muse entry and retained card renderer files required from the Feishu tarball. */
+export const DESKTOP_FEISHU_RUNTIME_FILES = [
+  'lib/index.js',
+  'lib/muse-feishu-runtime.mjs',
+  'lib/muse-feishu-reliability.mjs',
+  'lib/muse-feishu-migration.mjs',
+  'lib/upstream/index.js',
+  'lib/upstream/cards/StreamingCardController.js',
+  'lib/upstream/cards/InteractionCardController.js',
+  'cordis.patch.yml',
+  'LICENSE',
+  'SOURCE.json',
+] as const
+
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-ffmpeg',
-  '@wenbin_wb/dsh-bridge', 'dsh-skill-mcp-panel',
+  '@wenbin_wb/dsh-bridge', '@dsh-feishu/dsh-feishu', 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download',
 ] as const
