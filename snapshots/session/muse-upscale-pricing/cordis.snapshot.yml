@@ -4,6 +4,12 @@
   disabled: true
 - id: skill-filesystem
   disabled: true
+# This pricing scenario never executes shell commands or loads platform skills.
+- id: sandbox
+  config:
+    runnerCommand: !!js "[process.execPath, '-e', 'process.exit(1)']"
+    runnerFailureSignatures:
+      - snapshot-shell-disabled
 - insert:
     - id: llm-replay
       name: '@deepseek-ai/dsh-llm-replay'

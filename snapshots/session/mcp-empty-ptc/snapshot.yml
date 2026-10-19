@@ -3,6 +3,7 @@ scenario: mcp-empty-ptc
 profile: headless
 composition: mcp-empty-ptc
 recording: live
+writerOutput: true
 header:
   class: mcp-empty-ptc
   pin: true

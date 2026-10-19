@@ -3,6 +3,7 @@ scenario: ptc-turn
 profile: headless
 composition: ptc
 recording: live
+writerOutput: true
 header:
   class: ptc
   pin: true
