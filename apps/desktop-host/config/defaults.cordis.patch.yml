@@ -4,6 +4,9 @@
     - id: drama-settings
       name: '@deepseek-ai/dsh-drama-settings'
 
+    - id: muse-lvpaopao-bridge
+      name: muse-lvpaopao/bridge
+
 - id: agent-preset-registry
   config:
     default: short-drama

@@ -1,0 +1,16 @@
+{
+  "rootPid": null,
+  "rootCreatedUtc": null,
+  "sessionId": null,
+  "expectedAppId": "wx404dde55fb12df78",
+  "executablePath": null,
+  "executableSHA256": "cea46b7485ff64dbd802da32811318a8844e55ce6cb3bb49325f31ebdb50f0ae",
+  "modulePath": null,
+  "moduleSHA256": "60630cc1ba346b0e485fbf1981a07a650d1566e004c5b2b84933544860e2b3cf",
+  "loadStartRva": 47086832,
+  "expectedEntryBytes": "415741565657534881ec9001000089d34889ce833d469bf00a020f8ff9010000",
+  "durationMs": 180000,
+  "scanBytes": 2048,
+  "indirectSlots": 64,
+  "maxEvents": 16
+}

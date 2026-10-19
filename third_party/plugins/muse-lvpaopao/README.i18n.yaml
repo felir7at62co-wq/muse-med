@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-lvpaopao/README.md
+/:
+  en: 4eb41415f1dde466
+  zh: 740b9cc1cb9fda96
+/muse-lvpaopao:
+  en: 40345de55b0a76e7
+  zh: bcb6acd6e4119837
+/muse-lvpaopao/summary:
+  en: 395d903ecaf49ab9
+  zh: e3d5ebb87fdf1a48
+/muse-lvpaopao/table-of-contents:
+  en: e6747830a09a09aa
+  zh: 0dc5a6c4171f3d38
+/muse-lvpaopao/use-this-package:
+  en: 6e73f348e31bb703
+  zh: 1c2ddf6d76252b66
+/muse-lvpaopao/understand-the-implementation:
+  en: 267124ca4e2b9562
+  zh: c7a97283f021321d
+/muse-lvpaopao/further-exploration:
+  en: ae57f515101da246
+  zh: a3688ff0e0b83510
+/muse-lvpaopao/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/muse-lvpaopao/model-experience/scoped-tool:
+  en: 550eded90c56917d
+  zh: c781a00fc3baeabb
+/muse-lvpaopao/model-experience/scoped-tool/what-the-model-sees:
+  en: 9437efc04177ed5e
+  zh: aa3f033a0609ef69
+/muse-lvpaopao/model-experience/scoped-tool/token-effect:
+  en: fa570f1c507a677d
+  zh: 514bc80903ce2d72
+/muse-lvpaopao/model-experience/scoped-tool/kv-cache-effect:
+  en: 4315eef8df8682fb
+  zh: 0ca26387d0ef08db
+/muse-lvpaopao/known-limitations-and-deferred-work:
+  en: e0248af84269d78d
+  zh: f70f03e4f057d81c
+/muse-lvpaopao/known-limitations-and-deferred-work/dev-note:
+  en: b836f01bd0bceb4a
+  zh: 25e979141fbe5501
