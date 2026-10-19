@@ -38,7 +38,75 @@ test('preserves decimal book IDs and validates deployment limits and official li
   assert.equal(bookId(`https://fanqienovel.com/page/${ids[0]}?source=share`), ids[0]);
   assert.equal(bookId(ids[0]), ids[0]);
   for (const value of [Number(ids[0]), 'http://fanqienovel.com/page/' + ids[0], 'https://evil.test/page/' + ids[0], 'https://fanqienovel.com/reader/' + ids[0]]) assert.throws(() => bookId(value));
-  for (const config of [{ maxBooks: 0 }, { batchSize: -1 }, { mystery: true }, null]) assert.throws(() => resolveConfig(config));
+  assert.equal(resolveConfig().networkMode, 'direct');
+  assert.equal(resolveConfig({ networkMode: 'system' }).networkMode, 'system');
+  for (const config of [{ maxBooks: 0 }, { batchSize: -1 }, { mystery: true }, { networkMode: 'proxy' }, { networkMode: true }, null]) assert.throws(() => resolveConfig(config));
+});
+
+test('launches isolated Python in UTF-8 mode and passes the selected network policy', async t => {
+  const root = await workspace(t);
+  for (const networkMode of ['direct', 'system']) {
+    const client = new FanqieClient({ pythonExecutable: 'python', networkMode }, engine(async spec => {
+      assert.deepEqual(spec.argv.slice(0, -1), ['python', '-I', '-B', '-X', 'utf8']);
+      assert.match(spec.argv.at(-1), /[/\\]python[/\\]engine\.py$/u);
+      const request = JSON.parse(spec.stdio.stdin.data);
+      assert.equal(request.settings.networkMode, networkMode);
+      return { ok: true, complete: false, query: request.query, hasMore: false, nextPassback: null, items: [] };
+    }));
+    assert.equal((await client.call('search', { query: '书' }, root)).ok, true);
+    await client.dispose();
+  }
+});
+
+test('returns the failed stage and specific connection error while cleaning partial downloads', async t => {
+  const root = await workspace(t);
+  const client = new FanqieClient({ pythonExecutable: 'python', networkMode: 'system' }, engine(async spec => {
+    await writeFile(join(JSON.parse(spec.stdio.stdin.data).staging, `${ids[0]}.txt`), 'partial');
+    return { ok: false, code: 'URLError', sourceStage: 'registration', host: 'log.snssdk.com', networkMode: 'system',
+      privateResponse: 'not model-visible', error: { type: 'URLError', reasonType: 'SSLEOFError', message: 'TLS connection ended unexpectedly', privateToken: 'not model-visible' } };
+  }));
+  t.after(() => client.dispose());
+  const result = await client.call('download', { bookIds: [ids[0]] }, root);
+  assert.equal(result.code, 'URLError');
+  assert.equal(result.sourceStage, 'registration');
+  assert.equal(result.host, 'log.snssdk.com');
+  assert.equal(result.networkMode, 'system');
+  assert.equal(result.error.reasonType, 'SSLEOFError');
+  assert.match(result.message, /registration.*log\.snssdk\.com.*system.*TLS connection ended unexpectedly/u);
+  assert.equal(JSON.stringify(result).includes('not model-visible'), false);
+  assert.deepEqual(await readdir(join(root, 'downloads/fanqie')), []);
+});
+
+test('rejects malformed engine diagnostics instead of forwarding them to the model', async t => {
+  const root = await workspace(t);
+  for (const change of [r => { r.host = 'evil.test'; }, r => { r.sourceStage = 'unknown'; }, r => { r.networkMode = 'system'; },
+    r => { r.error.message = 'x'.repeat(513); }, r => { r.error.type = 'bad type'; }, r => { r.error.httpStatus = 0; },
+    r => { r.error.errno = 'ECONNRESET'; }]) {
+    const client = new FanqieClient({ pythonExecutable: 'python' }, engine(async () => {
+      const result = { ok: false, code: 'URLError', sourceStage: 'search', host: 'api5-normal.fqnovel.com', networkMode: 'direct',
+        error: { type: 'URLError', message: 'Connection failed' } };
+      change(result);
+      return result;
+    }));
+    assert.equal((await client.call('search', { query: '书' }, root)).code, 'engine_failed');
+    await client.dispose();
+  }
+});
+
+test('preserves input failures that occur before an engine request starts', async t => {
+  const root = await workspace(t);
+  const client = new FanqieClient({ pythonExecutable: 'python' }, engine(async () => ({
+    ok: false, complete: false, code: 'input_size',
+    error: { type: 'EngineError', reasonType: 'EngineError', message: '工具输入超过大小限制。' },
+  })));
+  t.after(() => client.dispose());
+  const result = await client.call('search', { query: '书'.repeat(24_000) }, root);
+  assert.equal(result.code, 'input_size');
+  assert.equal(result.networkMode, 'direct');
+  assert.equal(result.sourceStage, undefined);
+  assert.equal(result.host, undefined);
+  assert.equal(result.error.type, 'EngineError');
+  assert.match(result.message, /输入超过大小限制/u);
 });
 
 test('publishes a complete multi-book batch with verified hashes and absolute receipts', async t => {

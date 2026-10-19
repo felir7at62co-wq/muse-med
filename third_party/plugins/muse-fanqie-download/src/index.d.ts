@@ -6,6 +6,8 @@ import type {} from '@deepseek-ai/dsh-subprocess';
 /** Validated deployment limits; runtime credentials and identities are not configuration fields. */
 export interface FanqieConfig {
   pythonExecutable?: string;
+  /** Direct connections by default; system uses environment and operating-system proxy settings. */
+  networkMode?: 'direct' | 'system';
   requestTimeoutMs?: number;
   callTimeoutMs?: number;
   graceMs?: number;

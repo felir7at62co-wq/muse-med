@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-fanqie-system-proxy-failure
+profile: headless
+composition: muse-fanqie-system-proxy-failure
+recording: authored
+header:
+  class: muse-fanqie-system-proxy-failure
+  pin: true
+  systemPromptSource: muse-fanqie-body-download
+  toolSchemasSource: muse-fanqie-body-download

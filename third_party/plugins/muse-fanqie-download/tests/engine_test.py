@@ -1,11 +1,152 @@
 """Invented chapter fixtures verify full-text validation without real book text or identities."""
 import base64
+import contextlib
+import errno
 import gzip
+import io
+import json
 from pathlib import Path
+import socket
+import ssl
 import sys
+import tempfile
 import unittest
+from unittest import mock
+import urllib.error
+import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python'))
-from engine import AES, Client, EngineError, decode_chapter, pad, search_page, validate_catalog
+from engine import AES, Client, EngineError, decode_chapter, failure_result, main, pad, run, search_page, validate_catalog
+
+
+class NetworkTests(unittest.TestCase):
+    def settings(self, mode=None):
+        settings = {'requestTimeoutMs': 1000, 'maxResponseBytes': 1024,
+                    'maxChapterBytes': 1024, 'maxBookBytes': 1024, 'batchSize': 1}
+        if mode is not None:
+            settings['networkMode'] = mode
+        return settings
+
+    def client(self, mode=None):
+        with mock.patch('engine.TT.encrypt', return_value=b'registration'), \
+             mock.patch.object(Client, 'request', return_value={'device_id_str': '123', 'install_id_str': '456'}):
+            return Client(self.settings(mode))
+
+    def test_direct_disables_environment_and_macos_proxy_discovery_without_changing_tls(self):
+        for mode in (None, 'direct'):
+            with self.subTest(mode=mode), mock.patch('urllib.request.getproxies',
+                                                   return_value={'https': 'http://proxy-secret:17890'}) as proxies:
+                client = self.client(mode)
+                proxies.assert_not_called()
+                self.assertEqual(client.network_mode, 'direct')
+                https = next(handler for handler in client.opener.handlers
+                             if isinstance(handler, urllib.request.HTTPSHandler))
+                self.assertIsNone(https._context)
+
+    def test_system_keeps_standard_proxy_discovery(self):
+        with mock.patch('urllib.request.getproxies', return_value={'https': 'http://proxy-secret:17890'}) as proxies:
+            client = self.client('system')
+            proxies.assert_called_once_with()
+            handler = next(handler for handler in client.opener.handlers
+                           if isinstance(handler, urllib.request.ProxyHandler))
+            self.assertEqual(handler.proxies, {'https': 'http://proxy-secret:17890'})
+
+    def test_unknown_network_mode_fails_before_registration(self):
+        with mock.patch('engine.TT.encrypt') as encrypt, self.assertRaisesRegex(EngineError, '^invalid_network_mode$'):
+            Client(self.settings('unknown'))
+        encrypt.assert_not_called()
+
+    def test_registration_failure_identifies_official_host_and_proxy_policy(self):
+        opener = mock.Mock()
+        opener.open.side_effect = urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, 'private proxy credentials'))
+        with mock.patch('urllib.request.build_opener', return_value=opener), \
+             mock.patch('engine.TT.encrypt', return_value=b'registration'), self.assertRaises(EngineError) as raised:
+            run({'settings': self.settings('system'), 'operation': 'search', 'query': 'private search', 'passback': '0'})
+        result = failure_result(raised.exception)
+        self.assertEqual((result['sourceStage'], result['host'], result['networkMode']),
+                         ('registration', 'log.snssdk.com', 'system'))
+        self.assertEqual(result['error']['type'], 'URLError')
+        self.assertEqual(result['error']['reasonType'], 'ConnectionRefusedError')
+        self.assertEqual(result['error']['errno'], errno.ECONNREFUSED)
+        self.assertNotIn('private', json.dumps(result))
+
+    def test_each_api_failure_reports_the_actual_stage(self):
+        for stage in ('search', 'catalog', 'key-negotiation', 'chapter-download'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as staging:
+                client = self.client('direct')
+                client.opener = mock.Mock()
+                client.opener.open.side_effect = urllib.error.URLError(TimeoutError('private signed URL'))
+                if stage == 'search':
+                    operation = lambda: client.search('private title', 'private cursor')
+                elif stage == 'catalog':
+                    operation = lambda: client.directory('20000000000')
+                elif stage == 'key-negotiation':
+                    operation = client.negotiate
+                else:
+                    client.directory = lambda book_id: ({'book_name': 'fixture'}, [{'item_id': '10000000000'}])
+                    client.key, client.keyver = bytes(16), 'private key version'
+                    operation = lambda: client.download('20000000000', staging)
+                with self.assertRaises(EngineError) as raised:
+                    operation()
+                result = failure_result(raised.exception)
+                self.assertEqual((result['sourceStage'], result['host'], result['networkMode']),
+                                 (stage, 'api5-normal.fqnovel.com', 'direct'))
+                self.assertEqual(result['error']['reasonType'], 'TimeoutError')
+                self.assertNotIn('private', json.dumps(result))
+
+    def test_post_response_integrity_error_keeps_catalog_stage(self):
+        client = self.client()
+        client.opener = mock.MagicMock()
+        response = client.opener.open.return_value.__enter__.return_value
+        response.status, response.headers, response.read.return_value = 200, {}, b'{}'
+        with mock.patch('engine.Client', return_value=client), self.assertRaises(EngineError) as raised:
+            run({'settings': self.settings(), 'operation': 'info', 'bookIds': ['20000000000']})
+        result = failure_result(raised.exception)
+        self.assertEqual(result['code'], 'incomplete_catalog')
+        self.assertEqual(result['sourceStage'], 'catalog')
+
+    def test_http_tls_dns_and_arbitrary_errors_have_bounded_safe_details(self):
+        secret = 'private-device-token-and-signed-query'
+        ssl_error = ssl.SSLEOFError(8, secret)
+        ssl_error.reason = 'UNEXPECTED_EOF_WHILE_READING'
+        cases = [
+            (urllib.error.HTTPError('https://api5-normal.fqnovel.com/?' + secret, 503, secret, {'token': secret}, io.BytesIO(secret.encode())), 'HTTPError', 'HTTP', {'httpStatus': 503}),
+            (urllib.error.URLError(ssl_error), 'SSLEOFError', 'UNEXPECTED_EOF_WHILE_READING', {'errno': 8}),
+            (urllib.error.URLError(ssl.SSLCertVerificationError(1, secret)), 'SSLCertVerificationError', 'CERTIFICATE_VERIFY_FAILED', {'errno': 1}),
+            (urllib.error.URLError(socket.gaierror(-2, secret)), 'gaierror', 'DNS', {'errno': -2}),
+            (urllib.error.URLError(ConnectionResetError(errno.ECONNRESET, secret)), 'ConnectionResetError', '连接被重置', {'errno': errno.ECONNRESET}),
+            (urllib.error.URLError(secret), 'Exception', '网络请求失败', {}),
+            (json.JSONDecodeError(secret, secret, 0), 'JSONDecodeError', 'JSON', {}),
+            (ValueError(secret), 'ValueError', '格式检查', {}),
+            (RuntimeError(secret), 'Exception', '引擎处理失败', {}),
+            (EngineError(secret), 'EngineError', '引擎处理失败', {}),
+        ]
+        for error, reason_type, message, extra in cases:
+            with self.subTest(reason_type=reason_type, message=message):
+                result = failure_result(error)
+                self.assertEqual(result['error']['reasonType'], reason_type)
+                self.assertIn(message, result['error']['message'])
+                for field, value in extra.items():
+                    self.assertEqual(result['error'][field], value)
+                self.assertNotIn(secret, json.dumps(result))
+                self.assertNotIn('https://', json.dumps(result))
+                self.assertFalse(result['ok'])
+                self.assertFalse(result['complete'])
+
+    def test_main_writes_one_safe_json_failure_and_returns_nonzero(self):
+        client = self.client()
+        client.opener = mock.Mock()
+        client.opener.open.side_effect = urllib.error.URLError(socket.gaierror(-2, 'private-token'))
+        stdin = mock.Mock(buffer=io.BytesIO(json.dumps({'settings': self.settings(), 'operation': 'info',
+                                                       'bookIds': ['20000000000']}).encode()))
+        stdout = io.StringIO()
+        with mock.patch('engine.Client', return_value=client), mock.patch('sys.stdin', stdin), contextlib.redirect_stdout(stdout):
+            status = main()
+        self.assertEqual(status, 1)
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(result['sourceStage'], 'catalog')
+        self.assertEqual(result['error']['reasonType'], 'gaierror')
+        self.assertEqual(stdout.getvalue().count('\n'), 1)
+        self.assertNotIn('private-token', stdout.getvalue())
 
 
 class EngineTests(unittest.TestCase):

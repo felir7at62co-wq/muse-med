@@ -36,7 +36,7 @@ export async function smokePreparedRuntime(
     }))
     const { stdout } = await promisify(execFile)(node, [
       '--expose-internals', resolve(import.meta.dirname, '../tests/fixtures/runtime-payload-smoke.mjs'), root, resourcesRuntime,
-    ], { timeout: environment.MUSE_HONGGUO_LIVE_REQUIRED === '1' ? 1_800_000 : 300_000, windowsHide: true,
+    ], { timeout: environment.MUSE_HONGGUO_LIVE_REQUIRED === '1' || environment.MUSE_FANQIE_LIVE_REQUIRED === '1' ? 1_800_000 : 300_000, windowsHide: true,
       env: desktopNodeEnvironment(node, join(resourcesRuntime, 'bin'), environment) })
     process.stdout.write(stdout)
     if (archive === undefined) await smokeDesktopRuntime(root, node, descriptor, environment, resourcesRuntime)

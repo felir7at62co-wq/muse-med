@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-fanqie-network/guide.md
+/:
+  en: f5b0c75c8db6abef
+  zh: 7a0f7cd5f1705207
+/muse-fanqie-connection-mode:
+  en: 15dd442b3407b7f9
+  zh: a6daec04c8d04b36
+/muse-fanqie-connection-mode/change:
+  en: 43445b807b72d637
+  zh: e661001eb02cb057
+/muse-fanqie-connection-mode/migration:
+  en: 62b9a043cae7e771
+  zh: baed07f4215c38b0

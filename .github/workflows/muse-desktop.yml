@@ -17,6 +17,14 @@ on:
         description: Comma-separated series IDs for opt-in installed download acceptance
         type: string
         default: '7687998333729639449,7691176265872591896'
+      verify_fanqie_live:
+        description: Require a complete Fanqie novel download from the genuinely installed application
+        type: boolean
+        default: false
+      fanqie_book_id:
+        description: Official free Fanqie book ID for installed download acceptance
+        type: string
+        default: '7654065336026663998'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -59,7 +67,7 @@ jobs:
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check download bundle packaging
-        run: node --test third_party/plugins/download-pack.test.mjs apps/desktop/tests/hongguo-live-smoke.test.mjs
+        run: node --test third_party/plugins/download-pack.test.mjs third_party/plugins/muse-fanqie-download/tests/client.test.js apps/desktop/tests/hongguo-live-smoke.test.mjs apps/desktop/tests/fanqie-live-smoke.test.mjs
       - name: Check bundled 3D anime skill preflight
         run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
       - name: Check offline OCR process protocol
@@ -99,6 +107,10 @@ jobs:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
           MUSE_HONGGUO_LIVE_REQUIRED: ${{ inputs.verify_hongguo_live && '1' || '0' }}
           MUSE_HONGGUO_LIVE_IDS: ${{ inputs.hongguo_series_ids }}
+          MUSE_FANQIE_LIVE_REQUIRED: ${{ inputs.verify_fanqie_live && '1' || '0' }}
+          MUSE_FANQIE_LIVE_BOOK_ID: ${{ inputs.fanqie_book_id }}
+          MUSE_FANQIE_LIVE_TITLE: 摆烂摆烂，誓做修仙界第一关系户
+          MUSE_FANQIE_LIVE_AUTHOR: 倒荷
         run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
       - name: Upload installers, update metadata and build identity
         uses: actions/upload-artifact@v4

@@ -10,6 +10,7 @@ import { delimiter, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkHongguoRuntime } from './hongguo-runtime-smoke.mjs'
 import { checkHongguoLive } from './hongguo-live-smoke.mjs'
+import { checkFanqieLive } from './fanqie-live-smoke.mjs'
 
 const runtime = process.argv[2]
 assert.ok(runtime, 'Pass the filtered resources/dsh directory')
@@ -23,6 +24,7 @@ const requireRuntime = createRequire(join(root, 'package.json'))
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-runtime-payload-'))
 let hongguo
 let hongguoLive
+let fanqieLive
 
 /** Run a package script with only the shipped node launcher available on PATH. */
 function checkPnpm() {
@@ -169,6 +171,7 @@ try {
   await checkSearch()
   hongguo = await checkHongguoRuntime(root, resourcesRuntime)
   hongguoLive = await checkHongguoLive(root, resourcesRuntime)
+  fanqieLive = await checkFanqieLive(root, resourcesRuntime)
 } finally {
   // This private tree contains only fixture files; Windows may release handles after terminal exit.
   await rm(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
@@ -177,5 +180,5 @@ try {
 // Natural event-loop drain includes node-pty's worker and console-list helper teardown.
 process.once('beforeExit', () => {
   console.log(JSON.stringify({ node: process.versions.node, platform: process.platform, arch: process.arch,
-    koffi: true, sharp: true, html: true, pty: true, pnpm: true, grep: true, glob: true, hongguo, hongguoLive }))
+    koffi: true, sharp: true, html: true, pty: true, pnpm: true, grep: true, glob: true, hongguo, hongguoLive, fanqieLive }))
 })

@@ -1,0 +1,10 @@
+# Authored registration failure; the real client projects safe diagnostics to the model.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-fanqie-proxy-failure
+      name: './transport-fixture.mjs'
