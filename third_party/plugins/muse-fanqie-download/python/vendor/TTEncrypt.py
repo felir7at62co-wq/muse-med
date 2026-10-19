@@ -1,6 +1,6 @@
 import binascii
 import gzip
-import random
+import secrets
 
 from Crypto.Cipher import AES
 
@@ -1657,13 +1657,7 @@ class TT:
         self.list_9C8 = self.hex_9C8()
 
     def hex_9C8(self):
-        result = []
-        for i in range(32):
-            result.append(self.chooice(0, 0x100))
-        return result
-
-    def chooice(self, start, end):
-        return int(random.uniform(0, 1) * (end + 1 - start) + start)
+        return list(secrets.token_bytes(32))
 
     def s2b(self, data):
         arr = []

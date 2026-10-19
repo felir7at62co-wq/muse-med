@@ -3,6 +3,7 @@ import base64
 import contextlib
 import errno
 import gzip
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -15,7 +16,25 @@ from unittest import mock
 import urllib.error
 import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python'))
-from engine import AES, Client, EngineError, decode_chapter, failure_result, main, pad, run, search_page, validate_catalog
+from engine import AES, Client, EngineError, TT, decode_chapter, failure_result, main, pad, run, search_page, unpad, validate_catalog
+
+
+class RegistrationEncryptionTests(unittest.TestCase):
+    def test_registration_ciphertext_decodes_with_standard_crypto_at_byte_bounds(self):
+        payload = json.dumps({'fixture': 'invented registration', 'label': '匿名测试'}, ensure_ascii=False)
+        for nonce in (bytes(32), bytes([128]) * 32, bytes([255]) * 32, bytes(range(32))):
+            with self.subTest(nonce=nonce.hex()), \
+                 mock.patch('secrets.token_bytes', return_value=nonce) as random_bytes, \
+                 mock.patch('random.uniform', return_value=0.999999):
+                encrypted = TT().encrypt(payload)
+                wire_nonce = encrypted[6:38]
+                derived = hashlib.sha512(hashlib.sha512(wire_nonce).digest() + bytes(TT.ord_list)).digest()
+                plain = unpad(AES.new(derived[:16], AES.MODE_CBC, derived[16:32]).decrypt(encrypted[38:]), 16)
+                self.assertEqual(hashlib.sha512(plain[64:]).digest(), plain[:64])
+                self.assertEqual(gzip.decompress(plain[64:]).decode('utf-8'), payload)
+                self.assertEqual(encrypted[:6], bytes.fromhex('746305100000'))
+                self.assertEqual(wire_nonce, nonce)
+                random_bytes.assert_called_once_with(32)
 
 
 class NetworkTests(unittest.TestCase):
