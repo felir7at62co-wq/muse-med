@@ -306,6 +306,8 @@ export interface WebScaffold {
 export interface LaunchOptions {
   /** Override the developer-tools preference; omitted uses the shipped default. */
   developerTools?: boolean
+  /** Ping cadence for CPU-heavy browser scenarios; omitted uses the shipped setting. */
+  websocketHeartbeatIntervalMs?: number
   /** Enable the real Open In rows with deterministic launch-environment facts. */
   openInAppEnvironment?: LaunchEnvironmentSnapshot
   /** Compare the replayed root Session; `read-only` also forbids refresh writes to a borrowed fixture. */
@@ -521,6 +523,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // credentials rows were configured with.
   const skillRootEnvironment = {
     DSH_HOME: harnessHome,
+    MUSE_HOME: harnessHome,
     DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
     DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
   }
@@ -574,6 +577,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       ? []
       : [{ id: 'agent-default-model', config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }],
     ...extraOverlayPatches,
+    ...options.websocketHeartbeatIntervalMs === undefined ? [] : [{
+      id: 'typert-gateway', config: { websocketHeartbeatIntervalMs: options.websocketHeartbeatIntervalMs },
+    }],
     { id: 'agent-preset-registry', config: { default: 'standard' } },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     // Content search is enabled here although the shipped bundles default it
@@ -595,6 +601,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       id: 'skill-filesystem',
       config: {
         dshHome: join(workspaceCwd, '.dsh-home'),
+        museHome: harnessHome,
         agentsHome: join(workspaceCwd, '.agents-home'),
         bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
         watch: false,

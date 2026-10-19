@@ -189,7 +189,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
@@ -216,7 +216,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
   }, 120_000)
 
   afterAll(async () => {
-    unpinBrowserClock?.()
+    await unpinBrowserClock?.()
     await browser?.close()
     await scaffold?.close()
   })

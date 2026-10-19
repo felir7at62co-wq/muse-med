@@ -22,18 +22,22 @@ Ambient host state.
 it('isolates replay skill discovery from every ambient host root', async () => {
   const ambient = await mkdtemp(join(tmpdir(), 'dsh-web-ambient-skills-'))
   const dshHome = join(ambient, 'dsh-home')
+  const museHome = join(ambient, 'muse-home')
   const agentsHome = join(ambient, 'agents-home')
   const bundled = join(ambient, 'bundled')
   await Promise.all([
     writeSkill(join(dshHome, 'skills'), 'ambient-dsh'),
+    writeSkill(join(museHome, 'skills'), 'ambient-muse'),
     writeSkill(join(agentsHome, 'skills'), 'ambient-agents'),
     writeSkill(bundled, 'ambient-bundled'),
   ])
 
   const originalDshHome = process.env.DSH_HOME
+  const originalMuseHome = process.env.MUSE_HOME
   const originalAgentsHome = process.env.DSH_AGENTS_HOME
   const originalBundled = process.env.DSH_BUNDLED_SKILL_DIR
   process.env.DSH_HOME = dshHome
+  process.env.MUSE_HOME = museHome
   process.env.DSH_AGENTS_HOME = agentsHome
   process.env.DSH_BUNDLED_SKILL_DIR = bundled
   let scaffold: WebScaffold | undefined
@@ -53,6 +57,7 @@ it('isolates replay skill discovery from every ambient host root', async () => {
       if (skills === undefined) throw new Error('the composition mounts no skill registry')
       const names = (await skills.list({ cwd: scaffold.workspaceCwd, scope: handle.agent })).map(skill => skill.name)
       expect(names).not.toContain('ambient-dsh')
+      expect(names).not.toContain('ambient-muse')
       expect(names).not.toContain('ambient-agents')
       expect(names).not.toContain('ambient-bundled')
     } finally {
@@ -61,9 +66,15 @@ it('isolates replay skill discovery from every ambient host root', async () => {
   } finally {
     try {
       await scaffold?.close()
+      expect(process.env.DSH_HOME).toBe(dshHome)
+      expect(process.env.MUSE_HOME).toBe(museHome)
+      expect(process.env.DSH_AGENTS_HOME).toBe(agentsHome)
+      expect(process.env.DSH_BUNDLED_SKILL_DIR).toBe(bundled)
     } finally {
       if (originalDshHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = originalDshHome
+      if (originalMuseHome === undefined) delete process.env.MUSE_HOME
+      else process.env.MUSE_HOME = originalMuseHome
       if (originalAgentsHome === undefined) delete process.env.DSH_AGENTS_HOME
       else process.env.DSH_AGENTS_HOME = originalAgentsHome
       if (originalBundled === undefined) delete process.env.DSH_BUNDLED_SKILL_DIR
