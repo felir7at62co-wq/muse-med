@@ -26,6 +26,8 @@ export interface Config {
   readonly docxTimeoutMs?: number
   /** Maximum managed screenplay project/verification bytes read per file. */
   readonly docxMaxProjectBytes?: number
+  /** Creative review policy for screenplay export and final delivery; omission retains strict approval. */
+  readonly docxReviewMode?: screenplayDocx.Config['reviewMode']
   /** Optional manuscript revision budgets; source snapshots remain workspace-local. */
   readonly manuscriptRevisions?: Partial<manuscriptRevisions.Config>
 }
@@ -39,6 +41,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
   await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
   await ctx.plugin(screenplayDocx, { source: config.source,
+    reviewMode: config.docxReviewMode ?? 'strict',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,
     maxProjectBytes: config.docxMaxProjectBytes ?? 32 * 1024 * 1024 })
   const archive = runtimeArchivePath(config.runtimeDir) === undefined ? undefined : dirname(realpathSync(config.runtimeDir))

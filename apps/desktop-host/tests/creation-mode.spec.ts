@@ -107,7 +107,7 @@ async function fixture() {
 it('mounts a PTC-only creation persona and a complete creative tool union without delegation rows', async () => {
   const f = await fixture()
   try {
-    expect(f.raw).toContain('reviewMode: self-check')
+    expect(f.raw).toContain('reviewMode: advisory')
     expect(f.raw).toContain('refinementMode: source-preserving-v1')
     expect(f.raw).toContain('storyFaithfulMode: story-faithful-v2')
     expect(f.raw).toContain('trustedEvidence: true')

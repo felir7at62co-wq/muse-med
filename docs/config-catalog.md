@@ -2865,8 +2865,8 @@ export interface Config {
 ```ts config-catalog
 /** Source allocation, durable project size, and bounded source-read budgets. */
 export interface Config extends ProjectLimits {
-  /** Explicit sequential same-session review for new creation projects only. */
-  reviewMode: 'independent' | 'self-check'
+  /** Agent-selected review guidance, or explicit independent/sequential review requirements. */
+  reviewMode: 'independent' | 'self-check' | 'advisory'
   /** Creation-only source-preserving refinement fork; disabled keeps the historical tool schema. */
   refinementMode: 'disabled' | 'source-preserving-v1'
   /** Story-faithful video creation with current work grants and located semantic reports. */

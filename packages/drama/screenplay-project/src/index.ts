@@ -1,4 +1,4 @@
-/** Source-backed screenplay project tool for bounded writing and independent review. @module @deepseek-ai/dsh-screenplay-project */
+/** Source-backed screenplay projects with deployment-selected review guidance. @module @deepseek-ai/dsh-screenplay-project */
 
 import { resolveTrustedVideoEvidence } from '@deepseek-ai/dsh-tool-video-inspect'
 import type { Context } from '@deepseek-ai/cordis'
@@ -45,8 +45,8 @@ export const inject = ['fs', 'tools', 'attachments', 'llm']
 
 /** Source allocation, durable project size, and bounded source-read budgets. */
 export interface Config extends ProjectLimits {
-  /** Explicit sequential same-session review for new creation projects only. */
-  reviewMode: 'independent' | 'self-check'
+  /** Agent-selected review guidance, or explicit independent/sequential review requirements. */
+  reviewMode: 'independent' | 'self-check' | 'advisory'
   /** Creation-only source-preserving refinement fork; disabled keeps the historical tool schema. */
   refinementMode: 'disabled' | 'source-preserving-v1'
   /** Story-faithful video creation with current work grants and located semantic reports. */
@@ -64,7 +64,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Validate deployment-varying budgets before mounting the tool. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
-  reviewMode: Schema.union(['independent', 'self-check']).default('independent'),
+  reviewMode: Schema.union(['independent', 'self-check', 'advisory']).default('independent'),
   refinementMode: Schema.union(['disabled', 'source-preserving-v1']).default('disabled'),
   storyFaithfulMode: Schema.union(['disabled', 'story-faithful-v2']).default('disabled'),
   maxSourceBytes: Schema.number().step(1).min(1).default(16 * 1024 * 1024),
@@ -80,7 +80,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
  * @param config - Resolved allocation and read budgets.
  */
 export function apply(ctx: Context, config: Config): void {
-  if (config.storyFaithfulMode !== 'disabled' && config.reviewMode !== 'self-check') throw Error('screenplay-project: story-faithful-v2 requires explicit self-check reviewMode')
+  if (config.storyFaithfulMode !== 'disabled' && config.reviewMode === 'independent') throw Error('screenplay-project: story-faithful-v2 requires self-check or advisory reviewMode')
   if (ctx.fs.sandboxMode !== undefined && ctx.get('sandboxPolicy') === undefined) {
     throw Error('screenplay-project: sandboxed filesystem requires sandboxPolicy')
   }
@@ -133,7 +133,14 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.tools.register(defineTool({
     name: 'screenplay_project',
-    description: '小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；'
+    description: config.reviewMode === 'advisory'
+      ? '小说、视频、换梗剧本的来源、版本与交付记录工具。当前为自主审校模式：新旧项目都由你根据任务决定是否自检、何时复核或委托子代理；不强制独立会话、固定分轮或先批准再起草和交付。'
+        + 'init 记录方向，import_source 导入原文、转写或实际 video_inspect 帧清单；read_source/read_fact/list_facts/read_candidate 供实际核对。propose_fact/propose_facts 记录有来源或真实改编授权的事实；review_fact/review_facts/review 可记录你实际作出的决定与理由，同一会话可审校，不得把自主判断称为独立审校。'
+        + 'stage/stage_files 保存候选，commit 由你决定采用哪个当前版本，export 导出采用的正文；采用不等于已独立审校。工具返回的审校建议供判断，不要求逐项放行。status 恢复项目和当前修订，所有修改携带当前 expected_revision，保留真实作者、审校者、来源与历史记录。'
+        + '来源编号原样使用 status.sources[].id；事实状态读取 fact.review?.decision，缺失表示未记录审校，不能声称已批准。文件、版本、引用与用户实际授权仍须有效，不能伪造来源或扩大改编许可；用户已编辑内容的保护保持有效。'
+        + (config.storyFaithfulMode === 'disabled' ? '' : 'init_story_faithful 绑定真实用户作品请求、原视频及集号；故事清单、定位与语义报告供创作核对，不强制审校者身份或A/B/C轮。')
+        + (config.refinementMode === 'disabled' ? '' : 'fork_refinement 保留真实基线和用户原话授权；新增演绎保留来源归属与实际修改说明，重大事件和关系变化仍须明确授权。')
+      : '小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；'
       + 'read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。'
       + `propose_facts/review_facts 可原子批量处理最多 ${config.maxFactBatch} 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 ${config.maxReadUnits} 条，编号从 1 开始。`
       + `list_facts 从 1 起始恢复事实，按 ${config.maxReadBytes} 字节返回完整事实的前缀，用实际 next 继续直到 null，不以请求 count 推定已读完。read_fact/read_candidate 读取事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 ${config.maxReadBytes} 字节、最多 ${config.maxReadUnits} 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。`

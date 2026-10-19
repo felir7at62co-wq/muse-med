@@ -217,6 +217,7 @@ async function main(): Promise<void> {
     runtimeDir,
     source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
+    docxReviewMode: 'advisory',
   })
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })

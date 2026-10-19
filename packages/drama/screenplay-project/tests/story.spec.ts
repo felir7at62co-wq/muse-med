@@ -902,7 +902,10 @@ it.each(['missing', 'actor', 'creation', 'context', 'subject', 'length', 'read_k
   if (variant === 'read_kind') read.kind = 'candidate'
   if (variant === 'read_id') read.id += '-other'
   if (variant === 'read_digest') read.sha256 = '0'.repeat(64)
-  if (variant === 'read_creation') read.step = item.created_step
+  if (variant === 'read_creation') {
+    if (item.created_step === undefined) throw Error('Strict inventory fixture requires its creation step')
+    read.step = item.created_step
+  }
   if (variant === 'read_review') read.step = evidence.review_step
   expect(validInventoryReview(PROJECT_FILE.parse(JSON.parse(JSON.stringify(file))), item)).toBe(false)
 })

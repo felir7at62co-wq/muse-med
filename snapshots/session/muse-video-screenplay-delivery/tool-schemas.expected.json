@@ -290,13 +290,13 @@
     },
     {
       "name": "screenplay_export_docx",
-      "description": "将已审校的剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。先加载 screenplay-format 和 office-docx；生成后检查排版，再用 present 交付实际 DOCX。",
+      "description": "将剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。受管项目沿用其严格候选验收与交付检查。先加载 screenplay-format 和 office-docx；生成后检查排版，再用 present 交付实际 DOCX。",
       "parameters": {
         "type": "object",
         "properties": {
           "inputs": {
             "type": "array",
-            "description": "绝对路径的 .md 文件，按交付集数顺序排列；先完成正文审校。",
+            "description": "绝对路径的 .md 文件，按交付集数顺序排列；使用本次实际正文。",
             "items": {
               "type": "string"
             }
@@ -400,8 +400,38 @@
       }
     },
     {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
       "name": "todo_write",
-      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done.",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
       "parameters": {
         "type": "object",
         "properties": {

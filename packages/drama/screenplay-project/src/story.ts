@@ -61,7 +61,8 @@ export function validateStoryPolicy(project: ProjectFile): void {
     if (project.story_inventories?.length) throw Error('story_policy_required: 故事创作记录缺少实际作品授权。')
     return
   }
-  if (project.refinement !== undefined || project.workflow !== 'video_to_screenplay' || project.review_mode !== 'self-check'
+  if (project.refinement !== undefined || project.workflow !== 'video_to_screenplay'
+    || (project.review_mode !== 'self-check' && project.review_policy !== 'advisory')
     || policy.sha256 !== storyPolicyDigest(policy)) throw Error('story_policy_digest: 故事策略须独立绑定当前作品、自检及真实用户授权。')
   if (new Set(policy.scope.episodes).size !== policy.scope.episodes.length
     || new Set(policy.videos.map(video => video.path)).size !== policy.videos.length
@@ -124,9 +125,9 @@ export function validateInventory(project: ProjectFile, inventory: StoryInventor
     }
     for (const id of [...item.fact_ids, ...item.knowledge.map(value => value.fact_id)]) {
       const fact = project.facts.find(value => value.id === id)
-      if (fact === undefined || fact.origin !== 'source' || fact.review?.decision !== 'approve'
+      if (fact === undefined || fact.origin !== 'source' || (project.review_policy !== 'advisory' && fact.review?.decision !== 'approve')
         || (fact.withdrawal !== undefined && !(historical && validWithdrawal(project, fact)))
-        || !validReview(project, fact, 'fact') || !fact.anchors.some(anchor => units.has(anchor.unit_id))) {
+        || (project.review_policy !== 'advisory' && !validReview(project, fact, 'fact')) || !fact.anchors.some(anchor => units.has(anchor.unit_id))) {
         throw Error('story_fact_review: 清单须引用本集已真实审校的来源事实，不能以演绎充当来源。')
       }
     }
@@ -218,10 +219,11 @@ export function inventoryReads(project: ProjectFile, inventory: StoryInventory):
 export function inventoryEvidence(project: ProjectFile, projectHash: string, inventory: StoryInventory, actor: ActorId,
   step: SessionSeq | undefined, receipts: readonly ProjectReadReceipt[]): NonNullable<StoryInventory['review']>['evidence'] {
   if (actor !== inventory.author) throw Error('self_check_actor: 故事清单须由原会话分轮自检。')
-  if (step === undefined || step <= inventory.created_step) throw Error('self_check_step: 清单提交后须后续模型轮实际读回，再于下一模型轮判断。')
+  if (step === undefined || inventory.created_step === undefined || step <= inventory.created_step) throw Error('self_check_step: 清单提交后须后续模型轮实际读回，再于下一模型轮判断。')
+  const createdStep = inventory.created_step
   const available = receipts.filter(receipt => receipt.actor === actor && receipt.project_id === project.id
     && receipt.project_sha256 === projectHash && receipt.revision === project.revision
-    && inventory.created_step < receipt.step && receipt.step < step)
+    && createdStep < receipt.step && receipt.step < step)
   const reads = inventoryReads(project, inventory).map((read) => {
     const receipt = available.find(receipt => receipt.reads.some(value => JSON.stringify(value) === JSON.stringify(read)))
     if (receipt === undefined) throw Error(`self_check_read_required: ${read.kind} ${read.id} 须在清单提交后的模型轮实际读回。`)
@@ -238,6 +240,9 @@ export function inventoryEvidence(project: ProjectFile, projectHash: string, inv
  */
 export function validInventoryReview(project: ProjectFile, inventory: StoryInventory): boolean {
   const review = inventory.review, evidence = review?.evidence
+  if (review?.kind === 'advisory') return project.review_policy === 'advisory' && evidence === undefined
+  if (inventory.created_step === undefined) return false
+  const createdStep = inventory.created_step
   const expected = inventoryReads(project, inventory)
   return review?.kind === 'self-check' && review.actor === inventory.author && evidence !== undefined
     && evidence.creation_step === inventory.created_step && evidence.context_sha256 === inventory.scope_sha256
@@ -245,7 +250,7 @@ export function validInventoryReview(project: ProjectFile, inventory: StoryInven
     && expected.every((read, index) => {
       const actual = evidence.reads[index]
       return actual !== undefined && actual.kind === read.kind && actual.id === read.id && actual.sha256 === read.sha256
-        && inventory.created_step < actual.step && actual.step < evidence.review_step
+        && createdStep < actual.step && actual.step < evidence.review_step
     })
 }
 function inventoryFor(project: ProjectFile, candidate: Candidate): StoryInventory {
@@ -329,15 +334,17 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
   }
   if (metadata === undefined && project.story_policy.retained_candidates?.some(value => value.id === candidate.id
     && value.sha256 === candidateDigest(candidate))) return
+  if (metadata === undefined && project.review_policy === 'advisory') return
   if (metadata === undefined || candidate.refinement !== undefined) throw Error('story_report_required: 故事忠实候选须有独立实际来源映射和修改说明。')
   const inventory = inventoryFor(project, candidate)
   validateInventory(project, inventory)
-  if (inventory.episode !== candidate.episode || inventory.review?.decision !== 'approve' || !validInventoryReview(project, inventory)
+  if (inventory.episode !== candidate.episode
+    || (project.review_policy !== 'advisory' && (inventory.review?.decision !== 'approve' || !validInventoryReview(project, inventory)))
     || metadata.policy_sha256 !== project.story_policy.sha256 || metadata.inventory_sha256 !== inventory.sha256
     || metadata.scope_sha256 !== inventory.scope_sha256 || metadata.output_content_sha256 !== storyContentDigest(candidate)
     || JSON.stringify(candidate.coverage) !== JSON.stringify(inventory.coverage)
     || candidate.sha256 !== candidateDigest(candidate)) throw Error('story_candidate_digest: 候选须绑定本集已分轮审校清单、策略与成稿版本。')
-  if (requireReady && (inventory.superseded_at_revision !== undefined || inventory.items.some(item => item.critical && item.evidence !== 'confirmed') || storyEvidencePending(project, inventory).length > 0)) {
+  if (project.review_policy !== 'advisory' && requireReady && (inventory.superseded_at_revision !== undefined || inventory.items.some(item => item.critical && item.evidence !== 'confirmed') || storyEvidencePending(project, inventory).length > 0)) {
     throw Error('story_evidence_pending: 本集关键证据未解决或补帧后清单已失效，须完成来源复看和新的清单审校。')
   }
   const notes = metadata.notes
@@ -373,11 +380,14 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
   }
   const unitIds = new Set(inventoryReads(project, inventory).filter(read => read.kind === 'source').map(read => read.id))
   const scopedFacts = project.facts.filter(fact => fact.origin === 'source' && fact.created_at <= inventory.created_at && fact.withdrawal === undefined
-    && fact.review?.decision === 'approve' && fact.anchors.some(anchor => unitIds.has(anchor.unit_id)))
+    && (project.review_policy === 'advisory' || fact.review?.decision === 'approve')
+    && fact.anchors.some(anchor => unitIds.has(anchor.unit_id)))
   if (new Set(notes.dispositions.map(value => value.fact_id)).size !== notes.dispositions.length
-    || notes.dispositions.length !== scopedFacts.length
-      || scopedFacts.some(fact => !notes.dispositions.some(value => value.fact_id === fact.id))) {
-    throw Error('story_source_disposition: 本集每个已批准来源事实须说明保留、合并或非故事性省略。')
+    || notes.dispositions.some(value => !scopedFacts.some(fact => fact.id === value.fact_id))
+    || (project.review_policy !== 'advisory' && notes.dispositions.length !== scopedFacts.length)) {
+    throw Error(project.review_policy === 'advisory'
+      ? 'story_source_disposition: 已提供的来源处置须引用本集真实事实且不重复。'
+      : 'story_source_disposition: 本集每个已批准来源事实须说明保留、合并或非故事性省略。')
   }
   for (const disposition of notes.dispositions) {
     if (disposition.disposition === 'omitted_non_story' && inventory.items.some(item => item.critical && item.fact_ids.includes(disposition.fact_id))) {
@@ -456,10 +466,11 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
     }
   }
   if (candidate.review?.semantic_report !== undefined) {
-    validateSemanticReport(project, candidate, candidate.review.semantic_report, candidate.review.decision === 'approve')
-    if (candidate.review.decision === 'approve') validateStoryAcceptance(project, candidate)
+    validateSemanticReport(project, candidate, candidate.review.semantic_report,
+      project.review_policy !== 'advisory' && candidate.review.decision === 'approve')
+    if (candidate.review.decision === 'approve' && project.review_policy !== 'advisory') validateStoryAcceptance(project, candidate)
   }
-  else if (requireReady && candidate.review?.decision === 'approve') throw Error('story_semantic_required: approve须保存真实C轮语义复原报告。')
+  else if (project.review_policy !== 'advisory' && requireReady && candidate.review?.decision === 'approve') throw Error('story_semantic_required: approve须保存真实C轮语义复原报告。')
 }
 /**
  * Derive immutable report bindings after successful C-step evidence validation.
@@ -542,7 +553,7 @@ export function renderStoryNotes(project: ProjectFile, candidate: Candidate): st
     '实际采样图像：', ...inventory.coverage.windows.flatMap((window) => { const source = project.sources.find(value => value.id === window.source_id); return source?.video === undefined ? [] : [`${source.id} / ${source.video.path} / ${source.video.source_version}：${source.video.samples.slice(window.start - 1, window.start - 1 + window.count).map(sample => `${sample.timestamp_seconds}s`).join('、')}；范围 ${window.interval?.start_seconds ?? source.video.interval?.start_seconds ?? 0}–${window.interval?.end_seconds ?? source.video.interval?.end_seconds ?? source.video.duration_seconds}s；采样不等于连续观看。`] }),
     `证据待核范围：${storyEvidencePending(project, inventory).join('；') || '声明范围内计划窗口均有实际采样；不代表未采样帧或全局视觉通过。'}`,
     '原始来源/实际观察索引保留；文字来源不自动证明真实原音，新增内容维持adaptation归属。',
-    report === undefined ? '语义复原：尚未运行C轮报告。' : `语义复原：${report.protocol} / ${report.sha256}；${candidate.review?.decision}；事件链：${report.event_chain}；情绪冲突：${report.emotion_conflict}；关系立场：${report.relationship_stance}；因果揭晓：${report.causality_reveal}`,
+    report === undefined ? (project.review_policy === 'advisory' ? '语义审校：未记录，由Agent自主决定是否补充。' : '语义复原：尚未运行C轮报告。') : `语义复原：${report.protocol} / ${report.sha256}；${candidate.review?.decision}；事件链：${report.event_chain}；情绪冲突：${report.emotion_conflict}；关系立场：${report.relationship_stance}；因果揭晓：${report.causality_reveal}`,
     ...(report?.checks.map(check => `${check.item_id}：${check.status}；${check.explanation}`) ?? []),
     `偏差：${report?.deviations.join('；') || '未列出' }；未核实：${report?.unverified.join('；') || '未列出'}`]
   return `${rows.join('\n')}\n`
@@ -679,21 +690,24 @@ export async function validateStoryApprovalLog(ctx: Context, project: ProjectFil
  * @param verify - Host resolver for original Session inspection events and current source bytes.
  * @param approvalVerifier - Host validator for exact successful C review and outer execution.
  */
-export async function validateAcceptedStoryEvidence(project: ProjectFile, verify: (input: unknown,
-  persistedReceipt?: unknown) => Promise<unknown>,
+export async function validateAcceptedStoryEvidence(project: ProjectFile, verify: ((input: unknown,
+  persistedReceipt?: unknown) => Promise<unknown>) | undefined,
 approvalVerifier?: (candidate: Candidate) => Promise<void>): Promise<void> {
   validateStoryPolicy(project)
   if (project.story_policy === undefined) return
-  if (approvalVerifier === undefined) throw Error('story_approval_log_pending: V2正式交付须核实际成功C轮日志。')
+  if (approvalVerifier === undefined && project.review_policy !== 'advisory') throw Error('story_approval_log_pending: V2正式交付须核实际成功C轮日志。')
   const candidates = project.candidates.filter(candidate => project.accepted.includes(candidate.id)
     && candidate.story_adaptation !== undefined)
-  for (const candidate of candidates) { validateStoryCandidate(project, candidate, true); await approvalVerifier(candidate) }
+  for (const candidate of candidates) {
+    validateStoryCandidate(project, candidate, true)
+    if (project.review_policy !== 'advisory') await approvalVerifier?.(candidate)
+  }
   const sources = new Set(candidates.flatMap(candidate => inventoryFor(project, candidate).coverage.windows
     .map(window => window.source_id)))
   for (const source of project.sources) {
     if (!sources.has(source.id)) continue
     if (source.video === undefined) continue
-    if (source.trusted_video_receipt === undefined || source.trusted_video_manifest === undefined) throw Error('story_video_evidence_pending: 本集缺少真实probe/sample日志证据，不能正式交付。')
+    if (verify === undefined || source.trusted_video_receipt === undefined || source.trusted_video_manifest === undefined) throw Error('story_video_evidence_pending: 本集缺少真实probe/sample日志证据，不能正式交付。')
     await verify(source.trusted_video_manifest, source.trusted_video_receipt)
   }
 }

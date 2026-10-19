@@ -1,0 +1,84 @@
+{
+  "purpose": "Explicit historical retired Skill bodies for recorded-session fixtures only; production stays disabled",
+  "files": [
+    {
+      "file": "editing.skill.txt",
+      "source": "apps/desktop-host/skills/editing/SKILL.md.disabled",
+      "bytes": 11738,
+      "sha256": "91f026f72e9eae2233db8d22ff2e8e08f519a9023903efd7ae1800a613f64808"
+    },
+    {
+      "file": "screenplay-project.skill.txt",
+      "source": "apps/desktop-host/skills/screenplay-project/SKILL.md.disabled",
+      "bytes": 26001,
+      "sha256": "8e6fb1a4c25e446990be6a3ef7d0f5d5edf598b4ee93b02385ebcd031ed6687f"
+    },
+    {
+      "file": "muse-project-participation.skill.txt",
+      "source": "apps/desktop-host/skills/muse-project-participation/SKILL.md.disabled",
+      "bytes": 4738,
+      "sha256": "a06b3ebc29fa9b848e44499231eab7b12073cd337d7b55215817560938efba40"
+    },
+    {
+      "file": "muse-llm-wiki.skill.txt",
+      "source": "apps/desktop-host/skills/muse-llm-wiki/SKILL.md.disabled",
+      "bytes": 3997,
+      "sha256": "d2b206e3d0c5dc4d4aa0b94ce8032ffeb30a9045eee833eef4674654acda5320"
+    },
+    {
+      "file": "douyin-download.skill.txt",
+      "source": "apps/desktop-host/skills/douyin-download/SKILL.md.disabled",
+      "bytes": 3742,
+      "sha256": "4fcd3e56bb570fcfc364f6c355d181ab6a19b93c98308e6f0113b98dd8a1c203"
+    },
+    {
+      "file": "wechat-shortdrama-harvest.skill.txt",
+      "source": "apps/desktop-host/skills/wechat-shortdrama-harvest/SKILL.md.disabled",
+      "bytes": 4863,
+      "sha256": "75416fed65b0a96eb6be91405fc8deef47fd448190098e70ed3328a9e5b52044"
+    },
+    {
+      "file": "transcript-to-novel.skill.txt",
+      "source": "apps/desktop-host/skills/transcript-to-novel/SKILL.md.disabled",
+      "bytes": 5833,
+      "sha256": "d67d462d42a811f308f5fa9f672566eb2954b87bb73837dcccaf6825dda03c97"
+    },
+    {
+      "file": "transcript-to-script.skill.txt",
+      "source": "apps/desktop-host/skills/transcript-to-script/SKILL.md.disabled",
+      "bytes": 13198,
+      "sha256": "33cb747b266ac85c5e905cc3ce66776d2121e0e6584d8f5d7ef0a14caca0288f"
+    },
+    {
+      "file": "novel-to-script.skill.txt",
+      "source": "apps/desktop-host/skills/novel-to-script/SKILL.md.disabled",
+      "bytes": 5403,
+      "sha256": "e15143e5b2a24b1fc6d41fa5e6229b1b748972213b726a454a56ae1ac8fdfba8"
+    },
+    {
+      "file": "trope-adaptation.skill.txt",
+      "source": "apps/desktop-host/skills/trope-adaptation/SKILL.md.disabled",
+      "bytes": 9547,
+      "sha256": "12765c290951293bdb364b232397a91087a214cb99b0aa8029cca4485e5b7f34"
+    },
+    {
+      "file": "muse-episode-design.skill.txt",
+      "source": "apps/desktop-host/skills/muse-episode-design/SKILL.md.disabled",
+      "bytes": 1200,
+      "sha256": "e5b101dd7c1c3b3f31624246ca05fce33383eac74c90cadecc4e6741c784af82"
+    },
+    {
+      "file": "muse-dialogue-polish.skill.txt",
+      "source": "apps/desktop-host/skills/muse-dialogue-polish/SKILL.md.disabled",
+      "bytes": 1331,
+      "sha256": "b640bc4bfd346dcef4524ae9b9e4ce1d491d43cf08ec369f6bf204a0054e2bb3"
+    },
+    {
+      "file": "video-review.skill.txt",
+      "source": "apps/desktop-host/skills/video-review/SKILL.md.disabled",
+      "bytes": 3723,
+      "sha256": "e2578d3e16421d133c8f2ab807fb27f411807369f7b775975c5bf2207ee3acea"
+    }
+  ],
+  "sourceVersion": "Muse 1.1.7 pre-advisory fixture capture"
+}

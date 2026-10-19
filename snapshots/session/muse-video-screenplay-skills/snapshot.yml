@@ -1,4 +1,5 @@
 version: 1
+# Retired guide bodies are pinned in legacy-skills/SOURCES.json and enabled only inside this fixture workspace.
 scenario: muse-video-screenplay-skills
 profile: headless
 composition: muse-editing-skill

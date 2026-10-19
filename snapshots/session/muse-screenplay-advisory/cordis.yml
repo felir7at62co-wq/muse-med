@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: screenplay-project
+      name: './runtime.mjs'
+      config:
+        reviewMode: advisory

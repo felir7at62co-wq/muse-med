@@ -247,6 +247,6 @@
 - id: screenplay-project
   name: '@deepseek-ai/dsh-screenplay-project'
   config:
-    reviewMode: self-check
+    reviewMode: advisory
     refinementMode: source-preserving-v1
     storyFaithfulMode: story-faithful-v2

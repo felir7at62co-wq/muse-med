@@ -65,10 +65,10 @@ export async function apply(ctx) {
         /videos:\s*\{[^}]*episode\??:\s*number;[^}]*\}\[\];/u,
         'The actual model request SDK exposes videos[].episode')
     }
-    for (const instruction of ['C review所在外层run_code必须成功结束，下一模型轮才可commit/export',
-      '外层失败或取消时重新stage、B完整读回，再于下一模型轮C审校']) {
-      assert.ok(project.description.includes(instruction), 'The real story tool describes successful outer C settlement')
-      assert.ok(system.includes(instruction), 'The actual model request SDK includes the C-to-commit sequence')
+    for (const instruction of ['当前为自主审校模式', '不强制独立会话、固定分轮或先批准再起草和交付',
+      '同一会话可审校', '采用不等于已独立审校', '不能伪造来源或扩大改编许可']) {
+      assert.ok(project.description.includes(instruction), 'The real story tool declares advisory review and retained source obligations')
+      assert.ok(system.includes(instruction), 'The actual model request SDK receives the current advisory tool declaration')
     }
     const fork = commands.find(command => command.properties.method.const === 'fork_refinement')
     assert.ok(fork, 'The actual creation preset enables its refinement fork')
@@ -183,7 +183,8 @@ export async function apply(ctx) {
         assert.deepEqual(quality.lines.map(line => line.number), quality.lines.map((_line, index) => index + 1))
         assert.equal(quality.lines.map(line => line.text).join('\n') + '\n', qualityBody,
           'The actual later Adapter.messages contains every byte of the shared writing standard')
-        for (const rule of ['未交代不等于不知道', '建议不等于已落实', '本轮未改变或沿用', '本轮修订尚待后轮复检']) {
+        for (const rule of ['未交代不等于不知道', '建议不等于已落实', '本轮未改变或沿用',
+          '由 Agent 根据稿件长度', '不固定要求 A/B/C 轮次或批准收据', '未执行或无法执行的检查如实列出']) {
           assert.ok(qualityBody.includes(rule), 'The actual on-demand model input includes evidence-based revision review guidance')
         }
       } else {

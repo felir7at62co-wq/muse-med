@@ -308,7 +308,7 @@ export const SELF_CHECK_EVIDENCE = z.strictObject({
 })
 /** Durable reviewer identity, decision and optional explicit self-check evidence. */
 export const REVIEW_RECORD = z.strictObject({ actor: actorId, time: timestamp, decision: z.enum(['approve', 'reject']), reason: nonempty,
-  kind: z.enum(['independent', 'self-check']).optional(), evidence: SELF_CHECK_EVIDENCE.optional(),
+  kind: z.enum(['independent', 'self-check', 'advisory']).optional(), evidence: SELF_CHECK_EVIDENCE.optional(),
 })
 /** Episode source windows and required expression channels, bound to the candidate digest. */
 export const COVERAGE_RECORD = z.strictObject({
@@ -381,7 +381,7 @@ export const STORY_INVENTORY = z.strictObject({
   id: nonempty, sha256: digest, policy_sha256: digest, scope_sha256: digest, episode: z.number().int().positive(),
   coverage: COVERAGE_RECORD, items: z.array(storyItem).min(1), not_applicable: z.array(z.strictObject({ dimension: storyDimension,
     reason: nonempty })), author: actorId,
-  created_at: timestamp, created_step: step, review: REVIEW_RECORD.optional(),
+  created_at: timestamp, created_step: step.optional(), review: REVIEW_RECORD.optional(),
   superseded_at_revision: z.number().int().nonnegative().optional(),
 })
 const storyLocation = locatedTextRecord
@@ -490,6 +490,7 @@ export const PROJECT_FILE = z.strictObject({
   format_version: z.literal(1), id: nonempty.transform(value => brandString<ProjectId>(value)), revision: z.number().int().nonnegative(),
   mode: z.enum(['faithful', 'adaptation']), instructions: nonempty, created_at: timestamp, updated_at: timestamp,
   workflow: z.literal('video_to_screenplay').optional(), review_mode: z.literal('self-check').optional(),
+  review_policy: z.literal('advisory').optional(),
   refinement: REFINEMENT_POLICY.optional(), story_policy: STORY_POLICY.optional(), story_inventories: z.array(STORY_INVENTORY).optional(),
   parent: z.strictObject({ id: nonempty.transform(value => brandString<ProjectId>(value)), path: nonempty,
     revision: z.number().int().nonnegative(), before_episode: z.number().int().positive(), sha256: digest }).optional(),

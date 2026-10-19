@@ -1,4 +1,4 @@
-/** Accepted-only delivery for explicitly managed video and refinement final directories. */
+/** Configured screenplay delivery checks and exact Word conversion verification. */
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { acceptedScripts, PROJECT_FILE, sha256, validateAcceptedStoryEvidence } from '@deepseek-ai/dsh-screenplay-project'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { Config } from './screenplay-docx.ts'
+import { isManuscript, readManuscript } from './manuscript-document.ts'
 
 const receipt = z.strictObject({
   version: z.literal(1), output_sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -80,10 +81,12 @@ async function scopedProjects(paths: readonly string[], maxBytes: number, explic
  * @param maxProjectBytes - Host-selected project/receipt read budget.
  * @param explicit - Optional managed project outside the conventional directory.
  * @param verify - Host-only logged inspection recheck for story-faithful projects.
+ * @param reviewMode - Deployment-selected approval policy; advisory conversion uses the actual input files.
  * @returns Pinned accepted contents and receipt episodes, or undefined for ordinary conversion.
  */
 export async function approveVideoMarkdown(inputs: readonly string[], output: string, maxProjectBytes: number,
-  explicit?: string, verify?: StoryEvidenceVerifier) {
+  explicit?: string, verify?: StoryEvidenceVerifier, reviewMode: 'strict' | 'advisory' = 'strict') {
+  if (reviewMode === 'advisory') return undefined
   const projects = await scopedProjects([...inputs, output], maxProjectBytes, explicit, verify)
   if (projects.length === 0) return undefined
   const episodes: VideoExportReceipt['episodes'] = [], contents: string[] = []
@@ -100,7 +103,14 @@ export async function approveVideoMarkdown(inputs: readonly string[], output: st
   return { contents, episodes }
 }
 
-async function verifyWordBody(file: string, contents: string[], config: Config, signal: AbortSignal): Promise<void> {
+/**
+ * Compare real Word paragraphs with this operation's complete pinned Markdown.
+ * @param file - Actual generated Word file.
+ * @param contents - Ordered Markdown snapshots used for conversion.
+ * @param config - Bundled Python and bounded verification settings.
+ * @param signal - Initiating operation cancellation.
+ */
+export async function verifyWordBody(file: string, contents: string[], config: Config, signal: AbortSignal): Promise<void> {
   const info = await lstat(file)
   if (!info.isFile() || info.size > config.maxProjectBytes) throw Error('video_delivery_body_changed: Word 文件超出核对预算。')
   const runtime = await resolvePrimaryRuntime(config.source)
@@ -109,7 +119,7 @@ async function verifyWordBody(file: string, contents: string[], config: Config, 
     const child = execFile(runtime.python, ['-c', script], {
       signal, windowsHide: true, timeout: config.timeoutMs, maxBuffer: 65536, env: { ...process.env, PYTHONUTF8: '1' },
     }, (error) => {
-      if (error) reject(Error('video_delivery_body_changed: Word 正文与已验收正文不一致或无法核对。'))
+      if (error) reject(Error('video_delivery_body_changed: Word 正文与本次转换正文不一致或无法核对。'))
       else resolveRun()
     })
     child.stdin?.on('error', () => { /* execFile reports process failure through its callback. */ })
@@ -127,6 +137,17 @@ async function verifyWordBody(file: string, contents: string[], config: Config, 
  */
 export async function validateVideoDelivery(files: readonly string[], config: Config, signal: AbortSignal,
   options: { requireRefinementPair?: boolean; verifyStoryEvidence?: StoryEvidenceVerifier } = {}): Promise<void> {
+  if (config.reviewMode === 'advisory') {
+    for (const file of files) {
+      signal.throwIfAborted()
+      if (!isManuscript(file)) continue
+      await readManuscript(file, dirname(resolve(file)), {
+        maxFileBytes: extname(file).toLowerCase() === '.docx' ? config.maxProjectBytes : config.maxInputBytes,
+        maxTextChars: config.maxInputBytes,
+      }, signal)
+    }
+    return
+  }
   const { maxProjectBytes } = config
   const pairedNotes = new Set<string>()
   for (const file of files) {

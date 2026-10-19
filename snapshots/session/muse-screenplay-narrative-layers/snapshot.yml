@@ -1,4 +1,5 @@
 version: 1
+# Historical guide discovery is seeded from legacy-skills; narrative-layer resources use current source.
 scenario: muse-screenplay-narrative-layers
 profile: headless
 composition: muse-editing-skill

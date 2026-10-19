@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/screenplay-project/README.md
 /:
-  en: d5ada685ad5e184e
-  zh: 428b60336dad85f7
+  en: f6f7e79feb7c73ec
+  zh: abfc78b8dd07f4dd
 /deepseek-ai-dsh-screenplay-project:
   en: f8a9a4cfae084691
   zh: 791e07d5d7bad1a6
 /deepseek-ai-dsh-screenplay-project/summary:
-  en: 45669eb1bf82102c
-  zh: c0bd866b603f9cca
+  en: e69027b7444d3cb3
+  zh: a8c8c48e0a37ee24
 /deepseek-ai-dsh-screenplay-project/table-of-contents:
   en: d152484eb41ac6b4
   zh: 1db86285abf6c499
@@ -18,20 +18,23 @@
   en: bbff250eba0f1b89
   zh: 0a618f05cc88ee2b
 /deepseek-ai-dsh-screenplay-project/use-this-package/when-to-choose-it:
-  en: 1e74f519ce731c66
-  zh: 5b3ff47a8783ef5a
+  en: 42dea7cbc5d9e0b2
+  zh: 6b9ce4541114f7c2
 /deepseek-ai-dsh-screenplay-project/use-this-package/minimal-configuration:
-  en: bc86333066870884
-  zh: 43084dfc298c801a
+  en: 69a283ed72b20b6d
+  zh: 52b7bcb3fcc9ca70
+/deepseek-ai-dsh-screenplay-project/use-this-package/review-policies:
+  en: f4e74c48a5d910ea
+  zh: 0bbde8eb4e7be7fb
 /deepseek-ai-dsh-screenplay-project/use-this-package/story-faithful-video-creation:
-  en: 967693eec702219a
-  zh: c7c8f770307fc197
+  en: d629a7d119873d90
+  zh: e1d01256a0f1f5d3
 /deepseek-ai-dsh-screenplay-project/use-this-package/source-preserving-refinement:
   en: 156f6de0f58ff8e8
   zh: 7f17839f558d8909
 /deepseek-ai-dsh-screenplay-project/use-this-package/project-operations:
-  en: f28ffc3a2751466d
-  zh: 53d5d5247226664a
+  en: 5e467552a2572170
+  zh: 4217e55a90a54a38
 /deepseek-ai-dsh-screenplay-project/understand-the-implementation:
   en: 2b7744e611a71f5d
   zh: 8258a58cfef7b8a7
@@ -45,17 +48,17 @@
   en: 231b288ad89e15c5
   zh: 05b15f425b0d7f11
 /deepseek-ai-dsh-screenplay-project/model-experience/the-screenplay-project-tool/what-the-model-sees:
-  en: ec7cc82a9c738195
-  zh: db489fff032798e5
+  en: 0715c1044178aad9
+  zh: 4011e6f0b05301d4
 /deepseek-ai-dsh-screenplay-project/model-experience/the-screenplay-project-tool/token-effect:
-  en: cc851f418dccb33b
-  zh: 0150637d45c662e7
+  en: e5464eb3266ea83a
+  zh: 2bb4feb0111f9b50
 /deepseek-ai-dsh-screenplay-project/model-experience/the-screenplay-project-tool/kv-cache-effect:
   en: fa91831b16390529
   zh: 844095af9b221f6e
 /deepseek-ai-dsh-screenplay-project/known-limitations-and-deferred-work:
-  en: a98a76637ab70436
-  zh: 7053efb4d545f5ea
+  en: ee93f1984aad163a
+  zh: 53758ea22aedc58f
 /deepseek-ai-dsh-screenplay-project/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: bd8a8936229e035e

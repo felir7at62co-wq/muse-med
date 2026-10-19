@@ -317,6 +317,6 @@ export function renderModificationNotes(project: ProjectFile, candidate: Candida
     `机器检查：${notes.machine.rule}；场 ${notes.machine.scenes.join('、')}；事实 ${notes.machine.fact_ids.join('、')}；来源 ${notes.machine.source_units.join('、')}。仅检查位置、摘要、类别、引用、场次结构和来源渠道与顺序。`,
     `语义检查：${notes.validation.semantic.status}；场 ${notes.validation.semantic.scenes.join('、') || '无'}；${notes.validation.semantic.reason}`,
     `视觉检查：${notes.validation.visual.status}；来源 ${notes.validation.visual.source_units.join('、') || '无'}；${notes.validation.visual.reason}`,
-    candidate.review === undefined ? '版本审查：尚未进行。' : `版本审查：${candidate.review.kind ?? 'independent'} / ${candidate.review.decision}；${candidate.review.reason}；${candidate.review.evidence === undefined ? '独立会话记录' : `真实检查步骤 ${candidate.review.evidence.creation_step} → ${candidate.review.evidence.reads.map(read => read.step).join('、')} → ${candidate.review.evidence.review_step}`}`]
+    candidate.review === undefined ? '版本审查：尚未进行。' : `版本审查：${candidate.review.kind ?? 'independent'} / ${candidate.review.decision}；${candidate.review.reason}；${candidate.review.evidence === undefined ? (candidate.review.kind === 'advisory' ? 'Agent自主审校记录' : '独立会话记录') : `真实检查步骤 ${candidate.review.evidence.creation_step} → ${candidate.review.evidence.reads.map(read => read.step).join('、')} → ${candidate.review.evidence.review_step}`}`]
   return `${rows.join('\n')}\n`
 }

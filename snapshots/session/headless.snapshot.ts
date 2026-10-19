@@ -62,21 +62,23 @@ const editingCordisSkill = join(
   repoRoot,
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
-const museEditingSkill = join(repoRoot, 'apps/desktop-host/skills/editing/SKILL.md')
+// Retired guides belong only to these recorded workspaces; current production discovery stays disabled.
+const museLegacySkills = join(snapshotsRoot, 'muse-video-screenplay-skills/legacy-skills')
+const museEditingSkill = join(museLegacySkills, 'editing.skill.txt')
 const museSharedSkills = [
-  ['screenplay-project', join(repoRoot, 'apps/desktop-host/skills/screenplay-project/SKILL.md')],
+  ['screenplay-project', join(museLegacySkills, 'screenplay-project.skill.txt')],
   ['tweet-drama-project-bible', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/SKILL.md')],
   ['tweet-drama-voice-continuity', join(repoRoot, 'packages/drama/skills/skills/tweet-drama-voice-continuity/SKILL.md')],
-  ['muse-project-participation', join(repoRoot, 'apps/desktop-host/skills/muse-project-participation/SKILL.md')],
-  ['muse-llm-wiki', join(repoRoot, 'apps/desktop-host/skills/muse-llm-wiki/SKILL.md')],
-  ['douyin-download', join(repoRoot, 'apps/desktop-host/skills/douyin-download/SKILL.md')],
+  ['muse-project-participation', join(museLegacySkills, 'muse-project-participation.skill.txt')],
+  ['muse-llm-wiki', join(museLegacySkills, 'muse-llm-wiki.skill.txt')],
+  ['douyin-download', join(museLegacySkills, 'douyin-download.skill.txt')],
   ['screenplay-format', join(repoRoot, 'apps/desktop-host/skills/screenplay-format/SKILL.md')],
-  ['wechat-shortdrama-harvest', join(repoRoot, 'apps/desktop-host/skills/wechat-shortdrama-harvest/SKILL.md')],
+  ['wechat-shortdrama-harvest', join(museLegacySkills, 'wechat-shortdrama-harvest.skill.txt')],
   ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
-  ['transcript-to-novel', join(repoRoot, 'apps/desktop-host/skills/transcript-to-novel/SKILL.md')],
-  ['transcript-to-script', join(repoRoot, 'apps/desktop-host/skills/transcript-to-script/SKILL.md')],
-  ['novel-to-script', join(repoRoot, 'apps/desktop-host/skills/novel-to-script/SKILL.md')],
-  ['trope-adaptation', join(repoRoot, 'apps/desktop-host/skills/trope-adaptation/SKILL.md')],
+  ['transcript-to-novel', join(museLegacySkills, 'transcript-to-novel.skill.txt')],
+  ['transcript-to-script', join(museLegacySkills, 'transcript-to-script.skill.txt')],
+  ['novel-to-script', join(museLegacySkills, 'novel-to-script.skill.txt')],
+  ['trope-adaptation', join(museLegacySkills, 'trope-adaptation.skill.txt')],
 ] as const
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
@@ -550,12 +552,16 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await workspaceSetups['muse-editing-skill']!(cwd)
     for (const name of ['muse-episode-design', 'muse-script-doctor', 'muse-dialogue-polish']) {
       await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+      if (name !== 'muse-script-doctor') {
+        await copyFile(join(museLegacySkills, `${name}.skill.txt`), join(cwd, '.dsh', 'skills', name, 'SKILL.md'))
+      }
     }
   },
   async 'muse-creation-skills'(cwd) {
     await workspaceSetups['muse-editing-trial-skills']!(cwd)
     await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+    await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)

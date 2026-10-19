@@ -20,7 +20,7 @@ export async function apply(ctx) {
     const names = ['screenplay-project', 'video-review', 'screenplay-format']
     for (let index = 0; index < Math.min(requests, names.length); index++) {
       const result = results[index]
-      assert.equal(result.isError, false)
+      assert.equal(result.isError, false, 'The recorded Skill call must succeed: ' + JSON.stringify(result.content))
       const value = JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
       const skill = await ctx.skills.get(names[index], { scope: agent, cwd: agent.session.header.cwd })
       assert.ok(skill)

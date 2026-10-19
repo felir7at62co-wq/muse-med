@@ -113,6 +113,7 @@ function contextDigest(project: ProjectFile, subject: Fact | Candidate): string 
 /**
  * Validate review actor, step ordering, and exact immutable evidence on every replay path.
  * Omitted kind retains historical independent-review semantics.
+ * Advisory opinions retain actual attribution without requiring sequential rereads.
  * @param project - Parsed project, including its explicit review mode.
  * @param subject - Fact or candidate carrying the review.
  * @param kind - Subject type.
@@ -128,6 +129,7 @@ export function validReview(project: ProjectFile, subject: Fact | Candidate, kin
     }
   }
   if (review === undefined) return false
+  if (review.kind === 'advisory') return project.review_policy === 'advisory' && review.evidence === undefined
   const author = kind === 'fact' ? (subject as Fact).proposer : (subject as Candidate).author
   if (review.kind !== 'self-check') return review.actor !== author && review.evidence === undefined
   return project.review_mode === 'self-check' && review.actor === author
@@ -156,6 +158,7 @@ function validSelfCheck(project: ProjectFile, subject: Fact | Candidate, kind: '
  */
 export function validWithdrawal(project: ProjectFile, fact: Fact): boolean {
   const withdrawal = fact.withdrawal
+  if (withdrawal?.kind === 'advisory') return project.review_policy === 'advisory' && withdrawal.evidence === undefined
   if (withdrawal === undefined || fact.review?.decision !== 'approve' || !validReview(project, fact, 'fact')) return false
   if (withdrawal.kind !== 'self-check') return withdrawal.actor !== fact.proposer && withdrawal.evidence === undefined
   return project.review_mode === 'self-check' && fact.review.kind === 'self-check' && withdrawal.actor === fact.proposer

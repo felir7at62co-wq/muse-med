@@ -56,7 +56,7 @@ it('rejects dependent creation settings before mounting without their projection
   const root = await mkdtemp(join(tmpdir(), 'screenplay-composition-')), ctx = new Context()
   fixtures.push({ ctx, root })
   await ctx.plugin(LocalFileSystem, { cwd: root })
-  expect(() => { apply(ctx, Config({ storyFaithfulMode: 'story-faithful-v2' })) }).toThrow('requires explicit self-check')
+  expect(() => { apply(ctx, Config({ storyFaithfulMode: 'story-faithful-v2' })) }).toThrow('requires self-check or advisory')
   for (const config of [{ reviewMode: 'self-check' }, { refinementMode: 'source-preserving-v1' },
     { reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }] satisfies Partial<Config>[]) {
     expect(() => { apply(ctx, Config(config)) }).toThrow('requires live sessionProjections')
@@ -101,6 +101,45 @@ it('publishes from a real initiating session and renders exactly the canonical r
   expect(tool.output.presentationMeta?.({ request: { method: 'status', project: 'project.json' } }, result.value)).toEqual({ method: 'status', project: 'project.json' })
   expect(tool.isConcurrencySafe?.({ request: { method: 'status', project: 'project.json' } })).toBe(true)
   expect(tool.isConcurrencySafe?.({ request: { method: 'init', project: 'project.json', mode: 'faithful', instructions: '方向' } })).toBe(false)
+})
+
+it('lets the initiating agent review facts and adopt an unreviewed candidate under advisory policy', async () => {
+  const { call, root, tool, agent } = await fixture({ reviewMode: 'advisory' })
+  const project = 'advisory.json'
+  const current = async () => PROJECT_FILE.parse(JSON.parse(await readFile(join(root, project), 'utf8')))
+  expect(tool.description).toContain('自主审校模式')
+  expect(tool.description).not.toContain('review_fact 须由另一会话')
+  await writeFile(join(root, 'source.txt'), '甲：门开着。\n甲走进屋里。')
+  expect((await call({ method: 'init', project, mode: 'faithful', instructions: '保留来源，由Agent自行决定审校。' })).isError).toBe(false)
+  expect((await call({ method: 'import_source', project, expected_revision: (await current()).revision,
+    path: 'source.txt', source_kind: 'text' })).isError).toBe(false)
+  const source = (await current()).sources[0]!
+  for (const [index, kind] of ['speech', 'action'].entries()) {
+    const unit = source.units[index]!
+    expect((await call({ method: 'propose_fact', project, expected_revision: (await current()).revision,
+      fact: { kind, origin: 'source', actor: '甲', layer: 'present', summary: unit.text,
+        anchors: [{ unit_id: unit.id, quote: unit.text }] } })).isError).toBe(false)
+  }
+  const facts = (await current()).facts
+  expect((await call({ method: 'review_fact', project, expected_revision: (await current()).revision,
+    fact_id: facts[0]!.id, decision: 'approve', reason: '已核对原话，记录本会话判断。' })).isError).toBe(false)
+  expect((await call({ method: 'stage', project, expected_revision: (await current()).revision, episode: 1,
+    scenes: [{ location: '屋门', time: '日', setting: '内', layer: 'present', transition: 'opening', characters: ['甲'],
+      beats: [{ kind: 'dialogue', actor: '甲', text: '门开着。', fact_ids: [facts[0]!.id], requires_knowledge: [], witnesses: [] },
+        { kind: 'action', actor: '甲', text: '甲走进屋里。', fact_ids: [facts[1]!.id], requires_knowledge: [], witnesses: [] }] }] })).isError).toBe(false)
+  const candidate = (await current()).candidates[0]!
+  expect((await call({ method: 'commit', project, expected_revision: (await current()).revision,
+    candidate_id: candidate.id, candidate_sha256: candidate.sha256 })).isError).toBe(false)
+  expect((await call({ method: 'export', project, candidate_id: candidate.id, directory: 'final' })).isError).toBe(false)
+  const adopted = await current()
+  expect(adopted.facts[0]!.review).toMatchObject({ actor: agent.session.id, kind: 'advisory', decision: 'approve' })
+  expect(adopted.facts[1]!.review).toBeUndefined()
+  expect(adopted.candidates[0]!.review).toBeUndefined()
+  expect(adopted.accepted).toEqual([candidate.id])
+  await writeFile(join(root, 'source.txt'), '已更换的来源。')
+  const changed = await call({ method: 'export', project, candidate_id: candidate.id, directory: 'changed' })
+  expect(changed.isError).toBe(true)
+  expect(JSON.stringify(changed.content)).toContain('source_changed')
 })
 
 it('fails malformed model JSON and agentless calls before creating project files', async () => {

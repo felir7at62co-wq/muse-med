@@ -12,7 +12,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { expect, it } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
 
-it('loads Desktop Office CLI paths and removes them on disposal', async () => {
+it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with review policy %s and removes them on disposal', async (reviewMode) => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-office-'))
   const ctx = new Context()
   try {
@@ -43,6 +43,7 @@ it('loads Desktop Office CLI paths and removes them on disposal', async () => {
       '  config:', `    source: ${JSON.stringify(join(root, 'runtime', 'primary-runtime'))}`,
       `    root: ${JSON.stringify(join(root, 'installed'))}`,
       `    runtimeDir: ${JSON.stringify(join(root, 'dsh'))}`, '',
+      ...(reviewMode === undefined ? [] : [`    docxReviewMode: ${reviewMode}`]),
     ].join('\n'))
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
@@ -52,6 +53,8 @@ it('loads Desktop Office CLI paths and removes them on disposal', async () => {
     expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
     expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_revision', 'screenplay_export_docx'])
+    const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
+    expect(description).toContain(reviewMode === 'advisory' ? '不要求独立审校' : '严格候选验收')
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')
     expect(entry).toBeDefined()
     await entry?.fiber?.dispose()

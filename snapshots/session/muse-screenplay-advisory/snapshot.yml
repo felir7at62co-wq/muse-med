@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-screenplay-advisory
+profile: headless
+composition: muse-screenplay-advisory
+recording: authored
+header:
+  class: muse-screenplay-advisory
+  pin: true
+writerOutput: true

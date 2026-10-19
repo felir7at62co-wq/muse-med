@@ -77,7 +77,8 @@ function factIndex(project: ProjectFile) {
     throw Error('invalid_withdrawal: 事实撤销身份或自检证据无效。')
   }
   return {
-    facts: new Map(allFacts.filter(fact => fact.review?.decision === 'approve' && fact.withdrawal === undefined).map(fact => [fact.id, fact])),
+    facts: new Map(allFacts.filter(fact => (project.review_policy === 'advisory' || fact.review?.decision === 'approve')
+      && fact.withdrawal === undefined).map(fact => [fact.id, fact])),
     withdrawn: new Set(allFacts.filter(fact => fact.withdrawal !== undefined).map(fact => fact.id)),
   }
 }
@@ -252,7 +253,7 @@ export function candidateDigest(candidate: Pick<ProjectFile['candidates'][number
  * Check a managed video's prepared source inventory against the actual beats.
  * @param project - Original sources and independently reviewed facts.
  * @param candidate - Candidate with declared complete episode source windows.
- * @returns Whether the episode requires an independent zero-action recheck.
+ * @returns Whether the managed video candidate has no action beats.
  */
 export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile['candidates'][number]): boolean {
   validateRefinement(project, candidate)
@@ -261,6 +262,19 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
     && project.story_policy.legacy_workflow === undefined) return false
   if (project.workflow !== 'video_to_screenplay') return false
   const coverage = candidate.coverage
+  if (project.review_policy === 'advisory') {
+    for (const window of coverage?.windows ?? []) {
+      const source = project.sources.find(source => source.id === window.source_id)
+      if (source === undefined || window.start + window.count - 1 > source.units.length
+        || (window.interval !== undefined && (source.video === undefined
+          || window.interval.end_seconds <= window.interval.start_seconds
+          || window.interval.end_seconds > source.video.duration_seconds))) throw Error('source_window: 来源范围与实际文件不一致。')
+    }
+    for (const entry of coverage?.required_beats ?? []) if (!project.facts.some(fact => fact.id === entry.fact_id)) {
+      throw Error(`source_coverage: ${entry.fact_id} 不存在。`)
+    }
+    return !candidate.scenes.some(scene => scene.beats.some(beat => beat.kind === 'action'))
+  }
   if (coverage === undefined) throw Error('visual_preparation_required: 视频候选须先整理实际画面与来源事实，提交本集 coverage。')
   const units = new Map<string, ProjectFile['sources'][number]['units'][number]>()
   const sources = new Map(project.sources.map(source => [String(source.id), source]))
@@ -382,7 +396,7 @@ export function acceptedScripts(project: ProjectFile): { id: string; sha256: str
 }
 
 /**
- * Resolve approved, sequential episode records from persisted history.
+ * Resolve sequential committed episodes, requiring approval outside advisory projects.
  * @param project - Parsed project history.
  * @returns Accepted candidate records in episode order.
  */
@@ -392,7 +406,8 @@ export function acceptedCandidates(project: ProjectFile): ProjectFile['candidate
     const candidate = candidates.get(id)
     if (candidate === undefined || candidate.episode !== index + 1 || candidate.base_episode !== index
       || candidate.committed_at === undefined
-      || candidate.review?.decision !== 'approve' || !validReview(project, candidate, 'candidate')) {
+    || (project.review_policy !== 'advisory' && candidate.review?.decision !== 'approve')
+    || (candidate.review !== undefined && !validReview(project, candidate, 'candidate'))) {
       throw Error('invalid_history: 验收记录缺失、集号不连续或审校无效。')
     }
     return candidate

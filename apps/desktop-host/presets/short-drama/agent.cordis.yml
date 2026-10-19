@@ -287,3 +287,5 @@
 
 - id: screenplay-project
   name: '@deepseek-ai/dsh-screenplay-project'
+  config:
+    reviewMode: advisory

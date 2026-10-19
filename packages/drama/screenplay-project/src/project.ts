@@ -76,7 +76,7 @@ export class ProjectCommands {
   private cached: { hash: string; project: ProjectFile; knowledge: Record<string, string[]> } | undefined
 
   constructor(private readonly fs: FileSystem, private readonly limits: ProjectLimits, private readonly attachments: AttachmentStore,
-    private readonly reviewMode: 'independent' | 'self-check' = 'independent',
+    private readonly reviewMode: 'independent' | 'self-check' | 'advisory' = 'independent',
     private readonly refinementMode: 'disabled' | 'source-preserving-v1' = 'disabled',
     private readonly storyFaithfulMode: 'disabled' | 'story-faithful-v2' = 'disabled') {}
 
@@ -93,10 +93,13 @@ export class ProjectCommands {
     if (after?.version !== before.version) throw Error('stale_read: 项目读取期间发生变更，请重读 status。')
     const hash = sha256(bytes)
     if (this.cached?.hash === hash) {
-      return { target, version: before.version, sha256: hash, project: structuredClone(this.cached.project),
+      const project = structuredClone(this.cached.project)
+      if (this.reviewMode === 'advisory') project.review_policy = 'advisory'
+      return { target, version: before.version, sha256: hash, project,
         knowledge: structuredClone(this.cached.knowledge), validated: true }
     }
     const project = PROJECT_FILE.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))
+    if (this.reviewMode === 'advisory') project.review_policy = 'advisory'
     const allIds = [project.id, ...project.sources.flatMap(source => [source.id, ...source.units.map(unit => unit.id)]),
       ...project.facts.map(fact => fact.id), ...project.candidates.map(candidate => candidate.id),
       ...(project.story_inventories ?? []).map(inventory => inventory.id)]
@@ -162,6 +165,10 @@ export class ProjectCommands {
   }
 
   private async verifySources(project: ProjectFile, exec: ProjectExecution, validated = false): Promise<void> {
+    if (project.review_policy === 'advisory') for (const video of project.story_policy?.videos ?? []) {
+      const actual = await this.fs.stat(await this.target(video.path, exec), exec.signal)
+      if (actual?.type !== 'file' || actual.version !== video.source_version) throw Error('story_video_version: 已授权视频原件版本已变更。')
+    }
     for (const source of project.sources) {
       const bytes = await this.fs.readBytes(await this.target(source.path, exec), exec.signal, this.limits.maxSourceBytes)
       if (sha256(bytes) !== source.sha256) throw Error(`source_changed: ${source.path} 已变更；旧来源不能继续用于新验收。`)
@@ -236,6 +243,7 @@ export class ProjectCommands {
 
   private status(project: ProjectFile, knowledge = acceptedKnowledge(project)): object {
     return { project_id: project.id, revision: project.revision, mode: project.mode, instructions: project.instructions,
+      ...this.advisory(project),
       ...(project.workflow === undefined ? {} : { workflow: project.workflow }),
       ...(project.review_mode === undefined ? {} : { review_mode: project.review_mode }),
       ...(project.parent === undefined ? {} : { parent: project.parent }),
@@ -265,6 +273,17 @@ export class ProjectCommands {
         })), knowledge }
   }
 
+  private advisory(project: ProjectFile): object {
+    if (project.review_policy !== 'advisory') return {}
+    return { review_policy: 'advisory', review_advisory: {
+      pending_facts: project.facts.filter(fact => fact.review === undefined && fact.withdrawal === undefined).length,
+      rejected_facts: project.facts.filter(fact => fact.review?.decision === 'reject' && fact.withdrawal === undefined).length,
+      pending_candidates: project.candidates.filter(candidate => candidate.review === undefined).length,
+      rejected_candidates: project.candidates.filter(candidate => candidate.review?.decision === 'reject').length,
+      guidance: '审校由 Agent 自主决定；未审或拒绝意见仅供参考，不阻止组稿、采用或导出。采用不等于审校批准；保留真实作者与审校记录。文件、来源、版本、引用和用户授权仍须一致。',
+    } }
+  }
+
   /**
    * Execute one validated model command; identity and timestamps come from the host.
    * @param request - Registry-validated operation and data.
@@ -274,7 +293,7 @@ export class ProjectCommands {
   async execute(request: ProjectRequest, exec: ProjectExecution): Promise<object> {
     exec.signal.throwIfAborted()
     if (request.method === 'init_story_faithful' || request.method === 'fork_story_faithful') {
-      if (this.storyFaithfulMode === 'disabled' || this.reviewMode !== 'self-check') throw Error('story_mode_disabled: 故事忠实视频创作须由显式启用的creation自检部署执行。')
+      if (this.storyFaithfulMode === 'disabled' || this.reviewMode === 'independent') throw Error('story_mode_disabled: 故事忠实视频创作须由显式启用的creation部署执行。')
       const authorization = HUMAN_AUTHORIZATION.parse(exec.authorization)
       if (authorization.session_id !== exec.actor || authorization.quote !== request.authorization_quote
         || authorization.consent_assessment !== request.consent_assessment || authorization.seq !== exec.latestUserSeq) {
@@ -320,7 +339,9 @@ export class ProjectCommands {
       policy.sha256 = storyPolicyDigest(STORY_POLICY.parse(policy))
       const now = new Date().toISOString()
       const project = PROJECT_FILE.parse({ format_version: 1, id: `p:${randomUUID()}`, revision: 0, mode: 'faithful',
-        instructions: request.scope_instructions, workflow: 'video_to_screenplay', review_mode: 'self-check', story_policy: policy, story_inventories: [],
+        instructions: request.scope_instructions, workflow: 'video_to_screenplay',
+        ...(this.reviewMode === 'self-check' ? { review_mode: 'self-check' } : {}),
+        ...(this.reviewMode === 'advisory' ? { review_policy: 'advisory' } : {}), story_policy: policy, story_inventories: [],
         created_at: now, updated_at: now, sources: [], facts: [], candidates: [], accepted: [] })
       if (original !== undefined && request.method === 'fork_story_faithful') {
         project.sources = structuredClone(original.project.sources)
@@ -346,6 +367,7 @@ export class ProjectCommands {
       const project = PROJECT_FILE.parse({ format_version: 1, id: `p:${randomUUID()}`, revision: 0, mode: request.mode,
         instructions: request.instructions, ...(request.workflow === undefined ? {} : { workflow: request.workflow }),
         ...(this.reviewMode === 'self-check' ? { review_mode: 'self-check' } : {}),
+        ...(this.reviewMode === 'advisory' ? { review_policy: 'advisory' } : {}),
         created_at: now, updated_at: now, sources: [], facts: [], candidates: [], accepted: [] })
       await this.fs.writeText(await this.target(request.project, exec), this.serialize(project), { kind: 'createIfAbsent' }, exec.signal, exec.policy)
       return this.status(project)
@@ -365,8 +387,9 @@ export class ProjectCommands {
     if (!loaded.validated) {
       if (project.candidates.some(candidate => project.accepted.includes(candidate.id) && candidate.story_adaptation !== undefined)) {
         const verifyStoryApproval = exec.verifyStoryApproval
-        if (exec.verifyStoryVideo === undefined || verifyStoryApproval === undefined) throw Error('story_accepted_evidence_pending: 读取已验收故事作品须核原检查与成功C轮日志。')
-        await validateAcceptedStoryEvidence(project, exec.verifyStoryVideo, candidate => verifyStoryApproval(project, candidate))
+        if (project.review_policy !== 'advisory' && (exec.verifyStoryVideo === undefined || verifyStoryApproval === undefined)) throw Error('story_accepted_evidence_pending: 读取已验收故事作品须核原检查与成功C轮日志。')
+        await validateAcceptedStoryEvidence(project, exec.verifyStoryVideo,
+          verifyStoryApproval === undefined ? undefined : candidate => verifyStoryApproval(project, candidate))
       }
       this.cached = { hash: loaded.sha256, project: structuredClone(project), knowledge: structuredClone(loaded.knowledge) }
     }
@@ -378,12 +401,14 @@ export class ProjectCommands {
         project_sha256: loaded.sha256, revision: project.revision, actor: exec.actor, step: exec.step, reads })
     }
     const creation = (): { created_step?: SessionSeq } => {
+      if (project.review_policy === 'advisory') return exec.step === undefined ? {} : { created_step: exec.step }
       if (project.review_mode !== 'self-check') return {}
       if (this.reviewMode !== 'self-check') throw Error('self_check_mode: 此项目须由明确启用自检的创作模式编写；不能用项目字段降低当前模式要求。')
       if (exec.step === undefined) throw Error('self_check_step: 自检项目编写须来自正在执行的真实模型轮。')
       return { created_step: exec.step }
     }
     const reviewEvidence = (subject: ProjectFile['facts'][number] | ProjectFile['candidates'][number], kind: 'fact' | 'candidate') => {
+      if (project.review_policy === 'advisory') return { kind: 'advisory' as const }
       if (project.review_mode !== 'self-check') return {}
       if (this.reviewMode !== 'self-check') throw Error('self_check_mode: 当前工具未启用自检，不能写入自检审批。')
       return { kind: 'self-check' as const, evidence: selfCheckEvidence(project, loaded.sha256, subject, kind, exec.actor, exec.step, exec.receipts ?? []) }
@@ -435,13 +460,13 @@ export class ProjectCommands {
         project.story_inventories ??= []
         project.story_inventories.push(inventory)
         await this.save(loaded, exec)
-        return { revision: project.revision, inventory }
+        return { revision: project.revision, ...this.advisory(project), inventory }
       }
       case 'read_story_inventory': {
         const inventory = project.story_inventories?.find(value => value.id === request.inventory_id)
         if (inventory === undefined) throw Error('story_inventory_required: 清单不存在。')
         observe(inventoryReads(project, inventory).filter(read => read.kind !== 'source'))
-        return { revision: project.revision, story_policy: project.story_policy, inventory,
+        return { revision: project.revision, ...this.advisory(project), story_policy: project.story_policy, inventory,
           facts: project.facts.filter(fact => inventoryReads(project, inventory).some(read => read.kind === 'fact' && read.id === fact.id)) }
       }
       case 'review_story_inventory': {
@@ -450,11 +475,12 @@ export class ProjectCommands {
           || inventory.superseded_at_revision !== undefined) throw Error('story_inventory_review_state: 清单不存在、摘要不符、已审校或补帧后已失效。')
         validateInventory(project, inventory)
         if (!request.reason.trim()) throw Error('review_reason: 清单审校须核对实际故事事件、来源与未知项。')
-        if (request.decision === 'approve' && (inventory.items.some(item => item.critical && item.evidence !== 'confirmed') || storyEvidencePending(project, inventory).length > 0)) throw Error('story_evidence_pending: 关键来源尚未核实，保留pending并继续复看。')
+        if (project.review_policy !== 'advisory' && request.decision === 'approve' && (inventory.items.some(item => item.critical && item.evidence !== 'confirmed') || storyEvidencePending(project, inventory).length > 0)) throw Error('story_evidence_pending: 关键来源尚未核实，保留pending并继续复看。')
         inventory.review = { actor: exec.actor, time: new Date().toISOString(), decision: request.decision, reason: request.reason,
-          kind: 'self-check', evidence: inventoryEvidence(project, loaded.sha256, inventory, exec.actor, exec.step, exec.receipts ?? []) }
+          ...(project.review_policy === 'advisory' ? { kind: 'advisory' as const }
+            : { kind: 'self-check' as const, evidence: inventoryEvidence(project, loaded.sha256, inventory, exec.actor, exec.step, exec.receipts ?? []) }) }
         await this.save(loaded, exec)
-        return { revision: project.revision, inventory }
+        return { revision: project.revision, ...this.advisory(project), inventory }
       }
       case 'fork_refinement': {
         if (project.refinement !== undefined) throw Error('refinement_original_project: 请从保留的原项目建立新授权分支；同一分支可继续提交候选。')
@@ -507,7 +533,7 @@ export class ProjectCommands {
         const fact = project.facts.find(fact => fact.id === request.fact_id)
         if (fact === undefined) throw Error('missing_fact: 事实编号不存在。')
         observe([{ kind: 'fact', id: fact.id, sha256: factDigest(fact) }])
-        return { revision: project.revision, fact }
+        return { revision: project.revision, ...this.advisory(project), fact }
       }
       case 'list_facts': {
         if (request.start < 1 || request.count < 1 || request.count > this.limits.maxReadUnits
@@ -527,7 +553,7 @@ export class ProjectCommands {
           bytes += encodedBytes
         }
         observe(facts.map(fact => ({ kind: 'fact', id: fact.id, sha256: factDigest(fact) })))
-        return { revision: project.revision, facts,
+        return { revision: project.revision, ...this.advisory(project), facts,
           next: request.start - 1 + facts.length < project.facts.length ? request.start + facts.length : null }
       }
       case 'read_candidate': {
@@ -535,7 +561,7 @@ export class ProjectCommands {
         if (candidate === undefined) throw Error('missing_candidate: 候选版本编号不存在。')
         const preceding = { ...project, accepted: project.accepted.slice(0, candidate.base_episode) }
         observe(requiredReads(project, candidate, 'candidate').filter(read => read.kind !== 'source'))
-        return { revision: project.revision, candidate,
+        return { revision: project.revision, ...this.advisory(project), candidate,
           ...(candidate.story_adaptation === undefined ? {} : { story_policy: project.story_policy,
             inventory: project.story_inventories?.find(value => value.id === candidate.story_adaptation?.inventory_id),
             input: candidate.story_adaptation.input_candidate_json }),
@@ -565,7 +591,7 @@ export class ProjectCommands {
         }
         for (const unit of units) if (unit.image !== undefined) await this.attachments.readImage(unit.image, exec.signal)
         observe(units.map(unit => sourceRead(source, unit)))
-        return { revision: project.revision, source_id: source.id, source_sha256: source.sha256, units,
+        return { revision: project.revision, ...this.advisory(project), source_id: source.id, source_sha256: source.sha256, units,
           ...(source.video === undefined ? {} : { video: source.video }),
           next: request.start - 1 + units.length < source.units.length ? request.start + units.length : null }
       }
@@ -612,7 +638,7 @@ export class ProjectCommands {
           if (overlap) inventory.superseded_at_revision = project.revision + 1
         }
         await this.save(loaded, exec)
-        return { revision: project.revision, source: { ...source, units: source.units.length } }
+        return { revision: project.revision, ...this.advisory(project), source: { ...source, units: source.units.length } }
       }
       case 'propose_fact':
       case 'propose_facts': {
@@ -645,7 +671,7 @@ export class ProjectCommands {
         const facts = reviews.map((review) => {
           const fact = project.facts.find(fact => fact.id === review.fact_id)
           if (fact === undefined || fact.review !== undefined) throw Error('fact_review_state: 事实不存在或已审校，请提交新的修订事实。')
-          if (project.review_mode !== 'self-check' && fact.proposer === exec.actor) throw Error('self_review: 事实提交者不能自行批准，交由主会话或独立审校会话核对原文。')
+          if (project.review_policy !== 'advisory' && project.review_mode !== 'self-check' && fact.proposer === exec.actor) throw Error('self_review: 事实提交者不能自行批准，交由主会话或独立审校会话核对原文。')
           if (!review.reason.trim()) throw Error('review_reason: 审校须说明来源归属、语义和人物身份的核对结果。')
           fact.review = { actor: exec.actor, time: new Date().toISOString(), decision: review.decision, reason: review.reason,
             ...reviewEvidence(fact, 'fact') }
@@ -656,20 +682,21 @@ export class ProjectCommands {
       }
       case 'withdraw_fact': {
         const fact = project.facts.find(item => item.id === request.fact_id)
-        if (fact === undefined || fact.review?.decision !== 'approve') throw Error('fact_approval: 仅可撤销已批准的事实。')
+        if (fact === undefined || (project.review_policy !== 'advisory' && fact.review?.decision !== 'approve')) throw Error('fact_approval: 仅可撤销已批准的事实。')
         if (fact.withdrawal !== undefined) throw Error('fact_withdrawn: 该事实已经撤销。')
-        if ((project.review_mode !== 'self-check' || fact.review.kind !== 'self-check') && fact.proposer === exec.actor) {
+        if (project.review_policy !== 'advisory' && (project.review_mode !== 'self-check' || fact.review?.kind !== 'self-check') && fact.proposer === exec.actor) {
           throw Error('self_review: 独立审校事实的提交者不能自行撤销审批。')
         }
         if (!request.reason.trim()) throw Error('review_reason: 请记录事实错误及其来源核对。')
         if (project.candidates.some(candidate => referencesFact(candidate, fact.id))) {
           throw Error('fact_in_history: 事实已被候选引用；先 fork_project 到最早受影响集之前，再撤销并重提事实。')
         }
-        const selfCheck = project.review_mode === 'self-check' && fact.review.kind === 'self-check'
+        const selfCheck = project.review_policy !== 'advisory' && project.review_mode === 'self-check' && fact.review?.kind === 'self-check'
         if (selfCheck && this.reviewMode !== 'self-check') throw Error('self_check_mode: 当前工具未启用自检，不能写入自检撤销。')
         fact.withdrawal = { actor: exec.actor, time: new Date().toISOString(), reason: request.reason,
-          ...(selfCheck ? { kind: 'self-check' as const, evidence: selfCheckEvidence(project, loaded.sha256, fact, 'fact', exec.actor,
-            exec.step, exec.receipts ?? [], fact.review.evidence?.review_step) } : {}) }
+          ...(project.review_policy === 'advisory' ? { kind: 'advisory' as const }
+            : selfCheck ? { kind: 'self-check' as const, evidence: selfCheckEvidence(project, loaded.sha256, fact, 'fact', exec.actor,
+              exec.step, exec.receipts ?? [], fact.review?.evidence?.review_step) } : {}) }
         for (const inventory of project.story_inventories ?? []) {
           const units = new Set(inventoryReads(project, inventory).filter(read => read.kind === 'source').map(read => read.id))
           if (fact.origin === 'source' && fact.anchors.some(anchor => units.has(anchor.unit_id))) {
@@ -677,7 +704,7 @@ export class ProjectCommands {
           }
         }
         await this.save(loaded, exec)
-        return { revision: project.revision, fact }
+        return { revision: project.revision, ...this.advisory(project), fact }
       }
       case 'stage':
       case 'stage_files': {
@@ -721,9 +748,9 @@ export class ProjectCommands {
           ...(request.coverage === undefined ? {} : { coverage: request.coverage }) })
         const storyNotes = 'story_notes' in request ? request.story_notes : undefined
         if (project.story_policy !== undefined) {
-          if (storyNotes === undefined) throw Error('story_report_required: 故事忠实作品须实际source/scene/beat映射与独立说明。')
+          if (storyNotes === undefined && project.review_policy !== 'advisory') throw Error('story_report_required: 故事忠实作品须实际source/scene/beat映射与独立说明。')
           candidate.source_ids = [...new Set(request.coverage?.windows.map(window => window.source_id) ?? [])]
-          candidate.story_adaptation = buildStoryAdaptation(project, candidate, storyNotes)
+          if (storyNotes !== undefined) candidate.story_adaptation = buildStoryAdaptation(project, candidate, storyNotes)
         } else if (storyNotes !== undefined) throw Error('story_policy_required: mode/reason不能自行开启故事忠实策略。')
         const notes = 'modification_notes' in request ? request.modification_notes : undefined
         if (project.refinement !== undefined) {
@@ -739,40 +766,41 @@ export class ProjectCommands {
         const rendered = renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate)
         project.candidates.push(candidate)
         await this.save(loaded, exec)
-        return { revision: project.revision, candidate, rendered }
+        return { revision: project.revision, ...this.advisory(project), candidate, rendered }
       }
       case 'review': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined || candidate.review !== undefined || candidate.sha256 !== request.candidate_sha256) throw Error('candidate_review_state: 版本不存在、摘要不符或已审校；修订须新建版本。')
         if (candidate.base_episode !== project.accepted.length) throw Error('candidate_base_changed: 前集已经推进，须基于当前验收状态提交新版本。')
-        if (project.review_mode !== 'self-check' && candidate.author === exec.actor) throw Error('self_review: 编写会话不能自行验收该版本。')
+        if (project.review_policy !== 'advisory' && project.review_mode !== 'self-check' && candidate.author === exec.actor) throw Error('self_review: 编写会话不能自行验收该版本。')
         if (!request.reason.trim()) throw Error('review_reason: 请记录来源、人物、时间、场次与改编语义的核对结果。')
         renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate)
-        if (checkVideoCoverage(project, candidate) && request.decision === 'approve' && !request.zero_action_reason?.trim()) {
+        if (checkVideoCoverage(project, candidate) && project.review_policy !== 'advisory' && request.decision === 'approve' && !request.zero_action_reason?.trim()) {
           throw Error('zero_action_review_required: 请记录本集实际画面复核和确无关键动作遗漏的依据。')
         }
         const semanticInput = 'semantic_report' in request ? request.semantic_report : undefined
-        if (project.story_policy !== undefined && semanticInput === undefined) throw Error('story_semantic_required: C轮须提交本集完整定位语义复原报告。')
+        if (project.story_policy !== undefined && semanticInput === undefined && project.review_policy !== 'advisory') throw Error('story_semantic_required: C轮须提交本集完整定位语义复原报告。')
         if (project.story_policy === undefined && semanticInput !== undefined) throw Error('story_policy_required: 旧项目不接受V2语义报告替代旧审批。')
         const semantic = semanticInput === undefined ? undefined : buildSemanticReport(project, candidate, semanticInput)
-        if (semantic !== undefined) validateSemanticReport(project, candidate, semantic, request.decision === 'approve')
+        if (semantic !== undefined) validateSemanticReport(project, candidate, semantic,
+          project.review_policy !== 'advisory' && request.decision === 'approve')
         validateStoryCandidate(project, candidate, request.decision === 'approve')
         candidate.review = { actor: exec.actor, time: new Date().toISOString(), decision: request.decision, reason: request.reason,
           ...reviewEvidence(candidate, 'candidate'), ...(semantic === undefined ? {} : { semantic_report: semantic }) }
-        if (semantic !== undefined && request.decision === 'approve') candidate.review.story_acceptance = buildStoryAcceptance(project, candidate)
+        if (semantic !== undefined && request.decision === 'approve' && project.review_policy !== 'advisory') candidate.review.story_acceptance = buildStoryAcceptance(project, candidate)
         if (request.zero_action_reason !== undefined) candidate.review.zero_action_reason = request.zero_action_reason.trim()
         await this.save(loaded, exec)
-        return { revision: project.revision, candidate,
+        return { revision: project.revision, ...this.advisory(project), candidate,
           rendered: renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate) }
       }
       case 'commit': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined || candidate.sha256 !== request.candidate_sha256) throw Error('candidate_digest: 请使用当前候选版本和摘要。')
-        if (candidate.story_adaptation !== undefined) {
+        if (candidate.story_adaptation !== undefined && project.review_policy !== 'advisory') {
           if (exec.verifyStoryApproval === undefined) throw Error('story_approval_log_pending: commit须核C轮成功工具及outer日志。')
           await exec.verifyStoryApproval(project, candidate)
         }
-        if (candidate.review?.decision !== 'approve' || !validReview(project, candidate, 'candidate')) throw Error('review_required: 有效审校通过后才可验收。')
+        if (project.review_policy !== 'advisory' && (candidate.review?.decision !== 'approve' || !validReview(project, candidate, 'candidate'))) throw Error('review_required: 有效审校通过后才可验收。')
         if (candidate.base_episode !== project.accepted.length || candidate.episode !== project.accepted.length + 1
           || candidate.committed_at !== undefined) {
           throw Error('episode_order: 版本已提交或基于过期前集，请从 status 恢复下一集。')
@@ -788,7 +816,7 @@ export class ProjectCommands {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined || !project.accepted.includes(candidate.id)) throw Error('export_unaccepted: 只能交付已验收版本。')
         checkVideoCoverage(project, candidate)
-        if (candidate.story_adaptation !== undefined) {
+        if (candidate.story_adaptation !== undefined && project.review_policy !== 'advisory') {
           if (exec.verifyStoryApproval === undefined) throw Error('story_approval_log_pending: 正式导出须核成功C轮原日志。')
           await exec.verifyStoryApproval(project, candidate)
         }
@@ -847,7 +875,7 @@ export class ProjectCommands {
             throw Error('export_changed: 导出文件已修改，请使用新的交付目录。')
           }
         }
-        return { revision: project.revision, candidate_id: candidate.id, ...(candidate.review?.kind === 'self-check' ? { review_kind: 'self-check' } : {}), files: files.map(file => file.path) }
+        return { revision: project.revision, ...this.advisory(project), candidate_id: candidate.id, ...(candidate.review?.kind === 'self-check' ? { review_kind: 'self-check' } : {}), files: files.map(file => file.path) }
       }
       /* v8 ignore next -- the registry validates the closed operation union before execution */
       default: return assertNever(request)

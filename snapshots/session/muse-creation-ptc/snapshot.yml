@@ -2,6 +2,7 @@ version: 1
 # The actual product preset, real registries and Node PTC runtime run through
 # headless with recorded model frames and a signed-out external Muse account.
 # Its private source copy omits clock messages and platform-shell tools for portability.
+# Retired guides use explicit legacy fixture bodies; screenplay-format uses current production resources.
 scenario: muse-creation-ptc
 profile: headless
 composition: muse-creation-ptc

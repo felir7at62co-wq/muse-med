@@ -118,6 +118,7 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     }
     expect(prompt).not.toContain('pipeline_state.json')
     expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', sessionVideoSelection: true })
+    expect(rows.find(row => row.id === 'screenplay-project')?.config).toMatchObject({ reviewMode: 'advisory' })
     expect((await ctx.agentPresets.resolve('editing')).id).toBe('short-drama')
     const editingSource = (await ctx.agentPresets.readDocument('short-drama')).content
     const editingRows = yaml.load(editingSource, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
