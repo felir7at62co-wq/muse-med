@@ -190,6 +190,25 @@ function videoCoverageFixture() {
   return { project: scoped, candidate }
 }
 
+it.each(['missing-source', 'overflow', 'nonvideo-interval', 'reversed-interval', 'duration-overflow', 'missing-fact'] as const)
+('retains the %s source integrity check during advisory video review', (failure) => {
+  const { project: scoped, candidate } = videoCoverageFixture()
+  scoped.review_policy = 'advisory'
+  const window = candidate.coverage!.windows[0]!
+  if (failure === 'missing-source') window.source_id = 'absent'
+  else if (failure === 'overflow') window.count = 2
+  else if (failure === 'missing-fact') candidate.coverage!.required_beats.push({ fact_id: brandString<FactId>('absent'), kind: 'dialogue' })
+  else {
+    window.interval = { start_seconds: 0, end_seconds: 2 }
+    if (failure !== 'nonvideo-interval') {
+      scoped.sources[0]!.video = VIDEO_SOURCE.parse({ path: '/original.mp4', source_version: 'original-version',
+        inspection: 'sampled_frames', duration_seconds: 1, samples: [] })
+      if (failure === 'reversed-interval') window.interval = { start_seconds: 1, end_seconds: 0 }
+    }
+  }
+  expect(() => checkVideoCoverage(scoped, candidate)).toThrow(failure === 'missing-fact' ? 'source_coverage' : 'source_window')
+})
+
 it('uses the video duration when a candidate scopes samples from a manifest without an inspection interval', () => {
   const { project: scoped, candidate } = videoCoverageFixture()
   scoped.sources[1]!.video = VIDEO_SOURCE.parse({ path: '/original.mp4', source_version: 'original-version',

@@ -142,7 +142,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
@@ -171,7 +171,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
   }, 120_000)
 
   afterAll(async () => {
-    unpinBrowserClock?.()
+    await unpinBrowserClock?.()
     await browser?.close()
     await scaffold?.close()
   })

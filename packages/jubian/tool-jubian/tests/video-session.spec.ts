@@ -15,6 +15,7 @@ import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import * as ModelSettings from '../src/model-settings.ts'
 import { JubianVideoSelection, selectedVideo, videoOptions, videoSelectionContext } from '../src/video-session.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionVideoSelection } from '../src/video-session-types.ts'
@@ -23,7 +24,7 @@ const catalogue = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixt
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const dispose of cleanup.splice(0).reverse()) await dispose() })
 
-async function fixture(defaultModel?: { modelId: string; platformId: string; resolution: string }) {
+async function fixture(defaultModel?: { modelId: string; platformId: string; resolution: string }, enabled = true) {
   const root = await mkdtemp(join(tmpdir(), 'muse-video-choice-'))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const ctx = new Context()
@@ -46,8 +47,8 @@ async function fixture(defaultModel?: { modelId: string; platformId: string; res
     return new Response(JSON.stringify({ code: 200, data: path.includes('getSelectList') ? catalogue['1'] : path.includes('/list') ? { rows: [board], total: 1 } : board }), { status: 200 })
   } })
   const ledger = new JubianLedger({ root })
-  const service = new JubianVideoSelection(ctx, { client, ledger, enabled: true, ...(defaultModel ? { defaultModel } : {}) })
-  return { ctx, agent, adapter, script, inject, service, requests, root, ledger,
+  const service = new JubianVideoSelection(ctx, { client, ledger, enabled, ...(defaultModel ? { defaultModel } : {}) })
+  return { ctx, agent, adapter, script, inject, service, requests, root, ledger, client,
     setBoard(value: Record<string, unknown>) { board = value } }
 }
 
@@ -416,4 +417,161 @@ it('does not call a reviewer removed earlier in the same synchronous review', as
   expect(later).not.toHaveBeenCalled()
   expect(f.inject).toHaveBeenCalledOnce()
   expect(f.inject.mock.calls[0]?.[0]).toMatchObject({ content: [{ type: 'text', text: videoSelectionContext(selected) }] })
+})
+
+it.each([null, [], 1, { id: 0, modelId: 'model', platformId: 'channel' },
+  { standardId: 1, modelId: 'model', platformId: 'channel', videoStandards: null }])(
+  'rejects malformed account video rows before publishing any choices: %j', (value) => {
+    expect(() => videoOptions([value])).toThrow()
+  },
+)
+it('keeps optional catalogue labels and generation types absent without borrowing defaults', () => {
+  expect(videoOptions([{ standardId: 2, modelId: 'custom', platformId: 'LIVE', videoStandards: [
+    { resolution: '720p' }, { resolution: null, ratio: '16:9' },
+  ] }])).toEqual([{ key: '2:720p', modelId: 'custom', modelName: 'custom', platformId: 'LIVE',
+    standardId: 2, resolution: '720p', genTypes: [], ratios: [], maxDurationSeconds: null }])
+})
+it('describes an unselected conversation and exposes no implicit deployment default', async () => {
+  const f = await fixture()
+  expect(f.service.defaults()).toBeNull()
+  expect(videoSelectionContext(null)).toContain('尚未选择')
+  expect(await f.service.initialize(f.agent)).toBeNull()
+  expect(f.requests).toEqual([])
+})
+it('refuses explicit model selection when conversation selection is disabled', async () => {
+  const f = await fixture(undefined, false)
+  await expect(f.service.select(f.agent, 'any', 0)).rejects.toThrow('未启用')
+  expect(f.requests).toEqual([])
+})
+it('leaves a fresh child without an absent parent unselected', async () => {
+  const f = await fixture()
+  const missing = (await f.ctx.agents.create({ sessionId: SessionId('orphan-video-choice'),
+    agentOptions: { provider: 'mock', model: 'mock' },
+    meta: { cwd: f.root, origin: 'subagent', parentSession: SessionId('absent-parent') } })).agent
+  expect(f.service.current(missing)).toBeNull()
+})
+it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses a malformed conflict duration %s without asking', async (duration_seconds) => {
+  const f = await fixture()
+  const ask = vi.fn()
+  f.ctx.provide('userQuestions', { ask })
+  await expect(f.service.ask(f.agent, { method: 'choose', reason: 'select', duration_seconds }, new AbortController().signal))
+    .rejects.toThrow('must be positive')
+  expect(ask).not.toHaveBeenCalled()
+})
+it('requires a question service and complete conflict evidence without changing a choice', async () => {
+  const f = await fixture()
+  await expect(f.service.ask(f.agent, { method: 'choose', reason: 'select' }, new AbortController().signal))
+    .rejects.toThrow('service unavailable')
+  f.ctx.provide('userQuestions', { ask: vi.fn() })
+  await expect(f.service.ask(f.agent, { method: 'duration_conflict', reason: 'conflict', duration_seconds: 25 }, new AbortController().signal))
+    .rejects.toThrow('requires a current model')
+  await f.service.select(f.agent, videoOptions(catalogue['1'])[0]!.key, 0)
+  await expect(f.service.ask(f.agent, { method: 'duration_conflict', reason: 'conflict' }, new AbortController().signal))
+    .rejects.toThrow('longest affected package')
+})
+it('does not change the selected model after a dismissed conflict or model question', async () => {
+  const f = await fixture()
+  const current = await f.service.select(f.agent, videoOptions(catalogue['1'])[0]!.key, 0)
+  const ask = vi.fn(async () => ({ answers: [] }))
+  f.ctx.provide('userQuestions', { ask })
+  expect(await f.service.ask(f.agent, { method: 'duration_conflict', reason: 'conflict', duration_seconds: 25 }, new AbortController().signal))
+    .toEqual({ action: 'unchanged', selection: current, paid_requests: 0 })
+  expect(await f.service.ask(f.agent, { method: 'choose', reason: 'select' }, new AbortController().signal))
+    .toEqual({ action: 'unchanged', selection: current, paid_requests: 0 })
+  expect(f.service.current(f.agent)).toEqual(current)
+})
+it('selects an explicit first model from the human answer without a prior selection', async () => {
+  const f = await fixture()
+  const ask = vi.fn(async (request: { questions: Array<{ options: Array<{ label: string }> }> }) => ({
+    answers: [{ id: 'video-model', selected: [request.questions[0]!.options[0]!.label] }],
+  }))
+  f.ctx.provide('userQuestions', { ask })
+  expect(await f.service.ask(f.agent, { method: 'choose', reason: 'select' }, new AbortController().signal))
+    .toMatchObject({ action: 'selected', selection: { revision: 1 }, paid_requests: 0 })
+  expect(ask).toHaveBeenCalledOnce()
+})
+it('refuses to offer a model for an unsupported requested duration', async () => {
+  const f = await fixture()
+  const ask = vi.fn()
+  f.ctx.provide('userQuestions', { ask })
+  await expect(f.service.ask(f.agent, { method: 'choose', reason: 'select', duration_seconds: 300 }, new AbortController().signal))
+    .rejects.toThrow('No verified model')
+  expect(ask).not.toHaveBeenCalled()
+})
+it('refuses a stale candidate removed while the human question was pending', async () => {
+  const f = await fixture()
+  const option = videoOptions(catalogue['1'])[0]!
+  const options = [option]
+  vi.spyOn(options, 'filter').mockReturnValue(options)
+  vi.spyOn(f.service, 'catalogue').mockResolvedValue(options)
+  f.ctx.provide('userQuestions', { ask: async (request: { questions: Array<{ options: Array<{ label: string }> }> }) => {
+    const label = request.questions[0]!.options[0]!.label
+    options.splice(0)
+    return { answers: [{ id: 'video-model', selected: [label] }] }
+  } })
+  await expect(f.service.ask(f.agent, { method: 'choose', reason: 'select' }, new AbortController().signal))
+    .rejects.toThrow('Selected model unavailable')
+  expect(f.service.current(f.agent)).toBeNull()
+})
+it('checks the selected duration at reservation and rejects missing preview paths', async () => {
+  const f = await fixture()
+  const option = videoOptions(catalogue['1']).find(value => value.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, option.key, 0)
+  expect(() =>{  f.service.assertCurrent(f.agent, { ...option, duration: 20 }) }).toThrow('SESSION_VIDEO_DURATION_EXCEEDED')
+  await expect(f.service.reconcile(f.agent, { method: 'submit_video' })).resolves.toBeUndefined()
+  await expect(f.service.reconcile(f.agent, { method: 'submit_video_batch', video_previews: [{ idempotency_key: 5 }] }))
+    .rejects.toThrow('Prepare a current video preview')
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
+})
+it('does not rewrite a card already using the conversation model', async () => {
+  const f = await fixture()
+  const option = videoOptions(catalogue['1'])[0]!
+  await f.service.select(f.agent, option.key, 0)
+  f.setBoard({ id: 12, scriptId: 9, modelConfig: { ...option, duration: 8 } })
+  await f.service.reconcile(f.agent, { method: 'prepare_video', storyboard_id: 12, project_dir: f.root })
+  expect(f.requests.filter(request => request.method === 'PUT')).toEqual([])
+})
+it.each(['platformId', 'resolution', 'standardId'] as const)('detects a mismatched saved %s before synchronizing', async (field) => {
+  const f = await fixture()
+  const option = videoOptions(catalogue['1'])[0]!
+  await f.service.select(f.agent, option.key, 0)
+  f.setBoard({ id: 12, scriptId: 9, modelConfig: { ...option, duration: 8, [field]: field === 'standardId' ? 999 : 'other' } })
+  await expect(f.service.reconcile(f.agent, { method: 'prepare_video', storyboard_id: 12, project_dir: 5 }))
+    .rejects.toThrow('先使用 prepare_video')
+  expect(f.requests.filter(request => request.method === 'PUT')).toEqual([])
+})
+it.each(['preview', 'apply', 'readback'] as const)('does not continue after a model-sync %s conflict', async (phase) => {
+  const f = await fixture()
+  const options = videoOptions(catalogue['1'])
+  const option = options.find(value => value.modelId === defaults.modelId && value.resolution === '480p')!
+  await f.service.select(f.agent, option.key, 0)
+  f.setBoard({ id: 12, scriptId: 9, modelConfig: { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN',
+    resolution: '720p', standardId: 11, duration: 8, genType: 3, ratio: '9:16', genNum: 1 } })
+  const change = () => f.service.select(f.agent, options.find(value => value.key !== option.key)!.key, 1)
+  const model = vi.spyOn(ModelSettings, 'modelMethod').mockImplementation(async (_client, _ledger, args) => {
+    if (args.method === 'preview') {
+      if (phase === 'preview') await change()
+      return { preview_path: 'frozen-plan', fingerprint: 'key' }
+    }
+    if (phase === 'apply') await change()
+    return { items: [{ status: phase === 'readback' ? 'unknown' : 'applied' }] }
+  })
+  try {
+    await expect(f.service.reconcile(f.agent, { method: 'prepare_video', storyboard_id: 12, project_dir: f.root }))
+      .rejects.toThrow(phase === 'readback' ? '同步未确认' : '会话模型已变化')
+    expect(model).toHaveBeenCalledTimes(phase === 'preview' ? 1 : 2)
+    expect(f.requests.filter(request => request.method === 'PUT')).toEqual([])
+  } finally { model.mockRestore() }
+})
+
+it('offers the configured default as context before initialization and asks for a choice only without that default', async () => {
+  const withDefault = await fixture(defaults)
+  const before = await withDefault.ctx.systemPrompt.assemble({ agent: withDefault.agent })
+  expect(before.contexts.find(context => context.name === 'jubian:video-selection')?.text)
+    .toContain(`本会话默认视频模型为 ${defaults.modelId}，分辨率 480p`)
+  expect(withDefault.service.current(withDefault.agent)).toBeNull()
+  expect(withDefault.requests).toEqual([])
+  const withoutDefault = await fixture()
+  const unselected = await withoutDefault.ctx.systemPrompt.assemble({ agent: withoutDefault.agent })
+  expect(unselected.contexts.find(context => context.name === 'jubian:video-selection')?.text).toContain('尚未选择视频生成模型')
 })

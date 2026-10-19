@@ -254,6 +254,33 @@ it.each(['source', 'output'] as const)('identifies the story item whose semantic
   expect(await readFile(project, 'utf8')).toBe(bytes)
 })
 async function ready() { await sourcesAndFacts(); await reviewedInventory(); await stage(); await rereadCandidate() }
+
+it.each(['unknown', 'withdrawn'] as const)('does not excuse %s prior knowledge as an advisory story hint', async (kind) => {
+  await ready()
+  const file = await current(), candidate = file.candidates[0]!
+  file.review_policy = 'advisory'
+  const id = brandString<FactId>('f:outside-episode')
+  if (kind === 'withdrawn') {
+    const unit = { ...file.sources[0]!.units[0]!, id: brandString<UnitId>('unit:outside-episode') }
+    file.sources.push({ ...file.sources[0]!, id: brandString<typeof file.sources[number]['id']>('s:outside-episode'), units: [unit] })
+    file.facts.push({ ...file.facts[0]!, id, anchors: [{ unit_id: unit.id, quote: unit.text }], withdrawal: {
+      kind: 'advisory', actor, time: file.updated_at, reason: '该解释已撤销。',
+    } })
+  }
+  candidate.scenes[0]!.beats[0]!.requires_knowledge.push(id)
+  candidate.story_adaptation!.output_content_sha256 = storyContentDigest(candidate)
+  candidate.sha256 = candidateDigest(candidate)
+  expect(() => { validateStoryCandidate(file, candidate) }).toThrow('story_fact_scope')
+})
+
+it('requires an inventory creation step for strict review and rejects a candidate outside the authorized episodes', async () => {
+  await ready()
+  const file = await current(), inventory = file.story_inventories![0]!, candidate = file.candidates[0]!
+  delete inventory.created_step
+  expect(validInventoryReview(file, inventory)).toBe(false)
+  candidate.episode = 3
+  expect(() => { validateStoryCandidate(file, candidate) }).toThrow('story_candidate_scope')
+})
 async function accepted() {
   await ready(); await approveCandidate(); const file = await current(), candidate = file.candidates.at(-1)!
   await run({ method: 'commit', project, expected_revision: file.revision, candidate_id: candidate.id, candidate_sha256: candidate.sha256 })

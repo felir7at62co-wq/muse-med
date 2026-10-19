@@ -62,7 +62,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // The sidebar renders from the boot graph: every inject layer activated.
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   expect(document.querySelector('img[src="./muse-med-logo-black.webp"]')).not.toBeNull()
-  screen.getByText('Muse')
+  screen.getByText('Muse-Med')
   const version = clientBuildValue('DSH_CLIENT_PRODUCT_VERSION') ?? clientBuildValue('DSH_CLIENT_VERSION')
   if (version === undefined) throw new Error('client build record must carry the application version')
   const commit = clientBuildValue('DSH_CLIENT_COMMIT_HASH')

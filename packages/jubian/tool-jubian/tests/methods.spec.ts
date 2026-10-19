@@ -1778,3 +1778,38 @@ describe('image style at the billed request', () => {
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
 })
+
+it('refuses a malformed restricted image catalogue before exposing any rows', async () => {
+  const { client, calls } = stubClient(() => ({ rows: IMAGE_CATALOGUE }))
+  await expect(catalogMethod(client, { method: 'models', task_type: 2 }, [42])).rejects.toThrow('Unreadable image catalogue')
+  expect(calls).toHaveLength(1)
+})
+it.each([undefined, 'CUSTOM_PLATFORM'])('resolves custom erasure selectors from the live catalogue on platform %s', async (platform_id) => {
+  const { client, calls } = stubClient((request) => {
+    if (request.path.includes('getSelectList')) return [{ id: 101, modelId: 'custom-eraser', platformId: 'CUSTOM_PLATFORM', videoStandards: [] }]
+    if (request.path.includes('sub/list')) return { total: 1, rows: [{ id: 99, duration: 8,
+      resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
+    return { id: 42, scriptId: 2708, episodeId: 1 }
+  })
+  await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'custom-erasure',
+    task_id: 42, model_id: 'custom-eraser', ...(platform_id ? { platform_id } : {}), erase_mode: 'region',
+    video_width: 1280, video_height: 720 })
+  expect(calls.at(-1)?.body).toMatchObject({ modelId: 'custom-eraser', platformId: 'CUSTOM_PLATFORM', standardId: 101 })
+})
+it('refuses erasure when the only returned child has no source video', async () => {
+  const { client, calls } = stubClient(request => request.path.includes('sub/list')
+    ? { total: 1, rows: [{ id: 99, duration: 8 }] } : { id: 42, scriptId: 2708, episodeId: 1 })
+  await expect(storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'missing-original',
+    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720 })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(calls).toHaveLength(2)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('uses the current video when the original result URL is absent on a returned child', async () => {
+  const { client, calls } = stubClient(request => request.path.includes('sub/list')
+    ? { total: 1, rows: [{ id: 99, duration: 8, resultList: [{ lastTosVideoUrl: 'https://example.test/current.mp4' }] }] }
+    : { id: 42, scriptId: 2708, episodeId: 1 })
+  await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'current-only',
+    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720 })
+  expect(calls.at(-1)?.body).toMatchObject({ videoUrl: 'https://example.test/current.mp4' })
+})

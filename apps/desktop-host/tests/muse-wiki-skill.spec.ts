@@ -1,17 +1,19 @@
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 import { CREATION_SKILL_NAMES } from '../src/creation-skills.ts'
 
-it('discovers Muse Wiki guidance for logged-in navigation, cited synthesis, and concurrent revisions', async () => {
+const bundledSkillDir = retainedSkillsFixture()
+
+it('loads retained Muse Wiki guidance for logged-in navigation, cited synthesis, and concurrent revisions', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
-      includeDefaultRoots: false, bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)), watch: false,
+      includeDefaultRoots: false, bundledSkillDir, watch: false,
     })
     const summary = (await ctx.skills.list()).find(skill => skill.name === 'muse-llm-wiki')
     expect(summary).toMatchObject({ source: 'bundled', invocation: { modelInvocable: true } })
@@ -32,12 +34,12 @@ it('discovers Muse Wiki guidance for logged-in navigation, cited synthesis, and 
   }
 })
 
-it('discovers proactive participation guidance across presets with private records and authorized portfolio reads', async () => {
+it('loads retained proactive participation guidance across presets with private records and authorized portfolio reads', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
-      includeDefaultRoots: false, bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)), watch: false,
+      includeDefaultRoots: false, bundledSkillDir, watch: false,
     })
     const summary = (await ctx.skills.list()).find(skill => skill.name === 'muse-project-participation')
     expect(summary).toMatchObject({ source: 'bundled', invocation: { modelInvocable: true } })

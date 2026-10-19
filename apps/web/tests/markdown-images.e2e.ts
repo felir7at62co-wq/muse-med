@@ -166,7 +166,7 @@ describe('web e2e: Markdown image rendering', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
   const mediaResponses = new Map<string, number>()
 
   beforeAll(async () => {
@@ -204,7 +204,7 @@ describe('web e2e: Markdown image rendering', () => {
   }, 120_000)
 
   afterAll(async () => {
-    unpinBrowserClock?.()
+    await unpinBrowserClock?.()
     await browser?.close()
     await scaffold?.close()
     if (imageOrigin !== undefined) await stopServer(imageOrigin.server)

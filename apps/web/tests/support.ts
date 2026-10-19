@@ -41,9 +41,6 @@ export const ZH_BROWSER_LOCALE = 'zh-CN'
 /** Same-day anchor for seeded event times and the Asia/Shanghai browser clock. */
 export const WEB_FIXTURE_TIME = Date.parse('2026-01-15T12:00:00+08:00')
 
-/** How often a pinned browser clock advances, in milliseconds. */
-const PINNED_CLOCK_STEP_MS = 250
-
 /**
  * Pin the Host clock to the shared fixture day for one scenario suite.
  *
@@ -69,27 +66,47 @@ export function pinHostClock(): MockInstance<typeof Date.now> {
  * time. Pair it with {@link pinHostClock} for a scenario that stamps its own
  * message times, and with `seedSession`'s `createdAt` for a seeded one.
  *
- * The frozen instant is re-applied from the anchor on an interval rather than
- * left at one value, because product logic reads two `Date.now()` values to
- * decide a minimum display hold or a deadline window; a permanently frozen
- * clock stops supplying elapsed time, so a title that owes its golden settled
- * text keeps rendering its previous one. Both clocks therefore advance at the
- * real rate and stay within one step of each other.
+ * Only Date reads are offset. Native performance, timers, and animation frames
+ * keep running even when the Host's Date.now is also pinned; Playwright's full
+ * clock derives timer history from that Host clock and cannot provide this isolation.
  * @param page - page whose clock is pinned.
- * @returns the disposer that stops re-pinning; call it in teardown.
+ * @returns the disposer that restores the current document's native Date. Page
+ * closure releases the navigation initializer; call the disposer in teardown.
  */
-export async function pinBrowserClock(page: Page): Promise<() => void> {
-  const startedAt = Date.now()
-  const step = async (): Promise<void> => {
+export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> {
+  const install = (time: number): void => {
+    const state = globalThis as typeof globalThis & { __dshFixtureNativeDate?: DateConstructor }
+    if (state.__dshFixtureNativeDate !== undefined) return
+    const NativeDate = Date
+    state.__dshFixtureNativeDate = NativeDate
+    const startedAt = performance.now()
+    const now = (): number => time + Math.floor(performance.now() - startedAt)
+    globalThis.Date = new Proxy(NativeDate, {
+      construct: (target, args, newTarget) => Reflect.construct(target, args.length === 0 ? [now()] : args, newTarget) as Date,
+      apply: () => new NativeDate(now()).toString(),
+      get: (target, key, receiver) => {
+        if (key === 'now') return now
+        const value: unknown = Reflect.get(target, key, receiver)
+        return value
+      },
+    })
+  }
+  await page.addInitScript(install, WEB_FIXTURE_TIME)
+  await page.evaluate(install, WEB_FIXTURE_TIME)
+  return async () => {
+    if (page.isClosed()) return
     try {
-      await page.clock.setFixedTime(WEB_FIXTURE_TIME + (Date.now() - startedAt))
-    } catch {
-      // The page closed under the interval; teardown owns the last word.
+      await page.evaluate(() => {
+        const state = globalThis as typeof globalThis & { __dshFixtureNativeDate?: DateConstructor }
+        if (state.__dshFixtureNativeDate === undefined) return
+        globalThis.Date = state.__dshFixtureNativeDate
+        delete state.__dshFixtureNativeDate
+      })
+    } catch (error) {
+      // Browser closure can race teardown's Date restoration.
+      if (!page.isClosed()) throw error
     }
   }
-  await step()
-  const timer = setInterval(() => { void step() }, PINNED_CLOCK_STEP_MS)
-  return () => { clearInterval(timer) }
 }
 
 /**

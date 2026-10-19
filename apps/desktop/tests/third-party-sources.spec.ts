@@ -24,9 +24,11 @@ it('retains pinned community source and licenses without installed runtime data'
     desktop?: boolean
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'dsh-bridge', 'dsh-codex-subscription', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
+    'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
   ])
   expect(pins['dsh-codex-subscription']?.desktop).toBe(false)
+  expect(pins['dsh-feishu']?.desktop).toBe(false)
+  expect(pins['dsh-im']?.desktop).not.toBe(false)
   for (const [directory, pin] of Object.entries(pins)) {
     const sourceDir = join(root, directory)
     const manifest = JSON.parse(await readFile(join(sourceDir, 'package.json'), 'utf8')) as {
@@ -45,7 +47,7 @@ it('retains pinned community source and licenses without installed runtime data'
     expect((await stat(join(sourceDir, directory === 'dsh-bridge' ? 'lib' : 'src'))).isDirectory(), directory).toBe(true)
     expect((await readFile(join(sourceDir, 'LICENSE'), 'utf8')).length, directory).toBeGreaterThan(0)
     expect(await readdir(sourceDir), directory).not.toContain('node_modules')
-    if (directory !== 'dsh-bridge') expect(await readdir(sourceDir), directory).not.toContain('lib')
+    if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
     expect(await readdir(sourceDir), directory).not.toContain('.git')
   }
   expect((await readFile(join(root, 'dsh-codex-subscription', 'THIRD_PARTY_NOTICES.md'), 'utf8')))

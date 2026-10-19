@@ -1,12 +1,12 @@
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-const bundledSkillDir = fileURLToPath(new URL('../skills/', import.meta.url))
+const bundledSkillDir = retainedSkillsFixture()
 
-it('discovers the first-person transcript skill as bundled model input', async () => {
+it('loads retained the first-person transcript skill as bundled model input', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
@@ -36,7 +36,7 @@ it('discovers the first-person transcript skill as bundled model input', async (
   }
 })
 
-it('discovers the scene-script transcript skill without assigning uncertain speech', async () => {
+it('loads retained the scene-script transcript skill without assigning uncertain speech', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)

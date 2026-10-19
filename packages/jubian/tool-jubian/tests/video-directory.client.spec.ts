@@ -2,9 +2,10 @@
 import { expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { VideoDirectory, type VideoSelectionClient } from '../src/client/video-directory.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SessionVideoSelection, VideoModelOption } from '../src/video-session-types.ts'
+import type { SessionVideoSelection, VideoModelOption, VideoModelDefault } from '../src/video-session-types.ts'
 
 const option: VideoModelOption = { key: '61:480p', standardId: 61, modelId: 'seedance-25',
   modelName: 'Seedance 2.5', platformId: 'CHANNEL', resolution: '480p', genTypes: [3], ratios: ['9:16'], maxDurationSeconds: 30 }
@@ -131,4 +132,88 @@ it('does not replace a newer projected choice with a late select response', asyn
     await selecting
     expect(directory.store.getSnapshot()).toMatchObject({ current: saved, defaultModel: null, selecting: false, error: null })
   } finally { result.resolve({ ok: true, value: saved }); await directory.dispose() }
+})
+
+it.each(['refused', 'error', 'text'] as const)('retries defaults after a %s failure without replacing the catalogue', async (mode) => {
+  const defaults = { modelId: option.modelId, platformId: option.platformId, resolution: option.resolution }
+  const read = vi.fn<VideoSelectionClient['defaults']>()
+  if (mode === 'refused') read.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'defaults unavailable', {}) })
+  else read.mockRejectedValueOnce(mode === 'error' ? new Error('defaults unavailable') : 'defaults unavailable')
+  read.mockResolvedValue({ ok: true, value: defaults })
+  const directory = new VideoDirectory({ defaults: read, catalogue: async () => ({ ok: true, value: options }),
+    select: vi.fn<VideoSelectionClient['select']>() }, SessionId('default-retry'), createSnapshotStore(null))
+  try {
+    await directory.load()
+    expect(directory.store.getSnapshot()).toMatchObject({ options, error: 'defaults unavailable', defaultModel: null })
+    await directory.load()
+    expect(directory.store.getSnapshot()).toMatchObject({ options, error: null, defaultModel: defaults })
+    expect(read).toHaveBeenCalledTimes(2)
+  } finally { await directory.dispose() }
+})
+
+it.each(['defaults-success', 'defaults-error', 'catalogue-error'] as const)('does not publish a late %s after disposal', async (operation) => {
+  const defaults = Promise.withResolvers<RemoteResult<VideoModelDefault | null>>()
+  const catalogue = Promise.withResolvers<RemoteResult<VideoModelOption[]>>()
+  const remote: VideoSelectionClient = {
+    defaults: () => operation.startsWith('defaults') ? defaults.promise : Promise.resolve({ ok: true, value: null }),
+    catalogue: () => operation === 'catalogue-error' ? catalogue.promise : Promise.resolve({ ok: true, value: options }),
+    select: vi.fn<VideoSelectionClient['select']>(),
+  }
+  const directory = new VideoDirectory(remote, SessionId('disposed-read'), createSnapshotStore(null))
+  const loading = directory.load()
+  const closing = directory.dispose()
+  const state = directory.store.getSnapshot()
+  if (operation === 'defaults-success') defaults.resolve({ ok: true, value: null })
+  else if (operation === 'defaults-error') defaults.reject(new Error('closed transport'))
+  else catalogue.reject(new Error('closed transport'))
+  await Promise.all([loading, closing])
+  expect(directory.store.getSnapshot()).toBe(state)
+})
+
+it('reports a catalogue refusal and a text transport error without losing cached choices', async () => {
+  const catalogue = vi.fn<VideoSelectionClient['catalogue']>()
+    .mockResolvedValueOnce({ ok: true, value: options })
+    .mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'catalogue refused', {}) })
+    .mockRejectedValueOnce('catalogue disconnected')
+  const directory = new VideoDirectory({ defaults: async () => ({ ok: true, value: null }), catalogue,
+    select: vi.fn<VideoSelectionClient['select']>() }, SessionId('catalogue-refusal'), createSnapshotStore(null))
+  try {
+    await directory.load(); await directory.load()
+    expect(directory.store.getSnapshot()).toMatchObject({ options, error: 'catalogue refused', loading: false })
+    await directory.load()
+    expect(directory.store.getSnapshot()).toMatchObject({ options, error: 'catalogue disconnected', loading: false })
+  } finally { await directory.dispose() }
+})
+
+it.each(['refused', 'error', 'text'] as const)('allows retrying a %s selection and starts an unset session at revision zero', async (mode) => {
+  const select = vi.fn<VideoSelectionClient['select']>()
+  if (mode === 'refused') select.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/bad-request', 'choice refused', {}) })
+  else select.mockRejectedValueOnce(mode === 'error' ? new Error('choice refused') : 'choice refused')
+  select.mockResolvedValue({ ok: true, value: { ...option, revision: 1 } })
+  const directory = new VideoDirectory({ defaults: async () => ({ ok: true, value: null }),
+    catalogue: async () => ({ ok: true, value: options }), select }, SessionId('selection-retry'), createSnapshotStore(null))
+  try {
+    await directory.select(option.key)
+    expect(select).toHaveBeenCalledWith(SessionId('selection-retry'), option.key, 0)
+    expect(directory.store.getSnapshot()).toMatchObject({ current: null, error: 'choice refused', selecting: false })
+    await directory.select(option.key)
+    expect(directory.store.getSnapshot()).toMatchObject({ current: { ...option, revision: 1 }, error: null, selecting: false })
+  } finally { await directory.dispose() }
+  await directory.select(option.key)
+  expect(select).toHaveBeenCalledTimes(2)
+})
+
+it.each(['success', 'refused', 'error'] as const)('ignores a %s select answer after the session scope closes', async (mode) => {
+  const pending = Promise.withResolvers<RemoteResult<SessionVideoSelection>>()
+  const directory = new VideoDirectory({ defaults: async () => ({ ok: true, value: null }),
+    catalogue: async () => ({ ok: true, value: options }), select: () => pending.promise },
+  SessionId('closed-selection'), createSnapshotStore(null))
+  const selecting = directory.select(option.key)
+  await directory.dispose()
+  const before = directory.store.getSnapshot()
+  if (mode === 'error') pending.reject(new Error('closed transport'))
+  else pending.resolve(mode === 'success' ? { ok: true, value: { ...option, revision: 1 } }
+    : { ok: false, error: new RemoteError('gateway/bad-request', 'closed response', {}) })
+  await selecting
+  expect(directory.store.getSnapshot()).toBe(before)
 })

@@ -1,16 +1,36 @@
 /** Session-owned video budgets and logged rechecks preserve authored and formal files. */
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { ToolCallId, createMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type {} from '../src/session-video.ts'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from '../src/session-video.ts'
+import type { ShotIssue } from '../src/types.ts'
 import { assetRow, cleanup, manifestDocument, speakingShot, tempDir } from './harness.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
-afterEach(async () => { for (const dispose of cleanups.splice(0).reverse()) await dispose() })
+const readBarrier = vi.hoisted(() => ({ path: '', beforeRead: undefined as (() => Promise<void>) | undefined }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: async (...args: Parameters<typeof actual.readFile>) => {
+    if (args[0] === readBarrier.path && readBarrier.beforeRead !== undefined) {
+      const beforeRead = readBarrier.beforeRead
+      readBarrier.beforeRead = undefined
+      await beforeRead()
+    }
+    return await actual.readFile(...args)
+  } }
+})
+afterEach(async () => {
+  readBarrier.path = ''; readBarrier.beforeRead = undefined
+  vi.restoreAllMocks()
+  for (const dispose of cleanups.splice(0).reverse()) await dispose()
+})
 
 async function workspace() {
   const root = await tempDir()
@@ -46,6 +66,100 @@ async function fixture(root: string, useDefault = true, selectionReviewMaxChars 
   cleanups.push(f.dispose)
   return f
 }
+
+it('fails explicitly when session selection or projection owners are absent', async () => {
+  const w = await workspace(), f = await fixture(w.root), ctx = new Context()
+  cleanups.push(() => ctx.fiber.dispose())
+  await expect(sessionDurationBudget(ctx, undefined, 30, [])).rejects.toThrow('需要会话视频模型服务')
+  const definition = f.ctx.tools.get('drama_shot')
+  if (definition === undefined) throw new Error('Missing real compiler definition')
+  expect(() => { installSessionReview(ctx, definition, 2000) }).toThrow('会话分包复核需要')
+  const issues: ShotIssue[] = []
+  expect(await sessionDurationBudget(f.ctx, undefined, undefined, issues)).toEqual({ source: 'session', max_submit_seconds: null, selection: null })
+  expect(issues.map(issue => issue.code)).toEqual(['session_video_unavailable'])
+})
+
+it.each([new Error('catalogue offline'), 'catalogue response unavailable'])('keeps initialization failure %s advisory without borrowing the supplied ceiling', async (error) => {
+  const w = await workspace(), f = await fixture(w.root), agent = await f.create('session-init-failure')
+  vi.spyOn(f.service, 'initialize').mockRejectedValueOnce(error)
+  const issues: ShotIssue[] = []
+  expect(await sessionDurationBudget(f.ctx, agent, 15, issues)).toEqual({ source: 'session', max_submit_seconds: null, selection: null })
+  expect(issues.map(issue => issue.code)).toEqual(['session_video_unavailable', 'session_video_unavailable', 'session_video_budget_ignored'])
+  expect(issues[0]?.message).toContain(error instanceof Error ? error.message : error)
+  expect(f.service.current(agent)).toBeNull()
+  await w.unchanged()
+})
+
+it('retains legacy revision-less report metadata without accepting unrelated or failed reports', () => {
+  const report = { review_mode: 'advisory', method: 'preview', script: 'relative-script.txt', packages: [] }
+  expect(reviewPresentationMeta({}, report)).toEqual({ drama_shot_review: { script: 'relative-script.txt', packages: [], revision: null, available: true } })
+  expect(reviewPresentationMeta({}, { ...report, method: 'validate' })).toEqual({ drama_shot_review: null })
+})
+
+it('rechecks empty, unknown and unreadable latest packages instead of reviving an older plan', async () => {
+  const w = await workspace(), f = await fixture(w.root), agent = await f.create('session-recheck-empty')
+  const options = await f.service.catalogue(), long = options.find(option => option.maxDurationSeconds === 30)!,
+    short = options.find(option => option.maxDurationSeconds === 15)!, unknown = options.find(option => option.maxDurationSeconds === null)!
+  await f.service.select(agent, long.key, 0)
+  const report = { review_mode: 'advisory', method: 'preview', script: 'relative-script.txt', packages: [] }
+  const rootCallId = ToolCallId('legacy-packaging')
+  const dispatch = { rootCallId, parentCallId: rootCallId, subCallId: ToolCallId('legacy-packaging-child'), name: 'drama_shot', arguments: { method: 'preview' } }
+  agent.session.append('tool/ptc-dispatch', { ...dispatch, isError: false, content: [{ type: 'text', text: JSON.stringify(report) }] })
+  await f.service.select(agent, short.key, 1)
+  expect(latestChoiceText(agent)).toContain('此前没有可用分包草案')
+  expect(latestChoiceText(agent)).toContain('relative-script.txt')
+  await f.service.select(agent, unknown.key, 2)
+  expect(latestChoiceText(agent)).toContain('当前模型的时长上限未知')
+  agent.session.append('tool/ptc-dispatch', { ...dispatch, subCallId: ToolCallId('unreadable-packaging-child'),
+    isError: false, content: [{ type: 'text', text: 'unreadable newer plan' }] })
+  await f.service.select(agent, long.key, 3)
+  expect(latestChoiceText(agent)).toContain('最近一次分包结果无法读取')
+  expect(latestChoiceText(agent)).not.toContain('relative-script.txt')
+  await w.unchanged()
+})
+
+it('folds only matching successful packaging calls and skips non-text or non-report result blocks', async () => {
+  const w = await workspace(), f = await fixture(w.root)
+  const session = f.ctx.sessions.create(SessionId('session-projection-validation'), {})
+  const state = () => f.ctx.sessionProjections.stateOf(session, 'dramaShotReview')
+  const append = (id: string, args: string, content: ContentBlock[], isError = false) => {
+    const callId = ToolCallId(id)
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_shot', arguments: args })
+    session.append('tool/result', { turn: 1, step: 1,
+      message: createToolResultMessage({ callId, content, isError }) }, { surfaceOp: 'append' })
+  }
+  const report = { review_mode: 'advisory', method: 'preview', script: '/authored.txt', packages: [{ index: 1, shots: [1], submit_seconds: 10 }] }
+  const content: ContentBlock[] = [{ type: 'reasoning', text: 'This block is not a packaging report.' },
+    { type: 'text', text: '{}' }, { type: 'text', text: JSON.stringify(report) }]
+  append('accepted', JSON.stringify({ method: 'preview' }), content)
+  expect(state()?.latest).toMatchObject({ script: '/authored.txt', revision: null, packages: [{ submit_seconds: 10 }] })
+  append('bad-arguments', 'not JSON', [])
+  append('failed-packaging', JSON.stringify({ method: 'compile' }), [], true)
+  session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId: ToolCallId('unmatched'), content: [], isError: false }) }, { surfaceOp: 'append' })
+  expect(state()?.latest).toMatchObject({ script: '/authored.txt' })
+  expect(state()?.pending).toEqual([])
+})
+
+it.each(['arguments', 'result'] as const)('propagates non-syntax decoder failures in durable packaging %s', async (target) => {
+  const w = await workspace(), f = await fixture(w.root), session = f.ctx.sessions.create(SessionId(`session-decoder-${target}`), {})
+  const marker = JSON.stringify(target === 'arguments' ? { method: 'preview', marker: 'decoder-arguments' }
+    : { review_mode: 'advisory', method: 'preview', script: 'decoder-result', packages: [] })
+  const parse = JSON.parse, failure = new Error(`unexpected ${target} decoder failure`)
+  const spy = vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
+    if (text === marker) throw failure
+    const value: unknown = parse(text, reviver)
+    return value
+  })
+  try {
+    expect(() => {
+      const callId = ToolCallId('decoder-failure')
+      session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_shot', arguments: target === 'arguments' ? marker : JSON.stringify({ method: 'preview' }) })
+      session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId,
+        content: [{ type: 'text', text: marker }], isError: false }) }, { surfaceOp: 'append' })
+      f.ctx.sessionProjections.stateOf(session, 'dramaShotReview')
+    }).toThrow(failure)
+  } finally { spy.mockRestore() }
+})
 
 it('uses the conversation ceiling, ignores manual overrides and rechecks 30→15→30 without repacking or generating', async () => {
   const w = await workspace()
@@ -165,6 +279,42 @@ it('adds a logged warning when the selection changes after execution but before 
   expect(latestChoiceText(agent)).toContain('原提交21秒')
   expect(latestChoiceText(agent)).toContain('15 秒')
   expect(f.adapter.requests).toHaveLength(2)
+  await w.unchanged()
+})
+
+it('reports an actual model switch during the script read and logs the latest ceiling for the next turn', async () => {
+  const w = await workspace(), f = await fixture(w.root), agent = await f.create('session-budget-during-read')
+  await f.service.initialize(agent)
+  const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  readBarrier.path = w.script
+  readBarrier.beforeRead = async () => { await f.service.select(agent, short.key, 1) }
+  const report = await f.run(agent, w.args)
+  expect(report.duration_budget).toMatchObject({ max_submit_seconds: 30, selection: { revision: 1 } })
+  expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'session_video_selection_changed', severity: 'warning' }))
+  expect(report.summary.warnings).toBe(report.warnings.length)
+  expect(f.service.current(agent)).toMatchObject({ maxDurationSeconds: 15, revision: 2 })
+  expect(latestChoiceText(agent)).toContain('分包检查期间会话视频模型已切换')
+  expect(latestChoiceText(agent)).toContain('原提交21秒')
+  await w.unchanged()
+})
+
+it('does not reuse reviews when a different tool definition owns the conversation', async () => {
+  const w = await workspace(), f = await fixture(w.root), agent = await f.create('session-budget-retired-owner')
+  await f.run(agent, w.args)
+  const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  const get = vi.spyOn(f.ctx.tools, 'get').mockReturnValueOnce(undefined)
+  await f.service.select(agent, short.key, 1)
+  expect(get).toHaveBeenCalledWith('drama_shot', agent)
+  get.mockRestore()
+  expect(latestChoiceText(agent)).not.toContain('复核最近一次 drama_shot')
+  f.ctx.on('tools/execute', async (_exec, next) => {
+    const result = await next()
+    vi.spyOn(f.ctx.tools, 'get').mockReturnValueOnce(undefined)
+    return result
+  }, { global: true })
+  const inject = vi.spyOn(agent, 'inject')
+  await f.run(agent, w.args)
+  expect(inject).not.toHaveBeenCalled()
   await w.unchanged()
 })
 
