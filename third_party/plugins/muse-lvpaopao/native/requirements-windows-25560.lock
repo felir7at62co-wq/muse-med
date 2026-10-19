@@ -1,4 +1,0 @@
-# Verified task wheels for Windows x64; binary wheels are not included.
-frida==17.24.2 --hash=sha256:fede735c843806737b7fb1a618edd079ddf3359b4414fd53369a91963e1b5eb5
-protobuf==7.36.2 --hash=sha256:bdb3a345d48db958e6ce1f18e508beb0cc981d64f24088427549c866cd039f1e
-websockets==17.2 --hash=sha256:6aa59f0ef92e796b2db6f5f26550c4713c0e4036899fadf02f55e2ed4db0b7ae

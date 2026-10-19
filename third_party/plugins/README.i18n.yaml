@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 32bfdc4eadaa1670
-  zh: 0c37990938fab8ba
+  en: 8113be675817ccf1
+  zh: ecdccb26784e4b58
 /community-plugin-source-and-builds/build:
   en: f0d0c62d1767eb4a
   zh: f9ebc29da0393aba
