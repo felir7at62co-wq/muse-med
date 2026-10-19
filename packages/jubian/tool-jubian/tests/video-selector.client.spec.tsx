@@ -123,6 +123,28 @@ it('shows the configured default for an unset session without replacing an exist
   expect(f.select).not.toHaveBeenCalled()
 })
 
+it('names Seedance 2.0 and falls back to a configured model id when no display name exists', () => {
+  const f = fixture(true)
+  act(() => { f.store.update((state) => { state.defaultModel = {
+    modelId: 'doubao-seedance-2-0-260128', platformId: 'FANG_ZHOU', resolution: '720p',
+  } }) })
+  expect(screen.getByRole('button', { name: 'Video model' }).textContent).toContain('Seedance 2.0')
+  act(() => { f.store.update((state) => { state.defaultModel = {
+    modelId: 'new-catalogue-model', platformId: 'FANG_ZHOU', resolution: '720p',
+  } }) })
+  expect(screen.getByRole('button', { name: 'Video model' }).textContent).toContain('new-catalogue-model')
+})
+
+it('closes the menu when the same composer trigger is clicked again', async () => {
+  const f = fixture()
+  const trigger = screen.getByRole('button', { name: 'Video model' })
+  fireEvent.click(trigger)
+  expect(await screen.findByRole('menu')).toBeDefined()
+  fireEvent.click(trigger)
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+  expect(f.load).toHaveBeenCalledOnce()
+})
+
 it('keeps resume diagnostics inside the menu with a retry and optional details, and removes them after recovery', async () => {
   const f = fixture()
   const diagnostic = 'resume failed: audio-transcribe waiting for museAccount '.repeat(20)

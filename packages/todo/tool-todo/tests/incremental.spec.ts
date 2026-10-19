@@ -13,7 +13,7 @@ import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import * as ToolTodo from '../src/index.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -239,4 +239,26 @@ it('requires an owning list, keeps agents independent, and still replaces the en
   expect(ctx.sessionProjections.stateOf(first.session, 'latestTodos')).toEqual([])
   expect((await execute(ctx, first, 'todo_update', { task: 'generate video', status: 'completed' })).isError).toBe(true)
   expect(writes(events.get(first.id) ?? [])).toEqual([PLAN, []])
+})
+
+it('refuses an unavailable latest-list projection without appending a completion', async () => {
+  const { ctx, events } = await harness()
+  const subject = await agent(ctx)
+  await execute(ctx, subject, 'todo_write', { todos: PLAN })
+  const projection = vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValueOnce(undefined)
+  try {
+    const result = await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed' })
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('todo_update requires the latestTodos projection')
+    expect(writes(events.get(subject.id) ?? [])).toEqual([PLAN])
+  } finally { projection.mockRestore() }
+  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')).toEqual(PLAN)
+})
+
+it('presents the exact incremental change without replacing the task list', async () => {
+  const { ctx } = await harness()
+  const args = { task: 'generate video', status: 'completed', start_next: true }
+  expect(ctx.tools.get('todo_update')?.presentCall?.(args)).toEqual({
+    card: 'generic', title: 'Update todo task', kind: 'other', rawInput: args,
+  })
 })

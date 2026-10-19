@@ -1,15 +1,17 @@
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-it('discovers Douyin video acquisition with authenticated fallback and transcription handoff', async () => {
+const bundledSkillDir = retainedSkillsFixture()
+
+it('loads retained Douyin video acquisition with authenticated fallback and transcription handoff', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, { includeDefaultRoots: false,
-      bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)), watch: false })
+      bundledSkillDir, watch: false })
     const summary = (await ctx.skills.list()).find(skill => skill.name === 'douyin-download')
     expect(summary).toMatchObject({ source: 'bundled', invocation: { modelInvocable: true } })
     const skill = await ctx.skills.get('douyin-download')

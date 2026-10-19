@@ -8,6 +8,7 @@ import type { Config } from '../src/index.ts'
 import { JubianImageRoutes } from '../src/image.ts'
 import { JubianToken } from '../src/token.ts'
 import { JubianBudgets } from '../src/budget.ts'
+import * as Methods from '../src/methods.ts'
 import { JubianVideoSelection } from '../src/video-session.ts'
 
 interface Registered {
@@ -18,7 +19,7 @@ interface Registered {
 }
 
 /** Mount the plugin against a stub `tools` registry and a stub credential store. */
-async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec: unknown) => string }; defaultLedger?: boolean } = {})
+async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec: unknown) => string }; defaultLedger?: boolean; videoSelection?: Pick<JubianVideoSelection, 'initialize' | 'catalogue' | 'ask' | 'reconcile' | 'assertCurrent'> } = {})
   : Promise<{ registered: Registered[]; mounted: unknown[]; root: string }> {
   const registered: Registered[] = []
   const mounted: unknown[] = []
@@ -26,7 +27,7 @@ async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec:
     plugin: (plugin: unknown) => { mounted.push(plugin) },
     effect: (callback: () => unknown) => callback(),
     on: () => () => {},
-    get: (service: string) => service === 'jobs' ? options.jobs : undefined,
+    get: (service: string) => service === 'jobs' ? options.jobs : service === 'jubianVideoSelection' ? options.videoSelection : undefined,
     tools: {
       register: (definition: Registered) => {
         registered.push(definition)
@@ -305,4 +306,55 @@ describe('tool-jubian registration', () => {
       await rm(workspace, { recursive: true, force: true })
     }
   })
+})
+
+it.each([
+  { sessionVideoSelection: 'yes' },
+  { defaultVideoModel: { modelId: 'm', platformId: 'p', resolution: '480p' } },
+  { sessionVideoSelection: true, defaultVideoModel: null },
+  { sessionVideoSelection: true, defaultVideoModel: { modelId: '', platformId: 'p', resolution: '480p' } },
+  { imageAllowedStandardIds: [] }, { imageAllowedStandardIds: [1, 1] }, { imageAllowedStandardIds: [0] },
+])('rejects malformed deployment selections before registering tools: %j', async (raw) => {
+  await expect(mount({ config: JSON.parse(JSON.stringify(raw)) as Partial<Config> })).rejects.toThrow()
+})
+it('requires a conversation and an active video-selection service at registered tool entry points', async () => {
+  const tools = (await mount({ config: { sessionVideoSelection: true } })).registered
+  const model = tools.find(tool => tool.name === 'jubian_video_model')!
+  const board = tools.find(tool => tool.name === 'jubian_storyboard')!
+  await expect(model.execute({ method: 'read' }, {})).rejects.toThrow('requires a conversation')
+  await expect(model.execute({ method: 'read' }, { agent: {} })).rejects.toThrow('selection unavailable')
+  await expect(board.execute({ method: 'prepare_video', storyboard_id: 1, project_dir: '/unused' }, {}))
+    .rejects.toThrow('conversation-owned')
+  await expect(board.execute({ method: 'prepare_video', storyboard_id: 1, project_dir: '/unused' }, { agent: {} }))
+    .rejects.toThrow('selection unavailable')
+})
+it('dispatches model reads and explicit questions and hands the frozen paid model to the selection guard', async () => {
+  const videoSelection = { initialize: vi.fn(async () => null), catalogue: vi.fn(async () => []),
+    ask: vi.fn(async () => ({ action: 'unchanged' as const, selection: null, paid_requests: 0 as const })),
+    reconcile: vi.fn(async () => {}), assertCurrent: vi.fn() }
+  const { registered } = await mount({ config: { sessionVideoSelection: true, imageAllowedStandardIds: [66] }, videoSelection })
+  const model = registered.find(tool => tool.name === 'jubian_video_model')!
+  const agent = {}, signal = new AbortController().signal
+  expect(await model.execute({ method: 'read' }, { agent, signal })).toEqual({ selection: null, models: [] })
+  await expect(model.execute({ method: 'choose' }, { agent, signal })).rejects.toThrow('Explain the model choice')
+  await model.execute({ method: 'choose', reason: 'choose model', duration_seconds: 9 }, { agent, signal })
+  expect(videoSelection.ask).toHaveBeenLastCalledWith(agent, { method: 'choose', reason: 'choose model', duration_seconds: 9 }, signal)
+  await model.execute({ method: 'choose', reason: 'choose model' }, { agent, signal })
+  expect(videoSelection.ask).toHaveBeenLastCalledWith(agent, { method: 'choose', reason: 'choose model' }, signal)
+  const saved = { modelId: 'selected-model' }
+  const executor = vi.spyOn(Methods, 'storyboardMethod').mockImplementation(async (_client, _ledger, _args, deps) => {
+    deps?.assertVideoModel?.(saved)
+    return { status: 'prepared' }
+  })
+  try {
+    const board = registered.find(tool => tool.name === 'jubian_storyboard')!
+    await expect(board.execute({ method: 'prepare_video', storyboard_id: 1, project_dir: '/unused' }, { agent, signal }))
+      .resolves.toEqual({ status: 'prepared' })
+    expect(videoSelection.reconcile).toHaveBeenCalledWith(agent, { method: 'prepare_video', storyboard_id: 1, project_dir: '/unused' })
+    expect(videoSelection.assertCurrent).toHaveBeenCalledWith(agent, saved)
+    await board.execute({ method: 'get', storyboard_id: 1 }, {})
+    expect(videoSelection.reconcile).toHaveBeenCalledOnce()
+  } finally { executor.mockRestore() }
+  await expect(registered.find(tool => tool.name === 'jubian_video')!.execute({ method: 'image_generate',
+    script_id: 1, asset_name: 'lead', prompt: 'portrait' }, {})).rejects.toThrow('idempotency_key')
 })

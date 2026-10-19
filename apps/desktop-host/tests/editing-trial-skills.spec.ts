@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-const bundledSkillDir = fileURLToPath(new URL('../skills/', import.meta.url))
+const bundledSkillDir = retainedSkillsFixture()
 const names = ['muse-episode-design', 'muse-script-doctor', 'muse-dialogue-polish'] as const
 
 it('resolves the trial skills referenced by the editing entry', async () => {
@@ -26,7 +26,7 @@ it('resolves the trial skills referenced by the editing entry', async () => {
   }
 })
 
-it.each(names)('discovers %s with readable local guidance and both invocation routes', async (name) => {
+it.each(names)('loads retained %s with readable local guidance and both invocation routes', async (name) => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)

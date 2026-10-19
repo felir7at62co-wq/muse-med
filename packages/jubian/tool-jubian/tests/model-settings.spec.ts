@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import * as Native from '../src/native.ts'
 import { modelMethod } from '../src/model-settings.ts'
 import { bodyHash, writeUnderLedger } from '../src/write.ts'
 
@@ -557,4 +558,17 @@ describe('scoped model settings', () => {
       partial({ status: 'not_attempted' })] })
     expect(puts()).toHaveLength(1)
   })
+})
+
+
+it('does not turn an unexpected duration decoder failure into a repairable saved value', async () => {
+  boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '8' })
+  const original = Native.positiveInteger
+  const failure = new Error('duration decoder unavailable')
+  const decoder = vi.spyOn(Native, 'positiveInteger').mockImplementation((value) => {
+    if (value === '8') throw failure
+    return original(value)
+  })
+  try { await expect(preview()).rejects.toBe(failure); expect(puts()).toEqual([]) }
+  finally { decoder.mockRestore() }
 })

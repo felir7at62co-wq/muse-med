@@ -311,6 +311,13 @@ describe('DramaSettingsSection — writes', () => {
 })
 
 describe('DramaSettingsSection — the asset-image route', () => {
+  it('includes the catalogue model name before its price and exact standard id', async () => {
+    const route = { ...ROUTES[0]!, modelName: 'GPT Image 2' }
+    const bench = mount({}, { imageRoutes: { status: 'ok', routes: [route] } })
+    await bench.settle()
+    expect(screen.getByRole('option', { name: `GPT Image 2 · ${routeLabel(route)}` })).toBeDefined()
+  })
+
   it('offers every payable row by platform, its own price and the id that pins it', async () => {
     const bench = mount()
     expect(screen.getByText(en.imageRouteLoading)).toBeDefined()

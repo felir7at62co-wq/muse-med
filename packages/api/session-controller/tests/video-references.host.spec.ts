@@ -202,6 +202,29 @@ it('maps history lookup errors without exposing file paths', async () => {
   }
 })
 
+it('refuses a recorded delivery cancelled while its file metadata was pending', async () => {
+  const h = await mount()
+  const info = await h.fs.lstat(h.file, { cwd: h.root })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  vi.spyOn(h.fs, 'lstat').mockImplementationOnce(async () => {
+    entered.resolve(undefined)
+    await release.promise
+    return info
+  })
+  const resolve = vi.spyOn(h.fs, 'resolve'), read = vi.spyOn(h.fs, 'readByteRange')
+  const controller = new AbortController()
+  const request = h.query(deliveryQuery(), { signal: controller.signal })
+  try {
+    await entered.promise
+    controller.abort()
+  } finally { release.resolve(undefined) }
+  const response = await request
+  expect(response.status).toBe(499)
+  expect(await response.text()).toBe('request cancelled')
+  expect(resolve).not.toHaveBeenCalled()
+  expect(read).not.toHaveBeenCalled()
+})
+
 it('streams full video and bounded, suffix, and open-ended ranges without whole-file reads', async () => {
   const h = await mount()
   const whole = vi.spyOn(h.fs, 'readBytes')

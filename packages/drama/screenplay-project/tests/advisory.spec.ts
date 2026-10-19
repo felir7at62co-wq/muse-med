@@ -15,9 +15,10 @@ import { PROJECT_FILE } from '../src/schema.ts'
 import type { ProjectRequest } from '../src/schema.ts'
 import type { ActorId, FactId, UnitId } from '../src/ids.ts'
 import { acceptedScripts, sha256 } from '../src/episode.ts'
-import { validReview } from '../src/review.ts'
+import { validReview, validWithdrawal } from '../src/review.ts'
 import type { ProjectReadReceipt } from '../src/review.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
+import { validInventoryReview } from '../src/story.ts'
 
 const actor = brandString<ActorId>('actual-writing-session')
 const other = brandString<ActorId>('actual-review-session')
@@ -61,6 +62,33 @@ async function commit() {
   return run({ method: 'commit', project, expected_revision: file.revision,
     candidate_id: candidate.id, candidate_sha256: candidate.sha256 })
 }
+
+it('retains actual model-step identities for advisory facts and candidates when provided by the host', async () => {
+  const fact = await propose({ step: SessionSeq(12) }), candidate = await stage({ step: SessionSeq(13) })
+  expect(fact.created_step).toBe(12)
+  expect(candidate.created_step).toBe(13)
+  expect(fact.review).toBeUndefined()
+  expect(candidate.review).toBeUndefined()
+})
+
+it('records same-session withdrawals without fabricating approval evidence and refuses their reuse', async () => {
+  const fact = await propose()
+  await run({ method: 'review_fact', project, expected_revision: (await current()).revision,
+    fact_id: fact.id, decision: 'approve', reason: '原先按来源核对。' })
+  await run({ method: 'withdraw_fact', project, expected_revision: (await current()).revision,
+    fact_id: fact.id, reason: '后续复核发现归属需更正，保留原记录。' })
+  const file = await current(), withdrawn = file.facts[0]!
+  expect(withdrawn.withdrawal).toMatchObject({ kind: 'advisory', actor })
+  expect(validWithdrawal(file, withdrawn)).toBe(true)
+  expect(withdrawn.review).toMatchObject({ kind: 'advisory', decision: 'approve' })
+  expect(validWithdrawal({ ...file, review_policy: undefined }, withdrawn)).toBe(false)
+  const evidence = { project_id: file.id, project_revision: file.revision, context_sha256: '1'.repeat(64),
+    subject_sha256: '2'.repeat(64), creation_step: SessionSeq(1), review_step: SessionSeq(3), reads: [] }
+  expect(validWithdrawal(file, { ...withdrawn, withdrawal: { ...withdrawn.withdrawal!, evidence } })).toBe(false)
+  await expect(stage()).rejects.toThrow('withdrawn_fact')
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'advisory')
+  expect(await run({ method: 'status', project })).toMatchObject({ review_advisory: { pending_facts: 0 } })
+})
 
 it('commits, reloads and exports unreviewed work without fabricating approvals', async () => {
   const fact = await propose(), candidate = await stage()
@@ -303,6 +331,13 @@ it.each([false, true])('lets authorized story creation choose optional notes=%s 
     const inventory = (await current()).story_inventories![0]!
     await run({ method: 'review_story_inventory', project, expected_revision: (await current()).revision,
       inventory_id: inventory.id, inventory_sha256: inventory.sha256, decision: 'reject', reason: '保留待核意见，自主继续成稿。' })
+    const reviewed = (await current()).story_inventories![0]!, fileAfterReview = await current()
+    expect(validInventoryReview(fileAfterReview, reviewed)).toBe(true)
+    expect(validInventoryReview({ ...fileAfterReview, review_policy: undefined }, reviewed)).toBe(false)
+    expect(validInventoryReview(fileAfterReview, { ...reviewed, review: { ...reviewed.review!, evidence: {
+      project_id: fileAfterReview.id, project_revision: fileAfterReview.revision, context_sha256: inventory.scope_sha256,
+      subject_sha256: inventory.sha256, creation_step: SessionSeq(1), review_step: SessionSeq(3), reads: [],
+    } } })).toBe(false)
     const location = { scene: 1, beat: 1, text: '钥匙在我手里。' }
     const request: Extract<ProjectRequest, { method: 'stage' }> = { method: 'stage', project,
       expected_revision: (await current()).revision, episode: 1, coverage,
@@ -324,6 +359,8 @@ it.each([false, true])('lets authorized story creation choose optional notes=%s 
       candidate_id: candidate.id, candidate_sha256: candidate.sha256, decision: 'approve', reason: '自主意见，无固定C轮或零动作说明。' })
   }
   await commit()
+  commands = new ProjectCommands(ctx.fs, limits, ctx.attachments, 'advisory', 'disabled', 'story-faithful-v2')
+  expect(await run({ method: 'status', project })).toMatchObject({ next_episode: 2 })
   expect((await current()).story_policy?.authorization).toEqual(grant)
   expect((await current()).review_mode).toBeUndefined()
   if (!notes) {
