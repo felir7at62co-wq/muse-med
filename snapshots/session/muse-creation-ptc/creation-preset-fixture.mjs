@@ -97,16 +97,16 @@ export async function apply(ctx) {
     assert.ok(!entries.some(skill => skill.name === 'muse-creation'), 'The removed guide is absent from the catalog')
     assert.ok(entries.some(skill => skill.name === 'muse-script-editing'), 'The current editing skill is discoverable')
     assert.ok(entries.some(skill => skill.name === 'muse-dialogue-polish'), 'The dialogue specialist is discoverable')
-    assert.match(entries.find(skill => skill.name === 'muse-dialogue-polish').description, /台词质量|对白互不回应/u,
-      'The automatic catalog describes the professional match for this task')
+    const source = await ctx.skills.get('muse-dialogue-polish', { scope: agent, cwd: agent.session.header.cwd })
+    assert.ok(source, 'The original professional skill is available')
+    assert.equal(entries.find(skill => skill.name === 'muse-dialogue-polish').description, source.description,
+      'The automatic catalog forwards the current professional routing description')
     assert.ok(entries.some(skill => skill.name === 'screenplay-format'), 'The shared writing entry is discoverable')
     assert.ok(catalogs.includes("If the user names a skill, or the task clearly matches a skill's description"),
       'The automatic catalog instructs matching tasks to load the full skill')
     assert.ok(catalogs.includes('This catalog contains summaries only; do not infer or follow'),
       'The automatic catalog does not substitute summaries for full skill instructions')
     assert.ok(!entries.some(skill => skill.name === 'xiaohongshu-reference'), 'The removed reference skill is absent from the catalog')
-    const source = await ctx.skills.get('muse-dialogue-polish', { scope: agent, cwd: agent.session.header.cwd })
-    assert.ok(source, 'The original professional skill is available')
     assert.equal(source.resourceBase.kind, 'directory')
     workflowPath = join(source.resourceBase.path, 'references/dialogue-workflow.md')
     const isolated = ctx.agentPresets.serviceFor(agent, 'skills')

@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-script-refinement
+profile: headless
+composition: muse-script-refinement
+recording: authored
+header:
+  class: muse-script-refinement
+  pin: true
+workspace:
+  setup: muse-current-professional-skills

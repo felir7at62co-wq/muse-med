@@ -1,0 +1,40 @@
+# Desktop's Web bundle keeps these Host-level tools disabled.
+- id: plan-mode
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-ptc
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+# Mount the current product preset with platform-independent tool visibility.
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama
+    - id: snapshot-script-refinement
+      name: './refinement-preset-fixture.mjs'
+      config:
+        hidePlatformShellTools: true

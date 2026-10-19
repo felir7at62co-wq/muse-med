@@ -3,6 +3,7 @@ scenario: muse-current-professional-skills
 profile: headless
 composition: muse-editing-skill
 recording: authored
+writerOutput: true
 header:
   class: muse-current-professional-skills
   pin: true
