@@ -21,6 +21,8 @@ The opt-in [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) re
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
+Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
+
 The Desktop defaults bundle registers [short-drama settings](../../packages/drama/drama-settings/README.md) before user profile patches. The JianyingPro draft root persists in the profile across restarts; explicit home and command-line overrides still take precedence. Saving this setting grants no filesystem access for draft export.
 
 The Desktop account composition excludes the standalone Gemini provider `aa` through [`excludedProviderIds`](../../packages/host/muse-account/README.md#minimal-configuration). It also places `yunying` in `hiddenProviderIds`: the Yunying route remains registered for saved Sessions, but new model selections expose the official DeepSeek and Zhipu GLM account providers instead. Personal and other registered providers are unchanged. Saved standalone Gemini selections require choosing an available model before another request; [the migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.md) describes that step.
