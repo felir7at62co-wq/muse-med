@@ -334,6 +334,7 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
   }
   if (metadata === undefined && project.story_policy.retained_candidates?.some(value => value.id === candidate.id
     && value.sha256 === candidateDigest(candidate))) return
+  if (!project.story_policy.scope.episodes.includes(candidate.episode)) throw Error('story_candidate_scope: 候选集号须属于当前真实作品授权范围。')
   if (metadata === undefined && project.review_policy === 'advisory') return
   if (metadata === undefined || candidate.refinement !== undefined) throw Error('story_report_required: 故事忠实候选须有独立实际来源映射和修改说明。')
   const inventory = inventoryFor(project, candidate)
@@ -443,7 +444,8 @@ export function validateStoryCandidate(project: ProjectFile, candidate: Candidat
       }
       for (const id of [...beat.fact_ids, ...beat.requires_knowledge]) {
         const fact = project.facts.find(fact => fact.id === id)
-        const priorKnowledge = !beat.fact_ids.includes(id) && priorFacts.has(id)
+        const priorKnowledge = !beat.fact_ids.includes(id) && (priorFacts.has(id)
+          || (project.review_policy === 'advisory' && fact !== undefined && fact.withdrawal === undefined))
         if (priorKnowledge) continue
         if (fact === undefined || !fact.anchors.some(anchor => unitIds.has(anchor.unit_id))) throw Error('story_fact_scope: 正文事实须属于本集真实范围；知情前提只能引用本集或已验收前情，不能借未来来源。')
         if (fact.origin === 'source' && beat.fact_ids.includes(id)) {

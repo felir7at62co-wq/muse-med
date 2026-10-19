@@ -18,7 +18,7 @@ import type { ProjectReadReceipt } from './review.ts'
 import { buildRefinement, refinementPolicyDigest, validateRefinement, validateRefinementPolicy, validateSupplement } from './refinement.ts'
 import type { HumanAuthorization } from './refinement.ts'
 import { buildStoryAdaptation, buildSemanticReport, buildStoryAcceptance, inventoryDigest, inventoryEvidence, inventoryReads, storyPolicyDigest, storyScopeDigest, storyEvidencePending, validateInventory, validateSemanticReport, validateStoryCandidate, validateStoryPolicy, validateStorySupplement, validInventoryReview, validateAcceptedStoryEvidence } from './story.ts'
-import { acceptedCandidates, acceptedKnowledge, candidateDigest, checkVideoCoverage, renderEpisode, sha256 } from './episode.ts'
+import { acceptedCandidates, acceptedKnowledge, acceptedScripts, candidateDigest, checkVideoCoverage, renderEpisode, sha256 } from './episode.ts'
 
 /** Validated allocation and source-read budgets. */
 export interface ProjectLimits {
@@ -242,8 +242,27 @@ export class ProjectCommands {
   }
 
   private status(project: ProjectFile, knowledge = acceptedKnowledge(project)): object {
+    const accepted = acceptedCandidates(project)
+    const continuity = project.review_policy === 'advisory'
+      ? acceptedScripts(project).flatMap(candidate => candidate.continuity_advisory ?? []) : []
+    const episodes = new Set(accepted.map(candidate => candidate.episode))
+    let nextEpisode = 1
+    while (episodes.has(nextEpisode)) nextEpisode++
     return { project_id: project.id, revision: project.revision, mode: project.mode, instructions: project.instructions,
       ...this.advisory(project),
+      ...(project.review_policy === 'advisory' ? {
+        continuity_advisory: continuity.slice(0, this.limits.maxReadUnits),
+        continuity_advisory_total: continuity.length,
+        continuity_advisory_truncated: continuity.length > this.limits.maxReadUnits,
+        candidate_states_total: project.candidates.length,
+        candidate_states_truncated: project.candidates.length > this.limits.maxReadUnits,
+        candidate_states: project.candidates.slice(-this.limits.maxReadUnits).map(candidate => ({
+          id: candidate.id, episode: candidate.episode, sha256: candidate.sha256,
+          adopted: project.accepted.includes(candidate.id), committed_at: candidate.committed_at ?? null,
+          review: candidate.review === undefined ? null : { decision: candidate.review.decision, actor: candidate.review.actor,
+            time: candidate.review.time, kind: candidate.review.kind ?? 'independent' },
+        })),
+      } : {}),
       ...(project.workflow === undefined ? {} : { workflow: project.workflow }),
       ...(project.review_mode === undefined ? {} : { review_mode: project.review_mode }),
       ...(project.parent === undefined ? {} : { parent: project.parent }),
@@ -258,11 +277,11 @@ export class ProjectCommands {
         authorization_sha256: sha256(JSON.stringify(project.refinement.authorization)),
         baselines: project.refinement.baselines.map(candidate => ({
           id: candidate.id, sha256: candidate.sha256, episode: candidate.episode })) } }),
-      next_episode: project.accepted.length + 1,
+      next_episode: nextEpisode,
       sources: project.sources.map(source => ({
         id: source.id, path: source.path, sha256: source.sha256, kind: source.kind, units: source.units.length,
       })),
-      accepted: acceptedCandidates(project).map(candidate => ({
+      accepted: accepted.map(candidate => ({
         id: candidate.id, episode: candidate.episode, sha256: candidate.sha256, committed_at: candidate.committed_at,
         ...(candidate.review?.kind === 'self-check' ? { review_kind: 'self-check' } : {}),
       })),
@@ -280,7 +299,7 @@ export class ProjectCommands {
       rejected_facts: project.facts.filter(fact => fact.review?.decision === 'reject' && fact.withdrawal === undefined).length,
       pending_candidates: project.candidates.filter(candidate => candidate.review === undefined).length,
       rejected_candidates: project.candidates.filter(candidate => candidate.review?.decision === 'reject').length,
-      guidance: '审校由 Agent 自主决定；未审或拒绝意见仅供参考，不阻止组稿、采用或导出。采用不等于审校批准；保留真实作者与审校记录。文件、来源、版本、引用和用户授权仍须一致。',
+      guidance: '审校、起草集号和采用顺序由 Agent 自主决定；未审或拒绝意见仅供参考，草稿可直接导出。next_episode 仅建议首个未采用集号。采用不等于审校批准；修订前集后请回读后集连续性提示。保留真实作者与审校记录，文件、来源、版本、引用和用户授权仍须一致。',
     } }
   }
 
@@ -314,7 +333,8 @@ export class ProjectCommands {
         await this.verifySources(original.project, exec, original.validated)
         if (request.expected_revision !== original.project.revision) throw Error('stale_revision: 原项目已经变更，请读回实际版本。')
         if (original.project.refinement !== undefined || original.project.story_policy !== undefined) throw Error('story_fork_original: 变更目标须从保留的原始项目建立新授权分支，不能把旧精修策略静默降级。')
-        if (request.before_episode < 1 || request.before_episode > original.project.accepted.length + 1) throw Error('revision_episode: 只能从已验收集或下一集建立修订分支。')
+        if (original.project.review_policy !== 'advisory'
+          && (request.before_episode < 1 || request.before_episode > original.project.accepted.length + 1)) throw Error('revision_episode: 只能从已验收集或下一集建立修订分支。')
       }
       const policy = STORY_POLICY.parse({ version: 'story-faithful-v2', sha256: '0'.repeat(64), work_title: request.work_title,
         videos, scope: { episodes: request.episodes, instructions: request.scope_instructions },
@@ -332,8 +352,8 @@ export class ProjectCommands {
         policy.original_facts = original.project.facts.map(fact => ({ id: fact.id, sha256: factDigest(fact) }))
         policy.original_sources = original.project.sources.map(source => ({ id: source.id, sha256: source.sha256,
           index_sha256: sha256(JSON.stringify({ units: source.units, video: source.video })) }))
-        policy.retained_candidates = acceptedCandidates(original.project).slice(0,
-          request.before_episode - 1).map(candidate => ({ id: candidate.id, sha256: candidate.sha256 }))
+        policy.retained_candidates = acceptedCandidates(original.project).filter(candidate => candidate.episode
+          < request.before_episode).map(candidate => ({ id: candidate.id, sha256: candidate.sha256 }))
         policy.input_candidates = inputs
       }
       policy.sha256 = storyPolicyDigest(STORY_POLICY.parse(policy))
@@ -352,7 +372,7 @@ export class ProjectCommands {
           source.story_video_path = this.fs.processPath(await this.target(path, exec))
         }
         project.facts = structuredClone(original.project.facts)
-        project.candidates = acceptedCandidates(original.project).slice(0, request.before_episode - 1)
+        project.candidates = acceptedCandidates(original.project).filter(candidate => candidate.episode < request.before_episode)
         project.accepted = project.candidates.map(candidate => candidate.id)
         project.parent = { id: original.project.id, path: original.target.displayPath, revision: original.project.revision,
           before_episode: request.before_episode, sha256: original.sha256 }
@@ -427,7 +447,8 @@ export class ProjectCommands {
     switch (request.method) {
       case 'status': {
         const evidencePending: string[] = []
-        const active = (project.story_inventories ?? []).filter(inventory => inventory.episode >= project.accepted.length + 1
+        const active = (project.story_inventories ?? []).filter(inventory => (project.review_policy === 'advisory'
+          || inventory.episode >= project.accepted.length + 1)
           && !project.candidates.some(candidate => project.accepted.includes(candidate.id)
           && candidate.story_adaptation?.inventory_id === inventory.id))
         const sourceIds = new Set(active.flatMap(inventory => inventory.coverage.windows.map(window => window.source_id)))
@@ -449,7 +470,8 @@ export class ProjectCommands {
           ...(project.story_policy === undefined ? {} : { evidence_pending: [...new Set(evidencePending)] }) }
       }
       case 'propose_story_inventory': {
-        if (project.story_policy === undefined || request.episode !== project.accepted.length + 1) throw Error('story_inventory_scope: 仅准备已授权作品的当前下一集。')
+        if (project.story_policy === undefined || (project.review_policy !== 'advisory'
+          && request.episode !== project.accepted.length + 1)) throw Error('story_inventory_scope: 仅准备已授权作品的当前下一集。')
         const created = creation()
         const inventory = STORY_INVENTORY.parse({ id: `i:${randomUUID()}`, sha256: '0'.repeat(64), policy_sha256: project.story_policy.sha256,
           scope_sha256: '0'.repeat(64), episode: request.episode, coverage: request.coverage, items: request.items, not_applicable: request.not_applicable,
@@ -495,10 +517,11 @@ export class ProjectCommands {
           return candidate
         }).sort((a, b) => a.episode - b.episode)
         const first = baselines[0]
-        if (first === undefined || baselines.some((candidate, index) => candidate.episode !== first.episode + index)
-          || first.episode > project.accepted.length + 1) throw Error('refinement_scope: 使用非空、连续的实际基线集号。')
+        if (first === undefined || new Set(baselines.map(candidate => candidate.episode)).size !== baselines.length
+          || (project.review_policy !== 'advisory' && (baselines.some((candidate, index) => candidate.episode !== first.episode + index)
+          || first.episode > project.accepted.length + 1))) throw Error('refinement_scope: 使用非空、连续的实际基线集号。')
         const beforeEpisode = first.episode
-        const candidates = acceptedCandidates(project).slice(0, beforeEpisode - 1)
+        const candidates = acceptedCandidates(project).filter(candidate => candidate.episode < beforeEpisode)
         const policy = REFINEMENT_POLICY.parse({ version: 'source-preserving-v1', sha256: '0'.repeat(64),
           source_project: { id: project.id, path: loaded.target.displayPath, revision: project.revision, sha256: loaded.sha256 },
           baselines, retained_candidates: candidates.map(candidate => ({ id: candidate.id, sha256: candidate.sha256 })),
@@ -517,10 +540,11 @@ export class ProjectCommands {
         return this.status(branch)
       }
       case 'fork_project': {
-        if (request.before_episode < 1 || request.before_episode > project.accepted.length + 1) {
+        if (project.review_policy !== 'advisory'
+          && (request.before_episode < 1 || request.before_episode > project.accepted.length + 1)) {
           throw Error('revision_episode: 修订从已验收集号或下一集开始，不能跳过未写集数。')
         }
-        const candidates = acceptedCandidates(project).slice(0, request.before_episode - 1)
+        const candidates = acceptedCandidates(project).filter(candidate => candidate.episode < request.before_episode)
         const now = new Date().toISOString()
         const branch = PROJECT_FILE.parse({ ...project, id: `p:${randomUUID()}`, revision: 0, created_at: now, updated_at: now,
           parent: { id: project.id, path: loaded.target.displayPath, revision: project.revision,
@@ -559,7 +583,9 @@ export class ProjectCommands {
       case 'read_candidate': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined) throw Error('missing_candidate: 候选版本编号不存在。')
-        const preceding = { ...project, accepted: project.accepted.slice(0, candidate.base_episode) }
+        const preceding = { ...project, accepted: project.review_policy === 'advisory'
+          ? acceptedCandidates(project).filter(value => value.episode < candidate.episode).map(value => value.id)
+          : project.accepted.slice(0, candidate.base_episode) }
         observe(requiredReads(project, candidate, 'candidate').filter(read => read.kind !== 'source'))
         return { revision: project.revision, ...this.advisory(project), candidate,
           ...(candidate.story_adaptation === undefined ? {} : { story_policy: project.story_policy,
@@ -708,7 +734,10 @@ export class ProjectCommands {
       }
       case 'stage':
       case 'stage_files': {
-        if (request.episode !== project.accepted.length + 1) throw Error('episode_order: 仅可起草下一集；前一集须先验收。')
+        if (project.review_policy !== 'advisory' && request.episode !== project.accepted.length + 1) throw Error('episode_order: 仅可起草下一集；前一集须先验收。')
+        if (project.story_policy !== undefined && !project.story_policy.scope.episodes.includes(request.episode)) {
+          throw Error('story_candidate_scope: 候选集号须属于当前真实作品授权范围。')
+        }
         const scenes: ProjectFile['candidates'][number]['scenes'] = request.method === 'stage'
           ? SCENE_RECORD.array().parse(request.scenes) : []
         if (request.method === 'stage_files') {
@@ -763,7 +792,8 @@ export class ProjectCommands {
         } else if (notes !== undefined) throw Error('refinement_policy_required: 先从实际基线建立获授权的精修分支。')
         candidate.sha256 = candidateDigest(candidate)
         checkVideoCoverage(project, candidate)
-        const rendered = renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate)
+        const rendered = renderEpisode(project, candidate.scenes, project.review_policy === 'advisory'
+          ? acceptedKnowledge(project, candidate.episode) : loaded.knowledge, candidate.episode, candidate)
         project.candidates.push(candidate)
         await this.save(loaded, exec)
         return { revision: project.revision, ...this.advisory(project), candidate, rendered }
@@ -771,10 +801,11 @@ export class ProjectCommands {
       case 'review': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
         if (candidate === undefined || candidate.review !== undefined || candidate.sha256 !== request.candidate_sha256) throw Error('candidate_review_state: 版本不存在、摘要不符或已审校；修订须新建版本。')
-        if (candidate.base_episode !== project.accepted.length) throw Error('candidate_base_changed: 前集已经推进，须基于当前验收状态提交新版本。')
+        if (project.review_policy !== 'advisory' && candidate.base_episode !== project.accepted.length) throw Error('candidate_base_changed: 前集已经推进，须基于当前验收状态提交新版本。')
         if (project.review_policy !== 'advisory' && project.review_mode !== 'self-check' && candidate.author === exec.actor) throw Error('self_review: 编写会话不能自行验收该版本。')
         if (!request.reason.trim()) throw Error('review_reason: 请记录来源、人物、时间、场次与改编语义的核对结果。')
-        renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate)
+        const knowledge = project.review_policy === 'advisory' ? acceptedKnowledge(project, candidate.episode) : loaded.knowledge
+        renderEpisode(project, candidate.scenes, knowledge, candidate.episode, candidate)
         if (checkVideoCoverage(project, candidate) && project.review_policy !== 'advisory' && request.decision === 'approve' && !request.zero_action_reason?.trim()) {
           throw Error('zero_action_review_required: 请记录本集实际画面复核和确无关键动作遗漏的依据。')
         }
@@ -791,7 +822,7 @@ export class ProjectCommands {
         if (request.zero_action_reason !== undefined) candidate.review.zero_action_reason = request.zero_action_reason.trim()
         await this.save(loaded, exec)
         return { revision: project.revision, ...this.advisory(project), candidate,
-          rendered: renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate) }
+          rendered: renderEpisode(project, candidate.scenes, knowledge, candidate.episode, candidate) }
       }
       case 'commit': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
@@ -801,27 +832,35 @@ export class ProjectCommands {
           await exec.verifyStoryApproval(project, candidate)
         }
         if (project.review_policy !== 'advisory' && (candidate.review?.decision !== 'approve' || !validReview(project, candidate, 'candidate'))) throw Error('review_required: 有效审校通过后才可验收。')
-        if (candidate.base_episode !== project.accepted.length || candidate.episode !== project.accepted.length + 1
-          || candidate.committed_at !== undefined) {
+        if (project.review_policy !== 'advisory' && (candidate.base_episode !== project.accepted.length
+          || candidate.episode !== project.accepted.length + 1 || candidate.committed_at !== undefined)) {
           throw Error('episode_order: 版本已提交或基于过期前集，请从 status 恢复下一集。')
         }
-        renderEpisode(project, candidate.scenes, loaded.knowledge, candidate.episode, candidate)
+        renderEpisode(project, candidate.scenes, project.review_policy === 'advisory'
+          ? acceptedKnowledge(project, candidate.episode) : loaded.knowledge, candidate.episode, candidate)
         checkVideoCoverage(project, candidate)
-        candidate.committed_at = new Date().toISOString()
-        project.accepted.push(candidate.id)
+        if (project.review_policy === 'advisory' && project.accepted.includes(candidate.id)) return this.status(project)
+        candidate.committed_at ??= new Date().toISOString()
+        project.accepted = project.review_policy === 'advisory'
+          ? [...acceptedCandidates(project).filter(value => value.episode !== candidate.episode), candidate]
+            .sort((a, b) => a.episode - b.episode).map(value => value.id)
+          : [...project.accepted, candidate.id]
         await this.save(loaded, exec)
         return this.status(project)
       }
       case 'export': {
         const candidate = project.candidates.find(candidate => candidate.id === request.candidate_id)
-        if (candidate === undefined || !project.accepted.includes(candidate.id)) throw Error('export_unaccepted: 只能交付已验收版本。')
+        if (candidate === undefined || (project.review_policy !== 'advisory'
+          && !project.accepted.includes(candidate.id))) throw Error('export_unaccepted: 只能交付已验收版本。')
         checkVideoCoverage(project, candidate)
         if (candidate.story_adaptation !== undefined && project.review_policy !== 'advisory') {
           if (exec.verifyStoryApproval === undefined) throw Error('story_approval_log_pending: 正式导出须核成功C轮原日志。')
           await exec.verifyStoryApproval(project, candidate)
         }
         const index = project.accepted.indexOf(candidate.id)
-        const before = { ...project, accepted: project.accepted.slice(0, index) }
+        const before = { ...project, accepted: project.review_policy === 'advisory'
+          ? acceptedCandidates(project).filter(value => value.episode < candidate.episode).map(value => value.id)
+          : project.accepted.slice(0, index) }
         const rendered = renderEpisode(project, candidate.scenes, acceptedKnowledge(before), candidate.episode, candidate)
         const basename = `episode-${candidate.episode}-${candidate.id.slice(2)}`
         const sourceRows = project.sources.filter(source => candidate.source_ids === undefined
@@ -875,7 +914,11 @@ export class ProjectCommands {
             throw Error('export_changed: 导出文件已修改，请使用新的交付目录。')
           }
         }
-        return { revision: project.revision, ...this.advisory(project), candidate_id: candidate.id, ...(candidate.review?.kind === 'self-check' ? { review_kind: 'self-check' } : {}), files: files.map(file => file.path) }
+        return { revision: project.revision, ...this.advisory(project), candidate_id: candidate.id,
+          ...(project.review_policy === 'advisory' ? { adoption: { episode: candidate.episode,
+            adopted: project.accepted.includes(candidate.id), committed_at: candidate.committed_at ?? null,
+            review: candidate.review ?? null }, continuity_advisory: rendered.continuity_advisory ?? [] } : {}),
+          ...(candidate.review?.kind === 'self-check' ? { review_kind: 'self-check' } : {}), files: files.map(file => file.path) }
       }
       /* v8 ignore next -- the registry validates the closed operation union before execution */
       default: return assertNever(request)

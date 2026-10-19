@@ -136,7 +136,8 @@ export function apply(ctx: Context, config: Config): void {
     description: config.reviewMode === 'advisory'
       ? '小说、视频、换梗剧本的来源、版本与交付记录工具。当前为自主审校模式：新旧项目都由你根据任务决定是否自检、何时复核或委托子代理；不强制独立会话、固定分轮或先批准再起草和交付。'
         + 'init 记录方向，import_source 导入原文、转写或实际 video_inspect 帧清单；read_source/read_fact/list_facts/read_candidate 供实际核对。propose_fact/propose_facts 记录有来源或真实改编授权的事实；review_fact/review_facts/review 可记录你实际作出的决定与理由，同一会话可审校，不得把自主判断称为独立审校。'
-        + 'stage/stage_files 保存候选，commit 由你决定采用哪个当前版本，export 导出采用的正文；采用不等于已独立审校。工具返回的审校建议供判断，不要求逐项放行。status 恢复项目和当前修订，所有修改携带当前 expected_revision，保留真实作者、审校者、来源与历史记录。'
+        + 'stage/stage_files 按真实集号保存候选，可先写多集、从指定集开始或修订旧集，不要求前集先验收；commit 由你决定各集采用哪个真实版本，采用顺序不限，同集替换保留历史候选。export 可直接导出指定草稿或历史候选，不会自动采用或批准。'
+        + 'status 的 next_episode 只是首个未采用集号建议，candidate_states 列出真实采用与审校状态，export.adoption 披露所导出版本的实际状态；按真实集号区分各集，不把采用数量当集号。连续性风险会作为 continuity_advisory 返回，由你判断怎样核对和衔接，不以缺少已采用前集阻止创作。采用不等于已独立审校，未审和未采用状态如实保留。项目修改携带当前 expected_revision，保留真实作者、审校者、来源与历史记录。'
         + '来源编号原样使用 status.sources[].id；事实状态读取 fact.review?.decision，缺失表示未记录审校，不能声称已批准。文件、版本、引用与用户实际授权仍须有效，不能伪造来源或扩大改编许可；用户已编辑内容的保护保持有效。'
         + (config.storyFaithfulMode === 'disabled' ? '' : 'init_story_faithful 绑定真实用户作品请求、原视频及集号；故事清单、定位与语义报告供创作核对，不强制审校者身份或A/B/C轮。')
         + (config.refinementMode === 'disabled' ? '' : 'fork_refinement 保留真实基线和用户原话授权；新增演绎保留来源归属与实际修改说明，重大事件和关系变化仍须明确授权。')

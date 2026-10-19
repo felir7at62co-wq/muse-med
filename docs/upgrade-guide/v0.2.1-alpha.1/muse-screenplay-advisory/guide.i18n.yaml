@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-screenplay-advisory/guide.md
 /:
-  en: 07ccb0d6bf85b046
-  zh: d497787eaee0b82e
+  en: 6efffef71a9c4d92
+  zh: 36695f4511d3cd61
 /muse-autonomous-screenplay-review:
   en: fd4a60cb2b816691
   zh: 5499109cefc5cf91
 /muse-autonomous-screenplay-review/change:
-  en: e7db2f74ea71fe3b
-  zh: ab7953c56ca24007
+  en: 03abdf1c3b5dacd5
+  zh: b6d12ea01f1a9f85
 /muse-autonomous-screenplay-review/migration:
-  en: 91abde678a296056
-  zh: 7c546c71f1472b37
+  en: cfe7f90a0ed00660
+  zh: 4f0d69237c66b5bc

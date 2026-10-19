@@ -1,6 +1,6 @@
 ---
 kind: upgrade-guide
-description: Muse managed screenplay projects use advisory review instead of mandatory creative approval.
+description: Muse screenplay projects use advisory review without fixed approval or episode sequencing.
 ---
 
 # Muse autonomous screenplay review
@@ -9,17 +9,17 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-Muse's `short-drama` and `creation` compositions set `screenplay_project` to `reviewMode: advisory`. New and existing projects can stage unreviewed or rejected facts and commit a current candidate without a separate reviewer or A/B/C sequence. Review is the Agent's decision; adoption does not mean that review passed. Other deployments retain the package's `independent` default and may explicitly select strict `self-check` for projects without an advisory policy.
+Muse's `short-drama` and `creation` compositions set `screenplay_project` to `reviewMode: advisory`. The Agent chooses whether and when to review, including within the writing Session. New and existing projects can draft a selected episode, save several episodes before adoption and adopt them out of order. Adopting another candidate for an episode replaces its current selection while retaining historical candidates, commit times and reviews. Export can deliver an actual draft or historical candidate without automatically adopting it. Adoption does not mean that review passed.
 
-Advisory results include `review_policy: advisory` and `review_advisory` counts for pending/rejected facts and candidates, plus guidance. A recorded review uses `kind: advisory` with the actual actor, time, decision and reason; the tool invents neither independent reviewers nor sequential evidence. Story inventories, `story_notes` and C semantic reports are optional; supplied records still require valid source references, locations and digests.
+Results preserve real pending and rejected states through `review_advisory`. Optional reviews retain their actual actor, time, decision and reason with `kind: advisory`, without fabricated independent reviewers or A/B/C evidence. Story inventories, `story_notes` and C semantic reports are optional; supplied records still require valid sources, locations and digests. `rendered.continuity_advisory` reports missing foreknowledge outside the screenplay body rather than inventing prior events. `base_episode` retains its creation-time count; `next_episode` suggests the first unadopted episode, without restricting work.
 
-The policy does not change historical `review_mode`, review-context digests or review identities. Existing projects receive the policy in memory when read and persist it on the next successful mutation. Reading alone does not rewrite the file. Once persisted, the advisory policy stays effective if configuration later changes to `independent` or `self-check`; configuration does not convert that project back to strict review. Source integrity, current revisions, episode order, candidate hashes, real user authorization and returned-manuscript protection remain active. Muse's system prompt is unchanged.
+Existing projects receive `review_policy: advisory` in memory when read and persist it on the next successful mutation. Historical `review_mode`, review-context digests and identities remain unchanged. Once persisted, the policy remains effective under later `independent` or `self-check` configuration; configuration does not convert that project back to strict review. Strict defaults still apply to projects without advisory policy. Source integrity, real episode IDs, current revisions, candidate hashes, real user authorization and returned-manuscript protection remain active. Muse's system prompt is unchanged.
 
 Preserved history does not provide downgrade compatibility: use a pre-upgrade project backup when returning to Muse 1.1.6, whose reader does not recognize advisory records.
 
 ## Migration
 
-1. Continue using the existing project file in Muse; no manual JSON or Session-log conversion is required. Custom compositions that want autonomous review must set the `@deepseek-ai/dsh-screenplay-project` row's `config.reviewMode` to `advisory`. For new projects or projects without an advisory policy, select `independent` or `self-check` explicitly when mandatory review is intended.
-2. Call `status` and use its actual source IDs, candidate digest and current revision. Confirm `review_policy: advisory`; inspect `review_advisory` rather than treating adoption as approval. Do not rewrite historical review records or add a fabricated review to unlock work.
-3. Stage the intended next episode and commit the current candidate when it is ready to adopt. Review calls remain available when useful; report their real decisions and unresolved findings. Use the adopted candidate for `export`, Word conversion and presentation. Those operations still reject stale, altered or unauthorized data.
-4. Confirm that the same project reopens, preserves its history and exports the intended adopted text. A source, reference, version or permission error needs correction; changing the review policy does not waive it. See the [package reference](../../../../packages/drama/screenplay-project/README.md) for the remaining strict-policy requirements.
+1. Continue using the existing project file in Muse; no manual JSON or Session-log conversion is required. Custom compositions select `config.reviewMode: advisory` on the `@deepseek-ai/dsh-screenplay-project` row. Choose strict `independent` or `self-check` only for new or non-advisory projects that need mandatory review.
+2. Call `status` and use actual source IDs, candidate digests and `expected_revision`. Read `candidate_states` for each version's actual adoption/review status and `continuity_advisory` for adopted-episode risks; suggested `next_episode` is not an execution requirement.
+3. Save the requested episode versions. Adopt a candidate with `commit` only when intended, or `export` a specified real candidate directly. Check `export.adoption` and continuity advice instead of inventing an approval or adopting missing earlier episodes merely to unlock work. Keep normal story continuity and the user's intended order.
+4. Word export and delivery use the actual readable document, not an approval receipt. Word conversion pins inputs and compares generated paragraphs; user-return protection remains active. Confirm the intended files and actual review scope. See the [package reference](../../../../packages/drama/screenplay-project/README.md) for strict-policy rules and remaining integrity checks.

@@ -34,6 +34,8 @@ export interface EpisodeRender {
   knowledge: Record<string, string[]>
   /** Final-bound refinement report delivered separately from the screenplay body. */
   modification_notes?: string
+  /** Unresolved declared character knowledge; advisory mode leaves the screenplay body unchanged. */
+  continuity_advisory?: string[]
 }
 
 /**
@@ -61,7 +63,7 @@ export function renderEpisode(project: ProjectFile, scenes: Scene[], previous: R
     }
   }
   const rendered = renderWithFacts(scenes, previous, episode, factIndex(project),
-    candidate?.refinement !== undefined || candidate?.story_adaptation !== undefined)
+    candidate?.refinement !== undefined || candidate?.story_adaptation !== undefined, project.review_policy === 'advisory')
   if (candidate?.story_adaptation !== undefined) return { ...rendered, modification_notes: renderStoryNotes(project, candidate) }
   return candidate?.refinement === undefined ? rendered
     : { ...rendered, modification_notes: renderModificationNotes(project, candidate) }
@@ -113,8 +115,9 @@ function synchronousActions(scene: Scene, facts: ReturnType<typeof factIndex>['f
 }
 
 function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], previous: Record<string, string[]>, episode: number,
-  { facts, withdrawn }: ReturnType<typeof factIndex>, refinement = false): EpisodeRender {
+  { facts, withdrawn }: ReturnType<typeof factIndex>, refinement = false, advisory = false): EpisodeRender {
   const knowledge = structuredClone(previous)
+  const continuity: string[] = []
   const output: string[] = [`第${episode}集`]
   const lines: ScriptLine[] = []
   let prior: ProjectFile['candidates'][number]['scenes'][number] | undefined
@@ -205,7 +208,12 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
       }
       if (beat.actor === undefined && beat.requires_knowledge.length > 0) throw Error('knowledge_actor: 知情要求须指定人物。')
       for (const id of beat.requires_knowledge) {
-        if (!knowledge[`${scene.layer}:${beat.actor}`]?.includes(id)) throw Error(`knowledge_not_acquired: ${beat.actor} 尚未在 ${scene.layer} 剧情中获知 ${id}。`)
+        if (advisory && (withdrawn.has(id) || !facts.has(id))) throw Error(`knowledge_fact_missing: ${id} 不存在或已撤销。`)
+        if (!knowledge[`${scene.layer}:${beat.actor}`]?.includes(id)) {
+          const warning = `knowledge_not_acquired: 第${episode}集第${sceneIndex + 1}场第${beatIndex + 1}拍，${beat.actor} 尚未在 ${scene.layer} 已采用前情或本场中获知 ${id}；请自主核对前情、人物知情与本集表达。`
+          if (advisory) continuity.push(warning)
+          else throw Error(`knowledge_not_acquired: ${beat.actor} 尚未在 ${scene.layer} 剧情中获知 ${id}。`)
+        }
       }
       const recipients = new Set(beat.witnesses)
       if (beat.actor !== undefined) recipients.add(beat.actor)
@@ -233,7 +241,8 @@ function renderWithFacts(scenes: ProjectFile['candidates'][number]['scenes'], pr
     output.push('')
     prior = scene
   }
-  return { script: `${output.join('\n').trimEnd()}\n`, lines, knowledge }
+  return { script: `${output.join('\n').trimEnd()}\n`, lines, knowledge,
+    ...(advisory ? { continuity_advisory: continuity } : {}) }
 }
 
 /**
@@ -378,7 +387,13 @@ export function checkVideoCoverage(project: ProjectFile, candidate: ProjectFile[
  * @param project - Parsed authoritative project file.
  * @returns Candidate identities, digests, exact accepted scripts, and optional separate refinement reports.
  */
-export function acceptedScripts(project: ProjectFile): { id: string; sha256: string; script: string; modification_notes?: string }[] {
+export function acceptedScripts(project: ProjectFile): {
+  id: string
+  sha256: string
+  script: string
+  modification_notes?: string
+  continuity_advisory?: string[]
+}[] {
   let knowledge: Record<string, string[]> = {}
   const facts = factIndex(project)
   return acceptedCandidates(project).map((candidate) => {
@@ -387,47 +402,55 @@ export function acceptedScripts(project: ProjectFile): { id: string; sha256: str
     validateStoryCandidate(project, candidate, true)
     checkVideoCoverage(project, candidate)
     const rendered = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts,
-      candidate.refinement !== undefined || candidate.story_adaptation !== undefined)
+      candidate.refinement !== undefined || candidate.story_adaptation !== undefined, project.review_policy === 'advisory')
     knowledge = rendered.knowledge
     return { id: candidate.id, sha256: candidate.sha256, script: rendered.script,
+      ...(rendered.continuity_advisory === undefined ? {} : { continuity_advisory: rendered.continuity_advisory }),
       ...(candidate.story_adaptation !== undefined ? { modification_notes: renderStoryNotes(project, candidate) }
         : candidate.refinement === undefined ? {} : { modification_notes: renderModificationNotes(project, candidate) }) }
   })
 }
 
 /**
- * Resolve sequential committed episodes, requiring approval outside advisory projects.
+ * Resolve current adopted versions by actual episode; strict projects retain their contiguous prefix.
  * @param project - Parsed project history.
  * @returns Accepted candidate records in episode order.
  */
 export function acceptedCandidates(project: ProjectFile): ProjectFile['candidates'] {
   const candidates = new Map(project.candidates.map(candidate => [candidate.id, candidate]))
-  return project.accepted.map((id, index) => {
+  const episodes = new Set<number>()
+  const accepted = project.accepted.map((id, index) => {
     const candidate = candidates.get(id)
-    if (candidate === undefined || candidate.episode !== index + 1 || candidate.base_episode !== index
+    if (candidate === undefined || episodes.has(candidate.episode)
+      || (project.review_policy === 'advisory' && candidate.sha256 !== candidateDigest(candidate))
+      || (project.review_policy !== 'advisory' && (candidate.episode !== index + 1 || candidate.base_episode !== index))
       || candidate.committed_at === undefined
     || (project.review_policy !== 'advisory' && candidate.review?.decision !== 'approve')
     || (candidate.review !== undefined && !validReview(project, candidate, 'candidate'))) {
       throw Error('invalid_history: 验收记录缺失、集号不连续或审校无效。')
     }
+    episodes.add(candidate.episode)
     return candidate
   })
+  return project.review_policy === 'advisory' ? accepted.sort((a, b) => a.episode - b.episode) : accepted
 }
 
 /**
  * Recompute character knowledge exclusively from accepted episode events.
  * @param project - Validated project history.
+ * @param beforeEpisode - When provided, fold only adopted episodes with a smaller actual episode number.
  * @returns Knowledge before the next episode, without model-written negative claims.
  */
-export function acceptedKnowledge(project: ProjectFile): Record<string, string[]> {
+export function acceptedKnowledge(project: ProjectFile, beforeEpisode?: number): Record<string, string[]> {
   let knowledge: Record<string, string[]> = {}
   const facts = factIndex(project)
   for (const candidate of acceptedCandidates(project)) {
+    if (beforeEpisode !== undefined && candidate.episode >= beforeEpisode) continue
     validateRefinement(project, candidate)
     validateStoryCandidate(project, candidate, true)
     checkVideoCoverage(project, candidate)
     knowledge = renderWithFacts(candidate.scenes, knowledge, candidate.episode, facts,
-      candidate.refinement !== undefined || candidate.story_adaptation !== undefined).knowledge
+      candidate.refinement !== undefined || candidate.story_adaptation !== undefined, project.review_policy === 'advisory').knowledge
   }
   return knowledge
 }

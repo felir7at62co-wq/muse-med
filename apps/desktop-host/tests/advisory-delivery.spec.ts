@@ -7,6 +7,10 @@ import { strToU8, zipSync } from 'fflate'
 import { Context } from '@deepseek-ai/cordis'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
+import { PROJECT_FILE } from '@deepseek-ai/dsh-screenplay-project'
+import { ProjectCommands } from '../../../packages/drama/screenplay-project/src/project.ts'
 import * as screenplayDocx from '../src/screenplay-docx.ts'
 import { approveVideoMarkdown, validateVideoDelivery, verifyWordBody } from '../src/video-delivery.ts'
 import { acceptedVideo } from './fixtures/video-delivery/accepted-video.ts'
@@ -102,4 +106,48 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('checks an advisory Word again
   await expect(screenplayDocx.exportScreenplayDocx({ inputs: [input], output }, config, signal)).resolves.toEqual({ output })
   await expect(validateVideoDelivery([output], config, signal)).resolves.toBeUndefined()
   await expect(verifyWordBody(output, ['第1集\n甲：被替换成另一份正文。\n'], config, signal)).rejects.toThrow('video_delivery_body_changed')
+})
+
+it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('converts an actual unadopted third-episode export and delivers its Word without requiring earlier episodes', async () => {
+  const f = await workspace(), ctx = new Context(); contexts.push(ctx)
+  await ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await ctx.plugin(LocalAttachmentStore, { dshHome: f.root })
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(Tools)
+  await ctx.plugin(screenplayDocx, config)
+  const commands = new ProjectCommands(ctx.fs, { maxSourceBytes: 100_000, maxProjectBytes: config.maxProjectBytes,
+    maxReadUnits: 30, maxReadBytes: 100_000, maxFactBatch: 20 }, ctx.attachments, 'advisory')
+  const execution = { actor: f.project.candidates[0]!.author, cwd: f.root, signal }
+  const current = async () => PROJECT_FILE.parse(JSON.parse(await readFile(f.projectPath, 'utf8')))
+  await rm(f.projectPath)
+  await commands.execute({ method: 'init', project: f.projectPath, mode: 'faithful', instructions: '先写第3集，由Agent决定交付。' }, execution)
+  await commands.execute({ method: 'import_source', project: f.projectPath, expected_revision: (await current()).revision,
+    path: f.source, source_kind: 'text' }, execution)
+  const unit = (await current()).sources[0]!.units[0]!
+  await commands.execute({ method: 'propose_fact', project: f.projectPath, expected_revision: (await current()).revision,
+    fact: { kind: 'speech', actor: '甲', origin: 'source', layer: 'present', summary: unit.text,
+      anchors: [{ unit_id: unit.id, quote: unit.text }] } }, execution)
+  const fact = (await current()).facts[0]!
+  await commands.execute({ method: 'stage', project: f.projectPath, expected_revision: (await current()).revision,
+    episode: 3, scenes: [{ location: '门口', time: '日', setting: '内', layer: 'present', transition: 'opening',
+      characters: ['甲'], beats: [{ kind: 'dialogue', actor: '甲', text: '你好。', fact_ids: [fact.id],
+        requires_knowledge: [], witnesses: [] }] }] }, execution)
+  const stagedBytes = await readFile(f.projectPath), staged = PROJECT_FILE.parse(JSON.parse(stagedBytes.toString()))
+  const candidate = staged.candidates[0]!
+  expect(candidate).toMatchObject({ episode: 3 })
+  expect(candidate.committed_at).toBeUndefined()
+  expect(candidate.review).toBeUndefined()
+  const directory = join(f.root, 'final'), input = join(directory, `episode-3-${candidate.id.slice(2)}.md`)
+  expect(await commands.execute({ method: 'export', project: f.projectPath, candidate_id: candidate.id,
+    directory }, execution)).toMatchObject({ adoption: { episode: 3, adopted: false, committed_at: null, review: null } })
+  expect(await readFile(f.projectPath)).toEqual(stagedBytes)
+  const text = await readFile(input, 'utf8'), output = join(directory, 'episode-3-draft.docx')
+  expect(text).toContain('第3集')
+  expect(text).toContain('甲：你好。')
+  await expect(screenplayDocx.exportScreenplayDocx({ inputs: [input], output, project: f.projectPath }, config, signal))
+    .resolves.toEqual({ output })
+  await expect(verifyWordBody(output, [text], config, signal)).resolves.toBeUndefined()
+  await expect(ctx.serial('deliverables/validate', [input, output], signal)).resolves.toBeUndefined()
+  await expect(readFile(`${output}.screenplay.json`)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(f.projectPath)).toEqual(stagedBytes)
 })

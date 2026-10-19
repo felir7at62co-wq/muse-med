@@ -103,7 +103,7 @@ it('publishes from a real initiating session and renders exactly the canonical r
   expect(tool.isConcurrencySafe?.({ request: { method: 'init', project: 'project.json', mode: 'faithful', instructions: '方向' } })).toBe(false)
 })
 
-it('lets the initiating agent review facts and adopt an unreviewed candidate under advisory policy', async () => {
+it('lets the initiating agent review and draft chosen episodes without review or adoption order gates', async () => {
   const { call, root, tool, agent } = await fixture({ reviewMode: 'advisory' })
   const project = 'advisory.json'
   const current = async () => PROJECT_FILE.parse(JSON.parse(await readFile(join(root, project), 'utf8')))
@@ -136,6 +136,20 @@ it('lets the initiating agent review facts and adopt an unreviewed candidate und
   expect(adopted.facts[1]!.review).toBeUndefined()
   expect(adopted.candidates[0]!.review).toBeUndefined()
   expect(adopted.accepted).toEqual([candidate.id])
+  expect((await call({ method: 'stage', project, expected_revision: adopted.revision, episode: 3,
+    scenes: candidate.scenes })).isError).toBe(false)
+  const third = (await current()).candidates.at(-1)!
+  const savedProject = await readFile(join(root, project), 'utf8')
+  const draftExport = await call({ method: 'export', project, candidate_id: third.id, directory: 'third-draft' })
+  expect(draftExport.isError).toBe(false)
+  expect(draftExport.value).toMatchObject({ adoption: { episode: 3, adopted: false, committed_at: null, review: null } })
+  expect(await readFile(join(root, project), 'utf8')).toBe(savedProject)
+  expect((await current()).accepted).toEqual([candidate.id])
+  const draftPath = join(root, 'third-draft', `episode-3-${third.id.slice(2)}.md`)
+  expect(await readFile(draftPath, 'utf8')).toContain('第3集')
+  expect((await call({ method: 'commit', project, expected_revision: (await current()).revision,
+    candidate_id: third.id, candidate_sha256: third.sha256 })).isError).toBe(false)
+  expect((await current()).accepted).toEqual([candidate.id, third.id])
   await writeFile(join(root, 'source.txt'), '已更换的来源。')
   const changed = await call({ method: 'export', project, candidate_id: candidate.id, directory: 'changed' })
   expect(changed.isError).toBe(true)
