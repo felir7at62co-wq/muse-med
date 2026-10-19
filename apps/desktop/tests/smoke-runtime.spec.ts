@@ -33,12 +33,14 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const professionalGuides = [
   ['muse-script-doctor', 'doctor-workflow.md'],
+  ['muse-dialogue-polish', 'dialogue-workflow.md'],
+  ['muse-episode-design', 'episode-workflow.md'],
   ['screenplay-format', 'writing-quality.md'],
   ['screenplay-format', 'narrative-layers.md'],
   ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],
 ] as const
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
-  'muse-dialogue-polish', 'muse-episode-design', 'muse-llm-wiki', 'muse-project-participation',
+  'muse-llm-wiki', 'muse-project-participation',
   'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
   'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
 
@@ -94,7 +96,8 @@ function fixture(packaged = false) {
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
+  for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
+    'reviewing-micro-drama-scripts', 'screenplay-format']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')

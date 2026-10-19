@@ -126,7 +126,7 @@ export function apply(ctx) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
-        'muse-dialogue-polish', 'muse-episode-design', 'muse-llm-wiki', 'muse-project-participation',
+        'muse-llm-wiki', 'muse-project-participation',
         'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
         'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
         if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
@@ -137,7 +137,8 @@ export function apply(ctx) {
         && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
-      for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
+      for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
+        'reviewing-micro-drama-scripts', 'screenplay-format']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)
@@ -152,6 +153,8 @@ export function apply(ctx) {
       }
       for (const [name, guide] of [
         ['muse-script-doctor', 'doctor-workflow.md'],
+        ['muse-dialogue-polish', 'dialogue-workflow.md'],
+        ['muse-episode-design', 'episode-workflow.md'],
         ['screenplay-format', 'writing-quality.md'],
         ['screenplay-format', 'narrative-layers.md'],
         ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],

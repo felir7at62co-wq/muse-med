@@ -557,6 +557,11 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       }
     }
   },
+  async 'muse-current-professional-skills'(cwd) {
+    for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'screenplay-format']) {
+      await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+    }
+  },
   async 'muse-creation-skills'(cwd) {
     await workspaceSetups['muse-editing-trial-skills']!(cwd)
     await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
