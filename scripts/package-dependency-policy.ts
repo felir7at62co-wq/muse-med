@@ -87,7 +87,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
-    'verifySubjectSelection', 'wireText', 'withGenerationDisabled', 'withGenerationEnabled',
+    'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
   '@deepseek-ai/dsh-llm': ['createUserMessage'],
