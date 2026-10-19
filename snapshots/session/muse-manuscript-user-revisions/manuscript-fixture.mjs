@@ -3,10 +3,14 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, rmdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
-const entry = new URL('../../../apps/desktop-host/src/manuscript-revisions.ts', import.meta.url)
-const revisions = await import(entry.href)
-const present = await import(new URL('../../../packages/deliverables/tool-present/src/index.ts', import.meta.url).href)
+const revisions = await importSnapshotModule(
+  new URL('../../../apps/desktop-host/src/manuscript-revisions.ts', import.meta.url),
+  new URL('../../../apps/desktop-host/lib/manuscript-revisions.js', import.meta.url),
+)
+const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 export const name = 'manuscript-fixture'
 export const inject = ['tools']
 export async function apply(ctx) {

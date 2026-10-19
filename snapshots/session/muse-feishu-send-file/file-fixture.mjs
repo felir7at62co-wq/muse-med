@@ -1,8 +1,27 @@
 /** Exercise Muse's real file tool with an offline wire; no Feishu credentials or requests. */
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { createRequire, registerHooks } from 'node:module'
 import { join } from 'node:path'
-import { registerMuseSendFile } from '../../../third_party/plugins/compatibility/muse-feishu-runtime.mjs'
+import { pathToFileURL } from 'node:url'
+
+const runtime = new URL('../../../third_party/plugins/compatibility/muse-feishu-runtime.mjs', import.meta.url)
+const requireDesktop = createRequire(new URL('../../../apps/desktop-host/package.json', import.meta.url))
+const dependencies = new Set(['@deepseek-ai/schemastery', '@deepseek-ai/dsh-home-paths', '@deepseek-ai/dsh-tools'])
+// The compatibility module receives installed dependencies when packaged; this fixture uses the same desktop owner.
+const hooks = process.env.DSH_EXAMPLE_MODE === 'lib' ? registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (context.parentURL !== runtime.href || !dependencies.has(specifier)) return nextResolve(specifier, context)
+    return { url: pathToFileURL(requireDesktop.resolve(specifier)).href, shortCircuit: true }
+  },
+}) : undefined
+let registerMuseSendFile
+try {
+  const module = await import(runtime.href)
+  registerMuseSendFile = module.registerMuseSendFile
+} finally {
+  hooks?.deregister()
+}
 
 export const inject = ['tools']
 

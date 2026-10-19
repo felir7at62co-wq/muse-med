@@ -613,13 +613,13 @@ def test_native_writer_comparison_rejects_mixed_expected_role_generations(tmp_pa
         SMOKE["compare_snapshot_files"](fresh, False, tmp_path, tuple(golden), native_writer_output=True)
 
 
-@pytest.mark.parametrize("scenario", ["ADVANCED", "RESTART"])
+@pytest.mark.parametrize("scenario", ["ADVANCED", "RESTART", "RECOVERY"])
 def test_committed_python_native_goldens_compare_current_output_without_rewriting(scenario: str) -> None:
     directory = SMOKE[f"{scenario}_SNAPSHOT_DIRECTORY"]
     filenames = SMOKE[f"{scenario}_SNAPSHOT_FILENAMES"]
     before = {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
     selected = SMOKE["selected_snapshot_session_files"](directory)
-    if scenario == "ADVANCED":
+    if scenario in {"ADVANCED", "RECOVERY"}:
         selected = {index: directory / (
             "writer.expected.jsonl" if index == 0 else f"writer.{index}.expected.jsonl"
         ) for index in selected}
@@ -653,7 +653,7 @@ def test_committed_python_native_goldens_compare_current_output_without_rewritin
             fresh[name] = json.dumps(current_writer(json.loads(content)), indent=2, ensure_ascii=False) + "\n"
     SMOKE["compare_snapshot_files"](
         fresh, False, directory, filenames, native_writer_output=True,
-        writer_expected=scenario == "ADVANCED",
+        writer_expected=scenario in {"ADVANCED", "RECOVERY"},
     )
     assert {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()} == before
 
