@@ -53,6 +53,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'job_kill',
   'job_list',
   'job_output',
+  'jianying_draft',
   'jubian_asset',
   'jubian_budget',
   'jubian_catalog',

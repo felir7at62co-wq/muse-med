@@ -1086,7 +1086,10 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         raise DraftInputError("草稿未通过交付前校验，拒绝交付：\n  - " + "\n  - ".join(failures))
 
 
-def main_with_args(args):
+def main_with_args(args, results=None):
+    """Generate candidates in order; retain verified results when a later candidate fails."""
+    if results is None:
+        results = []
     if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
         raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
     drafts_dir = Path(args.drafts)
@@ -1197,10 +1200,15 @@ def main_with_args(args):
         if args.seq and seq != args.seq:
             continue
 
+        draft_name = f"{args.name_prefix}{seq}"
+        draft_path = drafts_dir / draft_name
+        result = {"episode": seq, "name": draft_name, "path": str(draft_path),
+                  "id": "", "success": False, "error": "草稿尚未完成保存校验。"}
+        results.append(result)
+
         img_pack = find_img_pack_smart(media_dir, seq)
         if not img_pack:
-            logger.info(f"[序列 {seq}] 无法找到对应的媒体文件夹，跳过")
-            continue
+            raise DraftInputError(f"[序列 {seq}] 无法找到对应的媒体文件夹，未生成草稿。")
 
         logger.info(f"[序列 {seq}] 找到媒体文件夹: {img_pack}")
         logger.info(f"[序列 {seq}] 媒体文件夹内容: {[f.name for f in img_pack.iterdir()]}")
@@ -1222,17 +1230,12 @@ def main_with_args(args):
         logger.info(f"[序列 {seq}] 找到 {len(media_files)} 个媒体文件: {[f.name for f in media_files]}")
 
         if not media_files:
-            logger.info(f"Skipped {seq}: empty media pack: {img_pack}")
-            continue
+            raise DraftInputError(f"[序列 {seq}] 媒体文件夹为空：{img_pack}，未生成草稿。")
 
         videos = [path for path in media_files if path.suffix.lower() in video_extensions]
         if videos:
             source_hashes = check_videos(find_project(root, getattr(args, 'project', None)), videos)
 
-        # 使用简单的名称格式，只包含前缀和序列编号
-        draft_name = f"{args.name_prefix}{seq}"
-
-        draft_path = drafts_dir / draft_name
         if draft_path.exists():
             raise DraftInputError(f"{draft_path} 已存在，拒绝覆盖；请为新候选指定唯一 name_prefix。")
 
@@ -1272,25 +1275,12 @@ def main_with_args(args):
             shutil.rmtree(draft_path, ignore_errors=True)
             raise DraftInputError(message)
 
-        # 复制模板草稿为新草稿
-        script = None
-        for attempt in range(1, 10):
-            try:
-                logger.info(f"[{draft_name}] Attempt {attempt}: Trying to create draft...")
-                # 首先尝试创建新草稿
-                script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=ending_plan["policy"]["fps"])
-                logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
-                            f"with {canvas['width']}x{canvas['height']} at {ending_plan['policy']['fps']:g}fps")
-                break
-            except Exception as ex:
-                logger.info(f"[{draft_name}] Failed to create draft: {ex}")
-                # 直接使用原名称重试，不添加后缀
-                logger.info(f"[{draft_name}] Retrying with same name...")
-                continue
-        
-        if script is None:
-            logger.info(f"[{draft_name}] Failed to create draft after multiple attempts")
-            continue
+        try:
+            script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=ending_plan["policy"]["fps"])
+        except Exception as error:
+            raise DraftInputError(f"创建草稿 {draft_path} 失败：{error}") from error
+        logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
+                    f"with {canvas['width']}x{canvas['height']} at {ending_plan['policy']['fps']:g}fps")
 
         # 禁用主轨道吸附（主轨磁吸），避免自动对齐导致的间隙
         script.maintrack_adsorb = False
@@ -1639,25 +1629,16 @@ def main_with_args(args):
         try:
             if videos and check_videos(find_project(root, getattr(args, 'project', None)), videos) != source_hashes:
                 raise DraftInputError("正文视频在草稿生成期间变化，请重新读取当前版本。")
-            verify_draft_delivery(json.loads(script.dumps()), body_clips, audio_duration,
+            expected_content = json.loads(script.dumps())
+            verify_draft_delivery(expected_content, body_clips, audio_duration,
                                   normalized_cues, ending_plan)
         except DraftInputError as error:
             refuse(str(error))
 
         try:
-            script.save()
-            logger.info(f"[{draft_name}] Saved draft successfully")
-        except Exception as e:
-            logger.info(f"[{draft_name}] Failed to save draft: {e}")
-            # 尝试手动保存
-            try:
-                draft_path = drafts_dir / draft_name
-                if not draft_path.exists():
-                    draft_path.mkdir(parents=True, exist_ok=True)
-                script.dump(str(draft_path / "draft_content.json"))
-                logger.info(f"[{draft_name}] Manually saved draft to: {draft_path}")
-            except Exception as e2:
-                logger.info(f"[{draft_name}] Failed to manually save draft: {e2}")
+            saved_content = save_verified_draft(script, draft_path, expected_content)
+        except DraftInputError as error:
+            refuse(str(error))
 
         # 创建剪映所需的附属文件夹和文件
         draft_path = drafts_dir / draft_name
@@ -1669,7 +1650,32 @@ def main_with_args(args):
                 if not fpath.exists():
                     fpath.touch()
 
-        logger.info(f"[{draft_name}] Generated successfully")
+        result.update(success=True, id=saved_content.get("id", ""), error="")
+        logger.info(f"[{draft_name}] Generated and read back successfully: {draft_path}")
+
+    if not results:
+        raise DraftInputError(f"没有匹配的音频序列，未生成草稿（seq={args.seq!r}）。")
+    return results
+
+
+def save_verified_draft(script, draft_path: Path, expected_content: dict) -> dict:
+    """Persist a new candidate and require the saved JSON to equal its checked content."""
+    content_path = draft_path / "draft_content.json"
+    try:
+        script.save()
+    except Exception as save_error:
+        try:
+            script.dump(str(content_path))
+        except Exception as dump_error:
+            raise DraftInputError(
+                f"保存草稿 {draft_path} 失败：save={save_error}; dump={dump_error}") from dump_error
+    try:
+        saved_content = json.loads(content_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as error:
+        raise DraftInputError(f"保存后无法回读草稿 {content_path}：{error}") from error
+    if saved_content != expected_content:
+        raise DraftInputError(f"保存后的草稿 {content_path} 与已校验内容不一致，拒绝交付。")
+    return saved_content
 
 
 def generate_draft(
@@ -1692,7 +1698,9 @@ def generate_draft(
         project: 视频禁用清单所属项目；省略时从素材目录祖先定位
 
     返回:
-        {"success": True/False, "drafts_created": N, "error": "..."}
+        success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计已保存并回读一致的草稿。
+        drafts 逐项包含 episode/name/path/id/success/error；id 取已保存 JSON，缺失时为空串。
+        首个失败即停止，保留此前成功的草稿与结果；error 为本次失败原因。
     """
     import argparse
     args = argparse.Namespace(
@@ -1706,11 +1714,15 @@ def generate_draft(
         overwrite=False,
         new_template=None,
     )
+    results = []
+    error = ""
     try:
-        main_with_args(args)
-        return {"success": True}
-    except DraftInputError as e:
-        return {"success": False, "error": str(e)}
-    except Exception as e:
-        logger.error(f"草稿生成失败: {e}")
-        return {"success": False, "error": str(e)}
+        main_with_args(args, results)
+    except Exception as failure:
+        error = str(failure) or type(failure).__name__
+        logger.error(f"草稿生成失败: {error}")
+        if results and not results[-1]["success"]:
+            results[-1]["error"] = error
+    created = sum(result["success"] for result in results)
+    return {"success": not error and created > 0 and created == len(results),
+            "drafts_created": created, "drafts": results, **({"error": error} if error else {})}

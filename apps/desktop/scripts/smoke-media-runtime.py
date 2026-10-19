@@ -67,6 +67,16 @@ def main():
         import pyJianYingDraft as draft
         material = draft.VideoMaterial(str(work / 'smoke.mp4'))
         assert material.duration > 0
+        assert importlib.metadata.version('pyJianYingDraft') == '0.3.1'
+        editor = work / 'drafts'
+        editor.mkdir()
+        project = draft.DraftFolder(str(editor)).create_draft('smoke', 320, 240)
+        track = project.append_track(draft.track.TrackSpec(draft.TrackType.video, 'video'))
+        project.add_segment(draft.VideoSegment(material, draft.Timerange(0, material.duration)), track)
+        project.save()
+        saved = json.loads((editor / 'smoke' / 'draft_content.json').read_text(encoding='utf-8-sig'))
+        assert saved == json.loads(project.dumps())
+        assert len(saved['tracks'][0]['segments']) == 1
         from docx import Document
         document = Document()
         document.add_paragraph('Media smoke')

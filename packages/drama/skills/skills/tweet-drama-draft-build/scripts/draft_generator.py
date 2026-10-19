@@ -1,9 +1,4 @@
-"""
-AIGC Pipeline — 剪映草稿生成 Agent
-
-直接调用 tools.jianying_draft 模块生成剪映草稿。
-功能: 音频 + 视频 + 字幕 + BGM → 剪映草稿文件
-"""
+"""Internal material preparation and FFmpeg setup for the Jianying draft builder."""
 import os
 import sys
 import shutil
@@ -27,11 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class DraftGenerator:
-    """
-    剪映草稿生成 Agent
-
-    直接调用 tools.jianying_draft.generate_draft，不再依赖外部工具路径。
-    """
+    """Prepare materials and invoke the local Jianying draft implementation."""
 
     def __init__(self, ffmpeg_path: str = ""):
         self.ffmpeg_path = ffmpeg_path
@@ -203,15 +194,6 @@ class DraftGenerator:
         # 直接调用本地模块
         from jianying_draft import generate_draft
 
-        existing_dirs = set()
-        try:
-            existing_dirs = {
-                d for d in os.listdir(drafts_dir)
-                if os.path.isdir(os.path.join(drafts_dir, d))
-            }
-        except OSError:
-            pass
-
         result = generate_draft(
             drafts_dir=drafts_dir,
             materials_dir=materials_dir,
@@ -221,20 +203,8 @@ class DraftGenerator:
             project=project,
         )
 
-        if not result.get("success"):
-            return result
-
-        new_dirs = {
-            d for d in os.listdir(drafts_dir)
-            if os.path.isdir(os.path.join(drafts_dir, d))
-        } - existing_dirs
-        draft_count = len(new_dirs)
-
-        logger.info(f"剪映草稿生成完成: {draft_count} 个新草稿")
-        return {
-            "success": True,
-            "drafts_created": draft_count,
-        }
+        logger.info(f"剪映草稿生成结果: {result['drafts_created']} 个已验证草稿，success={result['success']}")
+        return result
 
 
 def _read_text_if_exists(path: str) -> str:

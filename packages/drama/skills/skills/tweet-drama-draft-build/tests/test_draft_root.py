@@ -27,12 +27,26 @@ class DraftRootTests(unittest.TestCase):
             (old / 'draft_content.json').write_text('keep')
             def generate(**kwargs):
                 self.assertEqual(kwargs['drafts_dir'], directory)
-                (root / 'new').mkdir()
-                return {'success': True}
+                (root / 'unrelated-a').mkdir()
+                (root / 'unrelated-b').mkdir()
+                return {'success': True, 'drafts_created': 1, 'drafts': [
+                    {'episode': '01', 'name': 'new', 'path': str(root / 'new'),
+                     'id': 'saved-draft-id', 'success': True, 'error': ''}]}
             with patch.dict(sys.modules, {'jianying_draft': SimpleNamespace(generate_draft=generate)}):
                 result = DraftGenerator().process(directory, directory, name_prefix='new')
-            self.assertEqual(result, {'success': True, 'drafts_created': 1})
+            self.assertEqual(result['drafts_created'], 1)
+            self.assertEqual(result['drafts'][0]['id'], 'saved-draft-id')
+            self.assertEqual(result['drafts'][0]['path'], str(root / 'new'))
             self.assertEqual((old / 'draft_content.json').read_text(), 'keep')
+
+    def test_partial_failure_is_returned_without_counting_new_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = {'success': False, 'drafts_created': 0, 'drafts': [], 'error': 'save failed'}
+            def generate(**_kwargs):
+                (Path(directory) / 'incomplete').mkdir()
+                return result
+            with patch.dict(sys.modules, {'jianying_draft': SimpleNamespace(generate_draft=generate)}):
+                self.assertIs(DraftGenerator().process(directory, directory), result)
 
 if __name__ == '__main__':
     unittest.main()
