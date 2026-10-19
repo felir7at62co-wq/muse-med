@@ -9,6 +9,10 @@
 - id: llm-deepseek
   disabled: true
 
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+
 - id: sandbox-policy
   config:
     mode: workspace-write

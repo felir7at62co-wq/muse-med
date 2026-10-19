@@ -16,10 +16,25 @@ const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ githu
 describe('CI workflow', () => {
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
-    expect(workflow.on).toEqual({ workflow_dispatch: { inputs: { target: {
-      description: 'Installer platform', type: 'choice', required: true, default: 'all',
-      options: ['all', 'win-x64', 'mac-arm64'],
-    } } },
+    expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {
+      target: {
+        description: 'Installer platform', type: 'choice', required: true, default: 'all',
+        options: ['all', 'win-x64', 'mac-arm64'],
+      },
+      verify_hongguo_live: {
+        description: 'Require complete Hongguo downloads from the genuine installed application', type: 'boolean', default: false,
+      },
+      hongguo_series_ids: {
+        description: 'Comma-separated series IDs for opt-in installed download acceptance', type: 'string',
+        default: '7687998333729639449,7691176265872591896',
+      },
+      verify_fanqie_live: {
+        description: 'Require a complete Fanqie novel download from the genuinely installed application', type: 'boolean', default: false,
+      },
+      fanqie_book_id: {
+        description: 'Official free Fanqie book ID for installed download acceptance', type: 'string', default: '7654065336026663998',
+      },
+    } },
     pull_request: { types: ['opened', 'synchronize', 'reopened', 'ready_for_review'] } })
     expect(workflow.permissions).toEqual({ contents: 'read' })
     const job = workflowJob(workflow, 'build')

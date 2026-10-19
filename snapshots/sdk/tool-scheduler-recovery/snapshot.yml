@@ -3,5 +3,6 @@ scenario: tool-scheduler-recovery
 profile: sdk
 composition: sdk-default
 recording: authored
+writerOutput: true
 header:
   class: sdk-default

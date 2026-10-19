@@ -1,5 +1,5 @@
 # With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 6,680 to 5,680, between the history and its condensed replacement.
+# trigger from 7,250 to 6,250, between the history and its condensed replacement.
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
@@ -28,5 +28,9 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 8480
+                contextWindow: 9050
                 defaultMaxTokens: 1000
+
+- insert:
+    - id: pressure-compaction-fixture
+      name: ./pressure-fixture.mjs

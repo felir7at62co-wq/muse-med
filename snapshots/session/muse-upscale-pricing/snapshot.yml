@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-upscale-pricing
+profile: headless
+composition: muse-upscale-pricing
+recording: authored
+header:
+  class: muse-upscale-pricing
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-upscale-pricing-fixture

@@ -62,6 +62,7 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
     await writeFile(overrideFile, JSON.stringify(script.map(entry => ({ ...entry, readyFile }))) + '\n')
     await writeFile(patch, JSON.stringify([
       { id: 'session-persistence-jsonl', config: { root: sessionRoot, compression: 'none' } },
+      { id: 'skill-filesystem', config: { includeDefaultRoots: false, customSkillDirs: [], watch: false } },
       { insert: [{ id: 'factory-shutdown-fixture', name: join(owner, 'runtime.mjs'), config: {
         replayFile, overrideFile, receiptFile, readyFile,
       } }] },

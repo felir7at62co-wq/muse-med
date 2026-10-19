@@ -180,7 +180,16 @@ interface ToolArgsMap {
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
   } & Record<string, JsonValue>;
-  /** Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done. */
+  /** Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery. */
+  todo_update: {
+    /** Exact content of the existing task; surrounding whitespace is ignored. */
+    task: string;
+    /** Actual task state: pending, in_progress, or completed. */
+    status: "pending" | "in_progress" | "completed";
+    /** Only with completed: on a new completion, start the first pending task if no task remains in_progress. */
+    start_next?: boolean;
+  } & Record<string, JsonValue>;
+  /** Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery. */
   todo_write: {
     /** The COMPLETE task list, replacing any previous list. */
     todos: ({
@@ -458,6 +467,20 @@ interface ToolOutputMap {
     runId: string;
     output: JsonValue[];
   };
+  todo_update: {
+    todos: ({
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    })[];
+    counts: {
+      pending: number;
+      inProgress: number;
+      completed: number;
+    };
+    current: string[];
+    next: string | null;
+    reminder: string;
+  };
   todo_write: {
     todos: ({
       content: string;
@@ -468,6 +491,9 @@ interface ToolOutputMap {
       inProgress: number;
       completed: number;
     };
+    current: string[];
+    next: string | null;
+    reminder: string;
   };
   update_goal: {
     goal: null;

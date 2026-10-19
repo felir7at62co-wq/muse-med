@@ -4,7 +4,7 @@
   config:
     models:
       - id: deepseek-v4-flash
-        contextWindow: 8480
+        contextWindow: 9050
         maxTokens: 1000
 
 - id: compaction-basic
@@ -12,3 +12,7 @@
     thresholdRatio: 0.8
     headroomTokens: 1800
     retainTokens: 20
+
+- insert:
+    - id: pressure-compaction-fixture
+      name: ../compaction-output-reserve/pressure-fixture.mjs

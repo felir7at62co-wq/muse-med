@@ -763,7 +763,9 @@ async function verifyHeaders(
   dshSdkChildConfig?: Readonly<Record<string, unknown>>,
 ): Promise<void> {
   const pin = headerPin(scenario)
-  const [pinFixturePath] = await fixtureFiles(pin)
+  const pinFixturePath = pin.manifest.sessionFormat !== undefined || pin.manifest.writerOutput === true
+    ? join(pin.dir, writerSnapshotName(0))
+    : (await fixtureFiles(pin))[0]
   const pinFixture = await readFile(pinFixturePath as string, 'utf8')
   const firstLine = pinFixture.split('\n').find(line => line.trim() !== '') ?? '{}'
   const pinHeader = JSON.parse(firstLine) as JsonObject
@@ -838,13 +840,15 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
 
   for (const scenario of sdkScenarios) {
     const scenarioTest = recording
-      && (scenario.manifest.recording === 'authored' || scenario.manifest.sessionFormat !== undefined)
+      && (scenario.manifest.recording === 'authored' || scenario.manifest.sessionFormat !== undefined
+        || scenario.manifest.writerOutput === true)
       ? it.skip
       : it
     scenarioTest(`${mode}s ${scenario.name} through dsh --profile sdk`, async () => {
       const scenarioDir = scenario.dir
-      const retained = scenario.manifest.sessionFormat !== undefined
-      const notificationsExpectedPath = join(scenarioDir, retained ? 'notifications.current.expected.jsonl' : 'notifications.expected.jsonl')
+      const retained = scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true
+      const notificationsExpectedPath = join(scenarioDir, scenario.manifest.sessionFormat !== undefined
+        ? 'notifications.current.expected.jsonl' : 'notifications.expected.jsonl')
       const resultExpectedPath = join(scenarioDir, 'result.expected.json')
       const hasWireGoldens = existsSync(notificationsExpectedPath) || existsSync(resultExpectedPath)
       const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
@@ -997,7 +1001,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
 
       if (retained) {
         expect(await Promise.all((await fixtureFiles(scenario)).map(file => readFile(file, 'utf8'))),
-          'historical replay input remains unchanged').toEqual(replayContents)
+          'retained replay input remains unchanged').toEqual(replayContents)
         for (const [index, content] of expectedContents.entries()) {
           expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
         }

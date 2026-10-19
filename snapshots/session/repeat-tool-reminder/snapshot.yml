@@ -3,5 +3,6 @@ scenario: repeat-tool-reminder
 profile: headless
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: default

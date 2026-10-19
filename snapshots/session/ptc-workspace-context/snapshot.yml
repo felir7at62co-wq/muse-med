@@ -3,6 +3,7 @@ scenario: ptc-workspace-context
 profile: headless
 composition: ptc-workspace-context
 recording: authored
+writerOutput: true
 header:
   class: ptc-workspace-context
   pin: true

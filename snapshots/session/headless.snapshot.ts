@@ -919,7 +919,9 @@ async function verifyProviderCwdResume(
 
 async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly SessionLog[], ctx: NormalizeContext): Promise<void> {
   const pin = pinOf(scenario)
-  const fixture = await readFile(join(pin.dir, await primaryFixtureFile(pin.dir)), 'utf8')
+  const pinFile = pin.manifest.sessionFormat !== undefined || pin.manifest.writerOutput === true
+    ? writerSnapshotName(0) : await primaryFixtureFile(pin.dir)
+  const fixture = await readFile(join(pin.dir, pinFile), 'utf8')
   const pinned = normalizedHeaders(fixture, fixtureContext(fixture))
   const changes = pin.manifest.header.changes ?? 0
   expect(pinned, `${scenario.name}: pin header count`).toHaveLength(1 + changes)
