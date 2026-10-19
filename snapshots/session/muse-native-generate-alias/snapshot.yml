@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-generate-alias
+profile: headless
+composition: muse-native-generate-alias
+recording: authored
+header:
+  class: muse-native-generate-alias
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-generate-alias-fixture

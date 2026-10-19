@@ -17,6 +17,7 @@
 import { JubianError, describeRejection } from '@deepseek-ai/dsh-jubian'
 import { validateVideoDuration } from './native.ts'
 import { readPayload } from './reading.ts'
+import { wireInteger } from './wire.ts'
 
 function invalid(detail: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
@@ -131,7 +132,14 @@ function configOf(source: Record<string, unknown>): {
     const usable = field === 'genNum' ? value === 1 : typeof value === 'string' && Boolean(value.trim())
     if (!usable) invalid(`modelConfig.${field} is not ${field === 'genNum' ? '1' : 'a nonempty label'}`)
   }
-  const duration = config.duration
+  let duration = config.duration
+  if (typeof duration === 'string') {
+    try { duration = wireInteger(duration); config.duration = duration }
+    catch (error) {
+      if (!(error instanceof JubianError)) throw error
+      // Repair reads preserve malformed provider durations and report them below.
+    }
+  }
   if (duration !== undefined && duration !== null && !usableDuration(duration)) {
     notes.push('modelConfig.duration 不是可安全表示为毫秒的正整数秒；原值已保留。'
       + '请用 jubian_storyboard edit_preview → edit_apply 修复该卡的 duration 后再准备生成。')

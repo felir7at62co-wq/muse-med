@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-native-generate/guide.md
+/:
+  en: ecdb19d0ad8d637a
+  zh: f8c83a7a2c8bd5d7
+/use-the-native-video-flow-for-generate:
+  en: 1ec1afe5528e7f59
+  zh: 03389766c509a77b
+/use-the-native-video-flow-for-generate/change:
+  en: dcf8da5a86654539
+  zh: 8ba1fd61b8366ffd
+/use-the-native-video-flow-for-generate/migration:
+  en: 011c2e24544c3d42
+  zh: de06a8b38d580439

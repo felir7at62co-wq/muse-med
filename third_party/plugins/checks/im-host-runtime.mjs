@@ -275,7 +275,8 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     continuedMessages: modelCalls[1].messages.map(({ role, content }) => ({ role, content })),
     nativeFinalCard: finalCard.content,
   }
-  assert.deepEqual(transcript, JSON.parse(await readFile(new URL('./expected/im-host-transcript.json', import.meta.url), 'utf8')))
+  const expectedTranscript = JSON.parse(await readFile(new URL('./expected/im-host-transcript.json', import.meta.url), 'utf8'))
+  assert.deepEqual(transcript, { continuedMessages: expectedTranscript.continuedMessages, nativeFinalCard: expectedTranscript.nativeFinalCard })
 
   questionOnNext = true
   const pendingQuestionTurn = bridge.accept(message('ask-style', 'Ask me for the style'))
@@ -348,6 +349,8 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
   if (inspectWrapper) {
     const { createMuseImWorkspaceScope } = await native('lib/muse-im-workspace.mjs')
     const { createMuseImAdmission } = await native('lib/muse-im-admission.mjs')
+    const { createAccessPolicy, createAccessPolicyScope } = await native('src/channels/shared/access-policy.mjs')
+    const { accessPolicyProvider } = await native('plugin-src/host/channels/shared/access-policy-production.mjs')
     const { inject: wrapperInject } = await native('lib/index.js')
     const { inject: feishuInject } = await native('plugin-src/host/channels/feishu/index.mjs')
     for (const [entry, inject] of [['Muse wrapper', wrapperInject], ['native Feishu Host', feishuInject]]) {
@@ -366,6 +369,13 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     const freshStatePath = join(root, 'fresh-chat-state.json')
     const freshState = await new StateStore(freshStatePath).load()
     await botWorkspaces.ensure('fresh-bot', { workspace, defaultAgentPreset: 'short-drama' })
+    const openScope = createAccessPolicyScope({ mode: 'open',
+      open: { defaultCanExecuteCommands: false, commandPermissionOverrides: [] }, allowlist: { users: [] } })
+    await botWorkspaces.setAccessPolicy('fresh-bot', createAccessPolicy({ direct: openScope, group: openScope }))
+    const savedPolicy = (await new BotWorkspaceStore(workspaceStorePath, { defaultWorkspace: workspace }).load()).accessPolicyFor('fresh-bot')
+    assert.equal(savedPolicy.direct.mode, 'open')
+    assert.equal(savedPolicy.group.mode, 'open')
+    assert.equal(savedPolicy.group.open.defaultCanExecuteCommands, false)
     const oldOwner = await restrictedOwner(feishuInject.filter(name => !['sessions', 'sessionPersistence'].includes(name)), 'old-im-session-inject')
     const oldClient = new HarnessClient({ ...harnessConnection(oldOwner), workspace, autostart: false,
       ...createHarnessSessionExecutors(oldOwner) })
@@ -393,10 +403,15 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
       allowedChatIds: ['oc_previous_group'], allowedDirectIds: ['ou_owner'],
       legacyMessageIds: [], claimsPath: join(root, 'fresh-inbound-claims.json'),
     }).forBot('fresh-bot', botWorkspaces)
+    const freshAccessPolicy = accessPolicyProvider(botWorkspaces, 'fresh-bot', {
+      channel: 'feishu', config: { ownerOpenIds: ['ou_owner'] },
+    })
+    assert.equal(freshAccessPolicy.isPrivileged('ou_member', 'direct'), false)
+    assert.equal(freshAccessPolicy.isPrivileged('ou_member', 'group'), false)
     const freshBridge = new FeishuHarnessBridge({
       client: wire, channel: new VerifiedFeishuChannel({ client: wire, initialText: 'Starting Muse' }),
       harness: freshScope.harness, state: freshScope.state, signal: freshLifetime.signal,
-      museAdmission: freshAdmission,
+      museAdmission: freshAdmission, accessPolicy: freshAccessPolicy,
       status: { messagesReceived: 0, messagesReplied: 0, messagesRejected: 0 },
       allowedSenderOpenIds: new Set(['ou_owner']), botOpenId: 'ou_bot',
       groupResponseMode: 'mention', mentionTopicReply: false, stepPush: true, stepPushMode: 'streaming_card',
@@ -404,16 +419,25 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     })
     t.after(async () => { freshLifetime.abort(); await freshBridge.waitForIdle() })
     const sentBefore = sent.length
-    await freshBridge.accept(message('new-direct-message', 'private fresh greeting'))
+    const freshRequestStart = modelCalls.length
+    await freshBridge.accept(message('new-direct-message', 'private fresh greeting', {
+      sender: { sender_id: { open_id: 'ou_member' } }, message: { chat_id: 'oc_member_private' },
+    }))
     await freshBridge.waitForIdle()
-    const directId = freshState.sessionFor('p2p:ou_owner')
-    assert.ok(directId, 'an unbound private chat creates a real gateway Session')
-    await freshBridge.accept(message('new-group-message', '@bot group fresh greeting', { message: {
+    const directId = freshState.sessionFor('p2p:ou_member')
+    assert.ok(directId, 'an ordinary nonowner creates a real private gateway Session under the saved open policy')
+    const finalCardAfter = start => sent.slice(start).findLast(item => item.content?.schema === '2.0'
+      && item.content.body?.elements?.some(element => element.content === '_已完成_'))?.content
+    const directFinalCard = finalCardAfter(sentBefore)
+    assert.ok(directFinalCard)
+    const groupSentBefore = sent.length
+    await freshBridge.accept(message('new-group-message', '@bot group fresh greeting', {
+      sender: { sender_id: { open_id: 'ou_member' } }, message: {
       chat_type: 'group', chat_id: 'oc_fresh_group', mentions: [{ key: '@bot', id: { open_id: 'ou_bot' } }],
     } }))
     await freshBridge.waitForIdle()
     const groupId = freshState.sessionFor('group:oc_fresh_group')
-    assert.ok(groupId, 'the registered owner in a group outside the legacy list creates a real gateway Session')
+    assert.ok(groupId, 'an ordinary member in a new group creates a real gateway Session under the saved open policy')
     assert.notEqual(directId, groupId)
     assert.notEqual(directId, sessionId)
     assert.notEqual(groupId, sessionId)
@@ -427,8 +451,20 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     assert.doesNotMatch(userText(directEvents), /group fresh greeting/u)
     assert.match(userText(groupEvents), /group fresh greeting/u)
     assert.doesNotMatch(userText(groupEvents), /private fresh greeting/u)
+    const recordedChat = (events, requestIndex, finalCard) => ({
+      requestMessages: modelCalls[requestIndex].messages.map(({ role, content }) => ({ role, content })),
+      sessionMessages: events.filter(event => ['user/message', 'assistant/message'].includes(event.type))
+        .map(event => ({ type: event.type, content: event.type === 'assistant/message' ? event.data.message.content : event.data.content })),
+      finalCard,
+    })
+    const groupFinalCard = finalCardAfter(groupSentBefore)
+    assert.ok(groupFinalCard)
+    assert.deepEqual({
+      direct: recordedChat(directEvents, freshRequestStart, directFinalCard),
+      group: recordedChat(groupEvents, freshRequestStart + 1, groupFinalCard),
+    }, expectedTranscript.freshPolicyChats)
     const restoredFreshState = await new StateStore(freshStatePath).load()
-    for (const [key, id] of [['p2p:ou_owner', directId], ['group:oc_fresh_group', groupId]]) {
+    for (const [key, id] of [['p2p:ou_member', directId], ['group:oc_fresh_group', groupId]]) {
       assert.equal(restoredFreshState.sessionFor(key), id)
       assert.equal(freshOwner.sessions.get(id).header.cwd, workspace)
       assert.equal(freshOwner.sessions.get(id).header.agentPreset, 'short-drama')
@@ -447,6 +483,7 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     nativeStop: true, nativeSteeringLogged: true, unrelatedControlRejected: true,
     coldResume: true, durableInboundDeduplication: true,
     nativeRestrictedNewPrivateAndGroupSessions: newChatSessions,
+    nativeOpenPolicyNonownerPrivateAndGroupSessions: newChatSessions,
     channelAbortQuiescent: true, networkCalls, paidProviderCalls: 0 }))
 })
 
@@ -495,7 +532,11 @@ test('the built Runtime contains admission failures and drains replies when sock
     await rm(root, { recursive: true, force: true })
   })
   await runtime.start()
-  dispatcher['im.message.receive_v1']({ message: { message_id: 'invalid-admission' } })
+  dispatcher['im.message.receive_v1']({
+    sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+    message: { message_id: 'invalid-admission', message_type: 'text', chat_type: 'p2p',
+      chat_id: 'oc_private', content: JSON.stringify({ text: 'test admission failure' }) },
+  })
   await until(() => errors.some(entry => entry.some(value => value?.message === 'synthetic admission failure')), 'admission rejection is reported locally')
   assert.equal(runtime.status.ready, true)
   assert.equal(unhandled.length, 0)
@@ -518,4 +559,72 @@ test('the built Runtime contains admission failures and drains replies when sock
   assert.equal(runtime.status.ready, false)
   assert.equal(state.hasSeen('native-version'), true)
   assert.equal(unhandled.length, 0)
+})
+
+test('Runtime stop drains pending admission before returning and prevents late dispatch', { skip: !inspectWrapper, timeout: 10_000 }, async (t) => {
+  const { FeishuRuntime } = await native('src/channels/feishu/feishu-runtime.mjs')
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-im-admission-stop-')))
+  const state = await new StateStore(join(root, 'state.json')).load()
+  const socket = Object.assign(new EventEmitter(), { readyState: 1 })
+  const entered = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const closed = Promise.withResolvers()
+  const writes = []
+  const errors = []
+  const unhandled = []
+  let dispatcher
+  let requests = 0
+  const onUnhandled = error => unhandled.push(error)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  const send = async options => { writes.push(options); return { code: 0, data: { message_id: 'unexpected-late-message' } } }
+  const lark = {
+    Domain: { Feishu: 'feishu', Lark: 'lark' }, LoggerLevel: { info: 'info' },
+    Client: class {
+      im = { v1: { message: { create: send, reply: send }, messageReaction: { create: send, delete: send } } }
+    },
+    EventDispatcher: class { register(handlers) { dispatcher = handlers; return this } },
+    WSClient: class {
+      constructor(options) { this.options = options }
+      wsConfig = { getWSInstance: () => socket }
+      start() { this.options.onReady() }
+      getConnectionStatus() { return { state: 'connected' } }
+      close() { socket.readyState = 3; socket.emit('close'); closed.resolve() }
+    },
+  }
+  const request = async () => { requests++; throw new Error('No Session or turn may start after stopping') }
+  const runtime = new FeishuRuntime({ lark, appId: 'cli_synthetic', appSecret: 'synthetic-only',
+    ownerOpenIds: ['ou_owner'], botOpenId: 'ou_bot', state, slashCommands: false,
+    museAdmission: { message: async () => { entered.resolve(); await release.promise; return true } },
+    harness: { ensureRunning: async () => {}, createSession: request, ask: request, rpc: request },
+    logger: { warn() {}, error: (...args) => errors.push(args), info() {} } })
+  t.after(async () => {
+    release.resolve()
+    await runtime.stop()
+    await rm(root, { recursive: true, force: true })
+  })
+  await runtime.start()
+  const before = state.snapshot()
+  dispatcher['im.message.receive_v1']({
+    sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+    message: { message_id: 'held-admission', message_type: 'text', chat_type: 'p2p',
+      chat_id: 'oc_private', content: JSON.stringify({ text: 'start a task' }) },
+  })
+  await entered.promise
+  let stopped = false
+  const stopping = runtime.stop().then(() => { stopped = true })
+  await closed.promise
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(stopped, false, 'shutdown waits for admission rather than abandoning its pending work')
+  release.resolve()
+  await stopping
+  assert.equal(stopped, true)
+  assert.deepEqual(state.snapshot(), before)
+  assert.equal(state.hasSeen('held-admission'), false)
+  assert.equal(requests, 0)
+  assert.deepEqual(writes, [], 'no reaction or reply starts after the delayed admission returns')
+  assert.deepEqual(errors, [])
+  assert.deepEqual(unhandled, [])
+  assert.equal(socket.listenerCount('close'), 0)
+  assert.equal(socket.listenerCount('error'), 0)
 })

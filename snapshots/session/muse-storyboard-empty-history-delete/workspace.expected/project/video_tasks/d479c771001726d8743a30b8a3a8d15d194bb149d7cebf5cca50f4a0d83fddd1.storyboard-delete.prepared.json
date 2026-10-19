@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "operation": "storyboard_delete",
+  "script_id": 2708,
+  "delete_reason": "Clean the exact offline fixture targets",
+  "authorization_basis": "User authorized inspection of 701 and synthetic deletion attempt of 702 including linked media",
+  "include_generated_media": false,
+  "targets": [
+    {
+      "storyboard_id": 701,
+      "snapshot_hash": "ed9831e83201c71c1f23df92078708fbae07518bc74aad64d8a90fe41a2d3207",
+      "name": "Empty target",
+      "episode_id": 35,
+      "duration": null,
+      "prompt": null,
+      "material_count": 0,
+      "tasks": [],
+      "active_generation": false,
+      "has_generated_media": false
+    }
+  ],
+  "fingerprint": "d479c771001726d8743a30b8a3a8d15d194bb149d7cebf5cca50f4a0d83fddd1"
+}

@@ -11,6 +11,8 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { readFile } from 'node:fs/promises'
 import { modelMethod } from './model-settings.ts'
+import { resolveGenerateMethod } from './native.ts'
+import { requireArguments } from './write.ts'
 import { videoSelectionSchema, type SessionVideoSelection, type VideoModelOption, type VideoModelDefault } from './video-session-types.ts'
 import './video-session-types.ts'
 declare module '@deepseek-ai/cordis' { interface Context { jubianVideoSelection: JubianVideoSelection } }
@@ -293,14 +295,19 @@ export class JubianVideoSelection extends TypertRemoteService {
    * @returns Resolves before the normal executor may continue.
    */
   async reconcile(agent: Agent, args: Record<string, unknown>): Promise<void> {
+    const method = args.method === 'generate'
+      ? await resolveGenerateMethod(this.options.ledger, args) : args.method
+    if (method === 'legacy_replay') return
+    if (method === 'prepare_video') requireArguments('jubian_storyboard', { ...args, method })
     // Original accepted/uncertain operations must remain reconcilable after a UI switch.
-    const keys = args.method === 'submit_video_batch' && Array.isArray(args.video_previews)
+    const keys = method === 'submit_video_batch' && Array.isArray(args.video_previews)
       ? args.video_previews.map(item => row(item).idempotency_key) : [args.idempotency_key]
-    if ((String(args.method).startsWith('submit_video') || args.method === 'generate') && keys.length > 0
-      && (await Promise.all(keys.map(async key => typeof key === 'string' ? await this.options.ledger.find(key) : undefined))).every(record => record?.method === (args.method === 'generate' ? 'storyboard_generate' : 'storyboard_native_submit'))) return
+    if (String(method).startsWith('submit_video') && keys.length > 0
+      && (await Promise.all(keys.map(async key => typeof key === 'string' ? await this.options.ledger.find(key) : undefined)))
+        .every(record => record?.method === 'storyboard_native_submit')) return
     const selection = await this.initialize(agent)
     if (!selection) throw new Error('SESSION_VIDEO_MODEL_REQUIRED: 请调用 jubian_video_model 让用户选择本会话的视频模型与分辨率')
-    if (args.method === 'prepare_video' || args.method === 'generate') {
+    if (method === 'prepare_video') {
       const board = row((await this.options.client.request({ method: 'GET', path: `/aigc/storyboard/${String(args.storyboard_id)}` })).data)
       const before = config(board)
       const duration = Number(before.duration)
@@ -308,7 +315,7 @@ export class JubianVideoSelection extends TypertRemoteService {
         `SESSION_VIDEO_DURATION_EXCEEDED: 视频卡 ${String(board.id)} 为 ${duration} 秒，当前 ${selection.modelName} 上限 ${selection.maxDurationSeconds} 秒；汇总本批超限卡后用 jubian_video_model duration_conflict 询问用户，不直接缩短时长或截断对白。`)
       if (before.modelId === selection.modelId && before.platformId === selection.platformId && before.resolution === selection.resolution
         && Number(before.standardId) === selection.standardId) return
-      if (args.method !== 'prepare_video' || typeof args.project_dir !== 'string') throw new Error('先使用 prepare_video 同步本会话模型，再提交生成')
+      if (typeof args.project_dir !== 'string') throw new Error('先使用 prepare_video 同步本会话模型，再提交生成')
       const changes = { modelId: selection.modelId, platformId: selection.platformId, resolution: selection.resolution }
       // Verify the whole target specification, including its original ratio and duration, before any write.
       resolveVideoModel((await this.options.client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=1' })).data,
@@ -322,10 +329,10 @@ export class JubianVideoSelection extends TypertRemoteService {
       if (selectedVideo(agent.session)?.revision !== selection.revision) throw new Error('会话模型已变化，请重新准备视频卡')
       return
     }
-    const paths = args.method === 'submit_video_batch' && Array.isArray(args.video_previews)
+    const paths = method === 'submit_video_batch' && Array.isArray(args.video_previews)
       ? args.video_previews.map(item => row(item).preview_path) : [args.preview_path]
     for (const path of paths) {
-      if (path === undefined && args.method === 'submit_video') continue
+      if (path === undefined && method === 'submit_video') continue
       if (typeof path !== 'string') throw new Error('Prepare a current video preview before submitting')
       const frozen = row(JSON.parse(await readFile(path, 'utf8')))
       const saved = config(row(frozen.payload))

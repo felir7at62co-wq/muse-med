@@ -157,6 +157,7 @@ function idempotencyRefusal(call: GateCall): string | undefined {
   const methods = WRITE_METHODS[call.toolName]
   const method = calledMethod(call)
   if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
+  if (generatePreparation(call)) return undefined
   if (call.toolName === 'jubian_video' && method === 'image_generate_batch') {
     const items = record(call.arguments)?.['items']
     if (!Array.isArray(items) || items.length === 0) {
@@ -179,6 +180,7 @@ function idempotencyRefusal(call: GateCall): string | undefined {
 
 /** Refuse a paid storyboard submission while its own project holds no official asset record. */
 function officialAssetRefusal(call: GateCall): string | undefined {
+  if (generatePreparation(call)) return undefined
   const binding = bindProjectMethod(call, PAID_SUBMISSIONS)
   if (binding === undefined) return undefined
   if ('refusal' in binding) return binding.refusal
@@ -188,6 +190,12 @@ function officialAssetRefusal(call: GateCall): string | undefined {
     + '镜头与视频只能引用 official=true 且有剧变 asset/material id 与 URL 的资产；'
     + '先走资产三阶段门禁（写提示词 → 生图 → 候选审核 → 确认出演 / isLocal 主体设定门禁），'
     + '把 official 记录写进该项目的 assets_manifest.json 后再提交。'
+}
+
+/** Free native preparation and original legacy-key replay are validated by the Jubian executor. */
+function generatePreparation(call: GateCall): boolean {
+  return call.toolName === 'jubian_storyboard' && calledMethod(call) === 'generate'
+    && record(call.arguments)?.['preview_path'] === undefined
 }
 
 /**

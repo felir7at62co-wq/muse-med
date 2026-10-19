@@ -10,7 +10,7 @@ export const imDesktopCompatibility = {
   sessions: 'existing group bindings and verified direct-message bindings',
   sessionServices: 'declared live Session and persistence dependencies for workspace verification',
   groupResponse: 'explicit bot mentions only',
-  newGroups: 'registered owners may mention the bot in a new group; native access policies still apply',
+  newGroups: 'saved native access settings authorize messages and card actions without legacy sender or chat gates',
   workspace: 'one selected workspace per Feishu bot with independent conversation histories',
   remoteProvider: 'retained at @wenbin_wb/dsh-bridge/remote',
   updates: 'supplied only by Muse application updates',
@@ -84,8 +84,28 @@ export function applyImDesktopCompatibility(directory) {
     ['  #botOpenId;', '  #botOpenId;\n  #museAdmission;'],
     ['    botOpenId,', '    botOpenId,\n    museAdmission,'],
     ['    this.#botOpenId = nonEmptyString(botOpenId);', '    this.#botOpenId = nonEmptyString(botOpenId);\n    this.#museAdmission = museAdmission;'],
-    ['  accept(event) {', '  async accept(event) {\n    if (this.#museAdmission && !await this.#museAdmission.message(event, this.#state)) return;'],
-    ['  onCardAction(event) {', '  onCardAction(event) {\n    if (this.#museAdmission && !this.#museAdmission.action(event)) return Promise.resolve();'],
+    ['  #acceptedMessageIds = new Map();', '  #acceptedMessageIds = new Map();\n  /** Message admission and dispatch promises that shutdown must drain. */\n  #acceptTasks = new Set();'],
+    ['  accept(event) {', `  accept(event) {
+    const task = Promise.resolve().then(() => this.#acceptWithHistory(event));
+    this.#acceptTasks.add(task);
+    void task.then(
+      () => { this.#acceptTasks.delete(task); },
+      () => { this.#acceptTasks.delete(task); },
+    );
+    return task;
+  }
+
+  async #acceptWithHistory(event) {`],
+    ['  #accept(event) {', '  async #accept(event) {'],
+    ['    // Register a managed-topic root only after access is allowed, so a', '    if (this.#museAdmission && !await this.#museAdmission.message(event, this.#state)) return;\n    if (this.#signal?.aborted) return;\n    // Register a managed-topic root only after access is allowed, so a'],
+    ['      const tasks = [\n        ...this.#queues.values(),', '      const tasks = [\n        ...this.#acceptTasks,\n        ...this.#queues.values(),'],
+    ['      if (this.#queues.size === 0\n', '      if (this.#acceptTasks.size === 0\n        && this.#queues.size === 0\n'],
+    ["      || resolvedAction.startsWith('answer:');", "      || resolvedAction.startsWith('answer:')\n      || resolvedAction.startsWith('answerCustom:');"],
+    ["        } else {\n          // issue #162：pending 已清除时区分", "        } else if (pending && pending.actor !== actor) {\n          await reply(t('请由当前任务发起人回答这个问题。')).catch(() => undefined);\n        } else {\n          // issue #162：pending 已清除时区分"],
+    ["        } else if (!pending && this.#isAnsweredInteraction(interactionId)) {", "        } else if (pending && pending.actor !== actor) {\n          await reply(t('请由当前任务发起人回答这个问题。')).catch(() => undefined);\n        } else if (!pending && this.#isAnsweredInteraction(interactionId)) {"],
+  ])
+  edit(directory, 'src/channels/shared/i18n-en/feishu.mjs', '834d21b7aa856ec656ada206b488ac55ee062828160fa8ce233ec28a7914c58f', [
+    ['export default {', "export default {\n  '请由当前任务发起人回答这个问题。': 'Only the person who started this task can answer this question.',"],
   ])
   edit(directory, 'plugin-src/host/channels/shared/access-policy-production.mjs', '73177cf116e079045659a285ab3a9800188197734ec2c6af9b07f006dcdb4ba0', [
     ["  if (key === 'feishu' || key === 'qq') {", "  if (key === 'feishu') return initialAccessPolicyFor(channel, config);\n  if (key === 'qq') {"],

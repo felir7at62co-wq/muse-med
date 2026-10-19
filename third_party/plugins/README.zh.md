@@ -43,13 +43,15 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 ### Muse 远程桌面与飞书
 
-`@wenbin_wb/dsh-bridge` 保留上游 2.12.1 版本及 [sources.json](sources.json) 中的固定修订，并保留 MIT 署名。[规范化记录](dsh-bridge/MUSE_SOURCE_NORMALIZATION.json)记录了 21 个规范化尾部空白或文件末尾换行的文本文件的上游与本地 SHA-256。[审核后的覆盖](compatibility/bridge-desktop.mjs)固定该记录，在打包前检查每个规范化文件及保留模块，并将记录写入 `SOURCE.json`。Muse 使用它的 `./remote` provider 提供账号绑定的桌面访问；该包保留的旧根 provider 不再作为活动飞书通道。产物排除上游应用 bin、局域网代理、独立隧道服务端、Cloudflare、自更新和上游密码/二维码认证。
+`@wenbin_wb/dsh-bridge` 保留上游 2.12.1 版本及 [sources.json](sources.json) 中的固定修订，并保留 MIT 署名。[规范化记录](dsh-bridge/MUSE_SOURCE_NORMALIZATION.json)记录了 21 个规范化尾部空白或文件末尾换行的文本文件的上游与本地 SHA-256。[审核后的覆盖](compatibility/bridge-desktop.mjs)固定该记录，在打包前检查每个规范化文件及保留模块，并将记录写入 `SOURCE.json`。其桌面产物仅保留账号隧道模块，不包含旧飞书 Host、Client、网关、会话桥、文件工具和 SDK。根入口明确报错并引导 IM 使用者改用 `@xmanrui/dsh-im`；`./client` 不再提供，`./remote` 继续提供账号绑定的桌面访问。默认 bundle 挂载规范名称的原生 IM 提供方。产物还排除上游应用 bin、局域网代理、独立隧道服务端、Cloudflare、自更新和上游密码/二维码认证。
 
 远程 provider 复用 `CustomTunnelClient` 的连接建立和原生 WebSocket 升级处理。Muse 适配器直接流式转发原生字节，不积累完整数据帧，包含 Host Ping 和浏览器 Pong；同时提供账号/设备认证、流式 HTTP 上传与下载、逐块确认、取消、按配置间隔持续重连和等待完成的关闭。本地传输测试覆盖二进制上传、Range 响应、不完整原生数据帧、`/api/remote.mux` 心跳往返、取消及凭证拒绝。握手在安装 UUID 之外增加电脑名称和操作系统。云端 relay 验证账号，把每个浏览器标签页路由到其选择的安装，并保持其他电脑连接；桌面仅转发至自身回环 Host。这是一条私有出站连接，不创建公共隧道域名。
 
 `@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。
 
-导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。导入的机器人要求群消息精确 @ 当前机器人，并保留原允许群的使用范围；在其他群中，仅已登记的主人可以使用。原生访问策略仍然生效，新群的其他成员不会因此获得本机权限，控制命令和操作卡片仍仅向主人开放。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
+导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。只有原生 `dsh-im` 接收飞书消息和卡片回调，旧数据迁移不参与这些事件的授权。消息和卡片操作使用原生 IM 设置中保存的访问策略，不再叠加旧群名单或私聊名单限制。群消息仍须精确 @ 当前机器人，已登记的主人保留原生特权访问。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
+
+获准发送消息的成员无需命令权限，即可回答自己发起任务的提问，包括自定义答案。其他用户会收到明确提示，不能代答该问题。管理按钮仍要求命令权限。群访问策略设为开放只允许消息接入，不改变 Agent 的工具权限或沙箱设置。
 
 同一飞书机器人的私聊和群聊都使用其 IM 设置中选择的工作区。各聊天共享该目录的文件和素材，但分别保存 Session 历史。启动时会清除单个聊天的工作区覆盖，并解除 Session 工作目录与机器人工作区不同的绑定；目录匹配的绑定保留原 Session ID。后续对话命令不能重新建立私有目录覆盖，也不能绑定其他聊天当前使用的 Session。选择其他机器人工作区后，其所有聊天的后续工作都使用新目录。旧 Session 日志与文件留在原位置，适配层不会搬迁。
 

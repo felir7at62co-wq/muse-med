@@ -15,6 +15,51 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
 }
 `;
 
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > empty history verified against complete project tasks 1`] = `
+[
+  {
+    "text": "{
+  "version": 1,
+  "operation": "storyboard_delete",
+  "script_id": 2708,
+  "delete_reason": "删除这张已核对的测试卡",
+  "authorization_basis": "用户授权删除测试卡 1",
+  "include_generated_media": true,
+  "targets": [
+    {
+      "storyboard_id": 1,
+      "snapshot_hash": "c9e1c9a172afd54f275cefac3219c7f57fd8447590df80ce212bdb801e6ec762",
+      "name": null,
+      "episode_id": 9,
+      "duration": 9,
+      "prompt": "改动后的正式镜头",
+      "material_count": 0,
+      "tasks": [],
+      "active_generation": false,
+      "has_generated_media": false
+    }
+  ],
+  "fingerprint": "f7cc6607e4bedd58efc35b632f5ac32f4eb89b48335a1e53775207da1edb0f2b",
+  "preview_path": "<project>/video_tasks/f7cc6607e4bedd58efc35b632f5ac32f4eb89b48335a1e53775207da1edb0f2b.storyboard-delete.prepared.json",
+  "paid_requests": 0,
+  "status": "inspection_required",
+  "requires_generated_authorization": false,
+  "next": "检查身份与完整内容是否就是用户要求删除的卡。关联生成媒体的删除需要用户授权该范围；运行中的任务不能删除。核对后用 delete_apply，checked_storyboard_ids=全部目标 ID，idempotency_key=fingerprint。"
+}",
+    "type": "text",
+  },
+]
+`;
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > empty history with unverified task ownership 1`] = `
+[
+  {
+    "text": "Error: Jubian response did not match the expected envelope: Card 1 generation history was unreadable; complete project-task verification failed: Incomplete task child snapshot; deletion remains unverified. No deletion was requested.",
+    "type": "text",
+  },
+]
+`;
+
 exports[`loads model preview/apply, renders free outcomes, and disposes registration > in-place edit outcome 1`] = `
 [
   {
@@ -54,6 +99,47 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
   "page_num": 1,
   "page_size": 20,
   "next": "按 total 与分页读取当前项目；total 未返回时继续到空页。先按内容确定视频包，不按空卡数量分包，多余空卡保留不用。再按分集选择已有视频卡，get 读取详情，再 edit_preview/edit_batch_preview → edit_apply 原位填写；仅已有卡不足或用户明确要求新增时 create/create_batch。空项目无需模型配置或手工样本。"
+}",
+    "type": "text",
+  },
+]
+`;
+
+exports[`loads model preview/apply, renders free outcomes, and disposes registration > singleton generation history deletion inspection 1`] = `
+[
+  {
+    "text": "{
+  "version": 1,
+  "operation": "storyboard_delete",
+  "script_id": 2708,
+  "delete_reason": "删除这张已核对的测试卡",
+  "authorization_basis": "用户授权删除测试卡 1",
+  "include_generated_media": true,
+  "targets": [
+    {
+      "storyboard_id": 1,
+      "snapshot_hash": "647261ff502cde5c31d69e625468a1ee81e97ab0e2f89bc859c76041aacbf096",
+      "name": null,
+      "episode_id": 9,
+      "duration": 9,
+      "prompt": "改动后的正式镜头",
+      "material_count": 0,
+      "tasks": [
+        {
+          "id": 77,
+          "taskStatus": "failed"
+        }
+      ],
+      "active_generation": false,
+      "has_generated_media": true
+    }
+  ],
+  "fingerprint": "a50bae06cff652b8eb3f9034a5679a336acc15f14d8f17dae2aaf0346e7dcc2e",
+  "preview_path": "<project>/video_tasks/a50bae06cff652b8eb3f9034a5679a336acc15f14d8f17dae2aaf0346e7dcc2e.storyboard-delete.prepared.json",
+  "paid_requests": 0,
+  "status": "inspection_required",
+  "requires_generated_authorization": false,
+  "next": "检查身份与完整内容是否就是用户要求删除的卡。关联生成媒体的删除需要用户授权该范围；运行中的任务不能删除。核对后用 delete_apply，checked_storyboard_ids=全部目标 ID，idempotency_key=fingerprint。"
 }",
     "type": "text",
   },
@@ -181,7 +267,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "array",
     },
     "content_duration_ms": {
-      "description": "generate 必填：本包内容时长，4000–14000 的整千毫秒。",
+      "description": "prepare_video / generate 准备阶段可选：内容时长交叉校验，等于已保存卡时长减 1 秒后的毫秒数；不用于修改时长。",
       "type": "number",
     },
     "delete_reason": {
@@ -234,7 +320,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "string",
     },
     "idempotency_key": {
-      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
+      "description": "generate 不带预览时可省略；提交须原样使用预览返回的 idempotencyKey（指纹），旧操作对账使用原 key。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "type": "string",
     },
     "include_generated_media": {
@@ -242,7 +328,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "boolean",
     },
     "method": {
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -286,11 +372,11 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "string",
     },
     "preview_path": {
-      "description": "submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。",
+      "description": "submit_video / generate 提交阶段：准备结果返回的 preview_path，不要猜测或手写文件名；新 generate 不带此项时仅准备预览。",
       "type": "string",
     },
     "project_dir": {
-      "description": "prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。",
+      "description": "prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。",
       "type": "string",
     },
     "prompt": {

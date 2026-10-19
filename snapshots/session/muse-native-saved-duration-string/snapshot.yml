@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-saved-duration-string
+profile: headless
+composition: muse-native-saved-duration-string
+recording: authored
+header:
+  class: muse-native-saved-duration-string
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-duration-fixture

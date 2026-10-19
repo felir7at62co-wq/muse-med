@@ -166,17 +166,17 @@ it('publishes an initial selection and later explicit changes, and releases an a
   expect((await ended).done).toBe(true)
 })
 
-it('refuses overlong packages before any PUT and names the human decision tool', async () => {
+it.each(['prepare_video', 'generate'])('refuses overlong %s packages before any PUT and names the human decision tool', async (method) => {
   const f = await fixture()
   const option = (await f.service.catalogue()).find(option => option.modelId === 'doubao-seedance-2-0-260128')!
   await f.service.select(f.agent, option.key, 0)
   f.setBoard({ id: 12, scriptId: 9, modelConfig: { duration: 25 } })
-  await expect(f.service.reconcile(f.agent, { method: 'prepare_video', storyboard_id: 12, project_dir: f.root }))
+  await expect(f.service.reconcile(f.agent, { method, storyboard_id: 12, project_dir: f.root }))
     .rejects.toThrow('jubian_video_model duration_conflict')
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
 
-it('refuses an old frozen preview after a model switch without creating a paid request', async () => {
+it.each(['submit_video', 'generate'])('refuses an old %s frozen preview after a model switch without creating a paid request', async (method) => {
   const f = await fixture()
   const options = await f.service.catalogue()
   const first = options[0]!
@@ -185,7 +185,7 @@ it('refuses an old frozen preview after a model switch without creating a paid r
   await writeFile(path, JSON.stringify({ payload: { modelConfig: JSON.stringify({ ...first }) } }))
   const second = options.find(option => option.key !== first.key)!
   await f.service.select(f.agent, second.key, 1)
-  await expect(f.service.reconcile(f.agent, { method: 'submit_video', preview_path: path, idempotency_key: 'unsubmitted' }))
+  await expect(f.service.reconcile(f.agent, { method, preview_path: path, idempotency_key: 'unsubmitted' }))
     .rejects.toThrow('SESSION_VIDEO_SELECTION_CHANGED')
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
@@ -202,7 +202,7 @@ it('asks once about a duration decrease and keeps the selected model when the us
   expect(selectedVideo(f.agent.session)).toEqual(chosen)
 })
 
-it('synchronizes an existing card without generating, preserving dialogue, assets, ratio and duration', async () => {
+it.each(['prepare_video', 'generate'])('%s synchronizes an existing card without generating, preserving dialogue, assets, ratio and duration', async (method) => {
   const f = await fixture()
   await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ jubian_script_id: 9 }))
   const option = (await f.service.catalogue()).find(option => option.modelId === 'doubao-seedance-2-5-260628' && option.resolution === '480p')!
@@ -211,7 +211,7 @@ it('synchronizes an existing card without generating, preserving dialogue, asset
     genType: 3, duration: 12, ratio: '9:16', genNum: 1, prompt: '@小红说：“我回来了。”', materialList: [{ materialKey: '小红', assetId: 'a', sortOrder: 1 }] }
   f.setBoard({ id: 12, scriptId: 9, episodeId: 10, isGenerate: 1, modelConfig: JSON.stringify(before),
     storyboardMaterialList: [{ materialKey: '小红', assetId: 'a', sortOrder: 1 }] })
-  await f.service.reconcile(f.agent, { method: 'prepare_video', storyboard_id: 12, project_dir: f.root })
+  await f.service.reconcile(f.agent, { method, storyboard_id: 12, project_dir: f.root })
   const writes = f.requests.filter(request => request.method !== 'GET')
   expect(writes).toHaveLength(1)
   expect(writes[0]).toMatchObject({ method: 'PUT', path: '/aigc/storyboard', body: { id: 12, isGenerate: 0 } })
@@ -243,6 +243,32 @@ it('permits original paid-key reconciliation after a switch and never permits a 
   await f.ledger.begin({ idempotencyKey: 'foreign', method: 'image_generate', requestSha256: 'sha256:other' })
   await expect(f.service.reconcile(f.agent, { method: 'submit_video', idempotency_key: 'foreign' })).rejects.toThrow('SESSION_VIDEO_MODEL_REQUIRED')
   expect(f.requests).toHaveLength(0)
+})
+
+it.each(['storyboard_generate', 'storyboard_native_submit'] as const)(
+  'permits generate reconciliation of an original %s key without changing the session or card', async (method) => {
+    const f = await fixture(defaults)
+    await f.ledger.begin({ idempotencyKey: 'original-generate', method, requestSha256: 'sha256:original' })
+    const before = f.agent.session.seq
+    await expect(f.service.reconcile(f.agent, { method: 'generate', idempotency_key: 'original-generate' }))
+      .resolves.toBeUndefined()
+    expect(f.requests).toHaveLength(0)
+    expect(f.agent.session.seq).toBe(before)
+    expect(selectedVideo(f.agent.session)).toBeNull()
+  },
+)
+
+it('rejects missing generate preparation arguments and foreign keys before initializing or synchronizing', async () => {
+  const f = await fixture(defaults)
+  await expect(f.service.reconcile(f.agent, { method: 'generate', storyboard_id: 12 }))
+    .rejects.toThrow('project_dir')
+  await expect(f.service.reconcile(f.agent, { method: 'generate', project_dir: f.root }))
+    .rejects.toThrow('storyboard_id')
+  await f.ledger.begin({ idempotencyKey: 'foreign-generate', method: 'image_generate', requestSha256: 'sha256:other' })
+  await expect(f.service.reconcile(f.agent, { method: 'generate', storyboard_id: 12,
+    project_dir: f.root, idempotency_key: 'foreign-generate' })).rejects.toThrow()
+  expect(f.requests).toHaveLength(0)
+  expect(selectedVideo(f.agent.session)).toBeNull()
 })
 
 it('checks every batch preview and permits original batch keys after a conversation switch', async () => {

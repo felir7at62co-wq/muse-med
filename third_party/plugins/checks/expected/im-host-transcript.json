@@ -58,5 +58,135 @@
         }
       ]
     }
+  },
+  "freshPolicyChats": {
+    "direct": {
+      "requestMessages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "text",
+              "text": "You are an AI agent powered by DeepSeek Harness.\n\nMuse short drama test persona"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "private fresh greeting"
+            }
+          ]
+        }
+      ],
+      "sessionMessages": [
+        {
+          "type": "user/message",
+          "content": [
+            {
+              "type": "text",
+              "text": "private fresh greeting"
+            }
+          ]
+        },
+        {
+          "type": "assistant/message",
+          "content": [
+            {
+              "type": "text",
+              "text": "Muse native IM result"
+            }
+          ]
+        }
+      ],
+      "finalCard": {
+        "schema": "2.0",
+        "header": {
+          "title": {
+            "tag": "plain_text",
+            "content": "⚙️ 任务过程"
+          },
+          "template": "blue"
+        },
+        "body": {
+          "elements": [
+            {
+              "tag": "markdown",
+              "content": "Muse native IM result"
+            },
+            {
+              "tag": "markdown",
+              "content": "_已完成_"
+            }
+          ]
+        }
+      }
+    },
+    "group": {
+      "requestMessages": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "text",
+              "text": "You are an AI agent powered by DeepSeek Harness.\n\nMuse short drama test persona"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "group fresh greeting"
+            }
+          ]
+        }
+      ],
+      "sessionMessages": [
+        {
+          "type": "user/message",
+          "content": [
+            {
+              "type": "text",
+              "text": "group fresh greeting"
+            }
+          ]
+        },
+        {
+          "type": "assistant/message",
+          "content": [
+            {
+              "type": "text",
+              "text": "Muse native IM result"
+            }
+          ]
+        }
+      ],
+      "finalCard": {
+        "schema": "2.0",
+        "header": {
+          "title": {
+            "tag": "plain_text",
+            "content": "⚙️ 任务过程"
+          },
+          "template": "blue"
+        },
+        "body": {
+          "elements": [
+            {
+              "tag": "markdown",
+              "content": "Muse native IM result"
+            },
+            {
+              "tag": "markdown",
+              "content": "_已完成_"
+            }
+          ]
+        }
+      }
+    }
   }
 }

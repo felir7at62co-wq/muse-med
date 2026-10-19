@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { runtimeArchivePath } from './office-engine.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import * as screenplayDocx from './screenplay-docx.ts'
+import * as manuscriptRevisions from './manuscript-revisions.ts'
 import * as officeSkills from '@deepseek-ai/dsh-skill-office'
 import * as workspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
 
@@ -25,6 +26,8 @@ export interface Config {
   readonly docxTimeoutMs?: number
   /** Maximum managed screenplay project/verification bytes read per file. */
   readonly docxMaxProjectBytes?: number
+  /** Optional manuscript revision budgets; source snapshots remain workspace-local. */
+  readonly manuscriptRevisions?: Partial<manuscriptRevisions.Config>
 }
 
 /**
@@ -34,6 +37,7 @@ export interface Config {
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
+  await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
   await ctx.plugin(screenplayDocx, { source: config.source,
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,
     maxProjectBytes: config.docxMaxProjectBytes ?? 32 * 1024 * 1024 })

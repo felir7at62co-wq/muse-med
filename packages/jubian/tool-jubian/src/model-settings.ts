@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { resolveVideoModel, stableJson } from '@deepseek-ai/dsh-jubian-api'
-import { atomicWriteJson, validateProjectBinding } from './native.ts'
+import { atomicWriteJson, positiveInteger, validateProjectBinding } from './native.ts'
 import type { MethodArgs } from './methods.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
 import { readPreparedJson } from './prepared-file.ts'
@@ -83,7 +83,15 @@ function configOf(board: Row): Row {
   catch (error) { return fail(error instanceof JubianError ? error.message : 'Invalid modelConfig JSON') }
 }
 function settings(config: Row): Row {
-  return Object.fromEntries(MODEL_KEYS.filter(key => config[key] !== undefined).map(key => [key, config[key]]))
+  const result = Object.fromEntries(MODEL_KEYS.filter(key => config[key] !== undefined).map(key => [key, config[key]]))
+  if (result.duration !== undefined) {
+    try { result.duration = positiveInteger(result.duration) }
+    catch (error) {
+      if (!(error instanceof JubianError)) throw error
+      // Previews retain malformed saved values when explicit changes repair them.
+    }
+  }
+  return result
 }
 function hash(value: unknown): string { return createHash('sha256').update(stableJson(value)).digest('hex') }
 function snapshot(board: Row): Row {

@@ -1,0 +1,50 @@
+{
+  "version": 2,
+  "operation": "storyboard_model_settings",
+  "script_id": 2708,
+  "selector": {
+    "scope": "storyboards",
+    "storyboard_ids": [
+      916953
+    ],
+    "episode_ids": []
+  },
+  "changes": {
+    "modelId": "doubao-seedance-2-5-260628",
+    "platformId": "FANG_ZHOU",
+    "resolution": "480p"
+  },
+  "targets": [
+    {
+      "storyboard_id": 916953,
+      "episode_id": 9,
+      "before_hash": "e157a65d38612ba224d0505f76541bd37f9415429d135325d23931ae5535dc51",
+      "preserved_hash": "b3c2a2b11a4de46d442f92992af6ec3db91d7d5374ed22e3f74a5c32dd31d78b",
+      "before": {
+        "modelId": "doubao-seedance-2-0-260128",
+        "platformId": "YU_DIAN",
+        "ratio": "16:9",
+        "resolution": "720p",
+        "genType": 3,
+        "duration": 30,
+        "genNum": 1,
+        "standardId": 11,
+        "modelGenerationTypeId": 12,
+        "videoStandardId": 13
+      },
+      "after": {
+        "modelId": "doubao-seedance-2-5-260628",
+        "platformId": "FANG_ZHOU",
+        "ratio": "16:9",
+        "resolution": "480p",
+        "genType": 3,
+        "duration": 30,
+        "genNum": 1,
+        "standardId": 61,
+        "modelGenerationTypeId": 71,
+        "videoStandardId": 337
+      }
+    }
+  ],
+  "fingerprint": "77ebbe796f1a67d357dd2a1dc59ad2f6f3b860d71350e6e32ffd11f3ee25004f"
+}

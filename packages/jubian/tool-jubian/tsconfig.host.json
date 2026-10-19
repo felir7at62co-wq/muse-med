@@ -17,6 +17,7 @@
     "src/model-settings.ts",
     "src/storyboard-edit.ts",
     "src/storyboard-delete.ts",
+    "src/storyboard-delete-tasks.ts",
     "src/storyboard-audio.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",

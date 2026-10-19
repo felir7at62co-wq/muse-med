@@ -24,6 +24,9 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
   let board = { id: 1, scriptId: 2708, episodeId: 9, isGenerate: 1, modelConfig: JSON.stringify(modelConfig) }
   const calls: string[] = []
   let deleted = false
+  let singletonHistory = false
+  let unreadableHistory = false
+  let projectTaskRows: Record<string, unknown>[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     calls.push(String(init?.method))
     const path = url instanceof Request ? url.url : url.toString()
@@ -33,7 +36,13 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
         { id: 91, ratio: '9:16', resolution: '720p', genNum: 1 },
         { id: 92, ratio: '9:16', resolution: '1080p', genNum: 1 },
       ] }]
-    else if (path.includes('/aigc/storyboard/byStoryboard/')) data = []
+    else if (path.includes('/aigc/storyboard/byStoryboard/')) {
+      if (unreadableHistory) return new Response('')
+      if (singletonHistory) return new Response(JSON.stringify([{ id: 77, taskStatus: 'failed' }]))
+      data = []
+    }
+    else if (path.includes('/admin/aigc/video/task/list?')) data = { total: projectTaskRows.length, rows: projectTaskRows }
+    else if (path.endsWith('/admin/aigc/video/task/99')) data = { id: 99, scriptId: 2708, taskStatus: 'succeeded' }
     else if (path.includes('/aigc/storyboard/list?')) data = { rows: [board], total: 1 }
     else if (init?.method === 'DELETE') { deleted = true; data = null }
     else if (init?.method === 'PUT') {
@@ -140,8 +149,26 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     expect(calls).toHaveLength(beforeDenied)
     expect(denied).toMatchSnapshot('deletion inspection hook')
     const deleteArgs = { method: 'delete_preview', script_id: 2708, project_dir: root, storyboard_ids: [1],
-      delete_reason: '删除这张已核对的测试卡', authorization_basis: '用户授权删除测试卡 1' }
+      delete_reason: '删除这张已核对的测试卡', authorization_basis: '用户授权删除测试卡 1', include_generated_media: true }
+    unreadableHistory = true
+    projectTaskRows = [{ id: 99, scriptId: 2708, taskType: 1 }]
+    const unverified = await ctx.tools.execute({ callId: ToolCallId('unverified-history'), name: 'jubian_storyboard',
+      arguments: deleteArgs, signal: new AbortController().signal })
+    expect(unverified.isError).toBe(true)
+    expect(unverified.content).toMatchSnapshot('empty history with unverified task ownership')
+    projectTaskRows = []
+    const beforeVerifiedEmpty = calls.length
+    const verifiedEmpty = await storyboard.execute(deleteArgs, runContext) as JsonValue
+    expect(calls.slice(beforeVerifiedEmpty)).toEqual(['GET', 'GET', 'GET', 'GET'])
+    expect(storyboard.output.render(deleteArgs, verifiedEmpty).map(block =>
+      block.type === 'text' ? { ...block, text: block.text.replaceAll(root, '<project>') } : block))
+      .toMatchSnapshot('empty history verified against complete project tasks')
+    unreadableHistory = false
+    singletonHistory = true
     const deletePlan = await storyboard.execute(deleteArgs, runContext) as Record<string, unknown>
+    expect(storyboard.output.render(deleteArgs, deletePlan as JsonValue).map(block =>
+      block.type === 'text' ? { ...block, text: block.text.replaceAll(root, '<project>') } : block))
+      .toMatchSnapshot('singleton generation history deletion inspection')
     const deleteApply = { method: 'delete_apply', script_id: 2708, project_dir: root,
       preview_path: deletePlan.preview_path, idempotency_key: deletePlan.fingerprint, checked_storyboard_ids: [1] }
     const removed = await storyboard.execute(deleteApply, runContext) as JsonValue

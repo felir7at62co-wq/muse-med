@@ -24,7 +24,7 @@ const WRITES: [string, string, Record<string, unknown>][] = [
   ['jubian_model', 'apply', { script_id: 1, preview_path: 'model-settings.json' }],
   ['jubian_storyboard', 'create', {}],
   ['jubian_storyboard', 'save', {}],
-  ['jubian_storyboard', 'generate', {}],
+  ['jubian_storyboard', 'generate', { preview_path: 'prepared.json' }],
   ['jubian_storyboard', 'erase_subtitle', { task_id: 1, task_name: 't' }],
   ['jubian_video', 'image_generate', { asset_name: 'a', asset_type: 1, prompt: 'p' }],
   ['jubian_video', 'upscale', { task_id: 1, script_id: 2 }],
@@ -33,6 +33,12 @@ const WRITES: [string, string, Record<string, unknown>][] = [
 ]
 
 describe('paid/write methods require an idempotency key', () => {
+  it.each([
+    { method: 'generate', storyboard_id: 1, project_dir: PROJECT },
+    { method: 'generate', idempotency_key: 'legacy-original' },
+  ])('leaves native generation preparation and legacy-key replay to the executor (%j)', (args) => {
+    expect(evaluateCall(call({ toolName: 'jubian_storyboard', arguments: args }))).toEqual({ kind: 'allow' })
+  })
   it.each([undefined, [], {}, null])('refuses a batch without a nonempty item list (%s)', (items) => {
     const decision = evaluateCall(call({ toolName: 'jubian_video', arguments: {
       method: 'image_generate_batch', items, idempotency_key: 'top-level-key',
@@ -114,7 +120,7 @@ it('resolves a relative project selection and skips a sibling with an unusable p
     [join(PROJECT, 'assets_manifest.json')]: manifest }, { [WORKSHOP]: ['bad-project', 'demo-drama'] })
   for (const selection of [{ project_dir: 'demo-drama' }, { script_id: SCRIPT_ID }]) {
     expect(evaluateCall(call({ toolName: 'jubian_storyboard', reader,
-      arguments: { method: 'generate', idempotency_key: 'key', ...selection } }))).toEqual({ kind: 'allow' })
+      arguments: { method: 'generate', preview_path: 'prepared.json', idempotency_key: 'key', ...selection } }))).toEqual({ kind: 'allow' })
   }
 })
 
@@ -351,7 +357,7 @@ describe('official assets before a paid submission', () => {
     return evaluateCall(call({
       toolName: 'jubian_storyboard',
       arguments: {
-        method: 'generate', idempotency_key: 'k', content_duration_ms: 12000, storyboard_id: 1, script_id: SCRIPT_ID,
+        method: 'generate', preview_path: 'prepared.json', idempotency_key: 'k', content_duration_ms: 12000, storyboard_id: 1, script_id: SCRIPT_ID,
       },
       reader: projectReader(files),
       ...overrides,
@@ -391,7 +397,7 @@ describe('official assets before a paid submission', () => {
   it('binds a call that names the project by project_dir instead of script_id', () => {
     const decision = evaluateCall(call({
       toolName: 'jubian_storyboard',
-      arguments: { method: 'generate', idempotency_key: 'k', project_dir: PROJECT },
+      arguments: { method: 'generate', preview_path: 'prepared.json', idempotency_key: 'k', project_dir: PROJECT },
       reader: projectReader({ [MANIFEST]: manifest(true) }),
     }))
     expect(decision).toEqual({ kind: 'allow' })
@@ -432,13 +438,13 @@ describe('official assets before a paid submission', () => {
   })
 
   it('denies a paid submission the gate cannot bind to a project', () => {
-    const text = reason(submit({ arguments: { method: 'generate', idempotency_key: 'k', storyboard_id: 1 } }))
+    const text = reason(submit({ arguments: { method: 'generate', preview_path: 'prepared.json', idempotency_key: 'k', storyboard_id: 1 } }))
     expect(text).toContain('门禁无法核对它引用的资产')
     expect(text).toContain('请在调用里给出 project_dir（项目根目录）或 script_id（剧变项目 ID）')
   })
 
   it('denies a script_id that matches no project of the workshop', () => {
-    const text = reason(submit({ arguments: { method: 'generate', idempotency_key: 'k', script_id: 9999 } }))
+    const text = reason(submit({ arguments: { method: 'generate', preview_path: 'prepared.json', idempotency_key: 'k', script_id: 9999 } }))
     expect(text).toContain('门禁无法核对它引用的资产')
   })
 
@@ -656,7 +662,7 @@ describe('a project reconcile before creating a paid asset', () => {
     const switches = { ...ALL_ON, officialAssets: false }
     expect(evaluateCall(call({
       toolName: 'jubian_storyboard',
-      arguments: { method: 'generate', idempotency_key: 'k' },
+      arguments: { method: 'generate', preview_path: 'prepared.json', idempotency_key: 'k' },
       switches,
     }))).toEqual({ kind: 'allow' })
     const OTHERS: [string, Record<string, unknown>][] = [

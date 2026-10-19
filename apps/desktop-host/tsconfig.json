@@ -48,6 +48,9 @@
       "path": "../../packages/core/agent"
     },
     {
+      "path": "../../packages/llm/llm"
+    },
+    {
       "path": "../../packages/core/session"
     },
     {

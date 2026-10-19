@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-storyboard-empty-history-delete
+profile: headless
+composition: muse-storyboard-empty-history-delete
+recording: authored
+header:
+  class: muse-storyboard-empty-history-delete
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-delete-fixture

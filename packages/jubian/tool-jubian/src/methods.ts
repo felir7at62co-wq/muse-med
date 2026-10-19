@@ -10,6 +10,8 @@
  * because their HTTP verbs lie: `subtasks` is a POST that only reads,
  * `confirm_casting` is a GET that changes provider state, and `prepare_video`
  * writes only a local preview file while reading everything it needs.
+ * `generate` routes to native preparation or submission; its historical keys
+ * return only the original ledger record without querying the provider.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, resolve } from 'node:path'
@@ -21,12 +23,12 @@ import {
   readImageDisplayPrice, readImageGeneration, readMaterialList, readModels, readScript, readStoryboard, readStoryboardPage, readSubtaskPage,
   readTaskList, readTaskPage, readSubtitleTaskId, readUpscaleTaskId, needsUpscale, resolveImageModel, resolveImageStyle,
   validateImageRequestInput, responseRecords, wireText,
-  withGenerationDisabled, withGenerationEnabled,
+  withGenerationDisabled,
 } from '@deepseek-ai/dsh-jubian-api'
 import { resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
@@ -38,6 +40,8 @@ import { need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
+import { resolveDeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
+import type { DeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
 import { storyboardAudioMethod } from './storyboard-audio.ts'
 import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
 import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
@@ -139,9 +143,9 @@ export interface MethodArgs {
   image_path?: string
   /** `upload_audio`: a measured short PCM WAV voice sample. */
   audio_path?: string
-  /** `prepare_video` / `submit_video`: the project directory holding `project_config.json`. */
+  /** Native preparation/submission, including `generate`: the directory holding `project_config.json`. */
   project_dir?: string
-  /** `submit_video`: the prepared preview file the submission must be bound to. */
+  /** `submit_video` or submitting `generate`: the prepared preview file to bind the submission to. */
   preview_path?: string
   /** `select_assets`: the ordered `material_key`/parent `asset_id` pairs to save. */
   selections?: SubjectSelectionRequest[]
@@ -266,6 +270,8 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Resolved complete task-history inspection limits before deleting storyboards. */
+  deletionTaskScan?: DeletionTaskScanOptions
   /** Resolved advisory term list and result bounds for complete card prompts. */
   promptRiskReview?: PromptRiskReviewOptions
   /** Check the current conversation choice immediately before reserving new video charges. */
@@ -844,7 +850,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           ? '账本里没有未完成的写入：没有需要重新对账的收费调用。'
           : `有 ${String(records.length)} 笔写入没有确定结果。对账方式按 method 区分：`
             + 'storyboard_native_submit 用同一个 idempotency_key 再调一次 submit_video（只重新对账，不会再发 PUT）；'
-            + 'storyboard_generate 用 jubian_storyboard get 回读该分镜的 isGenerate；'
+            + 'storyboard_generate 用原 idempotency_key 调用 generate 只读回放原账本，并核对原任务记录；'
             + 'image_generate 用 jubian_asset list/get 回读资产；'
             + 'erase_subtitle 与 video_upscale 用 jubian_video subtasks 回读该任务。'
             + '**任何情况下都不要换 key 重发**：没有远端证据就保持未知。',
@@ -1099,9 +1105,9 @@ function assertNewStoryboard(body: Record<string, unknown>): void {
  * `jubian_storyboard` — storyboard reads, the free saves, the paid generation,
  * the erasure and the storyboard-native video channel.
  *
- * `save` and `generate` both work by reading the provider's own snapshot and
- * changing exactly one field, so every field the provider owns survives the
- * round trip and a caller never composes a full storyboard body.
+ * `save` preserves the provider snapshot with generation disabled. `generate`
+ * prepares a native preview or submits that preview under its own fingerprint;
+ * keys from the former direct-generation path only replay the original ledger.
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - Dispatched on `method`.
@@ -1116,7 +1122,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       return storyboardAudioMethod(client, ledger, args)
     case 'delete_preview':
     case 'delete_apply':
-      return storyboardDeleteMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions())
+      return storyboardDeleteMethod(client, ledger, args, deps.storyboardBatch ?? resolveStoryboardBatchOptions(),
+        deps.deletionTaskScan ?? resolveDeletionTaskScanOptions())
     case 'edit_preview':
     case 'edit_batch_preview':
     case 'edit_apply':
@@ -1227,23 +1234,27 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       return { ...result }
     }
     case 'generate': {
+      const method = await resolveGenerateMethod(ledger, args)
+      if (method === 'legacy_replay') {
+        const record = await ledger.find(requireKey(args.idempotency_key))
+        if (record?.method !== 'storyboard_generate') throw new JubianError('CONTRACT_CHANGED')
+        return { canonical_method: 'legacy_generate_replay', replayed: true,
+          outcome: record.outcome ?? 'unknown', response_sha256: record.response_sha256, data: null,
+          next: '这是原 storyboard_generate 操作的账本回放，未查询或修改当前分镜，未发起生成。'
+            + 'accepted 仅表示原请求已被接受，不代表任务或视频成功；unknown 需按原操作核对任务记录，'
+            + '不得换 key 重发。先核对原任务结果；未完成对账前不要重新准备并提交同一包。' }
+      }
+      if (method === 'prepare_video') {
+        const storyboard_id = need(args.storyboard_id, 'storyboard_id')
+        const project_dir = need(args.project_dir, 'project_dir')
+        return { ...await prepareVideoMethod(client, ledger, { storyboard_id, project_dir,
+          content_duration_ms: args.content_duration_ms }, deps.promptRiskReview), canonical_method: method }
+      }
       requireKey(args.idempotency_key)
-      // The body reads the project before the budget check; the send step may
-      // reach the paid PUT only after the project's authorization passes.
-      let projectId: number | undefined
-      let savedModel: Record<string, unknown> | undefined
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_generate',
-        async () => {
-          const current = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
-          projectId = positiveInteger((current.data as { scriptId?: unknown } | null)?.scriptId)
-          const payload = withGenerationEnabled(current.data, need(args.content_duration_ms))
-          savedModel = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
-          return payload
-        },
-        body => client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(body) }),
-        () => ({ scriptId: projectId as number }),
-        { beforeReserve: () => { if (savedModel) deps.assertVideoModel?.(savedModel) } })
-      return { ...result }
+      return { ...await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
+        project_dir: args.project_dir, storyboard_id: args.storyboard_id,
+        idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny,
+        estimate_basis: args.estimate_basis }, deps.assertVideoModel), canonical_method: method }
     }
     case 'select_assets': {
       requireKey(args.idempotency_key)

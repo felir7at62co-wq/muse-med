@@ -75,6 +75,15 @@ describe('readStoryboard', () => {
     expect(result.model_config_notes).toEqual([])
   })
 
+  it.each(['8', ' 0008 '])('reads a saved decimal duration %j while preserving the original provider payload', (duration) => {
+    const data = snapshot({ modelConfig: { ratio: '9:16', resolution: '720p', genNum: 1,
+      modelId: 'doubao-seedance-2-0-260128', duration } })
+    expect(readStoryboard(data)).toMatchObject({ content_duration_ms: 7000, model_config: { duration: 8 },
+      model_config_notes: [], snapshot: data })
+    expect(withGenerationEnabled(data, 7000)).toEqual({ ...data, isGenerate: 1 })
+    expect(data.modelConfig).toMatchObject({ duration })
+  })
+
   it('reads and freely saves 2.5 480p settings without enabling generic paid generation', () => {
     const config = { modelId: 'doubao-seedance-2-5-260628',
       ratio: '16:9', resolution: '480p', duration: 30, genNum: 1 }
@@ -118,7 +127,7 @@ describe('readStoryboard', () => {
   })
 
   it('reads malformed duration for repair while refusing paid generation', () => {
-    for (const duration of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER, '8']) {
+    for (const duration of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER, '1e1', '8.0', '+8', '8s', '9007199254740992']) {
       const data = snapshot({ episodeId: null, episodeCount: 2, modelConfig: {
         ...JSON.parse(snapshot().modelConfig), duration } })
       const result = readStoryboard(data)

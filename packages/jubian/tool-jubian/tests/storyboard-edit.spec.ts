@@ -69,6 +69,19 @@ const apply = (plan: Record<string, unknown>, extra = {}) => storyboardMethod(cl
 })
 const writes = () => calls.filter(call => call.method !== 'GET')
 
+it('edits a saved decimal duration and accepts equivalent provider readback without resending', async () => {
+  boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '10' })
+  onPut = (body) => {
+    const saved = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+    body.modelConfig = JSON.stringify({ ...saved, duration: String(saved.duration) })
+  }
+  const plan = await preview({ resolution: '1080p' })
+  expect(plan).toMatchObject({ targets: [{ after: { duration: 10 } }] })
+  expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
+  expect(await apply(plan)).toMatchObject({ replayed: true })
+  expect(writes()).toHaveLength(1)
+})
+
 /** Rewrite the actual frozen preview to exercise validation of persisted JSON. */
 async function rewrite(
   plan: Record<string, unknown>, transform: (value: Record<string, unknown>) => Record<string, unknown>,

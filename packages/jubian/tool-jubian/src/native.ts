@@ -79,6 +79,34 @@ export function positiveInteger(value: unknown): number {
   return candidate
 }
 
+/**
+ * Route the compatibility generate entry without creating another paid operation.
+ * @param ledger - Durable operations whose original methods take precedence over new arguments.
+ * @param args - Optional original key and native prepared-preview path.
+ * @returns Historical read-only replay, native preparation, or native submission.
+ * @throws JubianError when an explicit argument is invalid or its key belongs to another operation.
+ */
+export async function resolveGenerateMethod(ledger: JubianLedger, args: {
+  idempotency_key?: unknown
+  preview_path?: unknown
+}): Promise<'legacy_replay' | 'prepare_video' | 'submit_video'> {
+  if (args.idempotency_key !== undefined) {
+    if (typeof args.idempotency_key !== 'string') throw new JubianError('INVALID_ARGUMENT', 'idempotency_key')
+    const record = await ledger.find(requireKey(args.idempotency_key))
+    if (record?.method === 'storyboard_generate') return 'legacy_replay'
+    if (record && record.method !== 'storyboard_native_submit') throw new JubianError('CONTRACT_CHANGED')
+    if (args.preview_path !== undefined && (typeof args.preview_path !== 'string' || !args.preview_path.trim())) {
+      throw new JubianError('INVALID_ARGUMENT', 'preview_path')
+    }
+    if (record) return 'submit_video'
+  }
+  if (args.preview_path === undefined) return 'prepare_video'
+  if (typeof args.preview_path !== 'string' || !args.preview_path.trim()) {
+    throw new JubianError('INVALID_ARGUMENT', 'preview_path')
+  }
+  return 'submit_video'
+}
+
 /** Read one paged envelope, refusing a page whose rows cannot be listed. */
 function pageOf(value: unknown): { rows: Record<string, unknown>[]; total: number | null } {
   if (Array.isArray(value)) return { rows: value.map(object), total: null }

@@ -61,6 +61,29 @@ const apply = (plan: Record<string, unknown>, extra = {}) => modelMethod(client,
 const puts = () => calls.filter(call => call.method === 'PUT')
 
 describe('scoped model settings', () => {
+  it('preserves an invalid saved duration in the repair preview instead of accepting its numeric coercion', async () => {
+    boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '1e1' })
+    await expect(preview({ scope: 'storyboards', storyboard_ids: [1] })).rejects.toThrow()
+    const plan = await preview({ scope: 'storyboards', storyboard_ids: [1], changes: { duration: 10 } })
+    expect(plan.targets).toEqual([partial({ before: partial({ duration: '1e1' }), after: partial({ duration: 10 }) })])
+    expect(await apply(plan)).toMatchObject({ status: 'applied' })
+    expect(puts()).toHaveLength(1)
+  })
+  it('previews saved decimal durations and reconciles string readback without sending the plan twice', async () => {
+    boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '10' })
+    onPut = (body) => {
+      const saved = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+      body.modelConfig = JSON.stringify({ ...saved, duration: String(saved.duration) })
+    }
+    const plan = await preview()
+    expect(plan.targets).toEqual([partial({ storyboard_id: 1, before: partial({ duration: 10 }),
+      after: partial({ duration: 10 }) }), partial({ storyboard_id: 2 })])
+    expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
+    expect(await apply(plan)).toMatchObject({ status: 'replayed', items: [
+      { storyboard_id: 1, status: 'applied' }, { storyboard_id: 2, status: 'applied' },
+    ] })
+    expect(puts()).toHaveLength(2)
+  })
   it('rejects an outside preview path before reading or parsing it', async () => {
     const plan = await preview()
     const outside = join(root, 'outside-preview.json')

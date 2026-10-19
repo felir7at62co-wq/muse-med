@@ -1491,33 +1491,29 @@ describe('jubian_storyboard', () => {
     expect(body.isGenerate).toBe(1)
   })
 
-  it('saves with generation disabled and generates from the same snapshot', async () => {
+  it('saves with generation disabled', async () => {
     const save = stubClient(() => STORYBOARD)
     await storyboardMethod(save.client, ledger, { method: 'save', idempotency_key: 'k-3', storyboard_id: 916953 })
     expect(save.calls[1]!.method).toBe('PUT')
     expect(save.calls[1]!.body!.isGenerate).toBe(0)
-
-    const generate = stubClient(() => STORYBOARD)
-    await storyboardMethod(generate.client, ledger, { method: 'generate', idempotency_key: 'k-4',
-      storyboard_id: 916953, content_duration_ms: 7000 })
-    expect(generate.calls[1]!.method).toBe('PUT')
-    expect(generate.calls[1]!.body!.isGenerate).toBe(1)
   })
 
-  it('reads the storyboard but never submits paid generation without a project grant', async () => {
+  it('requires a bound project before generate can prepare without a paid key', async () => {
     await rm(join(root, 'authorization.json'))
     const { client, calls } = stubClient(() => STORYBOARD)
-    await expect(storyboardMethod(client, ledger, { method: 'generate', idempotency_key: 'ungranted',
-      storyboard_id: 916953, content_duration_ms: 7000 })).rejects.toThrow('authorization.json')
-    expect(calls.map(call => call.method)).toEqual(['GET'])
+    await expect(storyboardMethod(client, ledger, { method: 'generate',
+      storyboard_id: 916953, content_duration_ms: 7000 })).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT', detail: 'project_dir',
+    })
+    expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
 
-  it('refuses to generate when the package duration disagrees with the saved snapshot, before sending', async () => {
+  it('requires a storyboard before generate can prepare', async () => {
     const { client, calls } = stubClient(() => STORYBOARD)
-    await expect(storyboardMethod(client, ledger, { method: 'generate', idempotency_key: 'k-5',
-      storyboard_id: 916953, content_duration_ms: 12000 })).rejects.toThrow()
-    expect(calls.length).toBe(1)
+    await expect(storyboardMethod(client, ledger, { method: 'generate', project_dir: root }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT', detail: 'storyboard_id' })
+    expect(calls).toEqual([])
   })
 
   it('compiles the erasure body without any catalogue read', async () => {

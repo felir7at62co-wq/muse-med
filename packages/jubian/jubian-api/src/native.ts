@@ -399,6 +399,7 @@ export function taskStatusOf(...records: Record<string, unknown>[]): string {
  * Resolve exact live intent without substituting a model, platform or specification.
  * Stale selector ids are ignored; ratio and resolution match case-insensitively.
  * Matching child rows that name a model must name the same model as their parent.
+ * Saved decimal duration strings are parsed as safe integers before model-specific bounds apply.
  * @param catalogue - Envelope `data` from `/model/charge/getSelectList?taskType=1`.
  * @param intent - Live modelConfig with modelId, ratio, resolution, genType, duration and genNum;
  * platformId may be omitted only when the catalogue match is unambiguous.
@@ -413,7 +414,7 @@ export function resolveVideoModel(catalogue: unknown, intent: unknown): Seedance
   const resolution = text(config.resolution).toLowerCase()
   const genType = integer(config.genType)
   if (integer(config.genNum) !== 1) invalid()
-  const duration = validateVideoDuration(modelId, config.duration)
+  const duration = validateVideoDuration(modelId, integer(config.duration))
   const rows = Array.isArray(catalogue) ? catalogue.map(object) : invalid()
   const matches: SeedanceVideoModel[] = []
   for (const selected of rows) {
@@ -650,7 +651,7 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
  * @param modelId - Exact catalogue model id.
  * @param duration - Requested numeric duration in seconds.
  * @returns The validated integer duration.
- * @throws {JubianError} `CONTRACT_CHANGED` for absent evidence or out-of-range duration.
+ * @throws {JubianError} `CONTRACT_CHANGED` for nonnumeric, fractional or out-of-range duration.
  */
 export function validateVideoDuration(modelId: string, duration: unknown): number {
   const maximum = modelId === 'doubao-seedance-2-0-260128' ? 15

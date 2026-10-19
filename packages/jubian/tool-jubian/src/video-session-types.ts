@@ -17,7 +17,7 @@ export type VideoModelOption = {
   /** Supported generation types and aspect ratios. */
   genTypes: number[]
   ratios: string[]
-  /** Known duration ceiling, or null when the catalogue supplies none. */
+  /** Recorded duration ceiling, or null when this exact model has no recorded bound. */
   maxDurationSeconds: number | null
 }
 

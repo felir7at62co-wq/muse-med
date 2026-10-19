@@ -34,6 +34,14 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 
 Muse 不在桌面构建和加载中包含 Codex 订阅插件。产品覆盖同时停用 Agent 笔记设置页与对应 Host API，已有订阅凭据、工程笔记文件与 Muse 知识库功能保留。
 
+## 用户返稿保护
+
+Office 组合全局注册 `manuscript_revision`，将保留的上一稿与实际返回的 Markdown、UTF-8 文本或 Word 文稿比较。同一会话此前交付的文件在同一路径发生变化时，会在该会话下一次真人输入时检测；外部修改者未经确认，因此按返稿保守保留。改名或重新上传的文件需明确提供 `baseline_path` 与 `revised_path`。没有上一稿，Muse 就不能推断历史修改。每个会话只有一份活跃文稿对比；独立文稿使用新会话。
+
+用户新增、改写的内容按规范化后的完整段落及顺序逐字保护；被删除的原文持续记录，防止恢复。Muse 可以精修未改部分，并写入新的候选文件，不覆盖返稿原件。Word 导出及通过 `present` 或 `dsh_im_return_file` 交付前，用 `review` 检查完整候选；后者在发送队列受理后记录基线，不代表接收人已经成功收到。局部例外需要真人消息中的准确授权用语和受影响的完整文字，泛化的润色要求不构成授权。这些检查覆盖已注册的导出和交付路径，不是操作系统层的 shell 写入锁，也不覆盖直接文件链接；不能证明故事质量或语义等价。
+
+快照和保护记录保存在工作区的 `.muse/manuscript-revisions/` 目录。Office 配置项 `manuscriptRevisions` 显式提供 `maxFileBytes`、`maxTextChars`、`maxParagraphs`、`maxEditLength`、`maxDocuments`、`maxLedgerBytes` 与 `lockWaitMs`；超出预算会报错，不静默截断对比。模型可见提醒写入已记录的上下文，系统提示词不变。导出被保护检查拒绝时，参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。
+
 ## 内置桥接选择
 
 Host 从内置桥接包的 remote 导出解析 `muse-desktop-bridge`，并将原有 `feishu-channel` 配置项交给内置 `@xmanrui/dsh-im` 提供方。IM 配置项的规范包名也用于发现其原生浏览器模块。正式包的 profile 通过安装目录回退解析 Host 和浏览器两部分，不创建 profile 包链接；开发环境指向同一包的链接也可使用。启动时先对 profile 原文件做私有字节备份，再迁移已知旧包名的匹配条件；凭证、启用开关、发送者策略和无关字节保持不变。共享 home patch 中仍有旧包名匹配条件，或 profile 安装的 IM 包遮蔽了内置产物时，启动会停止并给出诊断。内置导出缺失时，组合阶段会明确报出受影响的入口；其他 profile 插件仍按普通规则解析。

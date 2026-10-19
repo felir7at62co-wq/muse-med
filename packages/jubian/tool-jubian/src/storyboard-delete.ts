@@ -7,6 +7,8 @@ import { atomicWriteJson, positiveInteger, validateProjectBinding } from './nati
 import type { ImageBatchOptions, MethodArgs } from './methods.ts'
 import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { readPreparedJson } from './prepared-file.ts'
+import { deletionTasks } from './storyboard-delete-tasks.ts'
+import type { DeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
 
 type Row = Record<string, unknown>
 interface Target {
@@ -59,26 +61,25 @@ async function readBoard(client: JubianClient, scriptId: number, id: number): Pr
   if (positiveInteger(board.id) !== id || positiveInteger(board.scriptId) !== scriptId) fail('Storyboard identity or project mismatch')
   return board
 }
-async function inspect(client: JubianClient, scriptId: number, id: number): Promise<Target> {
+async function inspect(client: JubianClient, scriptId: number, id: number, taskScan: DeletionTaskScanOptions): Promise<Target> {
   const board = await readBoard(client, scriptId, id)
   if (board === null) return invalid(`Storyboard ${id} is absent; remove it from the inspection targets`)
-  const response = await client.request({ method: 'GET', path: `/aigc/storyboard/byStoryboard/${id}` })
-  const data = response.data
-  const envelope = Array.isArray(data) ? null : row(data)
-  const list = envelope === null ? data : envelope.rows ?? envelope.list
-  if (!Array.isArray(list)) return fail('Unreadable linked tasks; deletion requires a complete inspection')
-  if (envelope !== null && (typeof envelope.total !== 'number' || !Number.isSafeInteger(envelope.total)
-    || envelope.total !== list.length)) return fail('Incomplete linked tasks; deletion requires a complete inspection')
-  const tasks = list.map(row)
+  const tasks = await deletionTasks(client, scriptId, id, taskScan)
   const configValue = parsed(board.modelConfig)
   const config = configValue && typeof configValue === 'object' && !Array.isArray(configValue) ? row(configValue) : {}
   const materials = parsed(board.storyboardMaterialList)
   const terminal = [...SUCCESS_STATUSES, ...FAILED_STATUSES] as readonly string[]
+  const taskStates = tasks.flatMap((task) => {
+    const children = task.subTaskList
+    if (children === undefined || children === null) return [task]
+    if (!Array.isArray(children)) return fail('Unreadable task children; deletion remains unverified')
+    return [task, ...children.map(row)]
+  })
   return { storyboard_id: id, snapshot_hash: stableSha256({ board, tasks }),
     name: board.storyboardName ?? null, episode_id: board.episodeId ?? null,
     duration: config.duration ?? null, prompt: config.prompt ?? null,
     material_count: Array.isArray(materials) ? materials.length : materials === null || materials === undefined ? 0 : null,
-    tasks, active_generation: tasks.some(task => !terminal.includes(taskStatusOf(task))),
+    tasks, active_generation: taskStates.some(task => !terminal.includes(taskStatusOf(task))),
     has_generated_media: tasks.length > 0 || ['resultVideoUrl', 'videoUrl', 'tosVideoUrl'].some(key => Boolean(board[key])) }
 }
 function destination(root: string, fingerprint: string): string { return join(root, 'video_tasks', `${fingerprint}.storyboard-delete.prepared.json`) }
@@ -137,10 +138,11 @@ export function deletionInspectionReason(value: unknown): string | undefined {
  * @param ledger - Records the plan and each deletion; replay performs readback only.
  * @param args - Project, exact target IDs, authorization and reviewed preview location.
  * @param limits - Deployment bounds shared with storyboard batches.
+ * @param taskScan - Resolved bounds for complete fallback task inspections.
  * @returns Per-card inspection or removal results, including ambiguous response diagnostics.
  */
 export async function storyboardDeleteMethod(client: JubianClient, ledger: JubianLedger, args: MethodArgs,
-  limits: ImageBatchOptions): Promise<Row> {
+  limits: ImageBatchOptions, taskScan: DeletionTaskScanOptions): Promise<Row> {
   const reason = deletionInspectionReason(args)
   if (reason) invalid(reason)
   const scriptId = positiveInteger(need(args.script_id, 'script_id'))
@@ -150,7 +152,7 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
     const unsigned: Omit<Plan, 'fingerprint'> = { version: 1, operation: 'storyboard_delete', script_id: scriptId,
       delete_reason: text(args.delete_reason, 'delete_reason'), authorization_basis: text(args.authorization_basis, 'authorization_basis'),
       include_generated_media: args.include_generated_media === true, targets: [] }
-    for (const id of idsToInspect) unsigned.targets.push(await inspect(client, scriptId, id))
+    for (const id of idsToInspect) unsigned.targets.push(await inspect(client, scriptId, id, taskScan))
     const plan = { ...unsigned, fingerprint: digest(unsigned) }
     const path = destination(binding.project_root, plan.fingerprint)
     await atomicWriteJson(path, plan)
@@ -186,19 +188,19 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
     return { status: 'replayed', replayed: true, paid_requests: 0, items, next: '只做回读，没有再次删除。未尝试的卡需重新预览剩余精确范围。' }
   }
   for (const target of plan.targets) {
-    const live = await inspect(client, scriptId, target.storyboard_id)
+    const live = await inspect(client, scriptId, target.storyboard_id, taskScan)
     if (stableSha256(live) !== stableSha256(target)) fail(`Stale deletion preview: card ${target.storyboard_id} changed; inspect again`)
     if (live.active_generation) invalid(`Card ${target.storyboard_id} has active generation; wait for completion and inspect again`)
     if (live.has_generated_media && !plan.include_generated_media) invalid('关联生成媒体未获得删除授权：preview 必须明确 include_generated_media 后重新检查')
   }
   const claim = await ledger.begin({ idempotencyKey: key, method: 'storyboard_remove', scriptId, requestSha256: `sha256:${key}` })
-  if (claim.replayed) return storyboardDeleteMethod(client, ledger, args, limits)
+  if (claim.replayed) return storyboardDeleteMethod(client, ledger, args, limits, taskScan)
   let stopped = false
   for (const target of plan.targets) {
     if (stopped) { items.push({ storyboard_id: target.storyboard_id, status: 'not_attempted', verified_readback: false }); continue }
     const item: Row = { storyboard_id: target.storyboard_id, status: 'unknown', verified_readback: false }
     try {
-      if (stableSha256(await inspect(client, scriptId, target.storyboard_id)) !== stableSha256(target)) {
+      if (stableSha256(await inspect(client, scriptId, target.storyboard_id, taskScan)) !== stableSha256(target)) {
         item.status = 'stale'; stopped = true
       } else {
         const result = await writeUnderLedger(ledger, `${key}:${target.storyboard_id}`, 'storyboard_remove',

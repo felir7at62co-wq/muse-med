@@ -328,7 +328,7 @@ export interface PackageReport {
   shots: number[]
   /** Content seconds within the caller's explicit package budget. */
   content_seconds: number
-  /** Content duration in whole milliseconds, the value `jubian_storyboard` `generate` takes. */
+  /** Net content milliseconds, excluding ending holds; distinct from the optional native preparation cross-check. */
   content_duration_ms: number
   /** Whole seconds the submission requests, content plus the natural hold. */
   submit_seconds: number

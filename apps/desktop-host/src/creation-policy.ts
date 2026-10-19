@@ -67,6 +67,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'jubian_watch',
   'list_mcp_resource_templates',
   'list_mcp_resources',
+  'manuscript_revision',
   'mcp__muse-account__muse_account_status',
   'mcp__muse-account__muse_kb_ingest_script',
   'mcp__muse-account__muse_kb_read',

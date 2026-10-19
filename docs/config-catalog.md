@@ -4164,7 +4164,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:63`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:64`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4229,6 +4229,10 @@ export interface Config extends ImageRouteConfig {
   storyboardBatchConcurrency?: number
   /** Maximum prepared storyboard bodies per call; integer 1..1000, default 1000. */
   storyboardBatchMaxItems?: number
+  /** Rows per deletion fallback project-task or child page; integer 1..100, default 100. */
+  storyboardDeleteTaskPageSize?: number
+  /** Maximum pages per complete deletion fallback project or child snapshot; integer 1..100, default 20. */
+  storyboardDeleteTaskPageLimit?: number
   /** Rows per page during audio registration and card-reference inspection; integer 1..1000, default 1000. */
   audioReferencePageSize?: number
   /** Maximum pages in complete audio inventory/reference scans; integer 1..100, default 100. */

@@ -42,6 +42,7 @@ async function harness(names: readonly string[], config: Config = {}): Promise<{
       parameters: {
         method: { type: 'string' },
         idempotency_key: { type: 'string' },
+        preview_path: { type: 'string' },
         file_path: { type: 'string' },
         content: { type: 'string' },
         script_id: { type: 'number' },
@@ -70,7 +71,7 @@ describe('the gate intercepts real dispatch', () => {
     }
     const { ctx, ran } = await harness(['jubian_storyboard'], { workspaceRoot: workspace })
     const result = await ctx.tools.execute({ signal, callId: ToolCallId('host-project-discovery'),
-      name: 'jubian_storyboard', arguments: { method: 'generate', script_id: 42, idempotency_key: 'key' } })
+      name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json', script_id: 42, idempotency_key: 'key' } })
     expect(result.isError).toBe(!exists)
     expect(ran.get('jubian_storyboard')).toBe(exists ? 1 : undefined)
     if (!exists) expect(JSON.stringify(result.content)).toContain('门禁无法核对它引用的资产')
@@ -81,7 +82,7 @@ describe('the gate intercepts real dispatch', () => {
       signal,
       callId: ToolCallId('c1'),
       name: 'jubian_storyboard',
-      arguments: { method: 'generate' },
+      arguments: { method: 'generate', preview_path: 'prepared.json' },
     })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ type: 'text' })
@@ -99,6 +100,19 @@ describe('the gate intercepts real dispatch', () => {
     })
     expect(result.isError).toBe(false)
     expect(ran.get('jubian_storyboard')).toBe(1)
+  })
+
+  it('lets generate preparation and original-key replay reach the owning executor', async () => {
+    const { ctx, ran } = await harness(['jubian_storyboard'])
+    for (const [index, args] of [
+      { method: 'generate', project_dir: WORKSPACE },
+      { method: 'generate', idempotency_key: 'legacy-original' },
+    ].entries()) {
+      const result = await ctx.tools.execute({ signal, callId: ToolCallId(`generate-free-${index}`),
+        name: 'jubian_storyboard', arguments: args })
+      expect(result.isError).toBe(false)
+    }
+    expect(ran.get('jubian_storyboard')).toBe(2)
   })
 
   it('allows long slow narration in workshop writes', async () => {

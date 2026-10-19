@@ -93,7 +93,9 @@ export function requireKey(value: string | undefined): string {
  * Arguments a method derives from what it already reads are deliberately absent:
  * `erase_subtitle` and `upscale` read the project from the task row, and
  * `submit_video` accepts either a preview file or the pair that locates one, so
- * none of those is listed here. `image_generate` is absent for `asset_type`
+ * none of those is listed here. `generate` validates its arguments after routing
+ * historical keys to read-only replay or new calls to native preparation/submission.
+ * `image_generate` is absent for `asset_type`
  * because either it or `asset_category` states the category, and the pair is
  * checked against each other in the method. `idempotency_key` is absent too —
  * {@link requireKey} owns it and names it for every write method.
@@ -138,7 +140,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_storyboard.audio_apply': ['script_id', 'project_dir', 'storyboard_id', 'preview_path', 'expected_fingerprint'],
   'jubian_storyboard.delete_preview': ['script_id', 'project_dir', 'storyboard_ids', 'delete_reason', 'authorization_basis'],
   'jubian_storyboard.delete_apply': ['script_id', 'project_dir', 'preview_path', 'checked_storyboard_ids'],
-  'jubian_storyboard.generate': ['storyboard_id', 'content_duration_ms'],
+  'jubian_storyboard.generate': [],
   'jubian_storyboard.select_assets': ['storyboard_id', 'selections'],
   'jubian_storyboard.prepare_video': ['storyboard_id', 'project_dir'],
   'jubian_storyboard.submit_video_batch': ['video_previews'],

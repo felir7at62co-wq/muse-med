@@ -17,6 +17,7 @@
  */
 import { homedir } from 'node:os'
 import { deletionInspectionReason } from './storyboard-delete.ts'
+import { resolveDeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
 import { STORYBOARD_WRITE_REMINDER } from './storyboard-edit.ts'
 import { resolvePromptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewConfig } from './prompt-risk.ts'
@@ -121,6 +122,10 @@ export interface Config extends ImageRouteConfig {
   storyboardBatchConcurrency?: number
   /** Maximum prepared storyboard bodies per call; integer 1..1000, default 1000. */
   storyboardBatchMaxItems?: number
+  /** Rows per deletion fallback project-task or child page; integer 1..100, default 100. */
+  storyboardDeleteTaskPageSize?: number
+  /** Maximum pages per complete deletion fallback project or child snapshot; integer 1..100, default 20. */
+  storyboardDeleteTaskPageLimit?: number
   /** Rows per page during audio registration and card-reference inspection; integer 1..1000, default 1000. */
   audioReferencePageSize?: number
   /** Maximum pages in complete audio inventory/reference scans; integer 1..100, default 100. */
@@ -208,7 +213,7 @@ const ARGS = {
   asset_url: { type: 'string',
     description: 'register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。'
       + 'register 按它新建资产，不生成新图。' },
-  content_duration_ms: { type: 'number', description: 'generate 必填：本包内容时长，4000–14000 的整千毫秒。' },
+  content_duration_ms: { type: 'number', description: 'prepare_video / generate 准备阶段可选：内容时长交叉校验，等于已保存卡时长减 1 秒后的毫秒数；不用于修改时长。' },
   model_id: { type: 'string', description: 'erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 '
     + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。' },
   task_name: { type: 'string', description: 'erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。' },
@@ -243,10 +248,10 @@ const ARGS = {
   image_path: { type: 'string',
     description: 'upload_reference 必填：本地参考图路径（jpg/jpeg/png/webp）。' },
   project_dir: { type: 'string',
-    description: 'prepare_video 必填、submit_video 可选：项目目录，必须含 project_config.json，'
+    description: 'prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，'
       + '且其 jubian_script_id 必须等于实时 scriptId。' },
   preview_path: { type: 'string',
-    description: 'submit_video 必填：prepare_video 返回的 preview_path，不要猜测或手写文件名。' },
+    description: 'submit_video / generate 提交阶段：准备结果返回的 preview_path，不要猜测或手写文件名；新 generate 不带此项时仅准备预览。' },
   video_previews: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
     ...VIDEO_ESTIMATE_ARGS,
     preview_path: { type: 'string', required: true, description: '本项 prepare_video 返回的预览文件。' },
@@ -396,6 +401,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const imageBatch = resolveImageBatchOptions(config)
   const videoBatch = resolveVideoBatchOptions(config)
   const storyboardBatch = resolveStoryboardBatchOptions(config)
+  const deletionTaskScan = resolveDeletionTaskScanOptions(config)
   const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
   ctx.plugin(JubianToken)
@@ -733,9 +739,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。'
       + 'delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。'
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
-      + '**generate、erase_subtitle 与 submit_video 会真实计费且不可撤销**。'
-      + 'generate 先读当前分镜快照再把 isGenerate 置 1 提交，因此必须同时给出 content_duration_ms，'
-      + '且它必须与该分镜已保存的时长一致，否则会在发请求前失败。'
+      + '**erase_subtitle、submit_video 及 generate 的提交阶段会真实计费且不可撤销**。'
+      + 'generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，'
+      + '必须给 storyboard_id 与 project_dir；先核对返回预览，再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
+      + '旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + '每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。'
       + 'select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；'
@@ -743,11 +750,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。'
       + '按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，'
       + '同步完成后的预览准备仅在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不创建任务、不收费；'
-      + 'submit_video 的 idempotency_key 必须等于该 preview 自带的 fingerprint，'
+      + 'submit_video 的 idempotency_key 必须等于该 preview 自带的 idempotencyKey（指纹），'
       + 'PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），'
       + '随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；'
       + '身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。'
-      + '启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；未核实时长能力时报告缺项，不能换模型绕过。'
+      + '启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；已知型号按已记录范围校验，其他型号接受正整数秒、上限保持未知，不借用 15/30 秒上限，也不因上限未知自行停工或换模型。'
       + 'Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。'
       + 'submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；'
       + '全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。'
@@ -763,7 +770,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
           'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
-          + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=提交生成（计费）；'
+          + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
@@ -782,7 +789,9 @@ export function apply(ctx: Context, config: Config = {}): void {
           idempotency_key: { type: 'string', required: true, description: '本项固定重放键；不得重复。' },
           body: ARGS.body, body_path: ARGS.body_path,
         } } },
-      body: ARGS.body, body_path: ARGS.body_path, idempotency_key: ARGS.idempotency_key,
+      body: ARGS.body, body_path: ARGS.body_path,
+      idempotency_key: { ...ARGS.idempotency_key,
+        description: `generate 不带预览时可省略；提交须原样使用预览返回的 idempotencyKey（指纹），旧操作对账使用原 key。${WRITE_NOTE}` },
       prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。' },
       audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。', items: {
         type: 'object', additionalProperties: false, properties: {
@@ -831,7 +840,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
       return await guarded('jubian_storyboard', input => storyboardMethod(client, ledger, input, {
-        naming, videoBatch, storyboardBatch, ...(promptRiskReview ? { promptRiskReview } : {}),
+        naming, videoBatch, storyboardBatch, deletionTaskScan, ...(promptRiskReview ? { promptRiskReview } : {}),
         ...(assertVideoModel ? { assertVideoModel } : {}),
       }))(args)
     },

@@ -603,6 +603,28 @@ describe('prepare_video', () => {
 })
 
 describe('submit_video', () => {
+  it('prepares a saved decimal duration as numeric seconds and reconciles one synthetic submission', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '10' }) }, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const frozen = await readFile(previewPath, 'utf8')
+    const preview = JSON.parse(frozen) as NativeVideoPreview
+    expect(JSON.parse(String(preview.payload.modelConfig))).toMatchObject({ duration: 10 })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+    provider.onPut = (payload) => {
+      expect(JSON.parse(String(payload.modelConfig))).toMatchObject({ duration: 10 })
+      provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ status: 'submitted', put_sent: true })
+    provider.storyboard.modelConfig = JSON.stringify({ ...MODEL_CONFIG, duration: '10' })
+    expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ status: 'submitted', replayed: true })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+    expect(await readFile(previewPath, 'utf8')).toBe(frozen)
+  })
   it.each([100, 101, 266])('submits and replays with a null episode id and %i foreign-episode tasks', async (count) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: null, episodeCount: 76 },
       tasks: Array.from({ length: count }, (_, index) => ({ id: 100000 + index, scriptId: 2708,

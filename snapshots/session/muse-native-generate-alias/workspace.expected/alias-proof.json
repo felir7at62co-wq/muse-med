@@ -1,0 +1,27 @@
+{
+  "preparedInNextModelRequest": true,
+  "initialSavedModel": {
+    "modelId": "doubao-seedance-2-0-260128",
+    "platformId": "YU_DIAN",
+    "resolution": "720p"
+  },
+  "submittedModel": {
+    "modelId": "doubao-seedance-2-5-260628",
+    "platformId": "FANG_ZHOU",
+    "resolution": "480p",
+    "duration": 30,
+    "ratio": "16:9"
+  },
+  "freeModelSyncPuts": 1,
+  "paidMockPuts": 1,
+  "legacyUnknownReplayHttpCalls": 0,
+  "matchedTaskId": "335343",
+  "nativeReplay": true,
+  "originalLegacyOutcome": "unknown",
+  "nativeLedgerRecords": 1,
+  "preparedFiles": [
+    "77ebbe796f1a67d357dd2a1dc59ad2f6f3b860d71350e6e32ffd11f3ee25004f.model-settings.prepared.json",
+    "storyboard-916953-f9532a1e8bfc.storyboard-native.prepared.json"
+  ],
+  "realProviderRequests": 0
+}

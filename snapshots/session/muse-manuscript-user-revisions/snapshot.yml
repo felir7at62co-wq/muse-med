@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-manuscript-user-revisions
+profile: headless
+composition: muse-manuscript-user-revisions
+recording: authored
+header:
+  class: muse-manuscript-user-revisions
+  pin: true
+writerOutput: true
+workspace:
+  final: true

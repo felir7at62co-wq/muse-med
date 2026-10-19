@@ -137,10 +137,10 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     let calls = 0
     ctx.tools.register(defineContentToolFixture({
       name: 'jubian_storyboard', description: 'No-network provider fixture',
-      parameters: { method: { type: 'string' } },
+      parameters: { method: { type: 'string' }, preview_path: { type: 'string' } },
       async execute() { calls++; return [{ type: 'text', text: 'provider reached' }] },
     }))
-    const denied = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate' },
+    const denied = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-denied'), signal: new AbortController().signal })
     expect(denied.isError).toBe(true)
     expect(JSON.stringify(denied.content)).toContain('idempotency_key')
@@ -150,7 +150,7 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     expect(allowed.isError).toBe(false)
     expect(calls).toBe(1)
     await [...ctx.loader.entries()].find(row => row.options.id === 'drama-gate')?.fiber?.dispose()
-    await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate' },
+    await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-disposed'), signal: new AbortController().signal })
     expect(calls).toBe(2)
   } finally {

@@ -116,7 +116,7 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
 
-`validateVideoDuration()` 只接受整数秒。目录没有时长上下限：精确 id `doubao-seedance-2-0-260128` 使用 4–15 秒，`doubao-seedance-2-5-260628` 使用用户确认的 30 秒上限及用户确认的 4 秒下限。此回退不是提供方验证的时长证据。未知 id 拒绝放行。预览校验应用相同范围，且不削弱项目、指纹或有序身份校验。
+`resolveVideoModel()` 和 `readStoryboard()` 将已保存的十进制时长字符串（含补零或首尾空白）规范为安全正整数；格式错误的字符串仍不能用于生成。`readStoryboard()` 保留原始提供方快照。`validateVideoDuration()` 校验数字类型的整数秒：精确 ID `doubao-seedance-2-0-260128` 使用 4–15 秒，`doubao-seedance-2-5-260628` 使用 4–30 秒。这些已记录的范围并非模型目录返回。其他型号接受正整数秒，不借用 Seedance 上限；上限未知本身不会阻止准备或提交，但仍必须精确匹配实时目录。原生预览冻结数字时长，项目、指纹与有序主体身份校验保持不变。
 
 ### 下载媒体
 

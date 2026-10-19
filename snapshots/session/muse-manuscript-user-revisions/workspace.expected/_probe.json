@@ -1,0 +1,12 @@
+{
+  "realSession": true,
+  "comparisonLoggedFromTool": true,
+  "systemMessageCount": 1,
+  "revertedCandidateRejected": true,
+  "revertedDeliveryRejected": true,
+  "correctedCandidateAccepted": true,
+  "correctedDeliveryAccepted": true,
+  "userReturnedFilePreserved": true,
+  "privateLedgerVerified": true,
+  "restartVerifiedByThisScenario": false
+}

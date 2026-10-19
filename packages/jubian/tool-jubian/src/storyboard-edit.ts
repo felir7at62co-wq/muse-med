@@ -95,6 +95,15 @@ function snapshot(board: Row): Row {
 }
 function comparable(board: Row): Row {
   const state = snapshot(board)
+  const config = { ...configOf(board) }
+  if (config.duration !== undefined) {
+    try { config.duration = positiveInteger(config.duration) }
+    catch (error) {
+      if (!(error instanceof JubianError)) throw error
+      // Prompt-only repairs retain malformed durations without changing their meaning.
+    }
+  }
+  state.modelConfig = config
   state.storyboardMaterialList = materialsOf(board).map(row => Object.fromEntries(Object.entries(object(row))
     .filter(([field]) => field !== 'id' && !(AUDIT_KEYS as readonly string[]).includes(field))))
   return Object.fromEntries(Object.entries(state).filter(([key]) => !(AUDIT_KEYS as readonly string[]).includes(key)))

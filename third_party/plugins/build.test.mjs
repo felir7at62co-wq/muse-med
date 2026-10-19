@@ -69,6 +69,17 @@ const originals = new Map(Object.keys(pins).map(directory => {
   return [manifest.name, manifest]
 }))
 
+function assertAccountRemotePayload(entries, manifest) {
+  assert.deepEqual(entries.split(/\r?\n/u).filter(path => path.startsWith('package/lib/') && !path.endsWith('/')).sort(), [
+    'package/lib/index.js', 'package/lib/muse-desktop-tunnel.mjs', 'package/lib/remote.mjs',
+    'package/lib/upstream/session-strip.js', 'package/lib/upstream/tunnel-client.mjs',
+  ])
+  assert.equal(manifest.exports['./remote'], './lib/remote.mjs')
+  assert.equal(manifest.dsh.client, undefined)
+  assert.deepEqual(Object.keys(manifest.dependencies).sort(), ['@deepseek-ai/dsh-muse-account', '@xmanrui/dsh-im', 'ws'])
+  assert.equal(manifest.devDependencies, undefined)
+}
+
 test('rejects an unknown source', () => {
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', '../unlisted', '--out', 'unused'], { encoding: 'utf8' })
   assert.equal(result.status, 1)
@@ -110,6 +121,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
         assert.equal(entry.status, 0)
         assert.doesNotMatch(entry.stdout, /ensureGlobalShim|global-shim/)
       }
+      if (manifest.name === '@wenbin_wb/dsh-bridge') assertAccountRemotePayload(list.stdout, manifest)
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
         if (dependency === '@deepseek-ai/dsh-invariants') {
           assert.equal(manifest.peerDependencies[dependency], undefined)
@@ -154,6 +166,28 @@ test('builds every desktop plugin with its declared runtime entries and notices'
   } finally {
     rmSync(first, { recursive: true, force: true })
     rmSync(second, { recursive: true, force: true })
+  }
+})
+
+test('builds only account remote transport without the retired Feishu payload', () => {
+  const output = mkdtempSync(join(tmpdir(), 'muse-account-remote-build-'))
+  try {
+    const result = spawnSync(process.execPath,
+      [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-bridge', '--out', output],
+      { cwd: root, stdio: 'inherit' })
+    assert.equal(result.signal, null, 'account remote build finishes without a signal')
+    assert.equal(result.status, 0, 'account remote build succeeds')
+    const tarball = join(output, readdirSync(output).find(file => file.endsWith('.tgz')))
+    const list = spawnSync('tar', ['-tzf', tarball], { encoding: 'utf8' })
+    assert.equal(list.status, 0)
+    const manifest = spawnSync('tar', ['-xOzf', tarball, 'package/package.json'], { encoding: 'utf8' })
+    assert.equal(manifest.status, 0)
+    assertAccountRemotePayload(list.stdout, JSON.parse(manifest.stdout))
+    assert.match(list.stdout, /package\/LICENSE/u)
+    assert.match(list.stdout, /package\/SOURCE.json/u)
+    assert.doesNotMatch(list.stdout, /package\/(?:client|locale|scripts)\//u)
+  } finally {
+    rmSync(output, { recursive: true, force: true })
   }
 })
 

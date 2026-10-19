@@ -11,7 +11,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；计费或改变状态的调用使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
+`dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；付费提交和明确带键的写入使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
 
 ## 目录
 
@@ -181,8 +181,9 @@ inherited process environment (read-only, highest)
 | | `audio_preview`, `audio_apply` | 在一张原卡上替换最终音频列表，保留图片与生成配置 |
 | | `delete_preview`、`delete_apply` | 检查精确授权目标后删除一次；执行前检查 Hook、过期拒绝与回读 |
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
-| | `prepare_video` | 远端只读、免费；只写一个本地 preview 文件 |
-| | `generate`、`submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
+| | `prepare_video` | 免费；可用 `isGenerate=0` 同步会话模型，再写入本地预览 |
+| | `generate` | 兼容别名：新调用无预览时免费准备，有预览时付费提交；旧 key 仅只读账本 |
+| | `submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
 | | `submit_video_batch` | 每个分镜可能计费；`video_previews` 各项需要自己的 fingerprint key |
 | `jubian_video` | `task`、`tasks`、`subtasks` | 只读，不产生费用 |
 | | `image_generate`、`upscale` | 计费且不可撤销；需要 `idempotency_key` |
@@ -191,15 +192,17 @@ inherited process environment (read-only, highest)
 | `jubian_media` | `download` | 免费且不需要凭证；写入一个本地文件 |
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
 
-免费 prepare_video 结果的 next 简短提醒按系统提示词的固定自检清单核对本次提交，并保留预览不写远端、不收费及原 fingerprint 提交方式的说明。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
+免费 prepare_video 结果的 next 简短提醒按系统提示词的固定自检清单核对本次提交，并保留准备不创建生成任务、不收费及原 fingerprint 提交方式的说明。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
 
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
 - `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。`production_type` 与 `share_target_type` 原样转发为 `productionType` 与 `shareTargetType`，且只对 `mine` 有效：控制台打开「漫剧视频」时自己发的那次请求，就是在同一个 `/aigc/script/list` 上带 `productionType=0` 与 `shareTargetType=1`，所以这一对参数正是列出漫剧项目的方式。两个取值都是提供方自己的编码——本工具既不解释、也不校验、也不给默认值，因此省略的那个根本不会出现在查询串里。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
-- `jubian_storyboard` 无需模型设置或本地项目文件即可列出项目分镜身份、读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 先读当前分镜快照，把 `isGenerate=1` 写回，因此还必须给出与该分镜已保存时长一致的 `content_duration_ms`；不一致时在任何请求离开前就失败。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
+- `jubian_storyboard` 无需模型设置或本地项目文件即可列出项目分镜身份、读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 使用下文的分镜原生预览与提交流程，不再有独立的直接生成路径。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
 
 `delete_preview` 要求精确的 `storyboard_ids`、用户的 `authorization_basis` 与具体 `delete_reason`。它读取卡片内容和关联任务，冻结项目绑定的预览。执行前 Hook 要求 Agent 检查这些目标，并在 `delete_apply` 中给出全部 `checked_storyboard_ids`。应用拒绝任何已变化的卡片或任务、运行中的生成任务，以及预览没有明确包含授权删除的关联生成媒体。提供方公开分镜页（`chunk-7652bf40.2c84d891.js`，模块 `917c`，2026 年 9 月 30 日）确认了 `DELETE /aigc/storyboard/{id}` 端点。每次写入记录为 `storyboard_remove`；响应丢失时停止剩余批次并回读。重放同一计划只读取，尚未尝试的目标需要重新检查。每项结果将已存的提供方响应 `response_status` 与当前删除回读核验 `verified_readback` 分开；重放核验逐卡账本的方法、项目与请求哈希。关联任务读取必须覆盖所报告的完整总数，部分分页结果不能用于删除。Apply 只读取当前项目内指纹对应的预览文件，在读取前拒绝符号链接。远端删除不可恢复。
+
+生成历史仅返回一条记录时仍按列表读取。历史响应为空或无法解析，并不证明没有任务：删除检查会读取完整项目任务清单和候选详情，并要求第二次完整清单保持一致。父记录没有明确分镜 ID 时，还须独立读取完整且不变的子结果清单，核验子结果、父任务、项目和分镜身份。完整批次的子结果可以属于多张卡；关联任务的全部子结果均保留在冻结证据中。父任务已完成不能覆盖子结果仍活动或状态未知的事实。仅排除明确的生图任务；归属缺失、分页不完整、总数或快照变化、扫描超限均拒绝预览，并指出卡号和核验失败原因。`storyboardDeleteTaskPageSize` 默认 100，`storyboardDeleteTaskPageLimit` 默认 20，均为 1–100 的整数，约束每次项目或子结果清单读取。子结果通过只读 POST 查询；这条补充核验路径不提交或删除任何内容。
 
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
 
@@ -316,6 +319,12 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
+`generate` 是这条原生通道的兼容别名。新调用没有 `preview_path` 时，必须提供 `storyboard_id` 和已绑定的 `project_dir`，执行免费的 `prepare_video`，返回真实预览和指纹，标明 `canonical_method: prepare_video`，不提交生成。可选 `content_duration_ms` 仅按原生规则交叉核对已保存时长，不再作为独立提示词编译器的输入。没有通用的 4–14 秒、9:16 或 720p 限制，以原生通道的实时目录模型和规格校验为准。提供 `preview_path` 时，`generate` 转交 `submit_video`，标明 `canonical_method: submit_video`，`idempotency_key` 必须是预览原有 fingerprint，全部预算、任务、素材和会话选择校验均保留。启用会话选择时，以会话模型和分辨率为准；准备保留已存比例、提示词、素材和时长。
+
+账本已记录为 `storyboard_generate` 的原 key 遵循单独的只读兼容规则：以原 `idempotency_key` 调用 `generate`，不需要 `storyboard_id`、`content_duration_ms` 或 `project_dir`。结果标明 `canonical_method: legacy_generate_replay`，只报告原账本事实，不代表重新核验过远端，也绝不重发写入。结果未知或未完成对账，不授权换 key 或重新提交。
+
+准备生成时通常省略可选输入 `content_duration_ms`；提供时必须等于 `(已存卡时长 - 1) * 1000`。不要直接透传 `drama_shot` 报告的净内容时长：短包可能增加结尾停留以达到四秒，因此净内容时长与这个交叉校验值不同。
+
 唯一正常的顺序是三次调用：
 
 ```text
@@ -323,7 +332,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 ```
 
 - `select_assets` 保存一次有序的主体设定选择。每个图片 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个非音频父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。已有音频会保留；音频标记和类别 4 父资产须使用 `audio_preview`/`audio_apply`。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：各 key 对应的身份、名称、URL、类型或组内顺序变化会报错，仅改变数组物理顺序则允许；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。
-- `prepare_video` 免费，且对提供方只读。它用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，按素材 key 和数字父资产 ID，从实时分镜、主体设定与父资产补齐图片，保留上传的音频、已存的模型、平台、比例、分辨率与时长，从当前目录解析精确选择器，要求 `genNum=1`。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。它不发 `PUT`、不创建任务、不收费。
+- `prepare_video` 免费，启用会话选择时先应用上文的会话选择规则，再用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，按素材 key 和数字父资产 ID，从实时分镜、主体设定与父资产补齐图片，保留上传音频、比例、提示词、素材身份与时长，从当前目录解析所选模型／通道／分辨率的精确选择器，要求 `genNum=1`。未启用会话选择时保留已存模型设置。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。模型同步只执行经回读验证的免费 `isGenerate=0` 保存；准备绝不发送生成 PUT、创建任务或收费。 已保存的十进制时长字符串会在模型校验前规范为数字秒；免费模型编辑允许提供方以等价的数字或字符串回读，冻结请求与重试校验保持不变。其他精确目录型号要求正整数秒，上限保持未知；仅缺少上限信息不会阻止准备或提交。
 - `submit_video` 接受该 `preview_path` 与一个**必须等于 preview 自带 fingerprint** 的 `idempotency_key`。重建实时状态前先检查原账本；已有记录的 key 只执行只读对账。对于未记录的 key，key 不符、预览无效或实时指纹变化均在付费 PUT 前拒绝；未提交预览的保存指纹与规范化素材请求体不同时，须重新准备预览。同一提交的旧图片后音频分组 key 已有记录时，返回 `reconcile_conflict` 和 `original_idempotency_key`，不以规范化后的 key 再收费；即使原文件或远端任务缺失也如此，批量预检会在预约费用前拒绝整批。它先取一份完整的分页任务快照，若第二次读取同一快照发生漂移就拒绝继续，最多发送一次 `isGenerate=1` 的 `PUT /aigc/storyboard`，再取第二份快照，认领那个有序 `assetId`/`materialName`/`imageUrl` 与模型、提示词证据都与 preview 完全一致的新任务。`PUT` 前后都一样：一条任务行只有在能被证明属于当前分镜时才算认领的候选——行自带 `storyboardId`、任务详情自带，或它的某个子结果自带。一个项目装着它所有分镜的任务，而多数任务行根本不写 `storyboardId`，因此三者都证明不了的行属于别的分镜：它既不是匹配，也不是让判定不安全的证据。
 - `submit_video_batch` 接受同一项目不同分镜的 `video_previews: [{preview_path, idempotency_key}]`。agent 要先准备并审阅用户要求的范围，把拟提交的 preview 全部列入本次提交清单；工具能验证已提供的清单，无法发现漏传的分镜。工具逐项比对实时分镜、查已有任务和两次完整项目快照，再在同一进程的账本队列内一次检查整批估算金额，并在任何 PUT 前登记全部 intent。任一 preview 过期、分镜或 key 重复、任务列表漂移或缺 ID、已有任务冲突、整批预算不足，都会零 PUT。全部预约后，最多同时发送 `videoBatchConcurrency` 个独立分镜 PUT；对账读取也独立受同一并发数限制，不占收费 PUT 的提交槽。每笔返回后尽早读取该任务，再以最终项目快照和各项的分镜、有序主体、模型与提示词证据按输入顺序报告。只有最终身份完整才是 `submitted`；PUT 结果未知或回读身份被剥离时是 `reconcile_required`，不可重发。全部原 key 重放只读对账；新旧 key 混合时拒绝执行，先逐笔核对旧 key，再组织新的授权批次。与单项写入一样，账本队列只覆盖当前进程。
 
@@ -369,7 +378,7 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 ### 安全写入：幂等与账本
 
-每个写方法都要求非空的 `idempotency_key`；`image_generate_batch` 要求每一项提供，不使用顶层键。任何方法都不代生成 key，因为代生成的 key 会让一次结果未知后的重试绕过第一次尝试的记录。
+付费提交和显式资产库写入要求非空的 `idempotency_key`；`image_generate_batch` 要求每一项提供，不使用顶层键。免费原生准备会派生稳定的预览指纹，以 `idempotencyKey` 返回供之后提交。任何操作都不会在结果未知后另造重试 key，以免绕过第一次尝试的记录。
 
 同一个 key 再调一次不会重复写入。普通写方法不编译请求体、不读取提供方，直接返回已记录结果并带 `replayed: true`。批量图片会先把当前请求与旧账本的请求体哈希核对；不一致就拒绝重放。`submit_video` 与 `jubian_model apply` 则执行只读对账；模型配置计划不会续写剩余目标。
 
@@ -507,7 +516,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-每个写方法的描述都写明 `idempotency_key` 必填（`image_generate_batch` 的每一项各有一个）、同一请求带同一个 key 再调一次会带 `replayed: true` 而不重复写入，以及超时或结果未知时应改用同一个 key 而不是新 key 再调一次。不同请求不能复用该 key。读方法不接受 key。
+付费提交与资产库写入的描述写明 `idempotency_key` 必填（`image_generate_batch` 的每一项各有一个）、同一请求带同一个 key 再调一次会带 `replayed: true` 而不重复写入，以及超时或结果未知时应改用同一个 key 而不是新 key 再调一次。不同请求不能复用该 key。免费准备返回预览的 `idempotencyKey`；旧账本读取要求原 key。目录与资产读取不需要 key。
 
 #### Token 影响
 
@@ -521,7 +530,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `generate`、`submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会核实父资产 Active 或新父资产下唯一 Active 未采用候选图再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 既不 `PUT` 也不收费，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
+描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`generate` 的描述区分免费准备、带预览的付费提交和旧 key 的只读账本返回。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会核实父资产 Active 或新父资产下唯一 Active 未采用候选图再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 不生成、不收费，但同步会话模型时可以免费保存，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
 
 #### Token 影响
 
@@ -586,7 +595,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **提供方的 `taskExecute` 与 `terminate` 没有实现** —— 流水线自己的客户端从不调用它们，在这里加上就只是没有证据的转写。如果哪天需要中止一个失控任务，`terminate` 就是最明显的缺口。
 - **不注册系统提示词区段** —— 部署方无法在不改包的情况下调整这些工具的模型指引，提供方一旦重命名某个方法，描述会一直过时到包被改动为止。
 
-视频提交接受每个 preview 的 Agent 估算 `estimated_cost_cny` 与 `estimate_basis`，依据项目模型的当前目录价格和用量或同规格已结算费用。估算用于预留额度，不等于实际账单。批量提交在任何 PUT 前预留总额。缺少时长能力不代表允许替换项目模型。
+视频提交接受每个 preview 的 Agent 估算 `estimated_cost_cny` 与 `estimate_basis`，依据项目模型的当前目录价格和用量或同规格已结算费用。估算用于预留额度，不等于实际账单。批量提交在任何 PUT 前预留总额。时长上限未知不会阻止正整数秒，也不授权更换当前会话选定的模型。
 
 <a id="dev-note"></a>
 ### 开发备注

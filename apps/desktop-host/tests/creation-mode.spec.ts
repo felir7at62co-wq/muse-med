@@ -25,6 +25,7 @@ import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import { expect, it } from 'vitest'
 import NativePreset from '../src/native-preset.ts'
 import * as CreationPolicy from '../src/creation-policy.ts'
+import * as ManuscriptRevisions from '../src/manuscript-revisions.ts'
 import * as CreationSkills from '../src/creation-skills.ts'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from '../src/creation-guidance.ts'
 import { SHORT_DRAMA_GUIDANCE, SHORT_DRAMA_GUIDANCE_SECTION } from '../src/short-drama-guidance.ts'
@@ -303,6 +304,23 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(value).toMatchObject({ name: 'anime-3d-assets', resourceBase: cgSkill!.resourceBase, content: cgSkill!.content })
     expect(JSON.stringify(cgResult.content)).toContain('次世代高精度建模 CG，物理可信 PBR 材质')
     expect(JSON.stringify(cgResult.content)).toContain('实际查看生成图')
+  } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
+})
+
+it('permits manuscript revision comparison through the real creation PTC policy', async () => {
+  const f = await fixture()
+  try {
+    await f.ctx.plugin(ManuscriptRevisions, ManuscriptRevisions.Config({}))
+    f.runtime.behavior = async (spec) => {
+      const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.manuscript_revision
+      if (!binding) throw Error('Missing manuscript revision SDK binding')
+      return { logs: [], value: await binding({ action: 'status' }) }
+    }
+    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+      description: 'Read manuscript protection', code: 'return await tools.manuscript_revision({action:"status"})',
+    }, callId: ToolCallId('creation-manuscript'), signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    expect(JSON.stringify(result.content)).toContain('no_comparison')
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 

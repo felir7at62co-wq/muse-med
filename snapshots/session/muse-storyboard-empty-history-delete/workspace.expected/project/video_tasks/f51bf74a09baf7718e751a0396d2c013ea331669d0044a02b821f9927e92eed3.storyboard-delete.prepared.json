@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "operation": "storyboard_delete",
+  "script_id": 2708,
+  "delete_reason": "Clean the exact offline fixture targets",
+  "authorization_basis": "User authorized inspection of 701 and synthetic deletion attempt of 702 including linked media",
+  "include_generated_media": true,
+  "targets": [
+    {
+      "storyboard_id": 702,
+      "snapshot_hash": "dada7f82b9ca50888f419f94931fb3472611e0a68c54f3b37681b3dd532a54f5",
+      "name": "Running child target",
+      "episode_id": 35,
+      "duration": 10,
+      "prompt": "Offline running generation",
+      "material_count": 0,
+      "tasks": [
+        {
+          "id": 20,
+          "scriptId": 2708,
+          "episodeId": 999,
+          "taskType": 1,
+          "taskStatus": "succeeded",
+          "subTaskList": [
+            {
+              "id": 200,
+              "aigcVideoTaskId": 20,
+              "scriptId": 2708,
+              "storyboardId": 703,
+              "taskStatus": "succeeded"
+            },
+            {
+              "id": 201,
+              "aigcVideoTaskId": 20,
+              "scriptId": 2708,
+              "storyboardId": 702,
+              "taskStatus": "running"
+            }
+          ]
+        }
+      ],
+      "active_generation": true,
+      "has_generated_media": true
+    }
+  ],
+  "fingerprint": "f51bf74a09baf7718e751a0396d2c013ea331669d0044a02b821f9927e92eed3"
+}

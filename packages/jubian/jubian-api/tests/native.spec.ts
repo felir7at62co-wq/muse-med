@@ -248,6 +248,21 @@ describe('model and identity readers', () => {
       modelGenerationTypeId: 7, videoStandardId: 91, ratio: '9:16', resolution: '720p', duration: 12, genNum: 1 })
   })
 
+  it.each(['10', ' 0010 '])('normalizes a saved decimal duration %j before exact model validation', (duration) => {
+    expect(resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, duration }).duration).toBe(10)
+    const models = [{ ...CATALOGUE[0]!, modelId: 'doubao-seedance-2-5-260628' }]
+    expect(resolveVideoModel(models, { ...MODEL_CONFIG, modelId: models[0]!.modelId, duration: '30' }).duration).toBe(30)
+    expect(() => resolveVideoModel(models, { ...MODEL_CONFIG, modelId: models[0]!.modelId, duration: '31' })).toThrow()
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, duration: '16' })).toThrow()
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, duration: '3' })).toThrow()
+    expect(resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, modelId: CATALOGUE[1]!.modelId, duration: '1' }).duration).toBe(1)
+  })
+
+  it.each(['', ' ', 'NaN', 'Infinity', '1e1', '10.0', '+10', '-10', '0xA', '10s', '0', '9007199254740992'])
+  ('refuses a noninteger provider duration %j', (duration) => {
+    expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, duration })).toThrow()
+  })
+
   it('refuses missing models, ambiguous platforms and duplicate matching standards', () => {
     expect(() => resolveVideoModel([CATALOGUE[1]], MODEL_CONFIG)).toThrow('No catalogue row matches video settings')
     expect(() => resolveVideoModel({ rows: [] }, MODEL_CONFIG)).toThrow()
@@ -313,6 +328,16 @@ describe('model and identity readers', () => {
 })
 
 describe('preview construction and validation', () => {
+  it('freezes equivalent saved duration representations into the same numeric payload and submission key', () => {
+    const result = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '8' }) }, assets: ASSETS, models: CATALOGUE,
+    createdAt: PREVIEW.createdAt })
+    expect(result).toEqual(PREVIEW)
+    expect(validateNativeVideoPreview(result)).toEqual(result)
+    const altered = { ...result, payload: { ...result.payload,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '8' }) } }
+    expect(() => validateNativeVideoPreview(altered)).toThrow()
+  })
   it.each([{ asset_status: 'pending' }, { isUsed: 0 }])
   ('requires confirmed and selected source assets before building a preview %j', (overrides) => {
     expect(() => buildNativeVideoPreview({ storyboard: STORYBOARD, models: CATALOGUE, createdAt: 'now',

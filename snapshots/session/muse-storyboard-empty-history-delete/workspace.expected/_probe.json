@@ -1,0 +1,22 @@
+{
+  "realToolResults": 3,
+  "emptyTargetPreviewSaved": true,
+  "runningChildBelowSucceededParentDetected": true,
+  "runningTargetApplyRejected": true,
+  "completeProjectPagesRead": 12,
+  "completeChildPagesRead": 12,
+  "taskDetailsRead": 3,
+  "zeroByteHistoryReads": 3,
+  "stableProjectAndChildrenReread": true,
+  "readOnlyChildPostRequests": 12,
+  "remoteDeleteRequests": 0,
+  "paidRequests": 0,
+  "survivingStoryboardIds": [
+    701,
+    702
+  ],
+  "actualPreparedFiles": [
+    "d479c771001726d8743a30b8a3a8d15d194bb149d7cebf5cca50f4a0d83fddd1.storyboard-delete.prepared.json",
+    "f51bf74a09baf7718e751a0396d2c013ea331669d0044a02b821f9927e92eed3.storyboard-delete.prepared.json"
+  ]
+}

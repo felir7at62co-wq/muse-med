@@ -8,6 +8,7 @@ import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import { storyboardMethod } from '../src/methods.ts'
 import { deletionInspectionReason, storyboardDeleteMethod } from '../src/storyboard-delete.ts'
+import { resolveDeletionTaskScanOptions } from '../src/storyboard-delete-tasks.ts'
 import { bodyHash } from '../src/write.ts'
 
 let root: string
@@ -76,7 +77,7 @@ it.each([undefined, [], [0], [1, 1], [1, 2, 3]].map(value => ({ value })))('refu
   await expect(storyboardDeleteMethod(client, ledger, {
     method: 'delete_preview', script_id: 2708, project_dir: root, ...(value === undefined ? {} : { storyboard_ids: value }),
     delete_reason: 'authorized', authorization_basis: 'user requested',
-  }, { maxItems: 2, concurrency: 1 })).rejects.toThrow()
+  }, { maxItems: 2, concurrency: 1 }, resolveDeletionTaskScanOptions())).rejects.toThrow()
   expect(deletes).toEqual([])
 })
 
@@ -85,7 +86,7 @@ it('refuses malformed authorization and unsupported deletion methods before muta
   await expect(storyboardMethod(client, ledger, { method: 'delete_apply', script_id: 2708, project_dir: root }))
     .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   await expect(storyboardDeleteMethod(client, ledger, { method: 'get', script_id: 2708, project_dir: root },
-    { maxItems: 2, concurrency: 1 })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    { maxItems: 2, concurrency: 1 }, resolveDeletionTaskScanOptions())).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   expect(deletes).toEqual([])
 })
 
@@ -131,6 +132,29 @@ it.each(['resultVideoUrl', 'videoUrl', 'tosVideoUrl'])('requires media authoriza
   const plan = await preview()
   expect(plan.requires_generated_authorization).toBe(true)
   await expect(apply(plan)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+})
+
+it.each(['running', 'queued', '', 'new-provider-state'])('refuses a terminal parent whose child state is %j', async (taskStatus) => {
+  linked = [{ id: 77, taskStatus: 'succeeded', subTaskList: [{ id: 78, taskStatus }] }]
+  const plan = await preview({ include_generated_media: true })
+  expect(plan).toMatchObject({ targets: [{ active_generation: true }, { active_generation: true }] })
+  await expect(apply(plan)).rejects.toThrow('active generation')
+  expect(deletes).toEqual([])
+})
+
+it.each([null, undefined, [], [{ id: 78, taskStatus: 'failed' }]].map(subTaskList => ({ subTaskList })))
+('accepts terminal task children: $subTaskList', async ({ subTaskList }) => {
+  linked = [{ id: 77, taskStatus: 'succeeded', subTaskList }]
+  const plan = await preview({ include_generated_media: true })
+  expect(plan).toMatchObject({ targets: [{ active_generation: false }, { active_generation: false }] })
+  expect(await apply(plan)).toMatchObject({ status: 'deleted' })
+})
+
+it.each(['unreadable', [null]].map(subTaskList => ({ subTaskList })))
+('refuses unreadable task children before preparing deletion: $subTaskList', async ({ subTaskList }) => {
+  linked = [{ id: 77, taskStatus: 'succeeded', subTaskList }]
+  await expect(preview()).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(deletes).toEqual([])
 })
 
 it.each([
