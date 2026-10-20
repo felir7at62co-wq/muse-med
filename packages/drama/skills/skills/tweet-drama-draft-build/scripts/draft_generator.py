@@ -241,10 +241,13 @@ class DraftGenerator:
             return {"success": False, "error": "剪映草稿生成未创建新草稿目录。"}
 
         logger.info(f"剪映草稿生成完成: {draft_count} 个新草稿")
-        return {
+        output = {
             "success": True,
             "drafts_created": draft_count,
         }
+        if result.get("warnings"):
+            output["warnings"] = result["warnings"]
+        return output
 
 
 def _read_text_if_exists(path: str) -> str:

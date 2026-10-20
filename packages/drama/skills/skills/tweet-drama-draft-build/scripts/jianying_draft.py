@@ -1147,6 +1147,7 @@ def main_with_args(args):
     else:
         template_dir = Path(args.template_dir)
     root = Path(args.materials)
+    delivery_warnings = []
 
     logger.info(f"正在智能识别素材文件夹...")
     logger.info(f"  [根目录] 素材根目录: {root}")
@@ -1177,7 +1178,9 @@ def main_with_args(args):
     if audio_dir is None:
         raise DraftInputError("无法识别音频素材文件夹，请确保包含音频文件的文件夹")
     if bgm_dir is None:
-        logger.warning("未找到明确的 BGM 文件夹；草稿仍可生成，配乐列为待验收，不能从其他音频文件夹猜选。")
+        warning = "未找到明确的 BGM 文件夹；草稿配乐待验收，不能从其他音频文件夹猜选。"
+        delivery_warnings.append(warning)
+        logger.warning(warning)
 
     has_srt_dir = (srt_dir is not None) and srt_dir.exists()
     has_timeline_dir = timeline_dir.exists()
@@ -1192,7 +1195,9 @@ def main_with_args(args):
         if len(bgm_files) > 1:
             if require_bgm:
                 raise DraftInputError(f"BGM 文件夹 {bgm_dir} 有多个音频；请先选定唯一已审核混音，拒绝按文件名猜选。")
-            logger.warning(f"BGM 文件夹 {bgm_dir} 有多个音频；不猜选，草稿配乐待确认。")
+            warning = f"BGM 文件夹 {bgm_dir} 有多个音频；不猜选，草稿配乐待确认。"
+            delivery_warnings.append(warning)
+            logger.warning(warning)
             bgm_files = []
         if bgm_files:
             bgm_path = bgm_files[0]
@@ -1200,7 +1205,9 @@ def main_with_args(args):
         else:
             if require_bgm:
                 raise DraftInputError(f"正式剪映草稿 BGM 文件夹为空：{bgm_dir}")
-            logger.info(f"  [bgm] BGM文件夹为空，将跳过背景音乐")
+            warning = f"BGM 文件夹 {bgm_dir} 为空；草稿配乐待验收。"
+            delivery_warnings.append(warning)
+            logger.warning(warning)
     logger.info(f"  [audio] 音频文件夹: {audio_dir.name}, 文件示例: {[f.name for f in audio_dir.iterdir() if f.is_file()][:3] if audio_dir else '无'}")
 
     audio_extensions = {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'}
@@ -1209,7 +1216,9 @@ def main_with_args(args):
     if not audios:
         raise DraftInputError("01* audio folder is empty")
     if bgm_path is not None and len(audios) > 1 and not args.seq:
-        logger.warning("多个集数共用一份 BGM 混音；请逐集试听确认，建议按集传入 seq 选定配乐。")
+        warning = "多个集数共用一份 BGM 混音；请逐集试听确认，建议按集传入 seq 选定配乐。"
+        delivery_warnings.append(warning)
+        logger.warning(warning)
 
     # 创建DraftFolder对象用于保存新草稿
     output_folder = draft.DraftFolder(str(drafts_dir))
@@ -1716,6 +1725,8 @@ def main_with_args(args):
 
         logger.info(f"[{draft_name}] Generated successfully")
 
+    return delivery_warnings
+
 
 def generate_draft(
     drafts_dir: str,
@@ -1756,11 +1767,14 @@ def generate_draft(
     )
     try:
         before = {path.name for path in Path(drafts_dir).iterdir() if path.is_dir()}
-        main_with_args(args)
+        warnings = main_with_args(args)
         created = {path.name for path in Path(drafts_dir).iterdir() if path.is_dir()} - before
         if not created:
             return {"success": False, "error": "剪映草稿生成未创建新草稿目录。"}
-        return {"success": True, "drafts_created": len(created)}
+        result = {"success": True, "drafts_created": len(created)}
+        if warnings:
+            result["warnings"] = warnings
+        return result
     except DraftInputError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:

@@ -555,6 +555,17 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIsNone(self.module.find_material_folder_smart(root, 'bgm', [root / '01_audio']))
         self.assertNotIn(root / '06_ending', self.module.find_all_folders_by_type(root, 'bgm'))
 
+    def test_unselected_bgm_returns_review_warning_without_blocking_draft(self):
+        root = self.build_root()
+        shutil.copytree(root, root / 'materials')
+        (root / 'jianying').mkdir()
+        result = self.module.generate_draft(str(root / 'jianying'), str(root / 'materials'),
+                                            name_prefix='候选A-', project=str(root))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertTrue(any('配乐待验收' in warning for warning in result['warnings']))
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
+
     def test_decode_timeout_terminates_the_child_cleans_only_new_draft_and_preserves_old_draft(self):
         root = self.build_root()
         shutil.copytree(root, root / 'materials')

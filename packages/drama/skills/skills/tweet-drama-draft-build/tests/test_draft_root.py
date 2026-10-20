@@ -43,5 +43,16 @@ class DraftRootTests(unittest.TestCase):
             self.assertFalse(result['success'])
             self.assertIn('未创建新草稿', result['error'])
 
+    def test_generator_preserves_nonblocking_review_warnings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def generate(**_kwargs):
+                (root / 'new').mkdir()
+                return {'success': True, 'warnings': ['草稿配乐待验收']}
+            with patch.dict(sys.modules, {'jianying_draft': SimpleNamespace(generate_draft=generate)}):
+                result = DraftGenerator().process(directory, directory)
+            self.assertEqual(result, {'success': True, 'drafts_created': 1,
+                                      'warnings': ['草稿配乐待验收']})
+
 if __name__ == '__main__':
     unittest.main()
