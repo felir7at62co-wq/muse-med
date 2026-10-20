@@ -27,12 +27,21 @@ class DraftRootTests(unittest.TestCase):
             (old / 'draft_content.json').write_text('keep')
             def generate(**kwargs):
                 self.assertEqual(kwargs['drafts_dir'], directory)
+                self.assertNotIn('require_bgm', kwargs)
                 (root / 'new').mkdir()
                 return {'success': True}
             with patch.dict(sys.modules, {'jianying_draft': SimpleNamespace(generate_draft=generate)}):
                 result = DraftGenerator().process(directory, directory, name_prefix='new')
             self.assertEqual(result, {'success': True, 'drafts_created': 1})
             self.assertEqual((old / 'draft_content.json').read_text(), 'keep')
+
+    def test_generator_success_without_a_new_draft_is_reported_as_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(sys.modules, {'jianying_draft': SimpleNamespace(
+                    generate_draft=lambda **_kwargs: {'success': True})}):
+                result = DraftGenerator().process(directory, directory)
+            self.assertFalse(result['success'])
+            self.assertIn('未创建新草稿', result['error'])
 
 if __name__ == '__main__':
     unittest.main()

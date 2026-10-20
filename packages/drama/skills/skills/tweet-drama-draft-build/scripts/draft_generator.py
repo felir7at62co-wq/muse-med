@@ -122,6 +122,8 @@ class DraftGenerator:
                 if blocked.exists():
                     raise ValueError(f"字幕对齐尚未通过：{blocked}；拒绝复用旧字幕准备剪映草稿。")
         bgm_source = None
+        if bgm_dir and not Path(bgm_dir).is_dir():
+            raise FileNotFoundError(f"已指定的 BGM 文件夹不存在：{bgm_dir}")
         if bgm_dir and os.path.exists(bgm_dir):
             candidates = sorted(path for path in Path(bgm_dir).iterdir()
                                 if path.is_file() and path.suffix.lower() in
@@ -235,6 +237,8 @@ class DraftGenerator:
             if os.path.isdir(os.path.join(drafts_dir, d))
         } - existing_dirs
         draft_count = len(new_dirs)
+        if draft_count == 0:
+            return {"success": False, "error": "剪映草稿生成未创建新草稿目录。"}
 
         logger.info(f"剪映草稿生成完成: {draft_count} 个新草稿")
         return {

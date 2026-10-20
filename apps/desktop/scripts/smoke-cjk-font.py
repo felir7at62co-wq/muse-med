@@ -45,11 +45,14 @@ def main():
     pixels = (work / 'chinese.gray').read_bytes()
     width, height = renderer.WIDTH, renderer.HEIGHT
     assert len(pixels) == width * height
-    # Separate design-coordinate bands verify the subtitle and bottom-right watermark independently.
-    subtitle = pixels[int(height * .65) * width:int(height * .80) * width]
-    watermark = pixels[int(height * .88) * width:]
-    assert sum(p > 180 for p in subtitle) > 100, 'subtitle glyphs absent'
-    assert sum(p > 180 for p in watermark) > 100, 'watermark glyphs absent'
+    # The approved lower subtitle position overlaps the watermark's vertical band.
+    # Check separate horizontal regions so one cannot accidentally stand in for the other.
+    def visible_pixels(y0, y1, x0, x1):
+        return sum(pixel > 180 for row in range(int(height * y0), int(height * y1))
+                   for pixel in pixels[row * width + int(width * x0):row * width + int(width * x1)])
+
+    assert visible_pixels(.88, .95, .25, .75) > 100, 'subtitle glyphs absent'
+    assert visible_pixels(.88, .96, .79, 1) > 100, 'watermark glyphs absent'
     subprocess.run([str(Path(args.ffmpeg).resolve()), '-v', 'error', '-y', '-f', 'rawvideo', '-pixel_format', 'gray',
                     '-video_size', f'{width}x{height}', '-i', 'chinese.gray', '-frames:v', '1', 'chinese.png'], cwd=work, check=True)
     print(f'CJK font smoke passed: {work / "chinese.png"}')

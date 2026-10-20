@@ -43,6 +43,27 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 class DraftInputError(ValueError):
     """Invalid or incomplete material input for draft generation."""
 
+
+def save_verified_draft(script, draft_path: Path) -> dict:
+    """Persist a new draft and refuse success when its content was not written."""
+    content_path = draft_path / "draft_content.json"
+    try:
+        script.save()
+    except Exception as save_error:
+        logger.warning("剪映草稿常规保存失败，尝试备用写入：%s", save_error)
+        try:
+            draft_path.mkdir(parents=True, exist_ok=True)
+            script.dump(str(content_path))
+        except Exception as fallback_error:
+            raise DraftInputError(f"剪映草稿保存失败：{fallback_error}") from fallback_error
+    try:
+        content = json.loads(content_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise DraftInputError("剪映草稿保存后缺少可读取的 draft_content.json。") from error
+    if not isinstance(content, dict) or not isinstance(content.get("tracks"), list):
+        raise DraftInputError("剪映草稿保存后的 draft_content.json 缺少有效轨道。")
+    return content
+
 # 剪映草稿字幕样式：本文件的这些值是**剪映 UI 单位**，不是 draft_content.json 里
 # 写出的数字。pyJianYingDraft 按它自己的映射写出文件（见其 text_segment.py）：
 #   styles[0].size                      = 字号 UI 值          → 11 写成 11.0
@@ -931,7 +952,8 @@ def _duration_us(segment: dict) -> int:
     return int((segment.get("target_timerange") or {}).get("duration", 0))
 
 
-def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues, ending=None) -> None:
+def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues,
+                          ending=None, expect_bgm=False) -> None:
     """交付前校验一份草稿：对不上就拒绝交付并列出全部失败项。
 
     正文镜头和主音频保持原时间线；3D 动画不添加定格或 AI 标识。
@@ -943,6 +965,7 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         audio_duration_us: 实测主音频时长（微秒），None 表示音频没能加入。
         normalized_cues: normalize_srt 返回的规范化字幕 cue 列表，None 表示没有导入字幕。
         ending: draft_ending_plan 的结果；省略时正文来自 clips，自动追加 2 秒。
+        expect_bgm: 已选择配乐时，要求独立 BGM 轨覆盖完整正文。
 
     Raises:
         DraftInputError: 有任何一项不成立，报文逐条列出失败项与实测值。
@@ -968,6 +991,17 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     elif expected_audio is not None and abs(audio_total - expected_audio) > TIMELINE_TOLERANCE_US:
         failures.append(f"主音频轨总时长 {audio_total / 1e6:.3f} 秒与实测音频 "
                         f"{expected_audio / 1e6:.3f} 秒不一致。")
+    if len(audio_segments) == 1 and int(audio_segments[0].get("target_timerange", {}).get("start", 0)) != 0:
+        failures.append("主音频轨必须从 0 秒开始，不能让对白与画面整体错位。")
+    if expect_bgm:
+        bgm_segments = [segment for track in content.get("tracks", [])
+                        if track.get("type") == "audio" and track.get("name") == "BGM轨道"
+                        for segment in track.get("segments", [])]
+        bgm_total = sum(_duration_us(segment) for segment in bgm_segments)
+        if len(bgm_segments) != 1 or (bgm_segments and int(
+                bgm_segments[0].get("target_timerange", {}).get("start", 0)) != 0) or (expected_audio is not None
+                and abs(bgm_total - expected_audio) > TIMELINE_TOLERANCE_US):
+            failures.append("BGM 轨道必须有一段覆盖完整正文的已选混音。")
     if not video_segments:
         failures.append("视频轨没有任何片段。")
     elif abs(video_total - total_duration) > TIMELINE_TOLERANCE_US:
@@ -1048,6 +1082,21 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         failures.append(f"字幕条数 {len(text_segments)} != 规范化后的字幕行数 {len(normalized_cues)}。")
 
     texts = {material.get("id"): material for material in content.get("materials", {}).get("texts", [])}
+    ordered_subtitles = sorted(text_segments, key=lambda segment:
+                               int((segment.get("target_timerange") or {}).get("start", 0)))
+    for index, (segment, cue) in enumerate(zip(ordered_subtitles, normalized_cues or []), start=1):
+        material = texts.get(segment.get("material_id"))
+        if material is None:
+            continue
+        actual_text = json.loads(material.get("content") or "{}").get("text", "")
+        if "text" in cue and actual_text != cue["text"]:
+            failures.append(f"第 {index} 条字幕文字与已审核 SRT 不一致。")
+        if "start_us" in cue and "end_us" in cue:
+            span = segment.get("target_timerange") or {}
+            actual_start = int(span.get("start", 0))
+            actual_end = actual_start + int(span.get("duration", 0))
+            if abs(actual_start - cue["start_us"]) > 50_000 or abs(actual_end - cue["end_us"]) > 50_000:
+                failures.append(f"第 {index} 条字幕时间与已审核 SRT 相差超过 0.05 秒。")
     for segment in text_segments:
         material = texts.get(segment.get("material_id"))
         if material is None:
@@ -1116,7 +1165,11 @@ def main_with_args(args):
 
     srt_dir = find_material_folder_smart(root, 'subtitle')
     timeline_dir = root / "05_timeline"
-    bgm_dir = find_material_folder_smart(root, 'bgm', exclude_folders=[audio_dir])
+    require_bgm = getattr(args, 'require_bgm', False)
+    bgm_dir = root / '04_bgm' if require_bgm else find_material_folder_smart(
+        root, 'bgm', exclude_folders=[audio_dir])
+    if require_bgm and not bgm_dir.is_dir():
+        raise DraftInputError(f"正式剪映草稿缺少已审核 BGM 文件夹：{bgm_dir}")
 
     logger.info(f"  [audio] 识别到音频文件夹: {audio_dir.name if audio_dir else '未找到'}")
     logger.info(f"  [bgm] 识别到BGM文件夹: {bgm_dir.name if bgm_dir else '未找到'}")
@@ -1124,25 +1177,7 @@ def main_with_args(args):
     if audio_dir is None:
         raise DraftInputError("无法识别音频素材文件夹，请确保包含音频文件的文件夹")
     if bgm_dir is None:
-        # 尝试查找所有包含音频文件的文件夹，排除音频文件夹
-        logger.info(f"  [bgm] 未找到明确的BGM文件夹，尝试查找其他音频文件夹...")
-        all_audio_folders = []
-        for subdir in root.iterdir():
-            if subdir.is_dir() and subdir != audio_dir and subdir.name != "06_ending":
-                try:
-                    has_audio = any(f.is_file() and f.name.lower().endswith(('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'))
-                                   for f in subdir.iterdir())
-                    if has_audio:
-                        all_audio_folders.append(subdir)
-                        logger.info(f"  [bgm] 发现备选文件夹: {subdir.name}")
-                except Exception:
-                    pass
-        if all_audio_folders:
-            # 选择第一个非音频文件夹的音频文件夹作为BGM文件夹
-            bgm_dir = all_audio_folders[0]
-            logger.info(f"  [bgm] 使用备选BGM文件夹: {bgm_dir.name}")
-        else:
-            logger.info(f"  [bgm] 未找到BGM文件夹，将跳过背景音乐")
+        logger.warning("未找到明确的 BGM 文件夹；草稿仍可生成，配乐列为待验收，不能从其他音频文件夹猜选。")
 
     has_srt_dir = (srt_dir is not None) and srt_dir.exists()
     has_timeline_dir = timeline_dir.exists()
@@ -1155,17 +1190,26 @@ def main_with_args(args):
                             if p.is_file() and p.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')),
                            key=lambda p: p.name)
         if len(bgm_files) > 1:
-            raise DraftInputError(f"BGM 文件夹 {bgm_dir} 有多个音频；请先选定唯一已审核混音，拒绝按文件名猜选。")
+            if require_bgm:
+                raise DraftInputError(f"BGM 文件夹 {bgm_dir} 有多个音频；请先选定唯一已审核混音，拒绝按文件名猜选。")
+            logger.warning(f"BGM 文件夹 {bgm_dir} 有多个音频；不猜选，草稿配乐待确认。")
+            bgm_files = []
         if bgm_files:
             bgm_path = bgm_files[0]
             logger.info(f"  [bgm] 使用BGM文件: {bgm_path.name}")
         else:
+            if require_bgm:
+                raise DraftInputError(f"正式剪映草稿 BGM 文件夹为空：{bgm_dir}")
             logger.info(f"  [bgm] BGM文件夹为空，将跳过背景音乐")
     logger.info(f"  [audio] 音频文件夹: {audio_dir.name}, 文件示例: {[f.name for f in audio_dir.iterdir() if f.is_file()][:3] if audio_dir else '无'}")
 
-    audios = sorted([p for p in audio_dir.iterdir() if p.is_file()], key=lambda p: p.name)
+    audio_extensions = {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'}
+    audios = sorted([p for p in audio_dir.iterdir() if p.is_file() and p.suffix.lower() in audio_extensions],
+                    key=lambda p: p.name)
     if not audios:
         raise DraftInputError("01* audio folder is empty")
+    if bgm_path is not None and len(audios) > 1 and not args.seq:
+        logger.warning("多个集数共用一份 BGM 混音；请逐集试听确认，建议按集传入 seq 选定配乐。")
 
     # 创建DraftFolder对象用于保存新草稿
     output_folder = draft.DraftFolder(str(drafts_dir))
@@ -1203,8 +1247,7 @@ def main_with_args(args):
 
         img_pack = find_img_pack_smart(media_dir, seq)
         if not img_pack:
-            logger.info(f"[序列 {seq}] 无法找到对应的媒体文件夹，跳过")
-            continue
+            raise DraftInputError(f"[序列 {seq}] 缺少对应的媒体文件夹，拒绝把漏集草稿报告为成功。")
 
         logger.info(f"[序列 {seq}] 找到媒体文件夹: {img_pack}")
         logger.info(f"[序列 {seq}] 媒体文件夹内容: {[f.name for f in img_pack.iterdir()]}")
@@ -1226,8 +1269,7 @@ def main_with_args(args):
         logger.info(f"[序列 {seq}] 找到 {len(media_files)} 个媒体文件: {[f.name for f in media_files]}")
 
         if not media_files:
-            logger.info(f"Skipped {seq}: empty media pack: {img_pack}")
-            continue
+            raise DraftInputError(f"[序列 {seq}] 媒体文件夹为空：{img_pack}；拒绝把漏集草稿报告为成功。")
 
         videos = [path for path in media_files if path.suffix.lower() in video_extensions]
         if videos:
@@ -1296,8 +1338,7 @@ def main_with_args(args):
                 continue
         
         if script is None:
-            logger.info(f"[{draft_name}] Failed to create draft after multiple attempts")
-            continue
+            raise DraftInputError(f"[{draft_name}] 剪映草稿创建失败，拒绝把漏集草稿报告为成功。")
 
         # 禁用主轨道吸附（主轨磁吸），避免自动对齐导致的间隙
         script.maintrack_adsorb = False
@@ -1651,24 +1692,17 @@ def main_with_args(args):
             if videos and check_videos(find_project(root, getattr(args, 'project', None)), videos) != source_hashes:
                 raise DraftInputError("正文视频在草稿生成期间变化，请重新读取当前版本。")
             verify_draft_delivery(json.loads(script.dumps()), body_clips, audio_duration,
-                                  normalized_cues, ending_plan)
+                                  normalized_cues, ending_plan, expect_bgm=bgm_path is not None)
         except DraftInputError as error:
             refuse(str(error))
 
         try:
-            script.save()
-            logger.info(f"[{draft_name}] Saved draft successfully")
-        except Exception as e:
-            logger.info(f"[{draft_name}] Failed to save draft: {e}")
-            # 尝试手动保存
-            try:
-                draft_path = drafts_dir / draft_name
-                if not draft_path.exists():
-                    draft_path.mkdir(parents=True, exist_ok=True)
-                script.dump(str(draft_path / "draft_content.json"))
-                logger.info(f"[{draft_name}] Manually saved draft to: {draft_path}")
-            except Exception as e2:
-                logger.info(f"[{draft_name}] Failed to manually save draft: {e2}")
+            persisted = save_verified_draft(script, draft_path)
+            verify_draft_delivery(persisted, body_clips, audio_duration, normalized_cues,
+                                  ending_plan, expect_bgm=bgm_path is not None)
+        except Exception as error:
+            refuse(f"剪映草稿持久化验证失败：{error}")
+        logger.info(f"[{draft_name}] Saved draft successfully")
 
         # 创建剪映所需的附属文件夹和文件
         draft_path = drafts_dir / draft_name
@@ -1690,6 +1724,7 @@ def generate_draft(
     template_dir: str = None,
     seq: str = None,
     project: str = None,
+    require_bgm: bool = False,
 ) -> dict:
     """
     生成剪映草稿（供 DraftGenerator 直接调用）。
@@ -1701,6 +1736,7 @@ def generate_draft(
         template_dir: 模板草稿目录（默认与 drafts_dir 相同）
         seq: 只处理指定序列号（可选）
         project: 视频禁用清单所属项目；省略时从素材目录祖先定位
+        require_bgm: 项目明确要求配乐时可显式开启；默认不因创作选曲未完成阻断草稿
 
     返回:
         {"success": True/False, "drafts_created": N, "error": "..."}
@@ -1716,10 +1752,15 @@ def generate_draft(
         seq=seq,
         overwrite=False,
         new_template=None,
+        require_bgm=require_bgm,
     )
     try:
+        before = {path.name for path in Path(drafts_dir).iterdir() if path.is_dir()}
         main_with_args(args)
-        return {"success": True}
+        created = {path.name for path in Path(drafts_dir).iterdir() if path.is_dir()} - before
+        if not created:
+            return {"success": False, "error": "剪映草稿生成未创建新草稿目录。"}
+        return {"success": True, "drafts_created": len(created)}
     except DraftInputError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
