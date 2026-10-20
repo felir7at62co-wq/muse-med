@@ -80,6 +80,13 @@ describe('resolveExampleLaunch', () => {
     expect(args.slice(-2)).toEqual(['--config', './cordis.yml'])
     expect(env.TSX_TSCONFIG_PATH).toBeUndefined()
     expect(env.DSH_HOME).toBe('/tmp/home')
+    expect(env.MUSE_HOME).toBe('/tmp/home')
+  })
+
+  it('preserves an explicit Muse home for fixtures testing home selection', () => {
+    const { env } = resolveExampleLaunch({ srcBin: SRC_BIN, mode: 'lib',
+      env: { DSH_HOME: '/tmp/home', MUSE_HOME: '/tmp/muse' } })
+    expect(env.MUSE_HOME).toBe('/tmp/muse')
   })
 
   it('lib mode: uses an explicit plain-Node bin when provided', () => {

@@ -10,6 +10,7 @@ process.stdin.on('end', () => {
     execArgv: process.execArgv,
     cwd: process.cwd(),
     dshHome: process.env.DSH_HOME,
+    museHome: process.env.MUSE_HOME,
     agentsHome: process.env.DSH_AGENTS_HOME,
     marker: process.env.LOADER_SMOKE_MARKER,
     input,

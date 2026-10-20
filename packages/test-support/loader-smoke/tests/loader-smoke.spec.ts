@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = '/tmp/fixture.cordis.yml'
@@ -12,8 +12,11 @@ const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${na
 // macOS realpaths temp dirs into /private; TMPDIR may live under /var or /tmp.
 const canonicalTempPath = (path: string): string => path.replace(/^\/private(?=\/(?:var|tmp)\/)/, '')
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe('runLoaderSmoke', () => {
   it('isolates the process, closes stdin, captures output, and removes the cwd', async () => {
+    vi.stubEnv('MUSE_HOME', '/unused-ambient-muse-home')
     const result = await runLoaderSmoke({
       label: 'success fixture',
       tempDirPrefix: 'loader-smoke-success-',
@@ -30,6 +33,7 @@ describe('runLoaderSmoke', () => {
       execArgv: string[]
       cwd: string
       dshHome: string
+      museHome: string
       agentsHome: string
       marker: string
       input: string
@@ -41,6 +45,7 @@ describe('runLoaderSmoke', () => {
       marker: 'present',
       input: '',
     })
+    expect(canonicalTempPath(output.museHome)).toBe(canonicalTempPath(join(output.cwd, '.dsh')))
     expect(canonicalTempPath(output.dshHome)).toBe(canonicalTempPath(join(output.cwd, '.dsh')))
     expect(canonicalTempPath(output.agentsHome)).toBe(canonicalTempPath(join(output.cwd, '.agents')))
     expect(result.stderr).toContain('fixture stderr')

@@ -68,7 +68,7 @@ export interface ExampleLaunchOptions {
   readonly tsconfigPath?: string
   /** Select the ESM-only tsx hook instead of the generic loader. */
   readonly sourceImport?: 'tsx/esm'
-  /** Extra environment entries the mode-specific ones layer over; the caller then merges the result over `process.env`. */
+  /** Extra entries layered over process.env by the caller; DSH_HOME also isolates Muse home unless MUSE_HOME is explicit. */
   readonly env?: NodeJS.ProcessEnv
 }
 
@@ -114,7 +114,7 @@ export function resolveExampleLaunch(options: ExampleLaunchOptions): ExampleLaun
   // network policy: the harness honors the proxy environment, and a runner that exports one would
   // send a fixture-server request to a proxy that cannot resolve the fixture host. `undefined`
   // removes the name from the child rather than setting it empty.
-  const env: NodeJS.ProcessEnv = { ...clearedProxyEnv(), ...options.env }
+  const env: NodeJS.ProcessEnv = { ...clearedProxyEnv(), MUSE_HOME: options.env?.DSH_HOME, ...options.env }
 
   if (mode === 'src') {
     if (options.tsconfigPath === undefined) {
