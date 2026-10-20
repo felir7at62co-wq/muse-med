@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-asr-legacy-result-recovery
+profile: headless
+composition: muse-asr-legacy-result-recovery
+recording: authored
+platform: posix
+header:
+  class: muse-asr-legacy-result-recovery
+  pin: true
+workspace:
+  final: true
+writerOutput: true

@@ -1,0 +1,2 @@
+[00:00:00.000 --> 00:00:20.500] Keep the original first words.
+[00:00:20.000 --> 00:00:21.000] Keep the original second words.

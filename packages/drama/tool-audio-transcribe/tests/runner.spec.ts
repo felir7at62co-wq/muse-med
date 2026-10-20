@@ -887,6 +887,111 @@ it.each(['verified', 'outside-audio', 'changed-audio'] as const)('verifies legac
   expect(rows.every(row => row.text === 'keep original words')).toBe(true)
 })
 
+it('retains verified legacy durations and warnings after audio cleanup and recreates missing outputs without upload', async () => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  let probes = 0, queries = 0, uploads = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async () => { uploads++; throw new Error('Unexpected recovery upload') },
+    audioStatus: async (id) => { queries++; return { id, status: 'complete', segments: [
+      { start: 0, end: id === firstPart.id ? 20.5 : 1, text: 'keep original words' },
+    ] } },
+  }
+  const options = { waitMs: 0, pollIntervalMs: 1, probe: async () => { probes++; return 20.6 } }
+  const first = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+  const warning = [{ part_id: firstPart.id, planned_seconds: 20, staged_seconds: 20.6 }]
+  for (const part of f.receipt.parts) await expect(stat(part.mp3)).rejects.toMatchObject({ code: 'ENOENT' })
+  const cached = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+  expect(cached.timing_warnings).toEqual(warning)
+  expect(cached.progress).toEqual({ completed_parts: 2, total_parts: 2 })
+  for (const output of [first.output_txt!, first.output_json!, first.output_srt!]) {
+    const content = await readFile(output, 'utf8')
+    await rm(output)
+    const recovered = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+    expect(recovered.status).toBe('complete')
+    expect(recovered.timing_warnings).toEqual(warning)
+    expect(await readFile(output, 'utf8')).toBe(content)
+  }
+  expect({ probes, queries, uploads }).toEqual({ probes: 1, queries: 8, uploads: 0 })
+  const receipt = JSON.parse(await readFile(f.first.receipt, 'utf8')) as { parts: { id: string; verifiedDurationSeconds?: number }[] }
+  expect(receipt.parts.find(part => part.id === firstPart.id)).toMatchObject({ ...firstPart, verifiedDurationSeconds: 20.6 })
+})
+
+it.each(['20.6', null, 0, -1, 19, 30.251])('rejects an invalid retained legacy duration %j before querying', async (value) => {
+  const f = await splitFixture()
+  let queries = 0
+  const receipt = JSON.parse(await readFile(f.first.receipt, 'utf8')) as { parts: Record<string, unknown>[] }
+  receipt.parts[0]!.verifiedDurationSeconds = value
+  const content = JSON.stringify(receipt)
+  await writeFile(f.first.receipt, content)
+  const account: AudioAccount = { ...f.account, audioStatus: async (id) => { queries++; return { id, status: 'silent' } } }
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account, undefined, false))
+    .rejects.toThrow(/Invalid (?:transcription parts|verified audio duration)/u)
+  expect(queries).toBe(0)
+  expect(await readFile(f.first.receipt, 'utf8')).toBe(content)
+})
+
+it.each([NaN, 19, 30.251])('does not retain a probed legacy duration outside its source bounds: %s', async (duration) => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  const before = await readFile(f.first.receipt, 'utf8')
+  const account: AudioAccount = { ...f.account, audioStatus: async id => ({ id, status: 'complete', segments: [
+    { start: 0, end: id === firstPart.id ? 20.5 : 1, text: 'speech' },
+  ] }) }
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account, undefined, false,
+    { waitMs: 0, pollIntervalMs: 1, probe: async () => duration })).rejects.toThrow('timestamp exceeds its audio part')
+  expect(await readFile(f.first.receipt, 'utf8')).toBe(before)
+  await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await stat(firstPart.mp3)).toBeDefined()
+})
+
+it('rejects changed original-task results beyond retained duration without replacing published outputs', async () => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  let end = 20.5, probes = 0
+  const account: AudioAccount = { ...f.account, audioStatus: async id => ({ id, status: 'complete', segments: [
+    { start: 0, end: id === firstPart.id ? end : 1, text: 'speech' },
+  ] }) }
+  const options = { waitMs: 0, pollIntervalMs: 1, probe: async () => { probes++; return 20.6 } }
+  const first = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+  const receipt = await readFile(f.first.receipt, 'utf8'), json = await readFile(first.output_json!, 'utf8')
+  await rm(first.output_srt!)
+  end = 22
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options))
+    .rejects.toThrow('timestamp exceeds its audio part')
+  expect(probes).toBe(1)
+  expect(await readFile(f.first.receipt, 'utf8')).toBe(receipt)
+  expect(await readFile(first.output_json!, 'utf8')).toBe(json)
+  await expect(stat(first.output_srt!)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('keeps complete legacy outputs readable and diagnoses missing duration evidence without uploading again', async () => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  let queries = 0, uploads = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async () => { uploads++; throw new Error('Unexpected recovery upload') },
+    audioStatus: async (id) => { queries++; return { id, status: 'complete', segments: [
+      { start: 0, end: id === firstPart.id ? 20.5 : 1, text: 'legacy speech' },
+    ] } },
+  }
+  const options = { waitMs: 0, pollIntervalMs: 1, probe: async () => 20.6 }
+  const first = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+  const receipt = JSON.parse(await readFile(f.first.receipt, 'utf8')) as { parts: Record<string, unknown>[] }
+  for (const part of receipt.parts) delete part.verifiedDurationSeconds
+  const legacy = JSON.stringify(receipt)
+  await writeFile(f.first.receipt, legacy)
+  const cached = await finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options)
+  expect(cached.status).toBe('complete')
+  expect(cached.output_json).toBe(first.output_json)
+  expect(cached).not.toHaveProperty('timing_warnings')
+  expect(queries).toBe(2)
+  const json = await readFile(first.output_json!, 'utf8')
+  await rm(first.output_srt!)
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account, undefined, false, options))
+    .rejects.toThrow('restore the original staged audio to recover missing outputs without resubmitting')
+  expect(uploads).toBe(0)
+  expect(await readFile(f.first.receipt, 'utf8')).toBe(legacy)
+  expect(await readFile(first.output_json!, 'utf8')).toBe(json)
+  await expect(stat(first.output_srt!)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 
 it('cancels native waiting without a later query or publication', async () => {
   const f = await setup()

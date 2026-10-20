@@ -79,6 +79,8 @@ interface AudioPart extends MuseAsrMetadata {
   readonly offset: number
   readonly retentionExpired?: boolean
   readonly duration: number
+  /** Hash-checked staged duration retained for legacy result reconstruction after audio cleanup. */
+  readonly verifiedDurationSeconds?: number
   readonly purpose?: MuseAsrPurpose
 }
 
@@ -181,8 +183,16 @@ async function readReceipt(file: string): Promise<Receipt> {
       || typeof item.mp3 !== 'string' || typeof item.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(item.sha256)
       || typeof item.offset !== 'number' || !Number.isFinite(item.offset) || item.offset < 0
       || typeof item.duration !== 'number' || !Number.isFinite(item.duration) || item.duration <= 0
+      || (item.verifiedDurationSeconds !== undefined && (typeof item.verifiedDurationSeconds !== 'number'
+        || !Number.isFinite(item.verifiedDurationSeconds) || item.verifiedDurationSeconds < item.duration))
   }))) throw new Error('Invalid transcription parts')
   if (Array.isArray(row.parts) && row.parts.some((part: Record<string, unknown>) => part.purpose !== row.purpose)) throw new Error('Transcription part purpose does not match its receipt')
+  if (Array.isArray(row.parts)) {
+    const parts = row.parts as AudioPart[]
+    const duration = parts.reduce((total, part) => total + part.duration, 0)
+    if (parts.some(part => part.verifiedDurationSeconds !== undefined
+      && (!Number.isFinite(duration) || part.verifiedDurationSeconds > duration + 0.25))) throw new Error('Invalid verified audio duration')
+  }
   return { id: row.id, source: row.source, ...(row.sourceSha256 === undefined ? {} : { sourceSha256: row.sourceSha256 }),
     ...(row.parts === undefined ? {} : { parts: row.parts as AudioPart[] }),
     accountUsername: row.accountUsername, stem: row.stem, version: row.version,
@@ -561,7 +571,9 @@ async function finishParts(
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
     && await stat(target.txt).then(() => true, () => false) && await stat(target.srt).then(() => true, () => false)) {
-    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, output_srt: target.srt }
+    return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt),
+      progress: { completed_parts: parts.length, total_parts: parts.length }, ...partTimingFields(parts),
+      output_txt: target.txt, output_json: target.json, output_srt: target.srt }
   }
   let offset = 0
   const ids = new Set<string>()
@@ -596,19 +608,30 @@ async function finishParts(
     results.push({ job, part })
   }
   const status = combinedStatus(results.map(({ job }) => job))
-  const timingWarnings: NonNullable<AudioRunResult['timing_warnings']>[number][] = []
+  const durations = new Map(parts.flatMap(part => part.verifiedDurationSeconds === undefined
+    ? [] : [[part.id, part.verifiedDurationSeconds] as const]))
   if (status === 'complete') {
-    const durations = new Map<string, number>()
     for (const { job, part } of results) {
       const maxEnd = Math.max(0, ...(job.segments ?? []).map(row => row.end))
       if (maxEnd <= part.duration + 0.25) continue
-      // Old FFmpeg ranges used packet timestamps; the submitted PCM can be longer.
-      if (!probe) throw new Error('Recognition timestamp exceeds its audio part; inspect with the configured media probe')
-      if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
-      const actual = await probe(part.mp3, signal)
-      if (!Number.isFinite(actual) || actual <= 0 || maxEnd > actual + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
-      durations.set(part.id, actual)
-      timingWarnings.push({ part_id: part.id, planned_seconds: part.duration, staged_seconds: actual })
+      let actual = durations.get(part.id)
+      if (actual === undefined) {
+        // Old FFmpeg ranges used packet timestamps; the submitted PCM can be longer.
+        if (!probe) throw new Error('Recognition timestamp exceeds its audio part; inspect with the configured media probe')
+        let hash: string
+        try { hash = await digest(part.mp3, signal) }
+        catch (error) {
+          if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            throw new Error('Legacy transcription duration was not retained; restore the original staged audio to recover missing outputs without resubmitting')
+          }
+          throw error
+        }
+        if (hash !== part.sha256) throw new Error('Staged audio part changed')
+        actual = await probe(part.mp3, signal)
+        if (!Number.isFinite(actual) || actual < part.duration || actual > offset + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
+        durations.set(part.id, actual)
+      }
+      if (maxEnd > actual + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
     }
     const segments = results.flatMap(({ job, part }) => {
       return (job.segments ?? []).map((row) => {
@@ -624,7 +647,9 @@ async function finishParts(
   }
   const updatedParts = results.map(({ part, job }) => {
     const { queued: _queued, error_code: _error, provider_diagnostic: _diagnostic, recovery: _recovery, ...prior } = part
-    return { ...prior, ...metadataFields(job), ...(job.retentionExpired ? { retentionExpired: true } : {}) }
+    const duration = durations.get(part.id)
+    return { ...prior, ...(duration === undefined ? {} : { verifiedDurationSeconds: duration }),
+      ...metadataFields(job), ...(job.retentionExpired ? { retentionExpired: true } : {}) }
   })
   await save(receiptFile, { ...receipt, status, parts: updatedParts,
     ...metadataFields(combinedMetadata(results.map(({ job }) => job))) }, signal)
@@ -635,5 +660,11 @@ async function finishParts(
   }
   return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose),
     ...combinedMetadata(results.map(({ job }) => job)), progress: { completed_parts: results.filter(({ job }) => ['complete', 'silent'].includes(job.status)).length, total_parts: parts.length },
-    ...(timingWarnings.length === 0 ? {} : { timing_warnings: timingWarnings }), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
+    ...partTimingFields(updatedParts), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
+}
+
+function partTimingFields(parts: readonly AudioPart[]): Pick<AudioRunResult, 'timing_warnings'> {
+  const warnings = parts.flatMap(part => part.verifiedDurationSeconds === undefined ? []
+    : [{ part_id: part.id, planned_seconds: part.duration, staged_seconds: part.verifiedDurationSeconds }])
+  return warnings.length === 0 ? {} : { timing_warnings: warnings }
 }

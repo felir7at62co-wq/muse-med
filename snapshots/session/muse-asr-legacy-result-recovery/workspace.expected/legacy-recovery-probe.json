@@ -1,0 +1,18 @@
+{
+  "originalJobIdRetained": true,
+  "uploads": 0,
+  "providerQueries": 4,
+  "durationProbes": 1,
+  "cachedReadPreservesWarning": true,
+  "cachedReadPreservesProgress": true,
+  "stagedAudioCleaned": true,
+  "srtDeletedByShell": true,
+  "restoredOutputsIdentical": true,
+  "verifiedDurationSeconds": 20.6,
+  "sourcePreserved": true,
+  "outputSha256": {
+    "txt": "7d443ae2b96a86d51bb76b335a4f253cbcdb69e7c4e91160a696361ea6b8c7f0",
+    "json": "bd12d5c05521c21e854cd4f1a6f6f572e71a24ee9febb0111863a6364978e5e2",
+    "srt": "902d23da5eaea21c1c84a2968ad127f4edb4313cbe5985a6378ca1bd2b1fe550"
+  }
+}
