@@ -54,7 +54,7 @@
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 | `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | 所有付费写入（image_generate、image_generate_batch、generate、submit_video、submit_video_batch、erase_subtitle、upscale）都要求调用方提供 idempotency_key（每个批量项独立），在请求发出前将意图记录到账本；image_generate_batch 在任何请求前校验全部本地项，再按配置的有界并发执行各自预算内的生图写入；submit_video_batch 核对全部预览并预约整批预算后，并行提交分镜；去字幕与转高清受理后即返回，后续读取 subtasks。启用 sessionVideoSelection 时提供 jubian_video_model，记录配置的初始规格或用户明确选择的视频设置，不修改项目默认值。jubian_claim 只检查或认领用户明确授权的一个剧本池 ID；jubian_snatch 通过后台任务观察明确授权且范围有界的剧本池。 |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`、`drama_project` | `ctx.tools`、`ctx.settings`、已存在的绝对项目目录 | `tool/call`、`tool/result`、`project_config.json` 与 `project-bible.md`、剪映草稿根目录的 Settings 值 | - | drama_project 维护权威 JSON、受版本检查保护的修订、视频包身份与已完成任务历史。生成尺寸与交付尺寸分别记录；初始预算是 Settings 快照，实际计费请求执行当前 Settings 与账号账本授权。drama_draft_dir 读取，或验证并保存已配置的剪映草稿根目录。 |
-| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 |
+| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json`、`muse_production：本地方案和回执；apply 只免费原生写卡并回读，绝不提交付费生成` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。 |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。`prepare` 构建渲染输入并保存项目画布和视觉类型快照，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。3D 漫不新增片尾或水印；仿真人保留 AI 标记及真实尾帧定格的两秒片尾。旧项目缺类型时告警并保留带标识交付；目标码率 24M、上限 30M、下限 4.6 Mbps。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
@@ -5610,7 +5610,185 @@ drama_project keeps authoritative JSON, guarded revisions, package identities an
 
 Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
-三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。
+### `muse_production`
+
+Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模型和剧变库存，按完整镜头自动分包，逐镜给出人物／服装、场景、道具、音频候选和依据；保存本地方案，不写剧变、不收费。read分页查看matches/packages/warnings；update只提交要调整的逐镜choices或requirements，刷新库存与模型后重新预览。apply将方案免费批量写入剧变并真实回读，已有同名同集卡原位更新；不提交生成。所有创作、匹配和时长问题为提示，不要求清零，也不需要用户逐包批准。预览结果须实际交回你看图／听音核对，不能在同一脚本里直接把未审候选连到apply。保留用户当前稿、原台词、说话人和换装节点；不要用一个全局人物映射覆盖不同镜头。缺声线看voice_follow_up：按已有制作授权先生成首个清晰讲话包，再核对和抽取、上传登记共享声线；换装不换声线时期。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "preview",
+        "read",
+        "update",
+        "apply"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "preview必填：已有project_config.json且绑定剧变项目的本地根目录。"
+    },
+    "script": {
+      "type": "string",
+      "description": "preview必填：本集完整导演分镜脚本UTF-8文件；使用【镜头N】和本镜人物、场景、道具字段。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "preview必填：真实显示集号，工具查询远端episode_id。"
+    },
+    "ratio": {
+      "type": "string",
+      "description": "首次preview必填：项目已确认画幅，如16:9，不改变项目风格。"
+    },
+    "gen_type": {
+      "type": "integer",
+      "description": "首次preview必填：当前模型支持且本项目采用的生成类型。"
+    },
+    "plan_path": {
+      "type": "string",
+      "description": "read/update/apply必填：上次返回的完整本地方案路径。"
+    },
+    "requirements": {
+      "type": "array",
+      "description": "可选逐镜更正或补充要求；人物名用稳定故事身份，state写本镜服装，conditions写具体场景或道具条件；声音明确character_id与voice_period_id。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "character_id": {
+            "type": "string"
+          },
+          "voice_period_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name"
+        ]
+      }
+    },
+    "choices": {
+      "type": "array",
+      "description": "只提交要改的逐镜选择，其他选择保留。asset_id=null明确暂不绑定；同名人物换装按镜分别选，不按列表顺序猜。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "asset_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name",
+          "asset_id"
+        ]
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "可选原卡选择：index是方案包序号，storyboard_id是实际原卡ID；null明确新建。默认复用同集同名唯一原卡，重名时按target_candidates核对，不猜、不重复建卡。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "storyboard_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "storyboard_id"
+        ]
+      }
+    },
+    "section": {
+      "type": "string",
+      "enum": [
+        "matches",
+        "packages",
+        "warnings",
+        "assets"
+      ]
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+来源： [`packages/drama/tool-shot-script/src/production.ts`](../packages/drama/tool-shot-script/src/production.ts)
+
+三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 

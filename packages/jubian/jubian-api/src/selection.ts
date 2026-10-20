@@ -169,7 +169,6 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   const scriptId = integer(storyboard.scriptId)
   const storyboardId = integer(storyboard.id)
   const ordered = input.selections
-  if (ordered.length === 0) invalid()
   const keys = ordered.map(item => item.material_key.trim())
   const parentIds = ordered.map(item => String(item.asset_id).trim())
   if (keys.some(key => !key) || parentIds.some(id => !id || !/^[0-9]+$/.test(id))) invalid()

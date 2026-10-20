@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 2b1dc0944c035133
-  zh: cac9825464dde061
+  en: af74eba2b1834b1f
+  zh: 2bc898cd8fd7ea78
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -393,8 +393,11 @@
   en: 6f86adf127829946
   zh: 6f86adf127829946
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/drama-shot:
-  en: 939b19b128140ce3
-  zh: 3726d5b52ebb1903
+  en: b76eb1c585a54953
+  zh: b76eb1c585a54953
+/tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/muse-production:
+  en: 2cefd4d8e5fc6aa9
+  zh: 15dd2b340d9c61bd
 /tool-schema-catalog/deepseek-ai-dsh-perception-bgm:
   en: 5fc5e012063d9e78
   zh: 5fc5e012063d9e78

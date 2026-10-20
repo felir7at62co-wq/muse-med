@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-production-packaging
+profile: headless
+composition: muse-production-packaging
+recording: authored
+header:
+  class: muse-production-packaging
+  pin: true
+writerOutput: true

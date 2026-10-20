@@ -19,6 +19,8 @@ const reviewSchema = z.object({
 })
 const savedReviewSchema = z.object({ script: z.string(), packages: z.array(packageSchema),
   revision: z.number().int().nullable(), available: z.boolean().default(true) })
+const productionReviewSchema = z.object({ mode: z.literal('advisory'), method: z.enum(['preview', 'update']),
+  production_review: savedReviewSchema })
 const reviewStateSchema = z.object({
   pending: z.array(z.object({ call_id: z.string(), packaging: z.boolean() })), latest: savedReviewSchema.nullable(),
 })
@@ -42,6 +44,8 @@ function readReview(content: readonly ContentBlock[]): SavedReview | null {
     const parsed = reviewSchema.safeParse(document)
     if (parsed.success) return { script: parsed.data.script, packages: parsed.data.packages,
       revision: parsed.data.duration_budget?.selection?.revision ?? null, available: true }
+    const production = productionReviewSchema.safeParse(document)
+    if (production.success) return production.data.production_review
   }
   return null
 }
@@ -54,8 +58,10 @@ function readReview(content: readonly ContentBlock[]): SavedReview | null {
  */
 export function reviewPresentationMeta(_args: unknown, value: unknown): { drama_shot_review: SavedReview | null } {
   const parsed = reviewSchema.safeParse(value)
+  const production = productionReviewSchema.safeParse(value)
   return { drama_shot_review: parsed.success ? { script: parsed.data.script, packages: parsed.data.packages,
-    revision: parsed.data.duration_budget?.selection?.revision ?? null, available: true } : null }
+    revision: parsed.data.duration_budget?.selection?.revision ?? null, available: true }
+    : production.success ? production.data.production_review : null }
 }
 
 function metaReview(meta: unknown): SavedReview | null {
@@ -72,7 +78,7 @@ function packagingCall(args: unknown): boolean {
     }
   }
   return typeof value === 'object' && value !== null && 'method' in value
-    && (value.method === 'preview' || value.method === 'compile')
+    && (value.method === 'preview' || value.method === 'compile' || value.method === 'update')
 }
 
 function unavailableReview(): SavedReview { return { script: '', packages: [], revision: null, available: false } }
@@ -154,7 +160,7 @@ export function installSessionReview(ctx: Context, definition: ToolDefinition, m
   projections.register({ key: 'dramaShotReview', stateSchema: reviewStateSchema, stateVersion: 1,
     init: () => ({ pending: [], latest: null }),
     apply: (state, event) => {
-      if (event.type === 'tool/call' && event.data.name === 'drama_shot') {
+      if (event.type === 'tool/call' && ['drama_shot', 'muse_production'].includes(event.data.name)) {
         return { ...state, pending: [...state.pending, { call_id: event.data.callId, packaging: packagingCall(event.data.arguments) }] }
       }
       if (event.type === 'tool/result') {
@@ -164,7 +170,7 @@ export function installSessionReview(ctx: Context, definition: ToolDefinition, m
           latest: event.data.message.isError || !pending.packaging ? state.latest
             : metaReview(event.data.meta) ?? readReview(event.data.message.content) ?? unavailableReview() }
       }
-      if (event.type === 'tool/ptc-dispatch' && event.data.name === 'drama_shot' && !event.data.isError && packagingCall(event.data.arguments)) {
+      if (event.type === 'tool/ptc-dispatch' && ['drama_shot', 'muse_production'].includes(event.data.name) && !event.data.isError && packagingCall(event.data.arguments)) {
         return { ...state, latest: readReview(event.data.content) ?? unavailableReview() }
       }
       return state
@@ -172,10 +178,11 @@ export function installSessionReview(ctx: Context, definition: ToolDefinition, m
   ctx.effect(() => service.registerContextReviewer((agent: Agent, selection: SessionVideoSelection) => {
     if (ctx.tools.get('drama_shot', agent) !== definition) return ''
     const review = projections.stateOf(agent.session, 'dramaShotReview')?.latest ?? null
-    return review === null ? '' : recheck(review, selection, maxChars, agent.session.header.cwd)
+    return review === null ? '' : boundContext(recheck(review, selection, maxChars, agent.session.header.cwd)
+      + (ctx.tools.get('muse_production', agent) ? 'Muse批量制作方案请用muse_production update刷新当前模型分包和素材候选，再自主复核。' : ''), maxChars)
   }))
   ctx.on('tools/result', (exec, result) => {
-    if (exec.name !== 'drama_shot' || exec.agent === undefined || result.isError
+    if (!['drama_shot', 'muse_production'].includes(exec.name) || exec.agent === undefined || result.isError
       || ctx.tools.get('drama_shot', exec.agent) !== definition) return
     const review = metaReview(result.meta) ?? readReview(result.content)
     const selection = service.current(exec.agent)

@@ -39,7 +39,8 @@
     "src/write.ts",
     "src/watch.ts",
     "src/video-session.ts",
-    "src/video-session-types.ts"
+    "src/video-session-types.ts",
+    "src/production.ts"
   ],
   "references": [
     {

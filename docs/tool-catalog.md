@@ -50,7 +50,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 | `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`, `drama_project` | `ctx.tools`, `ctx.settings`, `an existing absolute project directory` | `tool/call`, `tool/result`, `project_config.json and project-bible.md`, `the Jianying draft-root Settings value` | - | drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root. |
-| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`, `a source script; asset manifest for preview/compile; project and episode for compile`, `session video selection and projections when sessionVideoSelection is enabled` | `tool/call`, `tool/result`, `on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json` | - | The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. |
+| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`, `a source script; asset manifest for preview/compile; project and episode for compile`, `session video selection and projections when sessionVideoSelection is enabled` | `tool/call`, `tool/result`, `on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json`, `muse_production: local plans/receipts; apply performs free native card writes and readback, never paid generation` | - | The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`, `ctx.subprocess`, `ffmpeg and ffprobe on PATH (or configured)`, `an episode timeline and explicit BGM plan` | `tool/call`, `tool/result`, `on compose: a 48 kHz stereo PCM WAV and adjacent generation report under the project root` | - | `preview` validates complete story coverage and reports source hashes, offsets, measured mean volume, and gains without publishing; `compose` crossfades the selected tracks and publishes only after the staged WAV passes ffprobe; `verify` measures an existing WAV without rewriting it. The tool does not choose music or call `bgm_match`; the agent owns plot interpretation and final track selection. |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`, `drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `on drama_video ban/unban: project-local video-bans.json; media bytes are unchanged` | - | `drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. `drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. Its methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. Prepare snapshots project delivery canvas and medium. Animation adds no ending or watermark; photorealistic keeps the AI-content mark and a two-second ending frozen from the proved tail frame. Missing legacy medium preserves marked delivery with a warning. The bitrate target is 24M, ceiling 30M and floor 4.6 Mbps. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs. |
@@ -5606,7 +5606,185 @@ drama_project keeps authoritative JSON, guarded revisions, package identities an
 
 Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
-The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail.
+### `muse_production`
+
+Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模型和剧变库存，按完整镜头自动分包，逐镜给出人物／服装、场景、道具、音频候选和依据；保存本地方案，不写剧变、不收费。read分页查看matches/packages/warnings；update只提交要调整的逐镜choices或requirements，刷新库存与模型后重新预览。apply将方案免费批量写入剧变并真实回读，已有同名同集卡原位更新；不提交生成。所有创作、匹配和时长问题为提示，不要求清零，也不需要用户逐包批准。预览结果须实际交回你看图／听音核对，不能在同一脚本里直接把未审候选连到apply。保留用户当前稿、原台词、说话人和换装节点；不要用一个全局人物映射覆盖不同镜头。缺声线看voice_follow_up：按已有制作授权先生成首个清晰讲话包，再核对和抽取、上传登记共享声线；换装不换声线时期。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "preview",
+        "read",
+        "update",
+        "apply"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "preview必填：已有project_config.json且绑定剧变项目的本地根目录。"
+    },
+    "script": {
+      "type": "string",
+      "description": "preview必填：本集完整导演分镜脚本UTF-8文件；使用【镜头N】和本镜人物、场景、道具字段。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "preview必填：真实显示集号，工具查询远端episode_id。"
+    },
+    "ratio": {
+      "type": "string",
+      "description": "首次preview必填：项目已确认画幅，如16:9，不改变项目风格。"
+    },
+    "gen_type": {
+      "type": "integer",
+      "description": "首次preview必填：当前模型支持且本项目采用的生成类型。"
+    },
+    "plan_path": {
+      "type": "string",
+      "description": "read/update/apply必填：上次返回的完整本地方案路径。"
+    },
+    "requirements": {
+      "type": "array",
+      "description": "可选逐镜更正或补充要求；人物名用稳定故事身份，state写本镜服装，conditions写具体场景或道具条件；声音明确character_id与voice_period_id。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "character_id": {
+            "type": "string"
+          },
+          "voice_period_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name"
+        ]
+      }
+    },
+    "choices": {
+      "type": "array",
+      "description": "只提交要改的逐镜选择，其他选择保留。asset_id=null明确暂不绑定；同名人物换装按镜分别选，不按列表顺序猜。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "asset_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name",
+          "asset_id"
+        ]
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "可选原卡选择：index是方案包序号，storyboard_id是实际原卡ID；null明确新建。默认复用同集同名唯一原卡，重名时按target_candidates核对，不猜、不重复建卡。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "storyboard_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "storyboard_id"
+        ]
+      }
+    },
+    "section": {
+      "type": "string",
+      "enum": [
+        "matches",
+        "packages",
+        "warnings",
+        "assets"
+      ]
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-shot-script/src/production.ts`](../packages/drama/tool-shot-script/src/production.ts)
+
+The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow.
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 

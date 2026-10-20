@@ -525,7 +525,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   const storyboard = await storyboardSnapshot(client, storyboardId)
   const scriptId = positiveInteger(storyboard.scriptId)
   const selections = need(args.selections)
-  if (!Array.isArray(selections) || selections.length === 0) throw new JubianError('CONTRACT_CHANGED')
+  if (!Array.isArray(selections)) throw new JubianError('CONTRACT_CHANGED')
   const subjectRows = await listAllSubjectMaterials(client, scriptId)
   const parents: Record<string, unknown>[] = []
   for (const assetId of [...new Set(selections.map(selection => String(selection.asset_id)))]) {

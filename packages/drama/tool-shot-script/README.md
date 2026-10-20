@@ -26,6 +26,18 @@ Use `drama_shot` to check director-format scripts and preview package timing. Th
 
 Mount this plugin beside the tool registry in the drama preset. `actionShotSeconds` defaults to 2 and accepts whole seconds from 1–4; it estimates silent shots without explicit duration or complexity, not a maximum shot length. `reviewMode` accepts `strict` and `advisory`, defaulting to `strict`. `sessionVideoSelection` defaults to `false`; enabling it uses the calling Agent's Jubian video-selection service instead of a caller-supplied package ceiling. `selectionReviewMaxChars` limits the complete appended selection-review text, defaults to 2000 characters and accepts at least 400; counts remain visible and omitted details are identified. Muse's Short Drama preset selects `advisory` and enables session selection. These are deployment settings, not model-selectable tool arguments.
 
+<a id="muse-batch-production"></a>
+
+### Muse batch production
+
+`productionPackaging: true` additionally registers `muse_production`; Muse's director presets enable it. `production` configures the native transport, shared storyboard ledger and inventory bounds. The tool requires credentials and session video selection. `preview` reads the existing `project_dir`, complete episode `script`, display `episode`, project `ratio` and supported `gen_type`. It queries complete remote inventories, returns per-shot appearance candidates and saves a local plan below `.muse/production/`. Requirements specify costumes, scene conditions and voice periods; local aliases supplement matching live URLs. Candidates do not establish visual or acoustic identity.
+
+`read` pages through `matches`, `packages`, `warnings` or complete `assets`, retaining counts and truncation. `update` refreshes source, inventory and model while merging individual choices and requirements. Choices belong to a shot, kind and story name. `targets` selects existing card IDs when names are ambiguous. Packages show current bindings and proposed image/voice IDs. Unknown model ceilings retain complete single-shot draft packages without claiming supported durations. Content warnings do not prevent publishing drafts or require user approval.
+
+`apply` uses native free creation, edit, image-selection and audio-preview/apply operations with generation disabled. Original keys and partial receipts permit resuming without repeated creation; each package returns actual readback. Changed source, model or live card content requests refresh rather than overwriting user work. Independent packages report separate outcomes. The provider has no atomic cross-client compare-and-swap, so another client can race the final read/write. Empty image selections clear old images only when no image references remain; audio uses its dedicated replacement path. The tool never deletes or submits paid generation.
+
+Voices use explicit character and life-period identities. Adopted reference IDs, URLs, hashes and measured duration metadata supplement live voices without claiming fresh listening or measurement. Missing identity or duration prompts inspection of existing samples first. Under existing production/spending authorization, the agent can generate the first clear speaking package, inspect and extract the sample, re-query shared audio, then register/reuse through the existing workflow. Costume changes do not create voice periods or replace adopted defaults. Compact package reviews survive pruning and model switches through logged review projections; these are advisory and do not change the system prompt.
+
 <a id="review-modes"></a>
 ### Review modes
 
