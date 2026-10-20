@@ -68,7 +68,7 @@ it('delivers current creative direction and full shot-writing skills', async () 
     const bodies = results.map((result) => {
       expect(result.data.message.isError).toBeFalsy()
       return result.data.message.content.filter(part => part.type === 'text')
-        .map(part => part.text.replaceAll(skillRoot.replace(/\/$/, ''), '<bundled-skills>')).join('\n')
+        .map(part => part.text.replaceAll(skillRoot.replace(/[\\/]$/, ''), '<bundled-skills>')).join('\n')
     })
     expect(adapter.requests).toHaveLength(names.length + 1)
     const finalMessages = JSON.stringify(adapter.requests.at(-1)!.messages)
