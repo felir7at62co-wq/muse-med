@@ -30,7 +30,7 @@ def main():
     else:
         renderer.write_ass(srt, ass)
     text = ass.read_text(encoding='utf-8')
-    assert 'Style: Default,Noto Sans CJK SC,68,' in text
+    assert 'Style: Default,Noto Sans CJK SC,40,' in text
     assert 'Style: Watermark,Noto Sans CJK SC,44,' in text
     command = [str(Path(args.ffmpeg).resolve()), '-hide_banner', '-loglevel', 'verbose', '-y', '-f', 'lavfi', '-i',
                'color=c=black:s=1080x1920:r=1:d=1', '-vf', renderer.subtitle_filter(ass),

@@ -19,7 +19,7 @@ import { fileSha256 } from './cache.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
-import { readSubtitleCues } from './subtitles.ts'
+import { assertSubtitleNotBlocked, readSubtitleCues } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument } from './timeline.ts'
 import type { MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
@@ -240,6 +240,7 @@ async function buildMaster(
  */
 export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpisode> {
   const paths = episodePaths(input.project, input.episode)
+  await assertSubtitleNotBlocked(input.subtitleSrt)
   const delivery = await readProjectDelivery(input.project)
   const rows = parseShotManifest(
     await readJsonDocument(input.shotsPath, '成片清单'),

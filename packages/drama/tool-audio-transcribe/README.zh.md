@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频或视频转成带时间戳的文字。`start` 先保存幂等任务收据，再请网关提交计费云端任务；`status` 查询同一任务，并把非空 TXT、JSON 和 SRT 无覆盖地写入 `transcript/raw/`。
+Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频或视频转成带时间戳的文字。`start` 先保存幂等任务收据，再请网关提交计费云端任务；`inspect` 只查询原任务，不再次上传音轨，完成后把 TXT、JSON 和 SRT 无覆盖地写入 `transcript/raw/`。原有 `status` 可能用同 ID 补传尚未受理的音轨并产生费用。
 
 ## 目录
 
@@ -26,10 +26,10 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 
 ```json
 {"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh","purpose":"screenplay"}
-{"method":"status","project":"<same project root>","receipt":"<start receipt path>"}
+{"method":"inspect","project":"<same project root>","receipt":"<start receipt path>"}
 ```
 
-字幕校时使用 `purpose: "subtitles"`，走极速识别；音视频转剧本使用 `"screenplay"`，走标准识别。新任务默认 `subtitles`。收据和每个音轨分段保存解析后的用途，查询与恢复使用该值。未完成任务不能改用途。无用途字段的旧收据在恢复时仍保留旧路由。网关选择标准版本与私有资源。视频转小说和剧本的语音来源优先用已授权 ASR；只有确认队列满时，才将尚未提交且有可靠可见文字的工作按实测速率分给 OCR，不设固定比例。已受理排队任务保留付费身份，排队本身不证明全池容量耗尽。无语音不是识别失败，OCR 与 ASR 保留独立来源，均不能证明未观察的画面动作；标准版本不自动视为质量等价或降级。
+字幕校时使用 `purpose: "subtitles"`，走极速识别；音视频转剧本使用 `"screenplay"`，走标准识别。新任务默认 `subtitles`。收据和每个音轨分段保存解析后的用途，查询与恢复使用该值。未完成任务不能改用途；同一原片确需另一用途且已获额外计费授权时，必须显式指定用途，新任务使用独立版本收据和任务 ID，旧任务保持不变。省略用途不会跨用途新建付费任务。无用途字段的旧收据在恢复时仍保留旧路由。网关选择标准版本与私有资源。视频转小说和剧本的语音来源优先用已授权 ASR；只有确认队列满时，才将尚未提交且有可靠可见文字的工作按实测速率分给 OCR，不设固定比例。已受理排队任务保留付费身份，排队本身不证明全池容量耗尽。无语音不是识别失败，OCR 与 ASR 保留独立来源，均不能证明未观察的画面动作；标准版本不自动视为质量等价或降级。
 
 限流拒绝返回安全的 `error_code`、原收据，以及可选的 `retry_after_seconds` 和 `resume_status`。按建议等待后恢复原收据。`status` 先查询；网关确认任务尚未受理后，可能用原 ID 补传一次暂存音轨，产生识别费用。账号额度、登录过期和幂等冲突不提供立即恢复调用：先处理具体障碍，再明确恢复。单次工具调用不等待、不循环重试。可用的 `service_version`、`queued`、`error_code`、`provider_diagnostic` 与 `recovery` 会返回并保留到收据及音轨分段，旧收据可缺失这些字段。带 `resume_upload` 的失败收据仍可恢复：重复 `start` 返回原收据，一次明确的 `status` 最多对每段补传一次原 ID。`poll_original` 查询原任务，`wait` 保留原身份，`resume_upload` 只允许补传已确认尚未向供方提交的原 ID。`inspect_receipt` 停止盲等：已结束且 `no_query` 的极速请求无法靠等待补回丢失响应，绝不自动新建付费任务。客户端网络错误仍先回读网关，不能预判提供方状态；已受理任务的网关记录消失也不自动补传。分段结果显示阻塞分段的诊断，各原始分段的元数据仍在收据中。所有平台返回的绝对路径均使用 `/`。
 

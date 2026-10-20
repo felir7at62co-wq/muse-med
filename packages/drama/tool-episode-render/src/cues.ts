@@ -13,14 +13,14 @@
  * @module @deepseek-ai/dsh-tool-episode-render/cues
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
 import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan,
   placeAlignedCues } from './speech.ts'
 import type { CueRateFinding, ShotPlacement } from './speech.ts'
-import { formatSrtDocument } from './subtitles.ts'
+import { formatSrtDocument, subtitleBlockPath } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
@@ -81,6 +81,9 @@ export interface BuiltCues {
  * @throws {Error} When the manifest, the plan, or the alignment document is unusable.
  */
 export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues> {
+  const blocked = subtitleBlockPath(input.subtitleSrt)
+  await mkdir(dirname(input.subtitleSrt), { recursive: true })
+  await writeFile(blocked, 'subtitle alignment pending\n', 'utf8')
   const delivery = await readProjectDelivery(input.project)
   const rows = parseShotManifest(await readJsonDocument(input.shotsPath, '成片清单'), input.shotsPath)
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
@@ -102,7 +105,31 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const recognized = aligned.get(shot.source.shot)
     const recognizedCues = recognized?.cues ?? []
     if (lines.length === 0) {
-      if (recognizedCues.length === 0) continue
+      if (recognized === undefined) {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档缺少无发声核对结果。`,
+          fix: '对该镜选定原视频取得同源转写或无发声收据，再用 align_subtitles.py 生成 no_lines 对齐记录。',
+        })
+        continue
+      }
+      if (recognized.strategy === 'unmapped_speech') {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档识别到未映射发声。`,
+          fix: '人工核对该镜声音与剧本；若有台词，补齐计划并对同版成片重新对齐。',
+        })
+        continue
+      }
+      if (recognizedCues.length === 0 && recognized.strategy === 'no_lines') continue
+      if (recognizedCues.length === 0) {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档没有可信的 no_lines 标记。`,
+          fix: '对该镜选定原视频取得同源转写或无发声收据，再用 align_subtitles.py 生成 no_lines 对齐记录。',
+        })
+        continue
+      }
       failures.push({
         id: 'subtitle_line_coverage',
         detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognizedCues.length)} 段识别结果，`
@@ -184,14 +211,21 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     endSeconds: cue.endSeconds,
     text: cue.text,
   }))
-  await mkdir(dirname(input.subtitleSrt), { recursive: true })
-  await writeFile(input.subtitleSrt, formatSrtDocument(cues), 'utf8')
+  // A partial SRT must never appear at the delivery path: prepare/render can
+  // consume that path in a later call, even when this call reported failures.
+  const written: string[] = [blocked]
+  if (failures.length === 0) {
+    const document = formatSrtDocument(cues)
+    await writeFile(input.subtitleSrt, document, 'utf8')
+    await rm(blocked)
+    written.splice(0, 1, input.subtitleSrt)
+  }
   return {
     shots,
     timeline,
     placements,
     cues,
-    written: [input.subtitleSrt],
+    written,
     failures,
     warnings,
   }

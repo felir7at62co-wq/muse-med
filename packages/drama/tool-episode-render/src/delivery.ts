@@ -93,15 +93,18 @@ export const PLAY_RES_WIDTH = 1080
 export const PLAY_RES_HEIGHT = 1920
 
 /**
- * Black outline the delivered picture must show around body subtitles, in
- * delivered pixels.
+ * Black outline reference for a 1440px-wide delivered picture, in pixels.
  *
  * This is the operator's reading of the style — how wide the band looks on the
  * delivered file — not an ASS field. `Outline` is in script-canvas units and
  * libass scales it to the rasterized frame, so the field value is derived from
- * this target rather than written beside it.
+ * this reference scaled by actual delivery width rather than written beside it.
  */
 export const SUBTITLE_OUTLINE_TARGET_PX = 7
+
+/** Body subtitle size and lower safe area on the fixed short-edge ASS canvas. */
+export const SUBTITLE_FONT_SIZE = 40
+export const SUBTITLE_MARGIN_V = 140
 
 /**
  * Derive the ASS `Outline` value that renders at a target width.
@@ -115,13 +118,9 @@ export const SUBTITLE_OUTLINE_TARGET_PX = 7
  * or doubled. The field is written as an integer because that is the resolution
  * the style line has always carried.
  *
- * Measured on the standard geometry (target 7, derived 5, SimHei 68 burned
- * through {@link subtitleBurnFilter}): the band's thinnest run is 5px and its
- * median run 7px, the same in the supersampled burn and in a direct burn at the
- * delivery size. Omitting `ScaledBorderAndShadow` is what made the older fixed
- * values unreadable: libass then draws the outline unscaled in raster pixels,
- * and the supersample halves it again — the old `Outline 3` rendered a 1-2px
- * band, and the note that set it measured its 4px on a direct burn instead.
+ * At the standard 1440px output the 7px reference produces field 5. At 480px
+ * output the reference scales to about 2.3px and also produces field 5, so a
+ * low-resolution review copy does not acquire a disproportionately thick edge.
  * @param targetPx - The delivered band width the picture must show.
  * @param playResY - The script canvas height the outline is authored against.
  * @param outputHeight - The delivered picture height.
@@ -148,7 +147,10 @@ export function buildAssHeader(
   addWatermark = true,
 ): string {
   const canvas = assCanvas(delivery)
-  const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX, canvas.height, delivery.height)
+  // Keep the black edge proportional to the delivered width. A fixed 7px edge
+  // overwhelms 480p review masters even though it is appropriate at 1440p.
+  const targetOutline = SUBTITLE_OUTLINE_TARGET_PX * delivery.width / DELIVERY_WIDTH
+  const outline = assOutline(targetOutline, canvas.height, delivery.height)
   const watermarkStyle = addWatermark
     ? `Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1\n`
     : ''
@@ -161,7 +163,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,${settings.subtitleFontFamily},68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,${String(Math.round(canvas.height * 520 / PLAY_RES_HEIGHT))},1
+Style: Default,${settings.subtitleFontFamily},${String(SUBTITLE_FONT_SIZE)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,${String(Math.round(canvas.height * SUBTITLE_MARGIN_V / PLAY_RES_HEIGHT))},1
 ${watermarkStyle}
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text

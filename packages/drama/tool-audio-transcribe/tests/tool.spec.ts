@@ -72,12 +72,22 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(finishAudioTranscription).toHaveBeenCalledOnce()
   const args = vi.mocked(finishAudioTranscription).mock.calls[0]
   if (!args) throw new Error('Expected a transcription status call')
-  const [project, receipt, receiver, signal] = args
+  const [project, receipt, receiver, signal, allowResumeUpload] = args
   expect([project, receipt]).toEqual(['project', 'original.json'])
   expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
   expect(signal).toBeInstanceOf(AbortSignal)
+  expect(allowResumeUpload).toBe(true)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
+})
+
+it('routes inspect to the original receipt without permitting a recovery upload', async () => {
+  const { call } = await fixture()
+  const result = await call({ method: 'inspect', project: 'project', receipt: 'original.json' })
+  expect(result.isError).toBe(false)
+  expect(finishAudioTranscription).toHaveBeenCalledOnce()
+  expect(vi.mocked(finishAudioTranscription).mock.calls[0]?.[4]).toBe(false)
+  expect(startAudioTranscription).not.toHaveBeenCalled()
 })
 
 it.each(['start', 'status'] as const)('explains a %s queue refusal without changing its recovery response', async (method) => {
@@ -110,6 +120,7 @@ it.each(['upload_busy', 'request_rate', 'provider_rate', 'daily_quota', 'server-
 it('rejects incomplete and unsupported tool JSON before starting or querying a job', async () => {
   const { call } = await fixture()
   for (const args of [{ method: 'start', project: 'project' }, { method: 'status', project: 'project' },
+    { method: 'inspect', project: 'project' },
     { method: 'unknown', project: 'project', input: 'source.mp4' }]) expect((await call(args)).isError).toBe(true)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(finishAudioTranscription).not.toHaveBeenCalled()

@@ -54,7 +54,30 @@ class BurnedSubtitleContractTests(unittest.TestCase):
         self.assertIn('ScaledBorderAndShadow: yes', text)
         self.assertIn('PlayResX: 1080', text)
         self.assertIn('PlayResY: 1920', text)
-        self.assertIn(',1,5,0,2,40,40,520,1', self.style_line(text))
+        self.assertIn(',1,5,0,2,40,40,140,1', self.style_line(text))
+
+    def test_480p_review_style_stays_proportional_and_low(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            srt, ass = Path(temporary) / 'a.srt', Path(temporary) / 'a.ass'
+            srt.write_text('1\n00:00:00,000 --> 00:00:01,000\n简体字幕\n', encoding='utf-8')
+            self.render.write_ass(srt, ass, width=480, height=854)
+            style = self.style_line(ass.read_text(encoding='utf-8-sig'))
+            self.assertIn('Style: Default,SimHei,40,', style)
+            self.assertIn(',1,5,0,2,40,40,140,1', style)
+
+    def test_subtitle_rows_reject_punctuation_wrapping_and_overlong_text(self):
+        with self.assertRaisesRegex(ValueError, 'without punctuation'):
+            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n不要推我！\n')
+        with self.assertRaisesRegex(ValueError, 'one row'):
+            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n第一行\n第二行\n')
+        with self.assertRaisesRegex(ValueError, 'at most 14'):
+            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n一二三四五六七八九十甲乙丙丁戊\n')
+        with self.assertRaisesRegex(ValueError, 'timestamp but no text'):
+            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n')
+
+    def test_subtitle_rows_keep_a_single_punctuation_free_line(self):
+        text = self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n不要推我\n')
+        self.assertIn('Default,,0,0,0,,不要推我', text)
 
     def test_burn_chain_regularizes_the_rate_after_the_subtitles(self):
         chain = self.render.subtitle_filter(Path('display.ass'))
@@ -88,7 +111,7 @@ class BurnedSubtitleContractTests(unittest.TestCase):
             self.assertEqual(len([line for line in text.splitlines() if line.startswith('Dialogue:')]), 1)
             self.assertIn('PlayResX: 1920', text)
             self.assertIn('PlayResY: 1080', text)
-            self.assertIn(',40,40,293,1', self.style_line(text))
+            self.assertIn(',40,40,79,1', self.style_line(text))
         chain = self.render.subtitle_filter(Path('display.ass'), 2560, 1440, 30)
         self.assertTrue(chain.endswith('scale=2560:1440:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30,setpts=N/(30*TB)'))
 
@@ -123,7 +146,7 @@ class DraftSubtitleContractTests(unittest.TestCase):
         self.assertEqual(self.draft.SUBTITLE_BORDER_COLOR, (0.0, 0.0, 0.0))
         # The draft and the FFmpeg delivery are separate contracts: neither side may
         # borrow the other's numbers.
-        self.assertNotEqual(self.draft.SUBTITLE_FONT_SIZE, 68)
+        self.assertNotEqual(self.draft.SUBTITLE_FONT_SIZE, 40)
         self.assertNotIn('SUBTITLE_OUTLINE', dir(self.draft))
 
     def test_the_draft_file_values_are_the_ui_values_pyjianyingdraft_writes(self):
@@ -186,10 +209,10 @@ class BothConsumersTests(unittest.TestCase):
         burned = next(line for line in ass.read_text(encoding='utf-8-sig').splitlines()
                       if line.startswith('Style: Default,'))
         fields = burned.split(',')
-        # Burned subtitle: size 68 with the derived outline. Draft subtitle: size 11 in
+        # Burned subtitle: size 40 with the derived outline. Draft subtitle: size 11 in
         # Jianying UI units with its own outline parameter. Changing one side's numbers
         # must not move the other's.
-        self.assertEqual(fields[2], '68')
+        self.assertEqual(fields[2], '40')
         self.assertNotEqual(fields[2], str(int(draft.SUBTITLE_FONT_SIZE)))
         self.assertEqual(fields[16], str(render.ass_outline()))
         self.assertNotEqual(int(fields[16]), int(draft.SUBTITLE_BORDER_UI_WIDTH))

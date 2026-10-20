@@ -1151,9 +1151,13 @@ def main_with_args(args):
     if bgm_dir is not None and bgm_dir.exists():
         # 显示BGM文件夹中的所有文件
         logger.info(f"  [bgm] BGM文件夹中的文件: {[f.name for f in bgm_dir.iterdir() if f.is_file()]}")
-        bgm_files = [p for p in bgm_dir.iterdir() if p.is_file()]
+        bgm_files = sorted((p for p in bgm_dir.iterdir()
+                            if p.is_file() and p.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')),
+                           key=lambda p: p.name)
+        if len(bgm_files) > 1:
+            raise DraftInputError(f"BGM 文件夹 {bgm_dir} 有多个音频；请先选定唯一已审核混音，拒绝按文件名猜选。")
         if bgm_files:
-            bgm_path = sorted(bgm_files, key=lambda p: p.name)[0]
+            bgm_path = bgm_files[0]
             logger.info(f"  [bgm] 使用BGM文件: {bgm_path.name}")
         else:
             logger.info(f"  [bgm] BGM文件夹为空，将跳过背景音乐")
@@ -1263,6 +1267,9 @@ def main_with_args(args):
             selected_media[shot] = path
         media_files = sorted(selected_media.values(), key=_media_shot_number)
 
+        subtitle_marker = (srt_dir or root / '03_subtitle') / f"{seq}.srt.blocked"
+        if subtitle_marker.exists():
+            raise DraftInputError(f"字幕对齐尚未通过：{subtitle_marker}；拒绝生成缺字或复用旧字幕的剪映草稿。")
         if srt_path and srt_path.exists():
             normalize_srt(srt_path)
 
@@ -1361,6 +1368,10 @@ def main_with_args(args):
                     logger.info(f"[{draft_name}] Main audio duration: {total_audio_duration} us")
                     logger.info(f"[{draft_name}] BGM duration: {bgm_duration} us")
 
+                    if total_audio_duration is None:
+                        raise DraftInputError("主音频时长不可用，无法校验 BGM 覆盖范围。")
+                    if bgm_duration + TIMELINE_TOLERANCE_US < total_audio_duration:
+                        raise DraftInputError("BGM 时长短于正文；请先准备覆盖完整正文的已审核混音。")
                     if bgm_duration > total_audio_duration:
                         bgm_segment = draft.AudioSegment(bgm_new, Timerange(0, total_audio_duration))
                         logger.info(f"[{draft_name}] BGM trimmed to match main audio duration")
@@ -1372,7 +1383,7 @@ def main_with_args(args):
                     script.add_segment(bgm_segment, bgm_track)
                     logger.info(f"[{draft_name}] Successfully added BGM to timeline (volume: {BGM_VOLUME})")
                 except Exception as e:
-                    logger.info(f"[{draft_name}] Failed to add BGM: {e}")
+                    refuse(f"剪映草稿 BGM 导入失败：{e}")
 
             # 3) 添加视频轨道和媒体（图片或视频）
             logger.info(f"[{draft_name}] Adding media...")
@@ -1452,6 +1463,8 @@ def main_with_args(args):
                     refuse(str(error))
                 logger.info(f"[{draft_name}] 字幕 {len(normalized_cues)} 条（去标点/单行/≤"
                             f"{SUBTITLE_MAX_EFFECTIVE_CHARS} 有效字），写出 {normalized_srt}")
+                if not hasattr(script, 'import_srt'):
+                    refuse("剪映草稿库缺少 import_srt，无法交付可编辑字幕。")
                 try:
                     if hasattr(script, 'import_srt'):
                         # 导入字幕到文本轨道，设置样式
@@ -1487,10 +1500,8 @@ def main_with_args(args):
                             clip_settings=clip_settings
                         )
                         logger.info(f"[{draft_name}] Successfully imported subtitle to timeline with style")
-                    else:
-                        logger.info(f"[{draft_name}] No import_srt method available")
                 except Exception as e:
-                    logger.info(f"[{draft_name}] Failed to import subtitle: {e}")
+                    refuse(f"剪映草稿字幕导入失败：{e}")
         else:
             # 从模板复制的草稿，尝试替换素材
             logger.info(f"[{draft_name}] Replacing materials in template...")

@@ -129,12 +129,12 @@ class PortabilityTests(unittest.TestCase):
                 render.write_ass(srt, ass)
                 self.assertIn("fontsdir='/product/fonts'", render.subtitle_filter(ass))
                 text = ass.read_text(encoding='utf-8')
-                self.assertIn('Style: Default,Noto Sans CJK SC,68,', text)
+                self.assertIn('Style: Default,Noto Sans CJK SC,40,', text)
                 self.assertIn('Style: Watermark,Noto Sans CJK SC,44,', text)
             with patch.dict(os.environ, {}, clear=True):
                 render.write_ass(srt, ass)
                 text = ass.read_text(encoding='utf-8')
-                self.assertIn('Style: Default,SimHei,68,', text)
+                self.assertIn('Style: Default,SimHei,40,', text)
                 self.assertIn('Style: Watermark,Microsoft YaHei,44,', text)
             with patch.dict(os.environ, {'MUSE_FONT_FAMILY': 'bad,style\n'}, clear=True):
                 with self.assertRaises(ValueError):
@@ -537,6 +537,25 @@ class ProjectPathTests(unittest.TestCase):
         for field, value in relative.items():
             self.assertEqual(getattr(args, field), self.project / value)
         self.assertEqual(Path.cwd(), self.cwd)
+        self.assertFalse((self.project / 'exports').exists())
+
+    def test_single_rejects_a_blocked_stale_subtitle_before_writing(self):
+        render = load_path_renderer('episode_blocked_subtitle_test', 'render_episode.py')
+        timeline = self.project / 'timeline.json'
+        timeline.write_text(json.dumps({'delivery': {'visual_medium': 'animation_3d',
+            'width': 160, 'height': 96, 'fps': 12}, 'body_end': 1.0,
+            'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 1_000_000}]}), encoding='utf-8')
+        bgm = self.project / 'mix.wav'
+        bgm.touch()
+        subtitle = self.project / 'old.srt'
+        subtitle.write_text('1\n00:00:00,000 --> 00:00:00,800\n旧字幕\n', encoding='utf-8')
+        Path(f'{subtitle}.blocked').write_text('subtitle alignment pending\n', encoding='utf-8')
+        args = argparse.Namespace(project=self.project, episode='01', bgm=bgm,
+                                  timeline=timeline, subtitle_srt=subtitle, last_shot=1)
+        with patch.object(render, 'check_videos', return_value={}), \
+                patch.object(render, 'parse_srt', side_effect=AssertionError('old SRT must not be read')):
+            with self.assertRaisesRegex(ValueError, '旧字幕不可用于正式渲染'):
+                render.render(args)
         self.assertFalse((self.project / 'exports').exists())
 
     def test_single_preserves_absolute_paths_and_unset_optional_paths(self):

@@ -45,7 +45,7 @@ import {
 import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { readSubtitleCues, buildAssDocument } from './subtitles.ts'
+import { assertSubtitleNotBlocked, readSubtitleCues, buildAssDocument } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { deliveryChecks } from './verify.ts'
@@ -130,6 +130,7 @@ function logCheck(check: RenderCheck): string {
 export async function renderEpisode(input: RenderInput): Promise<DramaRenderReport> {
   const { toolkit, settings } = input
   const paths = episodePaths(input.project, input.episode)
+  await assertSubtitleNotBlocked(input.subtitleSrt)
   const timeline = await readTimeline(input.timelinePath)
   const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
   assertBodyOnlyAnimation(timeline, policy)

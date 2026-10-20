@@ -70,14 +70,14 @@ export function apply(ctx: Context, config: Config): void {
   const account = ctx.get('museAccount') as MuseAccountService
   ctx.tools.register(defineTool({
     name: 'audio_transcribe',
-    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。',
+    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。',
     parameters: {
-      method: { type: 'string', required: true, enum: ['start', 'status'], description: 'start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。' },
+      method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
       input: { type: 'string', description: 'start 必填：获授权的本地音频或视频文件路径。' },
-      receipt: { type: 'string', description: 'status 必填：start 返回的 transcript/jobs 收据路径。' },
+      receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
-      purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。' },
+      purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
     },
     output: { schema: outputSchema, render: (_args, value): ContentBlock[] => [
       ...(value.error_code === 'queue_full' ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
@@ -88,8 +88,8 @@ export function apply(ctx: Context, config: Config): void {
         if (!args.input) throw new Error('audio_transcribe start requires input')
         return await startAudioTranscription(args.project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal)
       }
-      if (!args.receipt) throw new Error('audio_transcribe status requires receipt')
-      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal)
+      if (!args.receipt) throw new Error('audio_transcribe inspect/status requires receipt')
+      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal, args.method === 'status')
     },
   }))
 }

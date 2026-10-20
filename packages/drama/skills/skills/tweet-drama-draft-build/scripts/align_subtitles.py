@@ -51,6 +51,7 @@ MEDIUM_LINE_SCORE = 0.40
 LONG_LINE_SCORE = 0.55
 MODEL_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 ALL_ALIGNED = "asr_aligned"
+MIN_UNMAPPED_SPEECH_CHARS = 4
 
 
 try:
@@ -188,6 +189,71 @@ def anchor(lines: list, chars: list) -> list:
             anchors[index] = (round(start, 3), round(end, 3))
             cursor = max(cursor, cursor_next)
     return anchors
+
+
+def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
+    """Find substantial recognized speech not covered by the declared script.
+
+    An aligned script line does not prove that the take contains *only* that line.
+    Keep short ASR artifacts for human review, but block a four-character phrase
+    before, between or after anchors, or inserted inside a matched line.
+    """
+    found = []
+
+    def record(run: list) -> None:
+        if len(run) >= MIN_UNMAPPED_SPEECH_CHARS:
+            found.append({"start": round(run[0][1], 3),
+                          "end": round(run[-1][2], 3),
+                          "text": "".join(char for char, _, _ in run)})
+
+    outside = []
+    for item in chars:
+        midpoint = (item[1] + item[2]) / 2
+        if any(span is not None and span[0] - 0.005 <= midpoint <= span[1] + 0.005
+               for span in anchors):
+            record(outside)
+            outside = []
+        else:
+            outside.append(item)
+    record(outside)
+
+    for line, span in zip(lines, anchors):
+        if span is None:
+            continue
+        within = [item for item in chars
+                  if span[0] - 0.005 <= (item[1] + item[2]) / 2 <= span[1] + 0.005]
+        recognized = "".join(item[0] for item in within)
+        matcher = difflib.SequenceMatcher(None, normalise(line), recognized, autojunk=False)
+        for tag, source_begin, source_end, begin, end in matcher.get_opcodes():
+            if tag == "insert" or (tag == "replace"
+                                   and end - begin - (source_end - source_begin)
+                                   >= MIN_UNMAPPED_SPEECH_CHARS):
+                record(within[begin:end])
+    return found
+
+
+def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
+    """Block a substantial script phrase omitted by ASR inside an accepted anchor.
+
+    A partial match can clear the deliberately tolerant anchor threshold while
+    the end of a spoken line is absent. Such a span is useful for review, but it
+    must not certify the complete script line as timed speech.
+    """
+    found = []
+    for index, (line, span) in enumerate(zip(lines, anchors), start=1):
+        if span is None:
+            continue
+        within = [item for item in chars
+                  if span[0] - 0.005 <= (item[1] + item[2]) / 2 <= span[1] + 0.005]
+        recognized = "".join(item[0] for item in within)
+        expected = normalise(line)
+        matcher = difflib.SequenceMatcher(None, expected, recognized, autojunk=False)
+        for tag, begin, end, heard_begin, heard_end in matcher.get_opcodes():
+            omitted = end - begin - (heard_end - heard_begin)
+            if tag == "delete" or (tag == "replace" and omitted >= MIN_UNMAPPED_SPEECH_CHARS):
+                if omitted >= MIN_UNMAPPED_SPEECH_CHARS:
+                    found.append({"line": index, "text": expected[begin:end]})
+    return found
 
 
 def place(lines: list, anchors: list, shot_end: float) -> tuple:
@@ -393,10 +459,10 @@ def load_document(path: Path, key: str) -> list:
     return rows
 
 
-def cloud_characters(video: Path, receipt_path: Path) -> list:
+def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False) -> list:
     """Read timed words from a completed Muse receipt bound to this exact video."""
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("status") != "complete" or Path(receipt.get("source", "")).resolve() != video.resolve():
+    if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
         raise SystemExit("云转写收据未完成或不属于当前镜头。")
     digest = hashlib.sha256()
     with video.open("rb") as stream:
@@ -409,9 +475,13 @@ def cloud_characters(video: Path, receipt_path: Path) -> list:
         raise SystemExit("云转写收据的文件标识无效。")
     if receipt_path.parent.name != "jobs" or receipt_path.name != f"{stem}-v{version}.json":
         raise SystemExit("请使用 audio_transcribe 返回的原始收据路径。")
+    if receipt["status"] == "silent":
+        if not allow_empty:
+            raise SystemExit("云转写判定无发声，但剧本含台词，请人工核听。")
+        return []
     transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
     segments = json.loads(transcript.read_text(encoding="utf-8"))
-    if not isinstance(segments, list) or not segments:
+    if not isinstance(segments, list) or (not segments and not allow_empty):
         raise SystemExit("云转写缺少语音片段。")
     chars = []
     previous = 0.0
@@ -430,7 +500,7 @@ def cloud_characters(video: Path, receipt_path: Path) -> list:
             for index, char in enumerate(piece):
                 span = (end - start) / len(piece)
                 chars.append((char, start + index * span, start + (index + 1) * span))
-    if not chars:
+    if not chars and not allow_empty:
         raise SystemExit("云转写没有可对齐的文字。")
     return chars
 
@@ -447,7 +517,7 @@ def main() -> None:
     parser.add_argument("--model-url", help="模型包（zip）的下载地址")
     parser.add_argument("--model-sha256", default="", help="模型包的 SHA-256，与 --model-url 一起用")
     parser.add_argument("--cache-dir", help="模型缓存根目录")
-    parser.add_argument("--strict", action="store_true", help="有任一镜未能整镜锚定时以非零退出")
+    parser.add_argument("--strict", action="store_true", help="有任一镜未能整镜锚定或识别到未映射台词时以非零退出")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -492,12 +562,10 @@ def main() -> None:
         if not video.is_file():
             raise SystemExit(f"缺少该镜成片：{video}")
         lines = by_shot[shot]
-        if not lines:
-            chars = []
-        elif cloud_receipts is not None:
-            if shot not in cloud_receipts:
-                raise SystemExit(f"镜头 {shot} 缺少云转写收据。")
-            chars = cloud_characters(video, cloud_receipts[shot])
+        if cloud_receipts is not None and shot not in cloud_receipts:
+            raise SystemExit(f"镜头 {shot} 缺少云转写收据；无对白镜头也必须核对实际音轨。")
+        if cloud_receipts is not None:
+            chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
         else:
             with tempfile.TemporaryDirectory(prefix="align-") as work:
                 chars = transcribe(video, Path(work), model)
@@ -506,13 +574,25 @@ def main() -> None:
             raise SystemExit(f"镜头 {shot} 的字词时间超过视频时长。")
         anchors = anchor(lines, chars)
         cues, strategy = place(lines, anchors, duration)
+        extras = unmapped_speech(lines, anchors, chars)
+        missing_script = missing_script_speech(lines, anchors, chars)
+        if extras:
+            strategy = "unmapped_speech"
+        elif missing_script:
+            strategy = "missing_script_speech"
         strategies.append(strategy)
         found = sum(1 for item in anchors if item is not None)
         print(f"  镜 {shot}（{video.name}）时长 {duration:.2f}s，识别 {len(chars)} 字，"
               f"台词 {len(lines)} 条，锚定 {found} 条 → {strategy}")
-        for (start, end), line in zip(cues, lines):
-            print(f"    {'  ' if strategy == ALL_ALIGNED else '估'} {start:7.3f}–{end:7.3f}  {line}")
+        for index, ((start, end), line) in enumerate(zip(cues, lines)):
+            print(f"    {'锚' if anchors[index] is not None else '估'} {start:7.3f}–{end:7.3f}  {line}")
+        for extra in extras:
+            print(f"    未映射发声 {extra['start']:.3f}–{extra['end']:.3f}  {extra['text']}")
+        for omission in missing_script:
+            print(f"    第 {omission['line']} 条剧本台词缺少连续识别文字  {omission['text']}")
         placed.append({"shot": shot, "strategy": strategy,
+                       "unmapped_speech": extras,
+                       "missing_script_speech": missing_script,
                        "cues": [{"start": start, "end": end, "text": line}
                                 for (start, end), line in zip(cues, lines)]})
 
@@ -523,7 +603,7 @@ def main() -> None:
     print(f"EP{args.episode:02d} 策略统计: {counts} -> {out_path}")
     incomplete = [row["shot"] for row in placed if row["strategy"] not in (ALL_ALIGNED, "no_lines")]
     if incomplete:
-        print(f"以下镜头不是整镜锚定（{incomplete}）：drama_render subtitles 会拒绝这些镜，"
+        print(f"以下镜头未能完整核对发声（{incomplete}）：drama_render subtitles 会拒绝这些镜，"
               "请核对台词与成片是否同一版，或重听该镜后重跑。")
         if args.strict:
             raise SystemExit(1)

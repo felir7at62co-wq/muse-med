@@ -1,5 +1,5 @@
 /** Public render arguments through a Loader-owned tool registration. */
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
@@ -174,11 +174,23 @@ it('reads and writes mixed project-relative and absolute paths through all four 
     await invoke({ method: 'subtitles', project, episode: 1, shots, lines, alignment, subtitle_srt: subtitle })
     const subtitleText = await readFile(join(project, subtitle), 'utf8')
     expect(subtitleText).toContain('00:00:01,000 --> 00:00:02,000\n原文台词')
+    const sourceBlock = `${join(project, subtitle)}.blocked`
+    await writeFile(sourceBlock, 'subtitle alignment pending\n', 'utf8')
+    await expect(invoke({ method: 'prepare', project, episode: 1, shots,
+      subtitle_srt: join(project, subtitle) })).rejects.toThrow('旧字幕不可用于 prepare/render')
+    await rm(sourceBlock)
     await invoke({ method: 'prepare', project, episode: 1, shots, subtitle_srt: join(project, subtitle) })
     expect(await readFile(join(project, 'video', '01', 'shot_001.mp4'), 'utf8')).toBe('selected provider video')
     expect(await readFile(join(project, 'editing', '01.srt'), 'utf8')).toBe(subtitleText)
     const timeline = join('editing', '01-timeline.json')
     expect(JSON.parse(await readFile(join(project, timeline), 'utf8'))).toMatchObject({ body_end: 5 })
+    const deliveryBlock = `${join(project, 'editing', '01.srt')}.blocked`
+    await writeFile(deliveryBlock, 'subtitle alignment pending\n', 'utf8')
+    await expect(invoke({ method: 'render', project, episode: 1, timeline,
+      subtitle_srt: join('editing', '01.srt'), last_shot: 1, bgm, bgm_plan: plan,
+      ending_audio: endingAudio, ending_effect: endingEffect, output }))
+      .rejects.toThrow('旧字幕不可用于 prepare/render')
+    await rm(deliveryBlock)
     const rendered = await invoke({ method: 'render', project, episode: 1, timeline,
       subtitle_srt: join('editing', '01.srt'), last_shot: 1, bgm, bgm_plan: plan,
       ending_audio: endingAudio, ending_effect: endingEffect, output })

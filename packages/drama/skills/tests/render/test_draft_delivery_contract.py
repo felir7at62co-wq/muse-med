@@ -258,6 +258,58 @@ class DraftDeliveryContractTests(unittest.TestCase):
             self.generate(root)
         self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
 
+    def test_failed_alignment_refuses_stale_subtitles_before_draft_creation(self):
+        root = self.build_root()
+        (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
+        with self.assertRaisesRegex(self.module.DraftInputError, '字幕对齐尚未通过'):
+            self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_failed_alignment_without_srt_refuses_unsubtitled_draft(self):
+        root = self.build_root(srt=None)
+        (root / '03_subtitle').mkdir()
+        (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
+        with self.assertRaisesRegex(self.module.DraftInputError, '字幕对齐尚未通过'):
+            self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_editor_subtitle_import_failure_refuses_incomplete_draft(self):
+        root = self.build_root()
+        with patch.object(self.module.draft.ScriptFile, 'import_srt', side_effect=RuntimeError('import failed')):
+            with self.assertRaisesRegex(self.module.DraftInputError, '剪映草稿字幕导入失败'):
+                self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_bgm_import_failure_refuses_incomplete_draft(self):
+        root = self.build_root()
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        (bgm / 'mix.mp3').write_bytes(b'not audio')
+        with self.assertRaisesRegex(self.module.DraftInputError, 'BGM 导入失败'):
+            self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_bgm_must_cover_the_body(self):
+        root = self.build_root()
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
+                        '-i', 'sine=frequency=330:duration=1', str(bgm / 'mix.wav')], check=True)
+        with self.assertRaisesRegex(self.module.DraftInputError, 'BGM 导入失败.*时长短于正文'):
+            self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_verified_bgm_and_subtitles_remain_editable_tracks(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        shutil.copy2(root / '01_audio/25.wav', bgm / 'approved-mix.wav')
+        content = self.generate_content(root)
+        tracks = {track['name']: track for track in content['tracks']}
+        self.assertEqual(len(tracks['BGM轨道']['segments']), 1)
+        self.assertEqual(tracks['BGM轨道']['segments'][0]['target_timerange']['duration'], 4_000_000)
+        self.assertEqual(len(tracks['字幕轨道']['segments']), 3)
+
     def test_draft_segments_keep_short_speech_spans_and_pauses(self):
         srt = ('1\n00:00:00,100 --> 00:00:00,300\n甲。\n\n'
                '2\n00:00:00,500 --> 00:00:00,700\n乙！\n\n'
