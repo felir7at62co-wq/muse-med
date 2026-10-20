@@ -26,9 +26,10 @@ const catalogue: unknown = JSON.parse(await readFile(new URL('../../../../jubian
  * @param root - Private directory containing the workspace and reusable session logs.
  * @param config - Actual compiler deployment settings.
  * @param useDefault - Whether a first use resolves the product's Seedance 2.5 default.
+ * @param programmatic - Whether a composing plugin passes the typed config directly to `apply`.
  * @returns Conversation creation/resume, scripted real tool turns and catalogue requests.
  */
-export async function sessionVideoShot(root: string, config: ShotCompiler.Config, useDefault = true) {
+export async function sessionVideoShot(root: string, config: ShotCompiler.Config, useDefault = true, programmatic = false) {
   const ctx = new Context()
   const requests: Array<{ method: string; path: string }> = []
   try {
@@ -56,7 +57,9 @@ export async function sessionVideoShot(root: string, config: ShotCompiler.Config
       scope.plugin(JubianVideoSelection, { client, ledger: new JubianLedger({ root: join(root, 'ledger') }), enabled: true,
         ...(useDefault ? { defaultModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' } } : {}) })
     } }
-    Object.assign(ctx.loader.builtins, { include: Include, video, compiler: ShotCompiler })
+    const compiler = programmatic ? { inject: ShotCompiler.inject,
+      apply: (owner: Context) => { ShotCompiler.apply(owner, config) } } : ShotCompiler
+    Object.assign(ctx.loader.builtins, { include: Include, video, compiler })
     const directory = join(root, 'loader')
     await mkdir(directory, { recursive: true })
     const path = join(directory, 'cordis.json')

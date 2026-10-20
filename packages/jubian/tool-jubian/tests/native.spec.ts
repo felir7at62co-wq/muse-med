@@ -1686,6 +1686,15 @@ describe('select_assets', () => {
     expect(provider.calls).toHaveLength(0)
   })
 
+  it('rejects a decoded non-array selection without changing the card or creating a receipt', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const args = JSON.parse('{"storyboard_id":916953,"idempotency_key":"malformed-selection","selections":{}}') as Parameters<typeof selectAssetsMethod>[2]
+    await expect(selectAssetsMethod(clientFor(provider), ledger, args)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toHaveLength(0)
+    expect(provider.storyboard).toEqual(STORYBOARD)
+    expect(await ledger.find('malformed-selection')).toBeUndefined()
+  })
+
   it('accepts a storyboard whose physical array order changed without changing keyed fields', async () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
     provider.onPut = (payload) => {

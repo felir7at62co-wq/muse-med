@@ -190,6 +190,27 @@ it('rechecks under a newly selected model and keeps source and per-shot choices'
   expect(await readFile(f.script, 'utf8')).toBe(f.source)
 })
 
+it('restores a production review from a metadata-free PTC result and logs refresh advice after a model switch', async () => {
+  const f = await fixture(), report = await f.preview()
+  const rootCallId = ToolCallId('production-review-root')
+  f.agent.session.append('tool/ptc-dispatch', { rootCallId, parentCallId: rootCallId,
+    subCallId: ToolCallId('production-review-child'), name: 'muse_production', arguments: { method: 'preview' },
+    isError: false, content: [{ type: 'text', text: JSON.stringify(report) }] })
+  expect(f.ctx.sessionProjections.stateOf(f.agent.session, 'dramaShotReview')?.latest).toEqual(report.production_review)
+  const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  const event = f.agent.session.snapshotEvents().findLast(event => event.type === 'agent/inbox/spliced'
+    && event.data.inserted.some(message => message.source?.kind === 'jubian-video-selection'))
+  if (event?.type !== 'agent/inbox/spliced') throw new Error('Missing logged model-switch advice')
+  const text = event.data.inserted.flatMap(message => message.content)
+    .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+  expect(text).toContain('超过当前 15 秒上限')
+  expect(text).toContain('muse_production update刷新当前模型分包和素材候选')
+  expect(f.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(f.cards.size).toBe(0)
+  expect(await readFile(f.script, 'utf8')).toBe(f.source)
+})
+
 it('updates an existing card with a visible asset comparison and keeps later user edits', async () => {
   const f = await fixture(), first = await f.preview()
   expect(await f.call({ method: 'apply', plan_path: first.plan_path })).toMatchObject({ saved: 1 })
@@ -366,6 +387,17 @@ it('fails registration without its required services and resolves deployment def
   await registerProductionTool(f.ctx, {}, 2)
   expect(f.ctx.tools.get('muse_production')).toBeDefined()
   expect(f.calls).toHaveLength(0)
+})
+
+it.each([false, true])('loads the production tool with omitted settings through programmatic=%s composition without contacting Jubian', async (programmatic) => {
+  const root = await tempDir(); disposers.push(() => cleanup(root))
+  vi.stubEnv('DSH_HOME', root)
+  const f = await sessionVideoShot(root, { reviewMode: 'advisory', sessionVideoSelection: true, productionPackaging: true }, true, programmatic)
+  disposers.push(f.dispose)
+  await f.ctx.plugin(MemoryCredentials, {})
+  const agent = await f.create('production-default-config')
+  expect(f.ctx.tools.get('muse_production', agent)).toBeDefined()
+  expect(f.requests).toEqual([])
 })
 
 it('uses a configured home and fails a missing credential before any provider request', async () => {
