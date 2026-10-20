@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const [{ SubprocessRuntime }, { FsVersion }] = await Promise.all([
-  importSnapshotPackage('@deepseek-ai/dsh-subprocess', new URL('../../../apps/cli/package.json', import.meta.url)),
-  importSnapshotPackage('@deepseek-ai/dsh-fs', new URL('../../../apps/cli/package.json', import.meta.url)),
+  importSnapshotPackage('@deepseek-ai/dsh-subprocess', new URL('../../../packages/perception/tool-video-inspect/package.json', import.meta.url)),
+  importSnapshotPackage('@deepseek-ai/dsh-fs', new URL('../../../packages/perception/tool-video-inspect/package.json', import.meta.url)),
 ])
 
 class CapabilityMedia extends SubprocessRuntime {

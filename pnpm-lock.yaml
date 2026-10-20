@@ -55,9 +55,18 @@ importers:
       '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native':
         specifier: workspace:*
         version: link:packages/experimental/computer-use-cua-driver-native
+      '@deepseek-ai/dsh-experimental-ptc-runtime-python':
+        specifier: workspace:*
+        version: link:packages/experimental/ptc-runtime-python
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:packages/test-support/llm-replay
+      '@deepseek-ai/dsh-lsp':
+        specifier: workspace:*
+        version: link:packages/lsp/lsp
+      '@deepseek-ai/dsh-lsp-stdio':
+        specifier: workspace:*
+        version: link:packages/lsp/lsp-stdio
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:packages/mcp/mcp-client
@@ -67,15 +76,30 @@ importers:
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:packages/skill/skill-office
+      '@deepseek-ai/dsh-subagent-acp':
+        specifier: workspace:*
+        version: link:packages/subagent/subagent-acp
+      '@deepseek-ai/dsh-subagent-claude-code':
+        specifier: workspace:*
+        version: link:packages/subagent/subagent-claude-code
+      '@deepseek-ai/dsh-subagent-codex':
+        specifier: workspace:*
+        version: link:packages/subagent/subagent-codex
       '@deepseek-ai/dsh-terminal-bash':
         specifier: workspace:*
         version: link:packages/terminal/terminal-bash
       '@deepseek-ai/dsh-tool-bgm-compose':
         specifier: workspace:*
         version: link:packages/drama/tool-bgm-compose
+      '@deepseek-ai/dsh-tool-lsp':
+        specifier: workspace:*
+        version: link:packages/lsp/tool-lsp
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:*
         version: link:packages/session-query/tool-session-query
+      '@deepseek-ai/dsh-tool-terminal':
+        specifier: workspace:*
+        version: link:packages/terminal/tool-terminal
       '@deepseek-ai/dsh-tool-workspace-dependencies':
         specifier: workspace:*
         version: link:packages/skill/tool-workspace-dependencies

@@ -8,8 +8,8 @@ import { Readable } from 'node:stream'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const [{ SubprocessRuntime }, { FsVersion }] = await Promise.all([
-  importSnapshotPackage('@deepseek-ai/dsh-subprocess', new URL('../../../apps/cli/package.json', import.meta.url)),
-  importSnapshotPackage('@deepseek-ai/dsh-fs', new URL('../../../apps/cli/package.json', import.meta.url)),
+  importSnapshotPackage('@deepseek-ai/dsh-subprocess', new URL('../../../packages/perception/tool-video-inspect/package.json', import.meta.url)),
+  importSnapshotPackage('@deepseek-ai/dsh-fs', new URL('../../../packages/perception/tool-video-inspect/package.json', import.meta.url)),
 ])
 
 const TEXT = ['简体：门已经打开。', '繁體：門已經打開。', 'English: The door is open.', 'Emoji: 🎬🙂']
