@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -16,11 +16,79 @@ import { readDesktopProductVersion } from './desktop-build-version.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
 import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { verifyMacOSAdHocSignature } from './verify-macos-signature.mjs'
+import { obtain, type MediaResource } from './media-resources.ts'
 
 interface AcceptanceIdentity {
   readonly target: 'win-x64' | 'mac-arm64'
   readonly version: string
   readonly sourceCommit: string
+}
+
+const PREVIOUS_VERSION = '1.1.6'
+
+/**
+ * Resolve the published baseline whose original installer bytes qualify replacement upgrades.
+ * @param target Native release platform.
+ * @returns Fixed official version, installer and source-manifest resource identities.
+ */
+export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target']): {
+  target: AcceptanceIdentity['target']
+  version: string
+  resource: MediaResource
+  manifestResource: MediaResource
+} {
+  const windows = target === 'win-x64'
+  const filename = windows ? 'muse-med-1.1.6-win-x64.exe' : 'muse-med-1.1.6-mac-arm64.dmg'
+  return { target, version: PREVIOUS_VERSION, resource: {
+    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/${filename}`,
+    bytes: windows ? 763909506 : 781147422,
+    sha256: windows ? '4a8793c20127134a8f764aa59babe61723f4f89ec2d86580fcf52fc6b4749292'
+      : 'd5485e651dfcc5700c9e978c871dcc48d524d0d37e36fb32695ce1e7904a56ba',
+  }, manifestResource: {
+    filename: 'muse-desktop-builds.json',
+    url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/muse-desktop-builds.json',
+    bytes: 2458, sha256: '72bd6cc6f8debe99265d7a3dd3e91d67d66a11d8294c0eece3e695ae4f466c42',
+  } }
+}
+
+/**
+ * Read the old source identity from the hash-verified official release manifest.
+ * @param value Parsed manifest after resource size and SHA-256 verification.
+ * @param target Native platform whose old installation will be inspected.
+ * @returns Old version/source identity after matching its exact locked installer record.
+ */
+export function museAcceptancePreviousIdentity(value: unknown, target: AcceptanceIdentity['target']): AcceptanceIdentity {
+  const previous = museAcceptancePreviousRelease(target)
+  assert.ok(record(value) && value.version === previous.version && typeof value.sourceCommit === 'string'
+    && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && Array.isArray(value.builds),
+  'Installer acceptance: invalid previous release manifest')
+  const builds: unknown[] = value.builds
+  const selected = builds.filter(build => record(build) && build.target === target)
+  assert.equal(selected.length, 1, 'Installer acceptance: missing or duplicate previous target build')
+  const identity: AcceptanceIdentity = { target, version: previous.version, sourceCommit: value.sourceCommit }
+  const digest = museAcceptanceArtifact(selected[0], identity, previous.resource.filename)
+  assert.equal(digest.size, previous.resource.bytes, 'Installer acceptance: previous manifest installer size differs')
+  assert.equal(digest.sha256, previous.resource.sha256, 'Installer acceptance: previous manifest installer checksum differs')
+  return identity
+}
+
+/**
+ * Create opaque session/settings sentinels only inside a newly allocated qualification home.
+ * @param root Private test root; existing sentinel files refuse overwrite.
+ * @returns Complete sentinel inventory for subsequent byte-preservation checks.
+ */
+export async function createMuseUpgradeSentinels(root: string): Promise<Record<string, string>> {
+  const files = {
+    'muse-home/sessions/qualification.jsonl': `${JSON.stringify({ qualificationOnly: true, content: '保留独立测试会话' })}\n`,
+    'muse-home/settings/qualification.json': `${JSON.stringify({ qualificationOnly: true, theme: 'dark', locale: 'zh-CN' })}\n`,
+    'electron-user-data/qualification.json': `${JSON.stringify({ qualificationOnly: true, preserve: '设置保留' })}\n`,
+  }
+  for (const [name, bytes] of Object.entries(files)) {
+    const path = join(root, ...name.split('/'))
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, bytes, { flag: 'wx', mode: 0o600 })
+  }
+  return payloadInventory(root)
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -150,14 +218,31 @@ async function main(): Promise<void> {
   const root = await mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), 'muse-installer-acceptance-'))
   const installed = join(root, target === 'win-x64' ? 'installed' : 'muse-med.app')
   const mount = join(root, 'mounted')
+  const previousMount = join(root, 'previous-mounted')
+  const preserved = join(root, 'preserved-data')
   const report: Record<string, unknown> = { ...identity, success: false, guiLaunch: 'not-performed', paidProviderCalls: 'not-performed' }
   const persist = () => writeFile(join(root, 'acceptance.json'), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 })
   const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
     !/KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/iu.test(name)))
   environment.NODE_OPTIONS = ''
   const run = createPackagingRun(join(root, 'processes'), identity)
+  const cleanupRun = createPackagingRun(join(root, 'cleanup-processes'), identity)
   const execute = promisify(execFile)
+  const uninstallWindows = async (stage: string): Promise<void> => {
+    const uninstaller = join(root, `${stage}.exe`)
+    try { await copyFile(join(installed, 'Uninstall muse-med.exe'), uninstaller) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    await cleanupRun.run(stage, 'pwsh', ['-NoProfile', '-NonInteractive', '-Command',
+      '$ErrorActionPreference = "Stop"; $p = Start-Process -FilePath $env:MUSE_ACCEPT_UNINSTALLER -ArgumentList ("/S /KEEP_APP_DATA /CURRENTUSER _?=" + $env:MUSE_ACCEPT_INSTALL_ROOT) -PassThru; $p.WaitForExit(); if ($p.ExitCode -ne 0) { exit $p.ExitCode }; $entries = @(Get-ItemProperty "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue | Where-Object { $_.InstallLocation -and $_.InstallLocation.TrimEnd("\\") -eq $env:MUSE_ACCEPT_INSTALL_ROOT }); if ($entries.Count) { throw "Private installation registry entry was not removed" }'],
+    { cwd: root, env: { ...environment, MUSE_ACCEPT_UNINSTALLER: uninstaller, MUSE_ACCEPT_INSTALL_ROOT: installed,
+      MUSE_MED_HOME: join(preserved, 'muse-home') }, timeoutMs: 300_000 })
+    await assert.rejects(readFile(join(installed, 'muse-med.exe')), { code: 'ENOENT' })
+  }
   let mounted = false
+  let previousMounted = false
   console.log(`Muse installer acceptance evidence: ${root}`)
   try {
     const filename = `muse-med-${version}-${target === 'win-x64' ? 'win-x64.exe' : 'mac-arm64.dmg'}`
@@ -168,10 +253,14 @@ async function main(): Promise<void> {
       'Installer acceptance: installer changed after build verification')
     report.installerSha256 = installerDigest.sha256
     await persist()
-    if (target === 'win-x64') {
-      await run.run('install-original-exe', 'pwsh', ['-NoProfile', '-NonInteractive', '-Command',
+    const installWindows = async (path: string, stage: string): Promise<void> => {
+      await run.run(stage, 'pwsh', ['-NoProfile', '-NonInteractive', '-Command',
         '$ErrorActionPreference = "Stop"; $p = Start-Process -FilePath $env:MUSE_ACCEPT_INSTALLER -ArgumentList ("/S /CURRENTUSER /D=" + $env:MUSE_ACCEPT_INSTALL_ROOT) -PassThru; $p.WaitForExit(); exit $p.ExitCode'],
-      { cwd: root, env: { ...environment, MUSE_ACCEPT_INSTALLER: installer, MUSE_ACCEPT_INSTALL_ROOT: installed }, timeoutMs: 1_200_000 })
+      { cwd: root, env: { ...environment, MUSE_ACCEPT_INSTALLER: path, MUSE_ACCEPT_INSTALL_ROOT: installed,
+        MUSE_MED_HOME: join(preserved, 'muse-home') }, timeoutMs: 1_200_000 })
+    }
+    if (target === 'win-x64') {
+      await installWindows(installer, 'install-original-exe')
       report.silentInstallerExecuted = true
     } else {
       await mkdir(mount)
@@ -189,38 +278,98 @@ async function main(): Promise<void> {
       : join(paths.unsignedArtifacts, 'mac-arm64', 'muse-med.app')
     const expectedFiles = await payloadInventory(assembled)
     if (target === 'win-x64') Object.assign(expectedFiles, await museAcceptanceWindowsLicenses(await getPath7za()))
-    const installedFiles = await payloadInventory(installed)
-    assertMuseInstalledPayload(expectedFiles, installedFiles, target)
-    report.completeInstalledPayload = { comparedFiles: Object.keys(expectedFiles).length, passed: true }
-    const application = target === 'win-x64' ? installed : join(installed, 'Contents')
-    const resources = join(application, target === 'win-x64' ? 'resources' : 'Resources')
-    const executable = target === 'win-x64' ? join(application, 'muse-med.exe') : join(application, 'MacOS/muse-med')
-    const archivePath = join(resources, 'app.asar')
-    const archive = await readAsar(archivePath)
-    const manifest: unknown = JSON.parse((await archive.readFile('package.json')).toString('utf8'))
-    assertMuseInstalledIdentity(manifest, identity)
     const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version, platform)
-    await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
-    assertMuseInstalledUnchanged(installedFiles, await payloadInventory(installed))
+    const verifyCurrent = async (): Promise<void> => {
+      const installedFiles = await payloadInventory(installed)
+      assertMuseInstalledPayload(expectedFiles, installedFiles, target)
+      const application = target === 'win-x64' ? installed : join(installed, 'Contents')
+      const resources = join(application, target === 'win-x64' ? 'resources' : 'Resources')
+      const executable = target === 'win-x64' ? join(application, 'muse-med.exe') : join(application, 'MacOS/muse-med')
+      const archive = await readAsar(join(resources, 'app.asar'))
+      const manifest: unknown = JSON.parse((await archive.readFile('package.json')).toString('utf8'))
+      assertMuseInstalledIdentity(manifest, identity)
+      await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
+      assertMuseInstalledUnchanged(installedFiles, await payloadInventory(installed))
+    }
+    await verifyCurrent()
+    report.completeInstalledPayload = { comparedFiles: Object.keys(expectedFiles).length, passed: true }
     report.installedRuntimeSmoke = { passed: true, archiveInventory: true, nativePayload: true,
       packagedHost: true, productPresetsAndSkills: true, officeConversions: true, teardown: true }
+    await persist()
+
+    const previousRelease = museAcceptancePreviousRelease(target)
+    const downloads = join(root, 'downloads')
+    await mkdir(downloads)
+    const previousManifestPath = await obtain(previousRelease.manifestResource, downloads)
+    const previous = museAcceptancePreviousIdentity(JSON.parse(await readFile(previousManifestPath, 'utf8')), target)
+    const previousInstaller = await obtain(previousRelease.resource, downloads)
+    const upgrade: Record<string, unknown> = { fromVersion: previous.version, toVersion: version,
+      previousSourceCommit: previous.sourceCommit, previousInstallerSha256: previousRelease.resource.sha256,
+      previousReleaseManifestSha256: previousRelease.manifestResource.sha256,
+      currentInstallerSha256: installerDigest.sha256, success: false,
+      automaticOldClientRestart: 'not-performed', sessionSettingsUiRestore: 'not-performed' }
+    report.replacementUpgrade = upgrade
+    await persist()
+    if (target === 'win-x64') await uninstallWindows('uninstall-fresh-exe')
+    await rm(installed, { recursive: true, force: true })
+    if (target === 'win-x64') await installWindows(previousInstaller, 'install-previous-exe')
+    else {
+      await mkdir(previousMount)
+      await execute('/usr/bin/hdiutil', ['attach', previousInstaller, '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', previousMount],
+        { env: environment, timeout: 120_000 })
+      previousMounted = true
+      await execute('/usr/bin/ditto', [join(previousMount, 'muse-med.app'), installed], { env: environment, timeout: 600_000 })
+      verifyMacOSAdHocSignature(installed, 'cn.muse.med')
+    }
+    const previousApplication = target === 'win-x64' ? installed : join(installed, 'Contents')
+    const previousResources = join(previousApplication, target === 'win-x64' ? 'resources' : 'Resources')
+    const previousArchive = await readAsar(join(previousResources, 'app.asar'))
+    const previousManifest: unknown = JSON.parse((await previousArchive.readFile('package.json')).toString('utf8'))
+    assertMuseInstalledIdentity(previousManifest, previous)
+    upgrade.previousInstalledIdentity = true
+    const sentinels = await createMuseUpgradeSentinels(preserved)
+    if (target === 'win-x64') await installWindows(installer, 'upgrade-original-exe')
+    else {
+      const replacement = join(root, 'replacement.app')
+      const backup = join(root, 'previous.app')
+      await execute('/usr/bin/ditto', [join(mount, 'muse-med.app'), replacement], { env: environment, timeout: 600_000 })
+      verifyMacOSAdHocSignature(replacement, 'cn.muse.med')
+      await rename(installed, backup)
+      try { await rename(replacement, installed) }
+      catch (error) { await rename(backup, installed); throw error }
+      await rm(backup, { recursive: true, force: true })
+    }
+    assertMuseInstalledUnchanged(sentinels, await payloadInventory(preserved))
+    await verifyCurrent()
+    assertMuseInstalledUnchanged(sentinels, await payloadInventory(preserved))
+    upgrade.dataPreserved = { syntheticSessionAndSettingsFiles: Object.keys(sentinels).length,
+      byteForByte: true, isolatedMuseHome: true, isolatedElectronData: true }
+    upgrade.completeInstalledPayload = { comparedFiles: Object.keys(expectedFiles).length, passed: true }
+    upgrade.installedRuntimeSmoke = true
+    upgrade.method = target === 'win-x64' ? 'original-exe-same-directory-upgrade' : 'readonly-dmg-private-application-replacement'
+    upgrade.success = true
     report.hongguoLiveRequired = process.env.MUSE_HONGGUO_LIVE_REQUIRED === '1'
     report.fanqieLiveRequired = process.env.MUSE_FANQIE_LIVE_REQUIRED === '1'
     report.success = true
-    run.finish(true)
   } catch (error) {
     report.failureClass = error instanceof Error ? error.name : 'UnknownFailure'
-    run.finish(false)
     throw error
   } finally {
     try {
-      if (mounted) await execute('/usr/bin/hdiutil', ['detach', mount], { env: environment, timeout: 60_000 })
+      const cleanup = await Promise.allSettled([
+        target === 'win-x64' ? uninstallWindows('uninstall-accepted-exe') : Promise.resolve(),
+        previousMounted ? execute('/usr/bin/hdiutil', ['detach', previousMount], { env: environment, timeout: 60_000 }) : Promise.resolve(),
+        mounted ? execute('/usr/bin/hdiutil', ['detach', mount], { env: environment, timeout: 60_000 }) : Promise.resolve(),
+      ])
+      for (const result of cleanup) if (result.status === 'rejected') throw result.reason
       await rm(installed, { recursive: true, force: true })
     } catch (error) {
       report.success = false
       report.cleanupFailure = error instanceof Error ? error.name : 'UnknownFailure'
       throw error
     } finally {
+      run.finish(report.success === true)
+      cleanupRun.finish(report.cleanupFailure === undefined)
       await persist()
     }
   }

@@ -80,7 +80,7 @@ jobs:
           pnpm --dir packages/drama/skills pack --pack-destination ../../../.artifacts/drama-skill-pack
           python -c "from pathlib import Path; import subprocess, sys; files=list(Path('.artifacts/drama-skill-pack').glob('*.tgz')); assert len(files)==1, files; subprocess.run([sys.executable, 'packages/drama/skills/tests/verify_pack.py', str(files[0])], check=True)"
       - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts
+        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts
       - name: Configure unsigned Muse packaging
         run: >-
           node --input-type=module -e "import { writeFileSync } from 'node:fs';
@@ -103,6 +103,14 @@ jobs:
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
         run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
+      - name: Check real Electron update download and confirmation UI
+        if: matrix.target == 'win-x64' && github.event_name == 'workflow_dispatch'
+        run: pnpm --dir apps/desktop run test:updates:local
+      - name: Accept the real candidate update download before publication
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MUSE_RELEASE_TARGET: ${{ matrix.target }}
+        run: pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts
       - name: Accept the genuine installer in an isolated directory
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -136,6 +144,11 @@ jobs:
           path: |
             ${{ runner.temp }}/muse-installer-acceptance-*/acceptance.json
             ${{ runner.temp }}/muse-installer-acceptance-*/processes/
+            ${{ runner.temp }}/muse-installer-acceptance-*/cleanup-processes/
+            ${{ runner.temp }}/muse-candidate-update-*/*.json
+            ${{ runner.temp }}/muse-candidate-update-*/*.jsonl
+            ${{ runner.temp }}/muse-candidate-update-*/*.log
+            apps/desktop/.desktop-build/qualification/local-updater-*/
           if-no-files-found: warn
           retention-days: 30
       - name: Retain packaging diagnostics
