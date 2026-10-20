@@ -57,7 +57,7 @@ kind: "package-reference"
 
 选择 `windows-native` 时，随包 `scripts/ocr_bridge.ps1` 通过 stdin 接收有界的 base64 JPEG JSON。每批只创建一个 Windows OCR 引擎，并通过 stdout 返回有界 JSON；不使用可预测的临时图片、shell 字符串拼接、网络访问或运行时安装。固定的随包脚本使用仅限当前进程的 `ExecutionPolicy Bypass`，应用不会改变机器或用户策略。明确指定的识别语言不可用时失败关闭。源文件变化会中止发布；输出路径必须互不相同且位于工作区内，已有文件不覆盖。
 
-选择 `rapidocr` 时，随包 `scripts/ocr_bridge.py` 在 CPU 识别前核对 RapidOCR 3.10.0、ONNX Runtime 1.23.2 及三个模型的 SHA-256。模型随固定 wheel 提供，通过明确路径加载，识别时不下载。该模型没有逐词位置，返回行框及空的词数组，不编造词框。输入输出限制、取消、源版本检查和文件发布与 Windows 引擎共用。
+选择 `rapidocr` 时，随包 `scripts/ocr_bridge.py` 在 CPU 识别前核对 RapidOCR 3.10.0、ONNX Runtime 1.23.2 及三个模型的 SHA-256。解释器以隔离的 UTF-8 模式读写 JSON，不受 Windows 代码页影响。模型随固定 wheel 提供，通过明确路径加载，识别时不下载。该模型没有逐词位置，返回行框及空的词数组，不编造词框。输入输出限制、取消、源版本检查和文件发布与 Windows 引擎共用。
 
 画面先进入规范化附件存储，再作为图片块返回。清单在当前工作区创建，不覆盖已有文件，之后回读核对。源文件版本发生变化时中止发布。原视频保持不变；结果不包含远程媒体链接或账号凭证。清单与附件各有唯一的存储所有者，因此不发布 invariant 配套模块。
 

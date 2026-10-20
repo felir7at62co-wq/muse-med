@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "path": "fixture.mp4",
+  "source_version": "fixture-video-version",
+  "duration_seconds": 1,
+  "text_source": "ocr",
+  "language_requested": "auto",
+  "language_used": "auto",
+  "interval": {
+    "start_seconds": 0,
+    "end_seconds": 1
+  },
+  "scan_status": "complete",
+  "text_status": "candidate_text_detected",
+  "coverage": {
+    "planned_frame_count": 1,
+    "processed_frame_count": 1,
+    "failed_frame_count": 0,
+    "frame_interval_seconds": 1,
+    "scanned_ranges": [
+      {
+        "start_seconds": 0,
+        "end_seconds": 1
+      }
+    ],
+    "unscanned_ranges": [],
+    "failed_timestamps_seconds": []
+  },
+  "frames": [
+    {
+      "id": "frame-00000000-0000-4000-8000-000000000001",
+      "requested_seconds": 0,
+      "timestamp_seconds": 0,
+      "image_width": 640,
+      "image_height": 360,
+      "lines": [
+        {
+          "text": "简体：门已经打开。",
+          "bounding_box": {
+            "x": 10,
+            "y": 20,
+            "width": 300,
+            "height": 30
+          },
+          "words": []
+        },
+        {
+          "text": "繁體：門已經打開。",
+          "bounding_box": {
+            "x": 10,
+            "y": 60,
+            "width": 300,
+            "height": 30
+          },
+          "words": []
+        },
+        {
+          "text": "English: The door is open.",
+          "bounding_box": {
+            "x": 10,
+            "y": 100,
+            "width": 300,
+            "height": 30
+          },
+          "words": []
+        },
+        {
+          "text": "Emoji: 🎬🙂",
+          "bounding_box": {
+            "x": 10,
+            "y": 140,
+            "width": 300,
+            "height": 30
+          },
+          "words": []
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "简体：门已经打开。",
+      "classification": "content_candidate",
+      "evidence_frame_ids": [
+        "frame-00000000-0000-4000-8000-000000000001"
+      ]
+    },
+    {
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "繁體：門已經打開。",
+      "classification": "content_candidate",
+      "evidence_frame_ids": [
+        "frame-00000000-0000-4000-8000-000000000001"
+      ]
+    },
+    {
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "English: The door is open.",
+      "classification": "content_candidate",
+      "evidence_frame_ids": [
+        "frame-00000000-0000-4000-8000-000000000001"
+      ]
+    },
+    {
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "Emoji: 🎬🙂",
+      "classification": "content_candidate",
+      "evidence_frame_ids": [
+        "frame-00000000-0000-4000-8000-000000000001"
+      ]
+    }
+  ]
+}

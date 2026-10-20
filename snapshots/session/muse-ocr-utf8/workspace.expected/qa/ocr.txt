@@ -1,0 +1,11 @@
+OCR source: fixture.mp4
+Text source: ocr
+Scan status: complete
+Text status: candidate_text_detected
+Scanned interval: 00:00:00.000 - 00:00:01.000
+Language: auto
+
+[00:00:00.000 - 00:00:01.000] [content_candidate] 简体：门已经打开。
+[00:00:00.000 - 00:00:01.000] [content_candidate] 繁體：門已經打開。
+[00:00:00.000 - 00:00:01.000] [content_candidate] English: The door is open.
+[00:00:00.000 - 00:00:01.000] [content_candidate] Emoji: 🎬🙂

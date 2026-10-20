@@ -393,7 +393,7 @@ async function runBridge(ctx: Context, config: Config, policy: ReturnType<Contex
   const stdin = JSON.stringify({ language, ...(config.ocrEngine === 'rapidocr' ? { cpu_threads: config.ocrCpuThreads } : {}), frames: frames.map(frame => ({ id: frame.id,
     timestamp_seconds: frame.timestamp_seconds, image_base64: Buffer.from(frame.bytes).toString('base64') })) })
   if (Buffer.byteLength(stdin, 'utf8') > config.maxOcrBridgeInputBytes) throw Error('OCR bridge input exceeds its byte limit')
-  const command = config.ocrEngine === 'rapidocr' ? [executable, '-I', '-B', script]
+  const command = config.ocrEngine === 'rapidocr' ? [executable, '-I', '-B', '-X', 'utf8', script]
     : [executable, '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script]
   const output = await Media.runMedia(ctx, command,
     policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs,
