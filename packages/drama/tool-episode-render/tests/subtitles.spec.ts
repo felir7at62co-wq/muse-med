@@ -1,10 +1,10 @@
 /** Subtitle input and the ASS script the delivery burns. */
 
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildAssHeader, WATERMARK_TEXT } from '../src/delivery.ts'
-import { buildAssDocument, formatSrtDocument, parseSrtDocument, parseSrtTime, readSubtitleCues, subtitleTextWarnings } from '../src/subtitles.ts'
+import { buildAssDocument, formatSrtDocument, parseSrtDocument, parseSrtTime, readSubtitleCues, subtitleReviewWarnings, subtitleTextWarnings } from '../src/subtitles.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, srtDocument, tempProject } from './harness.ts'
 
@@ -75,6 +75,10 @@ describe('parseSrtDocument', () => {
     expect(subtitleTextWarnings(cues).join(' ')).toContain('没有显示文字')
   })
 
+  it('counts spaces as half a character without advising on readable short cues', () => {
+    expect(subtitleTextWarnings([cue(1, 1, 2, '请 跟 我 来')])).toEqual([])
+  })
+
   it('fails loud on a malformed timestamp inside a cue', () => {
     expect(() => parseSrtDocument('1\n--> 00:00:02,000\n正文\n', 'a.srt')).toThrow('不是 HH:MM:SS,mmm 形式')
   })
@@ -87,6 +91,23 @@ describe('readSubtitleCues', () => {
     const path = join(project, 'ep02.srt')
     await writeFile(path, srtDocument([{ start: '00:00:01,000', end: '00:00:02,000', text: '台词' }]), 'utf8')
     expect(await readSubtitleCues(path)).toEqual([cue(1, 1, 2, '台词')])
+  })
+
+  it('ignores empty alignment review files and legacy markers', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const path = join(project, 'ep02.srt')
+    await writeFile(`${path}.review.txt`, '  \n', 'utf8')
+    await writeFile(`${path}.blocked`, '', 'utf8')
+    expect(await subtitleReviewWarnings(path)).toEqual([])
+  })
+
+  it('reports an unreadable review path instead of hiding an I/O failure', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const path = join(project, 'ep02.srt')
+    await mkdir(`${path}.review.txt`)
+    await expect(subtitleReviewWarnings(path)).rejects.toMatchObject({ code: 'EISDIR' })
   })
 })
 

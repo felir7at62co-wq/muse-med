@@ -114,6 +114,8 @@ class DraftGenerator:
                 if blocked.exists():
                     logger.warning(f"字幕对齐待核：{blocked}；保留选择并继续准备草稿，由 Muse 核听决定。")
         bgm_source = None
+        if bgm_dir and not Path(bgm_dir).is_dir():
+            raise FileNotFoundError(f"已指定的 BGM 文件夹不存在：{bgm_dir}")
         if bgm_dir and os.path.exists(bgm_dir):
             candidates = sorted(path for path in Path(bgm_dir).iterdir()
                                 if path.is_file() and path.suffix.lower() in

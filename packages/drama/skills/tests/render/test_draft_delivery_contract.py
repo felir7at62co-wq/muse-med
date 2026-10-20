@@ -561,10 +561,13 @@ class DraftDeliveryContractTests(unittest.TestCase):
         generator = generator_module.DraftGenerator()
         assets = SCRIPT.parents[2] / 'tweet-drama-background-render/assets'
         materials = root / 'materials'
+        bgm = root / 'approved-bgm'
+        bgm.mkdir()
+        shutil.copy2(self.audio, bgm / 'reviewed-mix.wav')
         generator.prepare_materials(str(root / '01_audio'), str(root / '02_media'), str(materials),
-                                    subtitle_dir=str(root / '03_subtitle'), timeline_dir=str(root / '05_timeline'),
-                                    project=str(root), ending_audio=str(assets / 'ending_audio.mp3'),
-                                    ending_effect=str(assets / 'ending_effect.mp4'))
+                                     subtitle_dir=str(root / '03_subtitle'), timeline_dir=str(root / '05_timeline'),
+                                     bgm_dir=str(bgm), project=str(root), ending_audio=str(assets / 'ending_audio.mp3'),
+                                     ending_effect=str(assets / 'ending_effect.mp4'))
         (root / 'jianying').mkdir()
         with patch.dict(os.environ), patch.dict(sys.modules, {'jianying_draft': self.module}):
             result = generator.process(str(materials), str(root / 'jianying'), name_prefix='候选A-', project=str(root))
@@ -574,7 +577,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         content = json.loads((root / 'jianying' / DRAFT_NAME / 'draft_content.json').read_text(encoding='utf-8'))
         self.assertEqual(result['drafts'][0]['id'], content.get('id', ''))
         self.assertEqual(content['duration'], 6_000_000)
-        self.assertFalse([track for track in content['tracks'] if track['name'] == 'BGM轨道'])
+        self.assertEqual(len(next(track for track in content['tracks'] if track['name'] == 'BGM轨道')['segments']), 1)
         for name in ('片尾音', '片尾特效', 'AI内容标识'):
             self.assertEqual(len([track for track in content['tracks'] if track['name'] == name]), 1)
 
@@ -725,6 +728,17 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(ending[0]['target_timerange']['duration'], 2_000_000)
         self.assertIsNone(self.module.find_material_folder_smart(root, 'bgm', [root / '01_audio']))
         self.assertNotIn(root / '06_ending', self.module.find_all_folders_by_type(root, 'bgm'))
+
+    def test_unselected_bgm_returns_review_warning_without_blocking_draft(self):
+        root = self.build_root()
+        shutil.copytree(root, root / 'materials')
+        (root / 'jianying').mkdir()
+        result = self.module.generate_draft(str(root / 'jianying'), str(root / 'materials'),
+                                            name_prefix='候选A-', project=str(root))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertTrue(any('配乐待验收' in warning for warning in result['warnings']))
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
 
     def test_decode_timeout_terminates_the_child_cleans_only_new_draft_and_preserves_old_draft(self):
         root = self.build_root()
