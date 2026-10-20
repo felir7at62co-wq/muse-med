@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-ocr-utf8
+profile: headless
+composition: muse-ocr-utf8
+recording: authored
+header:
+  class: muse-ocr-utf8
+  pin: true
+writerOutput: true
+workspace:
+  final: true
