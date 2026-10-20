@@ -810,6 +810,9 @@ importers:
       '@deepseek-ai/dsh-feishu-settings':
         specifier: workspace:*
         version: link:../../packages/host/feishu-settings
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:*
+        version: link:../../packages/fs/fs
       '@deepseek-ai/dsh-guard-drama':
         specifier: workspace:*
         version: link:../../packages/guard/drama-gate
@@ -937,6 +940,9 @@ importers:
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:*
         version: link:../../packages/compaction/compaction-basic
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:*
+        version: link:../../packages/fs/fs-local
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:*
         version: link:../../packages/subprocess/subprocess

@@ -19,6 +19,7 @@
     "lib/short-drama-guidance.js",
     "lib/editing-policy.js",
     "lib/manuscript-revisions.js",
+    "lib/manuscript-source-review.js",
     "lib/jianying-draft.js",
     "lib/hindsight.js",
     "lib/feishu-migration.js"
@@ -43,6 +44,7 @@
     "@deepseek-ai/dsh-drama-settings": "workspace:*",
     "@deepseek-ai/dsh-drama-skills": "workspace:*",
     "@deepseek-ai/dsh-feishu-settings": "workspace:*",
+    "@deepseek-ai/dsh-fs": "workspace:*",
     "@deepseek-ai/dsh-guard-drama": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:*",
@@ -93,7 +95,8 @@
     "./editing-policy": "./lib/editing-policy.js",
     "./manuscript-revisions": "./lib/manuscript-revisions.js",
     "./hindsight": "./lib/hindsight.js",
-    "./feishu-migration": "./lib/feishu-migration.js"
+    "./feishu-migration": "./lib/feishu-migration.js",
+    "./manuscript-source-review": "./lib/manuscript-source-review.js"
   },
   "dsh": {
     "bundle": {
@@ -105,6 +108,7 @@
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-client-ui-sidebar-browser": "workspace:*",
     "@deepseek-ai/dsh-compaction-basic": "workspace:*",
+    "@deepseek-ai/dsh-fs-local": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
     "@deepseek-ai/dsh-user-approval": "workspace:*"
   }

@@ -67,6 +67,8 @@ export async function apply(ctx, config) {
       if (presetId === 'short-drama') {
         source = source.replace("'@deepseek-ai/dsh-desktop-host/editing-policy'",
           JSON.stringify(new URL('./editing-policy.mjs', import.meta.url).href))
+        source = source.replace("'@deepseek-ai/dsh-desktop-host/manuscript-source-review'",
+          JSON.stringify(new URL('./manuscript-source-review.mjs', import.meta.url).href))
       }
       if (presetId === 'creation') {
         for (const entry of ['creation-policy', 'creation-skills']) {

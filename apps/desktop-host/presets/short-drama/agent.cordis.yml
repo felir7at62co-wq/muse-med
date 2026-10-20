@@ -56,6 +56,8 @@
     complete: false
 - id: editing-policy
   name: '@deepseek-ai/dsh-desktop-host/editing-policy'
+- id: manuscript-source-review
+  name: '@deepseek-ai/dsh-desktop-host/manuscript-source-review'
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:

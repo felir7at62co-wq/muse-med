@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/fs/fs"
+    },
+    {
       "path": "../../vendor/cordis"
     },
     {
