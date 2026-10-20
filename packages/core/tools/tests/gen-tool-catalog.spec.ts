@@ -35,7 +35,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media',
       'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_video_model',
       'jubian_watch', 'list_agents', 'list_agents', 'list_mcp_resource_templates', 'list_mcp_resources',
-      'list_subagent_models', 'load_workspace_dependencies', 'lsp', 'plugin_manager', 'present',
+      'list_subagent_models', 'load_workspace_dependencies', 'lsp', 'muse_production', 'plugin_manager', 'present',
       'pwsh', 'pwsh', 'ralph', 'read', 'read_image',
       'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_delete', 'schedule_list',
       'schedule_update', 'screenplay_project', 'send_message', 'send_message', 'session_event_read', 'session_event_search',
@@ -75,6 +75,8 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
     })
+    const compiler = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-shot-script')
+    expect(compiler?.sources.muse_production).toBe('packages/drama/tool-shot-script/src/production.ts')
   })
 
   it('harvests search tools without depending on the generator process PATH', async () => {
