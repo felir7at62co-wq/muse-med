@@ -1,0 +1,41 @@
+{
+  "cues": [
+    {
+      "kind": "complete",
+      "eventType": "turn/end",
+      "turn": 1
+    }
+  ],
+  "devices": [
+    {
+      "resumeCount": 1,
+      "closeCount": 1,
+      "oscillators": [
+        {
+          "frequencyHz": 660,
+          "gainConnectCount": 1,
+          "startCount": 1,
+          "stopCount": 1,
+          "disconnectCount": 1
+        },
+        {
+          "frequencyHz": 880,
+          "gainConnectCount": 1,
+          "startCount": 1,
+          "stopCount": 1,
+          "disconnectCount": 1
+        }
+      ],
+      "gains": [
+        {
+          "destinationConnectCount": 1,
+          "disconnectCount": 1
+        },
+        {
+          "destinationConnectCount": 1,
+          "disconnectCount": 1
+        }
+      ]
+    }
+  ]
+}

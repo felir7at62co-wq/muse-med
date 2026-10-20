@@ -281,6 +281,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       sandbox: true,
       webSecurity: true,
       webviewTag: primary,
+      ...(primary ? { autoplayPolicy: 'no-user-gesture-required' as const } : {}),
       devTools: true,
     },
   })
@@ -534,8 +535,12 @@ async function main(): Promise<void> {
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
       primaryRuntime,
-      resources, (next) => { platformView.setSession(next) }, () => {
-        if (!quitting && !shellInstallerOwnsQuit) shell.beep()
+      resources, (next) => { platformView.setSession(next) }, (kind) => {
+        const window = mainWindow
+        if (quitting || shuttingDown || sessionEnding || shellInstallerOwnsQuit
+          || window === undefined || window.isDestroyed() || window.webContents.isDestroyed()
+          || window.webContents.isLoadingMainFrame() || !window.webContents.getURL().startsWith(applicationUrl)) return
+        window.webContents.send(DESKTOP_IPC.attentionSound, kind)
       }, async (request) => {
         if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
         return browserGuests.download(mainWindow.webContents, request)
