@@ -12,7 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/s
 
 
 class DraftPreservationTests(unittest.TestCase):
-    def test_blocked_subtitles_preserve_existing_prepared_materials(self):
+    def test_alignment_warning_continues_in_a_candidate_and_preserves_existing_materials(self):
         spec = importlib.util.spec_from_file_location('draft_generator_blocked', SCRIPT.with_name('draft_generator.py'))
         generator_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator_module)
@@ -29,12 +29,15 @@ class DraftPreservationTests(unittest.TestCase):
             (subtitles / '01.srt.blocked').write_text('alignment pending', encoding='utf-8')
             sentinel = materials / 'keep.txt'
             sentinel.write_text('keep prepared materials', encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, '字幕对齐尚未通过'):
-                generator_module.DraftGenerator().prepare_materials(
+            with self.assertLogs(generator_module.logger, level='WARNING') as notes:
+                candidate = generator_module.DraftGenerator().prepare_materials(
                     str(audio), str(video), str(materials), subtitle_dir=str(subtitles), project=str(root))
             self.assertEqual(sentinel.read_text(encoding='utf-8'), 'keep prepared materials')
+            self.assertNotEqual(Path(candidate), materials)
+            self.assertTrue((Path(candidate) / '01_audio' / '01.wav').is_file())
+            self.assertTrue(notes.output)
 
-    def test_ambiguous_bgm_preserves_existing_prepared_materials(self):
+    def test_ambiguous_bgm_remains_unselected_and_preserves_existing_materials(self):
         spec = importlib.util.spec_from_file_location('draft_generator_ambiguous_bgm', SCRIPT.with_name('draft_generator.py'))
         generator_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator_module)
@@ -48,10 +51,13 @@ class DraftPreservationTests(unittest.TestCase):
             (bgm / 'b.mp3').write_bytes(b'two')
             sentinel = materials / 'keep.txt'
             sentinel.write_text('keep prepared materials', encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, '恰有一份已审核混音'):
-                generator_module.DraftGenerator().prepare_materials(
+            with self.assertLogs(generator_module.logger, level='WARNING') as notes:
+                candidate = generator_module.DraftGenerator().prepare_materials(
                     str(audio), str(video), str(materials), bgm_dir=str(bgm), project=str(root))
             self.assertEqual(sentinel.read_text(encoding='utf-8'), 'keep prepared materials')
+            self.assertNotEqual(Path(candidate), materials)
+            self.assertTrue((Path(candidate) / '01_audio' / '01.wav').is_file())
+            self.assertTrue(notes.output)
 
     def test_existing_candidate_draft_is_not_deleted_or_recreated(self):
         created = []

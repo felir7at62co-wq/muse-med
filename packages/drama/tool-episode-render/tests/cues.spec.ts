@@ -1,3 +1,4 @@
+import { subtitleReviewWarnings } from '../src/subtitles.ts'
 /**
  * Subtitle timing: placement from a recognition alignment, and the `subtitles` call.
  *
@@ -261,7 +262,7 @@ describe('drama_render subtitles', () => {
 
     expect(report.method).toBe('subtitles')
     expect(report.ok).toBe(true)
-    expect(report.written).toEqual([subtitle])
+    expect(report.written).toEqual([subtitle, `${subtitle}.review.txt`])
     expect(report.failures).toEqual([])
     expect(await readFile(subtitle, 'utf8')).toBe([
       '1', '00:00:00,400 --> 00:00:01,200', '第一句', '',
@@ -270,7 +271,7 @@ describe('drama_render subtitles', () => {
     ].join('\n'))
   })
 
-  it('blocks stale subtitles after a failed alignment, then clears the block on success', async () => {
+  it('preserves user subtitles, writes a reviewable candidate and clears observations after successful alignment', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [ALIGNMENT.shots[0]] })
     const oldSrt = '1\n00:00:00,000 --> 00:00:01,000\n旧字幕\n'
     await mkdir(dirname(subtitle), { recursive: true })
@@ -278,14 +279,11 @@ describe('drama_render subtitles', () => {
     const settings = settingsWith(stubChannel([cueProbes(project)]).channel)
     const failed = await runDramaRender({ method: 'subtitles', project, episode: 2,
       shots, lines: plan, alignment: aligned, subtitleSrt: subtitle }, settings)
-    expect(failed.ok).toBe(false)
-    expect(failed.written).toEqual([`${subtitle}.blocked`])
+    expect(failed.ok).toBe(true)
+    expect(failed.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     expect(await readFile(subtitle, 'utf8')).toBe(oldSrt)
-    await expect(runDramaRender({ method: 'prepare', project, episode: 2,
-      shots, subtitleSrt: subtitle }, settings)).rejects.toThrow('旧字幕不可用于 prepare/render')
-    await expect(runDramaRender({ method: 'render', project, episode: 2,
-      timeline: 'unused.json', subtitleSrt: subtitle, lastShot: 1, bgm: 'unused.wav' }, settings))
-      .rejects.toThrow('旧字幕不可用于 prepare/render')
+    expect((await subtitleReviewWarnings(subtitle)).join(' ')).toContain('字幕对齐待核')
+    expect(await readFile(`${subtitle}.draft.srt`, 'utf8')).toContain('第一句')
 
     await writeFile(aligned, JSON.stringify(ALIGNMENT), 'utf8')
     const passed = await runDramaRender({ method: 'subtitles', project, episode: 2,
@@ -295,7 +293,7 @@ describe('drama_render subtitles', () => {
     await expect(readFile(`${subtitle}.blocked`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('blocks when a shot with lines has no alignment for it', async () => {
+  it('reports missing alignment as advisory without fabricating a cue', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [
       { shot: 1, strategy: 'asr_aligned', cues: [
         { text: '第一句', start: 0.4, end: 1.2 },
@@ -307,10 +305,10 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('对齐文档里没有这一镜的时间')
-    expect(report.failures.join('\n')).toContain('重跑一次语音识别')
-    expect(report.written).toEqual([`${subtitle}.blocked`])
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('对齐文档里没有这一镜的时间')
+    expect(report.warnings.join('\n')).toContain('重跑一次语音识别')
+    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -327,8 +325,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('字幕文字只取剧本原文')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('字幕文字只取剧本原文')
   })
 
   it('blocks when a shot speaks a line the plan never declared', async () => {
@@ -340,8 +338,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('镜头 2 的对齐文档里有 1 段识别结果')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('镜头 2 的对齐文档里有 1 段识别结果')
   })
 
   it('blocks recognized speech in a shot declared silent even with no subtitle cues', async () => {
@@ -356,8 +354,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stubChannel([cueProbes(project)]).channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('镜头 2 没有声明台词')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('镜头 2 没有声明台词')
   })
 
   it('blocks a declared silent shot without a checked no_lines alignment', async () => {
@@ -368,9 +366,9 @@ describe('drama_render subtitles', () => {
       ] }, { shots: [ALIGNMENT.shots[0], ...(shot2 === undefined ? [] : [shot2])] })
       const report = await runDramaRender({ method: 'subtitles', project, episode: 2, shots,
         lines: plan, alignment: aligned, subtitleSrt: subtitle }, settingsWith(stubChannel([cueProbes(project)]).channel))
-      expect(report.ok).toBe(false)
-      expect(report.failures.join('\n')).toContain('镜头 2 没有声明台词')
-      expect(report.failures.join('\n')).toContain('无发声')
+      expect(report.ok).toBe(true)
+      expect(report.warnings.join('\n')).toContain('镜头 2 没有声明台词')
+      expect(report.warnings.join('\n')).toContain('无发声')
     }
   })
 
@@ -388,8 +386,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('subtitle_timing')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('subtitle_timing')
   })
 
   it.each([
@@ -405,9 +403,9 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stubChannel([cueProbes(project)]).channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain(defect)
-    expect(report.written).toEqual([`${subtitle}.blocked`])
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain(defect)
+    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -425,8 +423,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('超出镜头范围')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('超出镜头范围')
   })
 
   it.each([
@@ -442,9 +440,9 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain(defect)
-    expect(report.written).toEqual([`${subtitle}.blocked`])
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain(defect)
+    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -458,8 +456,8 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('不在成片清单里')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('不在成片清单里')
   })
 
   it('refuses a shot the aligner labelled as anything but fully aligned', async () => {
@@ -475,9 +473,9 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('estimated_total')
-    expect(report.failures.join('\n')).toContain('asr_aligned')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('estimated_total')
+    expect(report.warnings.join('\n')).toContain('asr_aligned')
   })
 
   it('refuses an alignment document that never states how it was produced', async () => {
@@ -496,9 +494,9 @@ describe('drama_render subtitles', () => {
       method: 'subtitles', project, episode: 2, shots, lines: plan, alignment: aligned, subtitleSrt: subtitle,
     }, settingsWith(stub.channel))
 
-    expect(report.ok).toBe(false)
-    expect(report.failures.join('\n')).toContain('对齐来源未验证')
-    expect(report.failures.join('\n')).toContain('文档没有标 strategy')
+    expect(report.ok).toBe(true)
+    expect(report.warnings.join('\n')).toContain('对齐来源未验证')
+    expect(report.warnings.join('\n')).toContain('文档没有标 strategy')
   })
 
   it('rejects a strategy that is not a string instead of treating it as absent', async () => {

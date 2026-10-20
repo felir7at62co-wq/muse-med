@@ -539,7 +539,7 @@ class ProjectPathTests(unittest.TestCase):
         self.assertEqual(Path.cwd(), self.cwd)
         self.assertFalse((self.project / 'exports').exists())
 
-    def test_single_rejects_a_blocked_stale_subtitle_before_writing(self):
+    def test_single_reads_the_selected_srt_despite_an_alignment_warning(self):
         render = load_path_renderer('episode_blocked_subtitle_test', 'render_episode.py')
         timeline = self.project / 'timeline.json'
         timeline.write_text(json.dumps({'delivery': {'visual_medium': 'animation_3d',
@@ -553,8 +553,8 @@ class ProjectPathTests(unittest.TestCase):
         args = argparse.Namespace(project=self.project, episode='01', bgm=bgm,
                                   timeline=timeline, subtitle_srt=subtitle, last_shot=1)
         with patch.object(render, 'check_videos', return_value={}), \
-                patch.object(render, 'parse_srt', side_effect=AssertionError('old SRT must not be read')):
-            with self.assertRaisesRegex(ValueError, '旧字幕不可用于正式渲染'):
+                patch.object(render, 'parse_srt', side_effect=RuntimeError('selected SRT reached')):
+            with self.assertRaisesRegex(RuntimeError, 'selected SRT reached'):
                 render.render(args)
         self.assertFalse((self.project / 'exports').exists())
 

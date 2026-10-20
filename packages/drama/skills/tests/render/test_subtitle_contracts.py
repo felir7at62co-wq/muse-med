@@ -65,15 +65,11 @@ class BurnedSubtitleContractTests(unittest.TestCase):
             self.assertIn('Style: Default,SimHei,40,', style)
             self.assertIn(',1,5,0,2,40,40,140,1', style)
 
-    def test_subtitle_rows_reject_punctuation_wrapping_and_overlong_text(self):
-        with self.assertRaisesRegex(ValueError, 'without punctuation'):
-            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n不要推我！\n')
-        with self.assertRaisesRegex(ValueError, 'one row'):
-            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n第一行\n第二行\n')
-        with self.assertRaisesRegex(ValueError, 'at most 14'):
-            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n一二三四五六七八九十甲乙丙丁戊\n')
-        with self.assertRaisesRegex(ValueError, 'timestamp but no text'):
-            self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n')
+    def test_subtitle_style_findings_preserve_the_cue(self):
+        for text in ['不要推我！', '第一行\n第二行', '一二三四五六七八九十甲乙丙丁戊']:
+            with self.subTest(text=text):
+                result = self.write_ass(f'1\n00:00:00,000 --> 00:00:01,000\n{text}\n')
+                self.assertIn(text.replace('\n', '\\N'), result)
 
     def test_subtitle_rows_keep_a_single_punctuation_free_line(self):
         text = self.write_ass('1\n00:00:00,000 --> 00:00:01,000\n不要推我\n')

@@ -381,6 +381,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param receiptPath - Receipt previously returned by start.
  * @param account - Current Host account operations.
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
+ * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
  * @returns Current status and completed output paths when available after owned work settles.
  */
 export async function finishAudioTranscription(

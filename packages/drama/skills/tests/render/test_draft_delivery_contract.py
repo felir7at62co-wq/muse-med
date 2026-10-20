@@ -251,53 +251,69 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(cues, [style['text'] for style in texts])
         self.assertNotIn('。', normalized.read_text(encoding='utf-8'))
 
-    def test_long_unsplit_subtitle_refuses_before_draft_creation(self):
+    def test_long_unsplit_subtitle_preserves_text_in_a_reviewable_draft(self):
         root = self.build_root(srt='1\n00:00:00,000 --> 00:00:04,000\n'
                                    '孕八周。指标目前正常，但你最近睡眠不太好，注意休息。\n')
-        with self.assertRaisesRegex(self.module.DraftInputError, '分句.*时间'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('建议长度', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
 
-    def test_failed_alignment_refuses_stale_subtitles_before_draft_creation(self):
+    def test_alignment_warning_preserves_a_reviewable_subtitled_draft(self):
         root = self.build_root()
         (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
-        with self.assertRaisesRegex(self.module.DraftInputError, '字幕对齐尚未通过'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('字幕对齐待核', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
 
-    def test_failed_alignment_without_srt_refuses_unsubtitled_draft(self):
+    def test_alignment_warning_without_srt_preserves_other_tracks(self):
         root = self.build_root(srt=None)
         (root / '03_subtitle').mkdir()
         (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
-        with self.assertRaisesRegex(self.module.DraftInputError, '字幕对齐尚未通过'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('字幕对齐待核', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
 
-    def test_editor_subtitle_import_failure_refuses_incomplete_draft(self):
+    def test_subtitle_import_failure_returns_a_warning_and_saved_candidate(self):
         root = self.build_root()
         with patch.object(self.module.draft.ScriptFile, 'import_srt', side_effect=RuntimeError('import failed')):
-            with self.assertRaisesRegex(self.module.DraftInputError, '剪映草稿字幕导入失败'):
+            with self.assertLogs(self.module.logger, level='WARNING') as notes:
                 self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('字幕未导入', '\n'.join(notes.output))
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
 
-    def test_bgm_import_failure_refuses_incomplete_draft(self):
+    def test_bgm_import_failure_returns_a_warning_and_saved_candidate(self):
         root = self.build_root()
         bgm = root / '04_bgm'
         bgm.mkdir()
         (bgm / 'mix.mp3').write_bytes(b'not audio')
-        with self.assertRaisesRegex(self.module.DraftInputError, 'BGM 导入失败'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('BGM 未导入', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
 
-    def test_bgm_must_cover_the_body(self):
+    def test_short_bgm_is_kept_without_looping_and_reported_for_review(self):
         root = self.build_root()
         bgm = root / '04_bgm'
         bgm.mkdir()
         subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
                         '-i', 'sine=frequency=330:duration=1', str(bgm / 'mix.wav')], check=True)
-        with self.assertRaisesRegex(self.module.DraftInputError, 'BGM 导入失败.*时长短于正文'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('时长短于正文', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
 
     def test_verified_bgm_and_subtitles_remain_editable_tracks(self):
         root = self.build_root(timeline=self.delivery_timeline('animation_3d'))

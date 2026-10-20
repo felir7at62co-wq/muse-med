@@ -195,7 +195,7 @@ def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
     """Find substantial recognized speech not covered by the declared script.
 
     An aligned script line does not prove that the take contains *only* that line.
-    Keep short ASR artifacts for human review, but block a four-character phrase
+    Report a four-character phrase for human review
     before, between or after anchors, or inserted inside a matched line.
     """
     found = []
@@ -233,7 +233,7 @@ def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
 
 
 def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
-    """Block a substantial script phrase omitted by ASR inside an accepted anchor.
+    """Report a substantial script phrase omitted by ASR inside an accepted anchor.
 
     A partial match can clear the deliberately tolerant anchor threshold while
     the end of a spoken line is absent. Such a span is useful for review, but it
@@ -517,7 +517,7 @@ def main() -> None:
     parser.add_argument("--model-url", help="模型包（zip）的下载地址")
     parser.add_argument("--model-sha256", default="", help="模型包的 SHA-256，与 --model-url 一起用")
     parser.add_argument("--cache-dir", help="模型缓存根目录")
-    parser.add_argument("--strict", action="store_true", help="有任一镜未能整镜锚定或识别到未映射台词时以非零退出")
+    parser.add_argument("--strict", action="store_true", help="兼容旧参数；对齐质量问题仍只报告，不阻断制作")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -533,7 +533,9 @@ def main() -> None:
     by_shot = {int(row["shot"]): list(row["lines"]) for row in plan}
     missing = [int(row["shot"]) for row in manifest if int(row["shot"]) not in by_shot]
     if missing:
-        raise SystemExit(f"台词计划里没有这些镜头：{missing}。请先用同一版台词重跑计划。")
+        print(f"提示：台词计划缺少镜头 {missing}，请核对原稿；保留待核项。")
+        for shot in missing:
+            by_shot[shot] = []
 
     cloud_receipts = None
     model = None
@@ -563,9 +565,20 @@ def main() -> None:
             raise SystemExit(f"缺少该镜成片：{video}")
         lines = by_shot[shot]
         if cloud_receipts is not None and shot not in cloud_receipts:
-            raise SystemExit(f"镜头 {shot} 缺少云转写收据；无对白镜头也必须核对实际音轨。")
+            message = f"镜头 {shot} 缺少云转写收据，声音与字幕尚未核实；请 Muse 核听后决定下一步。"
+            print(f"提示：{message}")
+            placed.append({"shot": shot, "strategy": "missing_evidence", "cues": [], "warnings": [message]})
+            strategies.append("missing_evidence")
+            continue
         if cloud_receipts is not None:
-            chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
+            try:
+                chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
+            except SystemExit as error:
+                message = str(error)
+                print(f"提示：镜头 {shot} 收据尚不能提供同源时间：{message}")
+                placed.append({"shot": shot, "strategy": "missing_evidence", "cues": [], "warnings": [message]})
+                strategies.append("missing_evidence")
+                continue
         else:
             with tempfile.TemporaryDirectory(prefix="align-") as work:
                 chars = transcribe(video, Path(work), model)
@@ -603,10 +616,10 @@ def main() -> None:
     print(f"EP{args.episode:02d} 策略统计: {counts} -> {out_path}")
     incomplete = [row["shot"] for row in placed if row["strategy"] not in (ALL_ALIGNED, "no_lines")]
     if incomplete:
-        print(f"以下镜头未能完整核对发声（{incomplete}）：drama_render subtitles 会拒绝这些镜，"
+        print(f"提示：以下镜头未能完整核对发声（{incomplete}），请 Muse 查看证据并决定是否调整，"
               "请核对台词与成片是否同一版，或重听该镜后重跑。")
         if args.strict:
-            raise SystemExit(1)
+            print("--strict 已保留为兼容参数；这些质量发现不改变退出码。")
 
 
 if __name__ == "__main__":

@@ -342,9 +342,8 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
 /**
  * The result of a `subtitles` call.
  *
- * The line-coverage and timing defects become failure checks so `ok` states
- * plainly whether every declared line found its alignment and whether the
- * written cues fit the episode. How accurate the recognizer's own times are is
+ * Line coverage and timing findings remain advisory. Partial candidates use a
+ * separate SRT path so reviewing them does not overwrite an existing subtitle. How accurate the recognizer's own times are is
  * not judged here, so `speech_alignment` stays in `not_checked`.
  * @param call - The resolved call.
  * @param built - What the cue build read and wrote.
@@ -354,7 +353,7 @@ function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderRepo
   const sources = new Map(built.shots.map(shot => [shot.source.shot, shot.video]))
   const checks: RenderCheck[] = built.failures.map(failure => ({
     id: failure.id,
-    severity: 'failure',
+    severity: 'warning',
     ok: false,
     detail: failure.detail,
     fix: failure.fix,
@@ -577,13 +576,13 @@ const RESULT_SCHEMA = {
 /** What the model reads before calling: the four methods, medium-specific delivery, and known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + 'subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，'
-  + 'lines 按原文顺序切成单行、无标点、每条不超过 14 个有效字的显示字幕；不得改动读出的数字与语义。'
+  + '建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。'
   + '长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。'
   + '**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，'
   + '估算出来的时间正是字幕压在错句上的原因。'
-  + '缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），'
-  + '并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。'
-  + '写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。'
+  + '缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕并写出独立候选，由你判断下一步，'
+  + '提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。'
+  + '时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。'
   + '对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。'
   + 'prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
@@ -637,13 +636,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       lines: { type: 'string',
         description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
           + '相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，'
-          + '每条不超过 14 个有效字；数字和语义不能改。长句分别按同源字词时间对齐，工具不估时、不改文字。' },
+          + '建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。' },
       alignment: { type: 'string',
         description: '语音识别对齐文档 JSON 路径，subtitles 必填，形如'
           + ' {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。'
           + '文件相对路径以 project 为基准，绝对路径保持不变。'
           + '只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
-          + '缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。' },
+          + '缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。' },
       timeline: { type: 'string',
         description: '时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；'
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },

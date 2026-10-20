@@ -10,6 +10,7 @@ import shutil
 import logging
 import re
 import json
+import tempfile
 import importlib.util
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -120,18 +121,21 @@ class DraftGenerator:
             for ep_num in episodes:
                 blocked = Path(subtitle_dir) / f"{ep_num}.srt.blocked"
                 if blocked.exists():
-                    raise ValueError(f"字幕对齐尚未通过：{blocked}；拒绝复用旧字幕准备剪映草稿。")
+                    logger.warning(f"字幕对齐待核：{blocked}；保留选择并继续准备草稿，由 Muse 核听决定。")
         bgm_source = None
         if bgm_dir and os.path.exists(bgm_dir):
             candidates = sorted(path for path in Path(bgm_dir).iterdir()
                                 if path.is_file() and path.suffix.lower() in
                                 {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'})
             if len(candidates) != 1:
-                raise ValueError(f"BGM 文件夹 {bgm_dir} 应恰有一份已审核混音，实际 {len(candidates)} 份。")
-            bgm_source = candidates[0]
-        # 先清空已存在的素材目录，确保每次都是全新的素材
+                logger.warning(f"BGM 文件夹 {bgm_dir} 有 {len(candidates)} 份候选，暂不选入；Muse 可核对后补充。")
+            else:
+                bgm_source = candidates[0]
+        # Existing prepared materials may contain manual changes.
         if os.path.exists(output_materials_dir):
-            shutil.rmtree(output_materials_dir)
+            target = Path(output_materials_dir).resolve()
+            output_materials_dir = tempfile.mkdtemp(prefix=f"{target.name}-candidate-", dir=target.parent)
+            logger.info(f"保留已有素材目录，新候选写入 {output_materials_dir}")
         os.makedirs(output_materials_dir, exist_ok=True)
 
         audio_out = os.path.join(output_materials_dir, "01_audio")
@@ -164,7 +168,7 @@ class DraftGenerator:
             subtitle_out = os.path.join(output_materials_dir, "03_subtitle")
             os.makedirs(subtitle_out, exist_ok=True)
             for ep_num in sorted(episodes):
-                for ext in (".srt", ".ass", ".vtt"):
+                for ext in (".srt", ".ass", ".vtt", ".srt.review.txt", ".srt.blocked"):
                     src = os.path.join(subtitle_dir, f"{ep_num}{ext}")
                     if os.path.exists(src):
                         shutil.copy2(src, subtitle_out)

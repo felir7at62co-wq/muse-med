@@ -895,9 +895,8 @@ def normalize_srt(srt_path, output_path=None) -> list:
     for index, cue in enumerate(parse_srt_cues(srt_path), start=1):
         lines = normalize_subtitle_text(cue["text"])
         if len(lines) != 1:
-            raise DraftInputError(
-                f"字幕文件 {srt_path} 的第 {index} 条需要拆分，但没有各分句的语音时间；"
-                "请先按单条不超过 14 个有效字切分台词计划，重新识别对齐并生成 SRT，不能按字数分配时间。")
+            logger.warning(f"字幕文件 {srt_path} 第 {index} 条超过建议长度；保留当前文字与时间，不均分估时。")
+            lines = [cue["text"]]
         normalized.append({"start_us": cue["start_us"], "end_us": cue["end_us"], "text": lines[0]})
     if output_path is not None:
         write_srt_cues(output_path, normalized)
@@ -1087,6 +1086,13 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
 
 
 def main_with_args(args):
+    review_warnings = []
+    saved_candidates = []
+
+    def warn(message):
+        review_warnings.append(message)
+        logger.warning(message)
+
     if not isinstance(args.name_prefix, str) or re.search(r'[<>:"/\\|?*\x00-\x1f]', args.name_prefix):
         raise DraftInputError('name_prefix 只能包含合法的草稿名称字符，不能包含路径或 Windows 保留字符。')
     drafts_dir = Path(args.drafts)
@@ -1155,12 +1161,15 @@ def main_with_args(args):
                             if p.is_file() and p.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')),
                            key=lambda p: p.name)
         if len(bgm_files) > 1:
-            raise DraftInputError(f"BGM 文件夹 {bgm_dir} 有多个音频；请先选定唯一已审核混音，拒绝按文件名猜选。")
+            warn(f"BGM 文件夹 {bgm_dir} 有多个候选，暂不选入；请 Muse 核对后补充。")
+            bgm_files = []
         if bgm_files:
             bgm_path = bgm_files[0]
             logger.info(f"  [bgm] 使用BGM文件: {bgm_path.name}")
         else:
             logger.info(f"  [bgm] BGM文件夹为空，将跳过背景音乐")
+    if bgm_path is None:
+        warn("当前草稿未选入 BGM；请 Muse 核对任务需要并决定是否补充。")
     logger.info(f"  [audio] 音频文件夹: {audio_dir.name}, 文件示例: {[f.name for f in audio_dir.iterdir() if f.is_file()][:3] if audio_dir else '无'}")
 
     audios = sorted([p for p in audio_dir.iterdir() if p.is_file()], key=lambda p: p.name)
@@ -1268,10 +1277,15 @@ def main_with_args(args):
         media_files = sorted(selected_media.values(), key=_media_shot_number)
 
         subtitle_marker = (srt_dir or root / '03_subtitle') / f"{seq}.srt.blocked"
-        if subtitle_marker.exists():
-            raise DraftInputError(f"字幕对齐尚未通过：{subtitle_marker}；拒绝生成缺字或复用旧字幕的剪映草稿。")
+        for note in [subtitle_marker, subtitle_marker.with_suffix('.review.txt')]:
+            if note.is_file() and note.read_text(encoding='utf-8').strip():
+                warn(f"字幕对齐待核：{note}；保留选择继续生成，由 Muse 核听决定是否调整。")
         if srt_path and srt_path.exists():
-            normalize_srt(srt_path)
+            checked_cues = normalize_srt(srt_path)
+            if any(effective_character_count(cue['text']) > SUBTITLE_MAX_EFFECTIVE_CHARS for cue in checked_cues):
+                warn(f"字幕 {srt_path} 超过建议长度，保留原文和时间，请 Muse 核对。")
+        else:
+            warn(f"当前候选没有已选字幕：{seq}；请 Muse 核对任务需要并决定是否补充。")
 
         def refuse(message: str):
             """报出输入契约违规，并删掉本次刚建的草稿目录，避免半成品挡住重跑。"""
@@ -1371,7 +1385,7 @@ def main_with_args(args):
                     if total_audio_duration is None:
                         raise DraftInputError("主音频时长不可用，无法校验 BGM 覆盖范围。")
                     if bgm_duration + TIMELINE_TOLERANCE_US < total_audio_duration:
-                        raise DraftInputError("BGM 时长短于正文；请先准备覆盖完整正文的已审核混音。")
+                        warn("BGM 时长短于正文；保留已有音轨，不自动循环补齐，请 Muse 决定是否补充。")
                     if bgm_duration > total_audio_duration:
                         bgm_segment = draft.AudioSegment(bgm_new, Timerange(0, total_audio_duration))
                         logger.info(f"[{draft_name}] BGM trimmed to match main audio duration")
@@ -1383,7 +1397,7 @@ def main_with_args(args):
                     script.add_segment(bgm_segment, bgm_track)
                     logger.info(f"[{draft_name}] Successfully added BGM to timeline (volume: {BGM_VOLUME})")
                 except Exception as e:
-                    refuse(f"剪映草稿 BGM 导入失败：{e}")
+                    warn(f"剪映草稿 BGM 未导入：{e}；其他轨道继续保留，请 Muse 核对。")
 
             # 3) 添加视频轨道和媒体（图片或视频）
             logger.info(f"[{draft_name}] Adding media...")
@@ -1464,7 +1478,7 @@ def main_with_args(args):
                 logger.info(f"[{draft_name}] 字幕 {len(normalized_cues)} 条（去标点/单行/≤"
                             f"{SUBTITLE_MAX_EFFECTIVE_CHARS} 有效字），写出 {normalized_srt}")
                 if not hasattr(script, 'import_srt'):
-                    refuse("剪映草稿库缺少 import_srt，无法交付可编辑字幕。")
+                    warn("剪映草稿库缺少 import_srt，当前候选没有可编辑字幕；请 Muse 核对。")
                 try:
                     if hasattr(script, 'import_srt'):
                         # 导入字幕到文本轨道，设置样式
@@ -1501,7 +1515,7 @@ def main_with_args(args):
                         )
                         logger.info(f"[{draft_name}] Successfully imported subtitle to timeline with style")
                 except Exception as e:
-                    refuse(f"剪映草稿字幕导入失败：{e}")
+                    warn(f"剪映草稿字幕未导入：{e}；其他轨道保留，请 Muse 决定后续处理。")
         else:
             # 从模板复制的草稿，尝试替换素材
             logger.info(f"[{draft_name}] Replacing materials in template...")
@@ -1646,14 +1660,14 @@ def main_with_args(args):
             logger.info(f"[{draft_name}] Time range verification failed: {e}")
             logger.info(f"[{draft_name}] Detailed error: {traceback.format_exc()}")
 
-        # 交付前校验：校验的是马上要写出的那份内容，失败就不写、并清掉这次新建的草稿目录
+        if videos and check_videos(find_project(root, getattr(args, 'project', None)), videos) != source_hashes:
+            refuse("正文视频在草稿生成期间变化，请重新读取当前版本。")
+        # Track observations remain visible with the saved candidate.
         try:
-            if videos and check_videos(find_project(root, getattr(args, 'project', None)), videos) != source_hashes:
-                raise DraftInputError("正文视频在草稿生成期间变化，请重新读取当前版本。")
             verify_draft_delivery(json.loads(script.dumps()), body_clips, audio_duration,
                                   normalized_cues, ending_plan)
         except DraftInputError as error:
-            refuse(str(error))
+            warn(f"草稿轨道待核：{error}；由 Muse 查看实际轨道并决定后续处理。")
 
         try:
             script.save()
@@ -1668,7 +1682,7 @@ def main_with_args(args):
                 script.dump(str(draft_path / "draft_content.json"))
                 logger.info(f"[{draft_name}] Manually saved draft to: {draft_path}")
             except Exception as e2:
-                logger.info(f"[{draft_name}] Failed to manually save draft: {e2}")
+                refuse(f"草稿文件无法保存：{e2}")
 
         # 创建剪映所需的附属文件夹和文件
         draft_path = drafts_dir / draft_name
@@ -1680,7 +1694,17 @@ def main_with_args(args):
                 if not fpath.exists():
                     fpath.touch()
 
-        logger.info(f"[{draft_name}] Generated successfully")
+        if not (draft_path / 'draft_content.json').is_file():
+            refuse("没有写出 draft_content.json，无法确认草稿保存成功。")
+        (draft_path / 'muse-review.json').write_text(json.dumps({
+            'status': 'needs_review', 'warnings': review_warnings,
+            'next': '草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。'
+        }, ensure_ascii=False, indent=2), encoding='utf-8')
+        saved_candidates.append({'path': str(draft_path), 'review_path': str(draft_path / 'muse-review.json')})
+        logger.info(f"[{draft_name}] Candidate saved with {len(review_warnings)} review warnings")
+    if not saved_candidates:
+        raise DraftInputError('没有写出本次选定分集的草稿，请核对 seq 与素材范围。')
+    return {'quality': 'needs_review', 'warnings': review_warnings, 'candidates': saved_candidates}
 
 
 def generate_draft(
@@ -1718,8 +1742,8 @@ def generate_draft(
         new_template=None,
     )
     try:
-        main_with_args(args)
-        return {"success": True}
+        result = main_with_args(args)
+        return {"success": True, **result}
     except DraftInputError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:

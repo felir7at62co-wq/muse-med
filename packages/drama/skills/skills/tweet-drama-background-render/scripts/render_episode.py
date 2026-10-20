@@ -154,22 +154,14 @@ def parse_srt(path: Path) -> list[tuple[str, str, str]]:
         lines = block.splitlines()
         if len(lines) < 2 or "-->" not in lines[1]:
             continue
-        if len(lines) < 3:
-            raise ValueError(f"{path}: subtitle cue {len(result) + 1} has a timestamp but no text")
-        if len(lines) != 3:
-            raise ValueError(f"{path}: subtitle cue {len(result) + 1} has {len(lines) - 2} text rows; "
-                             "split and time each cue as one row")
         start, end = [item.strip().replace(",", ".") for item in lines[1].split("-->")]
-        display = lines[2]
-        if not display or display.strip() != display or any(
-                not (unicodedata.category(char)[0] in ("L", "N") or char == " ")
-                for char in display):
-            raise ValueError(f"{path}: subtitle cue {len(result) + 1} must contain only "
-                             "letters, digits and word spaces, without punctuation")
+        display = "\n".join(lines[2:])
+        if len(lines) != 3 or not display or display.strip() != display or any(
+                not (unicodedata.category(char)[0] in ("L", "N") or char == " ") for char in display):
+            print(f"提示：{path} 第 {len(result) + 1} 条字幕样式待核，保留原文继续。", file=sys.stderr)
         effective = sum(0.5 if char == " " else 1 for char in display)
         if effective > 14:
-            raise ValueError(f"{path}: subtitle cue {len(result) + 1} has {effective:g} effective "
-                             "characters; split and retime to at most 14 per row")
+            print(f"提示：{path} 第 {len(result) + 1} 条字幕超过建议 14 字，请核对切分。", file=sys.stderr)
         result.append((start, end, display))
     return result
 
@@ -223,7 +215,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         def ass_time(value: str) -> str:
             h, m, sec = value.split(":")
             return f"{int(h)}:{int(m):02d}:{float(sec):05.2f}"
-        safe = text.replace("{", "（").replace("}", "）")
+        safe = text.replace("{", "（").replace("}", "）").replace("\n", r"\N")
         events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Default,,0,0,0,,{safe}")
     if add_watermark:
         events.append(r"Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\an3\pos("
@@ -353,8 +345,12 @@ def render(args: argparse.Namespace) -> dict:
     subtitle_srt = getattr(args, 'subtitle_srt', None)
     if subtitle_srt is None:
         raise ValueError('--subtitle-srt is required')
-    if Path(f'{subtitle_srt}.blocked').exists():
-        raise ValueError('字幕对齐失败或中断，旧字幕不可用于正式渲染；请修正对齐后重跑 subtitles。')
+    subtitle_warnings = []
+    for note in [Path(f'{subtitle_srt}.blocked'), Path(f'{subtitle_srt}.review.txt')]:
+        if note.is_file() and note.read_text(encoding='utf-8').strip():
+            subtitle_warnings.append(f'字幕对齐待核：{note}；Muse 核听并决定是否调整，渲染继续。')
+    for warning in subtitle_warnings:
+        print(f'提示：{warning}', file=sys.stderr)
     parse_srt(subtitle_srt)
     body_end_us = max(int(item["start_us"]) + int(item["duration_us"]) for item in clips)
     body_end = body_end_us / 1_000_000
@@ -472,7 +468,7 @@ def render(args: argparse.Namespace) -> dict:
             "codec": "h264", "fps": fps, "target_bitrate": TARGET_BITRATE,
             "max_bitrate": MAX_BITRATE, "duration": actual,
             "expected_duration": total_duration, "width": width, "height": height,
-            "visual_medium": policy["visual_medium"], "warnings": policy["warnings"]}
+            "visual_medium": policy["visual_medium"], "warnings": [*policy["warnings"], *subtitle_warnings]}
 
 
 def subtitle_filter(ass: Path, width: int = WIDTH, height: int = HEIGHT, fps: float = FPS) -> str:

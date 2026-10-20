@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-tool-episode-render/subtitles
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { assCanvas, buildAssHeader, escapeAssText, formatAssTime, WATERMARK_TEXT } from './delivery.ts'
 import { deliveryPolicyFor } from './delivery-policy.ts'
 import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
@@ -20,38 +20,43 @@ import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
 const WATERMARK_END = '9:59:59.00'
 
-/** A failed or interrupted automatic alignment blocks reuse of an older SRT. */
-export function subtitleBlockPath(path: string): string {
-  return `${path}.blocked`
+/** Legacy alignment marker retained only for advisory readback.
+ * @param path - Subtitle file.
+ * @returns The historical marker path; its presence never rejects rendering.
+ */
+export function subtitleBlockPath(path: string): string { return `${path}.blocked` }
+
+/** Read alignment observations without requiring approval or rejecting the selected SRT.
+ * @param path - Selected subtitle file.
+ * @returns Current review text and legacy-marker warnings; missing notes add nothing.
+ */
+export async function subtitleReviewWarnings(path: string): Promise<string[]> {
+  const warnings: string[] = []
+  for (const note of [`${path}.review.txt`, subtitleBlockPath(path)]) {
+    try {
+      const text = await readFile(note, 'utf8')
+      if (text.trim()) warnings.push(`${path}: 字幕对齐待核：${text.trim()}；由 Muse 核听并决定是否调整，当前操作继续。`)
+    } catch (error) {
+      if (!(error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+  }
+  return warnings
 }
 
-/** Refuse a subtitle path whose latest automatic alignment did not succeed. */
-export async function assertSubtitleNotBlocked(path: string): Promise<void> {
-  const blocked = subtitleBlockPath(path)
-  try {
-    await stat(blocked)
-  } catch (error) {
-    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return
-    throw error
-  }
-  throw new Error(`${path}: 最近一次字幕对齐失败或中断，旧字幕不可用于 prepare/render；请修正对齐后重跑 subtitles。`)
-}
-
-/** One readable subtitle row, without punctuation or a renderer-controlled wrap. */
-function assertDisplayText(text: string, source: string): void {
-  if (text.includes('\n') || text.includes('\r')) {
-    throw new Error(`${source}: 字幕必须只有一行；请按语义拆成多个带各自时间码的字幕。`)
-  }
-  if (text === '' || text.trim() !== text || !/^[\p{L}\p{N} ]+$/u.test(text)) {
-    throw new Error(`${source}: 字幕只能包含文字、数字和词间空格，不得带标点或其他符号。`
-      + '请保留剧本原文，仅调整显示字幕并重新核对声文时间。')
-  }
-  const effective = (text.match(/[\p{L}\p{N}]| /gu) ?? [])
-    .reduce((count, char) => count + (char === ' ' ? 0.5 : 1), 0)
-  if (effective > 14) {
-    throw new Error(`${source}: 字幕有 ${String(effective)} 个有效字，超过单行 14 字上限。`
-      + '请按语义拆句，并为每条字幕重新对齐发声时间。')
-  }
+/** Report readability observations while preserving authored text.
+ * @param cues - Parsed subtitle rows.
+ * @returns Per-cue suggestions; no text is rewritten or rejected.
+ */
+export function subtitleTextWarnings(cues: readonly SubtitleCue[]): string[] {
+  return cues.flatMap((cue) => {
+    const issues: string[] = []
+    if (/[\r\n]/u.test(cue.text)) issues.push('包含多行文字')
+    if (!cue.text.trim()) issues.push('没有显示文字')
+    else if (!/^[\p{L}\p{N} ]+$/u.test(cue.text)) issues.push('包含标点或其他符号')
+    const effective = Array.from(cue.text).reduce((count, char) => count + (char === ' ' ? 0.5 : 1), 0)
+    if (effective > 14) issues.push(`${String(effective)} 个有效字，超过建议单行 14 字`)
+    return issues.length ? [`第 ${String(cue.index)} 条字幕${issues.join('、')}；建议核对原文并按语义切分，保留当前文本。`] : []
+  })
 }
 
 /**
@@ -81,7 +86,7 @@ export function parseSrtTime(value: string, path: string): number {
  *
  * Blocks without a timing line are skipped rather than rejected: an SRT that
  * carries a stray title block is common and harmless. A timed cue with no text,
- * more than one text row, or an invalid timestamp is a delivery defect.
+ * more than one text row or punctuation remains readable; style is advisory. Invalid timestamps still fail.
  * @param text - The whole SRT document.
  * @param path - The subtitle path, for diagnostics.
  * @returns Every cue, in file order, numbered from 1.
@@ -94,20 +99,12 @@ export function parseSrtDocument(text: string, path: string): SubtitleCue[] {
     const lines = block.split('\n')
     const timing = lines[1] ?? ''
     if (!timing.includes('-->')) continue
-    if (lines.length < 3) {
-      throw new Error(`${path}: 第 ${String(cues.length + 1)} 条字幕只有时间码、没有显示文字。`)
-    }
     const [start = '', end = ''] = timing.split('-->')
-    if (lines.length !== 3) {
-      throw new Error(`${path}: 第 ${String(cues.length + 1)} 条字幕有 ${String(lines.length - 2)} 行文字；`
-        + '必须拆成分别校时的单行字幕。')
-    }
-    assertDisplayText(lines[2] as string, `${path}: 第 ${String(cues.length + 1)} 条字幕`)
     cues.push({
       index: cues.length + 1,
       startSeconds: parseSrtTime(start, path),
       endSeconds: parseSrtTime(end, path),
-      text: lines[2] as string,
+      text: lines.slice(2).join('\n'),
     })
   }
   return cues
@@ -147,7 +144,6 @@ export function formatSrtTime(seconds: number): string {
  */
 export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
   const blocks = cues.map((cue) => {
-    assertDisplayText(cue.text, `第 ${String(cue.index)} 条字幕`)
     return `${String(cue.index)}\n`
       + `${formatSrtTime(cue.startSeconds)} --> ${formatSrtTime(cue.endSeconds)}\n`
       + cue.text
@@ -171,7 +167,6 @@ export function buildAssDocument(
   policy: DeliveryPolicy = deliveryPolicyFor(),
 ): string {
   const events = cues.map((cue) => {
-    assertDisplayText(cue.text, `第 ${String(cue.index)} 条字幕`)
     return 'Dialogue: 0,'
       + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
       + escapeAssText(cue.text)

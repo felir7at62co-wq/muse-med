@@ -102,8 +102,9 @@ export const PLAY_RES_HEIGHT = 1920
  */
 export const SUBTITLE_OUTLINE_TARGET_PX = 7
 
-/** Body subtitle size and lower safe area on the fixed short-edge ASS canvas. */
+/** Body subtitle size on the fixed short-edge ASS canvas. */
 export const SUBTITLE_FONT_SIZE = 40
+/** Lower subtitle safe area on the fixed short-edge ASS canvas. */
 export const SUBTITLE_MARGIN_V = 140
 
 /**
@@ -339,5 +340,5 @@ export function formatAssTime(seconds: number): string {
  * @returns The text with braces replaced by full-width parentheses.
  */
 export function escapeAssText(text: string): string {
-  return text.replace(/\{/g, '（').replace(/\}/g, '）')
+  return text.replace(/\{/g, '（').replace(/\}/g, '）').replace(/\r?\n/g, '\\N')
 }
