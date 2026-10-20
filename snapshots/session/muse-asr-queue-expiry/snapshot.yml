@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-asr-queue-expiry
+profile: headless
+composition: muse-asr-queue-expiry
+recording: authored
+header:
+  class: muse-asr-queue-expiry
+  pin: true
+workspace:
+  final: true
+writerOutput: true
