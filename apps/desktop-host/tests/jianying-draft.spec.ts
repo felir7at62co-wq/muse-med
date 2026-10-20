@@ -2,6 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,7 +19,7 @@ fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JS
 console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:''}],library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
 `
 
-async function fixture() {
+async function fixture(maxInputBytes = 65536) {
   const root = await mkdtemp(join(tmpdir(), 'muse-jianying-draft-'))
   const ctx = new Context()
   try {
@@ -29,7 +30,7 @@ async function fixture() {
     await mkdir(input.drafts_dir)
     await writeFile(input.request_file, JSON.stringify({ episode: 95, name_prefix: 'candidate-' }))
     const config: Draft.Config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
-      graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 }
+      graceMs: 100, maxInputBytes, maxOutputBytes: 65536 }
     return { root, ctx, input, config }
   } catch (error) {
     await ctx.fiber.dispose()
@@ -79,13 +80,52 @@ it('rejects a library save failure even when the child exits zero', async () => 
 })
 
 it('rejects oversized requests before starting a generator', async () => {
-  const f = await fixture()
+  const f = await fixture(1)
   const spy = vi.spyOn(f.ctx.subprocess, 'spawn')
   try {
-    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, { ...f.config, maxInputBytes: 1 }))
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config))
       .rejects.toThrow('input limit')
     expect(spy).not.toHaveBeenCalled()
   } finally {
+    spy.mockRestore()
+    await f.ctx.fiber.dispose()
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
+it('awaits the managed generator exit when the caller cancels', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const started = Promise.withResolvers<SubprocessHandle>()
+  const exiting = Promise.withResolvers<undefined>()
+  const releaseExit = Promise.withResolvers<undefined>()
+  const controller = new AbortController()
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const handle = spawn({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
+    started.resolve(handle)
+    return { stdin: handle.stdin, stdout: handle.stdout, stderr: handle.stderr, control: handle.control,
+      collected: handle.collected, done: handle.done, terminate: () => { handle.terminate() },
+      async waitForExit(signal) {
+        exiting.resolve(undefined)
+        await releaseExit.promise
+        return handle.waitForExit(signal)
+      } }
+  })
+  let settled = false
+  try {
+    const operation = Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config, controller.signal)
+    const observed = operation.then(() => { settled = true }, () => { settled = true })
+    const handle = await started.promise
+    const cancelled = expect(operation).rejects.toThrow('draft cancelled')
+    controller.abort(new Error('draft cancelled'))
+    await exiting.promise
+    expect(settled).toBe(false)
+    releaseExit.resolve(undefined)
+    await cancelled
+    await observed
+    expect(await handle.waitForExit()).toBe(true)
+  } finally {
+    releaseExit.resolve(undefined)
     spy.mockRestore()
     await f.ctx.fiber.dispose()
     await rm(f.root, { recursive: true, force: true })

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
-import type SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
+import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
@@ -72,20 +72,21 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     cwd: dirname(input.request_file), env: { PYTHONUTF8: '1' }, signal: combined, graceMs: config.graceMs,
     stdio: { stdin: 'ignore', stdout: { maxBytes: config.maxOutputBytes }, stderr: { maxBytes: config.maxOutputBytes } },
   })
-  const outcome = await handle.done.finally(async () => { await handle.waitForExit() })
+  let outcome: SubprocessOutcome
+  try { outcome = await handle.done } finally { await handle.waitForExit() }
   combined.throwIfAborted()
   const stdout = handle.collected.stdout?.readFrom(0)
   if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
   const value: unknown = JSON.parse(stdout.text)
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Draft generator returned an invalid JSON object')
   const row = value as Record<string, unknown>
-  const summary = z.object({ success: z.boolean().required(), error: z.string() })(row)
+  const summary = z.object({ success: z.boolean().required(), error: z.string().default('process did not complete successfully') })(row)
   if (outcome.exitCode !== 0 || outcome.signal || !summary.success) {
-    throw new Error(`Jianying draft generation failed: ${summary.error ?? 'process did not complete successfully'}`)
+    throw new Error(`Jianying draft generation failed: ${summary.error}`)
   }
   const result = DraftResult(row)
   if (result.drafts_created < 1 || result.drafts_created !== result.drafts.length || result.drafts.some(draft => !draft.success)
-    || result.editor_open_verified !== false || result.library?.name !== 'pyJianYingDraft') {
+    || result.editor_open_verified || result.library.name !== 'pyJianYingDraft') {
     throw new Error('Draft generator returned inconsistent saved-draft results')
   }
   return result
