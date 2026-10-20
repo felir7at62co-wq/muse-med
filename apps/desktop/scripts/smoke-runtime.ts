@@ -70,11 +70,11 @@ export function apply(ctx) {
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
-      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'video_contact_sheet', 'video_ocr',
+      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'read', 'present', 'video_contact_sheet', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
-          'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir',
+          'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft',
           'jubian_find', 'jubian_claim', 'jubian_snatch',
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
@@ -126,7 +126,7 @@ export function apply(ctx) {
       const productSkills = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'skills')
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
-        'muse-dialogue-polish', 'muse-episode-design', 'muse-llm-wiki', 'muse-project-participation',
+        'muse-llm-wiki', 'muse-project-participation',
         'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
         'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
         if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
@@ -137,7 +137,8 @@ export function apply(ctx) {
         && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
-      for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
+      for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
+        'reviewing-micro-drama-scripts', 'screenplay-format']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)
@@ -152,6 +153,8 @@ export function apply(ctx) {
       }
       for (const [name, guide] of [
         ['muse-script-doctor', 'doctor-workflow.md'],
+        ['muse-dialogue-polish', 'dialogue-workflow.md'],
+        ['muse-episode-design', 'episode-workflow.md'],
         ['screenplay-format', 'writing-quality.md'],
         ['screenplay-format', 'narrative-layers.md'],
         ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],

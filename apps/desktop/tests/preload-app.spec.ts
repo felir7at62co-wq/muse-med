@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.ts'
 import { syncWindowsAppearance } from '../src/preload-windows.ts'
 import { DESKTOP_IPC, type DshDesktopProductApi } from '../src/ipc.ts'
+import { installAttentionAudio } from '../src/preload-attention.ts'
 
 const electron = vi.hoisted(() => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
@@ -15,9 +16,23 @@ vi.mock('../src/preload-platform.ts', () => ({ markDocumentPlatform: vi.fn(), sy
 vi.mock('../src/preload-theme.ts', () => ({ syncNativeTheme: vi.fn() }))
 vi.mock('../src/preload-windows.ts', () => ({ syncWindowsAppearance: vi.fn() }))
 vi.mock('../src/preload-mandatory-overlay.ts', () => ({ installMandatoryUpdateOverlay: vi.fn() }))
+vi.mock('../src/preload-attention.ts', () => ({ installAttentionAudio: vi.fn() }))
 
 beforeEach(() => { vi.stubGlobal('process', { ...process, isMainFrame: true }) })
 afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.resetModules() })
+
+it.each([
+  ['dsh-app://app/', true, true],
+  ['dsh-app://app/#/sessions/current', true, true],
+  ['dsh-app://app/', false, false],
+  ['dsh-app://shell/plugin-manager.html', true, false],
+  ['https://example.com/', true, false],
+] as const)('installs attention audio only in the owned main document (%s, main=%s)', async (url, isMainFrame, installed) => {
+  vi.stubGlobal('location', new URL(url))
+  vi.stubGlobal('process', { ...process, isMainFrame })
+  await import('../src/preload-app.ts')
+  expect(installAttentionAudio).toHaveBeenCalledTimes(installed ? 1 : 0)
+})
 
 it('reads only native login API-key presence through the onboarding bridge', async () => {
   vi.stubGlobal('location', new URL('dsh-app://app/'))

@@ -125,3 +125,13 @@ describe('the jubianImage Remote namespace', () => {
       message: 'catalogue offline', details: {} })
   })
 })
+
+it('retains a permitted image route with absent optional price and unit as unknown values', async () => {
+  const ctx = new Context()
+  const client = new JubianClient({ credential: async () => 'fixture', fetch: async () => new Response(
+    JSON.stringify({ code: 200, data: [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI' }] })) })
+  try {
+    const service = new JubianImageRoutes(ctx, { client, allowedStandardIds: [66] })
+    expect(await service.routes()).toMatchObject({ candidates: [{ standardId: 66, unitPrice: null, unit: null }] })
+  } finally { await ctx.fiber.dispose() }
+})

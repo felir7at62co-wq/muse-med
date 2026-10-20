@@ -42,13 +42,27 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(persona).toMatchObject({ complete: false })
     expect(persona?.prefix).toContain('你是 muse-med 短剧编导 Agent')
     expect(presetRows.find(row => row.id === 'editing-policy')?.name).toBe('@deepseek-ai/dsh-desktop-host/editing-policy')
-    expect(persona?.prefix).toContain('Seedance 2.5 为30秒')
+    expect(persona?.prefix).toContain('时长在所选模型能力内')
+    expect(persona?.prefix).toContain('不因提示词长、镜头多、固定秒数或已有空卡数量机械拆包')
     expect(persona?.prefix).toContain('视频包提示词默认不写时间轴')
-    expect(persona?.prefix).toContain('是否需要站位图辅助控制空间关系')
-    expect(presetRows.some(row => ['planning', 'delegation'].includes(row.id))).toBe(false)
+    expect(persona?.prefix).toContain('多人或多主体的空间关系决定剧情动作且文字容易混淆')
+    expect(persona?.prefix).toContain('单人近景或简单空间用文字即可')
+    expect(persona?.prefix).toContain('3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质')
+    expect(presetRows.some(row => row.id === 'planning')).toBe(false)
+    expect(presetRows.find(row => row.id === 'delegation')).toMatchObject({
+      name: 'cordis:group', group: true, config: [
+        { id: 'tool-subagent-control', name: '@deepseek-ai/dsh-tool-subagent-control' },
+        { id: 'tool-subagent-list-agents', name: '@deepseek-ai/dsh-tool-subagent-control/list-agents' },
+        { id: 'tool-subagent', name: '@deepseek-ai/dsh-tool-subagent', config: { provider: 'spawn', toolName: 'subagent' } },
+        { id: 'tool-subagent-fork', name: '@deepseek-ai/dsh-tool-subagent', config: { provider: 'fork', toolName: 'subagent_fork' } },
+      ],
+    })
     expect(persona?.prefix).not.toContain('Check the [exit code')
     expect(persona?.suffix).toContain('{{cwd}}')
-    expect(presetRows.some(row => row.id === 'tool-shot-script')).toBe(false)
+    expect(presetRows.find(row => row.id === 'tool-shot-script')).toMatchObject({
+      name: '@deepseek-ai/dsh-tool-shot-script',
+      config: { reviewMode: 'advisory', sessionVideoSelection: true },
+    })
     expect(presetRows.some(row => row.id === 'tool-jubian')).toBe(false)
     expect(presetRows.some(row => row.id === 'skill-filesystem')).toBe(false)
     if (!jubian || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')

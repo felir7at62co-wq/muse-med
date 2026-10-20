@@ -64,7 +64,7 @@ export function createAsrService(options){
  if(!root||pool.resources.some(row=>row.serviceVersion!=='flash')&&!storage||![maxAudioBytes,maxDurationSeconds,maxDailySeconds,maxDailyJobs,maxActiveJobs,retentionSeconds,maxConcurrentJobs,maxQueuedJobs,maxPendingUploadsPerAccount,pollIntervalMs,terminalQueryConfirmations].every(n=>Number.isSafeInteger(n)&&n>0)||maxActiveJobs!==1||!['tos','gateway'].includes(storageKind))throw Error('Invalid ASR gateway configuration');
  if(!['standard','flash'].includes(providerKind)||pool.resources.some(row=>row.serviceVersion==='flash'?typeof row.provider?.recognize!=='function':typeof row.provider?.submit!=='function'||typeof row.provider?.query!=='function'))throw Error('Invalid ASR resource provider configuration');
  if(pool.resources.every(row=>row.serviceVersion==='flash')&&(maxDurationSeconds>7200||maxAudioBytes>100_000_000))throw Error('Invalid ASR provider configuration');
- const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map(),sweeps=new Set();
+ const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map(),sweeps=new Set(),expiring=new Map();
  const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),shutdown=new AbortController();let reservationTail=Promise.resolve(),lastAccount,started=autoStart;
  const queueFullSinceStart=new Map(['occupied_total','waiting_capacity'].map(category=>[category,{category,count:0,lastSeenAt:null}])),startedAt=now();
  let workerFailure,closing=false;
@@ -143,12 +143,31 @@ export function createAsrService(options){
  }
  async function cleanup(job,account,key){try{if(job.providerKind!=='flash')await storage.remove(storage.key(job.taskId,job.audioFormat));await rm(audioPath(account,key),{force:true});job.cleanupPending=false;await save(account,key,job);}catch{job.cleanupPending=true;await save(account,key,job);}}
  async function expire(job){
-  if(active.has(jobKey(job))||busy(jobKey(job)))return;
-  const expired=Number.isFinite(job.objectStagedAt)&&now()-job.objectStagedAt>=retentionSeconds*1000;
-  if(job.cleanupPending||expired&&!job.retentionExpired&&!['complete','silent','failed'].includes(job.status)){
-   if(expired)job.retentionExpired=true;
-   await cleanup(job,job.account,job.id);
-  }
+  const key=jobKey(job);if(expiring.has(key)){await expiring.get(key);return;}if(closing)return;
+  const operation=(async()=>{
+   let cleanupJob;
+   // Only the durable queue transition shares admission's lock; object deletion owns this key alone.
+   const pending=reservationTail.then(async()=>{
+    if(active.has(key)||workers.has(key))return;
+    const current=await read(job.account,job.id);
+    const expired=Number.isFinite(current.objectStagedAt)&&now()-current.objectStagedAt>=retentionSeconds*1000;
+    const index=waiting.findIndex(entry=>jobKey(entry)===key);
+    if(index>=0){
+     if(!expired||current.status!=='queued'||current.submittedAtMs!==undefined)return;
+     cleanupJob={...current,status:'failed',retentionExpired:true,cleanupPending:true};
+     await save(cleanupJob.account,cleanupJob.id,cleanupJob);waiting.splice(index,1);
+     await dispatchReady(await entries());return;
+    }
+    if(current.cleanupPending||expired&&!current.retentionExpired&&!['complete','silent','failed'].includes(current.status)){
+     cleanupJob={...current,cleanupPending:true,...expired?{retentionExpired:true}:{}};
+     await save(cleanupJob.account,cleanupJob.id,cleanupJob);
+    }
+   });
+   reservationTail=pending.catch(error=>{workerFailure=error;});await pending;
+   if(cleanupJob)await cleanup(cleanupJob,cleanupJob.account,cleanupJob.id);
+  })();
+  expiring.set(key,operation);
+  try{await operation;}catch(error){workerFailure=error;throw error;}finally{expiring.delete(key);}
  }
  async function poll(job,account,key){let result;
   try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';recordProviderFailure(job,error);delete job.terminalQuery;await save(account,key,job);return publicJob(job);}
@@ -311,13 +330,13 @@ export function createAsrService(options){
   async close(){
    closing=true;shutdown.abort();await initialized;await reservationTail;
    const swept=Promise.allSettled([...sweeps]);
-   await Promise.allSettled([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));
+   await Promise.allSettled([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise),[...expiring.values()]));
    const cleanup=await swept;await reservationTail;
    if(workerFailure)throw workerFailure;
    for(const result of cleanup)if(result.status==='rejected')throw result.reason;
   },
   /** Await accepted jobs through completion and report durable-ledger failures. */
-  async idle(){await initialized;await reservationTail;while(active.size||workers.size){await Promise.all([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise)));await reservationTail;}if(workerFailure)throw workerFailure;},
+  async idle(){await initialized;await reservationTail;while(active.size||workers.size||expiring.size){await Promise.all([...active.values()].map(item=>item.promise).concat([...workers.values()].map(item=>item.promise),[...expiring.values()]));await reservationTail;}if(workerFailure)throw workerFailure;},
   /** Upload verified audio and make at most one billable submit per account/key. */
   async submit(account,key,expectedHash,language,req,purpose){
    await initialized;if(workerFailure||closing)throw fail(503,'ASR job storage is unavailable');
@@ -330,6 +349,7 @@ export function createAsrService(options){
     if(conflict(running))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');
     return await running.promise;
    }
+   if(expiring.has(activeKey)){req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
    {
     const existing=await read(account,key);
     if(active.has(activeKey)){
@@ -337,6 +357,7 @@ export function createAsrService(options){
      if(conflict(running))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');
      return await running.promise;
     }
+    if(expiring.has(activeKey)){req.resume();throw fail(429,'Too many active cloud transcription jobs','upload_busy',2);}
     if(existing&&(!['preparing','failed'].includes(existing.status)||existing.submittedAtMs!==undefined)){
      req.resume();if(conflict(existing))throw fail(409,'Idempotency key already belongs to different audio or purpose','idempotency_conflict');return publicJob(existing);
     }
@@ -371,9 +392,9 @@ export function createAsrService(options){
   },
   /** Read an account-owned receipt; background workers alone query charged tasks. */
   async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);if(!job)throw fail(404,'ASR job not found');
-   if(active.has(account+'\0'+key)||busy(account+'\0'+key))return publicJob(job);
-   const current=await read(account,key);await expire(current);
-   return publicJob(current);
+   if(active.has(account+'\0'+key)||workers.has(account+'\0'+key))return publicJob(job);
+   await expire(job);
+   return publicJob(await read(account,key));
   },
   /** Return an in-memory, task-anonymous operational snapshot without reading or changing receipts. */
   diagnostics(){

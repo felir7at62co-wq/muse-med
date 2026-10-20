@@ -1947,6 +1947,7 @@ def smoke_sdk_scheduler_recovery(base_url: str, executable: Path, update_snapsho
         }
         compare_snapshot_files(
             files, update_snapshots, RECOVERY_SNAPSHOT_DIRECTORY, RECOVERY_SNAPSHOT_FILENAMES,
+            writer_expected=True,
         )
 
 

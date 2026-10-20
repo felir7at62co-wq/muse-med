@@ -3,6 +3,7 @@ import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as Os from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_RUNTIME_SCHEDULER } from '@deepseek-ai/dsh-tools'
@@ -379,6 +380,37 @@ it('uses the isolated Python engine on macOS and preserves timestamped line evid
   expect(raw.frames.every(item => item.lines.every(line => line.words.length === 0))).toBe(true)
   expect(h.ctx.tools.get('audio_transcribe')).toBeUndefined()
 }, 30_000)
+
+it.each(['原样字幕 / 繁體字幕 / Hello', '简体字幕 / 繁體字幕 / Hello / 🎬'])(
+  'preserves multilingual OCR bytes through the Python process and artifact readback with a legacy Windows locale: %s', async (text) => {
+    const python = process.env.DSH_OCR_TEST_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
+    const h = await setup({ ocrEngine: 'rapidocr', ocrPythonPath: python,
+      ocrFrameIntervalSeconds: 1, ocrBatchFrames: 1 })
+    const original = Media.runMedia, outputs: Media.MediaOutput[] = []
+    vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+      const script = args[1].at(-1)
+      if (!script?.endsWith('ocr_bridge.py')) return await original(...args)
+      const fixture = fileURLToPath(new URL('./fixtures/ocr-encoding.py', import.meta.url))
+      const output = await original(args[0], [...args[1].slice(0, -1), fixture, script, text], args[2], args[3], args[4])
+      outputs.push(output)
+      return output
+    })
+    const result = await h.ocr({ end_seconds: 1,
+      raw_json_path: 'qa/unicode.json', merged_text_path: 'qa/unicode.txt' })
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    expect(result.value).toMatchObject({ scan_status: 'complete', text_status: 'candidate_text_detected',
+      coverage: { processed_frame_count: 1, failed_frame_count: 0 } })
+    expect(outputs).toHaveLength(1)
+    expect(Buffer.from(outputs[0]!.bytes).toString('utf8')).toContain(text)
+    expect(result.value).toMatchObject({ preview_segments: [expect.objectContaining({ text })] })
+    const raw = JSON.parse(await readFile(join(h.root, 'qa/unicode.json'), 'utf8')) as {
+      frames: { lines: { text: string }[] }[]
+      segments: { text: string }[] }
+    expect(raw.frames[0]?.lines[0]?.text).toBe(text)
+    expect(raw.segments[0]?.text).toBe(text)
+    expect(await readFile(join(h.root, 'qa/unicode.txt'), 'utf8')).toContain(text)
+    expect(JSON.parse(outputs[0]!.diagnostic)).toEqual({ utf8_mode: 1, stdout_encoding: 'utf-8' })
+  })
 
 it.each(['language_unavailable', 'ocr_engine_unavailable'] as const)('reports Python OCR %s without claiming an empty successful scan', async (code) => {
   const h = await setup({ ocrEngine: 'rapidocr', ocrPythonPath: process.execPath, ocrFrameIntervalSeconds: 1 })

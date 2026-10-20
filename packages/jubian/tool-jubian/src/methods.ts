@@ -47,6 +47,7 @@ import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
 import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
+import { readUpscaleQuote } from './upscale-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
@@ -1032,9 +1033,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'upscale': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
-      // The project is only known after the task row is read, so the body records it
-      // for the budget gate; the quote thunk below runs after the body and hands it on.
       let projectId: number | undefined
+      let quote: ReturnType<typeof readUpscaleQuote> & { standardId: number; observedAt: string } | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'video_upscale',
         async () => {
           // The upscale body needs identities the provider splits across two
@@ -1042,13 +1042,16 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           // the source identities and duration.
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'current')
           projectId = media.scriptId
-          const selected = args.model_id === undefined && args.platform_id === undefined && args.resolution === undefined
-            ? undefined : resolvePostProcessModel((await client.request({ method: 'GET',
-              path: '/model/charge/getSelectList?taskType=20' })).data, {
-              modelId: args.model_id ?? VIDEO_UPSCALE_MODEL.modelId,
-              ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-              resolution: args.resolution ?? '1080p',
-            })
+          const catalogue = (await client.request({ method: 'GET',
+            path: '/model/charge/getSelectList?taskType=20' })).data
+          const platformId = args.platform_id ?? (args.model_id === undefined ? VIDEO_UPSCALE_MODEL.platformId : undefined)
+          const selected = resolvePostProcessModel(catalogue, {
+            modelId: args.model_id ?? VIDEO_UPSCALE_MODEL.modelId,
+            ...(platformId === undefined ? {} : { platformId }),
+            resolution: args.resolution ?? '1080p',
+          })
+          quote = { ...readUpscaleQuote(catalogue, selected), standardId: selected.standardId,
+            observedAt: new Date().toISOString() }
           return buildVideoUpscaleRequest({
             ...media,
             taskName: args.task_name
@@ -1056,7 +1059,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           }, selected)
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
-        () => ({ scriptId: projectId as number }))
+        () => ({ ...quote, scriptId: projectId as number }))
       // Upscaling is asynchronous and was measured taking minutes, so this
       // returns the submission rather than waiting for the result.
       return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),

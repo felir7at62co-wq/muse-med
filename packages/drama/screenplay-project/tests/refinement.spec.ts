@@ -402,6 +402,16 @@ it('renders an unreviewed refinement report without claiming missing checks or e
   expect(renderModificationNotes(file, file.refinement!.baselines[0]!)).toBe('')
 })
 
+it('labels an advisory refinement decision as agent review without claiming independent evidence', async () => {
+  const candidate = await staged(), file = await current()
+  file.review_policy = 'advisory'
+  candidate.review = { kind: 'advisory', actor, decision: 'approve', time: file.updated_at, reason: '核对原文后记录自主意见。' }
+  const rendered = renderModificationNotes(file, candidate)
+  expect(rendered).toContain('版本审查：advisory / approve')
+  expect(rendered).toContain('Agent自主审校记录')
+  expect(rendered).not.toContain('独立会话记录')
+})
+
 it('rejects missing grants, out-of-scope episodes, and report-free nonretained candidates', async () => {
   const originalFile = await current(original), baseline = originalFile.candidates[0]!
   expect(() => buildRefinement(originalFile, baseline, notes('钥匙在我手里。', '这把钥匙，在我手里。')))

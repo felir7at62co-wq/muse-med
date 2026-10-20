@@ -17,7 +17,7 @@ import {
   compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { openSettings, connectFreshWorkspace, newEnglishPage, pinBrowserClock, pinHostClock, saveFailureShot } from './support.ts'
+import { openSettings, connectFreshWorkspace, newEnglishPage, pinBrowserClock, pinHostClock, saveFailureShot, WEB_FIXTURE_TIME } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.v3.jsonl')
@@ -51,6 +51,15 @@ const STEER_ALL_SETTLED_EXPANDED = join(STEER_ALL_DIR, 'settled-expanded.expecte
 const STEER_ONE = 'Interjection: include the word BANANA in your final reply.'
 const STEER_TWO = 'Interjection: include the word ORANGE in your final reply.'
 
+interface FixtureScheduling {
+  timeout: boolean
+  frame: boolean
+  afterFrame: boolean
+  interval: boolean
+  elapsed: number
+  performanceElapsed: number
+}
+
 /** Concatenated assistant text deltas — the model-visible reply body. */
 function assistantText(events: SessionEvent[]): string {
   return events
@@ -67,13 +76,89 @@ function claimedMessages(events: readonly SessionEvent[], text: string): Session
     event.type === 'user/message' && JSON.stringify(event.data.content).includes(text))
 }
 
+describe('web e2e: fixture dates retain native browser scheduling', () => {
+  it('advances Date across navigation while timers, animation frames, and explicit dates remain native', async () => {
+    const hostClock = pinHostClock()
+    let browser: Browser | undefined
+    let restoreDate: (() => Promise<void>) | undefined
+    try {
+      browser = await chromium.launch()
+      const page = await newEnglishPage(browser)
+      restoreDate = await pinBrowserClock(page)
+      await page.goto('data:text/html,<p>fixture clock</p>')
+      const observed = await page.evaluate(() => {
+        const state = globalThis as typeof globalThis & { fixtureScheduling?: FixtureScheduling }
+        const startedAt = Date.now()
+        const startedPerformance = performance.now()
+        state.fixtureScheduling = { timeout: false, frame: false, afterFrame: false, interval: false, elapsed: 0, performanceElapsed: 0 }
+        setTimeout(() => {
+          state.fixtureScheduling!.timeout = true
+          state.fixtureScheduling!.elapsed = Date.now() - startedAt
+          state.fixtureScheduling!.performanceElapsed = performance.now() - startedPerformance
+        }, 25)
+        const interval = setInterval(() => { state.fixtureScheduling!.interval = true; clearInterval(interval) }, 10)
+        requestAnimationFrame(() => {
+          state.fixtureScheduling!.frame = true
+          setTimeout(() => { state.fixtureScheduling!.afterFrame = true }, 0)
+        })
+        class DerivedDate extends Date {}
+        const nowBefore = Date.now()
+        const constructorNow = new Date().getTime()
+        const nowAfter = Date.now()
+        return {
+          nowBefore, constructorNow, nowAfter, called: Date(),
+          parsed: Date.parse('1970-01-01T00:00:00Z'), utc: Date.UTC(2000, 0, 1),
+          explicit: new Date(0).getTime(), year: new Date(2000, 0, 1).getFullYear(),
+          derived: new DerivedDate() instanceof DerivedDate,
+          dateInstance: new DerivedDate() instanceof Date,
+          performance: performance.now(),
+        }
+      })
+      expect(observed.nowBefore).toBeGreaterThanOrEqual(WEB_FIXTURE_TIME)
+      expect(observed.nowAfter).toBeLessThan(WEB_FIXTURE_TIME + 86_400_000)
+      expect(observed.constructorNow).toBeGreaterThanOrEqual(observed.nowBefore)
+      expect(observed.constructorNow).toBeLessThanOrEqual(observed.nowAfter)
+      expect(Date.parse(observed.called)).toBeGreaterThanOrEqual(WEB_FIXTURE_TIME)
+      expect(observed.performance).toBeLessThan(60_000)
+      expect(observed).toMatchObject({ parsed: 0, utc: 946684800000, explicit: 0, year: 2000,
+        derived: true, dateInstance: true })
+      await expect.poll(() => page.evaluate(() => {
+        const state = globalThis as typeof globalThis & { fixtureScheduling?: FixtureScheduling }
+        return state.fixtureScheduling
+      }), { timeout: 10_000 }).toMatchObject({ timeout: true, frame: true, afterFrame: true, interval: true })
+      const elapsed = await page.evaluate(() => {
+        const state = globalThis as typeof globalThis & { fixtureScheduling?: FixtureScheduling }
+        return state.fixtureScheduling!
+      })
+      expect(elapsed.elapsed).toBeGreaterThanOrEqual(20)
+      expect(elapsed.performanceElapsed).toBeGreaterThanOrEqual(20)
+      const nativeBeforeRestore = new Date().getTime()
+      await restoreDate()
+      const restoredTime = await page.evaluate(() => Date.now())
+      const nativeAfterRestore = new Date().getTime()
+      expect(restoredTime).toBeGreaterThanOrEqual(nativeBeforeRestore)
+      expect(restoredTime).toBeLessThanOrEqual(nativeAfterRestore)
+      restoreDate = await pinBrowserClock(page)
+      await browser.close()
+      await restoreDate()
+    } finally {
+      try {
+        await browser?.close()
+        await restoreDate?.()
+      } finally {
+        hostClock.mockRestore()
+      }
+    }
+  })
+})
+
 describe('web e2e: mid-turn steering lands durably and visibly', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let hostClock: MockInstance<typeof Date.now> | undefined
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
@@ -102,8 +187,11 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     } finally {
       // A failing close (unconsumed fixture, mismatched snapshot) must not
       // leave the pinned clocks running for the suites after this one.
-      unpinBrowserClock?.()
-      hostClock?.mockRestore()
+      try {
+        await unpinBrowserClock?.()
+      } finally {
+        hostClock?.mockRestore()
+      }
     }
   })
 
@@ -396,7 +484,7 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let hostClock: MockInstance<typeof Date.now> | undefined
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
@@ -431,8 +519,11 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
       await browser?.close()
       await scaffold?.close()
     } finally {
-      unpinBrowserClock?.()
-      hostClock?.mockRestore()
+      try {
+        await unpinBrowserClock?.()
+      } finally {
+        hostClock?.mockRestore()
+      }
     }
   })
 

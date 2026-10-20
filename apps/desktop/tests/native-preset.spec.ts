@@ -36,15 +36,15 @@ const productPresets = fileURLToPath(new URL('../../desktop-host/presets', impor
  * The filesystem skill provider each packaged composition declares.
  *
  * The Host owns the only provider that selects default roots, so `standard` and
- * `ptc` and `editing` declare their own row disabled, `cordis` keeps a row serving
- * exactly its own authoring skills with default discovery off, and `minimal` declares none.
+ * `ptc` declare their own row disabled, `cordis` keeps a row serving exactly its own
+ * authoring skills with default discovery off, and creation presets and `minimal` declare none.
  */
 const DECLARED_SKILL_PROVIDER: Readonly<Record<string, 'disabled' | 'own-skills' | 'none'>> = {
   'short-drama': 'none',
   standard: 'disabled',
   ptc: 'disabled',
   minimal: 'none',
-  editing: 'disabled',
+  creation: 'none',
   cordis: 'own-skills',
 }
 

@@ -54,7 +54,7 @@
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 | `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | 所有付费写入（image_generate、image_generate_batch、generate、submit_video、submit_video_batch、erase_subtitle、upscale）都要求调用方提供 idempotency_key（每个批量项独立），在请求发出前将意图记录到账本；image_generate_batch 在任何请求前校验全部本地项，再按配置的有界并发执行各自预算内的生图写入；submit_video_batch 核对全部预览并预约整批预算后，并行提交分镜；去字幕与转高清受理后即返回，后续读取 subtasks。启用 sessionVideoSelection 时提供 jubian_video_model，记录配置的初始规格或用户明确选择的视频设置，不修改项目默认值。jubian_claim 只检查或认领用户明确授权的一个剧本池 ID；jubian_snatch 通过后台任务观察明确授权且范围有界的剧本池。 |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`、`drama_project` | `ctx.tools`、`ctx.settings`、已存在的绝对项目目录 | `tool/call`、`tool/result`、`project_config.json` 与 `project-bible.md`、剪映草稿根目录的 Settings 值 | - | drama_project 维护权威 JSON、受版本检查保护的修订、视频包身份与已完成任务历史。生成尺寸与交付尺寸分别记录；初始预算是 Settings 快照，实际计费请求执行当前 Settings 与账号账本授权。drama_draft_dir 读取，或验证并保存已配置的剪映草稿根目录。 |
-| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 |
+| `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json`、`muse_production：本地方案和回执；apply 只免费原生写卡并回读，绝不提交付费生成` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。 |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。`prepare` 构建渲染输入并保存项目画布和视觉类型快照，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。3D 漫不新增片尾或水印；仿真人保留 AI 标记及真实尾帧定格的两秒片尾。旧项目缺类型时告警并保留带标识交付；目标码率 24M、上限 30M、下限 4.6 Mbps。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
@@ -1502,7 +1502,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 
 ### `audio_transcribe`
 
-使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。
+使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。
 
 ```json
 {
@@ -1510,9 +1510,10 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
   "properties": {
     "method": {
       "type": "string",
-      "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
+      "description": "start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。",
       "enum": [
         "start",
+        "inspect",
         "status"
       ]
     },
@@ -1526,7 +1527,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "receipt": {
       "type": "string",
-      "description": "status 必填：start 返回的 transcript/jobs 收据路径。"
+      "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径。"
     },
     "language": {
       "type": "string",
@@ -1538,7 +1539,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "purpose": {
       "type": "string",
-      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+      "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。",
       "enum": [
         "subtitles",
         "screenplay"
@@ -1552,9 +1553,9 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 }
 ```
 
-来源： [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
+Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
-`start` 使用已登录的 Muse 账号提交压缩语音，并返回项目任务收据；`status` 检查该收据，在识别完成后保存带时间信息的 TXT 与 JSON。各 Muse 模式都提供同一工具，提供方凭据由账号网关保存。
+`start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway.
 
 <a id="deepseek-aidsh-tool-video-inspect"></a>
 
@@ -5610,7 +5611,185 @@ drama_project keeps authoritative JSON, guarded revisions, package identities an
 
 Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-shot-script/src/index.ts)
 
-三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。
+### `muse_production`
+
+Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模型和剧变库存，按完整镜头自动分包，逐镜给出人物／服装、场景、道具、音频候选和依据；保存本地方案，不写剧变、不收费。read分页查看matches/packages/warnings；update只提交要调整的逐镜choices或requirements，刷新库存与模型后重新预览。apply将方案免费批量写入剧变并真实回读，已有同名同集卡原位更新；不提交生成。所有创作、匹配和时长问题为提示，不要求清零，也不需要用户逐包批准。预览结果须实际交回你看图／听音核对，不能在同一脚本里直接把未审候选连到apply。保留用户当前稿、原台词、说话人和换装节点；不要用一个全局人物映射覆盖不同镜头。缺声线看voice_follow_up：按已有制作授权先生成首个清晰讲话包，再核对和抽取、上传登记共享声线；换装不换声线时期。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "preview",
+        "read",
+        "update",
+        "apply"
+      ]
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "preview必填：已有project_config.json且绑定剧变项目的本地根目录。"
+    },
+    "script": {
+      "type": "string",
+      "description": "preview必填：本集完整导演分镜脚本UTF-8文件；使用【镜头N】和本镜人物、场景、道具字段。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "preview必填：真实显示集号，工具查询远端episode_id。"
+    },
+    "ratio": {
+      "type": "string",
+      "description": "首次preview必填：项目已确认画幅，如16:9，不改变项目风格。"
+    },
+    "gen_type": {
+      "type": "integer",
+      "description": "首次preview必填：当前模型支持且本项目采用的生成类型。"
+    },
+    "plan_path": {
+      "type": "string",
+      "description": "read/update/apply必填：上次返回的完整本地方案路径。"
+    },
+    "requirements": {
+      "type": "array",
+      "description": "可选逐镜更正或补充要求；人物名用稳定故事身份，state写本镜服装，conditions写具体场景或道具条件；声音明确character_id与voice_period_id。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "character_id": {
+            "type": "string"
+          },
+          "voice_period_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name"
+        ]
+      }
+    },
+    "choices": {
+      "type": "array",
+      "description": "只提交要改的逐镜选择，其他选择保留。asset_id=null明确暂不绑定；同名人物换装按镜分别选，不按列表顺序猜。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "shot": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "scene",
+              "prop",
+              "voice"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "asset_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "shot",
+          "kind",
+          "name",
+          "asset_id"
+        ]
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "可选原卡选择：index是方案包序号，storyboard_id是实际原卡ID；null明确新建。默认复用同集同名唯一原卡，重名时按target_candidates核对，不猜、不重复建卡。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "storyboard_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "storyboard_id"
+        ]
+      }
+    },
+    "section": {
+      "type": "string",
+      "enum": [
+        "matches",
+        "packages",
+        "warnings",
+        "assets"
+      ]
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-shot-script/src/production.ts`](../packages/drama/tool-shot-script/src/production.ts)
+
+The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow.
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 
@@ -5740,7 +5919,7 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
 
 ### `drama_render`
 
-短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
+短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕并写出独立候选，由你判断下一步，提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 40，字体服从部署配置；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。
 
 ```json
 {
@@ -5770,11 +5949,11 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
     },
     "lines": {
       "type": "string",
-      "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
+      "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。"
     },
     "alignment": {
       "type": "string",
-      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
+      "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。"
     },
     "timeline": {
       "type": "string",
@@ -5821,7 +6000,7 @@ Source: [`packages/drama/tool-shot-script/src/index.ts`](../packages/drama/tool-
 }
 ```
 
-来源： [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
+Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
 
 ### `drama_video`
 

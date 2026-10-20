@@ -1,12 +1,12 @@
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-const bundledSkillDir = fileURLToPath(new URL('../skills/', import.meta.url))
+const bundledSkillDir = retainedSkillsFixture()
 
-it('bundles a pool claim skill that requires the user to authorize targets and window', async () => {
+it('retains a pool claim skill that requires the user to authorize targets and window', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)

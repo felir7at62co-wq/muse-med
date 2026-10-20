@@ -52,6 +52,21 @@ async function fixture(config: Partial<Config> = {}) {
   return { ctx, root, agent, driver, tool, call, projections }
 }
 
+it('omits disabled creation extensions from the advisory tool instructions', async () => {
+  const { tool } = await fixture({ reviewMode: 'advisory', storyFaithfulMode: 'disabled', refinementMode: 'disabled' })
+  expect(tool.description).toContain('同一会话可审校')
+  expect(tool.description).not.toContain('init_story_faithful')
+  expect(tool.description).not.toContain('fork_refinement')
+})
+
+it('describes explicitly enabled creation extensions as advisory, retaining real grants and located changes', async () => {
+  const { tool } = await fixture({ reviewMode: 'advisory', storyFaithfulMode: 'story-faithful-v2', refinementMode: 'source-preserving-v1' })
+  expect(tool.description).toContain('init_story_faithful 绑定真实用户作品请求、原视频及集号')
+  expect(tool.description).toContain('fork_refinement 保留真实基线和用户原话授权')
+  expect(tool.description).toContain('不强制审校者身份或A/B/C轮')
+  expect(tool.description).not.toContain('review_fact 须由另一会话')
+})
+
 it('rejects dependent creation settings before mounting without their projection owner', async () => {
   const root = await mkdtemp(join(tmpdir(), 'screenplay-composition-')), ctx = new Context()
   fixtures.push({ ctx, root })

@@ -3,6 +3,7 @@ scenario: both-mode-turn
 profile: headless
 composition: both
 recording: live
+writerOutput: true
 header:
   class: both
   pin: true

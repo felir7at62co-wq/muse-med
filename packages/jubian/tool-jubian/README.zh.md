@@ -9,6 +9,10 @@ kind: "package-bundle"
 
 模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution，三项均省略时沿用 SeedVR2。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
 
+每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留；缺少价格或单位不受支持时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
+
+Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary`、`productionCard` 和 `publishProductionCard` 复用原生免费写入；模型入口由[镜头脚本工具](../../drama/tool-shot-script/README.zh.md#muse-batch-production)负责。可读的旧卡片可以缺少集号或排序元数据，版本摘要保留其未设置状态，不修改原卡。仅当提示词已无图片标记时，图片选择才可显式为空；这只清除卡片引用，保留音频，不删除父资产。
+
 ## 概述
 
 `dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；付费提交和明确带键的写入使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。

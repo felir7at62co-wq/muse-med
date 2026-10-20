@@ -7,12 +7,13 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ProjectCommands } from '../src/project.ts'
 import type { ProjectExecution } from '../src/project.ts'
 import { PROJECT_FILE } from '../src/schema.ts'
 import type { ProjectRequest } from '../src/schema.ts'
 import { acceptedCandidates, acceptedKnowledge, acceptedScripts } from '../src/episode.ts'
+import * as episodeRendering from '../src/episode.ts'
 import type { ActorId, FactId } from '../src/ids.ts'
 import type { HumanAuthorization } from '../src/refinement.ts'
 
@@ -40,7 +41,7 @@ beforeEach(async () => {
     anchors: [{ unit_id: unit.id, quote: unit.text }],
   })) })
 })
-afterEach(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { vi.restoreAllMocks(); await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
 
 async function draft(episode: number, factIndex = 0, prerequisites: FactId[] = []) {
   const file = await current(), fact = file.facts[factIndex]!
@@ -54,6 +55,20 @@ async function adopt(candidate: Awaited<ReturnType<typeof draft>>['candidate']) 
   return run({ method: 'commit', project, expected_revision: (await current()).revision,
     candidate_id: candidate.id, candidate_sha256: candidate.sha256 })
 }
+
+it('keeps status and export continuity summaries empty when a renderer omits its optional advice', async () => {
+  const { candidate } = await draft(1)
+  await adopt(candidate)
+  const file = await current(), rendered = episodeRendering.renderEpisode(file, candidate.scenes, {}, 1, candidate)
+  const { continuity_advisory: _advice, ...withoutAdvice } = rendered
+  const accepted = acceptedScripts(file).map(({ continuity_advisory: _continuity, ...script }) => script)
+  vi.spyOn(episodeRendering, 'acceptedScripts').mockReturnValue(accepted)
+  expect(await run({ method: 'status', project })).toMatchObject({ continuity_advisory: [], continuity_advisory_total: 0 })
+  vi.spyOn(episodeRendering, 'renderEpisode').mockReturnValue(withoutAdvice)
+  expect(await run({ method: 'export', project, candidate_id: candidate.id, directory: join(root, 'optional-advice') }))
+    .toMatchObject({ continuity_advisory: [], adoption: { adopted: true } })
+  expect(await readFile(join(root, 'optional-advice', `episode-1-${candidate.id.slice(2)}.md`), 'utf8')).toBe(rendered.script)
+})
 
 it('drafts several arbitrary episodes and exports a real unadopted version without changing the project', async () => {
   await draft(8); await draft(3); const { candidate } = await draft(10)

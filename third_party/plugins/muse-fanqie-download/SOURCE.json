@@ -25,7 +25,7 @@
     },
     {
       "path": "python/vendor/TTEncrypt.py",
-      "sha256": "57a439ed562a380f341ab97cc63eb944f40f837fe89922406c482490051c957a",
+      "sha256": "25f58ad72a19c6c26632e557e57374fd35839cda867deb306417bfec201a8c3a",
       "upstreamSha256": "2ac65ca1384fa94cade7246deeb066378724b7b2bc26cb76d22bbad024180f5b"
     },
     {
@@ -79,5 +79,5 @@
       "upstreamSha256": "a26eb1f670056d040879c3da622128810a2e56a53b39e57de72f991ffbe666dc"
     }
   ],
-  "localEdits": "UTF-8 text uses LF, no trailing spaces and one final newline; upstreamSha256 retains source identity"
+  "localEdits": "UTF-8 text uses LF, no trailing spaces and one final newline; TTEncrypt generates its 32-byte nonce with secrets.token_bytes so key derivation and wire bytes agree; upstreamSha256 retains source identity"
 }

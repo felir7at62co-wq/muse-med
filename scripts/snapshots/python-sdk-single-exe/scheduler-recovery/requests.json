@@ -71,7 +71,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Updated todo list: 0 pending, 0 in progress, 0 completed."
+                "text": "{\"todos\":[],\"counts\":{\"pending\":0,\"inProgress\":0,\"completed\":0},\"current\":[],\"next\":null,\"reminder\":\"After each stage, verify the actual result and update only completed tasks and the work now in progress. Unfinished or failed work stays pending or in_progress. Video generation success does not complete editing, quality checks, or delivery.\"}"
               }
             ],
             "is_error": false

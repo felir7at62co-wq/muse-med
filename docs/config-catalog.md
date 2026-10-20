@@ -4164,7 +4164,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:64`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:66`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4426,13 +4426,17 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:44`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:46`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**
  * Review policy and the estimated duration of an unlabelled silent shot.
  */
 export interface Config {
+  /** Offer Muse's advisory batch packaging and free card publication; defaults to false. */
+  productionPackaging?: boolean
+  /** Production transport, shared native ledger location and acquisition limits. */
+  production?: ProductionConfig
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
@@ -4441,6 +4445,30 @@ export interface Config {
   sessionVideoSelection?: boolean
   /** Maximum characters in each model-switch review context; at least 400, defaults to 2000. */
   selectionReviewMaxChars?: number
+}
+
+/** Deployment limits and the same account ledger root used by the native Jubian tools. */
+export interface ProductionConfig {
+  /** Jubian origin override; omitted uses the native transport default. */
+  baseUrl?: string
+  /** Native transport timeout in milliseconds. */
+  timeoutMs?: number
+  /** Permit the native workspace credential fallback; defaults to true. */
+  workspaceSecrets?: boolean
+  /** Native storyboard ledger root; use the same location as tool-jubian when overridden. */
+  ledgerRoot?: string
+  /** Maximum rows acquired per provider page, 1–1000; defaults to 1000. */
+  pageSize?: number
+  /** Maximum pages per complete inventory; defaults to 100. */
+  pageLimit?: number
+  /** Ordinary candidate rows per requirement; defaults to 8, with full inventory available through read. */
+  candidateLimit?: number
+  /** Maximum authored source bytes per episode; defaults to 1 MiB. */
+  maxSourceBytes?: number
+  /** Maximum complete shots per episode; defaults to 1000. */
+  maxShots?: number
+  /** Maximum draft packages per episode; defaults to 1000. */
+  maxPackages?: number
 }
 
 /** Whether content diagnostics block compilation or remain review suggestions. */

@@ -26,6 +26,8 @@ import {
 } from './episode.ts'
 import { buildReport } from './report.ts'
 import { parseShotScript } from './script.ts'
+import { registerProductionTool } from './production.ts'
+import type { ProductionConfig } from './production.ts'
 import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from './session-video.ts'
 import type { CompiledShot, DramaShotMethod, DramaShotReport, DramaShotReviewMode, DurationBudget, ManifestAsset, PackedTask, ShotIssue } from './types.ts'
 
@@ -42,6 +44,10 @@ const DEFAULT_ACTION_SHOT_SECONDS = 2
  * Review policy and the estimated duration of an unlabelled silent shot.
  */
 export interface Config {
+  /** Offer Muse's advisory batch packaging and free card publication; defaults to false. */
+  productionPackaging?: boolean
+  /** Production transport, shared native ledger location and acquisition limits. */
+  production?: ProductionConfig
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
@@ -54,6 +60,10 @@ export interface Config {
 
 /** Validated config schema: the fallback budget must stay inside the 1–4 second shot rule. */
 export const Config: z<Config> = z.object({
+  productionPackaging: z.boolean().default(false),
+  production: z.object({ baseUrl: z.string(), timeoutMs: z.number(), workspaceSecrets: z.boolean(),
+    ledgerRoot: z.string(), pageSize: z.number(), pageLimit: z.number(), candidateLimit: z.number(),
+    maxSourceBytes: z.number(), maxShots: z.number(), maxPackages: z.number() }),
   actionShotSeconds: z.number().step(1).min(1).max(4).default(DEFAULT_ACTION_SHOT_SECONDS),
   reviewMode: z.union(['strict', 'advisory']).default('strict'),
   sessionVideoSelection: z.boolean().default(false),
@@ -549,4 +559,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
   if (resolved.sessionVideoSelection) ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)
   else register(ctx)
+  if (config.productionPackaging) ctx.inject(['credentials', 'jubianVideoSelection'],
+    owner => registerProductionTool(owner, config.production ?? {}, resolved.actionShotSeconds))
 }

@@ -1,11 +1,13 @@
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-const skill = await readFile(new URL('../skills/trope-adaptation/SKILL.md', import.meta.url), 'utf8')
+const bundledSkillDir = retainedSkillsFixture()
+
+const skill = await readFile(new URL('../skills/trope-adaptation/SKILL.md.disabled', import.meta.url), 'utf8')
 
 function instructionFor(situation: string): string {
   const row = skill.split('\n').find(line => line.startsWith(`| ${situation} |`))
@@ -90,13 +92,13 @@ it('instructs proposals to ground scale in source coverage and user goals', () =
   expect(proposals).toMatch(/篇幅建议不得提出无依据的绝对规则/u)
 })
 
-it('loads the revised skill through the bundled Skill Registry', async () => {
+it('loads the retained skill through an isolated Skill Registry', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       includeDefaultRoots: false,
-      bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)),
+      bundledSkillDir,
       watch: false,
     })
     const loaded = await ctx.skills.get('trope-adaptation')

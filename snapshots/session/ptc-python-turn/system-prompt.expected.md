@@ -399,6 +399,31 @@ class SubagentForkOutput3(TypedDict):
     runId: str
     output: list[Any]
 
+class TodoUpdateArgs(TypedDict):
+    # Exact content of the existing task; surrounding whitespace is ignored.
+    task: str
+    # Actual task state: pending, in_progress, or completed.
+    status: Literal["pending", "in_progress", "completed"]
+    # Only with completed: on a new completion, start the first pending task if no task remains in_progress.
+    start_next: NotRequired[bool]
+    # Additional keys beyond those declared are allowed.
+
+class TodoUpdateOutputTodos(TypedDict):
+    content: str
+    status: Literal["pending", "in_progress", "completed"]
+
+class TodoUpdateOutputCounts(TypedDict):
+    pending: int
+    inProgress: int
+    completed: int
+
+class TodoUpdateOutput(TypedDict):
+    todos: list[TodoUpdateOutputTodos]
+    counts: TodoUpdateOutputCounts
+    current: list[str]
+    next: str | None
+    reminder: str
+
 class TodoWriteArgsTodos(TypedDict):
     # What the task is — a short imperative line.
     content: str
@@ -422,6 +447,9 @@ class TodoWriteOutputCounts(TypedDict):
 class TodoWriteOutput(TypedDict):
     todos: list[TodoWriteOutputTodos]
     counts: TodoWriteOutputCounts
+    current: list[str]
+    next: str | None
+    reminder: str
 
 class UpdateGoalArgs(TypedDict):
     # Exact id returned by get_goal.
@@ -547,8 +575,10 @@ class Tools(Protocol):
         """Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles."""
     async def subagent_fork(self, args: SubagentForkArgs) -> SubagentForkOutput1 | SubagentForkOutput2 | SubagentForkOutput3:
         """Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result."""
+    async def todo_update(self, args: TodoUpdateArgs) -> TodoUpdateOutput:
+        """Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery."""
     async def todo_write(self, args: TodoWriteArgs) -> TodoWriteOutput:
-        """Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done."""
+        """Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery."""
     async def update_goal(self, args: UpdateGoalArgs) -> UpdateGoalOutput1 | UpdateGoalOutput2:
         """Update the current goal."""
     async def web_fetch(self, args: WebFetchArgs) -> WebFetchOutput:

@@ -3,6 +3,7 @@ scenario: ptc-python-turn
 profile: headless
 composition: ptc-python
 recording: authored
+writerOutput: true
 platform: posix
 header:
   class: ptc-python

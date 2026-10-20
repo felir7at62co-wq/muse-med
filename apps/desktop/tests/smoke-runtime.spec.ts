@@ -33,12 +33,14 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const professionalGuides = [
   ['muse-script-doctor', 'doctor-workflow.md'],
+  ['muse-dialogue-polish', 'dialogue-workflow.md'],
+  ['muse-episode-design', 'episode-workflow.md'],
   ['screenplay-format', 'writing-quality.md'],
   ['screenplay-format', 'narrative-layers.md'],
   ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],
 ] as const
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
-  'muse-dialogue-polish', 'muse-episode-design', 'muse-llm-wiki', 'muse-project-participation',
+  'muse-llm-wiki', 'muse-project-participation',
   'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
   'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
 
@@ -94,7 +96,8 @@ function fixture(packaged = false) {
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format']) {
+  for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
+    'reviewing-micro-drama-scripts', 'screenplay-format']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -137,7 +140,7 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory',
-    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
@@ -176,7 +179,7 @@ function fixture(packaged = false) {
         : key.preset === 'minimal' ? [shell]
           : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', ...accountMcpNames]
+              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
               : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
                 : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
     }) }
@@ -271,7 +274,7 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jubian_budget', 'video_contact_sheet', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'jubian_budget', 'video_contact_sheet', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'

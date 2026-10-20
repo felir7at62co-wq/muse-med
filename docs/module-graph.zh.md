@@ -916,8 +916,6 @@ flowchart TD
   pkg_tool_episode_render --> pkg_bgm_license_info
   pkg_tool_episode_render --> pkg_llm
   pkg_tool_episode_render --> pkg_tools
-  pkg_tool_shot_script --> pkg_llm
-  pkg_tool_shot_script --> pkg_tools
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_agent
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_browser_use
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_system_prompt
@@ -961,12 +959,18 @@ flowchart TD
   pkg_tool_jobs --> pkg_output_retention
   pkg_tool_jobs --> pkg_system_prompt
   pkg_tool_jobs --> pkg_tools
+  pkg_tool_jubian --> pkg_agent
   pkg_tool_jubian --> pkg_atomic_write
   pkg_tool_jubian --> pkg_credentials
   pkg_tool_jubian --> pkg_jubian
   pkg_tool_jubian --> pkg_jubian_api
+  pkg_tool_jubian --> pkg_llm
   pkg_tool_jubian --> pkg_muse_account
+  pkg_tool_jubian --> pkg_session
+  pkg_tool_jubian --> pkg_session_projection
+  pkg_tool_jubian --> pkg_system_prompt
   pkg_tool_jubian --> pkg_tools
+  pkg_tool_jubian --> pkg_user_questions
   pkg_tool_lsp --> pkg_llm
   pkg_tool_lsp --> pkg_lsp
   pkg_tool_lsp --> pkg_system_prompt
@@ -1067,6 +1071,17 @@ flowchart TD
   pkg_api_settings_controller --> pkg_typert_protocol
   pkg_web_app --> pkg_shell_env
   pkg_web_app --> pkg_system_prompt
+  pkg_tool_shot_script --> pkg_agent
+  pkg_tool_shot_script --> pkg_atomic_write
+  pkg_tool_shot_script --> pkg_credentials
+  pkg_tool_shot_script --> pkg_jubian
+  pkg_tool_shot_script --> pkg_jubian_api
+  pkg_tool_shot_script --> pkg_llm
+  pkg_tool_shot_script --> pkg_session
+  pkg_tool_shot_script --> pkg_session_projection
+  pkg_tool_shot_script --> pkg_tool_jubian
+  pkg_tool_shot_script --> pkg_tools
+  pkg_tool_shot_script --> pkg_util_values
   pkg_experimental_auto_review --> pkg_agent
   pkg_experimental_auto_review --> pkg_agent_instructions
   pkg_experimental_auto_review --> pkg_llm
@@ -1737,7 +1752,6 @@ flowchart TD
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
-| [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-chrome-devtools-mcp`](../packages/experimental/browser-use-chrome-devtools-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-playwright-mcp`](../packages/experimental/browser-use-playwright-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-stagehand-native`](../packages/experimental/browser-use-stagehand-native) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -1749,7 +1763,7 @@ flowchart TD
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`tool-ask-user`](../packages/interaction/tool-ask-user) | `interaction` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-questions`](../packages/interaction/user-questions) |
 | [`tool-jobs`](../packages/jobs/tool-jobs) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
-| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`muse-account`](../packages/host/muse-account), [`tools`](../packages/core/tools) |
+| [`tool-jubian`](../packages/jubian/tool-jubian) | `jubian` | [`agent`](../packages/core/agent), [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`llm`](../packages/llm/llm), [`muse-account`](../packages/host/muse-account), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-questions`](../packages/interaction/user-questions) |
 | [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-resources`](../packages/mcp/mcp-resources) | `mcp` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`perception-bgm`](../packages/perception/perception-bgm) | `perception` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`tools`](../packages/core/tools) |
@@ -1769,6 +1783,7 @@ flowchart TD
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-title`](../packages/session/session-title), [`tool-todo`](../packages/todo/tool-todo) |
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
+| [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`agent`](../packages/core/agent), [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tool-jubian`](../packages/jubian/tool-jubian), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`experimental-auto-review`](../packages/experimental/auto-review) | `experimental` | [`agent`](../packages/core/agent), [`agent-instructions`](../packages/context/agent-instructions), [`llm`](../packages/llm/llm), [`permission-presets`](../packages/interaction/permission-presets), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`app-boot`](../packages/boot/app-boot), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`tools`](../packages/core/tools) |
 | [`composition-guard`](../packages/guard/composition-guard) | `guard` | [`agent`](../packages/core/agent), [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

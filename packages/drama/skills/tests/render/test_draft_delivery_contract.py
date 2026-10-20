@@ -10,6 +10,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import os
@@ -101,6 +102,42 @@ class DraftDeliveryContractTests(unittest.TestCase):
     def generate_content(self, root):
         draft = self.generate(root)
         return json.loads((draft / 'draft_content.json').read_text(encoding='utf-8'))
+
+    def test_direct_request_uses_upstream_library_and_retains_only_selected_episode_sources(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        drafts = root / 'editor'
+        drafts.mkdir()
+        spec = importlib.util.spec_from_file_location('draft_request', SCRIPT.with_name('generate_draft_request.py'))
+        request_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(request_module)
+        request = {'project': str(root), 'episode': 25, 'name_prefix': '请求-',
+                   'audio': str(root / '01_audio/25.wav'),
+                   'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
+                   'subtitle_srt': str(root / '03_subtitle/25.srt'),
+                   'timeline': str(root / '05_timeline/25.timeline.json')}
+        note = root / '03_subtitle/25.srt.review.txt'
+        note.write_text('Alignment needs review', encoding='utf-8')
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            result = request_module.generate_request(request, str(drafts))
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(result['quality'], 'needs_review')
+        self.assertTrue(Path(result['drafts'][0]['review_path']).is_file())
+        self.assertEqual((Path(result['materials_dir']) / '03_subtitle/25.srt.review.txt').read_text(), 'Alignment needs review')
+        self.assertEqual(result['library']['name'], 'pyJianYingDraft')
+        self.assertFalse(result['editor_open_verified'])
+        content_path = Path(result['drafts'][0]['path']) / 'draft_content.json'
+        saved = content_path.read_bytes()
+        content = json.loads(saved)
+        self.assertEqual(content['duration'], 4_000_000)
+        self.assertEqual(len(self.texts(content)), 3)
+        for material in content['materials']['videos']:
+            self.assertTrue(Path(material['path']).is_file())
+        self.assertEqual(len(list((Path(result['materials_dir']) / '02_media').iterdir())), 1)
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            request_module.generate_request(request, str(drafts))
+        self.assertEqual(content_path.read_bytes(), saved)
 
     @staticmethod
     def segments(content, track_type):
@@ -251,12 +288,80 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(cues, [style['text'] for style in texts])
         self.assertNotIn('。', normalized.read_text(encoding='utf-8'))
 
-    def test_long_unsplit_subtitle_refuses_before_draft_creation(self):
+    def test_long_unsplit_subtitle_preserves_text_in_a_reviewable_draft(self):
         root = self.build_root(srt='1\n00:00:00,000 --> 00:00:04,000\n'
                                    '孕八周。指标目前正常，但你最近睡眠不太好，注意休息。\n')
-        with self.assertRaisesRegex(self.module.DraftInputError, '分句.*时间'):
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
             self.generate(root)
-        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+        self.assertIn('建议长度', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+
+    def test_alignment_warning_preserves_a_reviewable_subtitled_draft(self):
+        root = self.build_root()
+        (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
+            self.generate(root)
+        self.assertIn('字幕对齐待核', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+
+    def test_alignment_warning_without_srt_preserves_other_tracks(self):
+        root = self.build_root(srt=None)
+        (root / '03_subtitle').mkdir()
+        (root / '03_subtitle/25.srt.blocked').write_text('alignment pending', encoding='utf-8')
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
+            self.generate(root)
+        self.assertIn('字幕对齐待核', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+
+    def test_subtitle_import_failure_returns_a_warning_and_saved_candidate(self):
+        root = self.build_root()
+        with patch.object(self.module.draft.ScriptFile, 'import_srt', side_effect=RuntimeError('import failed')):
+            with self.assertLogs(self.module.logger, level='WARNING') as notes:
+                self.generate(root)
+        self.assertIn('字幕未导入', '\n'.join(notes.output))
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
+
+    def test_bgm_import_failure_returns_a_warning_and_saved_candidate(self):
+        root = self.build_root()
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        (bgm / 'mix.mp3').write_bytes(b'not audio')
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
+            self.generate(root)
+        self.assertIn('BGM 未导入', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+
+    def test_short_bgm_is_kept_without_looping_and_reported_for_review(self):
+        root = self.build_root()
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
+                        '-i', 'sine=frequency=330:duration=1', str(bgm / 'mix.wav')], check=True)
+        with self.assertLogs(self.module.logger, level='WARNING') as notes:
+            self.generate(root)
+        self.assertIn('时长短于正文', '\n'.join(notes.output))
+        draft = root / 'jianying' / DRAFT_NAME
+        self.assertTrue((draft / 'draft_content.json').is_file())
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+
+    def test_verified_bgm_and_subtitles_remain_editable_tracks(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        bgm = root / '04_bgm'
+        bgm.mkdir()
+        shutil.copy2(root / '01_audio/25.wav', bgm / 'approved-mix.wav')
+        content = self.generate_content(root)
+        tracks = {track['name']: track for track in content['tracks']}
+        self.assertEqual(len(tracks['BGM轨道']['segments']), 1)
+        self.assertEqual(tracks['BGM轨道']['segments'][0]['target_timerange']['duration'], 4_000_000)
+        self.assertEqual(len(tracks['字幕轨道']['segments']), 3)
 
     def test_draft_segments_keep_short_speech_spans_and_pauses(self):
         srt = ('1\n00:00:00,100 --> 00:00:00,300\n甲。\n\n'
@@ -456,19 +561,143 @@ class DraftDeliveryContractTests(unittest.TestCase):
         generator = generator_module.DraftGenerator()
         assets = SCRIPT.parents[2] / 'tweet-drama-background-render/assets'
         materials = root / 'materials'
+        bgm = root / 'approved-bgm'
+        bgm.mkdir()
+        shutil.copy2(self.audio, bgm / 'reviewed-mix.wav')
         generator.prepare_materials(str(root / '01_audio'), str(root / '02_media'), str(materials),
-                                    subtitle_dir=str(root / '03_subtitle'), timeline_dir=str(root / '05_timeline'),
-                                    project=str(root), ending_audio=str(assets / 'ending_audio.mp3'),
-                                    ending_effect=str(assets / 'ending_effect.mp4'))
+                                     subtitle_dir=str(root / '03_subtitle'), timeline_dir=str(root / '05_timeline'),
+                                     bgm_dir=str(bgm), project=str(root), ending_audio=str(assets / 'ending_audio.mp3'),
+                                     ending_effect=str(assets / 'ending_effect.mp4'))
         (root / 'jianying').mkdir()
         with patch.dict(os.environ), patch.dict(sys.modules, {'jianying_draft': self.module}):
             result = generator.process(str(materials), str(root / 'jianying'), name_prefix='候选A-', project=str(root))
-        self.assertEqual(result, {'success': True, 'drafts_created': 1})
+        self.assertTrue(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertEqual(result['drafts'][0]['path'], str(root / 'jianying' / DRAFT_NAME))
         content = json.loads((root / 'jianying' / DRAFT_NAME / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(result['drafts'][0]['id'], content.get('id', ''))
         self.assertEqual(content['duration'], 6_000_000)
-        self.assertFalse([track for track in content['tracks'] if track['name'] == 'BGM轨道'])
+        self.assertEqual(len(next(track for track in content['tracks'] if track['name'] == 'BGM轨道')['segments']), 1)
         for name in ('片尾音', '片尾特效', 'AI内容标识'):
             self.assertEqual(len([track for track in content['tracks'] if track['name'] == name]), 1)
+
+    def generation_result(self, root, seq=None):
+        shutil.copytree(root, root / 'materials')
+        (root / 'jianying').mkdir()
+        return self.module.generate_draft(str(root / 'jianying'), str(root / 'materials'),
+                                          name_prefix='候选A-', project=str(root), seq=seq)
+
+    def body_only_root(self):
+        return self.build_root(timeline={**TIMELINE, 'delivery': {
+            'visual_medium': 'animation_3d', 'width': 1440, 'height': 2560, 'fps': 60}})
+
+    def test_save_and_fallback_failure_reports_no_created_draft(self):
+        root = self.body_only_root()
+        with patch.object(self.module.draft.ScriptFile, 'save', side_effect=OSError('save denied')), \
+                patch.object(self.module.draft.ScriptFile, 'dump', side_effect=OSError('dump denied')):
+            result = self.generation_result(root)
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertEqual(len(result['drafts']), 1)
+        self.assertFalse(result['drafts'][0]['success'])
+        self.assertIn('save denied', result['drafts'][0]['error'])
+        self.assertIn('dump denied', result['error'])
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_successful_fallback_requires_matching_saved_json(self):
+        root = self.body_only_root()
+        with patch.object(self.module.draft.ScriptFile, 'save', side_effect=OSError('save denied')):
+            result = self.generation_result(root)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        row = result['drafts'][0]
+        content = json.loads((Path(row['path']) / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(row['id'], content.get('id', ''))
+        self.assertEqual(row['episode'], '25')
+        self.assertEqual(row['error'], '')
+        self.assertEqual(content['duration'], 4_000_000)
+
+    def test_save_returning_without_writing_the_generated_content_is_failure(self):
+        root = self.body_only_root()
+        with patch.object(self.module.draft.ScriptFile, 'save', return_value=None):
+            result = self.generation_result(root)
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertIn('回读草稿', result['error'])
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_saved_json_that_differs_from_verified_content_is_failure(self):
+        root = self.body_only_root()
+        original_save = self.module.draft.ScriptFile.save
+        def changed_save(script):
+            original_save(script)
+            path = root / 'jianying' / DRAFT_NAME / 'draft_content.json'
+            content = json.loads(path.read_text(encoding='utf-8'))
+            content['duration'] += 1
+            path.write_text(json.dumps(content), encoding='utf-8')
+        with patch.object(self.module.draft.ScriptFile, 'save', changed_save):
+            result = self.generation_result(root)
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertIn('不一致', result['error'])
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_second_save_failure_preserves_first_verified_draft_and_reports_both(self):
+        root = self.body_only_root()
+        shutil.copy2(root / '01_audio/25.wav', root / '01_audio/26.wav')
+        shutil.copytree(root / '02_media/25', root / '02_media/26')
+        shutil.copy2(root / '05_timeline/25.timeline.json', root / '05_timeline/26.timeline.json')
+        shutil.copy2(root / '03_subtitle/25.srt', root / '03_subtitle/26.srt')
+        original_save = self.module.draft.ScriptFile.save
+        original_dump = self.module.draft.ScriptFile.dump
+        saved = []
+        def save(script):
+            saved.append(script)
+            if len(saved) == 2:
+                raise OSError('second save failed')
+            original_save(script)
+        def dump(script, path):
+            if len(saved) == 2:
+                raise OSError('second dump failed')
+            return original_dump(script, path)
+        with patch.object(self.module.draft.ScriptFile, 'save', save), \
+                patch.object(self.module.draft.ScriptFile, 'dump', dump):
+            result = self.generation_result(root)
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertEqual([(row['episode'], row['success']) for row in result['drafts']],
+                         [('25', True), ('26', False)])
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
+        self.assertFalse((root / 'jianying' / '候选A-26').exists())
+        self.assertIn('second dump failed', result['drafts'][1]['error'])
+
+    def test_unmatched_episode_does_not_report_a_successful_empty_batch(self):
+        root = self.body_only_root()
+        result = self.generation_result(root, seq='99')
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertEqual(result['drafts'], [])
+        self.assertIn('没有匹配', result['error'])
+
+    def test_creation_failure_is_reported_without_retrying_the_same_candidate(self):
+        root = self.body_only_root()
+        with patch.object(self.module.draft.DraftFolder, 'create_draft',
+                          side_effect=OSError('create denied')) as create:
+            result = self.generation_result(root)
+        create.assert_called_once()
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertIn('create denied', result['drafts'][0]['error'])
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_missing_selected_media_is_not_a_successful_skipped_episode(self):
+        root = self.body_only_root()
+        shutil.copy2(root / '01_audio/25.wav', root / '01_audio/26.wav')
+        result = self.generation_result(root, seq='26')
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertEqual(result['drafts'][0]['episode'], '26')
+        self.assertIn('无法找到', result['error'])
 
     def test_missing_selected_ending_does_not_destroy_prepared_materials(self):
         root = self.build_root()
@@ -499,6 +728,17 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(ending[0]['target_timerange']['duration'], 2_000_000)
         self.assertIsNone(self.module.find_material_folder_smart(root, 'bgm', [root / '01_audio']))
         self.assertNotIn(root / '06_ending', self.module.find_all_folders_by_type(root, 'bgm'))
+
+    def test_unselected_bgm_returns_review_warning_without_blocking_draft(self):
+        root = self.build_root()
+        shutil.copytree(root, root / 'materials')
+        (root / 'jianying').mkdir()
+        result = self.module.generate_draft(str(root / 'jianying'), str(root / 'materials'),
+                                            name_prefix='候选A-', project=str(root))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertTrue(any('配乐待验收' in warning for warning in result['warnings']))
+        self.assertTrue((root / 'jianying' / DRAFT_NAME / 'draft_content.json').is_file())
 
     def test_decode_timeout_terminates_the_child_cleans_only_new_draft_and_preserves_old_draft(self):
         root = self.build_root()

@@ -1,11 +1,12 @@
 import { appendFile, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import { storyboardMethod } from '../src/methods.ts'
+import * as Native from '../src/native.ts'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 
 const modelId = 'doubao-seedance-2-0-260128'
@@ -507,4 +508,25 @@ describe('storyboard editing in place', () => {
       expect(calls).toEqual([])
     },
   )
+})
+
+
+it('preserves malformed provider duration during a prompt-only repair and verifies its readback', async () => {
+  boards[0]!.modelConfig = JSON.stringify({ ...config, duration: 'unreadable-duration' })
+  const plan = await preview({ prompt: '@[阿舟](lead)停在门边' })
+  expect(await apply(plan)).toMatchObject({ status: 'applied', paid_requests: 0 })
+  const saved = JSON.parse(String(boards[0]!.modelConfig)) as Record<string, unknown>
+  expect(saved.duration).toBe('unreadable-duration')
+  expect(writes()).toHaveLength(1)
+})
+it('does not swallow an unexpected decoder failure during a prompt-only repair', async () => {
+  boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '8' })
+  const original = Native.positiveInteger
+  const failure = new Error('duration decoder unavailable')
+  const decoder = vi.spyOn(Native, 'positiveInteger').mockImplementation((value) => {
+    if (value === '8') throw failure
+    return original(value)
+  })
+  try { await expect(preview({ prompt: '@[阿舟](lead)停在门边' })).rejects.toBe(failure); expect(writes()).toEqual([]) }
+  finally { decoder.mockRestore() }
 })

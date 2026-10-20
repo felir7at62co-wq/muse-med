@@ -34,6 +34,21 @@
     },
     {
       "path": "../../jubian/tool-jubian/tsconfig.host.json"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../jubian/jubian"
+    },
+    {
+      "path": "../../jubian/jubian-api"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }

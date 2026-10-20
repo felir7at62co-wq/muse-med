@@ -9,6 +9,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { expect, it } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
 
@@ -28,7 +29,7 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     expect(ctx.loader.unwrapExports(desktopOffice)).toBe(desktopOffice)
     const modules = new Map<string, unknown>([
       ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
-      ['skills', SkillRegistry], ['office', desktopOffice],
+      ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime], ['office', desktopOffice],
     ])
     ctx.loader.internal = {
       version: 'v2',
@@ -39,7 +40,7 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     } as unknown as NonNullable<typeof ctx.loader.internal>
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
-      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: office',
+      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: subprocess', '- name: office',
       '  config:', `    source: ${JSON.stringify(join(root, 'runtime', 'primary-runtime'))}`,
       `    root: ${JSON.stringify(join(root, 'installed'))}`,
       `    runtimeDir: ${JSON.stringify(join(root, 'dsh'))}`, '',
@@ -52,7 +53,7 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx') })
     expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
     expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
-    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_revision', 'screenplay_export_docx'])
+    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_revision', 'jianying_draft', 'screenplay_export_docx'])
     const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
     expect(description).toContain(reviewMode === 'advisory' ? '不要求独立审校' : '严格候选验收')
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')

@@ -39,7 +39,7 @@ class EngineFixture extends Service {
   }
   spawn(spec) {
     spec.signal.throwIfAborted()
-    if (JSON.stringify(spec.argv) !== JSON.stringify([process.execPath, '-I', '-B', engine])) {
+    if (JSON.stringify(spec.argv) !== JSON.stringify([process.execPath, '-I', '-B', '-X', 'utf8', engine])) {
       throw new Error('Fanqie snapshot refuses an unrelated engine')
     }
     const request = JSON.parse(spec.stdio.stdin.data)

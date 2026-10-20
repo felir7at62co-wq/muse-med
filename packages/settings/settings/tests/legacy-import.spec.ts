@@ -51,17 +51,19 @@ async function patchRows(path: string): Promise<Map<string, Record<string, unkno
 describe('importLegacyDocument', () => {
   it('carries every mapped section into the profile patch and keeps the original as the backup', async () => {
     const fixture = await configurationFixture({ rows: ROWS })
+    await fixture.ctx.fiber.dispose()
     const documentPath = join(fixture.home, 'settings.yaml')
     await writeFile(documentPath, LEGACY_DOCUMENT)
 
-    // A second boot is what an upgrade is: the imported document is read once,
-    // when the settings service settles the Loader of that boot.
+    // An upgrade replaces the previous host; the imported section is ready after
+    // its live Config is reconciled, which follows the profile-file write.
     const ctx = await fixture.start()
     await vi.waitFor(async () => {
       expect(existsSync(join(fixture.home, 'settings.yaml.imported'))).toBe(true)
     })
     await vi.waitFor(async () => {
-      expect((await patchRows(fixture.profile.patchPath)).get('feishu-channel')).toMatchObject({ token: 'hunter2-legacy-secret' })
+      expect(ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === 'feishu-channel')?.secrets)
+        .toContainEqual({ path: ['token'], set: true })
     })
 
     const rows = await patchRows(fixture.profile.patchPath)
@@ -79,6 +81,36 @@ describe('importLegacyDocument', () => {
     expect(sections.find(section => section.ns === 'feishu')?.user).toMatchObject({ count: 7 })
     expect(sections.find(section => section.ns === 'agent-preset-registry')?.user).toMatchObject({ count: 9 })
     expect(sections.find(section => section.ns === 'feishu-channel')?.secrets)
+      .toContainEqual({ path: ['token'], set: true })
+  })
+
+  it('publishes live secret state only after the persisted profile is reconciled', async () => {
+    const fixture = await configurationFixture({ rows: ROWS, hmr: false })
+    const { ctx } = fixture
+    const include = [...ctx.loader.entries()].find(entry => entry.options.id === 'include')!
+    const update = include.update.bind(include)
+    const persisted = Promise.withResolvers<undefined>()
+    const reconcile = Promise.withResolvers<undefined>()
+    let updates = 0
+    const barrier = vi.spyOn(include, 'update').mockImplementation(async (...args) => {
+      if (++updates === 2) {
+        persisted.resolve(undefined)
+        await reconcile.promise
+      }
+      return update(...args)
+    })
+    const operation = ctx.settings.update('feishu-channel', { token: 'migration-secret' })
+    void operation.then(() => { persisted.reject(new Error('Configuration edit completed before the reconciliation barrier')) }, (error: unknown) => { persisted.reject(error) })
+    try {
+      await persisted.promise
+      expect((await patchRows(fixture.profile.patchPath)).get('feishu-channel')).toMatchObject({ token: 'migration-secret' })
+      expect(ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === 'feishu-channel')?.secrets)
+        .toContainEqual({ path: ['token'], set: false })
+    } finally {
+      reconcile.resolve(undefined)
+      try { await operation } finally { barrier.mockRestore() }
+    }
+    expect(ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === 'feishu-channel')?.secrets)
       .toContainEqual({ path: ['token'], set: true })
   })
 

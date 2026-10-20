@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 2b1dc0944c035133
-  zh: cac9825464dde061
+  en: af74eba2b1834b1f
+  zh: 2bc898cd8fd7ea78
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -66,8 +66,8 @@
   en: efdcf8538d0b69ac
   zh: efdcf8538d0b69ac
 /tool-schema-catalog/deepseek-ai-dsh-tool-audio-transcribe/audio-transcribe:
-  en: bcb67972d6c9a56a
-  zh: 2203531e75662382
+  en: 15e8606588a259f0
+  zh: 15e8606588a259f0
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect:
   en: dfdadcaad7b5ae07
   zh: dfdadcaad7b5ae07
@@ -393,8 +393,11 @@
   en: 6f86adf127829946
   zh: 6f86adf127829946
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/drama-shot:
-  en: 939b19b128140ce3
-  zh: 3726d5b52ebb1903
+  en: b76eb1c585a54953
+  zh: b76eb1c585a54953
+/tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/muse-production:
+  en: 2cefd4d8e5fc6aa9
+  zh: 2cefd4d8e5fc6aa9
 /tool-schema-catalog/deepseek-ai-dsh-perception-bgm:
   en: 5fc5e012063d9e78
   zh: 5fc5e012063d9e78
@@ -411,8 +414,8 @@
   en: cd8c46a68524b061
   zh: cd8c46a68524b061
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-render:
-  en: 54e54529e5958a66
-  zh: af64b9bfd8ee9461
+  en: e81ab15dea388f76
+  zh: e81ab15dea388f76
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-video:
   en: f3cfd64d19bee2a4
   zh: 1a0f26e0183dc10b

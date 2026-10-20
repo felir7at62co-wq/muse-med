@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { applyBridgeDesktopCompatibility } from './bridge-desktop.mjs'
+import { applyImDesktopCompatibility } from './im-desktop.mjs'
+import { createMuseImAdmission } from './muse-im-admission.mjs'
 import { isFeishuBotMentioned, requestFeishuBotInfo } from './muse-feishu-identity.mjs'
 
 const checkout = resolve(import.meta.dirname, '../../..')
@@ -12,14 +13,12 @@ const sdkDirectory = resolve(import.meta.dirname, '../toolchain/node_modules/@la
 const sdkManifest = JSON.parse(readFileSync(join(sdkDirectory, 'package.json'), 'utf8'))
 const sdkUrl = pathToFileURL(join(sdkDirectory, sdkManifest.main)).href
 const { default: Lark } = await import(sdkUrl)
-const { Context } = await import(pathToFileURL(join(checkout, 'vendor/cordis/lib/index.js')).href)
 const validBot = { code: 0, bot: { open_id: 'ou_muse_bot', app_name: 'Muse', avatar_url: 'synthetic-avatar' } }
 const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} }
 
 function offlineHttp(botResponse) {
   const requests = []
   const tokens = []
-  const cards = []
   const httpInstance = {
     async post(url, data) {
       assert.equal(new URL(url).pathname, '/open-apis/auth/v3/tenant_access_token/internal')
@@ -30,19 +29,15 @@ function offlineHttp(botResponse) {
       requests.push(request)
       const path = new URL(request.url).pathname
       if (path === '/open-apis/bot/v3/info') return botResponse
-      if (path === '/open-apis/im/v1/messages') {
-        cards.push(request)
-        return { code: 0, data: { message_id: `synthetic-card-${cards.length}` } }
-      }
       throw new Error(`Unexpected offline SDK request: ${path}`)
     },
   }
-  return { httpInstance, requests, tokens, cards }
+  return { httpInstance, requests, tokens }
 }
 
-function rawMessage(id, { group = true, mentions, chat = 'oc_allowed', text = '/help', messageType = 'text' } = {}) {
+function rawMessage(id, { group = true, mentions, chat = 'oc_allowed', sender = 'ou_owner', text = '/help', messageType = 'text' } = {}) {
   return {
-    sender: { sender_id: { open_id: 'ou_owner' } },
+    sender: { sender_type: 'user', sender_id: { open_id: sender } },
     message: {
       message_id: id, chat_type: group ? 'group' : 'p2p', chat_id: chat,
       message_type: messageType, content: JSON.stringify(messageType === 'text' ? { text } : { image_key: 'blocked-image' }),
@@ -51,91 +46,52 @@ function rawMessage(id, { group = true, mentions, chat = 'oc_allowed', text = '/
   }
 }
 
-async function mountedChannel(t, botResponse = validBot) {
-  const root = mkdtempSync(join(tmpdir(), 'muse-feishu-identity-'))
-  const ctx = new Context()
+async function mountedChannel(t, botOpenId = 'ou_muse_bot') {
+  const root = mkdtempSync(join(tmpdir(), 'muse-native-feishu-identity-'))
+  const source = join(root, 'plugin')
+  const dependencies = join(source, 'node_modules')
+  let bridge
   t.after(async () => {
-    try { await ctx.fiber.dispose() } finally { rmSync(root, { recursive: true, force: true }) }
-  })
-  cpSync(join(import.meta.dirname, '../dsh-bridge'), root, { recursive: true })
-  applyBridgeDesktopCompatibility(root)
-  const dependencyRoot = join(root, 'node_modules')
-  for (const [name, target] of [
-    ['@deepseek-ai/cordis', 'vendor/cordis'],
-    ['@deepseek-ai/schemastery', 'vendor/schemastery'],
-    ['@deepseek-ai/dsh-llm', 'packages/llm/llm'],
-  ]) {
-    const destination = join(dependencyRoot, name)
-    mkdirSync(resolve(destination, '..'), { recursive: true })
-    symlinkSync(join(checkout, target), destination, process.platform === 'win32' ? 'junction' : 'dir')
-  }
-  const sdkWrapper = join(dependencyRoot, '@larksuiteoapi/node-sdk')
-  mkdirSync(sdkWrapper, { recursive: true })
-  writeFileSync(join(sdkWrapper, 'package.json'), JSON.stringify({ type: 'module', exports: './index.mjs' }))
-  // The SDK client, token manager and generated message API remain real; only transport is offline.
-  writeFileSync(join(sdkWrapper, 'index.mjs'), `import Lark from ${JSON.stringify(sdkUrl)}
-export const state = { botResponse: ${JSON.stringify(botResponse)}, requests: [], tokens: [], cards: [], closed: false }
-class Client extends Lark.Client {
-  constructor(options) {
-    super({ ...options, cache: { get: () => undefined, set: () => {} }, httpInstance: {
-      async post(url, data) {
-        if (new URL(url).pathname !== '/open-apis/auth/v3/tenant_access_token/internal') throw new Error('Unexpected token endpoint')
-        state.tokens.push({ url, data })
-        return { code: 0, tenant_access_token: 'synthetic-tenant-token', expire: 7200 }
-      },
-      async request(request) {
-        state.requests.push(request)
-        const path = new URL(request.url).pathname
-        if (path === '/open-apis/bot/v3/info') return state.botResponse
-        if (path === '/open-apis/im/v1/messages') {
-          state.cards.push(request)
-          return { code: 0, data: { message_id: 'synthetic-card-' + state.cards.length } }
-        }
-        throw new Error('Unexpected offline SDK request: ' + path)
-      },
-    } })
-  }
-}
-class WSClient {
-  async start() {}
-  close() { state.closed = true }
-}
-export default { ...Lark, Client, WSClient }
-`)
-  const { state } = await import(pathToFileURL(join(sdkWrapper, 'index.mjs')).href)
-  const nodeReady = Promise.withResolvers()
-  const online = Promise.withResolvers()
-  const privateReply = Promise.withResolvers()
-  const errors = []
-  let gateway
-  ctx.logger.exporter({ export: message => { if (message.type === 'error') errors.push(message.args.map(String).join(' ')) } })
-  ctx.on('internal/status', fiber => {
-    if ('feishu' in fiber.inject && fiber.store?.feishu && !fiber.inertia) {
-      gateway = fiber.store.feishu.value
-      nodeReady.resolve()
+    try { await bridge?.waitForIdle() } finally {
+      let link
+      try { link = lstatSync(dependencies) } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+      if (link) {
+        assert.equal(link.isSymbolicLink(), true, 'fixture cleanup owns only the dependency link')
+        unlinkSync(dependencies)
+      }
+      rmSync(root, { recursive: true, force: true })
     }
   })
-  ctx.on('feishu/status', event => { if (event.status === 'online') online.resolve() })
-  const session = { id: 'synthetic-session', header: { id: 'synthetic-session', cwd: root } }
-  const services = {
-    sessions: { list: () => [session], get: () => session }, agents: { get: () => undefined }, approval: {}, settings: { update: async () => undefined },
-    workspaceRegistry: { archivedSessionIds: [], list: async () => [] }, sessionPersistence: { list: async () => [] }, sessionProjectionCache: { cachedSnapshot: () => undefined },
-    sessionTitle: { rename: () => {} }, agentPresets: {}, agentDefaultModel: {},
+  cpSync(join(import.meta.dirname, '../dsh-im'), source, { recursive: true })
+  applyImDesktopCompatibility(source)
+  symlinkSync(join(checkout, 'third_party/plugins/toolchain/node_modules'), dependencies,
+    process.platform === 'win32' ? 'junction' : 'dir')
+  const { FeishuHarnessBridge } = await import(pathToFileURL(join(source, 'src/channels/feishu/bridge.mjs')).href)
+  const replies = []
+  const seen = new Set()
+  const state = { hasSeen: id => seen.has(id), markSeen: async id => seen.add(id), sessionFor: () => null }
+  const scope = {
+    mode: 'allowlist', open: { defaultCanExecuteCommands: false, commandPermissionOverrides: [] },
+    allowlist: { users: ['ou_owner', 'ou_member'].map(id => ({ id, canExecuteCommands: true })) },
   }
-  for (const [name, service] of Object.entries(services)) ctx.provide(name, service)
-  const channel = await import(pathToFileURL(join(root, 'lib/index.js')).href)
-  await ctx.plugin(channel, {
-    enabled: true, appId: 'synthetic-app', appSecret: 'synthetic-secret', registeredBy: 'ou_owner',
-    allowFrom: ['oc_allowed', 'ou_owner'], activeSessionId: session.id,
+  const admission = createMuseImAdmission({ appId: 'synthetic-app', dshHome: root,
+    inboundClaimRetentionMs: 60_000, inboundClaimMaxEntries: 100 }, {
+    botId: 'synthetic-bot', botOpenId, legacyPolicy: { registeredBy: 'ou_owner', allowFrom: ['ou_owner'] },
+  }).forBot('synthetic-bot')
+  bridge = new FeishuHarnessBridge({
+    client: { im: { v1: { message: { reply: async request => {
+      replies.push(request)
+      return { code: 0, data: { message_id: 'synthetic-reply-' + replies.length } }
+    } } } } },
+    channel: {}, harness: { ensureRunning: async () => true }, state,
+    status: { messagesReceived: 0, messagesReplied: 0, messagesRejected: 0 },
+    accessPolicy: { getSettings: () => ({ direct: scope, group: scope }), isPrivileged: () => false },
+    museAdmission: admission, botOpenId, groupResponseMode: 'mention', mentionTopicReply: false,
+    logger: silentLogger,
   })
-  await Promise.all([nodeReady.promise, online.promise])
-  const sendCard = gateway.sendCard.bind(gateway)
-  gateway.sendCard = async (...args) => {
-    const result = await sendCard(...args)
-    if (args[0] === 'ou_owner') privateReply.resolve()
-    return result
-  }
-  return { ctx, state, gateway, errors, privateReply: privateReply.promise }
+  return { bridge, replies, seen }
 }
 
 test('queries bot identity using the pinned SDK authenticated request method', async () => {
@@ -182,36 +138,32 @@ test('matches only structured mentions of the known bot', () => {
   assert.equal(isFeishuBotMentioned(event([{ id: { open_id: '' } }]), ''), false)
 })
 
-test('replies to this bot mention and private messages while rejecting unmentioned and other-bot group messages', { timeout: 10000 }, async t => {
-  const fixture = await mountedChannel(t)
-  const { gateway, state, ctx } = fixture
-  assert.equal(gateway.botInfo.openId, 'ou_muse_bot')
-  await gateway._handleMessageReceive(rawMessage('with-mention', { text: '@_user_1 /help', mentions: [{ key: '@_user_1', id: { open_id: 'ou_muse_bot' } }] }))
-  await gateway._handleMessageReceive(rawMessage('no-mention'))
-  await gateway._handleMessageReceive(rawMessage('text-only-mention', { text: '@Muse /help' }))
-  await gateway._handleMessageReceive(rawMessage('other-bot', { text: '@_user_1 /help', mentions: [{ key: '@_user_1', id: { open_id: 'ou_other_bot' }, name: 'Muse' }] }))
-  await gateway._handleMessageReceive(rawMessage('unapproved-group', { chat: 'oc_unapproved', mentions: [{ id: { open_id: 'ou_muse_bot' } }] }))
-  await gateway._handleMessageReceive(rawMessage('unmentioned-media', { messageType: 'image' }))
-  await gateway._handleMessageReceive(rawMessage('private', { group: false }))
-  await fixture.privateReply
-  await ctx.fiber.dispose()
-  assert.deepEqual(state.cards.map(card => [card.data.receive_id, card.params.receive_id_type]), [['oc_allowed', 'chat_id'], ['ou_owner', 'open_id']])
-  for (const card of state.cards) {
-    assert.equal(card.data.msg_type, 'interactive')
-    assert.match(JSON.parse(card.data.content).body.elements[0].content, /\/help/)
+test('native IM replies only to this bot mentions and authorized private messages', { timeout: 10000 }, async t => {
+  const { bridge, replies, seen } = await mountedChannel(t)
+  const mentioned = [{ key: '@_user_1', id: { open_id: 'ou_muse_bot' } }]
+  await bridge.accept(rawMessage('with-mention', { text: '@_user_1 /help', mentions: mentioned }))
+  await bridge.accept(rawMessage('native-allowed-member', { sender: 'ou_member', chat: 'oc_new_group',
+    text: '@_user_1 /help', mentions: mentioned }))
+  await bridge.accept(rawMessage('no-mention'))
+  await bridge.accept(rawMessage('text-only-mention', { text: '@Muse /help' }))
+  await bridge.accept(rawMessage('other-bot', { text: '@_user_1 /help', mentions: [{ key: '@_user_1', id: { open_id: 'ou_other_bot' }, name: 'Muse' }] }))
+  await bridge.accept(rawMessage('unapproved-sender', { sender: 'ou_unapproved', mentions: mentioned }))
+  await bridge.accept(rawMessage('unmentioned-media', { messageType: 'image' }))
+  await bridge.accept(rawMessage('private', { group: false, chat: 'oc_private' }))
+  await bridge.accept(rawMessage('unapproved-private', { group: false, sender: 'ou_unapproved' }))
+  await bridge.waitForIdle()
+  assert.deepEqual(replies.map(reply => reply.path.message_id), ['with-mention', 'native-allowed-member', 'private'])
+  for (const reply of replies) {
+    assert.equal(reply.data.msg_type, 'text')
+    assert.match(JSON.parse(reply.data.content).text, /\/sessionlist/)
   }
-  assert.equal(state.requests.filter(request => new URL(request.url).pathname === '/open-apis/bot/v3/info').length, 1)
-  assert.equal(state.closed, true)
-  assert.deepEqual(fixture.errors, [])
+  for (const id of ['no-mention', 'text-only-mention', 'other-bot', 'unmentioned-media']) assert.equal(seen.has(id), false)
 })
 
-test('keeps group mention policy closed when bot identity fails without disabling authorized private replies', { timeout: 10000 }, async t => {
-  const fixture = await mountedChannel(t, { code: 99991663, msg: 'synthetic identity failure' })
-  assert.equal(fixture.gateway.botInfo, null)
-  await fixture.gateway._handleMessageReceive(rawMessage('failed-identity-group', { mentions: [{ id: { open_id: 'ou_muse_bot' } }] }))
-  await fixture.gateway._handleMessageReceive(rawMessage('failed-identity-private', { group: false }))
-  await fixture.privateReply
-  await fixture.ctx.fiber.dispose()
-  assert.deepEqual(fixture.state.cards.map(card => card.data.receive_id), ['ou_owner'])
-  assert.deepEqual(fixture.errors, [])
+test('native IM keeps group mentions closed without a bot identity while allowing authorized private replies', { timeout: 10000 }, async t => {
+  const { bridge, replies } = await mountedChannel(t, null)
+  await bridge.accept(rawMessage('failed-identity-group', { mentions: [{ id: { open_id: 'ou_muse_bot' } }] }))
+  await bridge.accept(rawMessage('failed-identity-private', { group: false, chat: 'oc_private' }))
+  await bridge.waitForIdle()
+  assert.deepEqual(replies.map(reply => reply.path.message_id), ['failed-identity-private'])
 })

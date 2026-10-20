@@ -19,6 +19,7 @@
     "lib/short-drama-guidance.js",
     "lib/editing-policy.js",
     "lib/manuscript-revisions.js",
+    "lib/jianying-draft.js",
     "lib/hindsight.js",
     "lib/feishu-migration.js"
   ],

@@ -14,6 +14,7 @@
     "src/find.ts",
     "src/image.ts",
     "src/methods.ts",
+    "src/upscale-price.ts",
     "src/model-settings.ts",
     "src/storyboard-edit.ts",
     "src/storyboard-delete.ts",
@@ -38,7 +39,8 @@
     "src/write.ts",
     "src/watch.ts",
     "src/video-session.ts",
-    "src/video-session-types.ts"
+    "src/video-session-types.ts",
+    "src/production.ts"
   ],
   "references": [
     {

@@ -3,5 +3,6 @@ scenario: subagent-max-tokens-partial
 profile: headless
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: default

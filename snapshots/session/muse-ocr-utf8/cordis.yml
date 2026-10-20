@@ -1,0 +1,22 @@
+# Retain the shipped Headless tool pipeline and replace only external processes.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: []
+    watch: false
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-ocr-utf8
+      name: './ocr-utf8-fixture.mjs'
+    - id: tool-video-inspect
+      name: '@deepseek-ai/dsh-tool-video-inspect'
+      config:
+        ocrEngine: rapidocr
+        ocrPythonPath: ocr-fixture-python

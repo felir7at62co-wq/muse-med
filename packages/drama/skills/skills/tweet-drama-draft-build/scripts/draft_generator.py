@@ -1,15 +1,11 @@
-"""
-AIGC Pipeline — 剪映草稿生成 Agent
-
-直接调用 tools.jianying_draft 模块生成剪映草稿。
-功能: 音频 + 视频 + 字幕 + BGM → 剪映草稿文件
-"""
+"""Internal material preparation and FFmpeg setup for the Jianying draft builder."""
 import os
 import sys
 import shutil
 import logging
 import re
 import json
+import tempfile
 import importlib.util
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -27,11 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class DraftGenerator:
-    """
-    剪映草稿生成 Agent
-
-    直接调用 tools.jianying_draft.generate_draft，不再依赖外部工具路径。
-    """
+    """Prepare materials and invoke the local Jianying draft implementation."""
 
     def __init__(self, ffmpeg_path: str = ""):
         self.ffmpeg_path = ffmpeg_path
@@ -102,32 +94,47 @@ class DraftGenerator:
                 raise FileNotFoundError(f"Missing selected ending asset: {source}")
         if include_ending and ending_effect:
             check_videos(find_project(Path(video_dir), project), [Path(ending_effect)])
-        # 先清空已存在的素材目录，确保每次都是全新的素材
+        # Resolve episode scope and subtitle alignment status before replacing
+        # prepared materials. A failed alignment may leave an older SRT behind.
+        episodes = set()
+        if os.path.exists(audio_dir):
+            for filename in os.listdir(audio_dir):
+                name = os.path.splitext(filename)[0]
+                if name.isdigit():
+                    episodes.add(name)
+        video_dirs = [path for path in (fallback_video_dir, video_dir)
+                      if path and os.path.exists(path)]
+        for source_dir in video_dirs:
+            for dirname in os.listdir(source_dir):
+                if os.path.isdir(os.path.join(source_dir, dirname)) and dirname.isdigit():
+                    episodes.add(dirname)
+        if subtitle_dir:
+            for ep_num in episodes:
+                blocked = Path(subtitle_dir) / f"{ep_num}.srt.blocked"
+                if blocked.exists():
+                    logger.warning(f"字幕对齐待核：{blocked}；保留选择并继续准备草稿，由 Muse 核听决定。")
+        bgm_source = None
+        if bgm_dir and not Path(bgm_dir).is_dir():
+            raise FileNotFoundError(f"已指定的 BGM 文件夹不存在：{bgm_dir}")
+        if bgm_dir and os.path.exists(bgm_dir):
+            candidates = sorted(path for path in Path(bgm_dir).iterdir()
+                                if path.is_file() and path.suffix.lower() in
+                                {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'})
+            if len(candidates) != 1:
+                logger.warning(f"BGM 文件夹 {bgm_dir} 有 {len(candidates)} 份候选，暂不选入；Muse 可核对后补充。")
+            else:
+                bgm_source = candidates[0]
+        # Existing prepared materials may contain manual changes.
         if os.path.exists(output_materials_dir):
-            shutil.rmtree(output_materials_dir)
+            target = Path(output_materials_dir).resolve()
+            output_materials_dir = tempfile.mkdtemp(prefix=f"{target.name}-candidate-", dir=target.parent)
+            logger.info(f"保留已有素材目录，新候选写入 {output_materials_dir}")
         os.makedirs(output_materials_dir, exist_ok=True)
 
         audio_out = os.path.join(output_materials_dir, "01_audio")
         media_out = os.path.join(output_materials_dir, "02_media")
         os.makedirs(audio_out, exist_ok=True)
         os.makedirs(media_out, exist_ok=True)
-
-        episodes = set()
-
-        if os.path.exists(audio_dir):
-            for f in os.listdir(audio_dir):
-                name = os.path.splitext(f)[0]
-                if name.isdigit():
-                    episodes.add(name)
-
-        video_dirs = [
-            path for path in (fallback_video_dir, video_dir)
-            if path and os.path.exists(path)
-        ]
-        for source_dir in video_dirs:
-            for d in os.listdir(source_dir):
-                if os.path.isdir(os.path.join(source_dir, d)) and d.isdigit():
-                    episodes.add(d)
 
         logger.info(f"整理 {len(episodes)} 集素材")
 
@@ -154,7 +161,7 @@ class DraftGenerator:
             subtitle_out = os.path.join(output_materials_dir, "03_subtitle")
             os.makedirs(subtitle_out, exist_ok=True)
             for ep_num in sorted(episodes):
-                for ext in (".srt", ".ass", ".vtt"):
+                for ext in (".srt", ".ass", ".vtt", ".srt.review.txt", ".srt.blocked"):
                     src = os.path.join(subtitle_dir, f"{ep_num}{ext}")
                     if os.path.exists(src):
                         shutil.copy2(src, subtitle_out)
@@ -167,14 +174,10 @@ class DraftGenerator:
                 if os.path.exists(src):
                     shutil.copy2(src, timeline_out)
 
-        if bgm_dir and os.path.exists(bgm_dir):
+        if bgm_source is not None:
             bgm_out = os.path.join(output_materials_dir, "04_bgm")
             os.makedirs(bgm_out, exist_ok=True)
-            for f in os.listdir(bgm_dir):
-                src = os.path.join(bgm_dir, f)
-                if os.path.isfile(src):
-                    shutil.copy2(src, bgm_out)
-                    break
+            shutil.copy2(bgm_source, bgm_out)
 
         if any(ending_files.values()):
             ending_out = Path(output_materials_dir) / "06_ending"
@@ -203,15 +206,6 @@ class DraftGenerator:
         # 直接调用本地模块
         from jianying_draft import generate_draft
 
-        existing_dirs = set()
-        try:
-            existing_dirs = {
-                d for d in os.listdir(drafts_dir)
-                if os.path.isdir(os.path.join(drafts_dir, d))
-            }
-        except OSError:
-            pass
-
         result = generate_draft(
             drafts_dir=drafts_dir,
             materials_dir=materials_dir,
@@ -221,20 +215,8 @@ class DraftGenerator:
             project=project,
         )
 
-        if not result.get("success"):
-            return result
-
-        new_dirs = {
-            d for d in os.listdir(drafts_dir)
-            if os.path.isdir(os.path.join(drafts_dir, d))
-        } - existing_dirs
-        draft_count = len(new_dirs)
-
-        logger.info(f"剪映草稿生成完成: {draft_count} 个新草稿")
-        return {
-            "success": True,
-            "drafts_created": draft_count,
-        }
+        logger.info(f"剪映草稿生成结果: {result['drafts_created']} 个已验证草稿，success={result['success']}")
+        return result
 
 
 def _read_text_if_exists(path: str) -> str:

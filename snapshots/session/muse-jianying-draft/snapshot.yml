@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-jianying-draft
+profile: headless
+composition: muse-jianying-draft
+recording: authored
+writerOutput: true
+header:
+  class: muse-jianying-draft
+  pin: true
+workspace:
+  final: true

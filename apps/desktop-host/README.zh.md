@@ -21,6 +21,8 @@ Host 读取 `<Muse home>/hindsight/connection.json` 的 `baseUrl`、`token`、`n
 
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
+Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
+
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。
 
 桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，并将 `yunying` 加入 `hiddenProviderIds`：云映路由继续为已保存的 Session 注册，但新模型选择只展示账号提供的官方 DeepSeek 与智谱 GLM。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
@@ -118,3 +120,5 @@ Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Pyth
 显式严格 Word/交付配置下，`screenplay_export_docx` 在转换前将每份受管输入与当前已验收 Markdown 比较，固定这些正文，并生成 `.docx.screenplay.json` 记录，绑定候选与输出摘要。可选 `project` 参数使跨目录导出保持绑定；显式项目不存在或未标记时拒绝导出。Office 组合还注册实际 `present` 执行器检查：受管 Markdown 须匹配验收，Word 须有匹配记录，并通过内置 Python 将实际正文与当前已验收正文独立比较。项目身份使用文件系统真实路径，使目录别名保持同一验收。替换正文或在表格中追加内容，即使伪造匹配记录也会失败。普通 Python 或 Office 生成的文件未经候选验收时，不能声明为受管视频正式交付。保源精修和故事忠实项目也使用同一final目录检查，包括精确匹配的独立修改说明；故事交付在采用已验收正文前还核对Host生成的真实检查日志记录。普通文档和没有视频或精修标记的项目保留原有转换与交付行为。
 
 严格受管交付识别依赖约定的标记和目录；未标记项目，或移出范围且没有记录的文档，无法被识别为视频转剧本。文件系统权限仍可编辑项目与校验文件；这些是一致性记录，不是签名授权。直接文件链接和外部应用不调用 `present`。Agent 仍负责已整理清单之外的画面完整性与含义。建议型采用及交付检查不能证明抽样找到了全部事件，也不能证明创作审校通过。
+
+`jianying_draft` 通过受管子进程调用内置 Python 生成器，输入为有大小限制的单集 JSON 请求和已有剪映草稿根目录。完成、失败和取消均等待进程退出。字幕、配乐和轨道质量疑点通过 `warnings` 与逐稿 `review_path` 返回，不拒绝生成；保存与 JSON 精确回读遇到技术错误仍会失败。保存后草稿校验不代表原生编辑器打开或渲染已验收。

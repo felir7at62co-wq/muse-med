@@ -45,7 +45,7 @@ import {
 import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { readSubtitleCues, buildAssDocument } from './subtitles.ts'
+import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { deliveryChecks } from './verify.ts'
@@ -130,6 +130,7 @@ function logCheck(check: RenderCheck): string {
 export async function renderEpisode(input: RenderInput): Promise<DramaRenderReport> {
   const { toolkit, settings } = input
   const paths = episodePaths(input.project, input.episode)
+  const subtitleWarnings = await subtitleReviewWarnings(input.subtitleSrt)
   const timeline = await readTimeline(input.timelinePath)
   const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
   assertBodyOnlyAnimation(timeline, policy)
@@ -233,6 +234,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   await runFfmpeg(toolkit, ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c', 'copy', base])
 
   const cues = await readSubtitleCues(input.subtitleSrt)
+  subtitleWarnings.push(...subtitleTextWarnings(cues))
   const ass = resolve(paths.cacheDir, 'display.ass')
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
@@ -318,7 +320,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     tailFrame,
     media,
     checks,
-    warnings: [...policy.warnings, ...(tailFrame.fromSequentialDecode
+    warnings: [...subtitleWarnings, ...policy.warnings, ...(tailFrame.fromSequentialDecode
       ? ['sseof 抽到的帧不是真实尾帧，已改用顺序解码的最后一帧作为片尾定格（见 tail_frame 字段）。']
       : [])],
     logPath: paths.renderLog,

@@ -16,7 +16,7 @@ it('exposes the Host manifest used by the Cordis preset skill directory', () => 
 it('routes product preset packages from the complete runtime dependency closure, not a CLI or Host subgraph', async () => {
   const source = readFileSync(new URL('../../desktop-host/src/index.ts', import.meta.url), 'utf8')
   expect(source).toContain("const installAnchor = join(runtimeDir, 'package.json')")
-  expect(source).toContain('resolvedProfile: { profile, installAnchor }')
+  expect(source).toContain('resolvedProfile: { profile, installAnchor, moduleOverrides }')
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'desktop-resolution-')))
   try {
     const host = JSON.parse(readFileSync(new URL('../../desktop-host/package.json', import.meta.url), 'utf8')) as { name: string; dependencies: Record<string, string> }

@@ -192,6 +192,9 @@ describe('jubian_video resolution guidance', () => {
   })
 })
 
+const UPSCALE_CATALOGUE = [{ id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
+  unitPrice: 1, unit: '元/条', videoStandards: [{ id: 303, resolution: '1080p' }] }]
+
 describe('jubian_video upscale', () => {
   it('resolves an explicit MediaKit model and output standard before the paid write', async () => {
     const { client, calls } = stubClient((request) => {
@@ -212,6 +215,7 @@ describe('jubian_video upscale', () => {
 
   it('posts the workbench HD conversion body once under the same ledger key', async () => {
     const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList?taskType=20')) return UPSCALE_CATALOGUE
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
       if (request.path.includes('/sub/list')) return { total: 1, rows: [{ id: 990,
         aigcVideoTaskId: 42, duration: 13.5, firstResultId: 1007193, parentResultId: 1007193,
@@ -221,7 +225,7 @@ describe('jubian_video upscale', () => {
     try {
       const args = { method: 'upscale', task_id: 42, task_name: 'EP11-P1-HD', idempotency_key: 'hd-once' }
       expect(await videoMethod(client, ledger, args)).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001' })
-      expect(calls[2]).toEqual({ method: 'POST',
+      expect(calls.at(-1)).toEqual({ method: 'POST',
         path: 'https://web.jubianai.net/prod-api/aigc/storyboard/hdConversion',
         body: { scriptId: 2708, episodeId: 46744, episodeCount: 1,
           firstResultId: 1007193, parentResultId: 1007193, duration: 13.5,
@@ -229,12 +233,13 @@ describe('jubian_video upscale', () => {
           platformId: 'RUNNING_HUB', standardId: 55, videoStandardId: 303,
           videoUrl: 'https://example.test/source.mp4' } })
       expect(await videoMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true })
-      expect(calls).toHaveLength(3)
+      expect(calls).toHaveLength(4)
     } finally { await rm(root, { recursive: true, force: true }) }
   })
 
   it('upscales the newest completed child current URL instead of its original or an older result', async () => {
     const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList?taskType=20')) return UPSCALE_CATALOGUE
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744 }
       if (request.path.includes('/sub/list')) {
         expect(request.path).toContain('?orderByColumn=createTime&orderBy=desc')
@@ -723,6 +728,7 @@ describe('jubian_video', () => {
 
   it('uses the child result and explicit project fallback to name an upscale with no parent task name', async () => {
     const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList?taskType=20')) return UPSCALE_CATALOGUE
       if (request.method === 'GET') return { id: 42, episodeId: 1 }
       if (request.path.includes('sub/list')) return { rows: [{ id: 99, duration: 8,
         resultList: [{ lastTosVideoUrl: 'https://media.example/source.mp4' }] }] }
@@ -1771,4 +1777,39 @@ describe('image style at the billed request', () => {
     await expect(videoMethod(client, ledger, { ...args, image_style: 'anime' }, imageDeps())).rejects.toThrow()
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
+})
+
+it('refuses a malformed restricted image catalogue before exposing any rows', async () => {
+  const { client, calls } = stubClient(() => ({ rows: IMAGE_CATALOGUE }))
+  await expect(catalogMethod(client, { method: 'models', task_type: 2 }, [42])).rejects.toThrow('Unreadable image catalogue')
+  expect(calls).toHaveLength(1)
+})
+it.each([undefined, 'CUSTOM_PLATFORM'])('resolves custom erasure selectors from the live catalogue on platform %s', async (platform_id) => {
+  const { client, calls } = stubClient((request) => {
+    if (request.path.includes('getSelectList')) return [{ id: 101, modelId: 'custom-eraser', platformId: 'CUSTOM_PLATFORM', videoStandards: [] }]
+    if (request.path.includes('sub/list')) return { total: 1, rows: [{ id: 99, duration: 8,
+      resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
+    return { id: 42, scriptId: 2708, episodeId: 1 }
+  })
+  await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'custom-erasure',
+    task_id: 42, model_id: 'custom-eraser', ...(platform_id ? { platform_id } : {}), erase_mode: 'region',
+    video_width: 1280, video_height: 720 })
+  expect(calls.at(-1)?.body).toMatchObject({ modelId: 'custom-eraser', platformId: 'CUSTOM_PLATFORM', standardId: 101 })
+})
+it('refuses erasure when the only returned child has no source video', async () => {
+  const { client, calls } = stubClient(request => request.path.includes('sub/list')
+    ? { total: 1, rows: [{ id: 99, duration: 8 }] } : { id: 42, scriptId: 2708, episodeId: 1 })
+  await expect(storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'missing-original',
+    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720 })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(calls).toHaveLength(2)
+  expect(await ledger.records()).toEqual([])
+})
+
+it('uses the current video when the original result URL is absent on a returned child', async () => {
+  const { client, calls } = stubClient(request => request.path.includes('sub/list')
+    ? { total: 1, rows: [{ id: 99, duration: 8, resultList: [{ lastTosVideoUrl: 'https://example.test/current.mp4' }] }] }
+    : { id: 42, scriptId: 2708, episodeId: 1 })
+  await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'current-only',
+    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720 })
+  expect(calls.at(-1)?.body).toMatchObject({ videoUrl: 'https://example.test/current.mp4' })
 })

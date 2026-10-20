@@ -206,13 +206,23 @@ describe('subject selection planning', () => {
   })
 
   it.each([
-    { selections: [] }, { selections: [{ material_key: ' ', asset_id: 81285 }] },
+    { selections: [{ material_key: ' ', asset_id: 81285 }] },
     { selections: [{ material_key: 'lead', asset_id: -1 }] },
     { selections: [SELECTIONS[0]!, SELECTIONS[0]!] },
     { selections: [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 81285 }] },
   ])('refuses ambiguous or empty requested selections before producing a payload: %j', ({ selections }) => {
     expect(() => buildSubjectSelection({ ...oneSubject(), selections }))
       .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('clears images only when the current prompt has no image references, preserving audio', () => {
+    const audio = { materialType: 'audio', materialKey: 'voice', fileName: '声音', materialUrl: 'https://example.test/voice.wav', sortOrder: 1 }
+    const plan = buildSubjectSelection({ ...oneSubject(), selections: [], storyboard: { ...STORYBOARD,
+      modelConfig: { prompt: '当前镜头只有声音 @[声音](voice)' }, storyboardMaterialList: [audio] } })
+    expect(plan.payload.storyboardMaterialList).toEqual([audio])
+    expect(plan.payload.isGenerate).toBe(0)
+    expect(() => buildSubjectSelection({ ...oneSubject(), selections: [] }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
   })
 
   it.each([

@@ -72,6 +72,7 @@ import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
+import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
 import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
@@ -777,12 +778,24 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-shot-script',
     dir: 'tool-shot-script',
-    source: 'packages/drama/tool-shot-script/src/index.ts',
+    source: { drama_shot: 'packages/drama/tool-shot-script/src/index.ts',
+      muse_production: 'packages/drama/tool-shot-script/src/production.ts' },
     requires: ['ctx.tools', 'a source script; asset manifest for preview/compile; project and episode for compile',
       'session video selection and projections when sessionVideoSelection is enabled'],
-    writes: ['tool/call', 'tool/result', 'on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json'],
+    writes: ['tool/call', 'tool/result', 'on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json',
+      'muse_production: local plans/receipts; apply performs free native card writes and readback, never paid generation'],
     async mount(ctx) {
-      await ctx.plugin(ToolShotScript)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LocalCredentialProvider, { path: join(tmpdir(), 'dsh-tool-catalog', 'credentials.yaml'),
+        dshHome: join(tmpdir(), 'dsh-tool-catalog'), watch: false })
+      await ctx.plugin(ToolJubian.JubianVideoSelection, { enabled: true,
+        client: new JubianClient({ credential: () => Promise.resolve('') }),
+        ledger: new JubianLedger({ root: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger') }) })
+      await ctx.plugin(ToolShotScript, { productionPackaging: true })
+      for (const runtime of ctx.registry.values()) {
+        for (const fiber of runtime.fibers) await fiber.await()
+      }
     },
     note:
       'The three methods share one schema and report `review_mode`. `validate` and `preview` only read. '
@@ -791,7 +804,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. '
       + 'Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; '
       + 'they do not rewrite scripts, cards, or the system prompt. '
-      + '`ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail.',
+      + '`ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. '
+      + 'Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; '
+      + 'content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow.',
   },
   {
     pkg: '@deepseek-ai/dsh-perception-bgm',

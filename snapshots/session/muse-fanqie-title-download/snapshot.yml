@@ -3,6 +3,7 @@ scenario: muse-fanqie-title-download
 profile: headless
 composition: muse-fanqie-title-download
 recording: authored
+writerOutput: true
 header:
   class: muse-fanqie-title-download
   pin: true

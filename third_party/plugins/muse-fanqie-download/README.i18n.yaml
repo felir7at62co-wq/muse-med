@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-fanqie-download/README.md
 /muse-fanqie-download-tools:
-  en: 24d0600116ee5843
-  zh: 1e3f3e6f0681d9e4
+  en: fd454e092b05be82
+  zh: 1914319b47b548bb

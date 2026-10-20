@@ -118,10 +118,10 @@
   disabled: true
 
 - id: open-in-app
-  disabled: true
+  disabled: false
 
 - id: ui-open-in-app
-  disabled: true
+  disabled: false
 
 - id: directory-picker
   disabled: true

@@ -1,0 +1,235 @@
+{
+  "project_dir": ".",
+  "script_id": 4908,
+  "script_name": "Muse production replay",
+  "episode": 1,
+  "episode_id": 102505,
+  "source_path": "shots.txt",
+  "source_sha256": "43d0f255d92aaa0d89affc538180b5ade0ad90891838708bfce3ee7c97b980c2",
+  "source": "写实3D CG渲染风格\n【镜头1】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n时长：5秒\n无噪点，无跳帧，五官稳定不变形\n\n写实3D CG渲染风格\n【镜头2】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n时长：5秒\n无噪点，无跳帧，五官稳定不变形",
+  "assets": [
+    {
+      "asset_id": 177496,
+      "name": "全剧｜角色｜秦明枝（大红婚服）",
+      "kind": "character",
+      "url": "https://cdn.example.test/red.png",
+      "material_id": "image-red",
+      "usable": true
+    },
+    {
+      "asset_id": 177517,
+      "name": "全剧｜角色｜秦明枝（素白中衣）",
+      "kind": "character",
+      "url": "https://cdn.example.test/white.png",
+      "material_id": "image-white",
+      "usable": true
+    },
+    {
+      "asset_id": 175841,
+      "name": "萧家后院走廊",
+      "kind": "scene",
+      "url": "https://cdn.example.test/corridor.png",
+      "material_id": "image-corridor",
+      "usable": true
+    }
+  ],
+  "choices": [
+    {
+      "shot": 2,
+      "kind": "character",
+      "name": "秦明枝",
+      "asset_id": 177496
+    }
+  ],
+  "targets": [],
+  "requirements": [
+    {
+      "shot": 1,
+      "kind": "character",
+      "name": "秦明枝",
+      "state": "大红婚服"
+    },
+    {
+      "shot": 2,
+      "kind": "character",
+      "name": "秦明枝",
+      "state": "素白中衣"
+    }
+  ],
+  "model": {
+    "modelId": "doubao-seedance-2-5-260628",
+    "platformId": "FANG_ZHOU",
+    "standardId": 1,
+    "modelGenerationTypeId": 2,
+    "videoStandardId": 3,
+    "genType": 3,
+    "ratio": "16:9",
+    "resolution": "480p",
+    "maxDurationSeconds": 30,
+    "revision": 1
+  },
+  "version": 1,
+  "operation": "muse_production",
+  "matches": [
+    {
+      "shot": 1,
+      "kind": "character",
+      "name": "秦明枝",
+      "state": "大红婚服",
+      "candidates": [
+        {
+          "asset_id": 177496,
+          "name": "全剧｜角色｜秦明枝（大红婚服）",
+          "kind": "character",
+          "url": "https://cdn.example.test/red.png",
+          "material_id": "image-red",
+          "usable": true,
+          "reasons": [],
+          "compatible": true
+        },
+        {
+          "asset_id": 177517,
+          "name": "全剧｜角色｜秦明枝（素白中衣）",
+          "kind": "character",
+          "url": "https://cdn.example.test/white.png",
+          "material_id": "image-white",
+          "usable": true,
+          "reasons": [
+            "condition_unverified:大红婚服"
+          ],
+          "compatible": false
+        }
+      ],
+      "candidate_count": 2,
+      "candidates_truncated": false,
+      "selected_asset_id": 177496,
+      "selection_basis": "unique_metadata",
+      "review_required": true
+    },
+    {
+      "shot": 1,
+      "kind": "scene",
+      "name": "萧家后院走廊",
+      "candidates": [
+        {
+          "asset_id": 175841,
+          "name": "萧家后院走廊",
+          "kind": "scene",
+          "url": "https://cdn.example.test/corridor.png",
+          "material_id": "image-corridor",
+          "usable": true,
+          "reasons": [],
+          "compatible": true
+        }
+      ],
+      "candidate_count": 1,
+      "candidates_truncated": false,
+      "selected_asset_id": 175841,
+      "selection_basis": "unique_metadata",
+      "review_required": true
+    },
+    {
+      "shot": 2,
+      "kind": "character",
+      "name": "秦明枝",
+      "state": "素白中衣",
+      "candidates": [
+        {
+          "asset_id": 177517,
+          "name": "全剧｜角色｜秦明枝（素白中衣）",
+          "kind": "character",
+          "url": "https://cdn.example.test/white.png",
+          "material_id": "image-white",
+          "usable": true,
+          "reasons": [],
+          "compatible": true
+        },
+        {
+          "asset_id": 177496,
+          "name": "全剧｜角色｜秦明枝（大红婚服）",
+          "kind": "character",
+          "url": "https://cdn.example.test/red.png",
+          "material_id": "image-red",
+          "usable": true,
+          "reasons": [
+            "condition_unverified:素白中衣"
+          ],
+          "compatible": false
+        }
+      ],
+      "candidate_count": 2,
+      "candidates_truncated": false,
+      "selected_asset_id": 177496,
+      "selection_basis": "explicit",
+      "review_required": true
+    },
+    {
+      "shot": 2,
+      "kind": "scene",
+      "name": "萧家后院走廊",
+      "candidates": [
+        {
+          "asset_id": 175841,
+          "name": "萧家后院走廊",
+          "kind": "scene",
+          "url": "https://cdn.example.test/corridor.png",
+          "material_id": "image-corridor",
+          "usable": true,
+          "reasons": [],
+          "compatible": true
+        }
+      ],
+      "candidate_count": 1,
+      "candidates_truncated": false,
+      "selected_asset_id": 175841,
+      "selection_basis": "unique_metadata",
+      "review_required": true
+    }
+  ],
+  "packages": [
+    {
+      "index": 1,
+      "name": "EP01-P1",
+      "shots": [
+        1,
+        2
+      ],
+      "duration": 11,
+      "prompt": "写实3D CG渲染风格\n【镜头1】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n无噪点，无跳帧，五官稳定不变形\n\n写实3D CG渲染风格\n本镜素材：@[全剧｜角色｜秦明枝（大红婚服）](asset_177496)、@[萧家后院走廊](asset_175841)\n\n写实3D CG渲染风格\n【镜头2】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n无噪点，无跳帧，五官稳定不变形\n本镜素材：@[全剧｜角色｜秦明枝（大红婚服）](asset_177496)、@[萧家后院走廊](asset_175841)",
+      "images": [
+        {
+          "asset_id": 177496,
+          "material_key": "asset_177496"
+        },
+        {
+          "asset_id": 175841,
+          "material_key": "asset_175841"
+        }
+      ],
+      "voices": [],
+      "storyboard_id": null,
+      "expected_snapshot_sha256": null,
+      "current_assets": [],
+      "target_candidates": []
+    }
+  ],
+  "warnings": [
+    {
+      "code": "legacy_duration_mismatch",
+      "shot": 1,
+      "message": "镜头1估算为2秒，采用声明的5秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "code": "legacy_duration_mismatch",
+      "shot": 2,
+      "message": "镜头2估算为2秒，采用声明的5秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "code": "selected_asset_needs_review",
+      "shot": 2,
+      "name": "秦明枝",
+      "message": "所选177496「全剧｜角色｜秦明枝（大红婚服）」与本镜要求「秦明枝；素白中衣」存在未核条件；请实际看图或听音核对。保留你的选择。"
+    }
+  ],
+  "fingerprint": "b1b3ba232ec25aa045bedb76c0993c48cf93df9552aceef689557e1ac8f0436a"
+}

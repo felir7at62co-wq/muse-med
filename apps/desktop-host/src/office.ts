@@ -7,6 +7,7 @@ import { runtimeArchivePath } from './office-engine.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import * as screenplayDocx from './screenplay-docx.ts'
 import * as manuscriptRevisions from './manuscript-revisions.ts'
+import * as jianyingDraft from './jianying-draft.ts'
 import * as officeSkills from '@deepseek-ai/dsh-skill-office'
 import * as workspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
 
@@ -30,6 +31,8 @@ export interface Config {
   readonly docxReviewMode?: screenplayDocx.Config['reviewMode']
   /** Optional manuscript revision budgets; source snapshots remain workspace-local. */
   readonly manuscriptRevisions?: Partial<manuscriptRevisions.Config>
+  /** Optional interpreter override and limits for the bundled editable-draft builder. */
+  readonly jianyingDraft?: Partial<Omit<jianyingDraft.Config, 'source'>>
 }
 
 /**
@@ -40,6 +43,8 @@ export interface Config {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
   await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
+  await ctx.plugin(jianyingDraft, { source: config.source, timeoutMs: 600_000, graceMs: 1000,
+    maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, ...config.jianyingDraft })
   await ctx.plugin(screenplayDocx, { source: config.source,
     reviewMode: config.docxReviewMode ?? 'strict',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,

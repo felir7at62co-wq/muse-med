@@ -65,15 +65,16 @@
     },
     {
       "name": "audio_transcribe",
-      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。",
       "parameters": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string",
-            "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
+            "description": "start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。",
             "enum": [
               "start",
+              "inspect",
               "status"
             ]
           },
@@ -87,7 +88,7 @@
           },
           "receipt": {
             "type": "string",
-            "description": "status 必填：start 返回的 transcript/jobs 收据路径。"
+            "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径。"
           },
           "language": {
             "type": "string",
@@ -99,7 +100,7 @@
           },
           "purpose": {
             "type": "string",
-            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。",
             "enum": [
               "subtitles",
               "screenplay"
@@ -491,7 +492,7 @@
     },
     {
       "name": "drama_render",
-      "description": "短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，字幕文字只取 lines 里的剧本原文，cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺某一镜的对齐、段数与台词条数不符、识别文本与剧本对不上，都按 failure 报出（subtitle_line_coverage），并指出该对哪一镜重跑识别；有识别结果却没声明台词，同样报 failure。写出的每条字幕还会检查时长、重叠、越界与阅读速度（超过 20 字/秒按 failure，超过 12 字/秒按 warning）。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 68，字体服从部署配置；字间距 -2、黑描边按成片像素推导（目标 7px，标准管线写入 5）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。",
+      "description": "短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕并写出独立候选，由你判断下一步，提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 40，字体服从部署配置；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -519,11 +520,11 @@
           },
           "lines": {
             "type": "string",
-            "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜的台词在这里就按字幕条切好（单条不超过 14 个字），工具只给时间，不改文字。"
+            "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。"
           },
           "alignment": {
             "type": "string",
-            "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数与台词条数不符、或文本对不上，都会按 failure 报出。"
+            "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。"
           },
           "timeline": {
             "type": "string",
@@ -965,6 +966,22 @@
       }
     },
     {
+      "name": "interrupt_agent",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The id of an agent created under you: your direct child or a deeper descendant."
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      }
+    },
+    {
       "name": "job_kill",
       "description": "Request cancellation of a running background job.",
       "parameters": {
@@ -1014,6 +1031,23 @@
         "required": [
           "job_id"
         ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+            "enum": [
+              "children",
+              "descendants"
+            ]
+          }
+        }
       }
     },
     {
@@ -1824,7 +1858,7 @@
     },
     {
       "name": "screenplay_project",
-      "description": "小说、视频、换梗剧本的来源与逐集验收工具。init 记录用户方向；import_source 导入原文、segments 转写或 video_inspect 实际生成的 video_inspection 帧清单；read_source 返回程序生成的片段编号与原文。propose_fact 区分动作、发声、角色心理、作者分析；review_fact 须由另一会话核对归属。propose_facts/review_facts 可原子批量处理最多 20 条事实，每条独立归属与审校理由必须保留，任一失败整批不写入。read_source/list_facts 每次最多 100 条，编号从 1 开始。list_facts 从 1 起始恢复事实，按 65536 字节返回完整事实的前缀，用实际 next 继续直到 null，不以请求 count 推定已读完。read_fact/read_candidate 读取事实或完整候选。stage 提交结构化场次；stage_files 按文件顺序组稿，每个 JSON 文件含一个完整场次，单文件最多 65536 字节、最多 100 个文件，避免一次生成长 JSON；正文引用已批准事实。review 独立核对，commit 推进下一集。status 是中断恢复依据，export 只导出已验收正文。所有修改携带当前 expected_revision；编号、时间、摘要和引用行号由程序生成。来源编号原样使用 status.sources[].id，含 :text/:transcript/:video_inspection 类型后缀；按 kind/path 选择，不用正则截取或摘要旧值。read_source.units[] 的编号/原文是 id/text，事实审校状态是 fact.review?.decision，缺失 review 表示未审。视频转剧本 init 必须指定 workflow=video_to_screenplay；先导入并实际查看本集帧，分类、独立审校事实，再 stage/stage_files。coverage.windows 填本集完整来源范围，required_beats 保留范围内已批准事实的动作、对白、OS/VO类型；关键事件、无对白行动和人物反应不能遗漏。零动作候选 approve 时须提供 zero_action_reason，记录实际复看依据，不能为通过检查虚构动作或旁白。已验收稿需修改时用 fork_project，从 before_episode 集之前复制已验收状态到新的 destination 项目；原稿与原项目保留，修订仍须独立验收。批准事实有误时用 withdraw_fact 独立撤销，保留原审批但禁止再用于正文。已有候选引用时先 fork_project 到最早受影响集之前；更正事实须重新提出和独立审校，不覆盖原版本。OS 仅对应本人的心理，作者分析不能变成 OS。characters/actor/witnesses 保留纯人物名，characters 包含本场所有参与人物；仅以 VO 发声的人物也须列入 characters，再列入 voice_only_characters，程序在人物行标注（VO）。witnesses 仅填实际听见发声或看见动作的人。OS 无见证者；电话或播放语音等 VO 仅在 audible_in_scene=true 且引用已批准发声事实时可声明听者，未声明的 VO 仅观众可闻。requires_knowledge 填本人物须先获知的事实编号；未知身份使用声音编号，不猜角色。机械通过不等于语义通过，独立审校仍须读取来源和完整候选正文。",
+      "description": "小说、视频、换梗剧本的来源、版本与交付记录工具。当前为自主审校模式：新旧项目都由你根据任务决定是否自检、何时复核或委托子代理；不强制独立会话、固定分轮或先批准再起草和交付。init 记录方向，import_source 导入原文、转写或实际 video_inspect 帧清单；read_source/read_fact/list_facts/read_candidate 供实际核对。propose_fact/propose_facts 记录有来源或真实改编授权的事实；review_fact/review_facts/review 可记录你实际作出的决定与理由，同一会话可审校，不得把自主判断称为独立审校。stage/stage_files 按真实集号保存候选，可先写多集、从指定集开始或修订旧集，不要求前集先验收；commit 由你决定各集采用哪个真实版本，采用顺序不限，同集替换保留历史候选。export 可直接导出指定草稿或历史候选，不会自动采用或批准。status 的 next_episode 只是首个未采用集号建议，candidate_states 列出真实采用与审校状态，export.adoption 披露所导出版本的实际状态；按真实集号区分各集，不把采用数量当集号。连续性风险会作为 continuity_advisory 返回，由你判断怎样核对和衔接，不以缺少已采用前集阻止创作。采用不等于已独立审校，未审和未采用状态如实保留。项目修改携带当前 expected_revision，保留真实作者、审校者、来源与历史记录。来源编号原样使用 status.sources[].id；事实状态读取 fact.review?.decision，缺失表示未记录审校，不能声称已批准。文件、版本、引用与用户实际授权仍须有效，不能伪造来源或扩大改编许可；用户已编辑内容的保护保持有效。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2776,6 +2810,27 @@
       }
     },
     {
+      "name": "send_message",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the agent."
+          }
+        },
+        "required": [
+          "agent_id",
+          "message"
+        ]
+      }
+    },
+    {
       "name": "skill",
       "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
       "parameters": {
@@ -2792,8 +2847,88 @@
       }
     },
     {
+      "name": "subagent",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_fork",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
       "name": "todo_write",
-      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done.",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
       "parameters": {
         "type": "object",
         "properties": {

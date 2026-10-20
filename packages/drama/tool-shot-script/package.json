@@ -37,7 +37,12 @@
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
-    "@deepseek-ai/dsh-tool-jubian": "workspace:*"
+    "@deepseek-ai/dsh-tool-jubian": "workspace:*",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-jubian": "workspace:*",
+    "@deepseek-ai/dsh-jubian-api": "workspace:*",
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
@@ -52,7 +57,11 @@
     "@deepseek-ai/dsh-tool-jubian": "workspace:*",
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",
-    "@deepseek-ai/dsh-jubian": "workspace:*"
+    "@deepseek-ai/dsh-jubian": "workspace:*",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-jubian-api": "workspace:*",
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-agent": {

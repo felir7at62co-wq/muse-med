@@ -1,14 +1,23 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { packEpisode, writeAdvisoryReview } from '../src/episode.ts'
 import { buildReport } from '../src/report.ts'
 import type { BoundAsset, CompiledShot, ShotIssue } from '../src/types.ts'
 
 const directories: string[] = []
+const failures = vi.hoisted(() => ({ inspect: '' }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, lstat: async (...args: Parameters<typeof actual.lstat>) => {
+    if (String(args[0]) === failures.inspect) throw Object.assign(new Error('review target inspection denied'), { code: 'EACCES' })
+    return await actual.lstat(...args)
+  } }
+})
 
 afterEach(async () => {
+  failures.inspect = ''
   await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -69,6 +78,20 @@ describe('advisory episode packaging', () => {
     expect(() => packEpisode([shot(2, visual, [asset('陆沉舟', { official: false })])], 14)).toThrow('未确认出演')
   })
 
+  it('omits missing parent identities and mismatched asset keys without changing their authored references', () => {
+    const visual = '@[苏晚](asset_wrong) 看向 @[陆沉舟](other)。'
+    const issues: ShotIssue[] = []
+    const tasks = packEpisode([shot(2, visual, [asset('苏晚'), asset('陆沉舟', { assetId: '' })])], 14,
+      { reviewMode: 'advisory', issues })
+    expect(tasks[0]?.prompt).toBe(visual)
+    expect(tasks[0]?.materialBindings).toEqual([])
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'incomplete_asset', shot: 2 }),
+      expect.objectContaining({ code: 'material_reference_mismatch', shot: 2 }),
+    ]))
+    expect(issues.some(issue => issue.code === 'material_reference_mismatch' && issue.message.includes('asset_wrong'))).toBe(true)
+  })
+
   it('omits every disputed key instead of silently choosing its latest asset', () => {
     const issues: ShotIssue[] = []
     const tasks = packEpisode([shot(1, '@[苏晚](shared)', [asset('苏晚')], 10), shot(2, '@[陆沉舟](shared)', [asset('陆沉舟')], 10)], 14,
@@ -103,6 +126,15 @@ describe('advisory episode packaging', () => {
 })
 
 describe('writing a separate advisory review', () => {
+  it('propagates filesystem inspection errors without creating a review', async () => {
+    const root = await project(), script = join(root, 'source.txt')
+    await writeFile(script, 'original')
+    failures.inspect = root
+    await expect(writeAdvisoryReview({ project: root, episode: '01', scriptPath: script, report: report(script) }))
+      .rejects.toMatchObject({ code: 'EACCES', message: 'review target inspection denied' })
+    await expect(readFile(join(root, 'shot_reviews', '01', 'review.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(script, 'utf8')).toBe('original')
+  })
   it('copies exact source bytes and writes only a review without episode text or local asset images', async () => {
     const root = await project()
     const script = join(root, 'original.txt')

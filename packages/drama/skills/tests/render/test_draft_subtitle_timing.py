@@ -29,14 +29,18 @@ class DraftSubtitleTimingTests(unittest.TestCase):
                              [(100_000, 300_000), (500_000, 700_000)])
             self.assertEqual([cue['text'] for cue in cues], ['甲', '乙'])
 
-    def test_long_cue_without_split_speech_times_is_rejected_without_output(self):
+    def test_long_cue_preserves_source_text_and_timing_without_inventing_splits(self):
         with tempfile.TemporaryDirectory() as temporary:
             source, output = Path(temporary) / 'source.srt', Path(temporary) / 'normalized.srt'
             source.write_text('1\n00:00:00,100 --> 00:00:08,000\n'
                               '这是第一段台词 这是第二段台词 后面还有一段台词\n', encoding='utf-8')
-            with self.assertRaisesRegex(self.draft.DraftInputError, '分句.*时间'):
-                self.draft.normalize_srt(source, output)
-            self.assertFalse(output.exists())
+            before = source.read_bytes()
+            with self.assertLogs(self.draft.logger, level='WARNING'):
+                cues = self.draft.normalize_srt(source, output)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual(len(cues), 1)
+            self.assertEqual((cues[0]['start_us'], cues[0]['end_us']), (100_000, 8_000_000))
+            self.assertIn('这是第一段台词 这是第二段台词 后面还有一段台词', output.read_text())
 
 
 if __name__ == '__main__':

@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-const bundledSkillDir = fileURLToPath(new URL('../skills/', import.meta.url))
+const bundledSkillDir = retainedSkillsFixture()
 
 it('loads both source routes, the outline decision, and complete script delivery', async () => {
   const ctx = new Context()
@@ -28,12 +28,12 @@ it('loads both source routes, the outline decision, and complete script delivery
 })
 
 it('routes editor feedback to project versions and reports verified knowledge-base writes', async () => {
-  const skill = await readFile(new URL('../skills/editing/SKILL.md', import.meta.url), 'utf8')
+  const skill = await readFile(new URL('../skills/editing/SKILL.md.disabled', import.meta.url), 'utf8')
   expect(skill).toMatch(/编辑反馈.*原话.*大纲.*版本.*处理结果/su)
   expect(skill).toMatch(/编辑反馈.*项目.*记录.*知识库.*授权.*写入.*读回/su)
 })
 
-it('discovers separate novel conversion and trope-change guidance', async () => {
+it('loads retained separate novel conversion and trope-change guidance', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
@@ -75,9 +75,12 @@ it('makes the shared screenplay format available from both adaptation routes', a
 
 it('limits managed acceptance instructions to modes that provide the project tool', async () => {
   for (const name of ['editing', 'transcript-to-script', 'screenplay-format', 'novel-to-script', 'trope-adaptation']) {
-    const body = await readFile(new URL(`../skills/${name}/SKILL.md`, import.meta.url), 'utf8')
-    expect(body, name).toContain('编辑模式由当前 Agent 自主核对来源、修改和交付')
-    expect(body, name).toContain('当前工具目录提供 `screenplay_project` 且任务采用受管项目时，才加载')
+    const body = await readFile(new URL(`../skills/${name}/SKILL.md${name === 'screenplay-format' ? '' : '.disabled'}`, import.meta.url), 'utf8')
+    expect(body, name).toContain('当前 Agent 自主核对来源、修改和交付')
+    if (name === 'screenplay-format') {
+      expect(body).toContain('按当前工具声明区分 advisory 和明确启用的严格部署')
+      expect(body).toContain('不把自主检查称为独立审核，也不虚构审校通过')
+    } else expect(body, name).toContain('当前工具目录提供 `screenplay_project` 且任务采用受管项目时，才加载')
     expect(body, name).toContain('工具不可用时直接整理普通稿件，不调用受管命令')
   }
 })

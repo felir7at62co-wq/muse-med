@@ -18,6 +18,16 @@ import Tools from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 
+/** Replace only the filesystem-owned skill root in recorded model input. */
+function normalizeSkillRoot(text: string, root: string): string {
+  return text.replaceAll(`Base directory for this skill: ${root}`, 'Base directory for this skill: <bundled-skills>/')
+}
+
+it.each(['/fixture/skills/', 'C:\\fixture\\skills\\'])('records the skill root portably for %s without rewriting instruction paths', (root) => {
+  const text = `Base directory for this skill: ${root}shot-script-creator-9-16\nKeep scripts\\verify.py and /project/assets unchanged.`
+  expect(normalizeSkillRoot(text, root)).toBe('Base directory for this skill: <bundled-skills>/shot-script-creator-9-16\nKeep scripts\\verify.py and /project/assets unchanged.')
+})
+
 it('delivers current creative direction and full shot-writing skills', async () => {
   const raw = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
   const rows = parseYaml(raw, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }] }) as { id: string; config?: Persona.Config }[]
@@ -68,7 +78,7 @@ it('delivers current creative direction and full shot-writing skills', async () 
     const bodies = results.map((result) => {
       expect(result.data.message.isError).toBeFalsy()
       return result.data.message.content.filter(part => part.type === 'text')
-        .map(part => part.text.replaceAll(skillRoot.replace(/\/$/, ''), '<bundled-skills>')).join('\n')
+        .map(part => normalizeSkillRoot(part.text, skillRoot)).join('\n')
     })
     expect(adapter.requests).toHaveLength(names.length + 1)
     const finalMessages = JSON.stringify(adapter.requests.at(-1)!.messages)

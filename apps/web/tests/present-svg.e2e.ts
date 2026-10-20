@@ -44,6 +44,8 @@ describe('web e2e: requested SVG is explicitly delivered', () => {
     }
     scaffold = await launchWebScaffold({
       compareReplaySession: true,
+      // Four CI browsers share CPU; retain heartbeats without a six-second render deadline.
+      websocketHeartbeatIntervalMs: 10_000,
       extraOverlayPath: fileURLToPath(new URL('./present-svg.overlay.yml', import.meta.url)),
       ...(replayOverride === undefined ? {} : { replayFixture: FIXTURE, replayOverride }),
     })
