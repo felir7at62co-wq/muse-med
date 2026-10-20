@@ -6,7 +6,12 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import type { JobHandle, JobOutcome } from '@deepseek-ai/dsh-jobs'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import * as toolJobs from '@deepseek-ai/dsh-tool-jobs'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -60,6 +65,15 @@ function textResponse(text: string): StreamChunk[] {
   ]
 }
 
+/** A real tool step whose result precedes the final response in the same round. */
+function callResponse(name: string, args: object = {}): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId(`call-${Math.random()}`), name, arguments: JSON.stringify(args) } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
 /** One successful response cut off at the model output limit. */
 function maxTokensResponse(text: string): StreamChunk[] {
   return [
@@ -92,10 +106,17 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[]): Promise<Harness> {
+async function harness(script: ScriptEntry[], completionDelivery: toolJobs.CompletionDelivery = 'quiet'): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(LocalJobRegistry)
+  await ctx.plugin(toolJobs, { completionDelivery })
+  ctx.tools.register(defineTool({
+    name: 'progress', description: 'Perform one test work item.', parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    execute: () => Promise.resolve('work finished'),
+  }))
   await ctx.plugin(GoalService)
   const driver = await ctx.plugin(goalSession)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -191,8 +212,190 @@ describe('goal-round outcome policy', () => {
 })
 
 describe('same-session goal driving', () => {
+  it('parks a text-only automatic round instead of asking the model to wait again', async () => {
+    const test = await harness([textResponse('No new output; standing by.'), textResponse('must not run')])
+    test.ctx.goals.create(test.agent, { objective: 'monitor new work', maxGoalRounds: 8 })
+    await test.agent.whenIdle()
+    await vi.waitFor(() => {
+      expect(test.ctx.goals.get(test.agent)).toMatchObject({
+        phase: 'active', roundsStarted: 1, wait: { reason: 'no-tools' },
+      })
+    })
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('continues a waiting goal after user input without marking it complete', async () => {
+    const test = await harness([textResponse('standing by'), textResponse('answer'), textResponse('checking again')])
+    test.ctx.goals.create(test.agent, { objective: 'monitor', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.wait !== undefined)
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'new information' }], source: { kind: 'user' } }))
+    await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 2 && goal.wait !== undefined)
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(test.ctx.goals.get(test.agent)?.phase).toBe('active')
+  })
+
+  it('wakes a timer once and ignores a timer invalidated by pause', async () => {
+    const test = await harness([textResponse('timer fired')])
+    const goal = test.ctx.goals.create(test.agent, { objective: 'later', maxGoalRounds: 4 })
+    test.ctx.goals.wait(test.agent, goal, { reason: 'timer', message: 'later', wakeAt: Date.now() + 30 })
+    await waitForGoal(test.ctx, test.agent, current => current?.roundsStarted === 1 && current.wait?.reason === 'no-tools')
+    expect(test.adapter.requests).toHaveLength(1)
+    const current = test.ctx.goals.get(test.agent)!
+    test.ctx.goals.wait(test.agent, current, { reason: 'timer', message: 'obsolete', wakeAt: Date.now() + 30 })
+    test.ctx.goals.pause(test.agent, current)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.ctx.goals.get(test.agent)?.phase).toBe('paused')
+  })
+
+  it.each(['pause', 'edit', 'clear', 'disarm', 'replace', 'unload'] as const)('ignores an already queued timer callback after %s', async (action) => {
+    const test = await harness([])
+    const timer = vi.spyOn(globalThis, 'setTimeout')
+    try {
+      const goal = test.ctx.goals.create(test.agent, { objective: 'later' })
+      test.ctx.goals.wait(test.agent, goal, { reason: 'timer', message: 'later', wakeAt: Date.now() + 60_000 })
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      const index = timer.mock.calls.findIndex(([, delay]) => delay !== undefined && delay > 59_000)
+      const callback = timer.mock.calls[index]?.[0]
+      if (callback === undefined) throw new Error('expected the goal timer')
+      const scheduled = timer.mock.results[index]
+      if (scheduled?.type === 'return') clearTimeout(scheduled.value)
+      switch (action) {
+        case 'pause': test.ctx.goals.pause(test.agent, goal); break
+        case 'edit': test.ctx.goals.edit(test.agent, goal, { objective: 'revised' }); break
+        case 'clear': test.ctx.goals.clear(test.agent, goal); break
+        case 'disarm': test.ctx.goals.disarm(test.agent); break
+        case 'replace': test.ctx.goals.wait(test.agent, goal, { reason: 'input', message: 'different event' }); break
+        case 'unload': await test.driver.dispose(); break
+      }
+      callback()
+      if (action === 'edit') test.ctx.goals.disarm(test.agent)
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      expect(test.adapter.requests).toHaveLength(0)
+    } finally { timer.mockRestore() }
+  })
+
+  it('keeps an unavailable restored job waiting and clamps long timers without busy polling', async () => {
+    const test = await harness([])
+    const timer = vi.spyOn(globalThis, 'setTimeout')
+    try {
+      const goal = test.ctx.goals.create(test.agent, { objective: 'long monitor' })
+      test.ctx.goals.wait(test.agent, goal, {
+        reason: 'job', message: 'restored job', job: { id: JobId('gone'), outputOffset: 0 },
+        wakeAt: Date.now() + 3_000_000_000,
+      })
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+      const index = timer.mock.calls.findIndex(([, delay]) => delay === 2_147_483_647)
+      const callback = timer.mock.calls[index]?.[0]
+      if (callback === undefined) throw new Error('expected a clamped timer')
+      const scheduled = timer.mock.results[index]
+      if (scheduled?.type === 'return') clearTimeout(scheduled.value)
+      callback()
+      expect(timer.mock.calls.filter(([, delay]) => delay === 2_147_483_647)).toHaveLength(2)
+      expect(test.adapter.requests).toHaveLength(0)
+    } finally { timer.mockRestore() }
+  })
+
+  it('does not change agentless tool results or post-execute blocking decisions', async () => {
+    const test = await harness([callResponse('progress'), textResponse('blocked result handled')])
+    const result = await test.ctx.tools.execute({ name: 'progress', arguments: {}, callId: ToolCallId('agentless'), signal: new AbortController().signal })
+    expect(result.value).toBe('work finished')
+    test.ctx.on('tools/post-execute', async (execution, _result, next) => {
+      const downstream = await next()
+      return execution.name === 'progress' ? { kind: 'block', feedback: [{ type: 'text', text: 'test policy' }] } : downstream
+    })
+    test.ctx.goals.create(test.agent, { objective: 'handle blocked tool', maxGoalRounds: 1 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('parks an empty job poll and wakes on new bytes without consuming them', async () => {
+    const script: ScriptEntry[] = []
+    const test = await harness(script)
+    let handle: JobHandle | undefined
+    let settle: ((outcome: JobOutcome) => void) | undefined
+    const done = new Promise<JobOutcome>((resolve) => { settle = resolve })
+    const id = test.ctx.jobs.start({
+      kind: 'bash', label: 'monitor', owner: test.agent.id,
+      run(job) { handle = job; return { done, cancel: () => { settle!({ status: 'killed' }) } } },
+    })
+    script.push(callResponse('job_output', { job_id: id }), textResponse('no new output'), textResponse('new output arrived'))
+    test.ctx.goals.create(test.agent, { objective: 'monitor job', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.wait?.reason === 'job')
+    expect(test.adapter.requests).toHaveLength(2)
+    handle!.append('new item')
+    await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 2 && goal.wait?.reason === 'no-tools')
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(test.ctx.jobs.read(id, test.agent.id).chunks.map(chunk => chunk.text).join('')).toBe('new item')
+  })
+
+  it('keeps a stopping job asleep until settlement and coalesces progress notifications', async () => {
+    const script: ScriptEntry[] = []
+    const test = await harness(script)
+    let handle: JobHandle | undefined
+    let settle: ((outcome: JobOutcome) => void) | undefined
+    const done = new Promise<JobOutcome>((resolve) => { settle = resolve })
+    const id = test.ctx.jobs.start({
+      kind: 'bash', label: 'stopping', owner: test.agent.id,
+      run(job) { handle = job; return { done, cancel() {} } },
+    })
+    try {
+      test.ctx.jobs.kill(id, test.agent.id)
+      script.push(callResponse('job_output', { job_id: id }), textResponse('still stopping'), textResponse('job settled'))
+      test.ctx.goals.create(test.agent, { objective: 'monitor shutdown', maxGoalRounds: 8 })
+      await waitForGoal(test.ctx, test.agent, goal => goal?.wait?.reason === 'job')
+      handle!.updateProgress('still stopping')
+      expect(test.adapter.requests).toHaveLength(2)
+      settle!({ status: 'killed' })
+      await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 2 && goal.wait?.reason === 'no-tools')
+      expect(test.adapter.requests).toHaveLength(3)
+    } finally { settle!({ status: 'killed' }) }
+  })
+
+  it('settles the default completion notice and one goal round without another standby loop', async () => {
+    const test = await harness([textResponse('completion delivered'), textResponse('goal checked')], 'wakeup')
+    let settle: ((outcome: JobOutcome) => void) | undefined
+    const done = new Promise<JobOutcome>((resolve) => { settle = resolve })
+    const id = test.ctx.jobs.start({ kind: 'bash', label: 'monitor', owner: test.agent.id, run: () => ({ done, cancel() { settle!({ status: 'killed' }) } }) })
+    const goal = test.ctx.goals.create(test.agent, { objective: 'monitor background completion', maxGoalRounds: 8 })
+    test.ctx.goals.wait(test.agent, goal, { reason: 'job', message: 'completion', job: { id, outputOffset: 0 } })
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    settle!({ status: 'completed' })
+    await waitForGoal(test.ctx, test.agent, current => current?.roundsStarted === 1 && current.wait?.reason === 'no-tools')
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('does not suppress productive reads when the pre-read observation fails', async () => {
+    const script: ScriptEntry[] = []
+    const test = await harness(script)
+    let settle: ((outcome: JobOutcome) => void) | undefined
+    const done = new Promise<JobOutcome>((resolve) => { settle = resolve })
+    const id = test.ctx.jobs.start({ kind: 'bash', label: 'read', owner: test.agent.id, run: () => ({ done, cancel() { settle!({ status: 'killed' }) } }) })
+    script.push(callResponse('job_output', { job_id: id }), textResponse('read completed'), textResponse('next round'))
+    vi.spyOn(test.ctx.jobs, 'get').mockImplementationOnce(() => { throw new Error('observation unavailable') })
+    test.ctx.goals.create(test.agent, { objective: 'continue real work', maxGoalRounds: 2 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    expect(test.adapter.requests).toHaveLength(3)
+  })
+
+  it('keeps human tool work separate from automatic no-tool detection', async () => {
+    const test = await harness([textResponse('standing by'), callResponse('progress'), textResponse('answer'), textResponse('checking again')])
+    test.ctx.goals.create(test.agent, { objective: 'monitor', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.wait !== undefined)
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do this item' }], source: { kind: 'user' } }))
+    await waitForGoal(test.ctx, test.agent, goal => goal?.roundsStarted === 2 && goal.wait !== undefined)
+    expect(test.adapter.requests).toHaveLength(4)
+  })
+
+  it('keeps transport failures from being mistaken for an empty background poll', async () => {
+    const test = await harness([callResponse('run_code', { code: 'return 1' }), textResponse('transport unavailable'), textResponse('next round')])
+    test.ctx.goals.create(test.agent, { objective: 'continue after transport result', maxGoalRounds: 2 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    expect(test.adapter.requests).toHaveLength(3)
+  })
+
   it('admits exact numbered rounds until the durable round cap', async () => {
-    const test = await harness([textResponse('round one'), textResponse('round two')])
+    const test = await harness([callResponse('progress'), textResponse('round one'), textResponse('round two')])
     const created = test.ctx.goals.create(test.agent, { objective: 'finish twice', maxGoalRounds: 2 })
 
     const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
@@ -202,7 +405,7 @@ describe('same-session goal driving', () => {
       code: 'round-limit',
       message: 'Goal reached its configured limit of 2 rounds.',
     })
-    expect(test.adapter.requests).toHaveLength(2)
+    expect(test.adapter.requests).toHaveLength(3)
     const rounds: number[] = []
     for (const event of test.agent.session.snapshotEvents()) {
       // Round zero is a durable goal state change; positive rounds are the
@@ -213,7 +416,7 @@ describe('same-session goal driving', () => {
     }
     expect(rounds).toEqual([1, 2])
     expect(requestText(test.adapter.requests[0]!)).toContain('Round: 1/2')
-    expect(requestText(test.adapter.requests[1]!)).toContain('Round: 2/2')
+    expect(requestText(test.adapter.requests[2]!)).toContain('Round: 2/2')
     expect(test.agent.session.snapshotEvents().flatMap(event =>
       event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial', 'series'])
   })
@@ -598,7 +801,7 @@ describe('same-session goal driving', () => {
   })
 
   it('reserves the next round only after the settled round checkpoint succeeds', async () => {
-    const test = await harness([textResponse('round one'), textResponse('round two')])
+    const test = await harness([callResponse('progress'), textResponse('round one'), textResponse('round two')])
     const flushes: number[] = []
     test.ctx.on('session/flush', () => { flushes.push(test.adapter.requests.length) })
     test.ctx.goals.create(test.agent, { objective: 'checkpoint between rounds', maxGoalRounds: 2 })
@@ -607,10 +810,10 @@ describe('same-session goal driving', () => {
 
     expect(goal?.blockedReason?.code).toBe('round-limit')
     expect(goal?.roundsStarted).toBe(2)
-    expect(test.adapter.requests).toHaveLength(2)
+    expect(test.adapter.requests).toHaveLength(3)
     // A flush was observed after round one settled and before round two
     // dispatched (recorded request count 1 at flush time).
-    expect(flushes).toContain(1)
+    expect(flushes).toContain(2)
   })
 
   it('contains a checkpoint failure after a clear notification leaves no current goal', async () => {
@@ -1027,6 +1230,7 @@ describe('same-session goal driving', () => {
     const closed = handle.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')
     if (closed?.type !== 'turn/end') throw new Error('expected a closed turn')
     await handle.dispose()
+    agentEvents(test.ctx, handle.agent).emit('agent/disposed', {})
     const warn = vi.spyOn(test.ctx.logger, 'warn')
 
     agentEvents(test.ctx, handle.agent).emit('agent/error', { turn: closed.data.turn, step: 1, error: new Error('late flush failure') })

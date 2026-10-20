@@ -21,6 +21,8 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -360,6 +362,66 @@ describe('goal tool execution authority', () => {
 })
 
 describe('goal tool state transitions', () => {
+  it('waits for input or an accessible job and refuses another session job', async () => {
+    const { ctx, root } = await harness()
+    await ctx.plugin(LocalJobRegistry)
+    ctx.effect(() => ctx.jobs.attachController('goal-wait-test'))
+    openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'monitor' })
+    const input = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: 1, action: 'wait',
+    }, root.agent)
+    expect(input.value).toMatchObject({ wait: { reason: 'input' } })
+    let settle: ((outcome: JobOutcome) => void) | undefined
+    const done = new Promise<JobOutcome>((resolve) => { settle = resolve })
+    const job = ctx.jobs.start({ kind: 'bash', label: 'owned job', owner: root.agent.id, run: () => ({ done, cancel() { settle!({ status: 'killed' }) } }) })
+    for (const extra of [{}, { wake_after_seconds: 60 }]) {
+      const waiting = await execute(ctx, 'update_goal', {
+        goal_id: created.id, revision: 1, action: 'wait', job_id: job, ...extra,
+      }, root.agent)
+      expect(waiting.value).toMatchObject({ wait: { reason: 'job', jobId: job } })
+    }
+    const foreign = stubAgent('foreign-job', undefined, ctx)
+    await ctx.agents.register(foreign.agent)
+    const foreignId = ctx.jobs.start({ kind: 'bash', label: 'foreign', owner: foreign.agent.id, run: () => ({ done, cancel() { settle!({ status: 'killed' }) } }) })
+    const denied = await execute(ctx, 'update_goal', { goal_id: created.id, revision: 1, action: 'wait', job_id: foreignId }, root.agent)
+    expect(denied.isError).toBe(true)
+    expect(ctx.goals.get(root.agent)?.wait?.job?.id).toBe(job)
+    await ctx.fiber.dispose()
+  })
+
+  it('lets an admitted goal round yield with a timer and reports the durable wait', async () => {
+    const { ctx, root } = await harness()
+    const created = ctx.goals.create(root.agent, { objective: 'monitor' })
+    openTurn(root, { kind: 'goal', goalId: created.id, revision: created.revision, round: 1 })
+    const result = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'wait',
+      wait_reason: 'check again later', wake_after_seconds: 60,
+    }, root.agent)
+    expect(result.isError).toBe(false)
+    expect(result.value).toMatchObject({ goal: { phase: 'active', roundsStarted: 1 }, wait: { reason: 'timer', message: 'check again later' } })
+    expect(root.inbox.nextStep).toHaveLength(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects wait arguments on lifecycle actions and invalid timers without changing the goal', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    const goal = ctx.goals.create(root.agent, { objective: 'monitor' })
+    for (const fields of [
+      { action: 'complete', wake_after_seconds: 1 },
+      { action: 'wait', wake_after_seconds: -1 },
+      { action: 'wait', wake_after_seconds: 0.5 },
+      { action: 'wait', objective: 'replace' },
+      { action: 'wait', job_id: 'missing' },
+    ]) {
+      const result = await execute(ctx, 'update_goal', { goal_id: goal.id, revision: goal.revision, ...fields }, root.agent)
+      expect(result.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+      expect(ctx.goals.get(root.agent)?.wait).toBeUndefined()
+    }
+    await ctx.fiber.dispose()
+  })
+
   it('reads null, then edits and pauses by exact revision in one human turn', async () => {
     const { ctx, root } = await harness()
     openTurn(root, { kind: 'user' })

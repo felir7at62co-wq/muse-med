@@ -8,6 +8,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
+import { JobId } from '@deepseek-ai/dsh-jobs/brand'
+import type { JobView } from '@deepseek-ai/dsh-jobs'
 import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 declare module '@deepseek-ai/dsh-llm' {
@@ -44,9 +46,9 @@ interface ResolvedConfig {
   readonly blockedAfterConsecutiveRounds: number
 }
 
-type UpdateAction = 'edit' | 'pause' | 'resume' | 'complete' | 'blocked'
+type UpdateAction = 'edit' | 'pause' | 'resume' | 'complete' | 'blocked' | 'wait'
 
-const UPDATE_ACTIONS: UpdateAction[] = ['edit', 'pause', 'resume', 'complete', 'blocked']
+const UPDATE_ACTIONS: UpdateAction[] = ['edit', 'pause', 'resume', 'complete', 'blocked', 'wait']
 
 const CREATE_DESCRIPTION =
   'Create a persisted goal that keeps this session working across automatic continuation rounds. '
@@ -69,6 +71,7 @@ type GoalToolValue =
       blockedReason?: { code: string; message: string }
     }
     activation: GoalView['activation']
+    wait?: { reason: string; message: string; wakeAt?: number; jobId?: string }
   }
 
 const GOAL_VALUE_SCHEMA = {
@@ -106,6 +109,16 @@ const GOAL_VALUE_SCHEMA = {
           },
         },
         activation: { type: 'string', required: true, enum: ['armed', 'disarmed'] },
+        wait: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            reason: { type: 'string', required: true },
+            message: { type: 'string', required: true },
+            wakeAt: { type: 'integer' },
+            jobId: { type: 'string' },
+          },
+        },
       },
     },
   ],
@@ -169,6 +182,14 @@ function goalValue(goal: GoalView | undefined): GoalToolValue {
       },
     },
     activation: goal.activation,
+    ...goal.wait === undefined ? {} : {
+      wait: {
+        reason: goal.wait.reason,
+        message: goal.wait.message,
+        ...goal.wait.wakeAt === undefined ? {} : { wakeAt: goal.wait.wakeAt },
+        ...goal.wait.job === undefined ? {} : { jobId: goal.wait.job.id },
+      },
+    },
   }
 }
 
@@ -242,7 +263,8 @@ export function apply(ctx: Context, config: Config): void {
         required: true,
         enum: UPDATE_ACTIONS,
         description: 'edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed '
-          + 'during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.',
+          + 'during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. '
+          + 'wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.',
       },
       objective: { type: 'string', description: 'Replacement objective; valid only with action edit.' },
       max_goal_rounds: { type: 'number', description: 'Replacement cap; valid only with action edit.' },
@@ -250,11 +272,43 @@ export function apply(ctx: Context, config: Config): void {
         type: 'string',
         description: 'Required only with action blocked: the concrete condition that persisted across rounds and blocks progress.',
       },
+      wait_reason: { type: 'string', description: 'With action wait: describe what new information or event is needed.' },
+      wake_after_seconds: { type: 'number', description: 'With action wait: optional positive whole seconds before continuing.' },
+      job_id: { type: 'string', description: 'With action wait: optional owned job to watch for new output or settlement.' },
     },
     output: GOAL_OUTPUT,
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       const ref = goalRef(args.goal_id, args.revision)
+      if (args.action !== 'wait' && (hasText(args.wait_reason) || hasText(args.job_id)
+        || hasRoundCap(args.wake_after_seconds))) {
+        throw new HarnessError('wait fields are valid only with action wait', 'GOAL_TOOL_INVALID_UPDATE')
+      }
+      if (args.action === 'wait') {
+        completionAuthority(ctx, execution)
+        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
+          throw new HarnessError('wait cannot edit or complete the goal', 'GOAL_TOOL_INVALID_UPDATE')
+        }
+        const seconds = hasRoundCap(args.wake_after_seconds) ? args.wake_after_seconds : undefined
+        if (seconds !== undefined && (!Number.isSafeInteger(seconds) || seconds < 1
+          || !Number.isSafeInteger(Date.now() + seconds * 1000))) {
+          throw new HarnessError('wake_after_seconds must be a positive safe whole number', 'GOAL_TOOL_INVALID_UPDATE')
+        }
+        let job: JobView | undefined
+        if (hasText(args.job_id)) {
+          const jobs = ctx.get('jobs')
+          if (jobs === undefined) {
+            throw new HarnessError('job waiting requires the jobs service', 'GOAL_TOOL_INVALID_UPDATE')
+          }
+          job = jobs.get(JobId(args.job_id), execution.agent.id)
+        }
+        return Promise.resolve(goalValue(ctx.goals.wait(execution.agent, ref, {
+          reason: job !== undefined ? 'job' : seconds !== undefined ? 'timer' : 'input',
+          message: args.wait_reason?.trim() || 'Waiting for new information before continuing.',
+          ...seconds === undefined ? {} : { wakeAt: Date.now() + seconds * 1000 },
+          ...job === undefined ? {} : { job: { id: job.id, outputOffset: job.output.total } },
+        })))
+      }
       const replacements = {
         ...hasText(args.objective) ? { objective: args.objective } : {},
         ...hasRoundCap(args.max_goal_rounds) ? { maxGoalRounds: args.max_goal_rounds } : {},

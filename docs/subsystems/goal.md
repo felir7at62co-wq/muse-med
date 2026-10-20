@@ -6,14 +6,14 @@ Types shared by the event-sourced goal service and its policy consumers. The [go
 
 ## Identity and lifecycle
 
-`GoalId` is a [branded id](core.md#branded-ids). A caller mutates one exact revision through `GoalRef`; every accepted durable mutation increments the revision.
+`GoalId` is a [branded id](core.md#branded-ids). A caller mutates one exact revision through `GoalRef`; each `goal/change` update increments the revision, while waits and their releases retain it.
 
 ```ts type-equiv
 /** Compare-and-set identity for one exact goal revision. */
 interface GoalRef {
   /** Stable goal identity. */
   readonly id: GoalId
-  /** Positive revision; every durable mutation increments it. */
+  /** Positive goal revision; waiting and wake-up retain it. */
   readonly revision: number
 }
 ```
@@ -56,8 +56,32 @@ interface GoalSnapshot extends GoalRef {
 ```
 
 ```ts type-equiv
+/** Conditions that let an active goal yield without completing or pausing it. */
+interface GoalWaitRequest {
+  /** Why automatic continuation is deferred. */
+  readonly reason: 'no-tools' | 'input' | 'timer' | 'job'
+  /** Non-empty explanation shown to the user and returned to the model. */
+  readonly message: string
+  /** Optional epoch milliseconds at which the active process may wake the goal. */
+  readonly wakeAt?: number
+  /** Exact background job and output offset observed before yielding. */
+  readonly job?: { readonly id: JobId; readonly outputOffset: number }
+}
+```
+
+```ts type-equiv
+/** Durable wait, fenced to the session event that installed it. */
+interface GoalWait extends GoalWaitRequest {
+  /** Session event sequence used to reject stale timers and job callbacks. */
+  readonly sequence: number
+}
+```
+
+```ts type-equiv
 /** Current goal projection, including values derived from the session log. */
 interface GoalView extends GoalSnapshot {
+  /** Automatic continuation is deferred while this value is present. */
+  readonly wait?: GoalWait
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
   /** Epoch milliseconds of the create mutation. */
@@ -90,7 +114,7 @@ interface GoalActivationChanged {
 
 ## Durable changes
 
-Every mutation is a durable `goal/change` session event whose payload is either a complete post-mutation snapshot or a clear tombstone. The strict fold and persisted projection derive lifecycle state only from these events; inbox mutations do not affect goal state.
+Revision updates use a durable `goal/change` session event whose payload is a complete post-mutation snapshot or a clear tombstone. Required `goal/wait` events install or release continuation deferrals without changing the revision. The strict fold and persisted projection derive goal state from these events; inbox mutations do not change it.
 
 ```ts type-equiv
 /** Full-snapshot goal mutation committed by a durable `goal/change` event. */
@@ -194,6 +218,24 @@ Goal service (`ctx.goals`) backed exclusively by the owning session log.
  * @returns a fresh disarmed view, or `undefined` when no goal is current.
  */
 disarm(agent: Agent): GoalView | undefined
+
+/**
+ * Defer automatic continuation while preserving an active goal and its revision.
+ * @param agent - exact live owning agent.
+ * @param ref - expected current revision.
+ * @param request - explanation and optional timer or job wake condition.
+ * @returns the current view with its committed wait.
+ */
+wait(agent: Agent, ref: GoalRef, request: GoalWaitRequest): GoalView
+
+/**
+ * Release only the exact wait observed by a timer, job event, or user input.
+ * @param agent - exact live owning agent.
+ * @param ref - goal revision captured with the wait.
+ * @param sequence - event sequence of the wait being released.
+ * @returns whether that wait was current and released.
+ */
+wake(agent: Agent, ref: GoalRef, sequence: number): boolean
 
 /**
  * Create and arm a goal. A completed goal may be replaced; every other
@@ -305,6 +347,25 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
  * @mode emit
  */
 'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
+```
+
+Types: [Agent](core.md) · [Scoped](scope.md)
+
+Source: [`packages/goal/goal/src/domain.ts`](../../packages/goal/goal/src/domain.ts)
+
+<a id="goalwait-changed--emit"></a>
+
+#### `goal/wait-changed` — emit
+
+A durable goal wait was installed or released.
+
+```ts cordis-catalog
+/**
+ * A durable goal wait was installed or released.
+ * @mode emit
+ * @param payload - owning agent and its fresh current goal view.
+ */
+'goal/wait-changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; goal: GoalView }): void
 ```
 
 Types: [Agent](core.md) · [Scoped](scope.md)

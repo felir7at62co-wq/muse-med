@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Mount `dsh-goal` whenever a session should remember one long-running completion objective across many turns and restarts. The package is a service: the model tools, the `/goal` command, and the continuation driver are separate packages that consume the same goal state, so mounting only this package stores and serves the goal without starting any work.
 
+A durable `goal/wait` event records a continuation deferral without changing the objective, revision or admitted round count. `get()` and the `goal` projection expose the wait explanation and optional job or timer condition. Only an active goal can wait; pause, edit, resume, completion and clearing remove its wait. Releases compare both the goal revision and wait sequence, so an old timer cannot release a replacement wait. Restoring a session preserves the wait but leaves activation disarmed until a human resumes it.
+
 ### When to use it
 
 A goal suits one long-running completion objective that should continue across autonomous goal rounds — for example shipping a migration or fixing every failing documentation gate. Routine single-turn work should not create a goal. The service keeps at most one current goal per session: an unfinished goal must be edited, paused, resumed, blocked, or cleared before another takes its place, while a completed goal can be replaced directly.

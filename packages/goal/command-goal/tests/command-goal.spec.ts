@@ -89,6 +89,19 @@ function ref(goal: NonNullable<ReturnType<GoalService['get']>>): GoalRef {
 }
 
 describe('@deepseek-ai/dsh-command-goal registration', () => {
+  it('reports a durable wait and exposes manual resume without completing the goal', async () => {
+    const test = await harness()
+    const goal = test.ctx.goals.create(test.agent, { objective: 'monitor new work' })
+    test.ctx.goals.wait(test.agent, goal, { reason: 'input', message: 'new work needed' })
+    const result = await run(test)
+    expect(result).toMatchObject({ kind: 'success' })
+    expect(result.text).toContain('Waiting: new work needed')
+    expect(result.text).toContain('/goal resume')
+    await run(test, ' resume')
+    expect(test.ctx.goals.get(test.agent)?.wait).toBeUndefined()
+    await test.ctx.fiber.dispose()
+  })
+
   it('registers one global command with Loader-safe exports and disposes it', async () => {
     const test = await harness()
     expect(commandGoal.name).toBe('command-goal')

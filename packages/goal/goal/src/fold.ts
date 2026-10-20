@@ -3,7 +3,8 @@
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
-import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot } from './types.ts'
+import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot, GoalWait } from './types.ts'
+import { goalWaitChangeSchema } from './wait.ts'
 import type {
   FoldedGoal,
   GoalChangeMeta,
@@ -25,6 +26,7 @@ const PHASES: ReadonlySet<GoalPhase> = new Set(['active', 'paused', 'blocked', '
 
 /** Mutable accumulator kept private to the pure fold. */
 export interface GoalFoldState {
+  wait?: GoalWait
   goal: GoalSnapshot | undefined
   roundsStarted: number
   createdAt: number | undefined
@@ -284,6 +286,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
     state.createdAt = undefined
     state.updatedAt = undefined
     state.lastRef = ref
+    delete state.wait
     return
   }
   if (change.operation === 'create') {
@@ -303,6 +306,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
   state.createdAt = change.createdAt
   state.updatedAt = change.updatedAt
   state.lastRef = ref
+  delete state.wait
 }
 
 /**
@@ -311,6 +315,20 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
  * @param event - next event in sequence order.
  */
 export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): void {
+  if (event.type === 'goal/wait') {
+    const change = goalWaitChangeSchema.parse(event.data)
+    const current = state.goal
+    if (current === undefined || current.phase !== 'active' || change.ref.id !== current.id
+      || change.ref.revision !== current.revision || change.roundsStarted !== state.roundsStarted) {
+      throw new Error('goal wait must match the active revision and admitted round')
+    }
+    if (change.wait === null) delete state.wait
+    else {
+      if (change.wait.sequence !== event.seq) throw new Error('goal wait sequence must match its event')
+      state.wait = change.wait
+    }
+    return
+  }
   if (event.type === 'goal/change') {
     const change = decodeGoalChange(event.data)
     /* v8 ignore next -- the event's declared payload always identifies itself as a goal change. */
@@ -327,6 +345,7 @@ export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): void 
       || source.round > current.maxGoalRounds) {
       throw new Error(`goal round at session event ${event.seq} is not the next admitted round of the active goal`)
     }
+    if (state.wait !== undefined) throw new Error('goal round cannot enter while continuation is waiting')
     state.roundsStarted = source.round
   }
 }
@@ -340,6 +359,7 @@ export function foldGoal(events: readonly SessionEvent[]): FoldedGoal {
   const state = emptyGoalFoldState()
   for (const event of events) applyGoalEvent(state, event)
   return {
+    ...state.wait === undefined ? {} : { wait: state.wait },
     ...state.goal === undefined ? {} : { goal: { ...state.goal } },
     roundsStarted: state.roundsStarted,
     ...state.createdAt === undefined ? {} : { createdAt: state.createdAt },

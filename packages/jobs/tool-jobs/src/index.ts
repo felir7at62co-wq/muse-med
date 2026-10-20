@@ -21,6 +21,12 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent'
 import { publicJob, renderModelDelta, statusLine } from './render.ts'
 import type { PublicJobSnapshot } from './render.ts'
+
+/** Schema-validated canonical value returned by `job_output`. */
+export type JobOutputValue = {
+  readonly text: string
+  readonly job: Readonly<PublicJobSnapshot>
+}
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'tool-jobs': { kind: 'tool-jobs' } & ContextFormed
@@ -180,7 +186,7 @@ function presentJobCall(title: string, kind: 'read' | 'execute', rawInput?: stri
 }
 
 /** The consuming read as the model sees it: the delta, then the result once, then the status line. */
-function readBody(read: JobRead): { text: string; job: PublicJobSnapshot } {
+function readBody(read: JobRead): JobOutputValue {
   const delta = renderModelDelta(read.chunks, read.lossy, read.job.output.spillPaths ?? [])
   const text = read.result === undefined
     ? delta

@@ -1299,6 +1299,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a fresh disarmed view, or `undefined` when no goal is current.',
       },
       {
+        signature: 'wait(agent: Agent, ref: GoalRef, request: GoalWaitRequest): GoalView',
+        description: 'Defer automatic continuation while preserving an active goal and its revision.',
+        parameters: [{ name: 'agent', description: 'exact live owning agent.' }, { name: 'ref', description: 'expected current revision.' }, { name: 'request', description: 'explanation and optional timer or job wake condition.' }],
+        returns: 'the current view with its committed wait.',
+      },
+      {
+        signature: 'wake(agent: Agent, ref: GoalRef, sequence: number): boolean',
+        description: 'Release only the exact wait observed by a timer, job event, or user input.',
+        parameters: [{ name: 'agent', description: 'exact live owning agent.' }, { name: 'ref', description: 'goal revision captured with the wait.' }, { name: 'sequence', description: 'event sequence of the wait being released.' }],
+        returns: 'whether that wait was current and released.',
+      },
+      {
         signature: 'create(agent: Agent, request: CreateGoalRequest): GoalView',
         description: 'Create and arm a goal. A completed goal may be replaced; every other current phase must be cleared or resumed instead.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'request', description: 'objective and optional round cap.' }],
@@ -4453,6 +4465,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.change - fresh current projection or clear tombstone.' }],
   },
   {
+    name: 'goal/wait-changed',
+    mode: 'emit',
+    signature: '\'goal/wait-changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, payload: { agent: Agent; goal: GoalView }): void',
+    summary: 'A durable goal wait was installed or released.',
+    description: 'A durable goal wait was installed or released.',
+    parameters: [{ name: 'payload', description: 'owning agent and its fresh current goal view.' }],
+  },
+  {
     name: 'hmr/change',
     mode: 'emit',
     signature: '\'hmr/change\'(url: string): void',
@@ -5806,7 +5826,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GoalView',
-    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly wait?: GoalWait;\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+  },
+  {
+    name: 'GoalWait',
+    declaration: 'export interface GoalWait extends GoalWaitRequest {\n    readonly sequence: number;\n}',
+  },
+  {
+    name: 'GoalWaitRequest',
+    declaration: 'export interface GoalWaitRequest {\n    readonly reason: \'no-tools\' | \'input\' | \'timer\' | \'job\';\n    readonly message: string;\n    readonly wakeAt?: number;\n    readonly job?: {\n        readonly id: JobId;\n        readonly outputOffset: number;\n    };\n}',
   },
   {
     name: 'GrantRecord',

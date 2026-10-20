@@ -10167,6 +10167,199 @@
       }
     },
     {
+      "key": "event:goal/wait",
+      "kind": "event",
+      "event": "goal/wait",
+      "surface": false,
+      "digest": "9b59bc3b899777e9736eae6feb0221b087ffdffd9c635ceaf3d6bff6810e2d63",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 16,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "ref",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "roundsStarted",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "version",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "wait",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "goal/wait"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "id",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "revision",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": 1
+          },
+          {
+            "kind": "union",
+            "types": [
+              8,
+              15
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "job",
+                "type": 9,
+                "optional": true
+              },
+              {
+                "name": "message",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "reason",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "sequence",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "wakeAt",
+                "type": 5,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "id",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "outputOffset",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "input"
+          },
+          {
+            "kind": "literal",
+            "value": "no-tools"
+          },
+          {
+            "kind": "literal",
+            "value": "timer"
+          },
+          {
+            "kind": "literal",
+            "value": "job"
+          },
+          {
+            "kind": "primitive",
+            "type": "null"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
       "key": "event:hook/invoked",
       "kind": "event",
       "event": "hook/invoked",
@@ -22411,6 +22604,11 @@
       "sources": []
     },
     {
+      "digest": "0508943b55d92caab6481407d00c453300c967089380af5afe2c4c103f2a809f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04",
       "names": [],
       "sources": []
@@ -22500,7 +22698,7 @@
         "packages/goal/goal/src/types.ts#GoalRef"
       ],
       "sources": [
-        "packages/goal/goal/src/types.ts:20"
+        "packages/goal/goal/src/types.ts:21"
       ]
     },
     {
@@ -22534,6 +22732,13 @@
       "names": [],
       "sources": [
         "packages/subagent/tool-subagent/src/model-selection-state.ts:17"
+      ]
+    },
+    {
+      "digest": "0d7ac0b659e4071b51ca362f7595b041e715eeb5f5a74ccfb74948f0e620ad74",
+      "names": [],
+      "sources": [
+        "packages/goal/goal/src/types.ts:84"
       ]
     },
     {
@@ -22710,6 +22915,15 @@
       "names": [],
       "sources": [
         "packages/core/session/src/types.ts:427"
+      ]
+    },
+    {
+      "digest": "18cccf1ebd4a81a537375e01cd0778fb23aec5458d3012ca38ebe492567ee445",
+      "names": [
+        "packages/goal/goal/src/types.ts#GoalWait"
+      ],
+      "sources": [
+        "packages/goal/goal/src/types.ts:88"
       ]
     },
     {
@@ -22977,6 +23191,11 @@
     },
     {
       "digest": "260523b412c19ad8c2bb00093b07f64245ff8ba6b2f76c5b545303772ac9704c",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "264036822ca1b0d8b56a63303aa1d5136bc810766b0437117e74e62d934b3303",
       "names": [],
       "sources": []
     },
@@ -23549,6 +23768,7 @@
         "packages/goal/goal/src/types.ts#GoalId",
         "packages/interaction/commands/src/brand.ts#CommandId",
         "packages/interaction/user-approval/src/types.ts#ApprovalRequestId",
+        "packages/jobs/jobs/src/brand.ts#JobId",
         "packages/llm/llm-retry/src/brand.ts#RetryId",
         "packages/llm/llm/src/brand.ts#MessageId",
         "packages/llm/llm/src/brand.ts#ProviderRequestId",
@@ -23571,9 +23791,10 @@
         "packages/experimental/agent-team/src/types.ts:32",
         "packages/experimental/agent-team/src/types.ts:8",
         "packages/feedback/message-feedback/src/types.ts:14",
-        "packages/goal/goal/src/types.ts:17",
+        "packages/goal/goal/src/types.ts:18",
         "packages/interaction/commands/src/brand.ts:31",
         "packages/interaction/user-approval/src/types.ts:17",
+        "packages/jobs/jobs/src/brand.ts:19",
         "packages/llm/llm-retry/src/brand.ts:4",
         "packages/llm/llm/src/brand.ts:16",
         "packages/llm/llm/src/brand.ts:31",
@@ -24041,7 +24262,7 @@
         "packages/goal/goal/src/types.ts#GoalSnapshot"
       ],
       "sources": [
-        "packages/goal/goal/src/types.ts:60"
+        "packages/goal/goal/src/types.ts:61"
       ]
     },
     {
@@ -24146,6 +24367,11 @@
       "sources": []
     },
     {
+      "digest": "71086620fbf5aaf452fdee70f76c0752fc5585e9e993ae4664841027fafcf7db",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "7180844e1066230c5e891f1b9ccd942423b0fe48aac6ded7eef2a285b288a732",
       "names": [],
       "sources": []
@@ -24203,6 +24429,11 @@
     },
     {
       "digest": "78a9be340090b735a39980e7222ce730c972fbcf1de7c9e0aef2125884b7caee",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "78d54246e285080783374b82261ffa79724f40d85b30f75a823fc20ab6ce6e5b",
       "names": [],
       "sources": []
     },
@@ -24311,7 +24542,7 @@
         "packages/goal/goal/src/domain.ts#GoalMessageSource"
       ],
       "sources": [
-        "packages/goal/goal/src/domain.ts:47"
+        "packages/goal/goal/src/domain.ts:56"
       ]
     },
     {
@@ -24410,7 +24641,7 @@
         "packages/goal/goal/src/types.ts#GoalBlockReason"
       ],
       "sources": [
-        "packages/goal/goal/src/types.ts:52"
+        "packages/goal/goal/src/types.ts:53"
       ]
     },
     {
@@ -24576,6 +24807,11 @@
     },
     {
       "digest": "8f324cea3916c0517261e88167def8efb3a9994c1135e23d40ed9fd48f8c7bd4",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "8f5fb7b202a8f082636a1924d7c6d2bc02c767726d09e273b4a2574f96b05120",
       "names": [],
       "sources": []
     },
@@ -24766,6 +25002,11 @@
       "sources": []
     },
     {
+      "digest": "9b59bc3b899777e9736eae6feb0221b087ffdffd9c635ceaf3d6bff6810e2d63",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "9c0cc506112c0fb23aaad272c5f055ee14022b1c52f74dbc321464659bb6a65e",
       "names": [
         "packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"
@@ -24836,6 +25077,11 @@
     },
     {
       "digest": "a10c17474eaf2ddab7095a099e0fe3d046fc18e56c3e344fc8894c05ff9ef97b",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "a138b17e345ba998d2eaac8b8332e6c23c6a55a6ef1d89f5e79e8701629e39df",
       "names": [],
       "sources": []
     },
@@ -25273,7 +25519,7 @@
         "packages/goal/goal/src/types.ts#GoalPhase"
       ],
       "sources": [
-        "packages/goal/goal/src/types.ts:45"
+        "packages/goal/goal/src/types.ts:46"
       ]
     },
     {
@@ -25853,6 +26099,15 @@
       ]
     },
     {
+      "digest": "ecdd218a1dd9195ecf1e1358bd5589f8d7ba6ae171e5e9473bf48ebc5b73cd45",
+      "names": [
+        "packages/goal/goal/src/domain.ts#GoalWaitChange"
+      ],
+      "sources": [
+        "packages/goal/goal/src/domain.ts:47"
+      ]
+    },
+    {
       "digest": "edbbfff1128099fda7b792c56330d2cb04debc9790988e66d1c3f4026e813e0e",
       "names": [],
       "sources": []
@@ -25940,6 +26195,11 @@
     },
     {
       "digest": "f230c0b583e23b25ee0a61dbe4c05e95c1e2ae44b27939501eb9e03696f0c278",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "f24f7d862083e58c44765b7f28cd90dd6fc9a1ee4641310b5a5cc0d14736731c",
       "names": [],
       "sources": []
     },

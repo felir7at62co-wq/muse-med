@@ -3,6 +3,7 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'phase.active': '进行中的目标',
+  'phase.waiting': '等待新情况',
   'phase.active.disarmed': '已暂停的目标',
   'phase.paused': '已暂停的目标',
   'phase.blocked': '受阻的目标',
@@ -22,6 +23,7 @@ export type GoalKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'phase.active': 'Ongoing Goal',
+  'phase.waiting': 'Waiting for updates',
   'phase.active.disarmed': 'Inactive Goal',
   'phase.paused': 'Paused Goal',
   'phase.blocked': 'Blocked Goal',

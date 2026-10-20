@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { GoalActivation, GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
+import type { GoalActivation, GoalSnapshot, GoalWait } from '@deepseek-ai/dsh-goal/client'
 import {
   IconCheckOutlineRegular, IconCloseOutlineRegular, IconEditOutlineRegular, IconGoalOutlineRegular,
   IconPauseOutlineRegular, IconPlayOutlineRegular, IconTrashOutlineRegular, InlineEditor, Tooltip,
@@ -24,6 +24,8 @@ export interface GoalBarProps extends GoalBarActions {
   goal: GoalSnapshot | null | undefined
   /** Process-local continuation activation; absent while the live read is pending. */
   activation?: GoalActivation
+  /** Durable continuation deferral; the goal remains active while waiting. */
+  wait?: GoalWait
 }
 
 /** Strip label keys per visible phase; complete goals render nothing. */
@@ -39,7 +41,7 @@ function activeLabel(activation: GoalActivation | undefined, t: TranslateNS<'goa
   return t(PHASE_LABELS.active)
 }
 
-export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
+export function GoalBar({ goal, activation, wait, onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -126,10 +128,12 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
     )
   }
 
-  const title = goal.phase === 'blocked' ? goal.blockedReason?.message : undefined
-  const label = goal.phase === 'active' ? activeLabel(activation, t) : t(PHASE_LABELS[goal.phase])
+  const title = goal.phase === 'blocked' ? goal.blockedReason?.message : wait?.message
+  const label = goal.phase === 'active'
+    ? wait !== undefined && activation === 'armed' ? t('phase.waiting') : activeLabel(activation, t)
+    : t(PHASE_LABELS[goal.phase])
   const showResume = goal.phase === 'paused'
-    || (goal.phase === 'active' && activation === 'disarmed')
+    || (goal.phase === 'active' && (activation === 'disarmed' || wait !== undefined))
   return (
     <div className={css.dock} data-goal-bar>
       <div className={css.bar} title={title}>
@@ -195,6 +199,7 @@ export function GoalDock({
   return (
     <GoalBar
       goal={goal}
+      {...projection?.wait === undefined ? {} : { wait: projection.wait }}
       {...activation === undefined ? {} : { activation }}
       onEdit={onEdit}
       onPause={onPause}

@@ -21,6 +21,7 @@ import {
   goalChangeRef,
 } from './fold.ts'
 import type { GoalFoldState } from './fold.ts'
+import { goalWaitSchema } from './wait.ts'
 import {
   GOAL_CHANGE_VERSION,
   GoalError,
@@ -38,6 +39,7 @@ import type {
   GoalRef,
   GoalSnapshot,
   GoalView,
+  GoalWaitRequest,
 } from './types.ts'
 import type {
   GoalChangeMeta,
@@ -65,6 +67,7 @@ declare module '@deepseek-ai/cordis' {
 /** Wire payload schema of the `goal` projection (current goal or pre-create/cleared null). */
 const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
   zod.object({
+    wait: goalWaitSchema.optional(),
     goal: zod.object({
       id: zod.string().min(1),
       revision: zod.number().int().positive(),
@@ -82,7 +85,7 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
 
 const goalProjectionStateSchema: ZodType<GoalProjectionState> = zod.object({
   current: goalProjectionSchema,
-  seenGoalIds: zod.array(zod.string().min(1)).refine(
+  seenGoalIds: zod.array(zod.string().min(1).transform(GoalId)).refine(
     ids => new Set(ids).size === ids.length,
     { message: 'seen goal ids must be unique' },
   ),
@@ -98,11 +101,15 @@ const goalProjectionStateSchema: ZodType<GoalProjectionState> = zod.object({
   if (state.current.roundsStarted > state.current.goal.maxGoalRounds) {
     context.addIssue({ code: 'custom', message: 'current goal rounds cannot exceed its configured limit' })
   }
-}) as unknown as ZodType<GoalProjectionState>
+  if (state.current.wait !== undefined && state.current.goal.phase !== 'active') {
+    context.addIssue({ code: 'custom', message: 'only an active goal can retain a wait' })
+  }
+})
 
 /** Build strict fold state from one checkpoint-safe projection state. */
 function goalFoldState(state: GoalProjectionState): GoalFoldState {
   return {
+    ...state.current?.wait === undefined ? {} : { wait: state.current.wait },
     goal: state.current?.goal,
     roundsStarted: state.current?.roundsStarted ?? 0,
     createdAt: state.current?.createdAt,
@@ -121,6 +128,7 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
       throw new Error('current goal fold lacks timestamps')
     }
     current = {
+      ...state.wait === undefined ? {} : { wait: state.wait },
       goal: state.goal,
       roundsStarted: state.roundsStarted,
       createdAt,
@@ -145,7 +153,7 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
  */
 export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
   if (state.failure !== null) return state
-  if (event.type !== 'goal/change'
+  if (event.type !== 'goal/change' && event.type !== 'goal/wait'
     && (event.type !== 'user/message' || event.data.source.kind !== 'goal')) return state
   const folded = goalFoldState(state)
   try {
@@ -165,7 +173,7 @@ export const goalProjectionDefinition = {
   init: (): GoalProjectionState => ({ current: null, seenGoalIds: [], failure: null }),
   apply: applyGoalProjection,
   wire: { viewSchema: goalProjectionSchema, view: state => state.current },
-  stateVersion: 6,
+  stateVersion: 7,
 } satisfies ProjectionDefinition<'goal', GoalProjectionState>
 
 /** Deployment defaults for goal creation. */
@@ -294,6 +302,52 @@ export class GoalService extends TypertRemoteService {
   }
 
   /**
+   * Defer automatic continuation while preserving an active goal and its revision.
+   * @param agent - exact live owning agent.
+   * @param ref - expected current revision.
+   * @param request - explanation and optional timer or job wake condition.
+   * @returns the current view with its committed wait.
+   */
+  wait(agent: Agent, ref: GoalRef, request: GoalWaitRequest): GoalView {
+    const [state] = this.prepareMutation(agent)
+    const current = this.expectCurrent(state, ref)
+    if (current.goal.phase !== 'active') throw new GoalError('only an active goal can wait', 'GOAL_INVALID_WAIT')
+    const parsed = goalWaitSchema.safeParse({ ...request, sequence: agent.session.seq })
+    if (!parsed.success || (parsed.data.wakeAt !== undefined && parsed.data.wakeAt <= Date.now())) {
+      throw new GoalError('goal wait requires a reason and a future timer or valid job condition', 'GOAL_INVALID_WAIT')
+    }
+    agent.session.append('goal/wait', {
+      kind: 'goal/wait', version: 1, ref: { id: ref.id, revision: ref.revision },
+      roundsStarted: current.roundsStarted, wait: parsed.data,
+    })
+    const goal = this.view({ ...current, wait: parsed.data }, this.runtimeState(agent.session))
+    agentEvents(this.ctx, agent).emit('goal/wait-changed', { goal })
+    return goal
+  }
+
+  /**
+   * Release only the exact wait observed by a timer, job event, or user input.
+   * @param agent - exact live owning agent.
+   * @param ref - goal revision captured with the wait.
+   * @param sequence - event sequence of the wait being released.
+   * @returns whether that wait was current and released.
+   */
+  wake(agent: Agent, ref: GoalRef, sequence: number): boolean {
+    this.assertLive(agent)
+    const state = this.state(agent.session)
+    if (state === null || state.goal.id !== ref.id || state.goal.revision !== ref.revision
+      || state.goal.phase !== 'active' || state.wait?.sequence !== sequence) return false
+    agent.session.append('goal/wait', {
+      kind: 'goal/wait', version: 1, ref: { id: ref.id, revision: ref.revision },
+      roundsStarted: state.roundsStarted, wait: null,
+    })
+    const released = { ...state }
+    delete released.wait
+    agentEvents(this.ctx, agent).emit('goal/wait-changed', { goal: this.view(released, this.runtimeState(agent.session)) })
+    return true
+  }
+
+  /**
    * Create and arm a goal. A completed goal may be replaced; every other
    * current phase must be cleared or resumed instead.
    * @param agent - owning live agent.
@@ -369,7 +423,7 @@ export class GoalService extends TypertRemoteService {
     if (!resumable.includes(current.phase)) {
       throw this.transitionError(current, 'resume', resumable)
     }
-    if (current.phase === 'active' && runtime.activation === 'armed') {
+    if (current.phase === 'active' && runtime.activation === 'armed' && currentState.wait === undefined) {
       throw new GoalError(`goal "${current.id}" is already active and armed`, 'GOAL_INVALID_TRANSITION')
     }
     if (currentState.roundsStarted >= current.maxGoalRounds) {
@@ -626,9 +680,12 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Build a detached current view. */
+  private view(state: GoalProjection, runtime: GoalRuntimeState): GoalView
+  private view(state: GoalProjection | null, runtime: GoalRuntimeState): GoalView | undefined
   private view(state: GoalProjection | null, runtime: GoalRuntimeState): GoalView | undefined {
     if (state === null) return undefined
     return {
+      ...state.wait === undefined ? {} : { wait: state.wait },
       ...state.goal,
       roundsStarted: state.roundsStarted,
       createdAt: state.createdAt,

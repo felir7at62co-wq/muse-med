@@ -20,6 +20,8 @@ kind: "package-reference"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+`JobOutputValue` 向执行监听器提供已经通过输出模式校验的 `job_output` 值；读取该值不会再次消耗输出增量。
+
 -----
 
 <a id="use-this-package"></a>

@@ -1453,6 +1453,15 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(preview.packages.every((pack: JsonObject) => typeof pack.prompt === 'string' && !pack.prompt.includes('时长：'))).toBe(true)
             }
+            if (scenario.name === 'goal-wait-yields') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const waits = events.filter(event => event.type === 'goal/wait')
+              expect(waits).toHaveLength(1)
+              expect(waits[0]?.data).toMatchObject({ roundsStarted: 0, wait: { reason: 'input', message: 'Waiting for new work' } })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(result => result.isError)).toEqual([false, true, false])
+              expect(events.filter(event => event.type === 'goal/change').map(event => event.data.operation)).toEqual(['create'])
+            }
             if (scenario.name === 'muse-shot-scene-context') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

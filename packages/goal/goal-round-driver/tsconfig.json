@@ -25,6 +25,15 @@
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../jobs/tool-jobs"
     }
   ]
 }

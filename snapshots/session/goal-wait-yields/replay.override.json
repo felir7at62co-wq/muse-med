@@ -1,0 +1,62 @@
+{
+  "patches": [
+    {
+      "at": 1,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "tool-call"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "tool-call",
+              "id": "call_goal_2",
+              "name": "update_goal",
+              "arguments": "{\"goal_id\":\"{{fromRequest:goal-[a-f0-9-]+}}\",\"revision\":1,\"action\":\"wait\",\"wake_after_seconds\":-1}"
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "tool-calls"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": 2,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "tool-call"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "tool-call",
+              "id": "call_goal_3",
+              "name": "update_goal",
+              "arguments": "{\"goal_id\":\"{{fromRequest:goal-[a-f0-9-]+}}\",\"revision\":1,\"action\":\"wait\",\"wait_reason\":\"Waiting for new work\"}"
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "tool-calls"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

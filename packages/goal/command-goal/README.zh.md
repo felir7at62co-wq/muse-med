@@ -20,6 +20,8 @@ kind: "package-reference"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+续跑等待时，`/goal` 会显示等待原因并提示 `/goal resume`；恢复会清除等待，不会将目标标为完成。
+
 -----
 
 <a id="use-this-package"></a>

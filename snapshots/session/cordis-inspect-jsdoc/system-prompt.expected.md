@@ -218,14 +218,20 @@ interface ToolArgsMap {
     goal_id: string;
     /** Exact positive revision returned by get_goal. */
     revision: number;
-    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. */
-    action: "edit" | "pause" | "resume" | "complete" | "blocked";
+    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer. */
+    action: "edit" | "pause" | "resume" | "complete" | "blocked" | "wait";
     /** Replacement objective; valid only with action edit. */
     objective?: string;
     /** Replacement cap; valid only with action edit. */
     max_goal_rounds?: number;
     /** Required only with action blocked: the concrete condition that persisted across rounds and blocks progress. */
     blocked_reason?: string;
+    /** With action wait: describe what new information or event is needed. */
+    wait_reason?: string;
+    /** With action wait: optional positive whole seconds before continuing. */
+    wake_after_seconds?: number;
+    /** With action wait: optional owned job to watch for new output or settlement. */
+    job_id?: string;
   } & Record<string, JsonValue>;
   /** Fetch the content of a specific HTTP(S) URL and return it decoded to text. */
   web_fetch: {
@@ -331,6 +337,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   edit: {
     path: string;
@@ -356,6 +368,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   glob: {
     root: string;
@@ -526,6 +544,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   web_fetch: {
     url: string;

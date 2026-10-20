@@ -20,6 +20,8 @@ Use `dsh-tool-jobs` to inspect and control background commands, PTY work, and su
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+`JobOutputValue` exposes the schema-validated canonical `job_output` value to execution observers; reading this value does not consume another output delta.
+
 -----
 
 <a id="use-this-package"></a>

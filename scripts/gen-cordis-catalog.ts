@@ -503,6 +503,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   GoalChanged: 'goal.md',
   GoalRef: 'goal.md',
   GoalView: 'goal.md',
+  GoalWaitRequest: 'goal.md',
   ScheduleCatalogEntry: 'schedule.md',
   ScheduleDeliveryReceipt: 'schedule.md',
   ScheduleDeliveryRecord: 'schedule.md',

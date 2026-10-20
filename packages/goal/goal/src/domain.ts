@@ -8,7 +8,7 @@
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { GoalId, GoalRef, GoalSnapshot, GoalView } from './types.ts'
+import type { GoalId, GoalRef, GoalSnapshot, GoalView, GoalWait } from './types.ts'
 
 /** Goal state-changing verbs recorded in the durable source change. */
 export type GoalOperation =
@@ -43,6 +43,15 @@ export interface GoalClearChangeMeta {
 /** Durable change union carried by the goal domain's own session event. */
 export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
 
+/** Install or release a wait without changing the goal revision or its round count. */
+export interface GoalWaitChange {
+  readonly kind: 'goal/wait'
+  readonly version: 1
+  readonly ref: GoalRef
+  readonly roundsStarted: number
+  readonly wait: GoalWait | null
+}
+
 /** Message attribution for admitted continuation rounds. */
 export interface GoalMessageSource {
   readonly kind: 'goal'
@@ -64,11 +73,15 @@ declare module '@deepseek-ai/dsh-session/types' {
      * Complete post-mutation goal state or clear tombstone.
      */
     'goal/change': GoalChangeMeta
+    /** Active-goal deferral and its release, required for safe continuation replay. */
+    'goal/wait': GoalWaitChange
   }
 }
 
 /** Pure replay fold of durable goal facts. */
 export interface FoldedGoal {
+  /** Latest continuation deferral, absent when continuation is eligible. */
+  readonly wait?: GoalWait
   /** Current goal, absent after a clear or before the first create. */
   readonly goal?: GoalSnapshot
   /** Highest admitted round for the current goal. */
@@ -100,6 +113,7 @@ export type GoalErrorCode =
   | 'GOAL_INVALID_BLOCK_REASON'
   | 'GOAL_INVALID_EDIT'
   | 'GOAL_INVALID_TRANSITION'
+  | 'GOAL_INVALID_WAIT'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -112,5 +126,11 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
+    /**
+     * A durable goal wait was installed or released.
+     * @mode emit
+     * @param payload - owning agent and its fresh current goal view.
+     */
+    'goal/wait-changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; goal: GoalView }): void
   }
 }

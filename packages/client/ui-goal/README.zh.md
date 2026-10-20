@@ -27,6 +27,8 @@ Web GUI 的 goal 界面同时显示持久 goal 状态及当前的进程本地激
 
 与 `ui-conversation` 及 goal 领域包一起挂载本插件；只要会话存在目标，条带就会作为 composer 上下文堆栈的第二张卡片出现（位于 Todo 之后、Queue 之前）。Todo 与 Goal 使用相同的面板 elevation，使其位于 composer 层级之上。已 armed 的 active goal 提供暂停动作；active-but-disarmed 或 paused 的 goal 提供恢复；编辑在 ui-primitives 的 `InlineEditor` 中重写目标文本，多行目标编辑后仍保留换行；清除移除目标，并在投影追上之前抑制条带。
 
+已启用续跑且正在等待的目标显示“等待新情况”，保留目标内容，同时提供恢复和暂停操作。等待原因显示在现有目标条上。等待中的目标仍属于进行中；恢复会话后已停用的目标继续显示暂停状态，直到用户恢复。
+
 ### 指令输入气泡
 
 每条持久的 `/goal` 运行都投影为一个右对齐的用户样式气泡，标签为 `Command input`（或 `指令输入`），渲染在通用命令结果行之前；开头的 `/goal` token 经 ui-primitives 的 `projectUserText` 以等宽代码字体渲染为指令引用 chip，目标文本保持正文字体。它不含时间戳、复制或分支操作，重新加载时会依据运行记录重建。

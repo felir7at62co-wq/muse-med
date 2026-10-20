@@ -7,16 +7,20 @@ import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
+import type { GoalMessageSource, GoalRef, GoalView, GoalWait, GoalWaitRequest } from '@deepseek-ai/dsh-goal'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import type { JobEvent } from '@deepseek-ai/dsh-jobs'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { JobOutputValue } from '@deepseek-ai/dsh-tool-jobs'
 import { renderGoalRoundPrompt } from './prompt.ts'
 
 export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-round-driver'
-export const inject = ['agents', 'goals', 'sessions']
+export const inject = ['agents', 'goals', 'sessions', 'tools']
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -27,6 +31,11 @@ interface RoundIdentity {
 
 /** One queued, claimed, or admitted goal message retained until whole-agent quiescence. */
 interface RoundAttempt extends RoundIdentity {
+  readonly pollOffsets: Map<string, NonNullable<GoalWaitRequest['job']>>
+  completed: boolean
+  toolsSeen: boolean
+  productiveTool: boolean
+  emptyJob?: GoalWaitRequest
   readonly messageId: MessageId
   readonly content: ContentBlock[]
   phase: 'queued' | 'claimed' | 'admitted'
@@ -36,6 +45,9 @@ interface RoundAttempt extends RoundIdentity {
 
 /** Serialized process-local scheduling state for one exact Agent lifecycle. */
 interface DriverState {
+  inputWake: { ref: GoalRef; sequence: number } | undefined
+  wakeTimer: ReturnType<typeof setTimeout> | undefined
+  wakeSequence: number | undefined
   readonly agent: Agent
   attempt: RoundAttempt | undefined
   competingQueued: boolean
@@ -81,6 +93,9 @@ export function apply(ctx: Context): void {
     const existing = states.get(agent)
     if (existing !== undefined) return existing
     const state: DriverState = {
+      inputWake: undefined,
+      wakeTimer: undefined,
+      wakeSequence: undefined,
       agent,
       attempt: undefined,
       competingQueued: false,
@@ -115,12 +130,59 @@ export function apply(ctx: Context): void {
 
   /** Remove automatic authority while preserving the durable phase. */
   function disarm(state: DriverState): void {
+    clearWake(state)
     try {
       const goal = currentGoal(state)
       if (goal?.activation === 'armed') ctx.goals.disarm(state.agent)
     } catch (error: unknown) {
       ctx.logger.warn(`goal-round-driver: could not disarm agent "${state.agent.id}": ${renderThrown(error)}`)
     }
+  }
+
+  /** Release an obsolete timer before replacing a wait or retiring its agent. */
+  function clearWake(state: DriverState): void {
+    if (state.wakeTimer !== undefined) clearTimeout(state.wakeTimer)
+    state.wakeTimer = undefined
+    state.wakeSequence = undefined
+  }
+
+  /** Observe committed job state without consuming its model output cursor. */
+  function jobReady(state: DriverState, wait: GoalWait): boolean {
+    const condition = wait.job
+    const jobs = ctx.get('jobs')
+    if (condition === undefined || jobs === undefined) return false
+    try {
+      const job = jobs.get(condition.id, state.agent.id)
+      return job.output.total > condition.outputOffset || (job.status !== 'running' && job.status !== 'stopping')
+    } catch (error) {
+      // A process-local job can disappear after restart; the durable wait still yields to input or its timer.
+      ctx.logger.debug(`goal-round-driver: waiting job is unavailable: ${renderThrown(error)}`)
+      return false
+    }
+  }
+
+  /** Install one revision-fenced timer, or release a condition already satisfied. */
+  function watchWait(state: DriverState, goal: GoalView, wait: GoalWait): void {
+    if (jobReady(state, wait) || (wait.wakeAt !== undefined && wait.wakeAt <= Date.now())) {
+      clearWake(state)
+      ctx.goals.wake(state.agent, goalRef(goal), wait.sequence)
+      return
+    }
+    if (state.wakeSequence !== wait.sequence) clearWake(state)
+    state.wakeSequence = wait.sequence
+    if (wait.wakeAt === undefined || state.wakeTimer !== undefined) return
+    // Node timers accept at most a signed 32-bit delay; longer waits recheck the same deadline.
+    const delay = Math.min(wait.wakeAt - Date.now(), 2_147_483_647)
+    state.wakeTimer = setTimeout(() => {
+      state.wakeTimer = undefined
+      if (state.stopping) return
+      const current = currentGoal(state)
+      if (current?.phase !== 'active' || current.activation !== 'armed'
+        || current.wait?.sequence !== wait.sequence) return
+      watchWait(state, current, current.wait)
+      requestDrive(state)
+    }, delay)
+    state.wakeTimer.unref()
   }
 
   /** Preserve claimed step context when this driver drops only its own round. */
@@ -154,8 +216,24 @@ export function apply(ctx: Context): void {
     }
 
     const attempt = state.attempt
+    if (state.inputWake !== undefined) {
+      const wake = state.inputWake
+      state.inputWake = undefined
+      ctx.goals.wake(agent, wake.ref, wake.sequence)
+      state.requested = true
+      return
+    }
     if (attempt !== undefined) {
       state.attempt = undefined
+      const goal = currentGoal(state)
+      if (attempt.completed && goal?.phase === 'active' && goal.activation === 'armed'
+        && goal.id === attempt.goalId && goal.revision === attempt.revision && goal.wait === undefined
+        && goal.roundsStarted < goal.maxGoalRounds) {
+        if (attempt.emptyJob !== undefined && !attempt.productiveTool) ctx.goals.wait(agent, goalRef(goal), attempt.emptyJob)
+        else if (!attempt.toolsSeen) ctx.goals.wait(agent, goalRef(goal), {
+          reason: 'no-tools', message: 'The last automatic round made no tool calls. Waiting for user input or resume.',
+        })
+      }
       state.needsCheckpoint = true
       state.requested = true
       return
@@ -170,6 +248,8 @@ export function apply(ctx: Context): void {
       })
       return
     }
+    if (goal.wait !== undefined) { watchWait(state, goal, goal.wait); return }
+    clearWake(state)
 
     const round = goal.roundsStarted + 1
     const content = renderGoalRoundPrompt(goal, round)
@@ -178,6 +258,10 @@ export function apply(ctx: Context): void {
       source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
     })
     const reservation: RoundAttempt = {
+      completed: false,
+      pollOffsets: new Map(),
+      toolsSeen: false,
+      productiveTool: false,
       goalId: goal.id,
       revision: goal.revision,
       round,
@@ -243,12 +327,64 @@ export function apply(ctx: Context): void {
   // One composite effect keeps the step fence installed until this
   // plugin's own scheduling tasks settle.
   ctx.effect(function* () {
+    ctx.on('tools/pre-execute', async (execution: ToolExecution, next) => {
+      const state = execution.agent === undefined ? undefined : states.get(execution.agent)
+      const attempt = state?.attempt
+      const args = execution.arguments
+      const jobs = ctx.get('jobs')
+      if (execution.name === 'job_output' && state !== undefined && attempt?.phase === 'admitted'
+        && jobs !== undefined && typeof args === 'object' && args !== null && 'job_id' in args
+        && typeof args.job_id === 'string') {
+        try {
+          const job = jobs.get(JobId(args.job_id), state.agent.id)
+          attempt.pollOffsets.set(execution.callId, { id: job.id, outputOffset: job.output.total })
+        } catch (error) {
+          // The job tool owns authorization and missing-job errors; observation must not replace them.
+          ctx.logger.debug(`goal-round-driver: cannot observe job poll: ${renderThrown(error)}`)
+        }
+      }
+      return next()
+    })
+    ctx.on('tools/post-execute', async (execution, result, next) => {
+      const downstream = await next()
+      const state = execution.agent === undefined ? undefined : states.get(execution.agent)
+      const attempt = state?.attempt
+      if (state === undefined || attempt?.phase !== 'admitted' || downstream.kind === 'block') return downstream
+      if (execution.name === 'job_output' && !result.isError) {
+        // The job tool validates this canonical value before post-execute policies run.
+        const value = result.value as JobOutputValue
+        const observed = attempt.pollOffsets.get(execution.callId)
+        if (value.text === '' && (value.job.status === 'running' || value.job.status === 'stopping')
+          && observed !== undefined) {
+          attempt.emptyJob = {
+            reason: 'job', message: 'Waiting for new background job output or completion.',
+            job: observed,
+          }
+        } else attempt.productiveTool = true
+      } else if (execution.name !== 'run_code') attempt.productiveTool = true
+      return downstream
+    })
+    ctx.inject(['jobs'], (child) => {
+      child.effect(() => child.jobs.events.subscribe({ owners: 'scope' }, (event: JobEvent) => {
+        const id = event.type === 'output' ? event.id : event.job.id
+        for (const state of states.values()) {
+          const goal = currentGoal(state)
+          if (goal?.phase === 'active' && goal.activation === 'armed' && goal.wait?.job?.id === id) {
+            watchWait(state, goal, goal.wait)
+          }
+        }
+      }))
+    })
     ctx.on('agent/error', ({ agent }) => {
       const state = stateFor(agent)
       disarm(state)
     })
 
-    ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
+    ctx.on('agent/disposed', ({ agent }) => {
+      const state = states.get(agent)
+      if (state !== undefined) clearWake(state)
+      states.delete(agent)
+    })
     ctx.on('agent/created', ({ agent }) => {
       const state = stateFor(agent)
       state.attempt = undefined
@@ -285,6 +421,7 @@ export function apply(ctx: Context): void {
     })
     ctx.on('goal/changed', ({ agent, change }) => {
       const state = stateFor(agent)
+      clearWake(state)
       state.needsCheckpoint = true
       // A host-initiated pause stops goal execution: abort the live turn so the
       // model cannot keep acting or resume in the same turn. A model-initiated
@@ -293,6 +430,12 @@ export function apply(ctx: Context): void {
         && ctx.agents.currentInitiator() !== agent) {
         agent.cancel({ kind: 'user' }, { keepInbox: true })
       }
+      requestDrive(state)
+    })
+    ctx.on('goal/wait-changed', ({ agent }) => {
+      const state = stateFor(agent)
+      clearWake(state)
+      state.needsCheckpoint = true
       requestDrive(state)
     })
 
@@ -328,10 +471,23 @@ export function apply(ctx: Context): void {
           if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
           }
+          if (event.data.source.kind === 'user') {
+            const goal = currentGoal(state)
+            if (goal?.phase === 'active' && goal.activation === 'armed' && goal.wait !== undefined) {
+              state.inputWake = { ref: goalRef(goal), sequence: goal.wait.sequence }
+            }
+          }
+          return
+        case 'tool/call':
+          if (state.attempt?.phase === 'admitted') state.attempt.toolsSeen = true
           return
         case 'turn/end':
           if (event.data.reason.kind === 'max-tokens') {
             disarm(state)
+            return
+          }
+          if (event.data.reason.kind === 'completed') {
+            if (state.attempt?.phase === 'admitted') state.attempt.completed = true
             return
           }
           if (event.data.reason.kind !== 'aborted') return
@@ -358,6 +514,7 @@ export function apply(ctx: Context): void {
       && !attempt.stale && sameQueued(content, source, attempt)
       && goal !== undefined && goal.id === source.goalId && goal.revision === source.revision
       && goal.phase === 'active' && goal.activation === 'armed'
+      && goal.wait === undefined
       && source.round === goal.roundsStarted + 1
     }
 

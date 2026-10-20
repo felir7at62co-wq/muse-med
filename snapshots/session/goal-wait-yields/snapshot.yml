@@ -1,0 +1,10 @@
+version: 1
+scenario: goal-wait-yields
+profile: headless
+composition: default
+recording: authored
+header:
+  class: default
+writerOutput: true
+replay:
+  override: true

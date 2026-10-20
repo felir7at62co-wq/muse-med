@@ -219,6 +219,16 @@
     },
     {
       "doc": "docs/subsystems/goal.md",
+      "symbol": "GoalWaitRequest",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/goal.md",
+      "symbol": "GoalWait",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/goal.md",
       "symbol": "GoalView",
       "source": "packages/goal/goal/src/types.ts"
     },

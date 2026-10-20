@@ -20,6 +20,8 @@ English | [中文](README.zh.md)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+`/goal` includes the reason when continuation is waiting and offers `/goal resume`; resuming clears the wait without reporting completion.
+
 -----
 
 <a id="use-this-package"></a>

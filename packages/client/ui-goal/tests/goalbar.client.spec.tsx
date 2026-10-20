@@ -34,6 +34,12 @@ function makeActions() {
 }
 
 describe('GoalBar', () => {
+  it('shows waiting with a manual resume action while the goal stays active', () => {
+    const actions = makeActions()
+    const view = render(<GoalBar goal={makeGoal()} activation="armed" wait={{ sequence: 1, reason: 'input', message: 'Waiting for new work' }} {...actions} t={t} />)
+    expect(view.getByText('等待新情况')).toBeTruthy()
+    expect(view.getByRole('button', { name: '恢复目标' })).toBeTruthy()
+  })
   it('renders nothing while loading, absent, or when the goal is complete', () => {
     const actions = makeActions()
     const loading = render(<GoalBar goal={undefined} {...actions} t={t} />)

@@ -111,6 +111,55 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
+  it('persists waits separately, rejects stale releases, and resumes the same goal', async () => {
+    const { ctx, agent, session } = await harness()
+    const created = ctx.goals.create(agent, { objective: 'monitor', maxGoalRounds: 8 })
+    const waiting = ctx.goals.wait(agent, created, { reason: 'input', message: 'need new input' })
+    expect(waiting).toMatchObject({ phase: 'active', activation: 'armed', revision: 1, roundsStarted: 0 })
+    expect(waiting.wait?.sequence).toBe(session.seq - 1)
+    expect(foldGoal(session.snapshotEvents()).wait).toEqual(waiting.wait)
+    const resumed = stubAgent('goal-wait-replay', session.snapshotEvents(), ctx)
+    await ctx.agents.register(resumed.agent)
+    expect(ctx.goals.get(resumed.agent)).toMatchObject({ activation: 'disarmed', wait: waiting.wait })
+    const second = ctx.goals.wait(agent, created, { reason: 'timer', message: 'check later', wakeAt: Date.now() + 60_000 })
+    expect(ctx.goals.wake(agent, created, waiting.wait!.sequence)).toBe(false)
+    expect(ctx.goals.get(agent)?.wait).toEqual(second.wait)
+    const active = ctx.goals.resume(agent, created)
+    expect(active).toMatchObject({ revision: 2, phase: 'active', activation: 'armed' })
+    expect(active.wait).toBeUndefined()
+    expect(ctx.goals.wake(agent, created, second.wait!.sequence)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('validates wait conditions and refuses forged wait revisions and round counters', async () => {
+    const { ctx, agent, session } = await harness()
+    const goal = ctx.goals.create(agent, { objective: 'monitor' })
+    expect(() => ctx.goals.wait(agent, goal, { reason: 'timer', message: 'later' })).toThrow(/goal wait/)
+    expect(() => ctx.goals.wait(agent, goal, { reason: 'input', message: 'later', wakeAt: Date.now() + 1_000 })).toThrow(/goal wait/)
+    expect(() => ctx.goals.wait(agent, goal, { reason: 'timer', message: 'past', wakeAt: 1 })).toThrow(/goal wait/)
+    expect(() => ctx.goals.wait(agent, goal, { reason: 'job', message: 'missing job' })).toThrow(/goal wait/)
+    const waiting = ctx.goals.wait(agent, goal, { reason: 'input', message: 'new event' })
+    const event = session.snapshotEvents().at(-1)!
+    if (event.type !== 'goal/wait') throw new Error('expected wait event')
+    expect(() => foldGoal([...session.snapshotEvents().slice(0, -1), {
+      ...event, data: { ...event.data, roundsStarted: 1 },
+    }])).toThrow(/active revision and admitted round/)
+    expect(() => foldGoal([...session.snapshotEvents().slice(0, -1), {
+      ...event, data: { ...event.data, wait: { ...waiting.wait!, sequence: event.seq + 1 } },
+    }])).toThrow(/sequence must match/)
+    expect(() => foldGoal([...session.snapshotEvents(), {
+      ...event, type: 'user/message', data: createUserMessage({
+        content: [{ type: 'text', text: 'forged round' }],
+        source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round: 1 },
+      }),
+    }])).toThrow(/waiting/)
+    expect(ctx.goals.wake(agent, goal, waiting.wait!.sequence)).toBe(true)
+    expect(ctx.goals.wake(agent, goal, waiting.wait!.sequence)).toBe(false)
+    const paused = ctx.goals.pause(agent, goal)
+    expect(() => ctx.goals.wait(agent, paused, { reason: 'input', message: 'not active' })).toThrow(/only an active goal/)
+    await ctx.fiber.dispose()
+  })
+
   it('does not activate without the required projection registry', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)

@@ -111,4 +111,35 @@ describe('web e2e: goal bar clear convergence', () => {
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, ['active.expected.md', 'inactive.expected.md'])
   })
+
+  it('keeps a waiting goal active and clears its wait through Resume or Pause', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-goal-bar-wait'))
+    const input = page.locator('[data-composer-input]').first()
+    await input.fill('/goal monitor background updates')
+    await input.press('Enter')
+    const bar = page.locator('[data-goal-bar]')
+    await bar.waitFor({ timeout: 10_000 })
+    const agent = scaffold.ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('expected the active goal owner')
+    const goal = scaffold.ctx.goals.get(agent)
+    if (goal === undefined) throw new Error('expected the created goal')
+    scaffold.ctx.goals.wait(agent, goal, { reason: 'input', message: 'Waiting for new background output' })
+    await expect.poll(() => bar.textContent(), { timeout: 10_000 }).toContain('Waiting for updates')
+    await bar.getByRole('button', { name: 'Resume goal' }).click()
+    await expect.poll(() => scaffold.ctx.goals.get(agent), { timeout: 10_000 }).toMatchObject({
+      phase: 'active', activation: 'armed', revision: goal.revision + 1,
+    })
+    expect(scaffold.ctx.goals.get(agent)?.wait).toBeUndefined()
+    const resumed = scaffold.ctx.goals.get(agent)
+    if (resumed === undefined) throw new Error('expected the resumed goal')
+    scaffold.ctx.goals.wait(agent, resumed, { reason: 'timer', message: 'Next check', wakeAt: Date.now() + 60_000 })
+    await expect.poll(() => bar.textContent(), { timeout: 10_000 }).toContain('Waiting for updates')
+    await bar.getByRole('button', { name: 'Pause goal' }).click()
+    await expect.poll(() => scaffold.ctx.goals.get(agent)?.phase, { timeout: 10_000 }).toBe('paused')
+    expect(scaffold.ctx.goals.get(agent)?.wait).toBeUndefined()
+    await bar.getByRole('button', { name: 'Clear goal' }).click()
+    await expect.poll(() => bar.count(), { timeout: 10_000 }).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
 })

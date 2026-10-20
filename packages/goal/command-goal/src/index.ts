@@ -59,6 +59,9 @@ function phaseLabel(phase: GoalPhase): string {
 /** Commands that are meaningful from one exact live state. */
 function commandHint(goal: GoalView): string {
   if (goal.phase === 'active') {
+    if (goal.wait !== undefined && goal.activation === 'armed') {
+      return '/goal edit <objective>, /goal pause, /goal resume, /goal clear'
+    }
     return goal.activation === 'armed'
       ? '/goal edit <objective>, /goal pause, /goal clear'
       : '/goal edit <objective>, /goal resume, /goal clear'
@@ -86,6 +89,7 @@ function renderGoal(title: string, goal: GoalView): CommandResult {
       title,
       `Status: ${phaseLabel(goal.phase)}`,
       ...blocker,
+      ...goal.wait === undefined ? [] : [`Waiting: ${goal.wait.message}`],
       `Objective: ${goal.objective}`,
       `Rounds: ${goal.roundsStarted}/${goal.maxGoalRounds}`,
       `Activation: ${goal.activation}`,

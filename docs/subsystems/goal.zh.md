@@ -6,14 +6,14 @@
 
 ## 标识与生命周期
 
-`GoalId` 是[品牌化 id](core.zh.md#branded-ids)。调用方通过 `GoalRef` 修改一个确切修订版本；每次获准的持久变更都会递增修订号。
+`GoalId` 是[品牌化 id](core.zh.md#branded-ids)。调用方通过 `GoalRef` 修改一个确切修订版本；每次 `goal/change` 更新都会递增修订号，等待及其解除保留修订号。
 
 ```ts type-equiv
 /** Compare-and-set identity for one exact goal revision. */
 interface GoalRef {
   /** Stable goal identity. */
   readonly id: GoalId
-  /** Positive revision; every durable mutation increments it. */
+  /** Positive goal revision; waiting and wake-up retain it. */
   readonly revision: number
 }
 ```
@@ -56,8 +56,32 @@ interface GoalSnapshot extends GoalRef {
 ```
 
 ```ts type-equiv
+/** Conditions that let an active goal yield without completing or pausing it. */
+interface GoalWaitRequest {
+  /** Why automatic continuation is deferred. */
+  readonly reason: 'no-tools' | 'input' | 'timer' | 'job'
+  /** Non-empty explanation shown to the user and returned to the model. */
+  readonly message: string
+  /** Optional epoch milliseconds at which the active process may wake the goal. */
+  readonly wakeAt?: number
+  /** Exact background job and output offset observed before yielding. */
+  readonly job?: { readonly id: JobId; readonly outputOffset: number }
+}
+```
+
+```ts type-equiv
+/** Durable wait, fenced to the session event that installed it. */
+interface GoalWait extends GoalWaitRequest {
+  /** Session event sequence used to reject stale timers and job callbacks. */
+  readonly sequence: number
+}
+```
+
+```ts type-equiv
 /** Current goal projection, including values derived from the session log. */
 interface GoalView extends GoalSnapshot {
+  /** Automatic continuation is deferred while this value is present. */
+  readonly wait?: GoalWait
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
   /** Epoch milliseconds of the create mutation. */
@@ -90,7 +114,7 @@ interface GoalActivationChanged {
 
 ## 持久变更
 
-每次变更都是持久的 `goal/change` 会话事件，其载荷要么是变更后的完整快照，要么是清除墓碑。严格折叠与持久投影只从这些事件派生生命周期状态；inbox 变更不会影响 goal 状态。
+修订更新使用持久的 `goal/change` 会话事件，载荷是变更后的完整快照或清除墓碑。必需的 `goal/wait` 事件记录续跑等待及其解除，不改变修订号。严格折叠与持久投影从这些事件派生目标状态；inbox 变更不会影响目标。
 
 ```ts type-equiv
 /** Full-snapshot goal mutation committed by a durable `goal/change` event. */
@@ -194,6 +218,24 @@ Goal service (`ctx.goals`) backed exclusively by the owning session log.
  * @returns a fresh disarmed view, or `undefined` when no goal is current.
  */
 disarm(agent: Agent): GoalView | undefined
+
+/**
+ * Defer automatic continuation while preserving an active goal and its revision.
+ * @param agent - exact live owning agent.
+ * @param ref - expected current revision.
+ * @param request - explanation and optional timer or job wake condition.
+ * @returns the current view with its committed wait.
+ */
+wait(agent: Agent, ref: GoalRef, request: GoalWaitRequest): GoalView
+
+/**
+ * Release only the exact wait observed by a timer, job event, or user input.
+ * @param agent - exact live owning agent.
+ * @param ref - goal revision captured with the wait.
+ * @param sequence - event sequence of the wait being released.
+ * @returns whether that wait was current and released.
+ */
+wake(agent: Agent, ref: GoalRef, sequence: number): boolean
 
 /**
  * Create and arm a goal. A completed goal may be replaced; every other
@@ -305,6 +347,25 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
  * @mode emit
  */
 'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
+```
+
+Types: [Agent](core.zh.md) · [Scoped](scope.zh.md)
+
+Source: [`packages/goal/goal/src/domain.ts`](../../packages/goal/goal/src/domain.ts)
+
+<a id="goalwait-changed--emit"></a>
+
+#### `goal/wait-changed` — emit
+
+A durable goal wait was installed or released.
+
+```ts cordis-catalog
+/**
+ * A durable goal wait was installed or released.
+ * @mode emit
+ * @param payload - owning agent and its fresh current goal view.
+ */
+'goal/wait-changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; goal: GoalView }): void
 ```
 
 Types: [Agent](core.zh.md) · [Scoped](scope.zh.md)

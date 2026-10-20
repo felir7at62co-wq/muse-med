@@ -166,6 +166,10 @@ describe('goal projection unit', () => {
       failure: null,
     }
     expect(goalProjectionDefinition.stateSchema.parse(state)).toEqual(state)
+    expect(goalProjectionDefinition.stateSchema.safeParse({
+      ...state,
+      current: { ...current, goal: { ...current.goal, phase: 'paused' }, wait: { sequence: 1, reason: 'input', message: 'wait' } },
+    }).success).toBe(false)
     expect(goalProjectionDefinition.stateSchema.safeParse({ ...state, seenGoalIds: [] }).success).toBe(false)
     expect(goalProjectionDefinition.stateSchema.safeParse({
       ...state,

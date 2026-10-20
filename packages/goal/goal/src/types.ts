@@ -12,6 +12,7 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
 
 /** Identifies one goal across its durable revisions. */
 export type GoalId = Branded<'GoalId'>
@@ -20,7 +21,7 @@ export type GoalId = Branded<'GoalId'>
 export interface GoalRef {
   /** Stable goal identity. */
   readonly id: GoalId
-  /** Positive revision; every durable mutation increments it. */
+  /** Positive goal revision; waiting and wake-up retain it. */
   readonly revision: number
 }
 
@@ -71,6 +72,24 @@ export interface GoalSnapshot extends GoalRef {
 /** Whether this live process may automatically continue an active goal. */
 export type GoalActivation = 'armed' | 'disarmed'
 
+/** Conditions that let an active goal yield without completing or pausing it. */
+export interface GoalWaitRequest {
+  /** Why automatic continuation is deferred. */
+  readonly reason: 'no-tools' | 'input' | 'timer' | 'job'
+  /** Non-empty explanation shown to the user and returned to the model. */
+  readonly message: string
+  /** Optional epoch milliseconds at which the active process may wake the goal. */
+  readonly wakeAt?: number
+  /** Exact background job and output offset observed before yielding. */
+  readonly job?: { readonly id: JobId; readonly outputOffset: number }
+}
+
+/** Durable wait, fenced to the session event that installed it. */
+export interface GoalWait extends GoalWaitRequest {
+  /** Session event sequence used to reject stale timers and job callbacks. */
+  readonly sequence: number
+}
+
 /** Live process-local activation update forwarded to UI clients. */
 export interface GoalActivationChanged {
   /** Session whose live goal activation changed. */
@@ -88,6 +107,8 @@ export interface GoalActivationChanged {
 
 /** Current goal projection, including values derived from the session log. */
 export interface GoalView extends GoalSnapshot {
+  /** Automatic continuation is deferred while this value is present. */
+  readonly wait?: GoalWait
   /** Highest admitted round number for this goal. */
   readonly roundsStarted: number
   /** Epoch milliseconds of the create mutation. */
@@ -105,6 +126,8 @@ export interface GoalView extends GoalSnapshot {
  * the projection reflects durable phase only.
  */
 export interface GoalProjection {
+  /** Durable continuation deferral for this exact revision. */
+  readonly wait?: GoalWait
   /** Current durable goal snapshot (the CAS ref for mutations rides on it). */
   readonly goal: GoalSnapshot
   /** Highest admitted round number for this goal. */
