@@ -1072,11 +1072,16 @@ flowchart TD
   pkg_web_app --> pkg_shell_env
   pkg_web_app --> pkg_system_prompt
   pkg_tool_shot_script --> pkg_agent
+  pkg_tool_shot_script --> pkg_atomic_write
+  pkg_tool_shot_script --> pkg_credentials
+  pkg_tool_shot_script --> pkg_jubian
+  pkg_tool_shot_script --> pkg_jubian_api
   pkg_tool_shot_script --> pkg_llm
   pkg_tool_shot_script --> pkg_session
   pkg_tool_shot_script --> pkg_session_projection
   pkg_tool_shot_script --> pkg_tool_jubian
   pkg_tool_shot_script --> pkg_tools
+  pkg_tool_shot_script --> pkg_util_values
   pkg_experimental_auto_review --> pkg_agent
   pkg_experimental_auto_review --> pkg_agent_instructions
   pkg_experimental_auto_review --> pkg_llm
@@ -1778,7 +1783,7 @@ flowchart TD
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-title`](../packages/session/session-title), [`tool-todo`](../packages/todo/tool-todo) |
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
-| [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tool-jubian`](../packages/jubian/tool-jubian), [`tools`](../packages/core/tools) |
+| [`tool-shot-script`](../packages/drama/tool-shot-script) | `drama` | [`agent`](../packages/core/agent), [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`jubian`](../packages/jubian/jubian), [`jubian-api`](../packages/jubian/jubian-api), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tool-jubian`](../packages/jubian/tool-jubian), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`experimental-auto-review`](../packages/experimental/auto-review) | `experimental` | [`agent`](../packages/core/agent), [`agent-instructions`](../packages/context/agent-instructions), [`llm`](../packages/llm/llm), [`permission-presets`](../packages/interaction/permission-presets), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`app-boot`](../packages/boot/app-boot), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`tools`](../packages/core/tools) |
 | [`composition-guard`](../packages/guard/composition-guard) | `guard` | [`agent`](../packages/core/agent), [`agent-preset-registry`](../packages/preset/agent-preset-registry), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
