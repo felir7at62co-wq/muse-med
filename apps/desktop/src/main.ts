@@ -539,8 +539,11 @@ async function main(): Promise<void> {
         const window = mainWindow
         if (quitting || shuttingDown || sessionEnding || shellInstallerOwnsQuit
           || window === undefined || window.isDestroyed() || window.webContents.isDestroyed()
-          || window.webContents.isLoadingMainFrame() || !window.webContents.getURL().startsWith(applicationUrl)) return
-        window.webContents.send(DESKTOP_IPC.attentionSound, kind)
+          || window.webContents.isLoadingMainFrame()) return
+        const documentUrl = window.webContents.getURL().split(/[?#]/u, 1)[0]
+        if (documentUrl !== applicationUrl && documentUrl !== `${applicationUrl}index.html`) return
+        try { window.webContents.send(DESKTOP_IPC.attentionSound, kind) }
+        catch (error) { console.warn('Desktop attention cue could not be delivered:', error) }
       }, async (request) => {
         if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
         return browserGuests.download(mainWindow.webContents, request)

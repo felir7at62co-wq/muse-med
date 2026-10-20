@@ -429,14 +429,17 @@ describe('desktop main startup', () => {
     window.minimized = true
     window.urls.push('dsh-app://app/#/sessions/current')
     cue('complete')
+    window.urls.push('dsh-app://app/index.html?locale=zh#/sessions/current')
+    cue('question')
     expect(window.webContents.send.mock.calls).toEqual([
       [DESKTOP_IPC.attentionSound, 'complete'],
       [DESKTOP_IPC.attentionSound, 'question'],
       [DESKTOP_IPC.attentionSound, 'complete'],
+      [DESKTOP_IPC.attentionSound, 'question'],
     ])
   })
 
-  it.each(['loading', 'foreign document', 'destroyed contents', 'destroyed window'] as const)(
+  it.each(['loading', 'foreign document', 'other application document', 'destroyed contents', 'destroyed window'] as const)(
     'drops attention cues for %s without replaying them on the next load', async (condition) => {
       await import('../src/main.ts')
       const window = await reachWorkspace()
@@ -444,6 +447,7 @@ describe('desktop main startup', () => {
       window.webContents.send.mockClear()
       if (condition === 'loading') window.webContents.isLoadingMainFrame.mockReturnValue(true)
       if (condition === 'foreign document') window.urls.push('https://example.com/')
+      if (condition === 'other application document') window.urls.push('dsh-app://app/other.html')
       if (condition === 'destroyed contents') window.contentsDestroyed = true
       if (condition === 'destroyed window') window.destroyed = true
       expect(() => { cue('complete') }).not.toThrow()
@@ -458,6 +462,23 @@ describe('desktop main startup', () => {
       expect(window.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.attentionSound, 'question')
     },
   )
+
+  it('reports a failed IPC delivery without interrupting the Host or replaying the cue', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    const cue = harness.hosts[0]!.onAttentionSound!
+    const error = new Error('Renderer IPC closed')
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    window.webContents.send.mockClear()
+    window.webContents.send.mockImplementationOnce(() => { throw error })
+    expect(() => { cue('complete') }).not.toThrow()
+    expect(warning).toHaveBeenCalledWith('Desktop attention cue could not be delivered:', error)
+    cue('question')
+    expect(window.webContents.send.mock.calls).toEqual([
+      [DESKTOP_IPC.attentionSound, 'complete'],
+      [DESKTOP_IPC.attentionSound, 'question'],
+    ])
+  })
 
   it('drops attention cues once shutdown starts', async () => {
     await import('../src/main.ts')
