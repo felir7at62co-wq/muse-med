@@ -156,7 +156,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 产品加载随包短剧与 Muse 技能及自身 `$DSH_HOME/skills`，不扫描已有 DSH、`.agents` 或默认项目技能源；显式插件技能注册仍然可用。Windows 用户将自定义技能放在 `%USERPROFILE%\.muse\skills\<skill-name>\SKILL.md`；`MUSE_MED_HOME` 可指定其他产品 home。Host 在启动时创建 skills 目录。开发模式使用下文说明的独立 home。短剧、编辑、标准、PTC 和创造模式提供技能工具。短剧技能从 ASAR 解包，Host 向外部 Python 提供真实的 `app.asar.unpacked` 路径。 创造模式专属的组合编写技能也从 ASAR 解包，供该模式的文件系统技能提供方读取。Windows 启动将 `runtime/media/python` 和 `runtime/media/ffmpeg/bin` 放到子进程搜索路径前部。[媒体准备器](scripts/prepare-media-runtime.ts)在发布输出前检查锁定输入、依赖导入、编码、字幕烧录、草稿媒体探测及 Word 读写验证；复用时验证完整文件清单并重跑这些检查。构建机器上的验证不能替代无开发工具机器上的安装验证。安装器附带微软官方 VC++ 前置运行库，检查已装版本并在安装前请求授权；拒绝或失败会阻止成功完成和自动启动。再分发需要发行者具有适用的微软许可，不能仅依据运行库终端许可。
 
-`jianying_draft` 通过受管 Python 调用打包的 pyJianYingDraft 0.3.1，生成一集可编辑草稿，无需 PowerShell。先读取 `tweet-drama-draft-build` 和 `drama_draft_dir`，再传 JSON 请求与已保存的编辑器根目录。工具只保留指定集的素材，拒绝已有草稿名称，保存后读回 JSON 一致才返回路径。编辑器打开和跨版本兼容仍需分别验收；此工具不解密已有工程，也不调用原生导出。
+`jianying_draft` 通过受管 Python 调用打包的 pyJianYingDraft 0.3.1，生成一集可编辑草稿，无需 PowerShell。macOS 使用主 Python 运行时及其锁定的 MediaInfo 库；Windows 使用独立的媒体运行时。本机运行时准备会验证 MediaInfo 加载和可编辑草稿保存后的读回。先读取 `tweet-drama-draft-build` 和 `drama_draft_dir`，再传 JSON 请求与已保存的编辑器根目录。工具只保留指定集的素材，拒绝已有草稿名称，保存后读回 JSON 一致才返回路径。编辑器打开和跨版本兼容仍需分别验收；此工具不解密已有工程，也不调用原生导出。
 
 标准、PTC、创造、编辑和短剧模式包含请求时间信息与预设作用域内的提醒工具。启用可选的 Host 定时任务服务后，这些 Agent 可以创建、查看、修改和删除自己会话的提醒；新建及 fork 的子代理不能使用这些工具。极简模式不包含这两项能力。
 

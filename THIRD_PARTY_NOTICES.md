@@ -292,10 +292,12 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`colorama`](https://github.com/tartley/colorama) | 0.4.6 | BSD-3-Clause |
 | [`coloredlogs`](https://github.com/xolox/python-coloredlogs) | 15.0.1 | MIT |
 | [`colorlog`](https://github.com/borntyping/python-colorlog) | 6.12.0 | MIT |
+| [`comtypes`](https://github.com/enthought/comtypes) | 1.4.17 | MIT |
 | [`et-xmlfile`](https://foss.heptapod.net/openpyxl/et_xmlfile) | 2.0.0 | MIT |
 | [`flatbuffers`](https://github.com/google/flatbuffers) | 25.12.19 | Apache-2.0 |
 | [`humanfriendly`](https://github.com/xolox/python-humanfriendly) | 10.0 | MIT |
 | [`idna`](https://github.com/kjd/idna) | 3.20 | BSD-3-Clause |
+| [`imageio`](https://github.com/imageio/imageio) | 2.37.4 | BSD-2-Clause |
 | [`lxml`](https://github.com/lxml/lxml) | 6.1.3 | BSD-3-Clause |
 | [`mpmath`](https://github.com/fredrik-johansson/mpmath) | 1.3.0 | BSD-3-Clause |
 | [`numpy`](https://github.com/numpy/numpy) | 2.3.5 | BSD-3-Clause |
@@ -308,6 +310,9 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`pillow`](https://github.com/python-pillow/Pillow) | 12.3.0 | MIT-CMU |
 | [`protobuf`](https://github.com/protocolbuffers/protobuf) | 7.36.2 | BSD-3-Clause |
 | [`pyclipper`](https://github.com/fonttools/pyclipper) | 1.4.0 | MIT |
+| [`pydub`](https://github.com/jiaaro/pydub) | 0.25.1 | MIT |
+| [`pyjianyingdraft`](https://github.com/GuanYixuan/pyJianYingDraft) | 0.3.1 | MIT |
+| [`pymediainfo`](https://github.com/sbraz/pymediainfo) | 7.0.1 | MIT |
 | [`pyreadline3`](https://github.com/pyreadline3/pyreadline3) | 3.5.6 | BSD-3-Clause |
 | [`python-dateutil`](https://github.com/dateutil/dateutil) | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause |
 | [`python-docx`](https://github.com/python-openxml/python-docx) | 1.2.0 | MIT |
@@ -321,6 +326,7 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`tqdm`](https://github.com/tqdm/tqdm) | 4.70.1 | MPL-2.0 AND MIT |
 | [`typing-extensions`](https://github.com/python/typing_extensions) | 4.16.0 | PSF-2.0 |
 | [`tzdata`](https://github.com/python/tzdata) | 2025.2 | Apache-2.0 |
+| [`uiautomation`](https://github.com/yinkaisheng/Python-UIAutomation-for-Windows) | 2.0.29 | Apache-2.0 |
 | [`urllib3`](https://github.com/urllib3/urllib3) | 2.8.0 | MIT |
 | [`xlsxwriter`](https://github.com/jmcnamara/XlsxWriter) | 3.2.9 | BSD-2-Clause |
 

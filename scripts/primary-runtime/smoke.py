@@ -11,6 +11,8 @@ import tempfile
 
 from rapidocr import RapidOCR
 import rapidocr
+import pyJianYingDraft as draft
+from pymediainfo import MediaInfo
 
 import numpy
 import pandas
@@ -74,6 +76,16 @@ def main():
         Image.new("RGB", (80, 40), "#2878bc").save(image)
         with Image.open(image) as restored:
             assert restored.size == (80, 40)
+        assert any(track.track_type == "Image" for track in MediaInfo.parse(str(image)).tracks)
+        editor = root / "drafts"
+        editor.mkdir()
+        project = draft.DraftFolder(str(editor)).create_draft("smoke", 320, 240)
+        track = project.append_track(draft.track.TrackSpec(draft.TrackType.text, "captions"))
+        project.add_segment(draft.TextSegment("Editable draft", draft.Timerange(0, 1_000_000)), track)
+        project.save()
+        saved = json.loads((editor / "smoke" / "draft_content.json").read_text(encoding="utf-8-sig"))
+        assert saved == json.loads(project.dumps())
+        assert len(saved["tracks"][0]["segments"]) == 1
 
         document = Document()
         document.add_heading("Office 文档", 0)

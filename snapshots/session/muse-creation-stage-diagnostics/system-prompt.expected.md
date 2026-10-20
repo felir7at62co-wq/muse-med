@@ -314,7 +314,7 @@ interface ToolArgsMap {
     /** 默认false；true跳过短期内存缓存重新读取公开网页 */
     refresh?: boolean;
   };
-  /** 按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。按配置每批最多5集请求媒体模型，预取下一批地址并与当前批下载重叠，累积全部结果。批次取流按配置间隔等待；媒体按连接预算并发，支持可靠字节范围的较大文件可分段下载，可恢复的分段异常停止并收取全部工作后回退一次完整下载。已成功解析媒体后遇到偶发空正文，同一查询可保留原设备配置等待接口恢复后最多重试一次，默认等待120秒；这不是电脑降温，也不能据此断定提供方限流；可取消，等待期间不要重复提交相同任务。检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消清理新建文件。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads；完全权限下按用户指定的绝对outputDir直接落盘，收据记录最终路径。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。失败结果包含sourceStage与upstreamCode时按实际阶段和错误码诊断；retryable为false时不要立即重复相同请求。empty_source_response表示HTTP成功但正文为空，不能据此判断全平台停服或自动重建设备。不能仅凭目录成功或文件齐全断言本地无问题、提供方临时故障。 */
+  /** 按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。按配置每批最多5集通过当前video-tab接口请求媒体模型，预取下一批地址并与当前批下载重叠，累积全部结果。批次取流按配置间隔等待；媒体按连接预算并发，支持可靠字节范围的较大文件可分段下载，可恢复的分段异常停止并收取全部工作后回退一次完整下载。已成功解析媒体后遇到偶发空正文，同一查询可保留原设备配置等待接口恢复后最多重试一次，默认等待120秒；这不是电脑降温，也不能据此断定提供方限流；可取消，等待期间不要重复提交相同任务。检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消只清理未完成传输；已验证视频及resume-state.json保留，按原参数再次调用自动续下，只请求缺失或校验失效的集。返回retainedEpisodeCount、remainingEpisodeCount、checkpoint和resume参数，不能把部分完成说成全集成功。会先在输出目录范围内查找已有完整收据并核对文件大小、SHA256和容器，找到的集不重复下载；结果中的每集path为真实位置，可能位于早先的下载目录。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads；完全权限下按用户指定的绝对outputDir直接落盘，收据记录最终路径。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。失败结果包含sourceStage与upstreamCode时按实际阶段和错误码诊断；retryable为false时不要立即重复相同请求。empty_source_response表示HTTP成功但正文为空，不能据此判断全平台停服或自动重建设备。不能仅凭目录成功或文件齐全断言本地无问题、提供方临时故障。 */
   hongguo_download: {
     /** 一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部 */
     seriesIds: string[];
@@ -1407,14 +1407,20 @@ interface ToolArgsMap {
     goal_id: string;
     /** Exact positive revision returned by get_goal. */
     revision: number;
-    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. */
-    action: "edit" | "pause" | "resume" | "complete" | "blocked";
+    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer. */
+    action: "edit" | "pause" | "resume" | "complete" | "blocked" | "wait";
     /** Replacement objective; valid only with action edit. */
     objective?: string;
     /** Replacement cap; valid only with action edit. */
     max_goal_rounds?: number;
     /** Required only with action blocked: the concrete condition that persisted across rounds and blocks progress. */
     blocked_reason?: string;
+    /** With action wait: describe what new information or event is needed. */
+    wait_reason?: string;
+    /** With action wait: optional positive whole seconds before continuing. */
+    wake_after_seconds?: number;
+    /** With action wait: optional owned job to watch for new output or settlement. */
+    job_id?: string;
   } & Record<string, JsonValue>;
   /** View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage. */
   video_contact_sheet: {
@@ -1564,6 +1570,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   douyin_data: {
     status: "ok" | "complete" | "partial" | "blocked";
@@ -2213,6 +2225,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   glob: {
     root: string;
@@ -2364,6 +2382,13 @@ interface ToolOutputMap {
     retryable?: boolean;
     httpStatus?: number;
     responseBytes?: number;
+    checkpoint?: string;
+    retainedEpisodeCount?: number;
+    reusedEpisodeCount?: number;
+    remainingEpisodeCount?: number;
+    newlyDownloadedEpisodeCount?: number;
+    discoveryTruncated?: boolean;
+    resume?: Record<string, JsonValue>;
     items?: Record<string, JsonValue>[];
   } & Record<string, JsonValue>;
   hongguo_download_info: {
@@ -2377,6 +2402,13 @@ interface ToolOutputMap {
     retryable?: boolean;
     httpStatus?: number;
     responseBytes?: number;
+    checkpoint?: string;
+    retainedEpisodeCount?: number;
+    reusedEpisodeCount?: number;
+    remainingEpisodeCount?: number;
+    newlyDownloadedEpisodeCount?: number;
+    discoveryTruncated?: boolean;
+    resume?: Record<string, JsonValue>;
     items?: Record<string, JsonValue>[];
   } & Record<string, JsonValue>;
   hongguo_rankings: {
@@ -2765,6 +2797,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   video_contact_sheet: {
     path: string;
