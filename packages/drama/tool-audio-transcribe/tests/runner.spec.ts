@@ -820,3 +820,89 @@ it('queries each accepted queued split task without another upload or loss of pi
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { parts: Array<{ mp3: string }> }
   for (const part of receipt.parts) { expect(part).toMatchObject(queued); expect(await stat(part.mp3)).toBeDefined() }
 })
+
+
+it('returns a live inspect call for pending work instead of treating the local receipt as a watcher', async () => {
+  const f = await setup()
+  const pending = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  expect(pending.resume_status).toEqual({ method: 'inspect', project: f.project, receipt: pending.receipt })
+  expect(pending.polling_note).toContain('Bash')
+  const done = await finishAudioTranscription(f.project, pending.receipt, { ...f.account, audioStatus: async id => ({ id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] }) }, undefined, false)
+  expect(done).not.toHaveProperty('resume_status')
+  expect(done).not.toHaveProperty('polling_note')
+})
+
+it('polls original tasks inside one bounded call and publishes without another upload', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  let queries = 0
+  const account: AudioAccount = { ...f.account, audioStatus: async id => ++queries === 1 ? { id, status: 'processing', queued: true }
+    : { id, status: 'complete', segments: [{ start: 0, end: 1, text: 'ready' }] } }
+  const done = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1, probe: shortMedia.probe })
+  expect(done.status).toBe('complete')
+  expect(queries).toBe(2)
+  expect(f.counts().submits).toBe(1)
+  expect(await readFile(done.output_txt!, 'utf8')).toContain('ready')
+})
+
+it('does not wait through a no-query recovery blocker or start a recovery upload', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  let queries = 0
+  const account: AudioAccount = { ...f.account, audioStatus: async (id) => { queries++; return { id, status: 'uncertain', recovery: { capability: 'no_query', next_action: 'inspect_receipt', automatic_resubmit: false } } } }
+  const result = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1, probe: shortMedia.probe })
+  expect(result).not.toHaveProperty('resume_status')
+  expect(queries).toBe(1)
+  expect(f.counts().submits).toBe(1)
+})
+
+it('rejects invalid waiting budgets before querying a task', async () => {
+  const f = await setup()
+  await expect(finishAudioTranscription(f.project, 'unused', f.account, undefined, false,
+    { waitMs: 30_001, pollIntervalMs: 1, probe: shortMedia.probe })).rejects.toThrow('polling budget')
+  expect(f.counts().queries).toBe(0)
+})
+
+it.each(['verified', 'outside-audio', 'changed-audio'] as const)('verifies legacy packet-range overruns against the original staged audio: %s', async (kind) => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  const before = await readFile(f.first.receipt, 'utf8')
+  if (kind === 'changed-audio') await writeFile(firstPart.mp3, 'different audio')
+  const account: AudioAccount = { ...f.account, audioStatus: async id => ({ id, status: 'complete', segments: [{ start: 0, end: id === firstPart.id ? 20.5 : 1, text: 'keep original words' }] }) }
+  const operation = finishAudioTranscription(f.project, f.first.receipt, account, undefined, false,
+    { waitMs: 0, pollIntervalMs: 1, probe: async () => kind === 'outside-audio' ? 20 : 20.6 })
+  if (kind !== 'verified') {
+    await expect(operation).rejects.toThrow(kind === 'changed-audio' ? 'Staged audio part changed' : 'timestamp exceeds')
+    expect(await readFile(f.first.receipt, 'utf8')).toBe(before)
+    await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+    return
+  }
+  const result = await operation
+  expect(result.status).toBe('complete')
+  expect(result.timing_warnings).toEqual([{ part_id: firstPart.id, planned_seconds: 20, staged_seconds: 20.6 }])
+  expect(result.progress).toEqual({ completed_parts: 2, total_parts: 2 })
+  const rows = JSON.parse(await readFile(result.output_json!, 'utf8')) as { start: number; end: number; text: string }[]
+  expect(rows.map(row => row.end)).toEqual([20.5, 21])
+  expect(rows.every(row => row.text === 'keep original words')).toBe(true)
+})
+
+
+it('cancels native waiting without a later query or publication', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const controller = new AbortController(), reason = new Error('stop waiting')
+  let queries = 0, timer: ReturnType<typeof setTimeout> | undefined
+  const account: AudioAccount = { ...f.account, audioStatus: async (id) => {
+    queries++
+    timer = setTimeout(() =>{  controller.abort(reason) }, 50)
+    return { id, status: 'processing' }
+  } }
+  try {
+    await expect(finishAudioTranscription(f.project, first.receipt, account, controller.signal, false,
+      { waitMs: 30_000, pollIntervalMs: 30_000, probe: shortMedia.probe })).rejects.toBe(reason)
+    expect(queries).toBe(1)
+    expect(f.counts().submits).toBe(1)
+    await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { clearTimeout(timer) }
+})

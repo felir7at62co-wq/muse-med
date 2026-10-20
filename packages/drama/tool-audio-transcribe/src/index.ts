@@ -4,7 +4,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
-import { finishAudioTranscription, startAudioTranscription } from './runner.ts'
+import { finishAudioTranscription, probeMediaDuration, startAudioTranscription } from './runner.ts'
 
 /** Cordis row name for model-visible speech transcription. */
 export const name = 'tool-audio-transcribe'
@@ -24,6 +24,8 @@ export interface Config {
   readonly maxDurationSeconds: number
   /** Maximum duration of one cloud upload; longer input is split with preserved offsets. */
   readonly chunkSeconds: number
+  /** Delay between native read-only task queries, in milliseconds. */
+  readonly pollIntervalMs: number
   /** Largest extracted audio chunk accepted for staging, in bytes. */
   readonly maxAudioBytes: number
 }
@@ -34,6 +36,7 @@ export const Config: Schema<Config> = Schema.object({
   ffprobePath: Schema.string().default('ffprobe'),
   commandTimeoutMs: Schema.number().step(1).min(1_000).max(3_600_000).default(600_000),
   maxDurationSeconds: Schema.number().step(1).min(1).max(18_000).default(18_000),
+  pollIntervalMs: Schema.number().step(1).min(1000).max(30_000).default(2000),
   chunkSeconds: Schema.number().step(1).min(1).max(7200).default(600),
   maxAudioBytes: Schema.number().step(1).min(1).max(536_870_912).default(100_000_000),
 })
@@ -56,8 +59,11 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
   } },
   error_code: { type: 'string', description: '安全错误类别；provider_rate 是服务额度或提交频率限制，按等待秒数恢复；daily_quota 先处理账号日额度，sign-in-required 先登录，idempotency_conflict 先核对原任务，不直接重投。' },
   retry_after_seconds: { type: 'number', description: '服务端建议等待的秒数；等待后沿用原收据。' },
-  resume_status: { type: 'object', additionalProperties: false, description: '可恢复时的下一次调用参数；查询确认未受理后可能补传同 ID 音轨，不新建任务。', properties: {
-    method: { type: 'string', enum: ['status'], required: true }, project: { type: 'string', required: true }, receipt: { type: 'string', required: true },
+  polling_note: { type: 'string' },
+  progress: { type: 'object', additionalProperties: false, properties: { completed_parts: { type: 'number', required: true }, total_parts: { type: 'number', required: true } } },
+  timing_warnings: { type: 'array', description: '旧分段实际音轨长于计划范围；已核对音轨摘要和实际时长，保留原词与时间戳，边界可能重叠。', items: { type: 'object', additionalProperties: false, properties: { part_id: { type: 'string', required: true }, planned_seconds: { type: 'number', required: true }, staged_seconds: { type: 'number', required: true } } } },
+  resume_status: { type: 'object', additionalProperties: false, description: '下一次原收据调用参数；inspect 只查询，status 仅在确认未受理时补传同 ID，不新建任务。', properties: {
+    method: { type: 'string', enum: ['inspect', 'status'], required: true }, project: { type: 'string', required: true }, receipt: { type: 'string', required: true },
   } },
 } } as const
 
@@ -70,11 +76,12 @@ export function apply(ctx: Context, config: Config): void {
   const account = ctx.get('museAccount') as MuseAccountService
   ctx.tools.register(defineTool({
     name: 'audio_transcribe',
-    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。',
+    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。',
     parameters: {
       method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
       input: { type: 'string', description: 'start 必填：获授权的本地音频或视频文件路径。' },
+      wait_seconds: { type: 'number', description: 'inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。' },
       receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
@@ -89,7 +96,7 @@ export function apply(ctx: Context, config: Config): void {
         return await startAudioTranscription(args.project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal)
       }
       if (!args.receipt) throw new Error('audio_transcribe inspect/status requires receipt')
-      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal, args.method === 'status')
+      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal, args.method === 'status', { waitMs: (args.wait_seconds ?? 0) * 1000, pollIntervalMs: config.pollIntervalMs, probe: (source, signal) => probeMediaDuration(source, config, signal) })
     },
   }))
 }

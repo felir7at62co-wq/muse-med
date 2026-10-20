@@ -13,7 +13,7 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 
 ## 云端运行
 
-先确认本地媒体和项目目录。Muse 账号必须已登录，服务器必须配置云端转写。`audio_transcribe` 的 `start` 会先检查时长，使用随包 FFmpeg 从音频或视频中提取 16 kHz 单声道 PCM WAV，保存包含任务 ID 的本地收据，再通过当前账号提交。只上传提取的音轨，不上传整段视频。云端转写会使用计费语音服务；仅在用户要求转写、项目已有相应授权时提交。
+先确认本地媒体和项目目录。已有分集文件时保留每集来源与收据，避免为批量转写先拼成跨集长片；可并行处理独立集数，回读各自结果，不能把一批完成当作全剧完成。Muse 账号必须已登录，服务器必须配置云端转写。`audio_transcribe` 的 `start` 会先检查时长，使用随包 FFmpeg 从音频或视频中提取 16 kHz 单声道 PCM WAV，保存包含任务 ID 的本地收据，再通过当前账号提交。只上传提取的音轨，不上传整段视频。云端转写会使用计费语音服务；仅在用户要求转写、项目已有相应授权时提交。
 
 按实际用途设置 `purpose`：字幕生成或校时用 `subtitles`（极速识别）；音视频转小说或剧本用 `screenplay`（标准识别）。一般转写未指定用途时默认 `subtitles`。具体服务版本与资源由 Muse 服务器分配，不向用户索要提供方密钥或让用户选择资源。用途写入收据和所有音轨分段，查询与重试保持原用途；已有未完成任务不能改用途，先用原收据查清结果。同一原片确需另一用途时，应先判断现有结果能否复用；仅在用户明确授权额外计费转写后，显式传入新用途，创建独立版本收据，不改写或重投旧任务。省略用途时不会跨用途创建新付费任务。
 
@@ -24,10 +24,10 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 `language` 可为 `zh` 或 `auto`，省略时为 `zh`。保存 `start` 返回的 `receipt`，然后对同一收据调用：
 
 ```json
-{"method":"inspect","project":"<同一项目根目录>","receipt":"<start 返回的收据路径>"}
+{"method":"inspect","project":"<同一项目根目录>","receipt":"<start 返回的收据路径>","wait_seconds":20}
 ```
 
-限流的 `error_code` 区分 `queue_full`（队列满）、`upload_busy`（上传繁忙）、`request_rate`（账号请求频率）和 `provider_rate`（服务额度或提交频率）。有 `retry_after_seconds` 时按该秒数等待，再查询原收据。`inspect` 只查询原任务，绝不补传音轨；若已完成则发布本地转写结果。只有用户另行授权补传后才用 `status`，它先回读，确认原任务尚未受理后可能补传同 ID 音轨并计费；不更换 ID、用途或收据。`daily_quota` 先处理账号日额度，`sign-in-required` 先登录，`idempotency_conflict` 先核对原任务，不能直接重投。一次调用没有自动等待或无限重试。
+限流的 `error_code` 区分 `queue_full`（队列满）、`upload_busy`（上传繁忙）、`request_rate`（账号请求频率）和 `provider_rate`（服务额度或提交频率）。有 `retry_after_seconds` 时按该秒数等待，再查询原收据。`inspect` 只查询原任务，绝不补传音轨；若已完成则发布本地转写结果。只有用户另行授权补传后才用 `status`，它先回读，确认原任务尚未受理后可能补传同 ID 音轨并计费；不更换 ID、用途或收据。`daily_quota` 先处理账号日额度，`sign-in-required` 先登录，`idempotency_conflict` 先核对原任务，不能直接重投。可用 `wait_seconds` 在单次调用内等待查询，最多 30 秒；返回未完成时按 `resume_status` 和实际诊断继续。收据是上次查询的快照，不会自行刷新；不能用 Bash 循环读收据代替 `inspect`。
 
 先读取实际 `service_version`、`queued`、`error_code`、安全的 `provider_diagnostic` 和 `recovery`；旧任务未提供版本或诊断时只记未知，不由用途猜是 1.0、2.0 或极速。`processing` 本身不能证明提供方一直在识别，`uncertain` 更不能当成待处理结果反复盲等：
 

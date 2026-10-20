@@ -36,7 +36,7 @@ function headers(config,id){return {'content-type':'application/json','X-Api-App
 export async function submitAsr(config,{id,url,language,format='mp3',purpose,durationSeconds},fetcher=fetch){
  const speakers=purpose==='screenplay'&&config.speakerDiarization?{enable_speaker_info:true,ssd_version:config.speakerDiarizationVersion,...config.speakerDiarizationVersion==='200'?{ssd_mode:durationSeconds>=config.speakerLongAudioSeconds?1:0}:{}}:{};
  let response;
- try{response=await fetcher(endpoint+'/submit',{method:'POST',headers:{...headers(config,id),'X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio:{format,url,rate:16000,channel:1},request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true,...speakers,...language==='auto'?{enable_auto_lang:true}:purpose==='screenplay'?{}:{language}}}),signal:AbortSignal.timeout(config.timeoutMs)});}
+ try{response=await fetcher(endpoint+'/submit',{method:'POST',headers:{...headers(config,id),'X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio:{format,url,rate:16000,channel:1,...language==='zh'?{language:'zh-CN'}:{}},request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,enable_ddc:false,show_utterances:true,...speakers,...language==='auto'?{enable_auto_lang:true}:{}}}),signal:AbortSignal.timeout(config.timeoutMs)});}
  catch(error){throw new AsrProviderError('submit',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(response.ok&&['20000000','20000001','20000002'].includes(code))return;
@@ -50,7 +50,7 @@ export async function queryAsr(config,id,fetcher=fetch){
  catch(error){throw new AsrProviderError('query',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(!response.ok)throw new AsrProviderError('query','http',response);
- if(['20000001','20000002'].includes(code))return {status:'processing'};
+ if(['20000001','20000002'].includes(code))return {status:'processing',queued:code==='20000002'};
  if(code==='20000003')return {status:'silent'};
  if(['45000006','45000092','55001010'].includes(code))return {status:'failed',providerCode:code};
  if(code!=='20000000')throw new AsrProviderError('query','response',response);
@@ -95,7 +95,7 @@ export async function recognizeFlashAsr(config,{id,url,file},fetcher=fetch){
  try{audio=file?{data:(await readFile(file)).toString('base64')}:{url};}
  catch(error){throw new AsrProviderError('flash','audio');}
  let response;
- try{response=await fetcher(endpoint+'/recognize/flash',{method:'POST',headers:{...headers(config,id),'X-Api-Resource-Id':'volc.bigasr.auc_turbo','X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio,request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,show_utterances:true}}),signal:AbortSignal.timeout(config.timeoutMs)});}
+ try{response=await fetcher(endpoint+'/recognize/flash',{method:'POST',headers:{...headers(config,id),'X-Api-Resource-Id':'volc.bigasr.auc_turbo','X-Api-Sequence':'-1'},body:JSON.stringify({user:{uid:'muse-audio-transcribe'},audio,request:{model_name:'bigmodel',enable_itn:true,enable_punc:true,enable_ddc:false,show_utterances:true}}),signal:AbortSignal.timeout(config.timeoutMs)});}
  catch(error){throw new AsrProviderError('flash',error?.name==='TimeoutError'?'timeout':'transport');}
  const code=response.headers.get('X-Api-Status-Code');
  if(!response.ok)throw new AsrProviderError('flash','http',response);

@@ -10,7 +10,7 @@ test('screenplay recognition enables speaker separation for short and long non-m
  for(const [durationSeconds,mode] of [[100,0],[600,1]]){
   let request;
   await submitAsr(config,{id:'fixture-id',url:'https://example.test/audio',language:'zh',purpose:'screenplay',durationSeconds},async(_url,init)=>{request=JSON.parse(init.body).request;return response({});});
-  assert.equal(request.enable_speaker_info,true);assert.equal(request.show_utterances,true);
+  assert.equal(request.enable_ddc,false);assert.equal(request.enable_speaker_info,true);assert.equal(request.show_utterances,true);
   assert.equal(request.ssd_version,'200');assert.equal(request.ssd_mode,mode);
   assert.equal(request.language,undefined);
  }
@@ -44,5 +44,21 @@ test('retains available speaker IDs without copying provider additions',async()=
 test('rejects invalid or conflicting speaker IDs instead of silently merging identities',async()=>{
  for(const fields of [{speaker_id:''},{speaker_id:{name:'malformed'}},{speaker_id:'1',additions:{speaker_id:'2'}},{additions:{speaker:''}},{additions:{speaker:1}},{speaker_id:'1',additions:{speaker:'2'}}]){
   await assert.rejects(queryAsr(config,'fixture',async()=>response({result:{utterances:[{start_time:0,end_time:1000,text:'你好',...fields}]}})),{code:'provider_unavailable'});
+ }
+});
+
+
+test('distinguishes provider queueing from active recognition using official status codes',async()=>{
+ for(const [code,queued] of [['20000002',true],['20000001',false]]){
+  assert.deepEqual(await queryAsr(config,'original-id',async()=>new Response('',{headers:{'X-Api-Status-Code':code}})),{status:'processing',queued});
+ }
+});
+
+
+test('standard recognition puts documented language values in audio rather than request',async()=>{
+ for(const language of ['zh','auto']){
+  let body;await submitAsr(config,{id:'original-id',url:'https://example.test/audio',language,purpose:'screenplay',durationSeconds:60},async(_url,init)=>{body=JSON.parse(init.body);return response({});});
+  assert.equal(body.audio.language,language==='zh'?'zh-CN':undefined);
+  assert.equal(body.request.language,undefined);assert.equal(body.request.enable_auto_lang,language==='auto'?true:undefined);
  }
 });

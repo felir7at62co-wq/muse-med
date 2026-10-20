@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { MuseAsrError, parseMuseAsrMetadata, type MuseAsrMetadata, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
@@ -39,10 +40,36 @@ export interface AudioRunResult extends Omit<MuseAsrMetadata, 'error_code'> {
   readonly purpose?: MuseAsrPurpose
   readonly error_code?: MuseAsrError['code'] | NonNullable<MuseAsrMetadata['error_code']>
   readonly retry_after_seconds?: number
-  readonly resume_status?: { readonly method: 'status'; readonly project: string; readonly receipt: string }
+  readonly resume_status?: { readonly method: 'inspect' | 'status'; readonly project: string; readonly receipt: string }
+  readonly polling_note?: string
+  readonly progress?: { readonly completed_parts: number; readonly total_parts: number }
+  readonly timing_warnings?: { readonly part_id: string; readonly planned_seconds: number; readonly staged_seconds: number }[]
   readonly output_txt?: string
   readonly output_json?: string
   readonly output_srt?: string
+}
+
+/** Bounded native polling and media verification for original task readback. */
+export interface AudioQueryOptions {
+  /** Maximum polling delay budget; an individual request still uses its account timeout. */
+  readonly waitMs: number
+  /** Delay between read-only queries, configured by the tool owner. */
+  readonly pollIntervalMs: number
+  /** Probe the unchanged staged audio when a legacy receipt understates its duration. */
+  readonly probe: AudioMediaOperations['probe']
+}
+
+/**
+ * Probe the duration reported by the configured local media executable.
+ * @param source - Local media to inspect without changing it.
+ * @param config - Executable path and command deadline.
+ * @param signal - Cancellation of the owned subprocess.
+ * @returns Finite positive duration in seconds, or rejects invalid media.
+ */
+export async function probeMediaDuration(source: string, config: AudioRunnerConfig, signal?: AbortSignal): Promise<number> {
+  const seconds = Number((await command(config.ffprobePath, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', source], config.commandTimeoutMs, signal)).trim())
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Invalid media duration')
+  return seconds
 }
 
 interface AudioPart extends MuseAsrMetadata {
@@ -230,6 +257,11 @@ function rejectedResult(project: string, file: string, receipt: Receipt, error: 
 }
 
 function portableResult(result: AudioRunResult): AudioRunResult {
+  const pending = ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+  if (pending && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt') {
+    result = { ...result, resume_status: { method: result.recovery?.next_action === 'resume_upload' ? 'status' : 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
+      polling_note: '本地收据是上次查询的快照，不会自行刷新。继续调用 audio_transcribe 的 resume_status 参数；inspect 可带 wait_seconds 等待并查询云端，完成后发布本地结果。不要用 Bash 循环读取收据代替查询，也不要重新 start。' }
+  }
   const path = (value: string): string => value.replaceAll('\\', '/')
   return { ...result, receipt: path(result.receipt),
     ...(result.output_txt === undefined ? {} : { output_txt: path(result.output_txt) }),
@@ -324,7 +356,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
   signal?.throwIfAborted()
   const duration = media ? await media.probe(source, signal)
-    : Number((await command(config.ffprobePath, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', source], config.commandTimeoutMs, signal)).trim())
+    : await probeMediaDuration(source, config, signal)
   signal?.throwIfAborted()
   if (!Number.isFinite(duration) || duration <= 0 || duration > config.maxDurationSeconds) throw new Error('Media duration exceeds the cloud transcription limit')
   let version = 1
@@ -382,13 +414,24 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param account - Current Host account operations.
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
  * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
- * @returns Current status and completed output paths when available after owned work settles.
+ * @param options - Optional bounded read-only polling and verified legacy audio-duration probe.
+ * @returns Current status, original-receipt polling parameters, and completed output paths after owned work settles.
  */
 export async function finishAudioTranscription(
-  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
+  allowResumeUpload = true, options?: AudioQueryOptions,
 ): Promise<AudioRunResult> {
+  if (options && (!Number.isFinite(options.waitMs) || options.waitMs < 0 || options.waitMs > 30_000
+    || !Number.isFinite(options.pollIntervalMs) || options.pollIntervalMs <= 0)) throw new Error('Invalid transcription polling budget')
   try {
-    const result = await finishReceipt(projectPath, receiptPath, account, signal, allowResumeUpload)
+    const deadline = Date.now() + (options?.waitMs ?? 0)
+    let result = await finishReceipt(projectPath, receiptPath, account, signal, allowResumeUpload, options?.probe)
+    while (options && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+      && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
+      await delay(Math.min(options.pollIntervalMs, deadline - Date.now()), undefined, { signal })
+      signal?.throwIfAborted()
+      result = await finishReceipt(projectPath, receiptPath, account, signal, false, options.probe)
+    }
     signal?.throwIfAborted()
     return portableResult(result)
   }
@@ -401,7 +444,7 @@ export async function finishAudioTranscription(
 }
 
 async function finishReceipt(
-  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
   const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
@@ -414,7 +457,7 @@ async function finishReceipt(
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
   if (receipt.parts !== undefined) {
-    return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal, allowResumeUpload)
+    return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal, allowResumeUpload, probe)
   }
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
@@ -476,7 +519,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
       signal?.throwIfAborted()
       if (media) await media.encode(source, mp3, { offset, duration: seconds }, signal)
       else await command(config.ffmpegPath, ['-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-ss', String(offset),
-        '-i', source, '-t', String(seconds), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs, signal)
+        '-i', source, '-af', `aresample=16000,atrim=end_sample=${Math.round(seconds * 16000)},asetpts=N/SR/TB`, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', mp3], config.commandTimeoutMs, signal)
       signal?.throwIfAborted()
       const size = (await stat(mp3)).size
       if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio part exceeds cloud limit')
@@ -513,7 +556,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
 
 async function finishParts(
   project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[],
-  account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
+  account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -553,10 +596,23 @@ async function finishParts(
     results.push({ job, part })
   }
   const status = combinedStatus(results.map(({ job }) => job))
+  const timingWarnings: NonNullable<AudioRunResult['timing_warnings']>[number][] = []
   if (status === 'complete') {
+    const durations = new Map<string, number>()
+    for (const { job, part } of results) {
+      const maxEnd = Math.max(0, ...(job.segments ?? []).map(row => row.end))
+      if (maxEnd <= part.duration + 0.25) continue
+      // Old FFmpeg ranges used packet timestamps; the submitted PCM can be longer.
+      if (!probe) throw new Error('Recognition timestamp exceeds its audio part; inspect with the configured media probe')
+      if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
+      const actual = await probe(part.mp3, signal)
+      if (!Number.isFinite(actual) || actual <= 0 || maxEnd > actual + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
+      durations.set(part.id, actual)
+      timingWarnings.push({ part_id: part.id, planned_seconds: part.duration, staged_seconds: actual })
+    }
     const segments = results.flatMap(({ job, part }) => {
       return (job.segments ?? []).map((row) => {
-        if (row.end > part.duration + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
+        if (row.end > (durations.get(part.id) ?? part.duration) + 0.25) throw new Error('Recognition timestamp exceeds its audio part')
         return { ...row, start: row.start + part.offset, end: row.end + part.offset,
           ...(row.speaker_id === undefined ? {} : { speaker_id: `${part.id}:${row.speaker_id}` }),
           ...(row.words === undefined ? {} : { words: row.words.map(word => ({
@@ -578,5 +634,6 @@ async function finishParts(
       && (job.status !== 'failed' || !canResumeUpload(job)))) await rm(part.mp3, { force: true })
   }
   return { status, receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose),
-    ...combinedMetadata(results.map(({ job }) => job)), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
+    ...combinedMetadata(results.map(({ job }) => job)), progress: { completed_parts: results.filter(({ job }) => ['complete', 'silent'].includes(job.status)).length, total_parts: parts.length },
+    ...(timingWarnings.length === 0 ? {} : { timing_warnings: timingWarnings }), ...(status === 'complete' ? { output_txt: target.txt, output_json: target.json, output_srt: target.srt } : {}) }
 }

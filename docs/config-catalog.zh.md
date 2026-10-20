@@ -3885,6 +3885,8 @@ export interface Config {
   readonly maxDurationSeconds: number
   /** Maximum duration of one cloud upload; longer input is split with preserved offsets. */
   readonly chunkSeconds: number
+  /** Delay between native read-only task queries, in milliseconds. */
+  readonly pollIntervalMs: number
   /** Largest extracted audio chunk accepted for staging, in bytes. */
   readonly maxAudioBytes: number
 }

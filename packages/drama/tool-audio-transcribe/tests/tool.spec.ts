@@ -10,6 +10,7 @@ import { finishAudioTranscription, startAudioTranscription, type AudioAccount, t
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
+  probeMediaDuration: vi.fn(async () => 30),
   finishAudioTranscription: vi.fn(async () => ({ status: 'complete', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
 }))
 
@@ -35,7 +36,7 @@ async function fixture() {
   await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
   const register = vi.spyOn(ctx.tools, 'register')
   const config = Config({ ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 600_000,
-    maxDurationSeconds: 18_000, chunkSeconds: 600, maxAudioBytes: 100_000_000 })
+    maxDurationSeconds: 18_000, chunkSeconds: 600, pollIntervalMs: 2000, maxAudioBytes: 100_000_000 })
   apply(ctx, config)
   const tool = register.mock.calls[0]?.[0]
   if (tool === undefined) throw new Error('audio_transcribe was not registered')
@@ -83,10 +84,11 @@ it('queries the original receipt and renders the canonical response', async () =
 
 it('routes inspect to the original receipt without permitting a recovery upload', async () => {
   const { call } = await fixture()
-  const result = await call({ method: 'inspect', project: 'project', receipt: 'original.json' })
+  const result = await call({ method: 'inspect', project: 'project', receipt: 'original.json', wait_seconds: 20 })
   expect(result.isError).toBe(false)
   expect(finishAudioTranscription).toHaveBeenCalledOnce()
   expect(vi.mocked(finishAudioTranscription).mock.calls[0]?.[4]).toBe(false)
+  expect(vi.mocked(finishAudioTranscription).mock.calls[0]?.[5]).toMatchObject({ waitMs: 20_000, pollIntervalMs: 2000 })
   expect(startAudioTranscription).not.toHaveBeenCalled()
 })
 

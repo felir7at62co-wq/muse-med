@@ -86,7 +86,7 @@ export function createAsrService(options){
   const flash=job.providerKind==='flash',unresolved=['submitting','processing','uncertain'].includes(job.status);
   const recovery={capability:flash&&unresolved?'no_query':!flash&&unresolved?'query_original_task':'none',next_action:['complete','silent'].includes(job.status)?'use_result':['preparing','failed'].includes(job.status)&&job.submittedAtMs===undefined&&!job.providerFailure&&!job.retentionExpired&&!busy(jobKey(job))?'resume_upload':job.status==='failed'||flash&&job.status==='uncertain'&&!workers.has(jobKey(job))?'inspect_receipt':!flash&&unresolved?'poll_original':'wait',automatic_resubmit:false};
   const failure=job.providerFailure,diagnostic=failure?{...['timeout','transport','http','response','json','result','audio'].includes(failure.reason)?{reason:failure.reason}:{},...['submit','query','flash'].includes(failure.operation)?{operation:failure.operation}:{},...Number.isInteger(failure.httpStatus)&&failure.httpStatus>=100&&failure.httpStatus<=599?{http_status:failure.httpStatus}:{},...typeof failure.providerCode==='string'&&/^\d{5,10}$/.test(failure.providerCode)?{provider_code:failure.providerCode}:{}}:undefined;
-  return {id:job.id,status:job.status==='queued'?'processing':job.status,...job.status==='queued'&&waiting.some(entry=>jobKey(entry)===jobKey(job))?{queued:true}:{},...job.purpose?{purpose:job.purpose}:{},...job.serviceVersion?{service_version:job.serviceVersion}:{},recovery,...diagnostic&&Object.keys(diagnostic).length?{provider_diagnostic:diagnostic}:{},...job.status==='complete'?{segments:job.segments}:{},...job.retentionExpired?{retentionExpired:true}:{},...['provider_rejected','provider_unavailable','storage_unavailable'].includes(job.failureCode)&&['uncertain','failed'].includes(job.status)?{error_code:job.failureCode}:{}};
+  return {id:job.id,status:job.status==='queued'?'processing':job.status,...job.status==='queued'&&waiting.some(entry=>jobKey(entry)===jobKey(job))?{queued:true}:job.status==='processing'&&typeof job.providerQueued==='boolean'?{queued:job.providerQueued}:{},...job.purpose?{purpose:job.purpose}:{},...job.serviceVersion?{service_version:job.serviceVersion}:{},recovery,...diagnostic&&Object.keys(diagnostic).length?{provider_diagnostic:diagnostic}:{},...job.status==='complete'?{segments:job.segments}:{},...job.retentionExpired?{retentionExpired:true}:{},...['provider_rejected','provider_unavailable','storage_unavailable'].includes(job.failureCode)&&['uncertain','failed'].includes(job.status)?{error_code:job.failureCode}:{}};
  }
  const resourceOf=job=>resourceForJob(job,resources,pool.defaultPoolId);
  async function fileOperation(target,operation){
@@ -170,7 +170,7 @@ export function createAsrService(options){
   try{await operation;}catch(error){workerFailure=error;throw error;}finally{expiring.delete(key);}
  }
  async function poll(job,account,key){let result;
-  try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';recordProviderFailure(job,error);delete job.terminalQuery;await save(account,key,job);return publicJob(job);}
+  try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';delete job.providerQueued;recordProviderFailure(job,error);delete job.terminalQuery;await save(account,key,job);return publicJob(job);}
   if(result.status==='failed'&&['45000006','45000092','55001010'].includes(result.providerCode)){
    const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
    job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
@@ -179,7 +179,7 @@ export function createAsrService(options){
    await save(account,key,job);if(job.status==='failed')await cleanup(job,account,key);return publicJob(job);
   }
   delete job.terminalQuery;
-  if(result.status==='processing'){job.status='processing';delete job.failureCode;delete job.providerFailure;await save(account,key,job);return publicJob(job);}
+  if(result.status==='processing'){job.status='processing';job.providerQueued=result.queued===true;delete job.failureCode;delete job.providerFailure;await save(account,key,job);return publicJob(job);}
   if(result.status==='silent'){job.status='silent';delete job.failureCode;delete job.providerFailure;await save(account,key,job);await cleanup(job,account,key);return publicJob(job);}
   if(result.status!=='complete'||!Array.isArray(result.segments)||!result.segments.length)throw Error('Invalid ASR provider result');
   job.status='complete';job.segments=result.segments;delete job.failureCode;delete job.providerFailure;await save(account,key,job);await cleanup(job,account,key);return publicJob(job);

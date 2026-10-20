@@ -148,3 +148,20 @@ test('production gateway serves the configured KB machine endpoint before browse
  const base=await new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve(`http://127.0.0.1:${server.address().port}`)));t.after(()=>new Promise(resolve=>server.close(resolve)));
  assert.equal((await fetch(base+'/api/kb/mcp')).status,401);
 });
+
+
+test('returns provider queue state and clears it when recognition starts without another submission',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-provider-queue-'));
+ const second=deferred(),third=deferred(),releaseSecond=deferred(),releaseThird=deferred();let queries=0,submits=0;
+ const service=createAsrService({root,storage:makeStorage(),provider:{submit:async()=>{submits++;},query:async()=>{
+  queries++;
+  if(queries===1)return {status:'processing',queued:true};
+  if(queries===2){second.resolve();await releaseSecond.promise;return {status:'processing',queued:false};}
+  third.resolve();await releaseThird.promise;return {status:'silent'};
+ }},pollIntervalMs:1,probe:async()=>30,maxAudioBytes:1024,maxDurationSeconds:18000,maxDailySeconds:120,maxDailyJobs:2,maxActiveJobs:1,retentionSeconds:86400});
+ t.after(async()=>{releaseSecond.resolve();releaseThird.resolve();await service.close();await rm(root,{recursive:true,force:true});});
+ const id=randomUUID();await service.submit('alice',id,hash,'zh',Readable.from(audio));
+ await second.promise;assert.equal((await service.get('alice',id)).queued,true);
+ releaseSecond.resolve();await third.promise;assert.equal((await service.get('alice',id)).queued,false);
+ releaseThird.resolve();await service.idle();assert.equal((await service.get('alice',id)).status,'silent');assert.equal(submits,1);
+});

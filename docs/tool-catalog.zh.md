@@ -1502,7 +1502,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 
 ### `audio_transcribe`
 
-使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。
+使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。
 
 ```json
 {
@@ -1524,6 +1524,10 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     "input": {
       "type": "string",
       "description": "start 必填：获授权的本地音频或视频文件路径。"
+    },
+    "wait_seconds": {
+      "type": "number",
+      "description": "inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。"
     },
     "receipt": {
       "type": "string",
