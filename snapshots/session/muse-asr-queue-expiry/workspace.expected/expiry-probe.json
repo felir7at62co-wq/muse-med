@@ -1,0 +1,18 @@
+{
+  "gatewayStatus": "failed",
+  "retentionExpired": true,
+  "queued": false,
+  "recovery": {
+    "capability": "none",
+    "next_action": "inspect_receipt",
+    "automatic_resubmit": false
+  },
+  "originalJobIdRetained": true,
+  "accountSubmissions": 0,
+  "providerSubmissions": 0,
+  "providerQueries": 0,
+  "localStagedAudioRemoved": true,
+  "sourcePreserved": true,
+  "receiptPreserved": true,
+  "transcriptPublished": false
+}
