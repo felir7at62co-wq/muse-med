@@ -1,0 +1,12 @@
+# The normal Headless Loader produces the completed Session event.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: snapshot-attention-audio
+      name: './audio-fixture.mjs'

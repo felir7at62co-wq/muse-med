@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-attention-audio
+profile: headless
+composition: muse-attention-audio
+recording: authored
+header:
+  class: muse-attention-audio
+  pin: true
+workspace:
+  final: true
+writerOutput: true

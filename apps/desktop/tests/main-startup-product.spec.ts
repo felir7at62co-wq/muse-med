@@ -61,6 +61,7 @@ const harness = await vi.hoisted(async () => {
       isFocused: () => true,
       getZoomFactor: () => 1,
       getURL: () => this.urls.at(-1) ?? '',
+      isLoadingMainFrame: vi.fn(() => false),
       isDestroyed: () => this.contentsDestroyed,
       send: vi.fn((channel: string, state: { phase?: string }) => {
         if (this.contentsDestroyed || this.destroyed) throw new TypeError('Object has been destroyed')
@@ -87,7 +88,8 @@ const harness = await vi.hoisted(async () => {
     readonly moveTop = vi.fn()
     constructor(readonly options: { show: boolean } & Record<string, unknown>) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
-    isMinimized() { return false }
+    minimized = false
+    isMinimized() { return this.minimized }
     async loadURL(url: string) {
       this.urls.push(url)
       this.webContents.mainFrame.url = url
@@ -120,6 +122,9 @@ const harness = await vi.hoisted(async () => {
       readonly node: string, readonly runtime: string, readonly profile: string,
       readonly inspectPort?: number, readonly environment?: NodeJS.ProcessEnv,
       readonly onFailure?: (error: Error) => void, readonly primaryRuntime?: string,
+      readonly packageManager?: { pnpm: string; nodeBin: string },
+      readonly onPlatformSession?: (session: unknown) => void,
+      readonly onAttentionSound?: (kind: 'complete' | 'question') => void,
     ) { hosts.push(this) }
   }
   const app = Object.assign(new EventEmitter(), {
@@ -231,7 +236,7 @@ vi.mock('electron', () => ({
   net: harness.net,
   powerMonitor: harness.powerMonitor,
   session: harness.session,
-  shell: { openExternal: harness.openExternal },
+  shell: { openExternal: harness.openExternal, beep: vi.fn() },
   Tray: class {
     readonly setToolTip = vi.fn()
     readonly setContextMenu = vi.fn()
@@ -412,6 +417,90 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('forwards live attention cues to the application while visible, hidden, or minimized', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    expect(window.options).toMatchObject({ webPreferences: { autoplayPolicy: 'no-user-gesture-required' } })
+    const cue = harness.hosts[0]!.onAttentionSound!
+    window.webContents.send.mockClear()
+    cue('complete')
+    window.visible = false
+    cue('question')
+    window.minimized = true
+    window.urls.push('dsh-app://app/#/sessions/current')
+    cue('complete')
+    window.urls.push('dsh-app://app/index.html?locale=zh#/sessions/current')
+    cue('question')
+    expect(window.webContents.send.mock.calls).toEqual([
+      [DESKTOP_IPC.attentionSound, 'complete'],
+      [DESKTOP_IPC.attentionSound, 'question'],
+      [DESKTOP_IPC.attentionSound, 'complete'],
+      [DESKTOP_IPC.attentionSound, 'question'],
+    ])
+  })
+
+  it.each(['loading', 'foreign document', 'other application document', 'destroyed contents', 'destroyed window'] as const)(
+    'drops attention cues for %s without replaying them on the next load', async (condition) => {
+      await import('../src/main.ts')
+      const window = await reachWorkspace()
+      const cue = harness.hosts[0]!.onAttentionSound!
+      window.webContents.send.mockClear()
+      if (condition === 'loading') window.webContents.isLoadingMainFrame.mockReturnValue(true)
+      if (condition === 'foreign document') window.urls.push('https://example.com/')
+      if (condition === 'other application document') window.urls.push('dsh-app://app/other.html')
+      if (condition === 'destroyed contents') window.contentsDestroyed = true
+      if (condition === 'destroyed window') window.destroyed = true
+      expect(() => { cue('complete') }).not.toThrow()
+      expect(window.webContents.send).not.toHaveBeenCalled()
+      window.webContents.isLoadingMainFrame.mockReturnValue(false)
+      window.contentsDestroyed = false
+      window.destroyed = false
+      window.urls.push('dsh-app://app/')
+      window.webContents.emit('did-finish-load')
+      expect(window.webContents.send.mock.calls.filter(([channel]) => channel === DESKTOP_IPC.attentionSound)).toEqual([])
+      cue('question')
+      expect(window.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.attentionSound, 'question')
+    },
+  )
+
+  it('reports a failed IPC delivery without interrupting the Host or replaying the cue', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    const cue = harness.hosts[0]!.onAttentionSound!
+    const error = new Error('Renderer IPC closed')
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    window.webContents.send.mockClear()
+    window.webContents.send.mockImplementationOnce(() => { throw error })
+    expect(() => { cue('complete') }).not.toThrow()
+    expect(warning).toHaveBeenCalledWith('Desktop attention cue could not be delivered:', error)
+    cue('question')
+    expect(window.webContents.send.mock.calls).toEqual([
+      [DESKTOP_IPC.attentionSound, 'complete'],
+      [DESKTOP_IPC.attentionSound, 'question'],
+    ])
+  })
+
+  it('drops attention cues once shutdown starts', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    const host = harness.hosts[0]!
+    harness.app.quit()
+    await host.stopping.promise
+    window.webContents.send.mockClear()
+    host.onAttentionSound!('complete')
+    expect(window.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('drops attention cues after Windows session end', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    window.webContents.send.mockClear()
+    window.emit('session-end')
+    harness.hosts[0]!.onAttentionSound!('question')
+    expect(window.webContents.send).not.toHaveBeenCalled()
+  })
+
   it('exposes catalog reads only to desktop-owned shell documents', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise

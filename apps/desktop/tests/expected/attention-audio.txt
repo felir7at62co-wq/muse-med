@@ -1,0 +1,9 @@
+evidence=chromium-software-audio-output
+first-complete=rendered-then-silent
+user-activation=absent
+question=rendered-then-silent
+hidden-complete=rendered-then-silent
+minimized-question=rendered-then-silent
+rapid-replacement=rendered-then-silent
+reload=quiet-without-replay
+after-reload-question=rendered-then-silent
