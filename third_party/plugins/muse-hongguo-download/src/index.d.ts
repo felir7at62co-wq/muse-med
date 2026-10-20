@@ -17,7 +17,7 @@ export interface HongguoDownloadConfig {
   mediaUserAgent?: string; retryDelayMs?: number;
   mediaRequestIntervalMs?: number; mediaIdleTimeoutMs?: number; mediaBatchSize?: number;
   mediaConnections?: number; mediaConnectionLimit?: number; mediaSegmentMinBytes?: number;
-  emptySourceCooldownMs?: number;
+  emptySourceCooldownMs?: number; resumeSearchDepth?: number; resumeSearchEntries?: number;
   requestTimeoutMs?: number; downloadTimeoutMs?: number; callTimeoutMs?: number;
   mediaProcessGraceMs?: number;
   maxResponseBytes?: number; maxEpisodeBytes?: number; maxSeries?: number; concurrency?: number; retries?: number;
@@ -34,9 +34,13 @@ export interface DownloadFailure {
   ok: false; complete: false; code: string; message: string;
   upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
   httpStatus?: number; responseBytes?: number;
+  path?: string; checkpoint?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
+  remainingEpisodeCount?: number; discoveryTruncated?: boolean; resume?: DownloadOptions;
 }
 export interface DownloadResult {
   ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
+  checkpoint: string; retainedEpisodeCount: number; reusedEpisodeCount: number; remainingEpisodeCount: number;
+  newlyDownloadedEpisodeCount: number; discoveryTruncated: boolean; sourceIdentity: string | null;
   validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true; note: string;
   items: { seriesId: string; title: string; source: string; episodeCount: number; downloadedEpisodeCount: number; complete: boolean; path: string; episodes: DownloadedEpisode[] }[];
 }

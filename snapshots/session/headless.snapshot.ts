@@ -598,9 +598,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       await writeFile(join(cwd, `transcript/jobs/${stem}-v1.json`), JSON.stringify({
         id, source: join(workspace, `source/${stem}.mp4`), accountUsername: 'fixture', stem, version: 1,
         language: 'zh', purpose: 'screenplay', sha256: 'a'.repeat(64), mp3: join(workspace, `transcript/jobs/.${id}.wav`),
-        status: 'uncertain', service_version: flash ? 'flash' : 'standard-v2', error_code: 'provider_unavailable',
-        provider_diagnostic: { reason: 'timeout', operation: flash ? 'flash' : 'query' },
-        recovery: { capability: flash ? 'no_query' : 'query_original_task', next_action: flash ? 'inspect_receipt' : 'poll_original', automatic_resubmit: false },
+        status: flash ? 'uncertain' : 'failed', service_version: flash ? 'flash' : 'standard-v2', error_code: flash ? 'provider_unavailable' : 'provider_rejected',
+        provider_diagnostic: flash ? { reason: 'timeout', operation: 'flash' }
+          : { reason: 'response', operation: 'query', http_status: 200, provider_code: '45000006' },
+        recovery: { capability: flash ? 'no_query' : 'none', next_action: 'inspect_receipt', automatic_resubmit: false },
       }, null, 2) + '\n')
     }
   },

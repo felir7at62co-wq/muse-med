@@ -11,7 +11,7 @@ const reply=value=>Object.assign(Readable.from([Buffer.from(JSON.stringify(value
 const signal=()=>new AbortController().signal;
 const box=(type,data=Buffer.alloc(0))=>{const header=Buffer.alloc(8);header.writeUInt32BE(data.length+8);header.write(type,4);return Buffer.concat([header,data]);};
 const media=Buffer.concat([box('ftyp',Buffer.from('isom\0\0\0\0isom')),box('moov',box('trak',box('mdia'))),box('mdat',Buffer.from('fixture'))]);
-const video=vids=>({Code:0,BaseResp:{StatusCode:0},data:Object.fromEntries(vids.map(vid=>[vid,{video_model:JSON.stringify({video_list:[{main_url:`https://v1.qznovelvod.com/${vid}?token=SOURCE_PRIVATE`,video_meta:{size:media.length}}]})}]))});
+const video=vids=>({Code:0,BaseResp:{StatusCode:0},data:{video_model_data:Object.fromEntries(vids.map(vid=>[vid,{video_model:JSON.stringify({video_list:[{main_url:`https://v1.qznovelvod.com/${vid}?token=SOURCE_PRIVATE`,video_meta:{size:media.length}}]})}]))}});
 const detail=(id,count)=>({code:0,data:{[id]:{video_data:{series_id:id,series_title:'Synthetic',episode_cnt:count,video_list:Array.from({length:count},(_,i)=>({vid_index:i+1,vid:`video-${i+1}`}))}}}});
 async function fixture(t,respond,{retries=0,count=2}={}){
  const root=await mkdtemp(join(tmpdir(),'muse-hongguo-status-'));
@@ -25,9 +25,9 @@ async function fixture(t,respond,{retries=0,count=2}={}){
   request:async(url,kind,active,options)=>{
    active.throwIfAborted();calls.push({kind,url});
    if(kind==='media')return Object.assign(Readable.from([media]),{statusCode:200,headers:{'content-length':String(media.length),'content-type':'video/mp4'}});
-   const body=JSON.parse(options.body);
+   const body=options.body ? JSON.parse(options.body) : null;
    if(new URL(url).pathname.includes('multi_video_detail'))return reply(detail(body.series_id,count));
-   return reply(await respond(body.mixed_video_id_map['1004'],active,calls));
+   return reply(await respond(new URL(url).searchParams.get('video_id').split(','),active,calls));
   },
  });
  t.after(()=>client.dispose());
@@ -72,9 +72,13 @@ test('unknown upstream errors stop after one request and clean partial output',a
  assert.equal(f.calls.some(c=>c.kind==='media'),false);
  assert.equal(JSON.stringify(result).includes('SOURCE_PRIVATE'),false);
  assert.equal(await readFile(join(f.root,'existing.txt'),'utf8'),'keep');
- assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+ assert.equal((await readdir(join(f.root,'downloads'))).length,1);
+ assert.ok(result.checkpoint);
+ const state=JSON.parse(await readFile(result.checkpoint,'utf8'));
+ assert.equal(state.completed.length,result.retainedEpisodeCount);
+ assert.ok(!(await readdir(result.path,{recursive:true})).some(name=>name.endsWith('.part')));
 });
-test('a later failed media batch removes already downloaded files without publishing success',async t=>{
+test('a later failed media batch retains validated files without publishing success',async t=>{
  let saved;const completed=new Promise(resolve=>{saved=resolve;});
  const f=await fixture(t,async vids=>{if(vids.includes('video-6')){await completed;return {BaseResp:{StatusCode:110001}};}return video(vids);},{count:7});
  const original=f.client.saveEpisode.bind(f.client);
@@ -82,14 +86,22 @@ test('a later failed media batch removes already downloaded files without publis
  const result=await f.client.download({seriesIds:['123']});
  assert.equal(result.code,'platform_error');assert.equal(result.complete,false);
  assert.ok(f.calls.filter(c=>c.kind==='media').length>=1);
- assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+ assert.equal((await readdir(join(f.root,'downloads'))).length,1);
+ assert.ok(result.checkpoint);
+ const state=JSON.parse(await readFile(result.checkpoint,'utf8'));
+ assert.equal(state.completed.length,result.retainedEpisodeCount);
+ assert.ok(!(await readdir(result.path,{recursive:true})).some(name=>name.endsWith('.part')));
 });
 test('cancelled source retries stop dispatch and await partial cleanup',async t=>{
  let started;const entered=new Promise(resolve=>{started=resolve;});
  const f=await fixture(t,async(_vids,active)=>{started();await new Promise((_,reject)=>active.addEventListener('abort',()=>reject(active.reason),{once:true}));},{retries:2});
  const controller=new AbortController();const pending=f.client.download({seriesIds:['123']},controller.signal);
  await entered;controller.abort();const result=await pending;await f.client.dispose();
- assert.equal(result.code,'cancelled');assert.equal(f.calls.length,2);assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+ assert.equal(result.code,'cancelled');assert.equal(f.calls.length,2);assert.equal((await readdir(join(f.root,'downloads'))).length,1);
+ assert.ok(result.checkpoint);
+ const state=JSON.parse(await readFile(result.checkpoint,'utf8'));
+ assert.equal(state.completed.length,result.retainedEpisodeCount);
+ assert.ok(!(await readdir(result.path,{recursive:true})).some(name=>name.endsWith('.part')));
 });
 test('a successful envelope with no media remains a genuine missing-address failure',async t=>{
  const f=await fixture(t,()=>({code:0,Code:0,BaseResp:{StatusCode:0},data:{}}));
@@ -121,17 +133,21 @@ test('explicit risk responses stop at the configured budget and report no immedi
  assert.equal(result.code,'platform_error');assert.equal(result.upstreamCode,110001);assert.equal(result.retryable,false);
  assert.equal(f.calls.filter(c=>c.kind==='api'&&new URL(c.url).pathname.includes('video_model')).length,3);
  assert.match(result.message,/重试已用尽/);assert.equal(JSON.stringify(result).includes('SOURCE_PRIVATE'),false);
- assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+ assert.equal((await readdir(join(f.root,'downloads'))).length,1);
+ assert.ok(result.checkpoint);
+ const state=JSON.parse(await readFile(result.checkpoint,'utf8'));
+ assert.equal(state.completed.length,result.retainedEpisodeCount);
+ assert.ok(!(await readdir(result.path,{recursive:true})).some(name=>name.endsWith('.part')));
 });
 
-test('preload resolution rejects obsolete unkeyed single-video models',async t=>{
+test('video-tab resolution rejects obsolete unkeyed single-video models',async t=>{
  const old=video(['synthetic']);
  const f=await fixture(t,()=>({Code:0,data:old.data.synthetic}));
  await assert.rejects(f.client.source.videoUrls(['synthetic'],signal()),error=>error.code==='missing_episode_url');
  assert.equal(f.calls.length,1);
 });
-test('preload resolution rejects malformed model JSON before media dispatch',async t=>{
- const f=await fixture(t,()=>({Code:0,data:{synthetic:{video_model:'{"video_list":'}}}));
+test('video-tab resolution rejects malformed model JSON before media dispatch',async t=>{
+ const f=await fixture(t,()=>({Code:0,data:{video_model_data:{synthetic:{video_model:'{"video_list":'}}}}));
  await assert.rejects(f.client.source.videoUrls(['synthetic'],signal()),error=>error.code==='platform_json');
  assert.equal(f.calls.some(call=>call.kind==='media'),false);
 });
@@ -149,7 +165,11 @@ test('empty successful HTTP media replies report their stage without retrying or
  assert.equal(result.ok,false);assert.equal(result.code,'empty_source_response');assert.equal(result.sourceStage,'video_model');
  assert.equal(result.httpStatus,200);assert.equal(result.responseBytes,0);assert.equal(result.retryable,false);
  assert.equal(f.calls.filter(call=>new URL(call.url).pathname.includes('video_model')).length,1);
- assert.equal(f.client.source.deviceIndex,0);assert.deepEqual(await readdir(join(f.root,'downloads')),[]);
+ assert.equal(f.client.source.deviceIndex,0);assert.equal((await readdir(join(f.root,'downloads'))).length,1);
+ assert.ok(result.checkpoint);
+ const state=JSON.parse(await readFile(result.checkpoint,'utf8'));
+ assert.equal(state.completed.length,result.retainedEpisodeCount);
+ assert.ok(!(await readdir(result.path,{recursive:true})).some(name=>name.endsWith('.part')));
 });
 
 test('nonempty invalid JSON preserves safe response facts without leaking source bytes',async t=>{

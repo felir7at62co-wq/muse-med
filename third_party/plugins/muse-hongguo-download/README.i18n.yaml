@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-hongguo-download/README.md
 /muse-hongguo-download-tools:
-  en: 1a6765efe7781951
-  zh: 6f150d885a24baf4
+  en: 079478bf710c6511
+  zh: 3b3768d63606ac3b
 /muse-hongguo-download-tools/configuration:
-  en: ece7012a8780008a
-  zh: d1f1162eaad83b62
+  en: c10167ddfeb01f18
+  zh: 6319d862f01506be
 /muse-hongguo-download-tools/validation:
   en: bdaac1b3094e9433
   zh: 9d0a840e827007cb
 /muse-hongguo-download-tools/catalog-and-source-failures:
-  en: ab6e999b79132e8a
-  zh: f663be24714b215a
+  en: c3f03de0b97c98dd
+  zh: a8a91cb5cb2db277

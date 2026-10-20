@@ -80,7 +80,7 @@ A status read or retention sweep marks expired, unsubmitted waiting jobs as `fai
 
 Flash uses the provider's default language detection for both accepted client values, `zh` and `auto`; it sends no explicit language option. Standard screenplay Chinese requests use the provider's default Chinese/English model so speaker separation remains available; legacy standard requests retain their language parameters.
 
-A standard query returning `45000092` (task absent) or `55001010` (task timed out) becomes failed only after `terminalQueryConfirmations` identical consecutive responses. The original receipt and task ID remain, a submitted failed key cannot submit again, and its reserved billing allowance is retained; this is not proof of a refund or charge outcome. Other unknown responses keep querying the original task. Dispatch selects an available resource within each account rather than allowing a blocked standard request to prevent that account's flash work.
+A standard query returning `45000006` (source audio download failed), `45000092` (task absent) or `55001010` (task timed out) becomes failed only after `terminalQueryConfirmations` identical consecutive responses. The original receipt and task ID remain, a submitted failed key cannot submit again, and its reserved billing allowance is retained; this is not proof of a refund or charge outcome. Other unknown responses keep querying the original task. Dispatch selects an available resource within each account rather than allowing a blocked standard request to prevent that account's flash work.
 
 ### ASR application pools
 

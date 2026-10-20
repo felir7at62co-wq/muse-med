@@ -173,7 +173,7 @@ test('gateway download signatures cover processing and retained audio without ex
  for(const signedUrlTtlSeconds of [3600,10799,86399,604801])assert.throws(()=>resolveAsrConfig({...input,signedUrlTtlSeconds}),/configuration/);
 });
 
-for(const code of ['45000092','55001010']){
+for(const code of ['45000006','45000092','55001010']){
  test(`confirmed terminal query ${code} releases the shared worker without resubmitting its paid key`,async t=>{
   const submitted=[],queried=[];let first;
   const env=await fixture(t,()=>({recognize:async()=>({status:'silent'}),

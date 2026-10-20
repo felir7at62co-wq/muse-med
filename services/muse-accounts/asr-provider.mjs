@@ -52,7 +52,7 @@ export async function queryAsr(config,id,fetcher=fetch){
  if(!response.ok)throw new AsrProviderError('query','http',response);
  if(['20000001','20000002'].includes(code))return {status:'processing'};
  if(code==='20000003')return {status:'silent'};
- if(['45000092','55001010'].includes(code))return {status:'failed',providerCode:code};
+ if(['45000006','45000092','55001010'].includes(code))return {status:'failed',providerCode:code};
  if(code!=='20000000')throw new AsrProviderError('query','response',response);
  let body;try{body=await response.json();}catch(error){throw new AsrProviderError('query','json',response);}
  try{return normalizeResult(body);}catch(error){throw new AsrProviderError('query','result',response);}

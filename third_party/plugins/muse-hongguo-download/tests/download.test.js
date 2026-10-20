@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, readFile, readdir, rm, mkdir, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -36,25 +37,43 @@ async function fixture(t, extra = {}) {
     signal.throwIfAborted();
     const url = new URL(value); urls.push({ value, kind, options });
     if (kind === 'media') return typeof media === 'function' ? media(value, signal) : reply(media, 200, { 'content-length': String(media.length), 'content-type': 'video/mp4' });
-    const body = JSON.parse(options.body);
+    const body = options.body ? JSON.parse(options.body) : null;
     if (url.pathname.includes('multi_video_detail')) {
       const id = body.series_id;
       const count = extra.count ?? 7;
       return reply({ code: 0, data: { [id]: { video_data: { series_id: id, series_title: `标题${id}`, episode_cnt: extra.declaredCount ?? count,
         video_list: Array.from({ length: count }, (_, index) => ({ vid_index: String(index + 1), vid: `${id}v${index + 1}`, title: `集${index + 1}` })) } } } });
     }
-    assert.equal(url.pathname, '/novel/player/multi_video_model/preload/v1');
-    assert.equal(body.dr_scene, 'preload');
-    assert.equal(Object.hasOwn(body, 'video_id'), false);
-    const vids = body.mixed_video_id_map['1004']; batches.push(vids);
+    assert.equal(url.pathname, '/reading/bookapi/video_tab/multi_video_model/v1/');
+    assert.equal(options.method, 'GET');
+    assert.equal(body, null);
+    const vids = url.searchParams.get('video_id').split(','); batches.push(vids);
     assert.ok(vids.length >= 1 && vids.length <= 5);
-    return reply({ data: Object.fromEntries(vids.map(vid => [vid, { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) }])) });
+    return reply({ data: { video_model_data: Object.fromEntries(vids.map(vid => [vid, { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) }])) } });
   };
   const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0, ...extra.config };
   const sign = async (url, payload, token) => { signs.push({ url, payload, token }); return reply({ 'x-signed': 'SIGNED_PRIVATE' }); };
   const client = new HongguoDownloadClient(config, { request, sign, processMedia: extra.processMedia ?? fixtureProcessMedia });
   t.after(() => client.dispose());
   return { root, legacy, config, client, request, sign, batches, urls, signs, setMedia(value) { media = value; } };
+}
+
+/** Failed calls retain only validated MP4s and a resumable journal, never unfinished transfers or a success receipt. */
+async function assertRetained(root, expectedCount) {
+  const directories = (await readdir(root)).filter(name => name.startsWith('hongguo-'));
+  assert.equal(directories.length, 1);
+  const path = join(root, directories[0]);
+  const state = JSON.parse(await readFile(join(path, 'resume-state.json'), 'utf8'));
+  if (expectedCount !== undefined) assert.equal(state.completed.length, expectedCount);
+  assert.doesNotMatch(JSON.stringify(state), /MEDIA_SECRET|SESSION_PRIVATE|SIGNED_PRIVATE|PRIVATE_DEVICE|SPADE_PRIVATE/);
+  const files = await readdir(path, { recursive: true });
+  assert.ok(!files.some(name => name.endsWith('.part') || name.endsWith('.lock')));
+  assert.ok(!files.includes('download-manifest.json'));
+  assert.equal(files.filter(name => name.endsWith('.mp4')).length, state.completed.length);
+  for (const { episode } of state.completed) {
+    assert.equal(createHash('sha256').update(await readFile(episode.path)).digest('hex'), episode.sha256);
+  }
+  return state;
 }
 
 test('default original source fails explicitly without silently selecting preview or manifest', async () => {
@@ -64,7 +83,7 @@ test('default original source fails explicitly without silently selecting previe
   assert.match(result.message, /config\.json/); await client.dispose();
 });
 
-test('batched preload requests accumulate and deduplicate every requested video id', async t => {
+test('batched video-tab requests accumulate and deduplicate every requested video id', async t => {
   const f = await fixture(t);
   const source = new SourceCatalog(f.client.config, { request: f.request, sign: f.sign });
   const vids = Array.from({ length: 12 }, (_, i) => `vid${i}`);
@@ -134,7 +153,7 @@ test('selected source quality retains private encryption data and ciphertext len
     ],
     plain: [{ main_url: 'https://v1.qznovelvod.com/plain', video_meta: { size: 300 }, encrypt_info: { encrypt: false, spade_a: 'UNUSED_PRIVATE' } }],
   };
-  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (_url, _kind, _signal, options) => reply({ data: Object.fromEntries(JSON.parse(options.body).mixed_video_id_map['1004'].map(vid => [vid, { video_model: JSON.stringify({ video_list: tracks[vid] }) }])) }) });
+  const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async (url) => reply({ data: { video_model_data: Object.fromEntries(new URL(url).searchParams.get('video_id').split(',').map(vid => [vid, { video_model: JSON.stringify({ video_list: tracks[vid] }) }])) } }) });
   const result = await source.videoUrls(['encrypted', 'plain'], emptySignal());
   assert.deepEqual(result.get('encrypted'), { url: 'https://v1.qznovelvod.com/encrypted-best', expectedBytes: 200, sha256: null, encryption: { spade: 'SPADE_PRIVATE' } });
   assert.deepEqual(result.get('plain'), { url: 'https://v1.qznovelvod.com/plain', expectedBytes: 300, sha256: null, encryption: null });
@@ -143,9 +162,9 @@ test('selected source quality retains private encryption data and ciphertext len
 test('encrypted tracks require bounded nonempty private decryption information', async t => {
   const f = await fixture(t);
   for (const spade_a of [undefined, null, 42, '', ' ', 'x'.repeat(16 * 1024 + 1), '界'.repeat(6000)]) {
-    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { vid: { video_model: JSON.stringify({
+    const source = new SourceCatalog(f.client.config, { sign: f.sign, request: async () => reply({ data: { video_model_data: { vid: { video_model: JSON.stringify({
       video_list: [{ main_url: 'https://v1.qznovelvod.com/video?token=URL_PRIVATE', video_meta: { size: 200 }, encrypt_info: { encrypt: true, spade_a } }],
-    }) } } }) });
+    }) } } } }) });
     await assert.rejects(source.videoUrls(['vid'], emptySignal()), error => error.code === 'encrypted_media'
       && error.message === '原源加密媒体缺少有效的本地解密信息');
   }
@@ -199,7 +218,7 @@ test('CDN legacy transient failures refresh only the failed video before publish
   }
 });
 
-test('CDN legacy refresh exhaustion respects the retry budget and removes earlier files', async t => {
+test('CDN legacy refresh exhaustion respects the retry budget and retains verified earlier files', async t => {
   for (const failure of ['403', 'unsafe_redirect', 'network', 'incomplete_media']) {
     const f = await fixture(t, { count: 2, config: { retries: 2, concurrency: 1 },
       mediaUrl: (vid, version) => `https://v1.qznovelvod.com/${vid}?model_version=${version}` });
@@ -217,7 +236,7 @@ test('CDN legacy refresh exhaustion respects the retry budget and removes earlie
     assert.equal(result.code, failure === '403' ? 'http_error' : failure);
     assert.equal(attempts, 3);
     assert.deepEqual(f.batches, [['101v1', '101v2'], ['101v2'], ['101v2']]);
-    assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+    await assertRetained(join(f.root, 'downloads'));
   }
 });
 
@@ -246,7 +265,7 @@ test('CDN nonlegacy HTTP 403 does not retry or call the original source', async 
     const result = await client.download({ seriesIds: ['101'] });
     assert.equal(result.ok, false); assert.equal(result.code, 'http_error');
     assert.equal(mediaRequests, 1); assert.equal(sourceRequests, 0);
-    assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+    await assertRetained(join(f.root, 'downloads'));
   }
 });
 
@@ -264,7 +283,7 @@ test('CDN authorization, decode, unsafe URL and unknown failures never refresh t
     assert.equal(result.code, failure === '401' ? 'http_error' : failure);
     assert.deepEqual(f.batches, [['101v1']]);
     assert.equal(f.urls.filter(item => item.kind === 'media').length, 1);
-    assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+    await assertRetained(join(f.root, 'downloads'));
   }
 });
 
@@ -331,10 +350,10 @@ test('encrypted source length failures stop before processing or publishing file
     encryptInfo: { encrypt: true, spade_a: 'SPADE_PRIVATE' }, processMedia: async () => { processed = true; throw new Error('Unexpected processing'); } });
   const result = await f.client.download({ seriesIds: ['101'] });
   assert.equal(result.code, 'incomplete_media'); assert.equal(processed, false);
-  assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  await assertRetained(join(f.root, 'downloads'));
 });
 
-test('a processing failure removes earlier series and partial decoded output', async t => {
+test('a processing failure retains verified earlier series and removes partial decoded output', async t => {
   const ciphertext = Buffer.from('ciphertext'); let processed = 0;
   const f = await fixture(t, { count: 1, media: ciphertext, expectedBytes: ciphertext.length,
     encryptInfo: { encrypt: true, spade_a: 'SPADE_PRIVATE' },
@@ -346,7 +365,7 @@ test('a processing failure removes earlier series and partial decoded output', a
   const result = await f.client.download({ seriesIds: ['101', '102'] });
   assert.equal(result.ok, false); assert.equal(result.code, 'operation_failed'); assert.equal(processed, 2);
   assert.doesNotMatch(JSON.stringify(result), /SPADE_PRIVATE|PROCESSOR_PRIVATE/);
-  assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  await assertRetained(join(f.root, 'downloads'));
 });
 
 test('processor verdicts require complete decoding and valid processed MP4 containers', async t => {
@@ -359,7 +378,7 @@ test('processor verdicts require complete decoding and valid processed MP4 conta
         return { processedPath: outputPath, durationSeconds: 10, fullDecodeChecked: invalid !== 'verdict', validationLevel: 'ffprobe-full-decode-sha256' };
       } });
     assert.equal((await f.client.download({ seriesIds: ['101'] })).code, 'invalid_media');
-    assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+    await assertRetained(join(f.root, 'downloads'));
   }
 });
 
@@ -381,7 +400,7 @@ test('cancellation and disposal await processing termination and remove decoded 
     else controller.abort();
     const result = await work;
     assert.equal(result.code, 'cancelled'); assert.equal(settled, true);
-    assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+    await assertRetained(join(f.root, 'downloads'));
   }
 });
 
@@ -421,13 +440,13 @@ test('the full catalog and requested last episode follow real counts beyond form
   assert.throws(() => resolveConfig({ maxEpisodes: 200 }), /未知红果插件配置字段/);
 });
 
-test('an invalid episode rolls back every file already downloaded for the whole batch', async t => {
+test('an invalid episode retains earlier validated episodes without publishing success', async t => {
   const f = await fixture(t);
   f.setMedia(value => value.includes('102v1') ? reply(Buffer.from('<html>PRIVATE_TOKEN</html>'), 200, { 'content-type': 'text/html' })
     : reply(mp4, 200, { 'content-length': String(mp4.length) }));
   const result = await f.client.download({ seriesIds: ['101', '102'] });
   assert.equal(result.ok, false); assert.equal(result.code, 'invalid_media');
-  assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  await assertRetained(join(f.root, 'downloads'));
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_TOKEN|MEDIA_SECRET/);
 });
 
@@ -438,7 +457,7 @@ test('partial explicit episode selection never reports full-series completion', 
   assert.deepEqual(result.items[0].episodes.map(episode => episode.index), [1, 7]);
 });
 
-test('caller cancellation waits for stream release and removes the batch staging directory', async t => {
+test('caller cancellation waits for stream release and preserves only its recovery journal', async t => {
   const f = await fixture(t, { count: 1 });
   const started = deferred(), controller = new AbortController();
   f.setMedia((_url, signal) => {
@@ -452,7 +471,7 @@ test('caller cancellation waits for stream release and removes the batch staging
   const work = f.client.download({ seriesIds: ['101'] }, controller.signal);
   await started.promise; controller.abort();
   const result = await work;
-  assert.equal(result.code, 'cancelled'); assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  assert.equal(result.code, 'cancelled'); await assertRetained(join(f.root, 'downloads'));
 });
 
 test('dispose aborts active downloads and waits for their cleanup', async t => {
@@ -465,7 +484,7 @@ test('dispose aborts active downloads and waits for their cleanup', async t => {
   })()), { statusCode: 200, headers: {} }));
   const work = f.client.download({ seriesIds: ['101'] });
   await started.promise; await f.client.dispose();
-  assert.equal((await work).code, 'cancelled'); assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  assert.equal((await work).code, 'cancelled'); await assertRetained(join(f.root, 'downloads'));
 });
 
 test('full-access downloads publish directly to the explicit external directory with final receipt paths', async t => {
@@ -512,18 +531,18 @@ test('relative traversal and child directory links remain refused with full acce
   assert.deepEqual(await readdir(outside), ['link']);
 });
 
-test('failed external downloads remove only their staging files and preserve existing content', async t => {
+test('failed external downloads preserve existing content and retain their recovery journal', async t => {
   const f = await fixture(t, { count: 1, media: Buffer.from('not a video') });
   const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-failure-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
   await writeFile(join(outside, 'keep.txt'), 'existing');
   const result = await f.client.download({ seriesIds: ['101'], outputDir: outside }, undefined, undefined, { mode: 'danger-full-access' });
   assert.equal(result.ok, false);
-  assert.deepEqual(await readdir(outside), ['keep.txt']);
+  await assertRetained(outside, 0);
   assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'existing');
 });
 
-test('cancelled external downloads await workers before removing their staging directory', async t => {
+test('cancelled external downloads await workers before retaining their recovery journal', async t => {
   const f = await fixture(t, { count: 1 });
   const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-cancel-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
@@ -536,7 +555,7 @@ test('cancelled external downloads await workers before removing their staging d
   const work = f.client.download({ seriesIds: ['101'], outputDir: outside }, controller.signal, undefined, { mode: 'danger-full-access' });
   await started.promise; controller.abort();
   assert.equal((await work).code, 'cancelled');
-  assert.deepEqual(await readdir(outside), []);
+  await assertRetained(outside, 0);
 });
 
 test('manifest source validates every hash and declares only its own coverage', async t => {
@@ -694,7 +713,7 @@ test('one bounded source batch is prefetched while current downloads retain thei
   assert.equal(maximum, 3);
 });
 
-test('cancellation joins a prefetched lookup before removing its staging directory', async t => {
+test('cancellation joins a prefetched lookup before retaining its recovery journal', async t => {
   const entered = deferred(), release = deferred(), aborted = deferred();
   t.after(() => release.resolve());
   const f = await fixture(t, { count: 7 });
@@ -713,7 +732,7 @@ test('cancellation joins a prefetched lookup before removing its staging directo
   assert.equal((await readdir(join(f.root, 'downloads'))).length, 1);
   release.resolve();
   assert.equal((await work).code, 'cancelled'); assert.equal(joined, true);
-  assert.deepEqual(await readdir(join(f.root, 'downloads')), []);
+  await assertRetained(join(f.root, 'downloads'));
 });
 
 test('media scheduling defaults are bounded and explicitly configurable', () => {
@@ -724,4 +743,102 @@ test('media scheduling defaults are bounded and explicitly configurable', () => 
   for (const entry of [{ mediaBatchSize: 0 }, { mediaBatchSize: 6 }, { mediaConnections: 5 },
     { mediaSegmentMinBytes: 65535 }, { mediaIdleTimeoutMs: 99 }, { mediaConnectionLimit: 2, concurrency: 3 }]) assert.throws(() => resolveConfig(entry));
   assert.equal(resolveConfig({ mediaBatchSize: 1, mediaConnections: 1, concurrency: 8 }).concurrency, 8);
+});
+
+test('a failed prefetched batch retains the current five validated episodes and a fresh client requests only the remainder', async t => {
+  const f = await fixture(t, { count: 12 });
+  const original = f.client.mediaOptions.bind(f.client);
+  f.client.mediaOptions = (catalog, batch, mode, signal) => batch[0].index === 6
+    ? Promise.reject(new DownloadError('empty_source_response', 'Synthetic empty response')) : original(catalog, batch, mode, signal);
+  const first = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(first.ok, false); assert.equal(first.retainedEpisodeCount, 5); assert.equal(first.remainingEpisodeCount, 7);
+  await assertRetained(join(f.root, 'downloads'), 5);
+  const calls = f.urls.length;
+  await f.client.dispose();
+  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, processMedia: fixtureProcessMedia });
+  t.after(() => next.dispose());
+  const result = await next.download(first.resume);
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.complete, true);
+  assert.equal(result.path, first.path); assert.equal(result.reusedEpisodeCount, 5); assert.equal(result.newlyDownloadedEpisodeCount, 7);
+  assert.ok(!f.urls.slice(calls).some(call => new URL(call.value).pathname.includes('multi_video_detail')));
+  assert.deepEqual(f.batches.flat().slice(5), Array.from({ length: 7 }, (_, i) => `101v${i + 6}`));
+});
+
+test('a corrupt retained episode is downloaded again while the other verified episodes are reused', async t => {
+  const f = await fixture(t, { count: 7 });
+  const original = f.client.mediaOptions.bind(f.client);
+  f.client.mediaOptions = (catalog, batch, mode, signal) => batch[0].index === 6
+    ? Promise.reject(new DownloadError('network', 'Synthetic failure')) : original(catalog, batch, mode, signal);
+  const first = await f.client.download({ seriesIds: ['101'] });
+  const state = await assertRetained(join(f.root, 'downloads'), 5);
+  await writeFile(state.completed.find(item => item.episode.index === 3).episode.path, Buffer.from('corrupt'));
+  f.client.mediaOptions = original;
+  const calls = f.urls.length;
+  const result = await f.client.download(first.resume);
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, 4); assert.equal(result.newlyDownloadedEpisodeCount, 3);
+  assert.deepEqual(f.urls.slice(calls).filter(call => call.kind === 'media').map(call => new URL(call.value).pathname).sort(), ['/101v3', '/101v6', '/101v7']);
+});
+
+test('a complete nested historical receipt is validated and reused without any source or CDN request', async t => {
+  const f = await fixture(t, { count: 7 });
+  const result = await f.client.download({ seriesIds: ['101'], outputDir: 'downloads/nested/prior' });
+  assert.equal(result.complete, true);
+  const previousCalls = f.urls.length;
+  const next = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(next.ok, true, JSON.stringify(next)); assert.equal(next.complete, true);
+  assert.equal(next.reusedEpisodeCount, 7); assert.equal(next.newlyDownloadedEpisodeCount, 0);
+  assert.equal(f.urls.length, previousCalls);
+  assert.deepEqual(next.items[0].episodes, result.items[0].episodes);
+});
+
+test('overlapping exact requests refuse the duplicate while the original retains its files and writer lock', async t => {
+  const started = deferred(), release = deferred();
+  t.after(() => release.resolve());
+  const f = await fixture(t, { count: 1, processMedia: async (...args) => {
+    started.resolve(); await release.promise; return fixtureProcessMedia(...args);
+  } });
+  const work = f.client.download({ seriesIds: ['101'] });
+  await started.promise;
+  const duplicate = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(duplicate.ok, false); assert.equal(duplicate.code, 'download_in_progress');
+  release.resolve();
+  assert.equal((await work).ok, true);
+});
+
+test('an invalid checkpoint and an out-of-tree completed record cannot authorize reused files', async t => {
+  const f = await fixture(t, { count: 1 });
+  const first = await f.client.download({ seriesIds: ['101'] });
+  await rm(join(first.path, 'download-manifest.json'));
+  const state = JSON.parse(await readFile(first.checkpoint, 'utf8'));
+  const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const external = join(outside, 'keep.mp4'); await writeFile(external, mp4);
+  state.completed[0].episode.path = external;
+  await writeFile(first.checkpoint, JSON.stringify(state));
+  const next = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(next.ok, true); assert.equal(next.reusedEpisodeCount, 0); assert.equal(next.newlyDownloadedEpisodeCount, 1);
+  assert.equal(await readFile(external, 'hex'), mp4.toString('hex'));
+  await rm(join(next.path, 'download-manifest.json'));
+  await writeFile(first.checkpoint, '{invalid');
+  const after = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(after.ok, true); assert.equal(after.reusedEpisodeCount, 0);
+});
+
+
+test('a new client recovers a journal lock left by an exited process without repeating completed downloads', async t => {
+  const f = await fixture(t, { count: 2 });
+  const first = await f.client.download({ seriesIds: ['101'] });
+  await rm(join(first.path, 'download-manifest.json'));
+  const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+  assert.equal(child.error, undefined); assert.equal(child.signal, null); assert.equal(child.status, 0);
+  assert.match(child.stdout, /^\d+$/);
+  await writeFile(first.checkpoint + '.lock', child.stdout + '\n', { flag: 'wx' });
+  const calls = f.urls.length;
+  await f.client.dispose();
+  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, processMedia: fixtureProcessMedia });
+  t.after(() => next.dispose());
+  const result = await next.download({ seriesIds: ['101'] });
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, 2);
+  assert.equal(result.newlyDownloadedEpisodeCount, 0); assert.equal(f.urls.length, calls);
+  assert.ok(!(await readdir(first.path)).includes('resume-state.json.lock'));
 });

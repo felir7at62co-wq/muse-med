@@ -1,7 +1,7 @@
-/** Source-preserving multi-series downloader with atomic batch publication and cancellation cleanup. */
-import { createHash, randomUUID } from 'node:crypto';
+/** Multi-series downloader with validated per-episode progress, durable recovery and owned cancellation. */
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, realpath, rename, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveConfig } from './config.js';
@@ -14,6 +14,7 @@ import { validateMp4 } from './media.js';
 import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
 import { LocalSigner } from './signer.js';
 import { transferMedia } from './transfer.js';
+import { DownloadCheckpoint, discoverReceipts, reusableSeries, verifiedEpisode } from './checkpoint.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const modes = ['legacy', 'manifest', 'public'];
@@ -236,80 +237,112 @@ export class HongguoDownloadClient {
     }
   }
 
-  /** Publish one batch only after every requested episode passes; a failure removes all owned partial files. */
+  /** Retain verified episodes across interrupted calls; only a complete request publishes a success receipt. */
   download(args, signal, workspace, filePolicy) {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
       const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
+      const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
+      const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : null;
+      const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);
+      const prior = await checkpoint.read();
+      const discovery = await discoverReceipts(output.path, options.mode, this.config, active, sourceIdentity);
+      const retained = new Map();
       for (const id of options.seriesIds) {
-        const catalog = await this.catalog(id, options.mode, active);
+        const existing = await reusableSeries(output.path, discovery.items, id, options.episodes, this.config, active);
+        if (existing) retained.set(id, existing);
+        const saved = prior?.plans.find(plan => plan.seriesId === id && !plan.fromReceipt);
+        const catalog = existing ? { seriesId: id, title: existing.title, source: existing.source,
+          episodeCount: existing.episodeCount, fromReceipt: true,
+          episodes: discovery.items.find(item => item.seriesId === id && item.episodeCount === existing.episodeCount).episodes
+            .map(episode => ({ index: episode.index, vid: `retained:${episode.index}`, title: episode.title, durationSeconds: episode.durationSeconds })) }
+          : manifestCatalogs ? manifestCatalogs.find(item => item.seriesId === id) : saved ?? await this.catalog(id, options.mode, active);
+        if (!catalog) throw new DownloadError('series_not_found', '授权媒体目录中没有请求的系列');
         const selected = options.episodes ? catalog.episodes.filter(episode => options.episodes.includes(episode.index)) : catalog.episodes;
         if (options.episodes && selected.length !== options.episodes.length) throw new DownloadError('episode_not_found', '请求集号不在此剧完整列表中');
-        if (options.mode === 'public' && selected.some(episode => episode.index > catalog.accessibleEpisodeCount)) throw new DownloadError('public_preview_only', `官网仅开放 ${catalog.accessibleEpisodeCount}/${catalog.episodeCount} 集；没有将试看替代全剧`);
+        if (options.mode === 'public' && !existing && selected.some(episode => episode.index > catalog.accessibleEpisodeCount)) throw new DownloadError('public_preview_only', `官网仅开放 ${catalog.accessibleEpisodeCount}/${catalog.episodeCount} 集；没有将试看替代全剧`);
         plans.push({ catalog, selected });
       }
-      await output.create();
-      const directory = output.path;
-      active.throwIfAborted();
-      const staging = await mkdtemp(join(directory, '.hongguo-partial-'));
-      const final = join(directory, `hongguo-${randomUUID()}`), items = [];
-      let published = false, renamed = false;
-      const workers = new AbortController();
-      const workerSignal = AbortSignal.any([active, workers.signal]);
-      let pendingSource, firstFailure;
-      const fail = error => { firstFailure ??= error; workers.abort(); return { error }; };
-      try {
+      await output.create(); active.throwIfAborted();
+      return await checkpoint.locked(async () => {
+        const previous = await checkpoint.read();
+        const state = { version: 1, request: checkpoint.request, plans: plans.map(({ catalog }) => ({ ...catalog, episodes: catalog.episodes.map(({ index, vid, title, durationSeconds }) => ({ index, vid, title, durationSeconds })) })), completed: [] };
+        let saveTail = Promise.resolve();
+        const persist = () => {
+          const snapshot = { ...state, completed: [...state.completed] };
+          const pending = saveTail.then(() => checkpoint.save(snapshot));
+          saveTail = pending.catch(() => {});
+          return pending;
+        };
+        let reused = 0, downloaded = 0;
         for (const { catalog, selected } of plans) {
-          const folderName = `${slug(catalog.title)}-${slug(catalog.seriesId)}`;
-          const folder = join(staging, folderName); await mkdir(folder, { mode: 0o700 });
-          const episodes = [];
-          const batchSize = this.config.mediaBatchSize;
-          const prepare = offset => this.mediaOptions(catalog, selected.slice(offset, offset + batchSize), options.mode, workerSignal)
-            .then(urls => ({ urls }), fail);
-          pendingSource = prepare(0);
-          for (let offset = 0; offset < selected.length; offset += batchSize) {
-            const prepared = await pendingSource;
-            if (prepared.error) throw firstFailure;
-            workerSignal.throwIfAborted();
-            const batch = selected.slice(offset, offset + batchSize);
-            const urls = prepared.urls;
-            pendingSource = offset + batchSize < selected.length ? prepare(offset + batchSize) : null;
-            let next = 0;
-            const jobs = Array.from({ length: Math.min(this.config.concurrency, batch.length) }, async () => {
-              while (next < batch.length) {
-                workerSignal.throwIfAborted(); const episode = batch[next++];
-                const media = urls.get(episode.vid);
-                if (!media) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址，整批下载尚未完成');
-                const filename = `${String(episode.index).padStart(4, '0')}.mp4`;
-                const refresh = options.mode === 'legacy' ? async () => (await this.mediaOptions(catalog, [episode], options.mode, workerSignal)).get(episode.vid) : null;
-                const saved = await this.saveEpisode(media, join(folder, filename), workerSignal, staging, refresh);
-                episodes.push({ index: episode.index, title: episode.title, path: join(final, folderName, filename), durationSeconds: episode.durationSeconds, ...saved });
-              }
-            });
-            const owned = jobs.map(job => job.catch(error => { fail(error); throw error; }));
-            const settled = await Promise.allSettled(owned);
-            if (settled.some(result => result.status === 'rejected')) throw firstFailure;
+          for (const episode of selected) {
+            const old = retained.get(catalog.seriesId)?.episodes.find(item => item.index === episode.index)
+              ?? previous?.completed.find(item => item.seriesId === catalog.seriesId && item.vid === episode.vid)?.episode;
+            if (old?.index === episode.index && await verifiedEpisode(output.path, old, this.config, active)) {
+              state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid, episode: old }); reused++;
+            }
           }
-          episodes.sort((a, b) => a.index - b.index);
-          const complete = episodes.length === catalog.episodeCount && episodes.every((episode, index) => episode.index === index + 1);
-          items.push({ seriesId: catalog.seriesId, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
-            downloadedEpisodeCount: episodes.length, complete, path: join(final, folderName), episodes });
         }
-        active.throwIfAborted();
-        const value = { ok: true, sourceMode: options.mode, complete: items.every(item => item.complete), path: final, items,
-          validatedBytes: items.reduce((sum, item) => sum + item.episodes.reduce((total, episode) => total + episode.bytes, 0), 0),
-          validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true, note: note(options.mode) };
-        await writeFile(join(staging, 'download-manifest.json'), `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-        active.throwIfAborted();
-        if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) throw new DownloadError('unsafe_path', '下载输出目录已被替换为链接');
-        await rename(staging, final); renamed = true;
-        active.throwIfAborted(); published = true;
-        return value;
-      } finally {
-        workers.abort();
-        await pendingSource;
-        if (!published) await rm(renamed ? final : staging, { recursive: true, force: true });
-      }
+        await checkpoint.clearParts(); await persist();
+        const workers = new AbortController(), workerSignal = AbortSignal.any([active, workers.signal]);
+        let pendingSource, firstFailure;
+        const fail = error => { firstFailure ??= error; workers.abort(); };
+        const progress = () => ({ path: checkpoint.directory, checkpoint: checkpoint.file,
+          retainedEpisodeCount: state.completed.length, reusedEpisodeCount: reused,
+          remainingEpisodeCount: plans.reduce((sum, plan) => sum + plan.selected.length, 0) - state.completed.length,
+          discoveryTruncated: discovery.truncated });
+        try {
+          for (const { catalog, selected } of plans) {
+            const folderName = `${slug(catalog.title)}-${slug(catalog.seriesId)}`;
+            const missing = selected.filter(episode => !state.completed.some(item => item.seriesId === catalog.seriesId && item.vid === episode.vid));
+            if (!missing.length) continue;
+            const folder = await checkpoint.folder(folderName), batchSize = this.config.mediaBatchSize;
+            const prepare = offset => this.mediaOptions(catalog, missing.slice(offset, offset + batchSize), options.mode, workerSignal)
+              .then(urls => ({ urls }), error => ({ error }));
+            pendingSource = prepare(0);
+            for (let offset = 0; offset < missing.length; offset += batchSize) {
+              const prepared = await pendingSource;
+              if (prepared.error) throw prepared.error;
+              workerSignal.throwIfAborted();
+              const batch = missing.slice(offset, offset + batchSize), urls = prepared.urls;
+              pendingSource = offset + batchSize < missing.length ? prepare(offset + batchSize) : null;
+              let next = 0;
+              const jobs = Array.from({ length: Math.min(this.config.concurrency, batch.length) }, async () => {
+                while (next < batch.length) {
+                  workerSignal.throwIfAborted(); const episode = batch[next++], media = urls.get(episode.vid);
+                  if (!media) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址；已完成集保留供续下载');
+                  const path = join(folder, `${String(episode.index).padStart(4, '0')}.mp4`);
+                  const refresh = options.mode === 'legacy' ? async () => (await this.mediaOptions(catalog, [episode], options.mode, workerSignal)).get(episode.vid) : null;
+                  const saved = await this.saveEpisode(media, path, workerSignal, checkpoint.directory, refresh);
+                  state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid,
+                    episode: { index: episode.index, title: episode.title, path, ...saved } }); downloaded++;
+                  await persist();
+                }
+              });
+              const settled = await Promise.allSettled(jobs.map(job => job.catch(error => { fail(error); throw error; })));
+              if (settled.some(result => result.status === 'rejected')) throw firstFailure;
+            }
+          }
+          active.throwIfAborted();
+          const items = plans.map(({ catalog }) => {
+            const episodes = state.completed.filter(item => item.seriesId === catalog.seriesId).map(item => item.episode).sort((a, b) => a.index - b.index);
+            const complete = episodes.length === catalog.episodeCount && episodes.every((episode, index) => episode.index === index + 1);
+            return { seriesId: catalog.seriesId, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
+              downloadedEpisodeCount: episodes.length, complete, path: retained.get(catalog.seriesId)?.path ?? join(checkpoint.directory, `${slug(catalog.title)}-${slug(catalog.seriesId)}`), episodes };
+          });
+          const value = { ok: true, sourceMode: options.mode, sourceIdentity, complete: items.every(item => item.complete), items,
+            ...progress(), newlyDownloadedEpisodeCount: downloaded,
+            validatedBytes: items.reduce((sum, item) => sum + item.episodes.reduce((total, episode) => total + episode.bytes, 0), 0),
+            validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true, note: note(options.mode) };
+          await checkpoint.publish(value); return value;
+        } catch (error) {
+          fail(error); await pendingSource; await saveTail;
+          return { ok: false, complete: false, ...safeError(firstFailure), ...progress(),
+            resume: { seriesIds: options.seriesIds, ...(options.episodes ? { episodes: options.episodes } : {}), sourceMode: options.mode, outputDir: output.path },
+            ...(active.aborted ? { code: 'cancelled', message: '下载已取消或超过时限；已验证集和进度已保留，可按原请求继续' } : {}) };
+        } finally { workers.abort(); await pendingSource; await saveTail; await checkpoint.clearParts(); }
+      });
     });
   }
 }

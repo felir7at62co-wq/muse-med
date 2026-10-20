@@ -13,7 +13,7 @@ const ranges = {
   mediaRequestIntervalMs: [0, 60000], mediaIdleTimeoutMs: [100, 120000],
   mediaBatchSize: [1, 5], mediaConnections: [1, 4], mediaConnectionLimit: [1, 32],
   mediaSegmentMinBytes: [65536, 1073741824],
-  emptySourceCooldownMs: [1000, 600000],
+  emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
@@ -23,7 +23,7 @@ const defaults = {
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
   mediaRequestIntervalMs: 6000, mediaIdleTimeoutMs: 20000,
   mediaBatchSize: 5, mediaConnections: 4, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
-  emptySourceCooldownMs: 120000,
+  emptySourceCooldownMs: 120000, resumeSearchDepth: 4, resumeSearchEntries: 10000,
   mediaUserAgent: 'Mozilla/5.0 (Linux; Android 12)',
   catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com', '*.ctydoh.cn'],
   mediaPorts: [443, 9305, 20002],

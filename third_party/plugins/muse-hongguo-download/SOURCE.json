@@ -15,12 +15,12 @@
       "sha256": "36ba2d34b6c939f09d4534e086724cb46587fa96a9ce8ae1b5a5c3e78fd25bf5"
     }
   ],
-  "legacyInterface": "Original complete catalog API with FqTrace local signing; per-episode preload media API without native signature headers; original offline_decrypt.pyc modules",
+  "legacyInterface": "Original complete catalog API with FqTrace local signing; current unsigned video-tab media API; original offline_decrypt.pyc modules",
   "mediaLookup": {
-    "path": "/novel/player/multi_video_model/preload/v1",
-    "scene": "preload",
-    "requestIds": "mixed_video_id_map.1004, one exact episode per request",
-    "responseModel": "data[requestedVideoId].video_model",
+    "path": "/reading/bookapi/video_tab/multi_video_model/v1/",
+    "method": "GET",
+    "requestIds": "video_id, comma-separated exact video IDs, at most five",
+    "responseModel": "data.video_model_data[requestedVideoId].video_model",
     "nativeSignatureHeaders": false
   },
   "credentialFilesIncluded": false,
@@ -67,6 +67,13 @@
       "get_video_urls",
       "get_video_tracks"
     ],
+    "bundled": false
+  },
+  "mediaProtocolReference": {
+    "version": "1.0.0.77",
+    "release": "https://github.com/M4St3r0/hongguo-downloader/releases/tag/1.0.0.77",
+    "installerSha256": "d8d75a328c175e294c5b34c3be31481f3ec708a082f4a6260ac9d2a7c5bd70cb",
+    "moduleSha256": "1e31f90cb656dec89b40f3460e46f668520bc3a9ea281f5b3a506ee8de148cc2",
     "bundled": false
   }
 }

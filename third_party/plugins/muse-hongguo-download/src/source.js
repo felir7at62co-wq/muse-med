@@ -1,4 +1,4 @@
-/** Complete Hongguo catalogs and exact-episode preload models with private local source configuration. */
+/** Complete Hongguo catalogs and exact-episode media models with private local source configuration. */
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { createHash, randomInt } from 'node:crypto';
@@ -9,7 +9,7 @@ import { seriesId } from './parser.js';
 import { DownloadError, safeError } from './errors.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const preloadPath = '/novel/player/multi_video_model/preload/v1';
+const mediaPath = '/reading/bookapi/video_tab/multi_video_model/v1/';
 const nativeSignatureHeaders = new Set(['x-argus', 'x-gorgon', 'x-khronos', 'x-ladon', 'x-helios', 'x-medusa', 'x-neptune', 'x-soter']);
 
 /** Preserve decimal platform and device ids beyond JavaScript's exact integer range. */
@@ -89,7 +89,7 @@ export class SourceCatalog {
     this.mediaGate = Promise.resolve();
     this.nextMediaRequestAt = 0;
     this.mediaBlockedUntil = 0;
-    this.preloadResolved = false;
+    this.mediaResolved = false;
     this.now = dependencies.now ?? (() => performance.now());
     this.wait = dependencies.wait ?? ((milliseconds, signal) => delay(milliseconds, undefined, { signal }));
   }
@@ -138,7 +138,7 @@ export class SourceCatalog {
   async api(path, body, signal, method = 'POST', params = {}) {
     let emptyRetried = false;
     for (let attempt = 0; ; attempt++) {
-      const mediaRequest = path === preloadPath;
+      const mediaRequest = path === mediaPath;
       const release = mediaRequest ? await this.reserveMediaRequest(signal) : () => {};
       let active = signal;
       try {
@@ -153,7 +153,7 @@ export class SourceCatalog {
         const readOnly = mediaRequest || method === 'GET' || path === '/novel/player/multi_video_detail/v1/';
         const transient = readOnly && error instanceof DownloadError && (['network', 'incomplete_response'].includes(error.code)
           || error.code === 'http_error' && (error.httpStatus === 429 || error.httpStatus >= 500));
-        const emptyRecovery = mediaRequest && this.preloadResolved && !emptyRetried && error instanceof DownloadError
+        const emptyRecovery = mediaRequest && this.mediaResolved && !emptyRetried && error instanceof DownloadError
           && error.code === 'empty_source_response';
         if (!risk && !transient && !emptyRecovery) throw error;
         if (attempt >= this.config.retries) {
@@ -191,7 +191,7 @@ export class SourceCatalog {
     } catch (error) { release(); throw error; }
   }
 
-  /** Preserve signed catalog requests; the preload protocol omits incompatible native signatures. */
+  /** Preserve signed catalog requests; the video-tab protocol omits incompatible native signatures. */
   async apiOnce(path, body, signal, method, params) {
     const sourceStage = path.includes('video_model') ? 'video_model' : path.includes('multi_video_detail') ? 'catalog' : 'source_api';
     const { source, devices, headers, api, signUrl } = await this.load(signal);
@@ -201,7 +201,7 @@ export class SourceCatalog {
       url.searchParams.set(key, String(value));
     }
     const raw = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
-    const signedRequest = path !== preloadPath;
+    const signedRequest = path !== mediaPath;
     const sourceHeaders = signedRequest ? headers : Object.fromEntries(Object.entries(headers)
       .filter(([name]) => !nativeSignatureHeaders.has(name.toLowerCase())));
     const requestHeaders = { ...sourceHeaders, 'user-agent': device.user_agent || headers['user-agent'] || 'HongguoDownloader/SourceRebuild',
@@ -263,18 +263,18 @@ export class SourceCatalog {
     return { seriesId: id, title: String(video.series_title || id).slice(0, 200), episodeCount: count, source: 'original-hongguo-api', episodes };
   }
 
-  /** Resolve bounded batches through preload and accept only each requested ID's keyed model. */
+  /** Resolve bounded batches through the current video-tab endpoint and accept only each requested ID's keyed model. */
   async videoUrls(vids, signal) {
     const out = new Map();
     const unique = [...new Set(vids)];
     for (let offset = 0; offset < unique.length; offset += this.config.mediaBatchSize) {
       const batch = unique.slice(offset, offset + this.config.mediaBatchSize);
-      const result = await this.api(preloadPath, { biz_param: {
-        detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false,
-        need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024,
-      }, dr_scene: 'preload', mixed_video_id_map: { '1004': batch } }, signal);
+      const result = await this.api(mediaPath, undefined, signal, 'GET', {
+        video_id: batch.join(','), video_platform: '1024', need_all_video_definition: 'true',
+        device_level: '3', detail_page_version: '0',
+      });
       for (const vid of batch) {
-        let model = result.data?.[vid]?.video_model;
+        let model = result.data?.video_model_data?.[vid]?.video_model;
         if (typeof model === 'string') { try { model = parseSourceJson(model); } catch (error) { throw new DownloadError('platform_json', '原源视频模型 JSON 无效'); } }
         const choices = Array.isArray(model?.video_list) ? model.video_list : record(model?.video_list) ? Object.values(model.video_list) : [];
         const best = choices.filter(choice => record(choice) && typeof choice.main_url === 'string' && choice.main_url)
@@ -291,7 +291,7 @@ export class SourceCatalog {
         let url = best.main_url;
         if (!url.startsWith('https://')) url = Buffer.from(url, 'base64').toString('utf8');
         checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
-        this.preloadResolved = true;
+        this.mediaResolved = true;
         out.set(vid, { url, expectedBytes: Number(best.video_meta?.size) || null, sha256: null, encryption });
       }
     }

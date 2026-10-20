@@ -171,7 +171,7 @@ export function createAsrService(options){
  }
  async function poll(job,account,key){let result;
   try{result=await resourceOf(job).provider.query(job.taskId);}catch(error){job.status='uncertain';recordProviderFailure(job,error);delete job.terminalQuery;await save(account,key,job);return publicJob(job);}
-  if(result.status==='failed'&&['45000092','55001010'].includes(result.providerCode)){
+  if(result.status==='failed'&&['45000006','45000092','55001010'].includes(result.providerCode)){
    const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
    job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
    job.providerFailure={code:job.failureCode,operation:'query',reason:'response',providerCode:result.providerCode};
