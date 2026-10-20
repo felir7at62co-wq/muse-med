@@ -741,7 +741,7 @@ describe('FileSystemSkillProvider', () => {
       await vi.advanceTimersByTimeAsync(20)
       expect(await discovery).toEqual({ skills: [], complete: false })
       await stopped.promise
-      vi.useRealTimers()
+      // Recovery uses the same controlled deadline; real Windows I/O may take longer than 20ms under coverage.
       delete fs.readTextOverride
       expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'waiting-skill' }], complete: true })
       const reads = fs.readTextSignals.length
