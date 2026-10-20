@@ -1,7 +1,7 @@
 /** Model settings tool registration, schema, and rendered output through the real Loader. */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -158,16 +158,21 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     expect(unverified.content).toMatchSnapshot('empty history with unverified task ownership')
     projectTaskRows = []
     const beforeVerifiedEmpty = calls.length
-    const verifiedEmpty = await storyboard.execute(deleteArgs, runContext) as JsonValue
+    const verifiedEmpty = await storyboard.execute(deleteArgs, runContext) as Record<string, JsonValue>
     expect(calls.slice(beforeVerifiedEmpty)).toEqual(['GET', 'GET', 'GET', 'GET'])
-    expect(storyboard.output.render(deleteArgs, verifiedEmpty).map(block =>
-      block.type === 'text' ? { ...block, text: block.text.replaceAll(root, '<project>') } : block))
+    const renderPreview = (plan: Record<string, JsonValue>) => {
+      expect(typeof plan.preview_path).toBe('string')
+      const previewPath = String(plan.preview_path)
+      expect(dirname(previewPath)).toBe(join(root, 'video_tasks'))
+      return storyboard.output.render(deleteArgs, { ...plan,
+        preview_path: `<project>/${relative(root, previewPath).split(sep).join('/')}` })
+    }
+    expect(renderPreview(verifiedEmpty))
       .toMatchSnapshot('empty history verified against complete project tasks')
     unreadableHistory = false
     singletonHistory = true
-    const deletePlan = await storyboard.execute(deleteArgs, runContext) as Record<string, unknown>
-    expect(storyboard.output.render(deleteArgs, deletePlan as JsonValue).map(block =>
-      block.type === 'text' ? { ...block, text: block.text.replaceAll(root, '<project>') } : block))
+    const deletePlan = await storyboard.execute(deleteArgs, runContext) as Record<string, JsonValue>
+    expect(renderPreview(deletePlan))
       .toMatchSnapshot('singleton generation history deletion inspection')
     const deleteApply = { method: 'delete_apply', script_id: 2708, project_dir: root,
       preview_path: deletePlan.preview_path, idempotency_key: deletePlan.fingerprint, checked_storyboard_ids: [1] }
