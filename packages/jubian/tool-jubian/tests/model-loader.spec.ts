@@ -161,8 +161,8 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     const verifiedEmpty = await storyboard.execute(deleteArgs, runContext) as Record<string, JsonValue>
     expect(calls.slice(beforeVerifiedEmpty)).toEqual(['GET', 'GET', 'GET', 'GET'])
     const renderPreview = (plan: Record<string, JsonValue>) => {
-      expect(typeof plan.preview_path).toBe('string')
-      const previewPath = String(plan.preview_path)
+      const previewPath = plan.preview_path
+      if (typeof previewPath !== 'string') throw new Error('Expected a prepared deletion preview path')
       expect(dirname(previewPath)).toBe(join(root, 'video_tasks'))
       return storyboard.output.render(deleteArgs, { ...plan,
         preview_path: `<project>/${relative(root, previewPath).split(sep).join('/')}` })
