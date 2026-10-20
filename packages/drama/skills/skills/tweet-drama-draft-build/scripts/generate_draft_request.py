@@ -61,6 +61,10 @@ def generate_request(request, drafts_dir):
 
     retain(paths['audio'], f'01_audio/{seq}{paths["audio"].suffix}')
     retain(paths['subtitle_srt'], f'03_subtitle/{seq}.srt')
+    for suffix in ('.review.txt', '.blocked'):
+        note = Path(str(paths['subtitle_srt']) + suffix)
+        if note.is_file():
+            retain(note, f'03_subtitle/{seq}.srt{suffix}')
     retain(paths['timeline'], f'05_timeline/{seq}.timeline.json')
     for index, path in enumerate(video_paths, 1):
         retain(path, f'02_media/{seq}/shot_{index:03d}{path.suffix}')

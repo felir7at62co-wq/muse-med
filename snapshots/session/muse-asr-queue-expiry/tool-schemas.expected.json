@@ -2,15 +2,16 @@
   "initial": [
     {
       "name": "audio_transcribe",
-      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；用 status 查询同一任务，完成后取得文字、字词时间戳 JSON 和 SRT。长音频自动分段并合并时间轴；可用于素材转写与字幕校时。需要先登录 Muse。",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。",
       "parameters": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string",
-            "description": "start=提取音轨并提交；status=回读原收据，按服务端恢复指示查询或补传确认未受理的同 ID 音轨并发布结果，补传可能计费。inspect_receipt 停止反复轮询，保留收据核对；网络超时仍先回读原任务。限流按 retry_after_seconds 恢复；日额度、登录或冲突先处理，不直接重投。",
+            "description": "start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。",
             "enum": [
               "start",
+              "inspect",
               "status"
             ]
           },
@@ -24,7 +25,7 @@
           },
           "receipt": {
             "type": "string",
-            "description": "status 必填：start 返回的 transcript/jobs 收据路径。"
+            "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径。"
           },
           "language": {
             "type": "string",
@@ -36,7 +37,7 @@
           },
           "purpose": {
             "type": "string",
-            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。status 沿用收据用途，不可更改同一任务用途。",
+            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。",
             "enum": [
               "subtitles",
               "screenplay"

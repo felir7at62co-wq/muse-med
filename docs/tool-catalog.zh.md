@@ -1553,9 +1553,9 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 }
 ```
 
-来源： [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
+Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
-`start` 通过已登录的 Muse 账号提交音轨并返回项目收据；`inspect` 仅回读原任务，识别完成后保存带时间信息的 TXT 与 JSON，不补传音轨；`status` 可恢复未受理任务并可能计费。各 Muse 模式使用同一工具，凭据由账号网关保存。
+`start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway.
 
 <a id="deepseek-aidsh-tool-video-inspect"></a>
 
@@ -5787,9 +5787,9 @@ Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模
 }
 ```
 
-来源： [`packages/drama/tool-shot-script/src/production.ts`](../packages/drama/tool-shot-script/src/production.ts)
+Source: [`packages/drama/tool-shot-script/src/production.ts`](../packages/drama/tool-shot-script/src/production.ts)
 
-三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。
+The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow.
 
 <a id="deepseek-aidsh-perception-bgm"></a>
 
@@ -6000,7 +6000,7 @@ Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模
 }
 ```
 
-来源： [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
+Source: [`packages/drama/tool-episode-render/src/index.ts`](../packages/drama/tool-episode-render/src/index.ts)
 
 ### `drama_video`
 

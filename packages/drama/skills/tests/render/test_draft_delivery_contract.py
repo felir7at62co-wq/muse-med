@@ -115,10 +115,16 @@ class DraftDeliveryContractTests(unittest.TestCase):
                    'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
                    'subtitle_srt': str(root / '03_subtitle/25.srt'),
                    'timeline': str(root / '05_timeline/25.timeline.json')}
+        note = root / '03_subtitle/25.srt.review.txt'
+        note.write_text('Alignment needs review', encoding='utf-8')
         with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
             result = request_module.generate_request(request, str(drafts))
         self.assertTrue(result['success'], result)
         self.assertEqual(result['drafts_created'], 1)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(result['quality'], 'needs_review')
+        self.assertTrue(Path(result['drafts'][0]['review_path']).is_file())
+        self.assertEqual((Path(result['materials_dir']) / '03_subtitle/25.srt.review.txt').read_text(), 'Alignment needs review')
         self.assertEqual(result['library']['name'], 'pyJianYingDraft')
         self.assertFalse(result['editor_open_verified'])
         content_path = Path(result['drafts'][0]['path']) / 'draft_content.json'

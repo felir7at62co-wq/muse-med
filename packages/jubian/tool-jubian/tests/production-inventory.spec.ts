@@ -1,9 +1,9 @@
 /** Complete acquisition rejects changing, foreign or duplicate project inventory. */
 import { expect, it } from 'vitest'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
-import { productionRows } from '../src/production.ts'
+import { productionRows, readProductionLibrary } from '../src/production.ts'
 
-function inventory(pages: Record<string, unknown>[]) {
+function inventory(pages: unknown[]) {
   const paths: string[] = []
   const client = new JubianClient({ baseUrl: 'https://inventory.invalid', credential: () => Promise.resolve('offline-token'),
     fetch: (input) => {
@@ -41,4 +41,33 @@ it('respects the acquisition bound and foreground cancellation', async () => {
   const controller = new AbortController(); controller.abort()
   await expect(productionRows(f.client, 4908, 'asset', 1, 3, controller.signal)).rejects.toThrow()
   expect(f.paths).toHaveLength(1)
+})
+
+it('rejects a non-object inventory envelope and invalid row identities', async () => {
+  for (const data of [[], { total: 1, rows: [{ id: 0 }] }]) {
+    const f = inventory([data])
+    await expect(productionRows(f.client, 4908, 'asset', 1, 1, new AbortController().signal)).rejects.toThrow()
+  }
+})
+
+it('marks unsupported kinds, absent subjects and unsafe image addresses without guessing usable assets', async () => {
+  const rows = [
+    { id: 1, assetType: 0, assetName: 'unsupported', delFlag: '0' },
+    { id: 2, assetType: 1, assetName: 'absent subject', delFlag: '0' },
+    { id: 3, assetType: 2, assetName: 'invalid URL', delFlag: '0' },
+    { id: 4, assetType: 3, assetName: 'credentials in URL', delFlag: '0' },
+    { id: 5, assetType: 4, assetName: 'voice', assetUrl: 'http://insecure.test/a.wav', delFlag: '0' },
+    { id: 6, assetType: 1, assetName: 'missing address', delFlag: '1' },
+  ]
+  const materials = [{ id: 13, assetId: 3, isUsed: 1, hsAssetStatus: 'Active', assetUrl: 'bad-url', hsAssetId: 'scene' },
+    { id: 14, assetId: 4, isUsed: 1, hsAssetStatus: 'Active', assetUrl: 'https://user:pass@example.test/a.png', hsAssetId: 'prop' },
+    { id: 16, assetId: 6, isUsed: 1, hsAssetStatus: 'Active', hsAssetId: 'missing' }]
+  const client = new JubianClient({ baseUrl: 'https://inventory.invalid', credential: async () => 'offline', fetch: async (input) => {
+    const path = new URL(input instanceof Request ? input.url : input.toString()).pathname
+    const selected = path.includes('/asset/') ? rows : materials
+    return new Response(JSON.stringify({ code: 200, data: { total: selected.length, rows: selected } }))
+  } })
+  const result = await readProductionLibrary(client, 4908, 100, 2, new AbortController().signal)
+  expect(result).toHaveLength(5)
+  expect(result.every(row => !row.usable && row.url === null)).toBe(true)
 })

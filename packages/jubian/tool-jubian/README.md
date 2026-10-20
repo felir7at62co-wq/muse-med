@@ -11,7 +11,7 @@ The model catalogue accepts task_type 1 (video), 2 (images), 10 (subtitle erasur
 
 Every new upscale reads the task_type 20 catalogue and binds its request and budget reservation to the same model, platform and standard. A positive `unitPrice` in `元/条` supplies a CNY reservation rounded up to cents; missing prices or unsupported units still require an existing operator-approved estimate. Invalid prices and unreadable catalogues stop submission. Recorded keys do not repeat catalogue reads or paid requests.
 
-Muse-owned batch packaging consumes the exported `productionRows`, `readProductionLibrary`, `productionCard` and `publishProductionCard` helpers through the same free native write paths; the model-facing workflow belongs to [tool-shot-script](../../drama/tool-shot-script/README.md#muse-batch-production). Image selections may explicitly be empty only after all image markers are removed from the prompt; this clears card references while retaining audio and never deletes parent assets.
+Muse-owned batch packaging consumes the exported `productionRows`, `readProductionLibrary`, `productionCard` and `publishProductionCard` helpers through the same free native write paths; the model-facing workflow belongs to [tool-shot-script](../../drama/tool-shot-script/README.md#muse-batch-production). A readable legacy card may omit episode or ordering metadata; its version digest retains those fields as unset without changing the card. Image selections may explicitly be empty only after all image markers are removed from the prompt; this clears card references while retaining audio and never deletes parent assets.
 
 ## Summary
 

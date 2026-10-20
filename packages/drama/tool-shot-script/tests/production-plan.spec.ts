@@ -88,3 +88,69 @@ it('recognizes the story identity before a pipe-separated costume suffix', () =>
     ? { ...asset, name: asset.asset_id === 101 ? '苏晚｜红婚服' : '苏晚｜白中衣' } : asset) }, 8, 2)
   expect(plan.matches.filter(row => row.kind === 'character').map(row => row.selected_asset_id)).toEqual([101, 102, 102, 102])
 })
+
+it('retains deliberate omissions and surfaces unrelated explicit identities and unavailable media', () => {
+  const plan = buildProductionPlan({ ...base, assets: [...assets,
+    { ...assets[0]!, asset_id: 901, name: '另一个人' },
+    { ...assets[0]!, asset_id: 902, usable: true, url: null, material_id: null }],
+  requirements: [{ shot: 1, kind: 'character', name: '苏晚', character_id: 'correct', conditions: ['红婚服'] }],
+  choices: [{ shot: 1, kind: 'character', name: '苏晚', asset_id: 901 },
+    { shot: 2, kind: 'character', name: '苏晚', asset_id: null },
+    { shot: 3, kind: 'character', name: '苏晚', asset_id: 902 }],
+  }, 1, 2)
+  expect(plan.matches.find(row => row.shot === 1 && row.kind === 'character')?.candidates.at(-1)?.asset_id).toBe(901)
+  expect(plan.matches).toContainEqual(expect.objectContaining({ shot: 2, kind: 'character', selection_basis: 'omitted' }))
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'selected_asset_needs_review', shot: 1 }))
+  expect(plan.packages.flatMap(row => row.images).some(row => row.asset_id === 902)).toBe(false)
+})
+
+it('compares explicit character identities, scene conditions and known voice periods independently', () => {
+  const voice: ProductionAsset = { asset_id: 401, name: '声音', kind: 'voice', url: 'https://cdn.example.test/voice.wav',
+    material_id: null, usable: true, character_id: 'su-wan', voice_period_id: 'adult', duration_seconds: 2 }
+  const plan = buildProductionPlan({ ...base,
+    assets: [{ ...assets[0]!, aliases: ['阿晚'], character_id: 'other', state_or_costume: '红婚服' },
+      { ...assets[1]!, character_id: 'su-wan' }, { ...assets[2]!, scene_conditions: ['晨光'] }, voice],
+    requirements: [{ shot: 1, kind: 'character', name: '阿晚', character_id: 'su-wan' },
+      { shot: 1, kind: 'scene', name: '后厨', conditions: ['晨光'] },
+      { shot: 1, kind: 'voice', name: '苏晚', character_id: 'su-wan', voice_period_id: 'adult' },
+      { shot: 2, kind: 'voice', name: '苏晚', character_id: 'su-wan' }],
+  }, 8, 2)
+  expect(plan.matches.find(row => row.name === '阿晚')?.candidates.find(row => row.asset_id === 101)?.reasons).toContain('character_identity_mismatch')
+  expect(plan.packages[0]?.voices).toEqual([voice])
+  expect(plan.matches.find(row => row.shot === 2 && row.kind === 'voice')?.candidates[0]?.reasons).toContain('voice_identity_or_period_unverified')
+})
+
+it('reports changes to source scene and appearance while resolving authored aliases outside speech', () => {
+  const authored = source.replaceAll('核心场景：后厨', '核心场景：@[后厨](old)')
+    .replaceAll('相机固定，苏晚', '相机固定，@[阿晚](old)和@[未登记](unknown)')
+    .replaceAll('出镜人物：苏晚', '出镜人物：苏晚\n苏晚：\n身体状态：青年；红婚服；')
+  const plan = buildProductionPlan({ ...base, source: authored,
+    assets: [{ ...assets[0]!, aliases: ['阿晚'] }, ...assets.slice(1)],
+    requirements: [{ shot: 1, kind: 'scene', name: '饭堂' },
+      { shot: 1, kind: 'character', name: '苏晚', state: '白中衣' }],
+  }, 8, 2)
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'source_scene_requirement_changed' }))
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'source_state_requirement_changed' }))
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'source_reference_unresolved' }))
+  expect(plan.packages.map(row => row.prompt).join('')).not.toContain('(unknown)')
+  expect(plan.source).toBe(authored)
+})
+
+it('does not add absent character, prop or speech requirements to a silent scene', () => {
+  const plan = buildProductionPlan({ ...base, source: '【镜头1】\n核心场景：后厨\n发声类型：action\n画面：空房间\n时长：3秒' }, 8, 2)
+  expect(plan.matches.map(row => row.kind)).toEqual(['scene'])
+})
+
+it('keeps an unmeasured voice unresolved and resolves a selected visual alias without touching spoken markers', () => {
+  const voice: ProductionAsset = { asset_id: 401, name: '声音', kind: 'voice', character_id: 'su-wan', voice_period_id: 'adult',
+    usable: true, url: 'https://cdn.example.test/v.wav', material_id: null }
+  const authored = source.replaceAll('相机固定，苏晚', '相机固定，@[阿晚](old)')
+  const plan = buildProductionPlan({ ...base, source: authored, assets: [{ ...assets[0]!, aliases: ['阿晚'] }, ...assets.slice(1), voice],
+    requirements: [...requirements.map(item => ({ ...item, state: '红婚服' })),
+      { shot: 1, kind: 'voice', name: '苏晚', character_id: 'su-wan', voice_period_id: 'adult' }],
+  }, 8, 2)
+  expect(plan.matches.find(row => row.kind === 'voice')?.candidates[0]?.reasons).toContain('audio_duration_unverified')
+  expect(plan.packages[0]?.prompt).toContain('@[全剧｜角色｜苏晚（青年；红婚服）](asset_101)')
+  const empty = buildProductionPlan({ ...base, assets: [], source: '【镜头1】\n画面：空白\n发声类型：action\n时长：3秒' }, 8, 2)
+  expect(empty.matches).toEqual([])
+})

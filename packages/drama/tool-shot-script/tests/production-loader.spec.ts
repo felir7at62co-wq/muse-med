@@ -1,9 +1,15 @@
 /** Real Loader, session model and native free-write paths with an offline Jubian server. */
-import { readFile, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import * as Publication from '@deepseek-ai/dsh-tool-jubian'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { registerProductionTool } from '../src/production.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { encodeVoiceSlot } from '@deepseek-ai/dsh-jubian-api'
+import type { ProductionConfig } from '../src/production.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
 import { speakingShot, tempDir, cleanup } from './harness.ts'
@@ -12,9 +18,10 @@ const disposers: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   for (const dispose of disposers.splice(0).reverse()) await dispose()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
-async function fixture() {
+async function fixture(options: ProductionConfig = {}, useDefault = true, register = true) {
   const root = await tempDir(); disposers.push(() => cleanup(root))
   const catalogue = JSON.parse(await readFile(new URL('../../../jubian/jubian-api/tests/fixtures/catalogue-20261016.json',
     import.meta.url), 'utf8')) as Record<string, unknown>
@@ -28,6 +35,7 @@ async function fixture() {
   const cards = new Map<number, Record<string, unknown>>()
   const calls: { method: string; path: string; body: Record<string, unknown> | undefined }[] = []
   let unknownCreate = false, stringInventory = false
+  let transform: ((path: string, data: unknown) => unknown) | undefined
   const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const address = new URL(input instanceof Request ? input.url : String(input))
     if (address.hostname !== 'production.invalid') throw new Error('Unexpected provider host')
@@ -59,6 +67,7 @@ async function fixture() {
         ...Object.fromEntries(['id', 'scriptId', 'assetId', 'episodeId', 'episodeCount', 'assetType', 'isUsed']
           .filter(key => row[key] !== undefined).map(key => [key, String(row[key])])) })) }
     }
+    if (transform) data = await transform(address.pathname, data)
     return new Response(JSON.stringify({ code: 200, data }))
   })
   disposers.push(async () => { transport.mockRestore() })
@@ -68,25 +77,26 @@ async function fixture() {
   ])).join('\n\n')
   const script = join(root, 'shots.txt'); await writeFile(script, source)
   const f = await sessionVideoShot(root, { reviewMode: 'advisory', sessionVideoSelection: true,
-    productionPackaging: true, production: { baseUrl: 'https://production.invalid', workspaceSecrets: false,
-      ledgerRoot: join(root, 'ledger') } })
+    productionPackaging: register, production: { baseUrl: 'https://production.invalid', workspaceSecrets: false,
+      ledgerRoot: join(root, 'ledger'), ...options } }, useDefault)
   disposers.push(f.dispose)
   await f.ctx.plugin(MemoryCredentials, { JUBIANAI_ADMIN_TOKEN: 'offline-test-token' })
   const agent = await f.create('session-production')
   let count = 0
-  const call = async (args: Record<string, unknown>) => {
-    const result = await f.ctx.tools.execute({ agent, name: 'muse_production', arguments: args,
+  const call = async (args: Record<string, unknown>, agentless = false, currentAgent = agent) => {
+    const result = await f.ctx.tools.execute({ ...(agentless ? {} : { agent: currentAgent }), name: 'muse_production', arguments: args,
       callId: ToolCallId(`production-${++count}`), signal: new AbortController().signal })
     if (result.isError) throw new Error(JSON.stringify(result.content))
     const block = result.content[0]
     if (block?.type !== 'text') throw new Error('Missing production report')
     return JSON.parse(block.text) as Record<string, unknown>
   }
-  const preview = () => call({ method: 'preview', project_dir: root, script, episode: 1, ratio: '16:9', gen_type: 3,
+  const preview = (args: Record<string, unknown> = {}) => call({ method: 'preview', project_dir: root, script, episode: 1, ratio: '16:9', gen_type: 3,
     requirements: [{ shot: 1, kind: 'character', name: '苏晚', state: '红婚服' },
-      { shot: 2, kind: 'character', name: '苏晚', state: '白中衣' }] })
+      { shot: 2, kind: 'character', name: '苏晚', state: '白中衣' }], ...args })
   return { ...f, agent, root, script, source, assets, materials, cards, calls, call, preview,
-    unknownCreate: () => { unknownCreate = true }, stringInventory: () => { stringInventory = true } }
+    unknownCreate: () => { unknownCreate = true }, stringInventory: () => { stringInventory = true },
+    respond: (fn: typeof transform) => { transform = fn } }
 }
 
 it('previews appearances under Loader and publishes a batch once with actual image readback and no generation', async () => {
@@ -118,6 +128,8 @@ it('retains a disputed costume choice as a warning and paginates complete candid
   const detail = await f.call({ method: 'read', plan_path: updated.plan_path, section: 'matches', limit: 100 })
   expect(detail).toMatchObject({ next_offset: null })
   expect(detail.rows).toContainEqual(expect.objectContaining({ shot: 2, kind: 'character', selected_asset_id: 101, selection_basis: 'explicit' }))
+  const refreshed = await f.call({ method: 'update', plan_path: updated.plan_path, section: 'matches', limit: 100 })
+  expect(refreshed.rows).toContainEqual(expect.objectContaining({ shot: 2, kind: 'character', selected_asset_id: 101 }))
   expect(f.calls.every(call => call.method === 'GET')).toBe(true)
   expect(await f.call({ method: 'apply', plan_path: updated.plan_path })).toMatchObject({ saved: 1 })
 })
@@ -223,4 +235,184 @@ it('keeps same-name cards separate until Muse chooses an exact existing target',
   expect(await f.call({ method: 'apply', plan_path: chosen.plan_path })).toMatchObject({ saved: 1 })
   expect(f.cards.size).toBe(2)
   expect(f.cards.get(10001)).toEqual({ ...original, id: 10001 })
+})
+
+it.each([{ offset: -1 }, { limit: 0 }, { limit: 101 }])('rejects an invalid pagination request %j', async (args) => {
+  const f = await fixture()
+  await expect(f.call({ method: 'preview', ...args })).rejects.toThrow('分页')
+})
+
+it('requires the original saved plan and a session only for model-dependent operations', async () => {
+  const f = await fixture()
+  await expect(f.call({ method: 'read' })).rejects.toThrow('plan_path')
+  await expect(f.call({ method: 'preview' })).rejects.toThrow('preview需要')
+  await expect(f.call({ method: 'preview', project_dir: f.root, script: f.script, episode: 1, gen_type: 3 })).rejects.toThrow('ratio')
+  await expect(f.call({ method: 'preview', project_dir: f.root, script: f.script, episode: 1, ratio: '16:9' })).rejects.toThrow('ratio')
+  await expect(f.call({ method: 'preview' }, true)).rejects.toThrow('当前会话')
+  const report = await f.preview()
+  expect(await f.call({ method: 'read', plan_path: report.plan_path, section: 'assets' }, true)).toMatchObject({ total: 3 })
+  await expect(f.call({ method: 'apply', plan_path: report.plan_path }, true)).rejects.toThrow('当前会话')
+  const tool = f.ctx.tools.get('muse_production')!
+  expect(tool.presentCall?.({ method: 'apply' })).toMatchObject({ kind: 'edit' })
+  expect(tool.presentCall?.({ method: 'read' })).toMatchObject({ kind: 'read' })
+  expect(tool.isConcurrencySafe?.({ method: 'read' })).toBe(true)
+  expect(tool.isConcurrencySafe?.({ method: 'apply' })).toBe(false)
+})
+
+it.each([{ maxSourceBytes: 4 }, { maxShots: 1 }])('enforces bounded complete source acquisition %j', async (config) => {
+  const f = await fixture(config)
+  await expect(f.preview()).rejects.toThrow('超过')
+  expect(f.cards.size).toBe(0)
+})
+
+it('requires a known selected model and a unique actual remote episode', async () => {
+  const noSelection = await fixture({}, false)
+  await expect(noSelection.preview()).rejects.toThrow('视频模型')
+  const f = await fixture({ timeoutMs: 10_000 })
+  f.respond((path, data) => path === '/aigc/episode/list' ? { total: 0, rows: [] } : data)
+  await expect(f.preview()).rejects.toThrow('episode_id')
+})
+
+it('preserves a tampered plan or invalid receipt instead of silently rebuilding or replaying it', async () => {
+  const f = await fixture(), report = await f.preview(), path = String(report.plan_path)
+  const original = await readFile(path, 'utf8')
+  const modified = JSON.parse(original) as Record<string, unknown>
+  modified.source = '外部替换'
+  await writeFile(path, JSON.stringify(modified))
+  await expect(f.call({ method: 'read', plan_path: path })).rejects.toThrow('外部修改')
+  await writeFile(path, original)
+  const other = join(f.root, 'copied.json'); await copyFile(path, other)
+  await expect(f.call({ method: 'read', plan_path: other })).rejects.toThrow('路径')
+  await writeFile(path.replace(/\.json$/u, '.receipts.json'), 'broken')
+  await expect(f.call({ method: 'apply', plan_path: path })).rejects.toThrow()
+  expect(f.cards.size).toBe(0)
+})
+
+it('reads local registration changes but refuses malformed metadata and rebound projects', async () => {
+  const f = await fixture()
+  await writeFile(join(f.root, 'assets_manifest.json'), '{')
+  await expect(f.preview()).rejects.toThrow()
+  await writeFile(join(f.root, 'assets_manifest.json'), JSON.stringify({ items: [{ jubian_asset_id: 101,
+    url: f.assets[0]!.assetUrl, aliases: ['阿晚'] }] }))
+  const first = await f.preview()
+  await writeFile(f.script, f.source + '\n用户已修改\n')
+  const updated = await f.call({ method: 'update', plan_path: first.plan_path, section: 'warnings' })
+  expect(updated.rows).toContainEqual(expect.objectContaining({ code: 'source_changed' }))
+  await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ jubian_script_id: 999 }))
+  await expect(f.call({ method: 'apply', plan_path: updated.plan_path })).rejects.toThrow('绑定已变化')
+})
+
+it('refreshes per-shot requirements and detects a model change occurring during acquisition', async () => {
+  const f = await fixture(), first = await f.preview()
+  const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  let switched = false
+  f.respond(async (path, data) => {
+    if (!switched && path === '/aigc/script/4908') {
+      switched = true
+      await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+    }
+    return data
+  })
+  const changed = await f.call({ method: 'update', plan_path: first.plan_path,
+    requirements: [{ shot: 1, kind: 'character', name: '苏晚', state: '白中衣' }], section: 'warnings' })
+  expect(changed.rows).toContainEqual(expect.objectContaining({ code: 'model_changed_during_preview' }))
+  expect(changed.model).toMatchObject({ maxDurationSeconds: 30 })
+})
+
+it('enforces package limits after reflow and refuses foreign or duplicate existing targets', async () => {
+  const limited = await fixture({ maxPackages: 1 })
+  const short = (await limited.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  await limited.service.initialize(limited.agent)
+  await limited.service.select(limited.agent, short.key, limited.service.current(limited.agent)!.revision)
+  await expect(limited.preview()).rejects.toThrow('视频包上限')
+  const f = await fixture(), first = await f.preview()
+  expect(await f.call({ method: 'apply', plan_path: first.plan_path })).toMatchObject({ saved: 1 })
+  await expect(f.preview({ targets: [{ index: 1, storyboard_id: 99 }] })).rejects.toThrow('库存')
+  const card = f.cards.get(10000)!
+  card.episodeId = 999
+  await expect(f.preview({ targets: [{ index: 1, storyboard_id: 10000 }] })).rejects.toThrow('另一集')
+  card.episodeId = 102505
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  await expect(f.preview({ targets: [{ index: 1, storyboard_id: 10000 }, { index: 2, storyboard_id: 10000 }] })).rejects.toThrow('同一原卡')
+  const omitted = await f.preview({ targets: [{ index: 1, storyboard_id: null }] })
+  expect(omitted.package_index).toContainEqual(expect.objectContaining({ index: 1, storyboard_id: null }))
+})
+
+it('stops the remaining batch when a selection save unexpectedly creates a task', async () => {
+  const f = await fixture()
+  await f.service.initialize(f.agent)
+  const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  const first = await f.preview()
+  let reads = 0
+  f.respond((path, data) => {
+    if (path.includes('/video/task')) {
+      reads++
+      return reads > 1 ? { total: 1, rows: [{ id: 44, scriptId: 4908, storyboardId: 10000, taskStatus: 'submit' }] } : data
+    }
+    return data
+  })
+  const result = await f.call({ method: 'apply', plan_path: first.plan_path })
+  expect(result).toMatchObject({ processed: 1, unattempted: 1, saved: 0 })
+  expect(result.results).toContainEqual(expect.objectContaining({ status: 'billing_safety_violation' }))
+  expect(f.cards.size).toBe(1)
+})
+
+it('fails registration without its required services and resolves deployment defaults without network access', async () => {
+  const ctx = new Context()
+  try { await expect(registerProductionTool(ctx, {}, 2)).rejects.toThrow('凭证') } finally { await ctx.fiber.dispose() }
+  const f = await fixture({}, true, false)
+  vi.stubEnv('DSH_HOME', undefined)
+  await registerProductionTool(f.ctx, {}, 2)
+  expect(f.ctx.tools.get('muse_production')).toBeDefined()
+  expect(f.calls).toHaveLength(0)
+})
+
+it('uses a configured home and fails a missing credential before any provider request', async () => {
+  const f = await fixture({}, true, false)
+  vi.stubEnv('DSH_HOME', f.root)
+  await registerProductionTool(f.ctx, { baseUrl: 'https://production.invalid', workspaceSecrets: false }, 2)
+  await f.ctx.credentials.unset(credentialRef('JUBIANAI_ADMIN_TOKEN'))
+  await expect(f.preview()).rejects.toThrow()
+  expect(f.calls).toHaveLength(0)
+})
+
+it('supports an absolute project from a session without cwd or a named remote project', async () => {
+  const f = await fixture()
+  f.respond((path, data) => path === '/aigc/script/4908' ? { id: 4908 } : data)
+  const agent = (await f.ctx.agents.create({ sessionId: SessionId('without-cwd'), agentOptions: { provider: 'mock', model: 'mock' }, meta: {} })).agent
+  const report = await f.call({ method: 'preview', project_dir: f.root, script: f.script, episode: 1,
+    ratio: '16:9', gen_type: 3 }, false, agent)
+  expect(report).toMatchObject({ script_id: 4908 })
+})
+
+it('keeps readable legacy current-material fields in the preview even when their metadata is incomplete', async () => {
+  const f = await fixture(), first = await f.preview()
+  expect(await f.call({ method: 'apply', plan_path: first.plan_path })).toMatchObject({ saved: 1 })
+  const card = f.cards.get(10000)!
+  card.storyboardMaterialList = [
+    { materialKey: 'legacy_a', materialType: 'audio', assetName: '旧名字' },
+    { materialKey: 'legacy_b', materialType: 'audio' },
+  ]
+  const report = await f.preview()
+  expect(report.package_index).toContainEqual(expect.objectContaining({ current_assets: [
+    expect.objectContaining({ name: '旧名字', asset_id: null, url: null }),
+    expect.objectContaining({ name: '', asset_id: null, url: null }),
+  ] }))
+})
+
+it('retains a non-Error publication failure for reconciliation and continues other independent packages', async () => {
+  vi.spyOn(Publication, 'publishProductionCard').mockRejectedValueOnce('uncertain provider failure')
+  const f = await fixture(), first = await f.preview()
+  const result = await f.call({ method: 'apply', plan_path: first.plan_path })
+  expect(result.results).toContainEqual(expect.objectContaining({ status: 'reconcile_required', error: 'Publication failed' }))
+  expect(f.cards.size).toBe(0)
+})
+
+it('keeps an incomplete creation receipt unsaved and retains the original reconciliation response', async () => {
+  vi.spyOn(Publication, 'publishProductionCard').mockResolvedValueOnce({ status: 'reconcile_required', original_key: 'original-create' })
+  const f = await fixture(), report = await f.preview()
+  expect(await f.call({ method: 'apply', plan_path: report.plan_path })).toMatchObject({ saved: 0,
+    results: [expect.objectContaining({ status: 'reconcile_required', original_key: 'original-create' })] })
+  expect(f.cards.size).toBe(0)
 })

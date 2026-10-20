@@ -18,7 +18,7 @@ export function productionHash(text: string | Uint8Array): string { return creat
  * @returns Normalized identity text, retaining distinct complete names.
  */
 export function productionName(name: string): string {
-  return (name.replace(/@\[([^\]]+)\]\([^)]*\)/gu, '$1').split(/[｜|]/u).at(-1) ?? '')
+  return name.replace(/@\[([^\]]+)\]\([^)]*\)/gu, '$1').split(/[｜|]/u).slice(-1).join('')
     .replace(/[（(].*$/u, '').replace(/^(图片\d+\s*)/u, '').trim()
 }
 
@@ -163,7 +163,7 @@ export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'ope
     .map(task => ({ ...task, index: index + 1 }))) : packEpisode(compiled, ceiling - 1, { reviewMode: 'advisory', issues })
   if (ceiling === null) warnings.push({ code: 'model_duration_unknown', shot: null,
     message: '当前模型没有可核实的时长上限；先保留每个完整镜头为独立草稿包，不借用其他模型上限，也不宣称可提交。Muse核实能力后自主调整分包。' })
-  warnings.push(...issues.map(issue => ({ code: issue.code, shot: issue.shot || null, message: issue.message })))
+  warnings.push(...issues.map(issue => ({ code: issue.code, shot: issue.shot, message: issue.message })))
   const packages = packed.map(task => ({ index: task.index, name: `EP${String(input.episode).padStart(2, '0')}-P${task.index}`,
     shots: task.shots, duration: task.submitSeconds, prompt: task.prompt,
     images: task.materialBindings.map(binding => ({ asset_id: Number(binding.asset_id), material_key: binding.material_key })),

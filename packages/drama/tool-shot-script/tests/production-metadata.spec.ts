@@ -43,3 +43,42 @@ it('does not replace a different shared character or period with local metadata'
   expect(result.assets[0]).toMatchObject({ character_id: 'other', voice_period_id: 'child' })
   expect(result.assets[0]).not.toHaveProperty('duration_seconds')
 })
+
+it('accepts legacy registration aliases and ignores malformed or unattributed local metadata', () => {
+  const result = productionMetadata([image, voice], { assets: [null, {},
+    { jubian_asset_id: 999, url: image.url }, { jubian_asset_id: 101 },
+    { jubian_asset_id: 101, url: image.url, name: '苏晚', aliases: '阿晚、晚晚',
+      character_id: 'su-wan', scene_conditions: ['晨光'] }] }, {
+    project_bible: { characters: [null, { character_id: 'su-wan', name: '苏晚', voice_profile: { ...profile, voice_period_id: undefined } },
+      { character_id: 'no-reference', name: '另一人' }] },
+  }, [{ shot: 1, kind: 'character', name: '苏晚' }, requirement, { ...requirement, name: '未知人物' }])
+  expect(result.assets[0]).toMatchObject({ aliases: ['阿晚', '晚晚', '苏晚'], character_id: 'su-wan', scene_conditions: ['晨光'] })
+  expect(result.assets[1]).toMatchObject({ aliases: ['苏晚'], character_id: 'su-wan' })
+  expect(result.assets[1]).not.toHaveProperty('voice_period_id')
+  expect(result.requirements).toHaveLength(3)
+  for (const value of [{}, null, { project_bible: {} }]) {
+    expect(productionMetadata([image], {}, value, [requirement]).requirements).toEqual([requirement])
+  }
+})
+
+it('does not infer a voice period from malformed or ambiguous character entries', () => {
+  for (const profiles of [[null], [{}]]) {
+    const result = productionMetadata([], {}, { project_bible: { characters: [
+      { character_id: 'su-wan', name: '阿晚', voice_profiles: profiles },
+    ] } }, [requirement, { ...requirement, character_id: 'explicit-character' }])
+    expect(result.requirements).toHaveLength(1)
+    expect(result.requirements[0]).not.toHaveProperty('voice_period_id')
+  }
+  const duplicate = { character_id: 'su-wan', name: '阿晚', voice_profiles: [profile] }
+  const ambiguous = productionMetadata([], {}, { project_bible: { characters: [duplicate, duplicate] } }, [requirement])
+  expect(ambiguous.requirements).toEqual([requirement])
+  const explicit = { ...requirement, character_id: 'explicit-character', voice_period_id: 'explicit-period' }
+  expect(productionMetadata([], {}, { project_bible: { characters: [duplicate] } }, [explicit]).requirements).toEqual([explicit])
+})
+
+it('keeps a minimal current registration and legacy single-profile character readable', () => {
+  const result = productionMetadata([image, voice], { items: [{ jubian_asset_id: 101, url: image.url }] },
+    { project_bible: { characters: [{ character_id: 'su-wan', name: '阿晚', voice_profile: profile }] } }, [requirement])
+  expect(result.assets[0]?.aliases).toEqual([])
+  expect(result.requirements[0]).toMatchObject({ character_id: 'su-wan' })
+})

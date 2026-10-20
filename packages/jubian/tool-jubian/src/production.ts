@@ -135,8 +135,9 @@ export async function productionCard(client: JubianClient, storyboardId: number)
     .filter(key => item[key] !== undefined).map(key => [key, item[key]])))
   const config = { ...card.model_config }
   delete config.materialList
-  return { card, sha256: stableSha256({ script_id: card.script_id, episode_id: card.snapshot.episodeId,
-    episode_count: card.snapshot.episodeCount, name: card.name, sort_order: card.snapshot.sortOrder, model: config, materials }) }
+  return { card, sha256: stableSha256({ script_id: card.script_id, episode_id: card.snapshot.episodeId ?? null,
+    episode_count: card.snapshot.episodeCount ?? null, name: card.name, sort_order: card.snapshot.sortOrder ?? null,
+    model: config, materials }) }
 }
 
 /** Save one production package without calling any paid generation method.

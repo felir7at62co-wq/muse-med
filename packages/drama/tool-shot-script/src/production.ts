@@ -272,17 +272,18 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
       if (request.targets) request.targets = z.array(targetSchema).parse(request.targets)
       const path = request.plan_path ?? ''
       if (request.method !== 'preview' && !path) throw new Error('read、update和apply需要上次返回的plan_path。')
-      const previous = request.method === 'preview' ? undefined : await loadPlan(path)
-      if (request.method === 'read') {
-        if (previous === undefined) throw new Error('需要已保存的本地制作方案。')
-        return view(previous, path, request)
+      if (request.method === 'preview') {
+        if (!exec.agent) throw new Error('批量制作需要当前会话，以读取实际选择的视频模型。')
+        const plan = await preview(request, exec.agent, exec.signal)
+        return view(plan, await savePlan(plan), request)
       }
+      const previous = await loadPlan(path)
+      if (request.method === 'read') return view(previous, path, request)
       if (!exec.agent) throw new Error('批量制作需要当前会话，以读取实际选择的视频模型。')
-      if (request.method === 'preview' || request.method === 'update') {
+      if (request.method === 'update') {
         const plan = await preview(request, exec.agent, exec.signal, previous)
         return view(plan, await savePlan(plan), request)
       }
-      if (previous === undefined) throw new Error('apply需要已保存的本地制作方案。')
       const plan = previous
       const bound = z.object({ jubian_script_id: z.number().int().positive() }).parse(JSON.parse(await readFile(join(plan.project_dir, 'project_config.json'), 'utf8')))
       if (bound.jubian_script_id !== plan.script_id) throw new Error('项目绑定已变化；重新预览当前项目，不按旧方案写入。')

@@ -37,8 +37,11 @@ const DraftResult = z.object({
   drafts: z.array(z.object({
     episode: z.string().required(), name: z.string().required(), path: z.string().required(),
     id: z.string().required(), success: z.boolean().required(), error: z.string().required(),
+    quality: z.string(), warnings: z.array(z.string()).default([]), review_path: z.string(),
   })).required(),
   materials_dir: z.string(),
+  quality: z.string(),
+  warnings: z.array(z.string()).default([]),
   library: z.object({ name: z.string().required(), version: z.string().required() }).required(),
   editor_open_verified: z.boolean().required(),
   error: z.string(),
@@ -105,7 +108,7 @@ export const inject = ['tools', 'subprocess']
 export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'jianying_draft',
-    description: '使用随 Muse 打包的 pyJianYingDraft 生成一集可编辑剪映草稿，不经过 PowerShell。先读 tweet-drama-draft-build 技能并用 drama_draft_dir 取得根目录；write 一个 JSON 请求文件，包含 project、episode、name_prefix、audio、按镜头顺序的 videos 路径数组、subtitle_srt、timeline，可选 bgm、ending_audio、ending_effect，所有文件用绝对路径。主音轨是未混 BGM 的完整对白，字幕已按实际语音校时，timeline 沿用成片时间线。只处理指定集，不覆盖已有草稿；返回保存后读回一致的草稿路径和库版本，editor_open_verified=false 表示尚未在用户剪映里打开验收。',
+    description: '使用随 Muse 打包的 pyJianYingDraft 生成一集可编辑剪映草稿，不经过 PowerShell。先读 tweet-drama-draft-build 技能并用 drama_draft_dir 取得根目录；write 一个 JSON 请求文件，包含 project、episode、name_prefix、audio、按镜头顺序的 videos 路径数组、subtitle_srt、timeline，可选 bgm、ending_audio、ending_effect，所有文件用绝对路径。主音轨是未混 BGM 的完整对白，字幕已按实际语音校时，timeline 沿用成片时间线。只处理指定集，不覆盖已有草稿；字幕、配乐和轨道质量疑点返回 warnings 与 review_path 软提示，由你查看实际轨道决定，不要求提示清零。返回保存后读回一致的草稿路径和库版本，editor_open_verified=false 表示尚未在用户剪映里打开验收。',
     parameters: {
       request_file: { type: 'string', required: true, description: 'Existing JSON request file for one selected episode; relative paths use the current workspace.' },
       drafts_dir: { type: 'string', required: true, description: 'Existing editor root returned by drama_draft_dir.' },

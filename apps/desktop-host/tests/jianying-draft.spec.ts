@@ -16,7 +16,7 @@ const input = JSON.parse(fs.readFileSync(request, 'utf8'));
 if (failure) { console.log(JSON.stringify({ success:false,drafts_created:0,drafts:[],error:'save rejected' })); process.exit(0); }
 const target = path.join(root, input.name_prefix + String(input.episode).padStart(2, '0'));
 fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
-console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:''}],library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
+console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:'',quality:'needs_review',warnings:['subtitle requires review'],review_path:path.join(target,'muse-review.json')}],quality:'needs_review',warnings:['subtitle requires review'],library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
 `
 
 async function fixture(maxInputBytes = 65536) {
@@ -50,7 +50,9 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
     expect(f.ctx.tools.get('jianying_draft')).toBeDefined()
     const result = await Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config)
     expect(result).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
-      library: { name: 'pyJianYingDraft', version: '0.3.1' } })
+      library: { name: 'pyJianYingDraft', version: '0.3.1' },
+      quality: 'needs_review', warnings: ['subtitle requires review'],
+      drafts: [expect.objectContaining({ warnings: ['subtitle requires review'], review_path: join(f.input.drafts_dir, 'candidate-95/muse-review.json') })] })
     expect(await readFile(join(result.drafts[0]!.path, 'draft_content.json'), 'utf8')).toBe('{}\n')
     const request = spy.mock.calls[0]![0]
     expect(request.argv.slice(0, 2)).toEqual([process.execPath, '-B'])

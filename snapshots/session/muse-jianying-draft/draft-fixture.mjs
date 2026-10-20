@@ -21,7 +21,10 @@ export async function apply(ctx) {
     const request = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
     const target = path.join(process.argv[2], request.name_prefix + String(request.episode).padStart(2, '0'));
     fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
-    console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:''}],library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
+    const warnings = ['Subtitle cue 1 needs review; candidate preserved.'];
+    const review = path.join(target, 'muse-review.json');
+    fs.writeFileSync(review, JSON.stringify({status:'needs_review',warnings})+String.fromCharCode(10));
+    console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:'',quality:'needs_review',warnings,review_path:review}],quality:'needs_review',warnings,library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
   `
   ctx.effect(() => {
     ctx.subprocess.spawn = spec => spec.argv[2]?.endsWith('generate_draft_request.py')
