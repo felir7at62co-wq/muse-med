@@ -3,8 +3,8 @@
  * script the delivery style burns in.
  *
  * The burned-in subtitle is part of the delivered picture, so its style is the
- * delivery specification rather than a tool parameter: size 68 with -2 spacing
- * and a black outline 7 delivered pixels wide, bottom-centred on a 1080x1920
+ * delivery specification rather than a tool parameter: size 40 with -2 spacing
+ * and a black outline scaled to the delivery width, bottom-centred on a 1080x1920
  * canvas by default. The policy selects the canvas and optional bottom-right AI mark. The outline's ASS
  * field is derived from that delivered width by `assOutline` — the field is in
  * canvas units and libass scales it to the rasterized frame.
@@ -19,6 +19,45 @@ import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
 
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
 const WATERMARK_END = '9:59:59.00'
+
+/** Legacy alignment marker retained only for advisory readback.
+ * @param path - Subtitle file.
+ * @returns The historical marker path; its presence never rejects rendering.
+ */
+export function subtitleBlockPath(path: string): string { return `${path}.blocked` }
+
+/** Read alignment observations without requiring approval or rejecting the selected SRT.
+ * @param path - Selected subtitle file.
+ * @returns Current review text and legacy-marker warnings; missing notes add nothing.
+ */
+export async function subtitleReviewWarnings(path: string): Promise<string[]> {
+  const warnings: string[] = []
+  for (const note of [`${path}.review.txt`, subtitleBlockPath(path)]) {
+    try {
+      const text = await readFile(note, 'utf8')
+      if (text.trim()) warnings.push(`${path}: 字幕对齐待核：${text.trim()}；由 Muse 核听并决定是否调整，当前操作继续。`)
+    } catch (error) {
+      if (!(error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+  }
+  return warnings
+}
+
+/** Report readability observations while preserving authored text.
+ * @param cues - Parsed subtitle rows.
+ * @returns Per-cue suggestions; no text is rewritten or rejected.
+ */
+export function subtitleTextWarnings(cues: readonly SubtitleCue[]): string[] {
+  return cues.flatMap((cue) => {
+    const issues: string[] = []
+    if (/[\r\n]/u.test(cue.text)) issues.push('包含多行文字')
+    if (!cue.text.trim()) issues.push('没有显示文字')
+    else if (!/^[\p{L}\p{N} ]+$/u.test(cue.text)) issues.push('包含标点或其他符号')
+    const effective = Array.from(cue.text).reduce((count, char) => count + (char === ' ' ? 0.5 : 1), 0)
+    if (effective > 14) issues.push(`${String(effective)} 个有效字，超过建议单行 14 字`)
+    return issues.length ? [`第 ${String(cue.index)} 条字幕${issues.join('、')}；建议核对原文并按语义切分，保留当前文本。`] : []
+  })
+}
 
 /**
  * Parse one SRT timestamp.
@@ -46,9 +85,8 @@ export function parseSrtTime(value: string, path: string): number {
  * Parse one SRT document.
  *
  * Blocks without a timing line are skipped rather than rejected: an SRT that
- * carries a stray title block is common and harmless. A block whose timing line
- * exists but does not parse is a real defect and throws, because a cue with a
- * wrong time is burned into the delivery.
+ * carries a stray title block is common and harmless. A timed cue with no text,
+ * more than one text row or punctuation remains readable; style is advisory. Invalid timestamps still fail.
  * @param text - The whole SRT document.
  * @param path - The subtitle path, for diagnostics.
  * @returns Every cue, in file order, numbered from 1.
@@ -60,13 +98,13 @@ export function parseSrtDocument(text: string, path: string): SubtitleCue[] {
   for (const block of normalized.trim().split(/\n\s*\n/)) {
     const lines = block.split('\n')
     const timing = lines[1] ?? ''
-    if (lines.length < 3 || !timing.includes('-->')) continue
+    if (!timing.includes('-->')) continue
     const [start = '', end = ''] = timing.split('-->')
     cues.push({
       index: cues.length + 1,
       startSeconds: parseSrtTime(start, path),
       endSeconds: parseSrtTime(end, path),
-      text: lines.slice(2).join(''),
+      text: lines.slice(2).join('\n'),
     })
   }
   return cues
@@ -105,9 +143,11 @@ export function formatSrtTime(seconds: number): string {
  * @returns The complete SRT document, one block per cue.
  */
 export function formatSrtDocument(cues: readonly SubtitleCue[]): string {
-  const blocks = cues.map(cue => `${String(cue.index)}\n`
-    + `${formatSrtTime(cue.startSeconds)} --> ${formatSrtTime(cue.endSeconds)}\n`
-    + cue.text)
+  const blocks = cues.map((cue) => {
+    return `${String(cue.index)}\n`
+      + `${formatSrtTime(cue.startSeconds)} --> ${formatSrtTime(cue.endSeconds)}\n`
+      + cue.text
+  })
   return `${blocks.join('\n\n')}\n`
 }
 
@@ -126,9 +166,11 @@ export function buildAssDocument(
   settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>,
   policy: DeliveryPolicy = deliveryPolicyFor(),
 ): string {
-  const events = cues.map(cue => 'Dialogue: 0,'
-    + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
-    + escapeAssText(cue.text))
+  const events = cues.map((cue) => {
+    return 'Dialogue: 0,'
+      + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
+      + escapeAssText(cue.text)
+  })
   if (policy.addWatermark) {
     const canvas = assCanvas(policy.delivery)
     const position = `{\\an3\\pos(${String(canvas.width - 55)},${String(canvas.height - 110)})}`

@@ -23,6 +23,8 @@ import {
   MIN_BITRATE_BPS,
   PLAY_RES_HEIGHT,
   PLAY_RES_WIDTH,
+  SUBTITLE_FONT_SIZE,
+  SUBTITLE_MARGIN_V,
   SUBTITLE_OUTLINE_TARGET_PX,
   subtitleBurnFilter,
   TARGET_BITRATE,
@@ -73,8 +75,8 @@ describe('the delivery constants', () => {
     // Without this key libass draws the outline in unscaled raster pixels, so the
     // derived field below would not render as the delivered width it targets.
     expect(ASS_DOCUMENT_HEADER).toContain('ScaledBorderAndShadow: yes')
-    expect(ASS_DOCUMENT_HEADER).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
-      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,520,1')
+    expect(ASS_DOCUMENT_HEADER).toContain('Style: Default,SimHei,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
+      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,140,1')
     expect(ASS_DOCUMENT_HEADER).toContain('Style: Watermark,Microsoft YaHei,44,')
     expect(ASS_DOCUMENT_HEADER.endsWith('[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n'))
       .toBe(true)
@@ -84,6 +86,8 @@ describe('the delivery constants', () => {
 describe('assOutline', () => {
   it('derives the ASS field from the delivered width the picture must show', () => {
     expect(SUBTITLE_OUTLINE_TARGET_PX).toBe(7)
+    expect(SUBTITLE_FONT_SIZE).toBe(40)
+    expect(SUBTITLE_MARGIN_V).toBe(140)
     expect(PLAY_RES_WIDTH).toBe(1080)
     expect(PLAY_RES_HEIGHT).toBe(1920)
     expect(assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)).toBe(5)
@@ -99,9 +103,16 @@ describe('assOutline', () => {
 
   it('is what the header writes, so the style line cannot drift from the target', () => {
     const header = buildAssHeader({ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: 'Noto Sans CJK SC' })
-    const style = header.split('\n').find(line => line.startsWith('Style: Default,Noto Sans CJK SC,68,'))
+    const style = header.split('\n').find(line => line.startsWith('Style: Default,Noto Sans CJK SC,40,'))
     // Field 17 of the Format line, counted after the `Style: ` prefix.
     expect(style?.split(',')[16]).toBe(String(assOutline(SUBTITLE_OUTLINE_TARGET_PX, PLAY_RES_HEIGHT, DELIVERY_HEIGHT)))
+  })
+
+  it('keeps 480p review subtitles low and scales their outline instead of retaining a 7px border', () => {
+    const header = buildAssHeader({ subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' },
+      { width: 480, height: 854, fps: 30 })
+    expect(header).toContain('Style: Default,SimHei,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
+      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,140,1')
   })
 })
 

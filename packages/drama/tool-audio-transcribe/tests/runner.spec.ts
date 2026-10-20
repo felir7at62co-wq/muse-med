@@ -220,26 +220,35 @@ it('resumes pre-charge split preparation and expires unresolved audio without lo
   expect(submissions).toHaveLength(4)
 })
 
-it('binds screenplay purpose before submit and refuses a different purpose for an unfinished receipt', async () => {
+it('keeps a pending screenplay job while explicitly starting one versioned subtitles job', async () => {
   const fixture = await setup()
   const purposes: Array<string | undefined> = []
   const account: AudioAccount = { ...fixture.account, submitAudio: async (_file, id, _sha, _language, purpose) => {
-    const receipt = JSON.parse(await readFile(join(fixture.project, 'transcript', 'jobs', 'clip-v1.json'), 'utf8')) as { purpose?: string }
-    expect(receipt.purpose).toBe('screenplay')
+    const receiptName = purpose === 'screenplay' ? 'clip-v1.json' : 'clip-v2.json'
+    const receipt = JSON.parse(await readFile(join(fixture.project, 'transcript', 'jobs', receiptName), 'utf8')) as { purpose?: string }
+    expect(receipt.purpose).toBe(purpose)
     purposes.push(purpose)
     return { id, status: 'processing' }
   } }
   const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
   const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media, 'screenplay')
   expect(first.purpose).toBe('screenplay')
+  const firstBytes = await readFile(first.receipt, 'utf8')
   expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media, 'screenplay')).job_id).toBe(first.job_id)
-  await expect(startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media, 'subtitles')).rejects.toThrow('purpose')
+  await expect(startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media)).rejects.toThrow('specify purpose explicitly')
   expect(purposes).toEqual(['screenplay'])
+  const subtitles = await startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media, 'subtitles')
+  expect(subtitles).toMatchObject({ purpose: 'subtitles', status: 'processing' })
+  expect(subtitles.receipt).toContain('clip-v2.json')
+  expect(subtitles.job_id).not.toBe(first.job_id)
+  expect(await readFile(first.receipt, 'utf8')).toBe(firstBytes)
+  expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', account, config, media, 'subtitles')).job_id).toBe(subtitles.job_id)
+  expect(purposes).toEqual(['screenplay', 'subtitles'])
   const resume: AudioAccount = { ...account, audioStatus: async () => { throw new MuseAsrError('job-not-found') } }
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
   await writeFile(first.receipt, JSON.stringify({ ...receipt, status: 'prepared' }))
   expect((await finishAudioTranscription(fixture.project, first.receipt, resume)).purpose).toBe('screenplay')
-  expect(purposes).toEqual(['screenplay', 'screenplay'])
+  expect(purposes).toEqual(['screenplay', 'subtitles', 'screenplay'])
 })
 
 it('resolves omitted new purpose to subtitles and preserves legacy receipts without a purpose header', async () => {
@@ -678,6 +687,39 @@ it.each(['preparing', 'failed'] as const)('uploads %s only when gateway confirms
   account.audioStatus = async id => ({ id, status, service_version: 'flash',
     recovery: { capability: 'none', next_action: 'resume_upload', automatic_resubmit: false } })
   expect((await finishAudioTranscription(another.project, second.receipt, account)).status).toBe('processing')
+  expect(uploads).toBe(1)
+})
+
+it.each([false, true])('inspects %s-part recoverable jobs without another upload', async (split) => {
+  const f = await setup()
+  let uploads = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { uploads++; return { id, status: 'processing', service_version: 'flash' } },
+    audioStatus: async id => ({ id, status: 'failed', ...preSubmitFailure }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account,
+    { ...config, chunkSeconds: split ? 20 : 600 }, shortMedia)
+  const initialUploads = uploads
+  const inspected = await finishAudioTranscription(f.project, first.receipt, account, undefined, false)
+  expect(inspected.status).toBe('failed')
+  expect(uploads).toBe(initialUploads)
+  account.audioStatus = async () => { throw new MuseAsrError('job-not-found') }
+  await expect(finishAudioTranscription(f.project, first.receipt, account, undefined, false)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(uploads).toBe(initialUploads)
+})
+
+it('publishes a completed job through inspect without uploading audio', async () => {
+  const f = await setup()
+  let uploads = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { uploads++; return { id, status: 'processing', service_version: 'flash' } },
+    audioStatus: async id => ({ id, status: 'complete', service_version: 'flash',
+      segments: [{ start: 0, end: 1, text: 'speech' }] }),
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, config, shortMedia)
+  const inspected = await finishAudioTranscription(f.project, first.receipt, account, undefined, false)
+  expect(inspected.status).toBe('complete')
+  expect(typeof inspected.output_json).toBe('string')
   expect(uploads).toBe(1)
 })
 

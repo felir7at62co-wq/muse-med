@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildAssHeader, WATERMARK_TEXT } from '../src/delivery.ts'
-import { buildAssDocument, parseSrtDocument, parseSrtTime, readSubtitleCues } from '../src/subtitles.ts'
+import { buildAssDocument, formatSrtDocument, parseSrtDocument, parseSrtTime, readSubtitleCues, subtitleTextWarnings } from '../src/subtitles.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, srtDocument, tempProject } from './harness.ts'
 
@@ -52,16 +52,27 @@ describe('parseSrtDocument', () => {
   })
 
   it('strips a byte-order mark and normalizes CRLF line endings', () => {
-    const cues = parseSrtDocument('\ufeff1\r\n00:00:01,000 --> 00:00:02,000\r\n第一行\r\n第二行\r\n', 'a.srt')
-    expect(cues).toEqual([cue(1, 1, 2, '第一行第二行')])
+    const cues = parseSrtDocument('\ufeff1\r\n00:00:01,000 --> 00:00:02,000\r\n第一行\r\n', 'a.srt')
+    expect(cues).toEqual([cue(1, 1, 2, '第一行')])
+  })
+
+  it('preserves multiline, punctuated and long cues while returning readability advice', () => {
+    for (const text of ['第一行\n第二行', '你怎么能推人呢？', '一二三四五六七八九十甲乙丙丁戊']) {
+      const cues = parseSrtDocument(`1\n00:00:01,000 --> 00:00:02,000\n${text}\n`, 'a.srt')
+      expect(cues).toEqual([cue(1, 1, 2, text)])
+      expect(subtitleTextWarnings(cues).join(' ')).toContain('保留当前文本')
+      expect(formatSrtDocument(cues)).toContain(text)
+    }
   })
 
   it('skips a block that is not a cue', () => {
     expect(parseSrtDocument('标题\n\n1\n00:00:01,000 --> 00:00:02,000\n正文\n', 'a.srt')).toEqual([cue(1, 1, 2, '正文')])
   })
 
-  it('skips a block with a timing line but no text line', () => {
-    expect(parseSrtDocument('1\n00:00:01,000 --> 00:00:02,000\n', 'a.srt')).toEqual([])
+  it('retains a timed empty cue for review', () => {
+    const cues = parseSrtDocument('1\n00:00:01,000 --> 00:00:02,000\n', 'a.srt')
+    expect(cues).toEqual([cue(1, 1, 2, '')])
+    expect(subtitleTextWarnings(cues).join(' ')).toContain('没有显示文字')
   })
 
   it('fails loud on a malformed timestamp inside a cue', () => {
@@ -79,13 +90,27 @@ describe('readSubtitleCues', () => {
   })
 })
 
+describe('formatSrtDocument', () => {
+  it('writes a clean single row without changing its displayed words', () => {
+    expect(formatSrtDocument([cue(1, 1, 2, '亲权概率9999')])).toContain('亲权概率9999\n')
+  })
+
+  it('writes original punctuation, multiline text and long cues with advisory findings', () => {
+    for (const text of ['亲权概率99.99%', '第一行\n第二行', '一二三四五六七八九十甲乙丙丁戊']) {
+      const cues = [cue(1, 1, 2, text)]
+      expect(formatSrtDocument(cues)).toContain(text)
+      expect(subtitleTextWarnings(cues).length).toBeGreaterThan(0)
+    }
+  })
+})
+
 describe('buildAssDocument', () => {
   it('writes the fixed header, one Default line per cue, and the single AI-content mark', () => {
     const document = buildAssDocument([cue(1, 1.68, 3.58, '京市户口 单身'), cue(2, 59.999, 60.5, '履历干净 嘴严')], fonts)
     expect(document.startsWith(ASS_DOCUMENT_HEADER)).toBe(true)
     const header = ASS_DOCUMENT_HEADER.split('\n')
-    expect(header).toContain('Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
-      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,520,1')
+    expect(header).toContain('Style: Default,SimHei,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,'
+      + '0,0,0,0,100,100,-2,0,1,5,0,2,40,40,140,1')
     expect(document).toContain('Dialogue: 0,0:00:01.68,0:00:03.58,Default,,0,0,0,,京市户口 单身')
     expect(document).toContain('Dialogue: 0,0:00:60.00,0:01:00.50,Default,,0,0,0,,履历干净 嘴严')
     expect(document).toContain(`Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\\an3\\pos(1025,1810)}${WATERMARK_TEXT}`)
@@ -110,9 +135,16 @@ describe('buildAssDocument', () => {
     expect(document).not.toContain('\\an9')
   })
 
-  it('replaces braces so a cue cannot open an ASS override block', () => {
-    expect(buildAssDocument([cue(1, 0, 1, '{\\fs120}放大')], fonts))
-      .toContain('Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,（\\fs120）放大')
+  it('escapes ASS control text and preserves punctuation instead of rejecting the cue', () => {
+    const document = buildAssDocument([cue(1, 0, 1, String.raw`{\fs120}放大`), cue(2, 1, 2, '来了！')], fonts)
+    expect(document).toContain(String.raw`（\fs120）放大`)
+    expect(document).toContain('来了！')
+  })
+
+  it('encodes multiline text within one ASS event', () => {
+    const document = buildAssDocument([cue(1, 0, 1, '第一行\n第二行')], fonts)
+    expect(document).toContain(String.raw`第一行\N第二行`)
+    expect(document.split('\n').filter(line => line.startsWith('Dialogue: 0,'))).toHaveLength(1)
   })
 
   it('writes only the AI-content mark when the subtitle carries no cue', () => {

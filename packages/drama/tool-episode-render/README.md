@@ -76,7 +76,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `episode` | always | Episode number; padded to two digits on every path |
 | `shots` | `subtitles`, `prepare` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
 | `lines` | `subtitles` | Per-shot line plan: `{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`; each entry is one cue, already split to delivery length |
-| `alignment` | `subtitles` | Recognition timings: `{"shots":[{"shot":1,"cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
+| `alignment` | `subtitles` | Recognition timings: `{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
 | `timeline` | `render`, `verify` | Timeline JSON, normally the one `prepare` wrote |
 | `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
@@ -112,11 +112,13 @@ The marked ending lasts exactly two seconds (`ENDING_SECONDS = 2`). Its sound co
 
 ### What subtitles does
 
-`subtitles` needs no recognition of its own, because both halves are already known: the line plan says what each shot says, and a recognition alignment of the same clips says when. It reads that alignment per shot, checks it against the plan, keeps the script's text, and places each measured span on the episode clock with only the clip offset and millisecond rounding. It does not extend short spans or shift later speech to fit a minimum display duration. Nothing here measures energy: a level can say that somebody spoke, but not which words fall where, and a split estimated inside one stretch is what puts a subtitle on the wrong line.
+`subtitles` reads the complete line plan and clip-relative recognition alignment, preserves the supplied text, and places valid measured spans on the episode clock. It does not recognize speech, infer words from audio energy, invent missing timing, or redistribute invalid spans.
 
-The alignment's own text is never written to a cue. It is matched against the script's lines to prove the two describe the same take, and a mismatch in text or in cue count fails `subtitle_line_coverage` instead of taking the numbers on trust.
+Single-line, punctuation-free cues of at most 14 effective characters are readability suggestions. Multiline, punctuated, empty or long cues remain unchanged and produce warnings. Invalid SRT timestamps still fail parsing because they cannot identify a renderable interval. The screenplay source remains unchanged.
 
-Missing or undeclared spoken lines block delivery. Invalid, overlapping, out-of-clip or zero-duration alignment times after millisecond rounding also block instead of being clamped or redistributed; a rejected shot contributes no cues. A cue asking for more than 20 spoken characters per second fails `subtitle_timing`; past 12 characters per second is a warning. The SRT is still written so the operator can inspect accepted placements, but a failed report is not a complete delivery.
+Alignment text is compared with the supplied line plan and never replaces authored dialogue. Missing evidence, text mismatches, undeclared speech and fast reading rates are advisory findings for Muse; they do not require approval or a warning-free report.
+
+A build with alignment or readability findings writes `<subtitle_srt>.draft.srt` and leaves the existing SRT untouched. `<subtitle_srt>.review.txt` records the latest attempt, including pending work after interruption; the candidate receives its own review note. `prepare` and `render` return those notes and legacy `.blocked` markers as warnings while continuing with the explicitly selected readable SRT. A successful complete alignment writes the requested SRT and clears its observations. Saving, rendering and `ok: true` do not establish creative acceptance.
 
 The written file is plain SRT, so a line can be hand-edited before `prepare` installs it and `render` burns it.
 
@@ -140,7 +142,7 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Rate control | 24M target, 30M peak, 48M buffer, two-second GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
-| Subtitles | Configured font family, size 68, spacing -2, a 7px black outline on the delivered picture (the ASS field is derived from it, 5 at this geometry, with `ScaledBorderAndShadow: yes` so libass scales it to the rasterized frame), bottom-centred, plus the single bottom-right `内容由AI生成` mark only for marked delivery. The burn chain ends on `fps` and `setpts` at the snapshot rate |
+| Subtitles | Configured font family, size 40 on the 1080px-wide ASS canvas, spacing -2, a black outline scaled from 7px at 1440px delivery width (the ASS field is 5 at both 1440px and 480px delivery), bottom-centred with a 140/1920-height bottom safe area, plus the single bottom-right `内容由AI生成` mark only for marked delivery. `ScaledBorderAndShadow: yes` keeps the edge proportional to output. The burn chain ends on `fps` and `setpts` at the snapshot rate |
 | Audio | Episode master at 1.45, BGM at 0.24 to the body end, when marked, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 

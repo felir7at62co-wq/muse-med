@@ -7,6 +7,8 @@ import importlib.util
 import os
 import json
 import hashlib
+import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,6 +72,104 @@ class AlignTests(unittest.TestCase):
 
     def test_requires_a_higher_score_for_a_longer_line(self):
         self.assertLess(ALIGN.acceptance_score('甲乙'), ALIGN.acceptance_score('甲乙丙丁戊己'))
+
+
+class UnmappedSpeechTests(unittest.TestCase):
+    def test_partial_long_line_cannot_certify_its_missing_ending(self):
+        line = '都怪这个小伙子不让座就算了还把人推出去了'
+        chars = timeline('都怪这个小伙子不让座就算了', 0.0, 0.1)
+        anchors = ALIGN.anchor([line], chars)
+        self.assertIsNotNone(anchors[0])  # The old 55% threshold accepted this.
+        self.assertEqual(ALIGN.unmapped_speech([line], anchors, chars), [])
+        self.assertEqual(ALIGN.missing_script_speech([line], anchors, chars),
+                         [{'line': 1, 'text': '还把人推出去了'}])
+
+    def test_complete_line_has_no_missing_script_speech(self):
+        line = '都怪这个小伙子不让座就算了还把人推出去了'
+        chars = timeline(line, 0.0, 0.1)
+        anchors = ALIGN.anchor([line], chars)
+        self.assertEqual(ALIGN.missing_script_speech([line], anchors, chars), [])
+
+    def test_strict_cli_reports_a_partly_recognized_script_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'clip.mp4').write_bytes(b'offline-test')
+            line = '都怪这个小伙子不让座就算了还把人推出去了'
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': 'clip.mp4'}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': [line]}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': 'unused.json'}]}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'),
+                    '--out', str(root / 'aligned.json'), '--strict']
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'cloud_characters',
+                                 return_value=timeline('都怪这个小伙子不让座就算了', 0.0, 0.1)), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=5.0):
+                ALIGN.main()
+            self.assertIn('提示', output.getvalue())
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
+            self.assertEqual(result['shots'][0]['strategy'], 'missing_script_speech')
+            self.assertEqual(result['shots'][0]['missing_script_speech'][0]['text'], '还把人推出去了')
+
+    def test_exact_line_and_short_asr_artifact_do_not_block(self):
+        for text in ('一样的嘴脸', '啊啊一样的嘴脸'):
+            with self.subTest(text=text):
+                chars = timeline(text, 0.0, 0.1)
+                anchors = ALIGN.anchor(['一样的嘴脸'], chars)
+                self.assertEqual(ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars), [])
+
+    def test_extra_line_before_script_is_rejected(self):
+        chars = timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1)
+        anchors = ALIGN.anchor(['一样的嘴脸'], chars)
+        extras = ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars)
+        self.assertEqual([item['text'] for item in extras], ['你怎么能推人呢太过分了'])
+
+    def test_extra_line_after_script_is_rejected(self):
+        chars = timeline('一样的嘴脸你怎么能推人呢', 0.0, 0.1)
+        anchors = ALIGN.anchor(['一样的嘴脸'], chars)
+        extras = ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars)
+        self.assertEqual([item['text'] for item in extras], ['你怎么能推人呢'])
+
+    def test_inserted_line_inside_anchor_is_rejected(self):
+        chars = timeline('原文前半你怎么能推人呢原文后半', 0.0, 0.1)
+        anchors = ALIGN.anchor(['原文前半原文后半'], chars)
+        extras = ALIGN.unmapped_speech(['原文前半原文后半'], anchors, chars)
+        self.assertEqual([item['text'] for item in extras], ['你怎么能推人呢'])
+
+    def test_long_replacement_inside_anchor_is_rejected(self):
+        chars = timeline('你怎么能推人呢得对', 0.0, 0.1)
+        anchors = ALIGN.anchor(['你说得对'], chars)
+        extras = ALIGN.unmapped_speech(['你说得对'], anchors, chars)
+        self.assertEqual([item['text'] for item in extras], ['怎么能推人呢'])
+
+    def test_substantial_speech_with_no_declared_lines_is_rejected(self):
+        extras = ALIGN.unmapped_speech([], [], timeline('你怎么能推人', 0.0, 0.1))
+        self.assertEqual(extras[0]['text'], '你怎么能推人')
+
+    def test_strict_cli_returns_unmapped_speech_without_blocking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'clip.mp4').write_bytes(b'offline-test')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': 'clip.mp4'}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['一样的嘴脸']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': 'unused.json'}]}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'),
+                    '--out', str(root / 'aligned.json'), '--strict']
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'cloud_characters',
+                                 return_value=timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1)), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=5.0):
+                ALIGN.main()
+            self.assertIn('提示', output.getvalue())
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
+            self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
 
 
 class PlaceTests(unittest.TestCase):
@@ -197,7 +297,60 @@ class ModelSourceTests(unittest.TestCase):
         self.assertIn('模型仓库', message)
 
 
+class OfflineSilentShotTests(unittest.TestCase):
+    def run_silent_shot(self, recognized):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / 'shot.mp4'
+            video.write_bytes(b'offline-test')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': 'shot.mp4'}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': []}]}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--model-dir', str(root), '--out', str(root / 'aligned.json'), '--strict']
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            fake_whisper = SimpleNamespace(WhisperModel=lambda *_, **__: object())
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.dict(sys.modules, {'faster_whisper': fake_whisper}), \
+                    patch.object(ALIGN, 'resolve_model', return_value=root), \
+                    patch.object(ALIGN, 'transcribe', return_value=recognized) as transcribe, \
+                    patch.object(ALIGN, 'probe_seconds', return_value=4.0):
+                ALIGN.main()
+                if recognized:
+                    self.assertIn("提示", output.getvalue())
+            transcribe.assert_called_once()
+            self.assertEqual(transcribe.call_args.args[0], video.resolve())
+            return json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
+
+    def test_offline_model_detects_unplanned_speech_in_declared_silent_shot(self):
+        result = self.run_silent_shot(timeline('你怎么能推人', 0.0, 0.1))
+        self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
+
+    def test_offline_model_checks_a_truly_silent_shot(self):
+        result = self.run_silent_shot([])
+        self.assertEqual(result['shots'][0]['strategy'], 'no_lines')
+
+
 class CloudReceiptTests(unittest.TestCase):
+    def test_cloud_mode_reports_unverified_silence_without_a_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'shot.mp4').write_bytes(b'offline-test')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': 'shot.mp4'}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': []}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': []}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'),
+                    '--out', str(root / 'aligned.json'), '--strict']
+            with patch.object(sys, 'argv', args):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
+            self.assertEqual(result['shots'][0]['strategy'], 'missing_evidence')
+            self.assertEqual(result['shots'][0]['cues'], [])
+            self.assertTrue(result['shots'][0]['warnings'])
+
     def test_matches_words_to_current_source_and_rejects_replaced_video(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -216,9 +369,30 @@ class CloudReceiptTests(unittest.TestCase):
             output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好'}]), encoding='utf-8')
             with self.assertRaisesRegex(SystemExit, '字词时间戳'):
                 ALIGN.cloud_characters(video, receipt)
+            output.write_text('[]', encoding='utf-8')
+            self.assertEqual(ALIGN.cloud_characters(video, receipt, allow_empty=True), [])
+            with self.assertRaisesRegex(SystemExit, '语音片段'):
+                ALIGN.cloud_characters(video, receipt)
             video.write_bytes(b'changed')
             with self.assertRaisesRegex(SystemExit, '内容已变化'):
                 ALIGN.cloud_characters(video, receipt)
+
+    def test_silent_receipt_verifies_a_no_lines_shot_without_raw_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / 'shot.mp4'
+            video.write_bytes(b'silent-source')
+            jobs = root / 'transcript/jobs'
+            jobs.mkdir(parents=True)
+            receipt = jobs / 'shot-v1.json'
+            receipt.write_text(json.dumps({'status': 'silent', 'source': str(video), 'stem': 'shot', 'version': 1,
+                'sourceSha256': hashlib.sha256(b'silent-source').hexdigest()}), encoding='utf-8')
+            self.assertEqual(ALIGN.cloud_characters(video, receipt, allow_empty=True), [])
+            with self.assertRaisesRegex(SystemExit, '剧本含台词'):
+                ALIGN.cloud_characters(video, receipt)
+            video.write_bytes(b'changed')
+            with self.assertRaisesRegex(SystemExit, '内容已变化'):
+                ALIGN.cloud_characters(video, receipt, allow_empty=True)
 
 
 if __name__ == '__main__':

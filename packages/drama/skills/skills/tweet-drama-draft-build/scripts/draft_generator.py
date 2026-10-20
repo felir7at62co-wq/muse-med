@@ -5,6 +5,7 @@ import shutil
 import logging
 import re
 import json
+import tempfile
 import importlib.util
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -93,32 +94,45 @@ class DraftGenerator:
                 raise FileNotFoundError(f"Missing selected ending asset: {source}")
         if include_ending and ending_effect:
             check_videos(find_project(Path(video_dir), project), [Path(ending_effect)])
-        # 先清空已存在的素材目录，确保每次都是全新的素材
+        # Resolve episode scope and subtitle alignment status before replacing
+        # prepared materials. A failed alignment may leave an older SRT behind.
+        episodes = set()
+        if os.path.exists(audio_dir):
+            for filename in os.listdir(audio_dir):
+                name = os.path.splitext(filename)[0]
+                if name.isdigit():
+                    episodes.add(name)
+        video_dirs = [path for path in (fallback_video_dir, video_dir)
+                      if path and os.path.exists(path)]
+        for source_dir in video_dirs:
+            for dirname in os.listdir(source_dir):
+                if os.path.isdir(os.path.join(source_dir, dirname)) and dirname.isdigit():
+                    episodes.add(dirname)
+        if subtitle_dir:
+            for ep_num in episodes:
+                blocked = Path(subtitle_dir) / f"{ep_num}.srt.blocked"
+                if blocked.exists():
+                    logger.warning(f"字幕对齐待核：{blocked}；保留选择并继续准备草稿，由 Muse 核听决定。")
+        bgm_source = None
+        if bgm_dir and os.path.exists(bgm_dir):
+            candidates = sorted(path for path in Path(bgm_dir).iterdir()
+                                if path.is_file() and path.suffix.lower() in
+                                {'.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'})
+            if len(candidates) != 1:
+                logger.warning(f"BGM 文件夹 {bgm_dir} 有 {len(candidates)} 份候选，暂不选入；Muse 可核对后补充。")
+            else:
+                bgm_source = candidates[0]
+        # Existing prepared materials may contain manual changes.
         if os.path.exists(output_materials_dir):
-            shutil.rmtree(output_materials_dir)
+            target = Path(output_materials_dir).resolve()
+            output_materials_dir = tempfile.mkdtemp(prefix=f"{target.name}-candidate-", dir=target.parent)
+            logger.info(f"保留已有素材目录，新候选写入 {output_materials_dir}")
         os.makedirs(output_materials_dir, exist_ok=True)
 
         audio_out = os.path.join(output_materials_dir, "01_audio")
         media_out = os.path.join(output_materials_dir, "02_media")
         os.makedirs(audio_out, exist_ok=True)
         os.makedirs(media_out, exist_ok=True)
-
-        episodes = set()
-
-        if os.path.exists(audio_dir):
-            for f in os.listdir(audio_dir):
-                name = os.path.splitext(f)[0]
-                if name.isdigit():
-                    episodes.add(name)
-
-        video_dirs = [
-            path for path in (fallback_video_dir, video_dir)
-            if path and os.path.exists(path)
-        ]
-        for source_dir in video_dirs:
-            for d in os.listdir(source_dir):
-                if os.path.isdir(os.path.join(source_dir, d)) and d.isdigit():
-                    episodes.add(d)
 
         logger.info(f"整理 {len(episodes)} 集素材")
 
@@ -145,7 +159,7 @@ class DraftGenerator:
             subtitle_out = os.path.join(output_materials_dir, "03_subtitle")
             os.makedirs(subtitle_out, exist_ok=True)
             for ep_num in sorted(episodes):
-                for ext in (".srt", ".ass", ".vtt"):
+                for ext in (".srt", ".ass", ".vtt", ".srt.review.txt", ".srt.blocked"):
                     src = os.path.join(subtitle_dir, f"{ep_num}{ext}")
                     if os.path.exists(src):
                         shutil.copy2(src, subtitle_out)
@@ -158,14 +172,10 @@ class DraftGenerator:
                 if os.path.exists(src):
                     shutil.copy2(src, timeline_out)
 
-        if bgm_dir and os.path.exists(bgm_dir):
+        if bgm_source is not None:
             bgm_out = os.path.join(output_materials_dir, "04_bgm")
             os.makedirs(bgm_out, exist_ok=True)
-            for f in os.listdir(bgm_dir):
-                src = os.path.join(bgm_dir, f)
-                if os.path.isfile(src):
-                    shutil.copy2(src, bgm_out)
-                    break
+            shutil.copy2(bgm_source, bgm_out)
 
         if any(ending_files.values()):
             ending_out = Path(output_materials_dir) / "06_ending"

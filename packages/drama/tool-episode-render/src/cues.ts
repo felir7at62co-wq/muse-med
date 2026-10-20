@@ -8,19 +8,20 @@
  *
  * A shot whose alignment speaks while the plan declares no line for it is
  * reported rather than silently dropped, because that is how a delivery loses a
- * line, and a declared line the alignment does not cover blocks the same way.
+ * line. Missing alignment is returned for Muse to review without inventing timing.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/cues
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
 import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan,
   placeAlignedCues } from './speech.ts'
 import type { CueRateFinding, ShotPlacement } from './speech.ts'
-import { formatSrtDocument } from './subtitles.ts'
+import { formatSrtDocument, subtitleBlockPath, subtitleTextWarnings } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips } from './timeline.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
@@ -43,11 +44,11 @@ export interface CueBuildInput {
   readonly subtitleSrt: string
 }
 
-/** One blocking defect: which check it belongs to, what is wrong, and what to do. */
+/** One alignment observation: which check it belongs to, what is wrong, and what to do. */
 export interface CueDefect {
   /** The report check this defect fails. */
   readonly id: 'subtitle_line_coverage' | 'subtitle_timing'
-  /** What was measured and why it blocks. */
+  /** What was measured and why it needs review. */
   readonly detail: string
   /** The correction the caller should make. */
   readonly fix: string
@@ -65,7 +66,7 @@ export interface BuiltCues {
   readonly cues: readonly SubtitleCue[]
   /** Absolute paths this call created or overwrote, in write order. */
   readonly written: readonly string[]
-  /** One entry per blocking defect: the delivery would lose, invent, or mistime a line. */
+  /** One entry per advisory finding: the delivery would lose, invent, or mistime a line. */
   readonly failures: readonly CueDefect[]
   /** One Chinese line per non-blocking observation. */
   readonly warnings: readonly string[]
@@ -81,6 +82,9 @@ export interface BuiltCues {
  * @throws {Error} When the manifest, the plan, or the alignment document is unusable.
  */
 export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues> {
+  const review = `${input.subtitleSrt}.review.txt`
+  await mkdir(dirname(input.subtitleSrt), { recursive: true })
+  await writeFileAtomic(review, '本次自动对齐尚未完成；旧字幕可能不适用于当前视频。\n', { mode: 0o600, dirMode: 0o700 })
   const delivery = await readProjectDelivery(input.project)
   const rows = parseShotManifest(await readJsonDocument(input.shotsPath, '成片清单'), input.shotsPath)
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
@@ -102,7 +106,31 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const recognized = aligned.get(shot.source.shot)
     const recognizedCues = recognized?.cues ?? []
     if (lines.length === 0) {
-      if (recognizedCues.length === 0) continue
+      if (recognized === undefined) {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档缺少无发声核对结果。`,
+          fix: '对该镜选定原视频取得同源转写或无发声收据，再用 align_subtitles.py 生成 no_lines 对齐记录。',
+        })
+        continue
+      }
+      if (recognized.strategy === 'unmapped_speech') {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档识别到未映射发声。`,
+          fix: '人工核对该镜声音与剧本；若有台词，补齐计划并对同版成片重新对齐。',
+        })
+        continue
+      }
+      if (recognizedCues.length === 0 && recognized.strategy === 'no_lines') continue
+      if (recognizedCues.length === 0) {
+        failures.push({
+          id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 没有声明台词，但对齐文档没有可信的 no_lines 标记。`,
+          fix: '对该镜选定原视频取得同源转写或无发声收据，再用 align_subtitles.py 生成 no_lines 对齐记录。',
+        })
+        continue
+      }
       failures.push({
         id: 'subtitle_line_coverage',
         detail: `镜头 ${String(shot.source.shot)} 的对齐文档里有 ${String(recognizedCues.length)} 段识别结果，`
@@ -132,7 +160,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
           + `${recognized.strategy === undefined ? '文档没有标 strategy' : `标着 ${recognized.strategy}`}，`
           + '不是 align_subtitles.py 写出的整镜锚定结果。',
         fix: '用 align_subtitles.py 对该镜重跑识别，并把整份对齐文档换成它写出的那一份；'
-          + '只有 asr_aligned 的镜头才允许生成正式字幕。',
+          + '保留可核对的时间与疑点；asr_aligned 提供实测锚点，由 Muse 决定是否重跑。',
       })
       continue
     }
@@ -184,14 +212,23 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     endSeconds: cue.endSeconds,
     text: cue.text,
   }))
-  await mkdir(dirname(input.subtitleSrt), { recursive: true })
-  await writeFile(input.subtitleSrt, formatSrtDocument(cues), 'utf8')
+  const textWarnings = subtitleTextWarnings(cues)
+  warnings.push(...textWarnings)
+  const draft = failures.length > 0 || textWarnings.length > 0
+  const target = draft ? `${input.subtitleSrt}.draft.srt` : input.subtitleSrt
+  if (draft) warnings.push(`字幕存在待核项，候选已写入 ${target}，没有覆盖原字幕；由 Muse 核听并选择后续使用的版本。`)
+  const observations = [...failures.map(item => `${item.detail} ${item.fix}`), ...textWarnings]
+  await writeFileAtomic(target, formatSrtDocument(cues), { mode: 0o600, dirMode: 0o700 })
+  await writeFileAtomic(review, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
+  if (draft) await writeFileAtomic(`${target}.review.txt`, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
+  else await rm(subtitleBlockPath(input.subtitleSrt), { force: true })
+  const written = [target, review, ...(draft ? [`${target}.review.txt`] : [])]
   return {
     shots,
     timeline,
     placements,
     cues,
-    written: [input.subtitleSrt],
+    written,
     failures,
     warnings,
   }

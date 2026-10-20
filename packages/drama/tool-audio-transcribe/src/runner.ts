@@ -312,7 +312,12 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     if (prior.source === source && (!['complete', 'silent', 'failed'].includes(prior.status)
       || prior.recovery?.next_action === 'resume_upload')) {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
-      if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file}`)
+      if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) {
+        // A different service route needs its own receipt and job ID. Require the caller
+        // to name that route so an omitted purpose cannot start an unexpected paid job.
+        if (purpose === undefined) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file} or specify purpose explicitly`)
+        continue
+      }
       return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id, ...purposeField(prior.purpose), ...metadataFields(prior) }
     }
   }
@@ -376,13 +381,14 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param receiptPath - Receipt previously returned by start.
  * @param account - Current Host account operations.
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
+ * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
  * @returns Current status and completed output paths when available after owned work settles.
  */
 export async function finishAudioTranscription(
-  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
 ): Promise<AudioRunResult> {
   try {
-    const result = await finishReceipt(projectPath, receiptPath, account, signal)
+    const result = await finishReceipt(projectPath, receiptPath, account, signal, allowResumeUpload)
     signal?.throwIfAborted()
     return portableResult(result)
   }
@@ -395,7 +401,7 @@ export async function finishAudioTranscription(
 }
 
 async function finishReceipt(
-  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
+  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
   const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
@@ -407,7 +413,9 @@ async function finishReceipt(
   if (identity.state !== 'signed-in' || identity.username !== receipt.accountUsername) throw new Error('Sign in to the Muse account that created this transcription receipt')
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
-  if (receipt.parts !== undefined) return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal)
+  if (receipt.parts !== undefined) {
+    return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal, allowResumeUpload)
+  }
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
     && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
@@ -416,7 +424,7 @@ async function finishReceipt(
   try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
   catch (error) {
     signal?.throwIfAborted()
-    if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found'
+    if (!allowResumeUpload || !(error instanceof MuseAsrError) || error.code !== 'job-not-found'
       || !['prepared', 'uncertain'].includes(receipt.status)
       || receipt.service_version !== undefined || receipt.recovery !== undefined
       || !(await stat(receipt.mp3).then(() => true, () => false))) throw error
@@ -428,7 +436,7 @@ async function finishReceipt(
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
   assertJobPurpose(job, receipt.purpose)
   assertJobService(job, receipt)
-  if (!submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status)
+  if (allowResumeUpload && !submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status)
     && await stat(receipt.mp3).then(() => true, () => false)) {
     signal?.throwIfAborted()
     job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
@@ -504,7 +512,8 @@ async function startParts(project: string, source: string, sourceSha256: string,
 }
 
 async function finishParts(
-  project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[], account: AudioAccount, signal?: AbortSignal,
+  project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[],
+  account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true,
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -524,7 +533,7 @@ async function finishParts(
     try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
     catch (error) {
       signal?.throwIfAborted()
-      if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
+      if (!allowResumeUpload || !(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
       job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
       submitted = true
@@ -533,7 +542,7 @@ async function finishParts(
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
     assertJobPurpose(job, part.purpose)
     assertJobService(job, part)
-    if (!submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status) && !part.retentionExpired) {
+    if (allowResumeUpload && !submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status) && !part.retentionExpired) {
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
       job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
     }

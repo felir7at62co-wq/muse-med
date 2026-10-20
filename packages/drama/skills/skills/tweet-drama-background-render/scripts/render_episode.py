@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import sys
 import importlib.util
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
@@ -40,9 +41,10 @@ BUFFER_SIZE = "48M"
 DESIGN_WIDTH = 1080
 DESIGN_HEIGHT = 1920
 
-# The black outline the delivered picture must show around body subtitles, in
-# delivered pixels. The ASS field is derived from it, never written beside it.
+# Black outline reference at 1440px output width, scaled to the delivery width.
 SUBTITLE_OUTLINE_TARGET_PX = 7
+SUBTITLE_FONT_SIZE = 40
+SUBTITLE_MARGIN_V = 140
 
 # The ending accepts the shipped assets and nothing else, so a wrong file fails here
 # instead of rendering an ending the delivery spec never approved. Each token is
@@ -150,10 +152,17 @@ def parse_srt(path: Path) -> list[tuple[str, str, str]]:
     result = []
     for block in re.split(r"\n\s*\n", text.strip()):
         lines = block.splitlines()
-        if len(lines) < 3 or "-->" not in lines[1]:
+        if len(lines) < 2 or "-->" not in lines[1]:
             continue
         start, end = [item.strip().replace(",", ".") for item in lines[1].split("-->")]
-        result.append((start, end, "".join(lines[2:])))
+        display = "\n".join(lines[2:])
+        if len(lines) != 3 or not display or display.strip() != display or any(
+                not (unicodedata.category(char)[0] in ("L", "N") or char == " ") for char in display):
+            print(f"提示：{path} 第 {len(result) + 1} 条字幕样式待核，保留原文继续。", file=sys.stderr)
+        effective = sum(0.5 if char == " " else 1 for char in display)
+        if effective > 14:
+            print(f"提示：{path} 第 {len(result) + 1} 条字幕超过建议 14 字，请核对切分。", file=sys.stderr)
+        result.append((start, end, display))
     return result
 
 
@@ -165,10 +174,9 @@ def ass_outline(target_px: float = SUBTITLE_OUTLINE_TARGET_PX,
     outline by the frame height it rasterizes over the script's own height, so the
     delivered band is ``Outline * output_height / play_res_y``; the burn stage's 2x
     supersample cancels exactly, because the shrink halves it back. Measured at this
-    geometry (derived 5, SimHei 68): thinnest run 5px, median run 7px, identical in the
-    supersampled burn and in a direct burn at the delivery size. Without the key libass
-    draws the outline as unscaled raster pixels and the supersample halves it again -
-    the old fixed ``Outline 3`` rendered a 1-2px band.
+    standard 1440px geometry derives field 5. At 480px the scaled target is
+    about 2.3px and also derives field 5, avoiding a disproportionately thick
+    edge on review copies.
     """
     return round(target_px * play_res_y / output_height)
 
@@ -178,7 +186,8 @@ def write_ass(srt: Path, ass: Path, add_watermark: bool = True,
     """Write speech cues and only the delivery policy's requested AI notice."""
     scale = DESIGN_WIDTH / min(width, height)
     design_width, design_height = (math.floor(value * scale + 0.5) for value in (width, height))
-    margin_v = math.floor(design_height * 520 / DESIGN_HEIGHT + 0.5)
+    margin_v = math.floor(design_height * SUBTITLE_MARGIN_V / DESIGN_HEIGHT + 0.5)
+    outline_target = SUBTITLE_OUTLINE_TARGET_PX * width / WIDTH
     watermark_style = ("Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
                        "0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1") if add_watermark else ""
     header = f"""[Script Info]
@@ -190,7 +199,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,SimHei,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline(play_res_y=design_height, output_height=height)},0,2,40,40,{margin_v},1
+Style: Default,SimHei,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline(target_px=outline_target, play_res_y=design_height, output_height=height)},0,2,40,40,{margin_v},1
 {watermark_style}
 
 [Events]
@@ -206,7 +215,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         def ass_time(value: str) -> str:
             h, m, sec = value.split(":")
             return f"{int(h)}:{int(m):02d}:{float(sec):05.2f}"
-        safe = text.replace("{", "（").replace("}", "）")
+        safe = text.replace("{", "（").replace("}", "）").replace("\n", r"\N")
         events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Default,,0,0,0,,{safe}")
     if add_watermark:
         events.append(r"Dialogue: 1,0:00:00.00,9:59:59.00,Watermark,,0,0,0,,{\an3\pos("
@@ -331,6 +340,18 @@ def render(args: argparse.Namespace) -> dict:
     if ending_duration:
         sources.append(args.ending_effect.resolve())
         source_hashes.update(check_videos(project, [sources[-1]]))
+    # Preserve existing source preflight errors, then reject malformed subtitles
+    # before creating any output or cache files.
+    subtitle_srt = getattr(args, 'subtitle_srt', None)
+    if subtitle_srt is None:
+        raise ValueError('--subtitle-srt is required')
+    subtitle_warnings = []
+    for note in [Path(f'{subtitle_srt}.blocked'), Path(f'{subtitle_srt}.review.txt')]:
+        if note.is_file() and note.read_text(encoding='utf-8').strip():
+            subtitle_warnings.append(f'字幕对齐待核：{note}；Muse 核听并决定是否调整，渲染继续。')
+    for warning in subtitle_warnings:
+        print(f'提示：{warning}', file=sys.stderr)
+    parse_srt(subtitle_srt)
     body_end_us = max(int(item["start_us"]) + int(item["duration_us"]) for item in clips)
     body_end = body_end_us / 1_000_000
     total_duration = body_end + ending_duration
@@ -447,7 +468,7 @@ def render(args: argparse.Namespace) -> dict:
             "codec": "h264", "fps": fps, "target_bitrate": TARGET_BITRATE,
             "max_bitrate": MAX_BITRATE, "duration": actual,
             "expected_duration": total_duration, "width": width, "height": height,
-            "visual_medium": policy["visual_medium"], "warnings": policy["warnings"]}
+            "visual_medium": policy["visual_medium"], "warnings": [*policy["warnings"], *subtitle_warnings]}
 
 
 def subtitle_filter(ass: Path, width: int = WIDTH, height: int = HEIGHT, fps: float = FPS) -> str:

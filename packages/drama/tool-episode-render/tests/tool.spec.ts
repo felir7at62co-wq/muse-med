@@ -145,9 +145,10 @@ describe('registration', () => {
   it('registers exactly the drama_render tool with the delivery style and both known traps', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
-    expect(tool.description).toContain('默认 SimHei 68，字体服从部署配置')
-    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 68', '字间距 -2',
-      '黑描边按成片像素推导（目标 7px，标准管线写入 5）', 'fps=F,setpts=N/(F*TB)', 'F 取时间线 delivery.fps（旧时间线默认 60）',
+    expect(tool.description).toContain('默认 SimHei 40，字体服从部署配置')
+    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 40', '字间距 -2',
+      '单行、无标点、每条不超过 14 个有效字', '长句要逐条取得同源字词时间',
+      '黑描边按成片宽度推导（1440px 宽目标 7px）', 'fps=F,setpts=N/(F*TB)', 'F 取时间线 delivery.fps（旧时间线默认 60）',
       '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
       expect(tool.description).toContain(phrase)
     }
@@ -499,7 +500,7 @@ describe('runDramaRender', () => {
       { ...resolveSettings(Config(config)), channel: channel.channel })
     const cache = join(files.project, 'exports', '.render_cache', '02')
     const ass = await readFile(join(cache, 'display.ass'), 'utf8')
-    expect(ass).toContain(`Style: Default,${subtitle},68,`)
+    expect(ass).toContain(`Style: Default,${subtitle},40,`)
     expect(ass).toContain(`Style: Watermark,${watermark},44,`)
     expect(ass).toContain('Dialogue: 1,0:00:00.00,9:59:59.00,Watermark')
     const concat = channel.calls.find(call => call.args.includes('concat'))
