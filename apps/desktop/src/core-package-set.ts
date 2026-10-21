@@ -45,13 +45,7 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'presets/cordis/skills/editing-cordis-compositions/SKILL.md',
   'skills/audio-transcribe/SKILL.md',
   'skills/audio-transcribe/scripts/transcribe.py',
-  'skills/muse-script-doctor/SKILL.md',
-  'skills/muse-dialogue-polish/SKILL.md',
-  'skills/muse-dialogue-polish/references/dialogue-workflow.md',
-  'skills/muse-episode-design/SKILL.md',
-  'skills/muse-episode-design/references/episode-workflow.md',
-  'skills/reviewing-micro-drama-scripts/SKILL.md',
-  'skills/screenplay-format/SKILL.md',
+  'skills/office-support/export_docx.py',
   'skills/media-link-import/scripts/import_media.py',
 ] as const
 

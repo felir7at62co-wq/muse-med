@@ -290,7 +290,7 @@
     },
     {
       "name": "screenplay_export_docx",
-      "description": "将剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。受管项目沿用其严格候选验收与交付检查。先加载 screenplay-format 和 office-docx；生成后检查排版，再用 present 交付实际 DOCX。",
+      "description": "将剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。受管项目沿用其严格候选验收与交付检查。格式沿系统提示词，Word 操作使用 office-docx；生成后检查排版，再用 present 交付实际 DOCX。",
       "parameters": {
         "type": "object",
         "properties": {

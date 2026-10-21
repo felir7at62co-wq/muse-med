@@ -1,4 +1,4 @@
-# Replay the actual product creation preset with the recorded model frames.
+# Replay optional source-project diagnostics through the product PTC composition.
 - id: llm-deepseek
   disabled: true
 

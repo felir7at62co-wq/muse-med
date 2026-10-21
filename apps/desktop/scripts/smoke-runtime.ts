@@ -22,7 +22,7 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
  * @param home - Disposable smoke home and workspace.
- * @returns ESM plugin source checking current product tools, professional skills, disabled resources,
+ * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
@@ -70,7 +70,7 @@ export function apply(ctx) {
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
-      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'read', 'present', 'video_contact_sheet', 'video_ocr',
+      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'screenplay_export_docx', 'read', 'present', 'video_contact_sheet', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
         : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
@@ -127,6 +127,7 @@ export function apply(ctx) {
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
         'muse-llm-wiki', 'muse-project-participation',
+        'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
         'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
         'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
         if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
@@ -137,8 +138,7 @@ export function apply(ctx) {
         && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
-      for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
-        'reviewing-micro-drama-scripts', 'screenplay-format']) {
+      for (const name of ['audio-transcribe']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)
@@ -148,20 +148,11 @@ export function apply(ctx) {
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
-          throw new Error('desktop runtime: professional skill did not load from the packaged Host: ' + name)
+          throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
         }
       }
-      for (const [name, guide] of [
-        ['muse-script-doctor', 'doctor-workflow.md'],
-        ['muse-dialogue-polish', 'dialogue-workflow.md'],
-        ['muse-episode-design', 'episode-workflow.md'],
-        ['screenplay-format', 'writing-quality.md'],
-        ['screenplay-format', 'narrative-layers.md'],
-        ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],
-      ]) {
-        if (!existsSync(join(productSkills, name, 'references', guide))) {
-          throw new Error('desktop runtime: missing professional method guide ' + name + '/' + guide)
-        }
+      if (!existsSync(join(productSkills, 'office-support', 'export_docx.py'))) {
+        throw new Error('desktop runtime: missing Word export helper')
       }
       for (const script of ['doctor.py', 'discover.py', 'harvest.py', 'drive.py', 'finalize.py', 'win_bridge.ps1']) {
         if (!existsSync(join(productSkills, 'wechat-shortdrama-harvest', 'scripts', script))) {
