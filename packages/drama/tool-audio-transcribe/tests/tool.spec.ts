@@ -78,7 +78,9 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(allowResumeUpload).toBe(true)
-  expect(await args[5]!.probe!('original-staged.wav', signal)).toBe(30)
+  const probe = args[5]?.probe
+  if (probe === undefined) throw new Error('Expected the original staged-audio recovery probe')
+  expect(await probe('original-staged.wav', signal)).toBe(30)
   expect(probeMediaDuration).toHaveBeenCalledWith('original-staged.wav', config, signal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
