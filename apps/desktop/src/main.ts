@@ -475,7 +475,7 @@ async function main(): Promise<void> {
   const showAbout = async (): Promise<void> => {
     await ordinaryMessageBox({ type: 'info', title: locale.messages.aboutMenu, message: locale.messages.aboutProduct,
       detail: formatDesktopMessage(locale.messages.aboutVersion, { version: desktopProductVersion(app),
-        harnessVersion: desktopClientVersion(), commitHash: desktopClientCommitHash() }),
+        commitHash: desktopClientCommitHash() }),
       buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
   }
   const commandManager = new DesktopCommandManager({
@@ -1188,7 +1188,7 @@ async function main(): Promise<void> {
   app.setAboutPanelOptions({
     applicationName: locale.messages.productName,
     applicationVersion: desktopProductVersion(app),
-    version: `DSH ${desktopClientVersion()} (${desktopClientCommitHash()})`,
+    version: desktopClientCommitHash(),
     copyright: '',
     iconPath: applicationIconPath,
   })

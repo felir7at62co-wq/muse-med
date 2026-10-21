@@ -27,11 +27,13 @@ describe('desktop locale dictionaries', () => {
       .toBe('plugin@1.2.3 {missing}')
   })
 
-  it.each([en, zh])('keeps the product version, harness version, and source commit in About details', (messages) => {
+  it.each([en, zh])('shows the product version and source commit without harness details in About', (messages) => {
     const detail = formatDesktopMessage(messages.aboutVersion, { version: '1.0.0-beta.1', harnessVersion: '0.1.7-rc.8', commitHash: 'abcdef0' })
     expect(detail).toContain('1.0.0-beta.1')
-    expect(detail).toContain('DSH 0.1.7-rc.8')
     expect(detail).toContain('abcdef0')
+    expect(detail).not.toContain('DSH')
+    expect(detail).not.toContain('0.1.7-rc.8')
+    expect(messages.aboutVersion).not.toContain('{harnessVersion}')
   })
 
   it('prefers an explicit supported choice, then the first supported system language', () => {
