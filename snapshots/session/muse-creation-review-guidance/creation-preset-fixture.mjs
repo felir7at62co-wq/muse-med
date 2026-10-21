@@ -21,7 +21,9 @@ export async function apply(ctx) {
     for (let index = 0; index < Math.min(requests, names.length); index++) {
       const result = results[index]
       if (index === 0 || index === 2) {
-        assert.equal(result.isError, true, 'Retired writing guides are unavailable in the creation catalog')
+        assert.equal(result.isError, false, 'The recorded probe returns the unavailable-skill diagnostic')
+        const value = JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+        assert.deepEqual(value, { available: false, error: `skill "${names[index]}" is unknown or no longer available` })
         const entries = options.messages.flatMap(message => message.source?.kind === 'skill-catalog' ? message.source.entries : [])
         assert.ok(!entries.some(skill => skill.name === names[index]), `Retired skill ${names[index]} must be absent from the model catalog`)
         continue

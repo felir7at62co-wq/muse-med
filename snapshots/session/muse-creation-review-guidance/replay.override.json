@@ -12,7 +12,7 @@
         "index": 0,
         "id": "call_creation_skill",
         "name": "run_code",
-        "argumentsDelta": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"return await tools.skill({name: \\\"screenplay-project\\\"});\"}"
+        "argumentsDelta": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-project\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
       },
       {
         "type": "block-end",
@@ -21,7 +21,7 @@
           "type": "tool-call",
           "id": "call_creation_skill",
           "name": "run_code",
-          "arguments": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"return await tools.skill({name: \\\"screenplay-project\\\"});\"}"
+          "arguments": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-project\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
         }
       },
       {
@@ -92,7 +92,7 @@
         "index": 0,
         "id": "call_creation_format",
         "name": "run_code",
-        "argumentsDelta": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"return await tools.skill({name: \\\"screenplay-format\\\"});\"}"
+        "argumentsDelta": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-format\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
       },
       {
         "type": "block-end",
@@ -101,7 +101,7 @@
           "type": "tool-call",
           "id": "call_creation_format",
           "name": "run_code",
-          "arguments": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"return await tools.skill({name: \\\"screenplay-format\\\"});\"}"
+          "arguments": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-format\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
         }
       },
       {

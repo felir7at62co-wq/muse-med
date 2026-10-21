@@ -1,5 +1,5 @@
 version: 1
-# Historical retired guides are fixture-local; current screenplay-format and its references remain live.
+# Probe retired writing guides and retain explicit reads of historical workspace references.
 scenario: muse-creation-review-guidance
 profile: headless
 composition: muse-creation-review-guidance
