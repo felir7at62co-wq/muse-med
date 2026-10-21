@@ -13,6 +13,7 @@ export function retainedSkillsFixture(): string {
   const root = mkdtempSync(join(tmpdir(), 'muse-retained-skills-'))
   afterAll(() => { rmSync(root, { recursive: true, force: true }) })
   cpSync(fileURLToPath(new URL('../skills/', import.meta.url)), root, { recursive: true })
+  cpSync(fileURLToPath(new URL('./fixtures/retired-writing-skills/', import.meta.url)), root, { recursive: true })
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const disabled = join(root, entry.name, 'SKILL.md.disabled')

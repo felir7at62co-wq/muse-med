@@ -1,20 +1,22 @@
-/** Bundled script review guidance and its relative reference remain loadable together. */
+/** Historical script review resources remain loadable outside the product catalog. */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry, { renderSkillContent } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
 import { CREATION_SKILL_NAMES } from '../src/creation-skills.ts'
+import { retainedSkillsFixture } from './retained-skills-fixture.ts'
 
-it('discovers script safety review and resolves its bundled platform reference without Downloads', async () => {
+const historicalRoot = retainedSkillsFixture()
+
+it('loads the retired review reference from the historical fixture without advertising it in creation', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, {
       includeDefaultRoots: false,
-      bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)),
+      bundledSkillDir: historicalRoot,
       watch: false,
     })
     const summary = (await ctx.skills.list()).find(skill => skill.name === 'reviewing-micro-drama-scripts')
@@ -26,7 +28,7 @@ it('discovers script safety review and resolves its bundled platform reference w
     expect(reference).toContain('# 动画微短剧（漫剧）内容创作建议')
     expect(reference).toContain('## 漫剧信息（剧壳）创作建议')
     expect(skill.content).not.toContain('/Downloads/')
-    expect(CREATION_SKILL_NAMES).toContain(skill.name)
+    expect(CREATION_SKILL_NAMES).not.toContain(skill.name)
   } finally {
     await ctx.fiber.dispose()
   }

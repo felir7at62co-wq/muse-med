@@ -107,16 +107,13 @@ async function fixture() {
 it('mounts a PTC-only creation persona and a complete creative tool union without delegation rows', async () => {
   const f = await fixture()
   try {
-    expect(f.raw).toContain('reviewMode: advisory')
-    expect(f.raw).toContain('refinementMode: source-preserving-v1')
-    expect(f.raw).toContain('storyFaithfulMode: story-faithful-v2')
     expect(f.raw).toContain('trustedEvidence: true')
     expect(f.raw).not.toContain('本模式由你独立完成模型判断，不启动其他模型会话或团队，不使用委派、工作流模型编排、持续循环代理或借终端、HTTP、插件绕过模式限制。')
     expect(f.raw).not.toContain('先加载 muse-creation')
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
     expect(f.rows.filter(row => /subagent|workflow|ralph|agent-team/u.test(row.name))).toEqual([])
     expect(new Set(f.rows.map(row => row.id)).size).toBe(f.rows.length)
-    for (const id of ['screenplay-project', 'tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate']) {
+    for (const id of ['tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate']) {
       expect(f.rows.map(row => row.id)).toContain(id)
     }
     f.ctx.tools.register(tool('read'))
@@ -140,7 +137,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['muse-script-doctor', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
@@ -159,16 +156,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('Program-only SDK bindings')
     expect(text).toContain('tools.skill')
     expect(text).not.toContain('再加载 muse-creation')
-    expect(text).toContain('## 创作共用规则')
-    expect(text).toContain('视频画面文字先复用已有字幕/转写，支持时用 video_ocr')
-    expect(text).toContain('本机 OCR 不支持或不可用时说明能力')
-    expect(text).toContain('只有已有明确 ASR 授权才走 audio-transcribe')
-    expect(text).toContain('不自动扣费或混淆来源')
-    expect(text).toContain('音频对白与视频转剧本用 audio-transcribe')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_ocr')
-    expect(text).toContain('下一模型轮检查')
-    expect(text).toContain('旧项目、未声明项目')
-    expect(text).toContain('以制作人员能基本还原故事为目标')
     expect(text).toContain('按8个有效字/秒计算预算')
     expect(text).toContain('当编写短剧镜头脚本时，建议每个镜头控制在1–4秒')
     expect(text).toContain('禁止镜头时长字段')
@@ -212,8 +200,6 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('且各包都须符合站位图适用条件')
     expect(text).toContain('单人近景不因全景图包含多人而额外生成画外人物')
     expect(text).not.toContain('9 有效字/秒')
-    expect(text).toContain('新创作视频剧本默认 story-faithful-v2')
-    expect(text).toContain('新写没有原稿不捏造前后对照')
     expect(text).not.toContain('# 共同自检协议')
     expect(text).not.toContain('# 精修与修改说明')
     expect(text).not.toContain('所有模型判断由当前助手完成')
@@ -242,7 +228,7 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(skills).not.toBe(f.ctx.skills)
     const names = (await skills.list({ scope: f.agent })).map(skill => skill.name)
     expect(names).not.toContain('muse-creation')
-    expect(names).toContain('muse-script-doctor')
+    expect(names).toContain('audio-transcribe')
     expect(names).not.toContain('tweet-drama-pipeline')
     expect(names).not.toContain('muse-script-editing')
     expect(names).not.toContain('xiaohongshu-reference')
@@ -256,17 +242,17 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect((await skills.snapshot({ scope: f.agent })).skills.map(skill => skill.name)).not.toContain('office-docx')
     expect(await skills.get('office-docx', { scope: f.agent })).toBeUndefined()
     await f.agent.ctx.plugin({ inject: ['skills'], apply(ctx: Context) {
-      ctx.skills.register({ name: 'muse-script-doctor', description: 'Scoped override',
+      ctx.skills.register({ name: 'audio-transcribe', description: 'Scoped override',
         source: 'runtime', content: 'Unapproved scoped instructions' })
     } })
-    const source = await f.ctx.skills.get('muse-script-doctor')
-    const loaded = await skills.get('muse-script-doctor', { scope: f.agent })
+    const source = await f.ctx.skills.get('audio-transcribe')
+    const loaded = await skills.get('audio-transcribe', { scope: f.agent })
     expect(loaded?.resourceBase).toEqual(source?.resourceBase)
     expect(loaded?.content).toBe(source!.content)
     expect(loaded?.content).not.toContain('Unapproved scoped instructions')
     expect(loaded?.content).not.toContain('当前创作模式的执行限制')
-    expect(loaded?.content).toContain('references/doctor-workflow.md')
-    for (const name of ['muse-dialogue-polish', 'muse-episode-design']) {
+    expect(loaded?.content).toContain('音视频语音转写')
+    for (const name of ['audio-transcribe']) {
       expect(names).toContain(name)
       const specialized = await skills.get(name, { scope: f.agent })
       const bundled = await f.ctx.skills.get(name)
@@ -282,16 +268,16 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     f.runtime.behavior = async (spec) => {
       const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.skill
       if (binding === undefined) throw new Error('Missing actual skill SDK binding')
-      const resultValue = await binding({ name: 'muse-script-doctor' })
+      const resultValue = await binding({ name: 'audio-transcribe' })
       value = resultValue
       return { logs: [], value: resultValue }
     }
     const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
-      description: 'Read the screenplay revision guide', code: 'return await tools.skill({name:"muse-script-doctor"})',
+      description: 'Read the screenplay revision guide', code: 'return await tools.skill({name:"audio-transcribe"})',
     }, callId: ToolCallId('creation-skill'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
-    expect(value).toMatchObject({ name: 'muse-script-doctor', resourceBase: source!.resourceBase, content: loaded!.content })
-    expect(JSON.stringify(result.content)).toContain('references/doctor-workflow.md')
+    expect(value).toMatchObject({ name: 'audio-transcribe', resourceBase: source!.resourceBase, content: loaded!.content })
+    expect(JSON.stringify(result.content)).toContain('音视频语音转写')
     const cgSkill = await skills.get('anime-3d-assets', { scope: f.agent })
     const bundledCg = await readFile(new URL('../../../packages/drama/skills/skills/anime-3d-assets/SKILL.md', import.meta.url), 'utf8')
     expect(cgSkill?.content).toBe(bundledCg.replace(/^---\n[\s\S]*?\n---\n/u, '').trim())

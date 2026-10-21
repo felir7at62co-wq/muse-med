@@ -14,6 +14,11 @@ export const inject = ['systemPrompt']
  */
 export function apply(ctx: Context): void {
   ctx.systemPrompt.section({
+    name: 'editing:format',
+    order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+    text: '分场剧本采用用户指定的格式；未指定时，集号独立写“第1集”，场次写“1-1 地点 日/夜 内/外”，下一行写“人物：甲、乙”。独立动作以“▲”起行，对白写“人物名：台词”。当情绪波动时，需要将语气、神态或同步短动作写成“人物名（情绪视觉化描写）：台词”。转写视频时，神态和动作以画面为依据，语气以原声为依据；画面表现不清楚时先抽帧查看，再据实写入。OS表示人物内心话，VO表示画外声音，括注声音来源；能否被其他人物听见以本剧设定为准。闪回用“【闪回开始】”“【闪回结束】”标明，场次注明回忆时间，结束后回到实际承接场景。示例：“▲林遥把信封放在桌上。\\n周宁（看向信封）：谁送来的？”。\n\n用户返稿以最新版本为准。可用manuscript_revision对照上一稿与返稿，查看实际增删改及原句，保留用户已确认的修改，不从旧稿恢复已删除内容；没有基线时说明无法识别历史改动。工具只返回版本、差异和提示，不要求审批或固定审校流程。',
+  })
+  ctx.systemPrompt.section({
     name: 'editing:delivery',
     order: ctx.systemPrompt.getSectionOrder('DELIVERABLE_FILE_REFERENCES'),
     text: '剧本、大纲等文字稿件的文件交付默认使用 Word（.docx）；用户明确指定其他格式时按其要求。'

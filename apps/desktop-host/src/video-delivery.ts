@@ -114,7 +114,7 @@ export async function verifyWordBody(file: string, contents: string[], config: C
   const info = await lstat(file)
   if (!info.isFile() || info.size > config.maxProjectBytes) throw Error('video_delivery_body_changed: Word 文件超出核对预算。')
   const runtime = await resolvePrimaryRuntime(config.source)
-  const script = await readFile(new URL('../skills/screenplay-format/scripts/export_docx.py', import.meta.url), 'utf8')
+  const script = await readFile(new URL('../skills/office-support/export_docx.py', import.meta.url), 'utf8')
   await new Promise<void>((resolveRun, reject) => {
     const child = execFile(runtime.python, ['-c', script], {
       signal, windowsHide: true, timeout: config.timeoutMs, maxBuffer: 65536, env: { ...process.env, PYTHONUTF8: '1' },
