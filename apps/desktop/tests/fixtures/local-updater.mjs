@@ -15,6 +15,7 @@ import { resolveDesktopLocale } from '../../lib/types/locale.js'
 import { createUpdateServer } from './update-server.mjs'
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig } from '../../lib/types/mandatory-update-policy.js'
 import { DesktopMandatoryUpdateWindow } from '../../lib/types/mandatory-update-window.js'
+import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { DesktopUpdatePreparationError } from '../../lib/types/update-error.js'
 import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
 import { qualifyUpdateDialogs } from './update-dialogs.mjs'
@@ -235,7 +236,6 @@ async function main() {
         return new Response(await readFile(new URL(`../../renderer/${path}`, import.meta.url)), { headers: { 'content-type': mime } })
       })
       const parent = new BrowserWindow({ show: true, width: 900, height: 650, webPreferences: { preload: fileURLToPath(new URL('../../lib/preload-app.cjs', import.meta.url)), sandbox: true, contextIsolation: true } })
-      await parent.loadURL('dsh-app://app/')
       const f = await fixture('hold-download')
       const config = resolveDesktopPolicyConfig({ origin: server.url, allowedPageOrigins: ['https://downloads.example.com'],
         intervalMs: 600_000, timeoutMs: 1000 }, true)
@@ -244,6 +244,7 @@ async function main() {
         () => { modal?.sync() }, undefined,
         () => ({ version: '1.0.0', locale: 'zh-CN', timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60 }))
       modal = new DesktopMandatoryUpdateWindow({
+        overlays: new DesktopUpdateOverlays(),
         preload: fileURLToPath(new URL('../../lib/preload-mandatory.cjs', import.meta.url)),
         locale: resolveDesktopLocale('zh-CN'), allowedPageOrigins: config.allowedPageOrigins,
         parent: () => parent, policy: () => policy.state, update: () => f.coordinator.state,
@@ -264,6 +265,7 @@ async function main() {
       clipboard.writeText = async value => { copied.push(value); copyComplete.resolve() }
       clipboard.readText = async () => copied.at(-1)
       try {
+        await parent.loadURL('dsh-app://app/')
         server.policy('force')
         await policy.check('launch')
         const window = modal.confirmationWindow
@@ -294,11 +296,11 @@ async function main() {
         assert.equal(window.isDestroyed(), false)
         assert.equal(f.installations.length, 0)
         await contents.executeJavaScript("document.getElementById('page').click()")
-        await until("document.getElementById('browser-message').textContent.includes('无法打开浏览器')")
+        await until(`document.getElementById('browser-message').textContent === ${JSON.stringify(messages.mandatoryPageFailed)}`)
         assert.deepEqual(opened, ['https://downloads.example.com/desktop'])
         await contents.executeJavaScript("document.getElementById('copy').click()")
         await copyComplete.promise
-        await until("document.getElementById('copy').textContent === '已复制链接'")
+        await until(`document.getElementById('copy').textContent === ${JSON.stringify(messages.mandatoryCopied)}`)
         assert.deepEqual(copied, opened)
         await f.coordinator.check()
         modal.sync()
@@ -308,7 +310,7 @@ async function main() {
         assert.equal(f.coordinator.state.phase, 'downloading')
         assert.equal(await contents.executeJavaScript("document.getElementById('page').hidden"), true)
         server.release()
-        await until("document.getElementById('update').textContent === '停止任务并更新' && !document.getElementById('update').disabled")
+        await until(`document.getElementById('update').textContent === ${JSON.stringify(messages.updateStopTasks)} && !document.getElementById('update').disabled`)
         assert.equal(f.installations.length, 0)
         assert.equal(modal.confirmationWindow, window)
         server.policy('stall')
@@ -322,7 +324,7 @@ async function main() {
         })`)
         assert.deepEqual(snapshot, JSON.parse(await readFile(new URL('../expected/mandatory-update-zh.json', import.meta.url), 'utf8')))
         await contents.executeJavaScript("document.getElementById('later').click()")
-        await until("document.getElementById('update').textContent === '继续安装更新' && !document.getElementById('update').disabled")
+        await until(`document.getElementById('update').textContent === ${JSON.stringify(messages.mandatoryContinue)} && !document.getElementById('update').disabled`)
         assert.equal(f.installations.length, 0)
         let capture
         try { capture = await window.webContents.capturePage() }
