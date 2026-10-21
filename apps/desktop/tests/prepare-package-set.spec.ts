@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
+import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopDramaSkillPackageFiles,
+  assertDesktopCodexPackageFiles,
   assertDesktopFeishuPackageFiles,
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
@@ -88,7 +89,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -99,11 +100,49 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('omits a leftover Codex archive from the Desktop package closure', () => {
-    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'dsh-codex-subscription']
+  it('includes the source-built Codex account provider in the Desktop package closure', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS]
     const available = new Map(names.map(name => [name, packed(name)]))
     expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
-      .not.toContain('dsh-codex-subscription')
+      .toContain('dsh-codex-subscription')
+  })
+
+  it('does not activate a packed optional Codex CLI peer solely for subscription OAuth', () => {
+    const available = new Map([
+      ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
+      ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+      ['dsh-codex-subscription', packed('dsh-codex-subscription', {
+        peerDependencies: { '@deepseek-ai/dsh-subagent-codex': '1.0.0', '@deepseek-ai/dsh-llm': '1.0.0' },
+        peerDependenciesMeta: { '@deepseek-ai/dsh-subagent-codex': { optional: true } },
+      })],
+      ['@deepseek-ai/dsh-subagent-codex', packed('@deepseek-ai/dsh-subagent-codex')],
+      ['@deepseek-ai/dsh-llm', packed('@deepseek-ai/dsh-llm')],
+    ])
+    const selected = selectDesktopPackageClosure(available, ['dsh-codex-subscription']).map(entry => entry.manifest.name)
+    expect(selected).toContain('dsh-codex-subscription')
+    expect(selected).toContain('@deepseek-ai/dsh-llm')
+    expect(selected).not.toContain('@deepseek-ai/dsh-subagent-codex')
+    expect(selectDesktopPackageClosure(available, ['dsh-codex-subscription', '@deepseek-ai/dsh-subagent-codex'])
+      .map(entry => entry.manifest.name)).toContain('@deepseek-ai/dsh-subagent-codex')
+  })
+
+  it('requires the subscription Host, login settings assets and notices in the release tarball', () => {
+    const files = DESKTOP_CODEX_RUNTIME_FILES.map(file => `package/${file}`)
+    expect(() => { assertDesktopCodexPackageFiles(files) }).not.toThrow()
+    for (const file of files) {
+      expect(() => { assertDesktopCodexPackageFiles(files.filter(value => value !== file)) }).toThrow(file.slice('package/'.length))
+    }
+  })
+
+  it.each([null, [], { '@deepseek-ai/dsh-subagent-codex': 'optional' }])('rejects malformed optional-peer metadata: %j', (metadata) => {
+    const available = new Map([
+      ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
+      ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+      ['dsh-codex-subscription', packed('dsh-codex-subscription', {
+        peerDependencies: { '@deepseek-ai/dsh-subagent-codex': '1.0.0' }, peerDependenciesMeta: metadata,
+      })],
+    ])
+    expect(() => selectDesktopPackageClosure(available, ['dsh-codex-subscription'])).toThrow('invalid peer')
   })
 
   it('selects the IM package and account bridge without retaining the retired Feishu archive', () => {

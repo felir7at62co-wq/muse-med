@@ -19,6 +19,9 @@ export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
 /** Reviewed IM Host and native client installed beside the account's independent remote bridge. */
 export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 
+/** Reviewed ChatGPT subscription provider and its local account settings. */
+export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
+
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -69,9 +72,16 @@ export const DESKTOP_FEISHU_RUNTIME_FILES = [
   'LICENSE',
 ] as const
 
+/** Subscription Host, account settings and retained notices required in every product build. */
+export const DESKTOP_CODEX_RUNTIME_FILES = [
+  'lib/index.js', 'lib/client.js', 'lib/sketch-psd-worker.js',
+  'cordis.patch.yml', 'compatibility.json', 'icon-subscription.webp',
+  'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
+] as const
+
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg',
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download',

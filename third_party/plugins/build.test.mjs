@@ -95,7 +95,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
     assert.equal(repeated.status, 0)
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
     assert.equal(tarballs.length, Object.values(pins).filter(pin => pin.desktop !== false).length)
-    assert.ok(tarballs.every(file => !file.startsWith('dsh-codex-subscription-')))
+    assert.ok(tarballs.some(file => file.startsWith('dsh-codex-subscription-')))
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })
@@ -139,7 +139,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
       assert.equal(sourceMetadata.status, 0)
       assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
       if (manifest.name === 'dsh-skill-mcp-panel') {
-        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, { builtInConnections: 1, globalCliShim: false })
+        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false })
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
       for (const entry of entries(manifest.exports).filter(entry => !entry.includes('*'))) {

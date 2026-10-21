@@ -9,8 +9,7 @@
     "repository": "https://github.com/WSL043/dsh-codex-subscription",
     "version": "2.1.5",
     "commit": "257f7c719690321ee2963ec7f63e96c734712e36",
-    "license": "MIT",
-    "desktop": false
+    "license": "MIT"
   },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",

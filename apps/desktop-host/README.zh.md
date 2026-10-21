@@ -34,7 +34,7 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 <a id="compaction-defaults"></a>
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 
-Muse 不在桌面构建和加载中包含 Codex 订阅插件。产品覆盖同时停用 Agent 笔记设置页与对应 Host API，已有订阅凭据、工程笔记文件与 Muse 知识库功能保留。
+Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。独立订阅登录使用官方 Codex OAuth 提供方；Muse 账号登录不授予此权限。凭据保留在本地 Host 凭据服务中，浏览器账号响应不包含令牌。仅在连接账号时列出订阅模型。升级会恢复内置组合包，不替换已保存的订阅设置或凭据。此订阅接入不包含或启用可选 Codex CLI 子代理提供方。产品覆盖继续停用 Agent 笔记设置页及其 Host API；工程笔记文件与 Muse 知识库功能仍可使用。
 
 ## 用户返稿保护
 

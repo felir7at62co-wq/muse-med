@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-codex-subscription
+profile: headless
+composition: muse-codex-subscription
+recording: authored
+writerOutput: true
+header:
+  class: muse-codex-subscription
+  pin: true

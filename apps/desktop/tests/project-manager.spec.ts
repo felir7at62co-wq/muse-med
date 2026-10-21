@@ -84,6 +84,7 @@ const BUILT_IN_BUNDLES = [
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   '@xmanrui/dsh-im',
+  'dsh-codex-subscription',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {
@@ -114,7 +115,6 @@ afterEach(async () => {
 describe('desktop external plugin profile', () => {
   it.each([
     ['@mengyuly/dsh-ponytail', false], ['@mengyuly/dsh-ponytail', true],
-    ['dsh-codex-subscription', false], ['dsh-codex-subscription', true],
   ] as const)('removes retired %s while retaining external plugins (legacy bridge: %s)', async (retiredPlugin, legacyBridge) => {
     const { manager } = setup()
     await manager.applyRelease()
@@ -222,6 +222,37 @@ describe('desktop external plugin profile', () => {
     expect(manifestBackups(manager.paths.profile)).toEqual(backups)
   })
 
+  it.each(['removed', 'legacy-position'] as const)('restores the %s Codex subscription bundle without altering saved account settings or sessions', async (state) => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const previous = BUILT_IN_BUNDLES.filter(name => name !== 'dsh-codex-subscription')
+    const bundles: string[] = [...previous]
+    if (state === 'legacy-position') bundles.splice(4, 0, 'dsh-codex-subscription')
+    writeBundles(manifestPath, bundles)
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const patch = '- id: codex-subscription\n  config:\n    speedMode: fast\n    quickQuotaMode: percent\n'
+    writeFileSync(patchPath, patch)
+    const account = join(root, 'synthetic-credentials.json')
+    const credentials = '{"preserve":"synthetic-subscription-record"}\n'
+    writeFileSync(account, credentials)
+    const session = join(root, 'synthetic-session.jsonl')
+    writeFileSync(session, 'retained historical conversation\n')
+    const before = readFileSync(manifestPath, 'utf8')
+
+    await expect(manager.applyRelease()).resolves.toBe(false)
+
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES])
+    expect(readFileSync(patchPath, 'utf8')).toBe(patch)
+    expect(readFileSync(account, 'utf8')).toBe(credentials)
+    expect(readFileSync(session, 'utf8')).toBe('retained historical conversation\n')
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(before)
+    await expect(manager.applyRelease()).resolves.toBe(false)
+    expect(manifestBackups(manager.paths.profile)).toEqual(backups)
+  })
+
   it('promotes an already installed Feishu bundle without reordering other plugins or rewriting their config', async () => {
     const { manager } = setup()
     await manager.applyRelease()
@@ -236,7 +267,7 @@ describe('desktop external plugin profile', () => {
     writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: '@xmanrui/dsh-im', version: '0.3.6', dsh: { bundle: { patch: './bundle.yml' } } }))
     writeFileSync(join(directory, 'bundle.yml'), '[]\n')
     writeBundles(manifestPath, [
-      ...BUILT_IN_BUNDLES.slice(0, -1), 'first-plugin', '@xmanrui/dsh-im', 'last-plugin',
+      ...BUILT_IN_BUNDLES.filter(name => name !== '@xmanrui/dsh-im' && name !== 'dsh-codex-subscription'), 'first-plugin', '@xmanrui/dsh-im', 'last-plugin',
     ])
     const written = readFileSync(manifestPath, 'utf8')
     const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
@@ -265,7 +296,7 @@ describe('desktop external plugin profile', () => {
     }
     const manifestPath = join(manager.paths.profile, 'package.json')
     writeBundles(manifestPath, [
-      ...BUILT_IN_BUNDLES.slice(0, -1),
+      ...BUILT_IN_BUNDLES.filter(name => name !== '@xmanrui/dsh-im' && name !== 'dsh-codex-subscription'),
       ...external ? ['first-plugin', '@dsh-feishu/dsh-feishu', 'last-plugin']
         : ['@dsh-feishu/dsh-feishu', 'first-plugin', 'last-plugin'],
     ])
@@ -312,7 +343,7 @@ describe('desktop external plugin profile', () => {
     await manager.applyRelease()
     const manifestPath = join(manager.paths.profile, 'package.json')
     writeBundles(manifestPath, [
-      BUILT_IN_BUNDLES[1], BUILT_IN_BUNDLES[0], ...BUILT_IN_BUNDLES.slice(2, -1),
+      BUILT_IN_BUNDLES[1], BUILT_IN_BUNDLES[0], ...BUILT_IN_BUNDLES.slice(2).filter(name => name !== '@xmanrui/dsh-im' && name !== 'dsh-codex-subscription'),
       'plugin', '@xmanrui/dsh-im',
     ])
     const written = readFileSync(manifestPath, 'utf8')
@@ -328,7 +359,7 @@ describe('desktop external plugin profile', () => {
     await manager.applyRelease()
     const manifestPath = join(manager.paths.profile, 'package.json')
     writeBundles(manifestPath, [
-      ...BUILT_IN_BUNDLES.slice(0, -1), 'plugin', feishuPackage, feishuPackage,
+      ...BUILT_IN_BUNDLES.filter(name => name !== '@xmanrui/dsh-im' && name !== 'dsh-codex-subscription'), 'plugin', feishuPackage, feishuPackage,
     ])
     const written = readFileSync(manifestPath, 'utf8')
 

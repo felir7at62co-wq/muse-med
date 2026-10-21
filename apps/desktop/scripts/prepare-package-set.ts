@@ -18,6 +18,8 @@ import * as yaml from 'js-yaml'
 import {
   DESKTOP_DRAMA_SKILLS_PACKAGE,
   DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
+  DESKTOP_CODEX_PACKAGE,
+  DESKTOP_CODEX_RUNTIME_FILES,
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_FEISHU_RUNTIME_FILES,
   DESKTOP_HOST_PACKAGE,
@@ -54,8 +56,23 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
   return Object.keys(value).sort()
 }
 
+function isOptionalPeer(manifest: Readonly<Record<string, unknown>>, name: string): boolean {
+  const metadata = manifest.peerDependenciesMeta
+  if (metadata === undefined) return false
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error(`desktop package set: ${String(manifest.name)} has invalid peerDependenciesMeta`)
+  }
+  const entry: unknown = Reflect.get(metadata, name)
+  if (entry === undefined) return false
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new Error(`desktop package set: ${String(manifest.name)} has invalid peer metadata for ${name}`)
+  }
+  return Reflect.get(entry, 'optional') === true
+}
+
 /**
- * Select workspace dependencies rooted at dsh and its private Host; npm resolves external packages.
+ * Select required workspace dependencies rooted at dsh and its private Host.
+ * Optional peers need another root; npm resolves external packages.
  * Reads the repository workspace manifest and package manifests to distinguish required local packages from npm-resolved externals.
  * @param available - Packed packages indexed by package name.
  * @param additionalRoots - Required source-built plugin roots; absent tarballs fail instead of using registry packages.
@@ -76,6 +93,7 @@ export function selectDesktopPackageClosure(
     selected.set(name, packed)
     for (const section of REQUIRED_DEPENDENCY_SECTIONS) {
       for (const dependency of dependencyNames(packed.manifest, section)) {
+        if (section === 'peerDependencies' && isOptionalPeer(packed.manifest, dependency)) continue
         if (available.has(dependency)) visit(dependency)
         else if (workspaceNames.has(dependency)) {
           throw new Error(`desktop package set: ${name} requires unpacked package ${dependency}`)
@@ -128,6 +146,14 @@ export function assertDesktopDramaSkillPackageFiles(files: readonly string[]): v
   assertPackageFiles(DESKTOP_DRAMA_SKILLS_PACKAGE, DESKTOP_DRAMA_SKILL_RUNTIME_FILES, files)
 }
 
+/** Require the reviewed subscription account Host, Client and notices from its source-built tarball.
+ * @param files - Tarball paths rooted at `package/`.
+ * @returns Nothing.
+ */
+export function assertDesktopCodexPackageFiles(files: readonly string[]): void {
+  assertPackageFiles(DESKTOP_CODEX_PACKAGE, DESKTOP_CODEX_RUNTIME_FILES, files)
+}
+
 /**
  * Require the Muse IM Host, native client and migration files.
  * @param files - Tarball paths rooted at `package/`.
@@ -159,6 +185,9 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const feishu = selected.find(packed => packed.manifest.name === DESKTOP_FEISHU_PACKAGE)
   if (feishu === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_FEISHU_PACKAGE}`)
   assertDesktopFeishuPackageFiles(tarballFiles(feishu.tarball))
+  const codex = selected.find(packed => packed.manifest.name === DESKTOP_CODEX_PACKAGE)
+  if (codex === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_CODEX_PACKAGE}`)
+  assertDesktopCodexPackageFiles(tarballFiles(codex.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

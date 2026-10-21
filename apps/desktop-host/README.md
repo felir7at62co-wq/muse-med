@@ -33,7 +33,7 @@ The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds f
 
 Short-drama delivery follows the explicit project medium and prepared canvas; see the [project bible](../../packages/drama/drama-settings/README.md) for selection and legacy behavior.
 
-Muse omits the Codex subscription plugin from Desktop builds and activation. The product overlay disables both the Agent Notes settings page and its Host API. Existing subscription credentials, engineering-note files and Muse knowledge-base features are preserved.
+Muse includes the Codex subscription plugin and its ChatGPT sign-in entry in Settings. The separate subscription login uses the official Codex OAuth provider; Muse account login does not authorize it. Credentials remain in the local Host credential service, while browser account responses omit tokens. Subscription models appear only while an account is connected. Upgrading restores the built-in bundle without replacing saved subscription settings or credentials. The optional Codex CLI subagent provider is not included or enabled by this subscription integration. The product overlay continues to disable both the Agent Notes settings page and its Host API; engineering-note files and Muse knowledge-base features remain available.
 
 ## Returned manuscript protection
 

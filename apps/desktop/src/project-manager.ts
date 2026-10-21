@@ -21,6 +21,7 @@ import {
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import {
   DESKTOP_FEISHU_PACKAGE,
+  DESKTOP_CODEX_PACKAGE,
   DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
   verifyDesktopCorePackageSet,
@@ -82,6 +83,7 @@ const DESKTOP_PROFILE_BUNDLES = [
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   DESKTOP_FEISHU_PACKAGE,
+  DESKTOP_CODEX_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
@@ -179,20 +181,24 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
  * A profile stores the built-in bundle list of the release that wrote it, followed by its own
  * third-party bundles, so a release that appends a built-in bundle leaves the built-in list as a
  * true prefix of the stored list and the remainder is still that profile's third-party list. An
- * existing external Feishu bundle is promoted into its newly built-in position. Other missing
+ * existing external Feishu or Codex subscription bundle is promoted into its built-in position. Other missing
  * middle bundles, reordered built-ins, and unknown bundles ahead of them remain invalid.
  *
  * @param stored - `dsh.profile.bundles` as an earlier release wrote it.
  * @returns Bundles stored after an incomplete built-in prefix, or undefined when the prefix is complete.
  */
 function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | undefined {
-  const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => stored[index] !== bundle)
+  const legacyCodexPosition = stored.indexOf(DESKTOP_CODEX_PACKAGE)
+  const normalized = legacyCodexPosition >= 0 && legacyCodexPosition < DESKTOP_PROFILE_BUNDLES.indexOf(DESKTOP_CODEX_PACKAGE)
+    ? stored.filter(bundle => bundle !== DESKTOP_CODEX_PACKAGE) : stored
+  const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
   if (missingAt === -1) return undefined
-  const tail = stored.slice(missingAt)
-  if (tail.filter(bundle => bundle === DESKTOP_FEISHU_PACKAGE).length > 1) {
+  const tail = normalized.slice(missingAt)
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE])
+  if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
-  const plugins = tail.filter(bundle => bundle !== DESKTOP_FEISHU_PACKAGE)
+  const plugins = tail.filter(bundle => !promoted.has(bundle))
   if (plugins.some(bundle => BUILT_IN_BUNDLE_LIST.includes(bundle))) {
     throw new Error('desktop project: profile must begin with the built-in desktop bundle list')
   }
@@ -227,13 +233,12 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const manifest = projectManifest(projectDir)
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
-  const retiredCodex = manifest.dsh.profile.bundles.includes('dsh-codex-subscription')
   const retiredFeishu = manifest.dsh.profile.bundles.includes(RETIRED_FEISHU_PACKAGE)
   if (new Set(manifest.dsh.profile.bundles).size !== manifest.dsh.profile.bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== 'dsh-codex-subscription' && bundle !== RETIRED_FEISHU_PACKAGE)
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE)
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -242,7 +247,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired || retiredPonytail || retiredCodex || retiredFeishu) {
+  if (pending !== undefined || retired || retiredPonytail || retiredFeishu) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')

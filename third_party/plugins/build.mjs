@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
@@ -29,10 +30,12 @@ mkdirSync(output, { recursive: true })
 
 function run(args, cwd, environment = {}) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
+  Reflect.deleteProperty(env, 'MUSE_HOME')
+  Reflect.deleteProperty(env, 'MUSE_MED_HOME')
   Object.assign(env, environment)
   if (cwd !== toolchain) {
-    env.DSH_HOME = join(dirname(cwd), 'test-home')
-    env.CODEX_HOME = join(env.DSH_HOME, 'codex')
+    env.DSH_HOME = environment.DSH_HOME ?? join(dirname(cwd), 'test-home')
+    env.CODEX_HOME = environment.CODEX_HOME ?? join(env.DSH_HOME, 'codex')
   }
   const result = spawnSync(process.execPath, args, { cwd, env, stdio: 'inherit' })
   if (result.error) throw result.error
@@ -136,6 +139,9 @@ export function codexFilesystemPath(value) {
       cpSync(join(sourceRoot, 'checks/codex-subagent.mjs'), join(directory, '.muse-subagent.test.mjs'))
       cpSync(join(sourceRoot, 'checks/codex-pi-ai.mjs'), join(directory, '.muse-pi-ai.test.mjs'))
       run(['--test', '--test-concurrency=1', '.muse-pi-ai.test.mjs', '.muse-subagent.test.mjs', 'tests/pi-ai-runtime.test.mjs', 'tests/plugin-integration.test.mjs', 'tests/subscription-transport.test.mjs'], directory)
+      run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/codex-subscription-client.client.spec.tsx'], repository, {
+        MUSE_CODEX_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
+      })
     } else if (name === 'dsh-im') {
       run(['plugin-src/client/build.mjs'], directory, { NODE_ENV: 'production' })
       run(['plugin-src/host/build.mjs'], directory)
@@ -213,6 +219,23 @@ export function codexFilesystemPath(value) {
     }, null, 2)}\n`)
     manifest.files = [...new Set([...(manifest.files ?? []), 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md', 'SOURCE.json'])]
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    if (name === 'dsh-codex-subscription') {
+      const hostRoot = mkdtempSync(join(tmpdir(), 'muse-codex-loader-'))
+      const hostPackage = join(hostRoot, 'package')
+      const hostLinks = []
+      try {
+        cpSync(directory, hostPackage, { recursive: true, filter: path => !/(?:^|[\\/])node_modules(?:[\\/]|$)/u.test(path) })
+        linkDependencies(join(hostPackage, 'node_modules'), hostLinks)
+        const cliLink = join(hostPackage, 'node_modules', '@deepseek-ai/dsh-subagent-codex')
+        unlinkSync(cliLink)
+        hostLinks.splice(hostLinks.indexOf(cliLink), 1)
+        cpSync(join(sourceRoot, 'checks/codex-host-loader.mjs'), join(hostPackage, '.muse-host-loader.test.mjs'))
+        run(['--test', '.muse-host-loader.test.mjs'], hostPackage)
+      } finally {
+        for (const link of hostLinks.reverse()) unlinkSync(link)
+        rmSync(hostRoot, { recursive: true, force: true })
+      }
+    }
     if (name === 'dshmarket') {
       run(['--input-type=module', '-e', "const catalog = await import('dshmarket/catalog'); if (typeof catalog.loadRegistry !== 'function') throw new Error('missing catalog export')"], directory)
     }

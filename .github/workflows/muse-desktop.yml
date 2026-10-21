@@ -96,9 +96,9 @@ jobs:
           pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts
           node --test third_party/plugins/compatibility/muse-feishu-channel.test.mjs third_party/plugins/compatibility/muse-feishu-reliability.test.mjs
           node --import tsx/esm --test third_party/plugins/compatibility/feishu-desktop.test.mjs
-      - name: Replay the Feishu file-delivery Session
+      - name: Replay the Feishu delivery and Codex subscription Sessions
         if: matrix.target == 'mac-arm64'
-        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays muse-feishu-send-file through'
+        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays (muse-feishu-send-file|muse-codex-subscription) through'
       - name: Record the exact unsigned build
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
