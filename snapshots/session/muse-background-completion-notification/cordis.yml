@@ -1,0 +1,16 @@
+# A completed root Session reaches the real Desktop notification controller.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: snapshot-background-completion-notification
+      name: './notification-fixture.mjs'

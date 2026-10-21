@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { rmSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import type { MessageBoxOptions } from 'electron'
+import type { MessageBoxOptions, NotificationConstructorOptions } from 'electron'
 import { DESKTOP_IPC } from '../src/ipc.ts'
 import { en } from '../src/locale.ts'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -19,7 +19,7 @@ const harness = await vi.hoisted(async () => {
   // The shell reads its own package.json from the application path; keep it in the OS temp directory
   // so a test run never writes into the repository.
   const appRoot = mkdtempSync(paths.join(tmpdir(), 'dsh-desktop-test-app-'))
-  writeFileSync(paths.join(appRoot, 'package.json'), '{"name":"dsh-desktop-test","version":"1.0.0"}\n')
+  writeFileSync(paths.join(appRoot, 'package.json'), '{"name":"dsh-desktop-test","version":"1.0.0","dshDesktopAppId":"com.muse.qa.test"}\n')
   writeFileSync(paths.join(appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
   function deferred() {
     let resolve!: () => void
@@ -29,6 +29,9 @@ const harness = await vi.hoisted(async () => {
   }
   const windows: FakeWindow[] = []
   const hosts: FakeHost[] = []
+  const notifications: FakeNotification[] = []
+  let focusedWindow: FakeWindow | null = null
+  const setFocusedWindow = (window: FakeWindow | null): void => { focusedWindow = window }
   const mutations: unknown[] = []
   const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
   const handlers = new Map<string, (event: { senderFrame: { url: string } }, ...args: unknown[]) => unknown>()
@@ -72,8 +75,12 @@ const harness = await vi.hoisted(async () => {
     readonly showInactive = vi.fn(() => { this.visible = true; this.shown.resolve() })
     readonly setSize = vi.fn()
     readonly setTitle = vi.fn()
-    readonly focus = vi.fn()
-    readonly restore = vi.fn()
+    readonly focus = vi.fn(() => {
+      setFocusedWindow(this)
+      this.emit('focus')
+      app.emit('browser-window-focus', {}, this)
+    })
+    readonly restore = vi.fn(() => { this.minimized = false; this.emit('restore') })
     visible = true
     readonly hide = vi.fn(() => { this.visible = false })
     readonly getBounds = vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 820 }))
@@ -88,6 +95,7 @@ const harness = await vi.hoisted(async () => {
     readonly moveTop = vi.fn()
     constructor(readonly options: { show: boolean } & Record<string, unknown>) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
+    isFocused() { return focusedWindow === this }
     minimized = false
     isMinimized() { return this.minimized }
     async loadURL(url: string) {
@@ -96,12 +104,19 @@ const harness = await vi.hoisted(async () => {
     }
     async loadFile(file: string) { this.urls.push(file) }
     static getAllWindows() { return windows.filter(window => !window.destroyed) }
+    static getFocusedWindow() { return focusedWindow }
     destroy() { this.destroyed = true; this.emit('closed') }
     close() {
       const event = { preventDefault: vi.fn() }
       this.emit('close', event)
       if (event.preventDefault.mock.calls.length === 0) this.destroy()
     }
+  }
+  class FakeNotification extends EventEmitter {
+    static isSupported() { return true }
+    readonly show = vi.fn()
+    readonly close = vi.fn(() => { this.emit('close') })
+    constructor(readonly options: NotificationConstructorOptions) { super(); notifications.push(this) }
   }
   class FakeHost {
     readonly ready = deferred()
@@ -136,6 +151,7 @@ const harness = await vi.hoisted(async () => {
     getAppPath: () => appRoot,
     getPath: (name: string) => `${tmpdir()}/dsh-desktop-test-logs/${name}`,
     setAppLogsPath: vi.fn(),
+    setAppUserModelId: vi.fn(),
     // The shell claims the product's Electron identity before it reads any path,
     // so the double has to answer the calls that carries.
     setName: vi.fn(),
@@ -159,7 +175,8 @@ const harness = await vi.hoisted(async () => {
     return 'desktop-test-profile/cordis.patch.yml.bak-1'
   })
   return {
-    windows, hosts, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost, disableAllPlugins,
+    windows, hosts, notifications, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost, FakeNotification, disableAllPlugins,
+    setFocusedWindow,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
@@ -202,7 +219,8 @@ const harness = await vi.hoisted(async () => {
       return updatePublish
     },
     reset() {
-      windows.length = 0; hosts.length = 0; mutations.length = 0
+      windows.length = 0; hosts.length = 0; notifications.length = 0; mutations.length = 0
+      focusedWindow = null
       listeners.clear(); handlers.clear(); app.removeAllListeners()
       app.isPackaged = true
       pluginsEnabled = false
@@ -219,6 +237,7 @@ const harness = await vi.hoisted(async () => {
 vi.mock('electron', () => ({
   app: harness.app,
   BrowserWindow: harness.FakeWindow,
+  Notification: harness.FakeNotification,
   clipboard: harness.clipboard,
   dialog: harness.dialog,
   ipcMain: {
@@ -417,6 +436,268 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it.each([
+    ['win32', true],
+    ['win32', false],
+    ['darwin', true],
+    ['linux', true],
+  ] as const)('uses the existing packaged AppID for Windows native notifications (platform=%s, packaged=%s)', async (platform, packaged) => {
+    vi.stubGlobal('process', { ...process, platform })
+    harness.app.isPackaged = packaged
+    await import('../src/main.ts')
+    await reachWorkspace()
+    if (platform === 'win32' && packaged) {
+      expect(harness.app.setAppUserModelId).toHaveBeenCalledExactlyOnceWith('com.muse.qa.test')
+    } else {
+      expect(harness.app.setAppUserModelId).not.toHaveBeenCalled()
+    }
+  })
+
+  it('shows a background completion notification from the live Host callback while preserving audio', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    window.webContents.send.mockClear()
+    harness.hosts[0]!.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(harness.notifications[0]!.show).toHaveBeenCalledOnce()
+    expect(harness.notifications[0]!.options).toMatchObject({ silent: true })
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.attentionSound, 'complete')
+  })
+
+  it('keeps question cues audible without creating a completion notification', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    window.webContents.send.mockClear()
+    harness.hosts[0]!.onAttentionSound!('question')
+    expect(harness.notifications).toEqual([])
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.attentionSound, 'question')
+  })
+
+  it.each(['main', 'another Muse window'] as const)('withholds completion notifications while %s has focus', async (focused) => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(focused === 'main' ? window : new harness.FakeWindow({ show: true }))
+    window.webContents.send.mockClear()
+    harness.hosts[0]!.onAttentionSound!('complete')
+    expect(harness.notifications).toEqual([])
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.attentionSound, 'complete')
+  })
+
+  it.each(['hidden', 'minimized'] as const)('notifies completion while %s without showing or focusing Muse', async (state) => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    window.visible = state !== 'hidden'
+    window.minimized = state === 'minimized'
+    window.show.mockClear()
+    window.restore.mockClear()
+    window.focus.mockClear()
+    harness.hosts[0]!.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(harness.notifications[0]!.show).toHaveBeenCalledOnce()
+    expect(window.show).not.toHaveBeenCalled()
+    expect(window.restore).not.toHaveBeenCalled()
+    expect(window.focus).not.toHaveBeenCalled()
+  })
+
+  it.each(['hidden', 'minimized'] as const)('notifies %s completion despite a cached focus window', async (state) => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(window)
+    window.visible = state !== 'hidden'
+    window.minimized = state === 'minimized'
+    window.focus.mockClear()
+    harness.hosts[0]!.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    const notice = harness.notifications[0]!
+    harness.app.emit('browser-window-focus', {}, window)
+    expect(notice.close).not.toHaveBeenCalled()
+    expect(window.focus).not.toHaveBeenCalled()
+    notice.emit('click')
+    expect(window.focus).toHaveBeenCalledOnce()
+    expect(notice.close).toHaveBeenCalledOnce()
+  })
+
+  it('returns to Muse through the primary window focus action only after a notification click', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    window.visible = false
+    window.minimized = true
+    window.show.mockClear()
+    window.restore.mockClear()
+    window.focus.mockClear()
+    harness.hosts[0]!.onAttentionSound!('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    expect(window.show).not.toHaveBeenCalled()
+    notice.emit('click')
+    expect(notice.close).toHaveBeenCalledOnce()
+    expect(window.restore).toHaveBeenCalledOnce()
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.focus).toHaveBeenCalledOnce()
+    notice.emit('click')
+    expect(window.focus).toHaveBeenCalledOnce()
+  })
+
+  it('replaces a completion notification and ignores its retained old click callback', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    window.focus.mockClear()
+    const cue = harness.hosts[0]!.onAttentionSound!
+    cue('complete')
+    const previous = harness.notifications[0]!
+    expect(previous).toBeDefined()
+    const staleClick = previous.listeners('click')[0] as () => void
+    expect(staleClick).toBeTypeOf('function')
+    cue('complete')
+    expect(harness.notifications).toHaveLength(2)
+    expect(previous.close).toHaveBeenCalledOnce()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+    harness.notifications[1]!.emit('click')
+    expect(window.focus).toHaveBeenCalledOnce()
+  })
+
+  it('clears the completion notification when another Muse window gains focus', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    const cue = harness.hosts[0]!.onAttentionSound!
+    cue('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    const plugin = new harness.FakeWindow({ show: true })
+    plugin.focus()
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+    cue('complete')
+    expect(harness.notifications).toHaveLength(1)
+  })
+
+  it('clears completion on a new main document without clearing for subframes or same-document navigation', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    const cue = harness.hosts[0]!.onAttentionSound!
+    cue('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    window.webContents.emit('did-start-navigation', {}, 'https://example.com/', false, false)
+    expect(notice.close).not.toHaveBeenCalled()
+    window.webContents.emit('did-start-navigation', {}, 'dsh-app://app/#/sessions/next', true, true)
+    expect(notice.close).not.toHaveBeenCalled()
+    window.webContents.emit('did-start-navigation', {}, 'dsh-app://app/', false, true)
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.webContents.emit('did-finish-load')
+    expect(harness.notifications).toHaveLength(1)
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+    cue('complete')
+    expect(harness.notifications).toHaveLength(2)
+  })
+
+  it.each(['window closed', 'renderer crashed'] as const)('clears completion when the %s', async (event) => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    harness.hosts[0]!.onAttentionSound!('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    if (event === 'window closed') window.destroy()
+    else window.webContents.emit('render-process-gone', {}, { reason: 'crashed' })
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+  })
+
+  it('clears completion before Host stop and rejects callbacks from the replaced Host', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    await flushMicrotasks()
+    harness.setFocusedWindow(null)
+    const previousHost = harness.hosts[0]!
+    previousHost.onAttentionSound!('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    const started = harness.nextHostStart()
+    const mutation = Promise.resolve(invoke(DESKTOP_IPC.pluginsToggle, 'safe-plugin', false))
+    await previousHost.stopping.promise
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.webContents.send.mockClear()
+    previousHost.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(window.webContents.send).not.toHaveBeenCalled()
+    previousHost.exited.resolve()
+    await started
+    const nextHost = harness.hosts[1]!
+    nextHost.ready.resolve()
+    await mutation
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+    window.webContents.send.mockClear()
+    previousHost.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(window.webContents.send).not.toHaveBeenCalled()
+    nextHost.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(2)
+    expect(window.webContents.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC.attentionSound, 'complete')
+  })
+
+  it('clears completion when the Host fails and rejects its late callbacks', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    const host = harness.hosts[0]!
+    host.onAttentionSound!('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    host.onFailure!(new Error('Host exited unexpectedly'))
+    await host.stopping.promise
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.webContents.send.mockClear()
+    host.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(window.webContents.send).not.toHaveBeenCalled()
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+  })
+
+  it('clears completion before shutdown and ignores retained clicks and late Host cues', async () => {
+    await import('../src/main.ts')
+    const window = await reachWorkspace()
+    harness.setFocusedWindow(null)
+    const host = harness.hosts[0]!
+    host.onAttentionSound!('complete')
+    const notice = harness.notifications[0]!
+    expect(notice).toBeDefined()
+    const staleClick = notice.listeners('click')[0] as () => void
+    harness.app.quit()
+    await host.stopping.promise
+    expect(notice.close).toHaveBeenCalledOnce()
+    window.focus.mockClear()
+    staleClick()
+    expect(window.focus).not.toHaveBeenCalled()
+    window.webContents.send.mockClear()
+    host.onAttentionSound!('complete')
+    expect(harness.notifications).toHaveLength(1)
+    expect(window.webContents.send).not.toHaveBeenCalled()
+  })
+
   it('forwards live attention cues to the application while visible, hidden, or minimized', async () => {
     await import('../src/main.ts')
     const window = await reachWorkspace()
@@ -452,12 +733,14 @@ describe('desktop main startup', () => {
       if (condition === 'destroyed window') window.destroyed = true
       expect(() => { cue('complete') }).not.toThrow()
       expect(window.webContents.send).not.toHaveBeenCalled()
+      expect(harness.notifications).toEqual([])
       window.webContents.isLoadingMainFrame.mockReturnValue(false)
       window.contentsDestroyed = false
       window.destroyed = false
       window.urls.push('dsh-app://app/')
       window.webContents.emit('did-finish-load')
       expect(window.webContents.send.mock.calls.filter(([channel]) => channel === DESKTOP_IPC.attentionSound)).toEqual([])
+      expect(harness.notifications).toEqual([])
       cue('question')
       expect(window.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC.attentionSound, 'question')
     },

@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-background-completion-notification
+profile: headless
+composition: muse-background-completion-notification
+recording: authored
+header:
+  class: muse-background-completion-notification
+  pin: true
+  systemPromptSource: muse-attention-audio
+  toolSchemasSource: muse-attention-audio
+workspace:
+  final: true

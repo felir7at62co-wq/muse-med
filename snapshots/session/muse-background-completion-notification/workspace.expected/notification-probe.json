@@ -1,0 +1,61 @@
+{
+  "cues": [
+    {
+      "kind": "complete",
+      "eventType": "turn/end",
+      "turn": 1
+    }
+  ],
+  "background": {
+    "notices": [
+      {
+        "options": {
+          "title": "Work completed",
+          "body": "Return to Muse to view the result.",
+          "silent": true
+        },
+        "showCount": 1,
+        "closeCount": 1,
+        "remainingListeners": 0
+      }
+    ],
+    "returnToMuseCount": 1,
+    "focusListeners": 0,
+    "windowListeners": 0,
+    "navigationListeners": 0
+  },
+  "foreground": {
+    "notices": [],
+    "returnToMuseCount": 0,
+    "focusListeners": 0,
+    "windowListeners": 0,
+    "navigationListeners": 0
+  },
+  "disposedBackground": {
+    "notices": [
+      {
+        "options": {
+          "title": "Work completed",
+          "body": "Return to Muse to view the result.",
+          "silent": true
+        },
+        "showCount": 1,
+        "closeCount": 1,
+        "remainingListeners": 0
+      }
+    ],
+    "returnToMuseCount": 0,
+    "focusListeners": 0,
+    "windowListeners": 0,
+    "navigationListeners": 0
+  },
+  "historicalCompletedTurns": 1,
+  "late": {
+    "notices": [],
+    "returnToMuseCount": 0,
+    "focusListeners": 0,
+    "windowListeners": 0,
+    "navigationListeners": 0
+  },
+  "lateClickIgnored": true
+}
