@@ -92,7 +92,7 @@ interface ToolArgsMap {
       multi_select?: boolean;
     } & Record<string, JsonValue>)[];
   } & Record<string, JsonValue>;
-  /** 使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；需要先登录 Muse。 */
+  /** 使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。 */
   audio_transcribe: {
     /** start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。 */
     method: "start" | "inspect" | "status";
@@ -100,6 +100,8 @@ interface ToolArgsMap {
     project: string;
     /** start 必填：获授权的本地音频或视频文件路径。 */
     input?: string;
+    /** inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。 */
+    wait_seconds?: number;
     /** inspect/status 必填：start 返回的 transcript/jobs 收据路径。 */
     receipt?: string;
     /** start 识别语种；默认 zh。 */
@@ -1546,9 +1548,20 @@ interface ToolOutputMap {
     error_code?: string;
     /** 服务端建议等待的秒数；等待后沿用原收据。 */
     retry_after_seconds?: number;
-    /** 可恢复时的下一次调用参数；查询确认未受理后可能补传同 ID 音轨，不新建任务。 */
+    polling_note?: string;
+    progress?: {
+      completed_parts: number;
+      total_parts: number;
+    };
+    /** 旧分段实际音轨长于计划范围；已核对音轨摘要和实际时长，保留原词与时间戳，边界可能重叠。 */
+    timing_warnings?: {
+      part_id: string;
+      planned_seconds: number;
+      staged_seconds: number;
+    }[];
+    /** 下一次原收据调用参数；inspect 只查询，status 仅在确认未受理时补传同 ID，不新建任务。 */
     resume_status?: {
-      method: "status";
+      method: "inspect" | "status";
       project: string;
       receipt: string;
     };

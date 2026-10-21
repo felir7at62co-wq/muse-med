@@ -46,7 +46,7 @@ Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts).
 
 ## Test resolution: source plane only
 
-- Every vitest config points vite-tsconfig-paths at `tsconfig.base.json`; bare workspace imports resolve to `src` ([layout](development.md#typescript-project-layout)), never through package `exports` to built `lib/` — stale artifacts there load a second copy of module singletons. Built artifacts are consumed only explicitly: `lib`-mode subprocesses and the built smokes below.
+- Vitest resolves bare workspace imports to `src` through `tsconfig.base.json`; built `lib/` can duplicate module singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Repository-local JavaScript plugins in built snapshots require their peers in root development dependencies; those declarations do not activate plugins.
 
 ## Test subprocess launch modes
 

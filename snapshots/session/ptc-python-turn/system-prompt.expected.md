@@ -124,9 +124,16 @@ class CreateGoalOutput2Goal(TypedDict):
     maxGoalRounds: int
     blockedReason: NotRequired[CreateGoalOutput2GoalBlockedReason]
 
+class CreateGoalOutput2Wait(TypedDict):
+    reason: str
+    message: str
+    wakeAt: NotRequired[int]
+    jobId: NotRequired[str]
+
 class CreateGoalOutput2(TypedDict):
     goal: CreateGoalOutput2Goal
     activation: Literal["armed", "disarmed"]
+    wait: NotRequired[CreateGoalOutput2Wait]
 
 class EditArgs(TypedDict):
     # Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments.
@@ -172,9 +179,16 @@ class GetGoalOutput2Goal(TypedDict):
     maxGoalRounds: int
     blockedReason: NotRequired[GetGoalOutput2GoalBlockedReason]
 
+class GetGoalOutput2Wait(TypedDict):
+    reason: str
+    message: str
+    wakeAt: NotRequired[int]
+    jobId: NotRequired[str]
+
 class GetGoalOutput2(TypedDict):
     goal: GetGoalOutput2Goal
     activation: Literal["armed", "disarmed"]
+    wait: NotRequired[GetGoalOutput2Wait]
 
 class GlobArgs(TypedDict):
     # Glob pattern to match file paths against (e.g. "**/*.ts", "src/**/*.test.js"). A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.
@@ -456,14 +470,20 @@ class UpdateGoalArgs(TypedDict):
     goal_id: str
     # Exact positive revision returned by get_goal.
     revision: float
-    # edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.
-    action: Literal["edit", "pause", "resume", "complete", "blocked"]
+    # edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.
+    action: Literal["edit", "pause", "resume", "complete", "blocked", "wait"]
     # Replacement objective; valid only with action edit.
     objective: NotRequired[str]
     # Replacement cap; valid only with action edit.
     max_goal_rounds: NotRequired[float]
     # Required only with action blocked: the concrete condition that persisted across rounds and blocks progress.
     blocked_reason: NotRequired[str]
+    # With action wait: describe what new information or event is needed.
+    wait_reason: NotRequired[str]
+    # With action wait: optional positive whole seconds before continuing.
+    wake_after_seconds: NotRequired[float]
+    # With action wait: optional owned job to watch for new output or settlement.
+    job_id: NotRequired[str]
     # Additional keys beyond those declared are allowed.
 
 class UpdateGoalOutput1(TypedDict):
@@ -482,9 +502,16 @@ class UpdateGoalOutput2Goal(TypedDict):
     maxGoalRounds: int
     blockedReason: NotRequired[UpdateGoalOutput2GoalBlockedReason]
 
+class UpdateGoalOutput2Wait(TypedDict):
+    reason: str
+    message: str
+    wakeAt: NotRequired[int]
+    jobId: NotRequired[str]
+
 class UpdateGoalOutput2(TypedDict):
     goal: UpdateGoalOutput2Goal
     activation: Literal["armed", "disarmed"]
+    wait: NotRequired[UpdateGoalOutput2Wait]
 
 class WebFetchArgs(TypedDict):
     # The HTTP(S) URL to fetch.

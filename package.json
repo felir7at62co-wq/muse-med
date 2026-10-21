@@ -279,7 +279,10 @@
     "@deepseek-ai/dsh-tool-workspace-dependencies": "workspace:*",
     "@deepseek-ai/dsh-tool-bgm-compose": "workspace:*",
     "@deepseek-ai/dsh-drama-settings": "workspace:*",
-    "ws": "8.21.0"
+    "ws": "8.21.0",
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }
