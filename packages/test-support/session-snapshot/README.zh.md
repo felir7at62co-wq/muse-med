@@ -98,7 +98,7 @@ SDK 回放副本在 JSONL 字符串值和序列化工具参数中展开 `{{cwd}}
 
 ### 可能出什么问题
 
-- **持久化等待失败**——即使首次日志收集就超过期限，`waitForInboxMessage`、`waitForTurnEnd` 和 `waitForSubagentTurnEnd` 也会指出会话或子会话及等待期限。子会话等待还会指出目标轮次。各项等待都通过错误的 cause 保留底层失败。
+- **持久化等待失败**——即使首次日志收集就超过期限，`waitForInboxMessage`、`waitForTurnEnd`、`waitForGoalPhase` 和 `waitForSubagentTurnEnd` 也会指出会话或子会话及等待期限。目标等待还会指出目标阶段，子会话等待会指出目标轮次。各项等待都通过错误的 cause 保留底层失败。
 - **fixture 保护拒绝已提交文件**——遗留场景目录、缺失文件、一个 header 类别包含多个 pin、重复的伴随文件内容、未擦除的提示文本或工具 schema、没有前置 `system/message` 的 `request/header`，以及格式错误的 pin header 都会在比较运行前使套件失败。
 - **会话收集需要原始 JSONL mode**——快照配置使用 JSONL 后端的 `compression: 'none'`；压缩 JSONL 没有快照收集路径。
 - **构建 mode 需要当前产物**——选择 `DSH_EXAMPLE_MODE=lib` 前先运行 `pnpm run build`；源 mode 仍是零构建路径。

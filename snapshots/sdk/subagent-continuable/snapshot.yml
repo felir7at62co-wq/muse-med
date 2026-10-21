@@ -1,6 +1,7 @@
 version: 1
 scenario: subagent-continuable
 profile: sdk
+writerOutput: true
 composition: subagent-durability-failure
 recording: authored
 header:

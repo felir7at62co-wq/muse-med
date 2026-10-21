@@ -32,6 +32,16 @@
   {
     "kind": "chunks",
     "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "tool-call" },
+      { "type": "tool-call-delta", "index": 0, "id": "call_goal_round_inspect", "name": "get_goal", "argumentsDelta": "{}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_goal_round_inspect", "name": "get_goal", "arguments": "{}" } },
+      { "type": "usage", "usage": { "inputTokens": 30, "outputTokens": 4 } },
+      { "type": "finish", "reason": { "kind": "tool-calls" } }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
       { "type": "block-start", "index": 0, "blockType": "text" },
       { "type": "text-delta", "index": 0, "text": "GOAL ROUND ONE" },
       { "type": "block-end", "index": 0, "block": { "type": "text", "text": "GOAL ROUND ONE" } },

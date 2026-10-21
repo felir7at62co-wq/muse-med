@@ -89,7 +89,7 @@ describe('same-session goal snapshot through the ACP automation driver', () => {
     const records = parseJsonl(log.content)
     const events = records.slice(1) as SessionEvent[]
     const calls = events.filter(event => event.type === 'tool/call').map(event => event.data.name)
-    expect(calls).toEqual(['create_goal', 'get_goal'])
+    expect(calls).toEqual(['create_goal', 'get_goal', 'get_goal'])
     const rounds = events.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'goal'
       && event.data.source.round > 0
       ? [event.data.source.round]

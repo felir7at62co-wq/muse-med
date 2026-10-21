@@ -286,6 +286,26 @@ describe('desktop external plugin profile', () => {
     expect(manifestBackups(manager.paths.profile)).toEqual(backups)
   })
 
+  it('retains both manifest versions when separate migrations happen in the same second', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const originals: string[] = []
+    const clock = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-10-21T12:00:00.000Z')
+    try {
+      for (const absent of ['dsh-codex-subscription', '@xmanrui/dsh-im']) {
+        writeBundles(manifestPath, BUILT_IN_BUNDLES.filter(name => name !== absent))
+        originals.push(readFileSync(manifestPath, 'utf8'))
+        await expect(manager.applyRelease()).resolves.toBe(false)
+      }
+    } finally {
+      clock.mockRestore()
+    }
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(2)
+    expect(backups.map(name => readFileSync(join(manager.paths.profile, name), 'utf8')).sort()).toEqual(originals.sort())
+  })
+
   it.each([false, true])('replaces the previous Feishu bundle without changing credentials or persisted sessions (external: %s)', async (external) => {
     const { root, manager } = setup()
     await manager.applyRelease()
@@ -294,6 +314,7 @@ describe('desktop external plugin profile', () => {
     if (external) {
       await manager.mutate({ type: 'plugin-add', spec: '@dsh-feishu/dsh-feishu@0.3.6' }, hooks())
     }
+    const previousBackups = manifestBackups(manager.paths.profile)
     const manifestPath = join(manager.paths.profile, 'package.json')
     writeBundles(manifestPath, [
       ...BUILT_IN_BUNDLES.filter(name => name !== '@xmanrui/dsh-im' && name !== 'dsh-codex-subscription'),
@@ -330,8 +351,9 @@ describe('desktop external plugin profile', () => {
     expect(readFileSync(sessionPath)).toEqual(sessionBytes)
     expect(readFileSync(mapPath, 'utf8')).toBe(map)
     const backups = manifestBackups(manager.paths.profile)
-    expect(backups).toHaveLength(1)
-    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(written)
+    const created = backups.filter(name => !previousBackups.includes(name))
+    expect(created).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, created[0]!), 'utf8')).toBe(written)
     await expect(manager.applyRelease()).resolves.toBe(false)
     expect(manifestBackups(manager.paths.profile)).toEqual(backups)
     expect(readFileSync(mapPath, 'utf8')).toBe(map)

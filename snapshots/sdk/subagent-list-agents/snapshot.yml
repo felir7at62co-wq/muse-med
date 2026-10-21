@@ -1,6 +1,7 @@
 version: 1
 scenario: subagent-list-agents
 profile: sdk
+writerOutput: true
 composition: default
 recording: authored
 header:

@@ -15,9 +15,9 @@ const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-unc
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
-// map applies to every test file. paths must win over package exports so built
+// map applies to TypeScript and JavaScript importers. paths must win over package exports so built
 // lib/ never loads a second module-singleton copy.
-const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
+const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'], loose: true })
 
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [

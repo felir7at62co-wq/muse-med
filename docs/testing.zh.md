@@ -46,7 +46,7 @@ Windows 覆盖率检查[验证 FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts)�
 
 ## 测试解析：仅限源码
 
-- 每个 vitest 配置都将 vite-tsconfig-paths 指向 `tsconfig.base.json`；工作区包的裸导入解析到 `src`（[布局](development.zh.md#typescript-project-layout)），绝不会经由包的 `exports` 解析到构建后的 `lib/`，因为其中的陈旧产物会加载第二份模块单例。构建产物只在显式指定时使用：以 `lib` 模式运行的子进程，以及下文的构建产物冒烟测试。
+- Vitest 通过 `tsconfig.base.json` 将工作区包的裸导入解析到 `src`；构建后的 `lib/` 可能重复加载模块单例（[布局](development.zh.md#typescript-project-layout)）。只有显式的 `lib` 子进程和构建产物冒烟测试使用产物。构建后快照直接加载仓库内的 JavaScript 插件时，需在根目录开发依赖中声明其 peer 包；这些声明不会启用插件。
 
 ## 测试子进程启动模式
 

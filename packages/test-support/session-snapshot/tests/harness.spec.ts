@@ -1001,6 +1001,8 @@ describe('runScenario', () => {
   })
 
   it.each([
+    { label: 'goal', step: { op: 'waitForGoalPhase', phase: 'blocked', timeoutMs: 20 },
+      expected: 'did not persist goal phase "blocked" within 20ms' },
     { label: 'session', step: { op: 'waitForTurnEnd', timeoutMs: 20 }, expected: 'did not persist turn/end within 20ms' },
     { label: 'child', step: { op: 'waitForSubagentTurnEnd', child: 2, timeoutMs: 20 },
       expected: 'subagent child #2 did not persist closed turn 1 within 20ms' },

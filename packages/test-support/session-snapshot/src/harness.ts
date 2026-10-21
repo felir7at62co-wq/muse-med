@@ -639,23 +639,26 @@ function hasClosedTurn(content: string, turn: number): boolean {
   })
 }
 
-/** Wait until the latest durable goal snapshot reaches one phase. */
+/** Wait for a durable goal phase; timeout errors retain the session, phase, deadline, and cause. */
 async function waitForPersistedGoalPhase(
   root: string,
   sessionId: string,
   phase: string,
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
-  await vi.waitFor(async () => {
-    const content = (await harvestSessionLogs(root)).find(log => log.id === sessionId)?.content
-    const matched = content?.split('\n').filter(Boolean).some((line) => {
-      const event = JSON.parse(line) as { type?: unknown; data?: { goal?: { phase?: unknown } } }
-      return event.type === 'goal/change' && event.data?.goal?.phase === phase
-    }) ?? false
-    if (!matched) {
-      throw new Error(`snapshot-harness: session "${sessionId}" did not persist goal phase "${phase}" within ${timeoutMs}ms`)
-    }
-  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  const message = `snapshot-harness: session "${sessionId}" did not persist goal phase "${phase}" within ${timeoutMs}ms`
+  try {
+    await vi.waitFor(async () => {
+      const content = (await harvestSessionLogs(root)).find(log => log.id === sessionId)?.content
+      const matched = content?.split('\n').filter(Boolean).some((line) => {
+        const event = JSON.parse(line) as { type?: unknown; data?: { goal?: { phase?: unknown } } }
+        return event.type === 'goal/change' && event.data?.goal?.phase === phase
+      }) ?? false
+      if (!matched) throw new Error(message)
+    }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  } catch (cause) {
+    throw new Error(message, { cause })
+  }
 }
 
 /**

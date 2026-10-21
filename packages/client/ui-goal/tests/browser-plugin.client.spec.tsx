@@ -337,8 +337,8 @@ describe('ui-goal browser plugin', () => {
 })
 
 describe('GoalDock adapter', () => {
-  it('renders the projected goal snapshot and nothing for absent/null', () => {
-    const projection = makeProjection()
+  it('renders the projected waiting goal and nothing for absent/null', () => {
+    const projection = { ...makeProjection(), wait: { sequence: 7, reason: 'input' as const, message: 'Waiting for input' } }
     const useProjection = vi.fn(() => projection)
     const useGoalActivation = (
       selector: (snapshot: GoalActivationSnapshot) => unknown,
@@ -354,6 +354,8 @@ describe('GoalDock adapter', () => {
       ({ useProjection: up, useGoalActivation, ...actions, t }) as unknown as Parameters<typeof GoalDock>[0]
     const shown = render(<GoalDock {...dockProps(useProjection)} />)
     expect(shown.getByText('Ship it')).toBeTruthy()
+    expect(shown.getByText('等待新情况')).toBeTruthy()
+    expect(shown.getByRole('button', { name: '恢复目标' })).toBeTruthy()
     cleanup()
 
     const empty = render(<GoalDock {...dockProps(() => null)} />)

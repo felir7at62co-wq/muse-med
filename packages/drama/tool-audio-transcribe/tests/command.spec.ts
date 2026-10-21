@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AudioAccount } from '../src/runner.ts'
-import { startAudioTranscription } from '../src/runner.ts'
+import { probeMediaDuration, startAudioTranscription } from '../src/runner.ts'
 
 const adapter = vi.hoisted(() => ({
   probe: "process.stdout.write('30');process.stderr.write('probe diagnostic')",
@@ -73,6 +73,13 @@ it('extracts through the configured media executables before submitting one rece
   const result = await startAudioTranscription(f.project, f.input, 'zh', f.account, f.config)
   expect(result.status).toBe('processing')
   expect(f.submissions).toEqual([result.job_id])
+})
+
+it.each(['0', '-1', 'NaN'])('rejects the invalid duration %s returned by the configured probe', async (duration) => {
+  const f = await fixture()
+  adapter.probe = `process.stdout.write(${JSON.stringify(duration)})`
+  await expect(probeMediaDuration(f.input, f.config)).rejects.toThrow('Invalid media duration')
+  expect(f.submissions).toEqual([])
 })
 
 it('extracts each long-media range through the configured executable before submitting durable parts', async () => {

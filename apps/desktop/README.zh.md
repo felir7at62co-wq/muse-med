@@ -10,7 +10,7 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本；关于和崩溃报告显示 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本。“关于”只显示 Muse 产品版本和源码提交；崩溃报告仍保留 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
@@ -116,6 +116,8 @@ Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；�
 
 用户尚未保存其他通道时，Muse 的资产图默认使用 KU_AI。Agent 先检查整批提示词、参考图、身份、对账证据及预计费用，再让剧变并行提交生图；每项保留独立幂等键、预算判定、回读及视觉审核。Agent 核对实时价格后，可在已授权范围内为单次调用选择 DUO_YUAN_TAN_SUO 作为备用通道；收费任务仍在处理或结果未知时，必须先对账，再换通道或 key。随包的技能与 MCP 面板出现在 Web 侧栏，管理当前 profile 的配置。根 Agent 完成一轮任务或调用 ask_user_question 时，受信任的主应用文档直接合成两声短提示音，不再调用操作系统的蜂鸣接口。新提示替换旧提示；文档更换会取消播放，不补播错过的提示。提示仅发送给主应用文档及其查询和哈希路由，其他随包文档不接收。IPC 发送和音频错误会写入日志，不打断 Host 任务；系统静音及输出设置仍然生效。短剧任务完成时逐集交付已核验的成片和对应的剪映可编辑草稿。
 
+当没有 Muse 窗口获得焦点时，根 Agent 的一个轮次完成后还会请求无声的原生通知，主窗口隐藏或最小化时同样适用。前台完成任务和提问提示不弹通知。点击通知会返回 Muse，但不切换到其他会话；通知不会自动唤起窗口。只保留最新一条通知。回到前台、更换所属文档、销毁窗口、渲染进程失败、Host 停止或更换以及应用退出都会清理通知；不回放历史或错过的事件。通知使用当前壳语言，不包含任务内容。Windows 使用安装包的应用 ID；操作系统支持、通知权限和勿扰模式可能抑制横幅。
+
 本地启动页提供启动状态和可用恢复操作；加载后的 dsh 渲染进程仅接收桌面协议标记。独立插件窗口接收结构化的列表、安装、删除、更新和更新检查操作；两个渲染进程都无法访问文件系统、原始 Electron IPC、shell 或任意 pnpm 参数。
 
 应用 preload 只向 `dsh-app://app` 文档暴露启动就绪、致命启动失败上报、原生目录选择、用于 composer 路径引用的 `__DSH_HOST_PATHS__` 桥接和租约范围内的 Browser 桥接。产品页面还获得含 `productName: muse-med` 的 Desktop 标记、更新展示数据和打开原生确认的操作，不能选择安装产物或授权安装。Muse 产品标记使设置仅显示 MUSE 账号入口，隐藏 DeepSeek 账号与余额入口。插件管理使用 Web 应用经过认证的 HTTP API；独立插件窗口是唯一额外的管理文档。Electron 在 `dsh-app://shell/` 本地提供该窗口文档、更新弹窗文档和资源，不依赖 Host 就绪。任何渲染进程都不会获得文件系统访问、原始 Electron IPC、shell 或任意 pnpm 参数。
@@ -144,7 +146,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
 应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 

@@ -371,13 +371,15 @@ function sharedHygieneGates(): Gate[] {
 }
 
 function ciPrimaryGates(): Gate[] {
+  const coverage = coverageGates()
   return [
     ...ciSharedStaticGates(),
     typertContractsGate(),
     pnpmScript('typecheck', 'typecheck:contracts-ready', { needs: ['typert-contracts'] }),
     lintGate({ needs: ['typert-contracts'] }),
     pnpmScript('duplication', 'duplication'),
-    ...coverageGates(),
+    ...coverage,
+    ...coverage.some(gate => gate.id === 'electron-install') ? [] : [electronInstallGate()],
     ...nodeCompatSmokeGates(),
     snapshotGate(),
     ...docSyncLeafGates({
@@ -495,6 +497,7 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
 function ciArtifactGates(): Gate[] {
   return [
     ciBuildGate(),
+    electronInstallGate(),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -520,6 +523,7 @@ function ciConsumerGates(): Gate[] {
   ]
   return [
     ciBuildGate(),
+    electronInstallGate(),
     pnpmScript('node-compat', 'check:node-compat', {
       label: 'Node compatibility',
       env: { [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
@@ -540,7 +544,7 @@ function ciConsumerGates(): Gate[] {
       label: 'node-next types',
       needs: builtTree,
     }),
-    builtBinSmokeGate(builtTree),
+    builtBinSmokeGate([...builtTree, 'electron-install']),
   ]
 }
 
@@ -861,7 +865,7 @@ function docQuickLeafGates(): Gate[] {
   return docSyncLeafGates({ includeDocTypecheck: false }).filter(gate => gate.quick === true)
 }
 
-function builtBinSmokeGate(needs: string[] = ['build']): Gate {
+function builtBinSmokeGate(needs: string[] = ['build', 'electron-install']): Gate {
   return pnpmExec('built-bin-smoke', [
     'vitest',
     'run',
@@ -872,6 +876,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'apps/cli/tests/built-bin.e2e.ts',
     'apps/desktop/tests/acl-skill.built.e2e.ts',
     'apps/desktop/tests/attention-audio.e2e.ts',
+    'apps/desktop/tests/completion-notice.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/sdk/server/tests/built-scope-carrier.e2e.ts',
     'packages/deliverables/tool-present/tests/built-errors.e2e.ts',
