@@ -533,6 +533,7 @@ Ordinary update HTTP requests have a per-connection inactivity deadline: no resp
 On Windows with workspace dependencies installed, run this command from the repository root:
 
 ```sh
+pnpm run build
 node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:updates:local
 ```
 

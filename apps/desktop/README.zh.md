@@ -537,6 +537,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 在已安装工作区依赖的 Windows 上，从仓库根目录运行：
 
 ```sh
+pnpm run build
 node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:updates:local
 ```
 

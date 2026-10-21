@@ -91,7 +91,9 @@ jobs:
         run: pnpm --dir apps/desktop run test:installer
       - name: Check real Electron update download and confirmation UI
         if: matrix.target == 'win-x64' && github.event_name == 'workflow_dispatch'
-        run: pnpm --dir apps/desktop run test:updates:local
+        run: |
+          pnpm run build
+          pnpm --dir apps/desktop run test:updates:local
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
       - name: Check bundled Host integrations against built dependencies
