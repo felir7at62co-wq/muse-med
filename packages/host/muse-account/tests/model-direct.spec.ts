@@ -2,8 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { streamWithModelLease } from '../src/model-direct.ts'
+import { safeMuseModelStream } from '../src/model-errors.ts'
 import { writeMuseSession, readMuseSession } from '../src/session.ts'
 
 let root: string
@@ -48,12 +50,172 @@ it('keeps content out of admission, acquires once, returns supplier chunks and r
   expect(JSON.stringify(chunks)).not.toContain('temporary.signed.token')
 })
 
-it.each([401, 429, 503])('never contacts the supplier when admission returns %i', async (status) => {
+it.each([
+  [400, 'INVALID_REQUEST'], [401, 'AUTH'], [403, 'AUTH'], [404, 'INVALID_REQUEST'],
+  [429, 'RATE_LIMIT'], [500, 'SERVER'], [503, 'SERVER'],
+] as const)('never contacts the supplier when admission returns %i (%s)', async (status, code) => {
   let calls = 0
   const fetcher: typeof fetch = async () => { calls++; return new Response('', { status }) }
   await expect(drain(streamWithModelLease({ baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test',
-    new AbortController().signal, () => { throw new Error('Supplier must not start') }))).rejects.toMatchObject({ code: status === 401 ? 'AUTH' : 'RATE_LIMIT' })
+    new AbortController().signal, () => { throw new Error('Supplier must not start') }))).rejects.toMatchObject({ code })
   expect(calls).toBe(1)
+})
+
+it.each([
+  ['fetch failure', 'MODEL_ACCESS_UNCERTAIN'],
+  ['body failure', 'MODEL_ACCESS_UNCERTAIN'],
+  ['uncancelled AbortError', 'MODEL_ACCESS_UNCERTAIN'],
+  ['fetch cancellation', 'ABORTED'],
+  ['body cancellation', 'ABORTED'],
+  ['invalid JSON', 'INVALID_CONFIG'],
+])('keeps %s admission failures safe and outside default retry', async (kind, code) => {
+  const secret = 'synthetic-secret https://supplier.test/private Cookie=synthetic-cookie'
+  const upstream = new Error(secret, { cause: new Error(secret) })
+  if (kind === 'uncancelled AbortError') upstream.name = 'AbortError'
+  const controller = new AbortController()
+  const supplier = vi.fn(finished)
+  const fetcher = vi.fn<typeof fetch>(async () => {
+    if (kind === 'fetch cancellation') controller.abort(upstream)
+    if (kind === 'fetch failure' || kind === 'fetch cancellation' || kind === 'uncancelled AbortError') throw upstream
+    if (kind === 'invalid JSON') return new Response(secret)
+    const response = Response.json(lease())
+    vi.spyOn(response, 'text').mockImplementation(async () => {
+      if (kind === 'body cancellation') controller.abort(upstream)
+      throw upstream
+    })
+    return response
+  })
+  const pending = drain(safeMuseModelStream(() => streamWithModelLease(
+    { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', controller.signal, supplier,
+  )))
+  await expect(pending).rejects.toMatchObject({ code, failure: { code } })
+  await expect(pending).rejects.not.toHaveProperty('cause')
+  const failure: unknown = await pending.catch((error: unknown) => error)
+  expect(failure).toBeInstanceOf(LlmError)
+  if (!(failure instanceof LlmError)) throw new Error('Expected a safe model failure')
+  expect(failure.message).not.toContain('synthetic')
+  expect(failure.message).not.toContain('supplier.test')
+  expect(JSON.stringify(failure)).not.toContain('synthetic')
+  expect(JSON.stringify(failure)).not.toContain('supplier.test')
+  const policy = resolveRetryPolicy(undefined, 'fixture')
+  expect(policy.mode).toBe('normal')
+  if (policy.mode !== 'normal') throw new Error('Expected the default retry policy')
+  expect(policy.retryableCodes).not.toContain(failure.code)
+  expect(supplier).not.toHaveBeenCalled()
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  [400, 'INVALID_REQUEST'], [401, 'AUTH'], [403, 'AUTH'], [429, 'RATE_LIMIT'], [503, 'SERVER'],
+] as const)('preserves safe HTTP facts for admission %i (%s)', async (status, code) => {
+  const secret = 'synthetic-secret https://supplier.test/private Cookie=synthetic-cookie'
+  const supplier = vi.fn(finished)
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(secret, {
+    status, headers: { 'retry-after': '2', 'x-request-id': 'synthetic-request' },
+  }))
+  const pending = drain(safeMuseModelStream(() => streamWithModelLease(
+    { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal, supplier,
+  )))
+  await expect(pending).rejects.toMatchObject({ code, failure: { code, status, providerRetryAfterMs: 2000 } })
+  await expect(pending).rejects.not.toHaveProperty('cause')
+  const failure: unknown = await pending.catch((error: unknown) => error)
+  expect(failure).toBeInstanceOf(LlmError)
+  if (!(failure instanceof LlmError)) throw new Error('Expected a safe model failure')
+  expect(failure.message).not.toContain('synthetic')
+  expect(failure.message).not.toContain('supplier.test')
+  expect(JSON.stringify(failure)).not.toContain('synthetic')
+  expect(JSON.stringify(failure)).not.toContain('supplier.test')
+  expect(failure.failure).not.toHaveProperty('requestId')
+  expect(supplier).not.toHaveBeenCalled()
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it.each(['0', '-1', 'Infinity', 'synthetic-secret', 'Sat, 01 Jan 2000 00:00:00 GMT'])(
+  'omits an invalid or expired admission Retry-After value %s', async (retryAfter) => {
+    const fetcher: typeof fetch = async () => new Response('', { status: 429, headers: { 'retry-after': retryAfter } })
+    const pending = drain(safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal, finished,
+    )))
+    await expect(pending).rejects.toMatchObject({ code: 'RATE_LIMIT', failure: { status: 429 } })
+    await expect(pending).rejects.not.toHaveProperty('failure.providerRetryAfterMs')
+  },
+)
+
+it('preserves a future admission Retry-After date as a positive delay', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(new Date('2026-10-21T00:00:00Z'))
+    const fetcher: typeof fetch = async () => new Response('', {
+      status: 503, headers: { 'retry-after': 'Wed, 21 Oct 2026 00:00:03 GMT' },
+    })
+    await expect(drain(safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal, finished,
+    )))).rejects.toMatchObject({ code: 'SERVER', failure: { status: 503, providerRetryAfterMs: 3000 } })
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['empty', 'cancelled', 'cleanup failure'])('preserves HTTP rejection after %s body cleanup', async (kind) => {
+  const response = new Response(kind === 'empty' ? null : 'unread', { status: 403 })
+  const cancel = response.body && vi.spyOn(response.body, 'cancel')
+  if (kind === 'cleanup failure') cancel?.mockRejectedValue(new Error('synthetic-cleanup-secret'))
+  const fetcher: typeof fetch = async () => response
+  await expect(drain(safeMuseModelStream(() => streamWithModelLease(
+    { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal, finished,
+  )))).rejects.toMatchObject({ code: 'AUTH', failure: { status: 403 } })
+  if (cancel) expect(cancel).toHaveBeenCalledTimes(1)
+})
+
+it.each(['caller', 'deadline'])('releases known access before dispatch after %s cancellation', async (kind) => {
+  const controller = new AbortController()
+  const timeout = kind === 'deadline'
+    ? vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(AbortSignal.abort(new DOMException('expired', 'TimeoutError')))
+    : undefined
+  const calls: string[] = []
+  const supplier = vi.fn(finished)
+  const fetcher: typeof fetch = async (_url, init) => {
+    calls.push(String(init?.method))
+    if (init?.method === 'POST' && kind === 'caller') controller.abort(new Error('synthetic-cancellation-secret'))
+    return Response.json(init?.method === 'POST' ? lease() : {})
+  }
+  try {
+    await expect(drain(safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', controller.signal, supplier,
+    )))).rejects.toMatchObject({ code: kind === 'caller' ? 'ABORTED' : 'UNKNOWN' })
+    const policy = resolveRetryPolicy(undefined, 'fixture')
+    expect(policy.mode).toBe('normal')
+    if (policy.mode !== 'normal') throw new Error('Expected the default retry policy')
+    expect(policy.retryableCodes).not.toContain(kind === 'caller' ? 'ABORTED' : 'UNKNOWN')
+    expect(calls).toEqual(['POST', 'DELETE'])
+    expect(supplier).not.toHaveBeenCalled()
+  } finally { timeout?.mockRestore() }
+})
+
+it('keeps an unclassified supplier failure outside default retry after admission succeeds', async () => {
+  const calls: string[] = []
+  const fetcher: typeof fetch = async (_url, init) => {
+    calls.push(String(init?.method)); return Response.json(init?.method === 'POST' ? lease() : {})
+  }
+  const supplier = vi.fn(async function* (): AsyncGenerator<StreamChunk> {
+    yield { type: 'text-delta', index: 0, text: 'Partial result' }
+    throw new Error('synthetic-secret https://supplier.test/private Cookie=synthetic-cookie')
+  })
+  const chunks: StreamChunk[] = []
+  const pending = (async () => {
+    for await (const chunk of safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal, supplier,
+    ))) chunks.push(chunk)
+  })()
+  await expect(pending).rejects.toMatchObject({ code: 'UNKNOWN', failure: { code: 'UNKNOWN' } })
+  await expect(pending).rejects.not.toHaveProperty('cause')
+  const failure: unknown = await pending.catch((error: unknown) => error)
+  expect(JSON.stringify(failure)).not.toContain('synthetic')
+  const policy = resolveRetryPolicy(undefined, 'fixture')
+  expect(policy.mode).toBe('normal')
+  if (policy.mode !== 'normal') throw new Error('Expected the default retry policy')
+  expect(policy.retryableCodes).not.toContain('UNKNOWN')
+  expect(chunks).toEqual([{ type: 'text-delta', index: 0, text: 'Partial result' }])
+  expect(supplier).toHaveBeenCalledTimes(1)
+  expect(calls).toEqual(['POST', 'DELETE'])
 })
 
 it.each(['bad', 'oversized', 'private', 'invalid', 'missing'])('rejects %s credentials without starting the supplier', async (kind) => {
@@ -70,7 +232,7 @@ it('does not acquire for a stale login or a previously cancelled request', async
   const options = { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }
   await expect(drain(streamWithModelLease({ ...options, revision: 'stale' }, 'glm-test', new AbortController().signal, finished))).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
   const controller = new AbortController(); controller.abort(Error('cancelled'))
-  await expect(drain(streamWithModelLease(options, 'glm-test', controller.signal, finished))).rejects.toThrow('cancelled')
+  await expect(drain(streamWithModelLease(options, 'glm-test', controller.signal, finished))).rejects.toMatchObject({ code: 'ABORTED' })
 })
 
 it('releases without dispatch when login changes while admission is pending', async () => {

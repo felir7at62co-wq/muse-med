@@ -1,6 +1,7 @@
 /** Real account login, selected catalog and recorded HTTP model messages for a shipped profile. */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,6 +51,9 @@ export async function apply(ctx) {
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
   const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
   const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
+  const admissionFailure = process.env.DSH_SNAPSHOT_ADMISSION_FAILURE
+  assert.ok(admissionFailure === undefined || admissionFailure === 'disconnect')
+  assert.ok(!admissionFailure || leasedZhipu && !refusal)
   assert.ok(!leasedZhipu || pooledZhipu)
   assert.ok(!officialGlm || direct)
   assert.ok(!pooledZhipu || direct && officialGlm)
@@ -81,8 +85,10 @@ export async function apply(ctx) {
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
-  assert.equal(script.length, refusal ? 0 : 2)
+  assert.equal(script.length, refusal || admissionFailure ? 0 : 2)
   const requests = []
+  let admissionSubmissions = 0
+  let supplierSubmissions = 0
   let baseUrl
   let rejected
   let defaultSelectionConflict
@@ -128,6 +134,8 @@ export async function apply(ctx) {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
           assert.equal(request.headers['x-muse-zhipu-direct'], 'leased-v1')
           assert.deepEqual(JSON.parse(body), { model: selectedModel.model })
+          admissionSubmissions++
+          if (admissionFailure === 'disconnect') { request.socket.destroy(); return }
           response.writeHead(200, { 'content-type': 'application/json' })
           response.end(JSON.stringify({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9',
             baseURL: `${baseUrl}/supplier/zhipu-official`, apiKey: 'supplier-fixture-zhipu-official',
@@ -138,6 +146,7 @@ export async function apply(ctx) {
           response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"released":true}'); return
         }
         if (request.url === completionPath) {
+          supplierSubmissions++
           const payload = JSON.parse(body)
           assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
           if (directCompletion) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
@@ -303,7 +312,36 @@ export async function apply(ctx) {
         ...(preservesNewerDefault ? { defaultSelectionConflict } : {}) }) }]
     },
   })))
+  if (admissionFailure) {
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'turn/end') return
+      if (rejected) throw rejected
+      assert.equal(requests.length, 0)
+      assert.equal(admissionSubmissions, 1)
+      assert.equal(supplierSubmissions, 0)
+      const events = session.snapshotEvents()
+      const retryEvents = events.filter(event => event.type === 'llm/retry').length
+      assert.equal(retryEvents, 0)
+      const attempts = events.filter(event => event.type === 'assistant/attempt')
+      assert.equal(attempts.length, 1)
+      const finish = attempts[0].data.stream.find(entry => entry.type === 'chunk' && entry.chunk.type === 'finish')
+      assert.deepEqual(finish?.chunk.reason, { kind: 'error', failure: {
+        code: 'MODEL_ACCESS_UNCERTAIN',
+        message: 'Muse model access could not be confirmed. Please retry later or contact the Muse administrator.',
+      } })
+      assert.deepEqual(event.data.reason, { kind: 'error', error: finish.chunk.reason.failure })
+      const serialized = JSON.stringify(events)
+      for (const secret of ['snapshot-session', 's'.repeat(43), 'fixture-password', 'supplier-fixture-']) {
+        assert.ok(!serialized.includes(secret))
+      }
+      writeFileSync(join(process.cwd(), 'admission-observation.json'), JSON.stringify({
+        admissionSubmissions, supplierSubmissions, retryEvents,
+        failureCode: finish.chunk.reason.failure.code,
+      }, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    })
+  }
   ctx.on('agent/turn-stopping', async ({ agent }) => {
+    if (admissionFailure) return
     if (rejected) throw rejected
     assert.equal(requests.length, refusal ? 6 : 2)
     const config = agent.session.requestHeader()?.config
