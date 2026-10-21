@@ -113,6 +113,9 @@
       "name": "x264",
       "release": "0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee",
       "kind": "git",
+      "mirrors": [
+        "https://github.com/mirror/x264.git"
+      ],
       "source": {
         "filename": "x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar",
         "url": "https://code.videolan.org/videolan/x264.git",

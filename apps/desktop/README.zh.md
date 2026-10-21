@@ -71,7 +71,7 @@ Windows 签名打包按 PE 文件内容扫描第一方运行时和应用生产�
 
 Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
 
-Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译哈希锁定的 FFmpeg、x264、libass、FreeType、HarfBuzz 和 FriBidi 源码，静态链接这些外部库并启用 GPL；nonfree、version3 和外部依赖自动发现仍禁用。CoreText 提供系统字体发现，PNG 核查使用 macOS 系统 zlib。准备和复用拒绝 Apple 系统库以外的动态依赖，要求 `/usr/lib/libz.1.dylib`，并验证 H264/AAC 编码、可见的 SRT/ASS 字幕像素、PNG 缩放、源时间戳和完整 PNG 解码。缓存身份包含源码锁、依赖构建配方和目标配置；复用时核对两个可执行文件的哈希、保留的全部依赖源码和许可声明，以及保留的构建配方。可执行文件随附对应源码归档、构建脚本和许可声明。CMake 仅为构建机器所需。[Mac 制作检查](scripts/smoke-macos-creation.py)另用指定的中文字体执行生产 Python 渲染器，完整解码产物、核对字幕时间与像素，并读回可编辑草稿的媒体和轨道；它不打开剪映，也不验证原生导出。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
+Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译哈希锁定的 FFmpeg、x264、libass、FreeType、HarfBuzz 和 FriBidi 源码，静态链接这些外部库并启用 GPL；nonfree、version3 和外部依赖自动发现仍禁用。x264 网络获取失败时可以使用锁中声明的 GitHub 镜像；两条入口都必须匹配同一提交、归档大小和 SHA-256，其他失败仍报错。CoreText 提供系统字体发现，PNG 核查使用 macOS 系统 zlib。准备和复用拒绝 Apple 系统库以外的动态依赖，要求 `/usr/lib/libz.1.dylib`，并验证 H264/AAC 编码、可见的 SRT/ASS 字幕像素、PNG 缩放、源时间戳和完整 PNG 解码。缓存身份包含源码锁、依赖构建配方和目标配置；复用时核对两个可执行文件的哈希、保留的全部依赖源码和许可声明，以及保留的构建配方。可执行文件随附对应源码归档、构建脚本和许可声明。CMake 仅为构建机器所需。[Mac 制作检查](scripts/smoke-macos-creation.py)另用指定的中文字体执行生产 Python 渲染器，完整解码产物、核对字幕时间与像素，并读回可编辑草稿的媒体和轨道；它不打开剪映，也不验证原生导出。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
 
 Desktop Main 与 Host 使用私有协议 6，在 Host 就绪消息及运行时描述中核对。浏览器服务版本 4 提供 `data(agent, selection, signal)`，并要求 `download(agent, url, signal, maxDownloadBytes, nativeTimeoutMs)`。内置插件在 IPC 前拒绝版本 2 和 3；应用与插件必须配套更新。数据观察读取确切作品的有界详情 GET 响应或当前公开页的初始数据；Creator 观察仅读取正常本人作品列表 GET 响应。它返回带精度及不可用原因的公开计数、独立评论分页；响应正文、认证字段、媒体地址与作者标识留在私有进程内。缺失的公开播放量与零占位值均标为不可用。Creator 结果要求字符串作品 ID、同一位置的修改权限和统计中的作品 ID 一致。未核验的归属和不可用评论分页返回明确诊断。会话切换、导航、取消及 Host 关闭会等待未完成的响应读取结束后再返回。数据观察与下载不能同时占用浏览器通道。配套应用及插件的安装见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-douyin-internal-browser/guide.zh.md)。
 
@@ -296,7 +296,7 @@ pnpm run package:desktop:win:x64:unsigned -- --from S7
 pnpm run package:desktop:win:x64:unsigned -- --only S12
 ```
 
-`release:pack` 步骤只重打发生变化的部分。每个成员的 tarball 都记录在它旁边的 `release-pack-<family>.json` 中，其中含有对 `pnpm pack` 读取的文件、包管理器，以及它依赖的每个同族包输入摘要一起算出的内容摘要，因此由新内容打出的依赖会使其消费方失效，即使消费方自己的文件没有移动。判定读取的是字节而不是时间戳；记录中的输入未覆盖其打包载荷的成员每次运行都会重打，而不会被复用。
+`release:pack` 步骤只重打发生变化的部分。发布和 Desktop 包集合读取器使用维护中的 Node tar 解析器验证完整 npm 归档，包括 UTF-8 PAX 文件名，并要求唯一的普通文件 `package/package.json`；损坏、重复或不安全的成员会直接失败，不依赖主机 tar 的语言环境。每个成员的 tarball 都记录在它旁边的 `release-pack-<family>.json` 中，其中含有对 `pnpm pack` 读取的文件、包管理器，以及它依赖的每个同族包输入摘要一起算出的内容摘要，因此由新内容打出的依赖会使其消费方失效，即使消费方自己的文件没有移动。判定读取的是字节而不是时间戳；记录中的输入未覆盖其打包载荷的成员每次运行都会重打，而不会被复用。
 
 ### 运行时文件筛选
 

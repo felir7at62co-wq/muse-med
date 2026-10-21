@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { t as listTar } from 'tar'
 
@@ -31,6 +32,16 @@ test('packs every owned tool through pnpm without modifying source or exposing l
     assert.deepEqual(readdirSync(output).sort(), Object.entries(pins).map(([name, pin]) => `${name}-${pin.version}.tgz`).sort())
     for (const [name, pin] of Object.entries(pins)) {
       const archive = join(output, `${name}-${pin.version}.tgz`)
+      const reader = pathToFileURL(join(repository, 'scripts/release/tarball.ts')).href
+      const qualification = spawnSync(process.execPath, ['--import', 'tsx/esm', '--input-type=module', '-e',
+        `import assert from 'node:assert/strict'; import { packedManifest, tarballFiles } from ${JSON.stringify(reader)};
+        const archive = process.argv[1]; assert.equal(packedManifest(archive).name, process.argv[2]);
+        assert.ok(tarballFiles(archive).includes('package/package.json'));`, archive, name],
+      { cwd: repository, encoding: 'utf8', timeout: 30000,
+        env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'PATH')), PATH: '' } })
+      assert.equal(qualification.error, undefined)
+      assert.equal(qualification.signal, null)
+      assert.equal(qualification.status, 0, qualification.stdout + qualification.stderr)
       const entries = new Map()
       await listTar({ file: archive, onReadEntry(entry) {
         assert.equal(entries.has(entry.path), false, `Duplicate archive member: ${entry.path}`)

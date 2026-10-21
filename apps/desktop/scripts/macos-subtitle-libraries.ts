@@ -16,6 +16,7 @@ interface SubtitleLibrary {
   release: string
   kind: 'archive' | 'git'
   source: MediaResource
+  mirrors?: string[]
   notices: SubtitleNotice[]
 }
 interface MacSubtitleLock { version: 1; recipeVersion: 1; libraries: SubtitleLibrary[] }
@@ -48,6 +49,8 @@ export function validateMacSubtitleLock(value: unknown): MacSubtitleLock {
         || source.filename !== `x264-${library.release}.tar`
         || source.url !== 'https://code.videolan.org/videolan/x264.git')
         throw new Error('Mac subtitles: invalid official x264 source')
+      if (!Array.isArray(library.mirrors) || library.mirrors.length !== 1
+        || library.mirrors[0] !== 'https://github.com/mirror/x264.git') throw new Error('Mac subtitles: invalid x264 mirror')
     } else {
       const filename = `${library.name}-${library.release}.tar.xz`
       const tag = library.name === 'fribidi' ? `v${library.release}`
@@ -56,7 +59,7 @@ export function validateMacSubtitleLock(value: unknown): MacSubtitleLock {
         ? `https://download.savannah.gnu.org/releases/freetype/${filename}`
         : `https://github.com/${library.name}/${library.name}/releases/download/${tag}/${filename}`
       if (library.kind !== 'archive' || !/^\d+\.\d+\.\d+$/u.test(library.release)
-        || source.filename !== filename || source.url !== url)
+        || source.filename !== filename || source.url !== url || library.mirrors !== undefined)
         throw new Error('Mac subtitles: invalid official archive')
     }
     if (!Array.isArray(library.notices) || library.notices.length === 0)
@@ -112,6 +115,34 @@ async function run(binary: string, args: string[], cwd: string, env: NodeJS.Proc
   })
 }
 
+class SourceFetchFailure extends Error {
+  constructor(readonly networkFailure: boolean, code: number | null, signal: NodeJS.Signals | null) {
+    super(`Mac subtitles: git source fetch failed (exit ${String(code)}, signal ${String(signal)})`)
+  }
+}
+
+async function fetchSource(url: string, commit: string, cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  console.info(`Mac subtitles: fetching x264 ${commit} from ${url}`)
+  await new Promise<void>((accept, reject) => {
+    const child = spawn('/usr/bin/git', ['-c', 'credential.helper=', 'fetch', '--quiet', '--depth=1', url, commit],
+      { cwd, env, stdio: ['ignore', 'inherit', 'pipe'] })
+    let diagnostic = ''
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => { diagnostic = (diagnostic + chunk).slice(-8192); process.stderr.write(chunk) })
+    child.once('error', reject)
+    child.once('close', (code, signal) => {
+      if (code === 0 && signal === null) { accept(); return }
+      const networkFailure = signal === null && [
+        /could not resolve (?:host|proxy)|failed to connect|could(?:n't| not) connect/iu,
+        /connection (?:timed out|reset|was reset)|network is unreachable/iu,
+        /ssl(?:_| )connect error|ssl_error_syscall|gnutls (?:recv|handshake) error|tls connect error/iu,
+        /requested url returned error: 5\d\d/iu,
+      ].some(pattern => pattern.test(diagnostic))
+      reject(new SourceFetchFailure(networkFailure, code, signal))
+    })
+  })
+}
+
 async function findCmake(): Promise<string> {
   const configured = process.env.MUSE_MEDIA_CMAKE
   if (configured !== undefined && !isAbsolute(configured)) throw new Error('MUSE_MEDIA_CMAKE must be an absolute path')
@@ -128,7 +159,14 @@ async function findCmake(): Promise<string> {
   throw new Error('Mac subtitles: CMake is required on the build machine; set MUSE_MEDIA_CMAKE to its absolute path')
 }
 
-async function obtainSource(library: SubtitleLibrary, cache: string, env: NodeJS.ProcessEnv): Promise<string> {
+/**
+ * Acquire one locked source, allowing only declared x264 mirrors after a primary network failure.
+ * @param library - Source and mirrors from the validated lock.
+ * @param cache - Directory holding immutable verified source archives.
+ * @param env - Scrubbed compiler environment with Git user configuration disabled.
+ * @returns The cached archive after its original size and SHA-256 pass, regardless of transport.
+ */
+export async function obtainMacSubtitleSource(library: SubtitleLibrary, cache: string, env: NodeJS.ProcessEnv): Promise<string> {
   if (library.kind === 'archive') return obtain(library.source, cache)
   const source = join(cache, library.source.filename)
   try { await access(source) } catch (error) {
@@ -137,7 +175,12 @@ async function obtainSource(library: SubtitleLibrary, cache: string, env: NodeJS
     const archive = join(temporary, library.source.filename)
     try {
       await run('/usr/bin/git', ['init', '--template=', '--quiet'], temporary, env)
-      await run('/usr/bin/git', ['-c', 'credential.helper=', 'fetch', '--quiet', '--depth=1', library.source.url, library.release], temporary, env)
+      try { await fetchSource(library.source.url, library.release, temporary, env) }
+      catch (error) {
+        if (!(error instanceof SourceFetchFailure) || !error.networkFailure || library.mirrors?.length !== 1) throw error
+        console.info('Mac subtitles: primary x264 network fetch failed; using the locked GitHub mirror')
+        await fetchSource(library.mirrors[0]!, library.release, temporary, env)
+      }
       await run('/usr/bin/git', ['-c', 'tar.umask=0002', '-c', 'core.attributesFile=/dev/null',
         'archive', '--format=tar', `--prefix=x264-${library.release}/`, `--output=${archive}`, 'FETCH_HEAD'], temporary, env)
       await verifyMediaResource(archive, library.source)
@@ -186,7 +229,7 @@ export async function prepareMacSubtitleLibraries(stage: string, cache: string, 
   const notices: Array<{ name: string; path: string }> = []
   const builds = new Map<LibraryName, string>()
   for (const library of lock.libraries) {
-    const source = await obtainSource(library, resolve(cache), hostEnv)
+    const source = await obtainMacSubtitleSource(library, resolve(cache), hostEnv)
     const build = join(base, library.name)
     await mkdir(build)
     await run('/usr/bin/tar', ['-xf', source, '--strip-components=1', '-C', build], base, hostEnv)

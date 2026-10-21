@@ -46,7 +46,7 @@ describe('release process helpers', () => {
 
 describe('release tarball readers', () => {
   it('lists members of an archive under an absolute path', async () => {
-    // GNU tar reads the colon in a Windows drive path as a remote host, so the readers run beside the archive.
+    // Windows drive paths stay filesystem paths when the archive reader opens the file directly.
     const archive = await packedTarball('@deepseek-ai/dsh-probe', '1.2.3')
     expect(tarballFiles(archive)).toEqual(expect.arrayContaining(['package/package.json', 'package/index.js']))
   })
