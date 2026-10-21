@@ -872,6 +872,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'apps/cli/tests/built-bin.e2e.ts',
     'apps/desktop/tests/acl-skill.built.e2e.ts',
     'apps/desktop/tests/attention-audio.e2e.ts',
+    'apps/desktop/tests/completion-notice.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/sdk/server/tests/built-scope-carrier.e2e.ts',
     'packages/deliverables/tool-present/tests/built-errors.e2e.ts',

@@ -1,0 +1,13 @@
+evidence=built-controller-real-electron-windows-fake-os-notification
+foreground=not-notified
+other-window-focused=not-notified
+visible-inactive=silent-without-focus
+hidden=silent-without-show
+hidden-click=returned-to-muse
+minimized=silent-without-restore
+minimized-click=restored-and-focused
+replacement=one-owner-stale-click-ignored
+notification-center=click-returns-once
+reload=cleared-without-replay
+disposed=no-notice-or-callback
+cleanup=all-owned-listeners-released

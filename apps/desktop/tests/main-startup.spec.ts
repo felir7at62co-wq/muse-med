@@ -181,6 +181,7 @@ const harness = await vi.hoisted(async () => {
     getVersion: () => '1.0.0',
     getAppPath: (): string => appRoot,
     setAppLogsPath: vi.fn(),
+    setAppUserModelId: vi.fn(),
     getPath: vi.fn<(name: string) => string>(),
     setAboutPanelOptions: vi.fn<(options: Electron.AboutPanelOptionsOptions) => void>(),
     setName: (name: string) => { calls.push(`setName:${name}`) },

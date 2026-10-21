@@ -13,6 +13,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  Notification,
   powerMonitor,
   nativeImage,
   nativeTheme,
@@ -62,6 +63,7 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
+import { DesktopCompletionNotice } from './completion-notice.ts'
 import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 
@@ -425,6 +427,21 @@ async function main(): Promise<void> {
   let updateState: DesktopUpdateState = { phase: 'idle' }
   const systemLanguages = app.getPreferredSystemLanguages()
   let locale = resolveDesktopStartupLocale(null, systemLanguages)
+  const completionNotice = new DesktopCompletionNotice(() => locale, () => {
+    if (!quitting && !shuttingDown && !sessionEnding && !shellInstallerOwnsQuit) focusPrimaryWindow()
+  }, {
+    isSupported: () => Notification.isSupported(),
+    isForeground: () => {
+      const focused = BrowserWindow.getFocusedWindow()
+      return focused !== null && !focused.isDestroyed() && focused.isVisible() && !focused.isMinimized()
+    },
+    create: options => new Notification(options),
+    onFocus: (listener) => {
+      app.on('browser-window-focus', listener)
+      return () => { app.off('browser-window-focus', listener) }
+    },
+  })
+  app.on('will-quit', () => { completionNotice.dispose() })
   windowsLanguage = locale.id
   let mandatoryPolicy: DesktopMandatoryUpdatePolicy | undefined
   let mandatoryUI: DesktopMandatoryUpdateWindow | undefined
@@ -532,16 +549,21 @@ async function main(): Promise<void> {
     // runtime, or one whose package transaction is incomplete, must not reach a Host spawn.
     if (development === undefined) manager.assertProfileRuntime(activeProject)
     const hostInspectPort = developmentHostInspectPort(development !== undefined)
+    let hostActive = true
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
-      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
+      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, (error) => {
+        if (hostActive) { hostActive = false; completionNotice.clear() }
+        onFailure(error)
+      },
       primaryRuntime,
       resources, (next) => { platformView.setSession(next) }, (kind) => {
         const window = mainWindow
-        if (quitting || shuttingDown || sessionEnding || shellInstallerOwnsQuit
+        if (!hostActive || quitting || shuttingDown || sessionEnding || shellInstallerOwnsQuit
           || window === undefined || window.isDestroyed() || window.webContents.isDestroyed()
           || window.webContents.isLoadingMainFrame()) return
         const documentUrl = window.webContents.getURL().split(/[?#]/u, 1)[0]
         if (documentUrl !== applicationUrl && documentUrl !== `${applicationUrl}index.html`) return
+        if (kind === 'complete' && backend.state.phase === 'ready') completionNotice.show(window)
         try { window.webContents.send(DESKTOP_IPC.attentionSound, kind) }
         catch (error) { console.warn('Desktop attention cue could not be delivered:', error) }
       }, async (request) => {
@@ -606,6 +628,8 @@ async function main(): Promise<void> {
         }, (enabled) => { analyticsEnabled = enabled })
       },
       stop: async () => {
+        hostActive = false
+        completionNotice.clear()
         analyticsEnabled = false
         stopAccount?.()
         try { await host.stop(requireCleanStop) }
@@ -619,6 +643,7 @@ async function main(): Promise<void> {
       inspectQuit: () => host.inspectQuit(),
     }
   }, (state) => {
+    if (state.phase !== 'ready') completionNotice.clear()
     if (state.phase === 'error') reportFatal(state.failure, 'host')
     else if (!shuttingDown) backendReady = state.phase === 'ready'
     publishBackend(backendState())
@@ -673,7 +698,7 @@ async function main(): Promise<void> {
     if (backend.host === undefined || welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
     return welcomeBackend.read()
   }
-  stopForRecovery = () => backend.close()
+  stopForRecovery = () => { completionNotice.clear(); return backend.close() }
 
   const reconcileBackend = (): Promise<void> => {
     startup ??= (async () => {
@@ -1354,7 +1379,7 @@ async function main(): Promise<void> {
     if (process.platform === 'win32') {
       // Shutdown, restart, and log-off must not wait on a confirmation. query-session-end is only a
       // question that another application can veto without any follow-up message, so it does not count.
-      window.on('session-end', () => { sessionEnding = true })
+      window.on('session-end', () => { sessionEnding = true; completionNotice.clear() })
     } else {
       // The macOS power-off notification arrives before the terminate request; a cancelled shutdown
       // leaves the process running, and user attention on the window shows the session continues.
@@ -1375,6 +1400,7 @@ async function main(): Promise<void> {
       if (!quitting && !window.isDestroyed()) reportFatal(error, 'renderer')
     })
     window.webContents.on('render-process-gone', (_event, details) => {
+      completionNotice.clear()
       navigation = undefined
       if (!quitting && !window.isDestroyed() && details.reason !== 'clean-exit') {
         reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
@@ -1509,10 +1535,11 @@ async function main(): Promise<void> {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
-  if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
+  if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true; completionNotice.clear() })
   const finishQuit = (): void => {
     quitting = true
     shuttingDown = true
+    completionNotice.dispose()
     updateJournal?.action('quit-requested')
     quitConfirmation.dispose()
     backgroundNotice?.dispose()
@@ -1531,6 +1558,7 @@ async function main(): Promise<void> {
   app.on('before-quit', (event) => {
     if (shellInstallerOwnsQuit) {
       shuttingDown = true
+      completionNotice.dispose()
       quitConfirmation.dispose()
       backgroundNotice?.dispose()
       updateJournal?.action('quit-requested')
@@ -1555,6 +1583,10 @@ async function main(): Promise<void> {
   mainWindow = createMainWindow()
   const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
+  if (process.platform === 'win32' && app.isPackaged && 'dshDesktopAppId' in manifest
+    && typeof manifest.dshDesktopAppId === 'string' && manifest.dshDesktopAppId.trim() !== '') {
+    app.setAppUserModelId(manifest.dshDesktopAppId)
+  }
   const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
   const policyInput: unknown = app.isPackaged
     ? ('dshMandatoryUpdatePolicy' in manifest ? manifest.dshMandatoryUpdatePolicy : undefined)
