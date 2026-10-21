@@ -1,4 +1,4 @@
-/** Replay exact source identities and repair through the actual creation preset and Node PTC. */
+/** Replay exact source identities and repair through an opt-in source-project composition and Node PTC. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile, rm } from 'node:fs/promises'
@@ -15,7 +15,7 @@ export async function apply(ctx, config = {}) {
   const stableBindingDiagnostics = config.stableBindingDiagnostics === true
   const expectedRequests = argumentDiagnostics ? 4 : 3
   await ctx.plugin(Jubian, { baseUrl: 'https://snapshot-jubian.invalid', workspaceSecrets: false }).await()
-  await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })
+  await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true, optionalSourceDiagnostics: true })
   let requests = 0
   const originals = new Map()
   // Seed readonly source data; no model call creates a UUID or changes a durable project.
@@ -65,9 +65,9 @@ export async function apply(ctx, config = {}) {
       assert.equal(results[0].isError, true)
       const text = results[0].content.filter(block => block.type === 'text').map(block => block.text).join('')
       if (argumentDiagnostics) {
-        assert.ok(text.includes('request.expected_revision'))
-        assert.ok(text.includes('request.coverage.required_beats[0].kind'))
-        assert.ok(text.includes('["action","dialogue","os","vo"]'))
+        assert.ok(text.includes('request.expected_revision'), text)
+        assert.ok(text.includes('request.coverage.required_beats[0].kind'), text)
+        assert.ok(text.includes('["action","dialogue","os","vo"]'), text)
       } else {
         assert.ok(text.includes('编号须保留类型后缀'))
         assert.match(text, /s:[a-f0-9]{64}:text/u)

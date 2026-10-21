@@ -1,17 +1,18 @@
 /** Real returned files and tool dispatch protect user revisions across a resumed refinement. */
 import { afterEach, expect, it } from 'vitest'
+import { z } from 'zod'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { Context } from '@deepseek-ai/cordis'
-import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
+import Tools from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import { Config, ManuscriptRevisions } from '../src/manuscript-revisions.ts'
@@ -66,23 +67,28 @@ it.each([
   await expect(readManuscript('unsupported.docx', f.root, f.config, signal)).rejects.toThrow(code)
 })
 
-it('preserves user text and deletions while allowing refinement of untouched paragraphs', async () => {
-  const f = await fixture(); const text = await f.compare()
-  expect(text).toContain('甲：我不相信你。'); expect(text).toContain('甲：证据就在这里，别再骗我。')
-  expect(text).toContain('乙：我们回家。'); expect(text).toContain('默认逐字保留')
-  await writeFile(join(f.root, 'good.md'), returned.replace('▲她转身。', '▲她握紧证据，转身离开。'))
-  const fresh = new ManuscriptRevisions(f.config)
-  await expect(fresh.validate(f.root, f.agent.id, ['good.md'], signal)).resolves.toBeUndefined()
-  await writeFile(join(f.root, 'bad.md'), baseline)
-  await expect(fresh.validate(f.root, f.agent.id, ['bad.md'], signal)).rejects.toThrow('USER_EDIT_PROTECTED')
-  await writeFile(join(f.root, 'bad.md'), returned + '\n乙：我们回家。')
-  await expect(fresh.validate(f.root, f.agent.id, ['bad.md'], signal)).rejects.toThrow('deleted_paragraph_restored')
+it('returns exact user changes and candidate differences without preventing delivery', async () => {
+  const f = await fixture()
+  const comparison = await f.compare()
+  expect(comparison).toContain('甲：证据就在这里，别再骗我。')
+  expect(comparison).toContain('乙：我们回家。')
+  expect(comparison).not.toContain('先说明具体原文并取得')
+  await writeFile(join(f.root, 'candidate.md'), baseline)
+  const review = z.object({ advisory: z.boolean(), differences: z.array(z.unknown()) }).parse(JSON.parse(await f.revisions.request({ action: 'review', candidate_paths: ['candidate.md'] }, f.agent, signal)))
+  expect(review.advisory).toBe(true)
+  expect(review.differences.length).toBeGreaterThan(0)
+  await expect(f.revisions.delivered(f.root, f.agent.id, ['candidate.md'], signal)).resolves.toBeUndefined()
   expect(await readFile(join(f.root, 'returned.md'), 'utf8')).toBe(returned)
 })
 
-it('snapshots a delivered file before external edits and appends its actual diff on an ordinary human message', async () => {
+it('reports a missing baseline without claiming an unchanged manuscript', async () => {
   const f = await fixture()
-  await ctxPlugin(f)
+  await expect(f.revisions.request({ action: 'compare', revised_path: 'returned.md' }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_BASELINE_REQUIRED')
+})
+
+it('restores actual external changes as logged context on an ordinary user message', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(RevisionPlugin, f.config)
   await f.revisions.delivered(f.root, f.agent.id, ['baseline.md'], signal)
   await writeFile(join(f.root, 'baseline.md'), returned)
   const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续吧。' }] })
@@ -93,95 +99,28 @@ it('snapshots a delivered file before external edits and appends its actual diff
   if (result.kind !== 'enter') throw Error('Expected admitted step')
   expect(result.messages.at(-1)?.source.kind).toBe('muse-manuscript')
   expect(JSON.stringify(result.messages.at(-1))).toContain('甲：证据就在这里，别再骗我。')
-  await expect(f.revisions.validateWrite(f.root, f.agent.id, join(f.root, 'baseline.md'), signal)).rejects.toThrow('SOURCE_PROTECTED')
+  const resumed = new ManuscriptRevisions(f.config)
+  expect(await resumed.refresh(f.root, f.agent.id, signal)).toContain('修改者尚未确认')
 })
 
-async function ctxPlugin(f: Awaited<ReturnType<typeof fixture>>) {
+it('uses an explicitly supplied next baseline and refreshes changed returned bytes', async () => {
+  const f = await fixture()
+  await f.compare()
+  await writeFile(join(f.root, 'next.md'), returned)
+  await writeFile(join(f.root, 'returned.md'), returned + '\n甲：新的修改。')
+  expect(await f.revisions.request({ action: 'status' }, f.agent, signal)).toContain('甲：新的修改。')
+  expect(await f.revisions.request({ action: 'compare', baseline_path: 'next.md', revised_path: 'returned.md' }, f.agent, signal)).toContain('甲：新的修改。')
+})
+
+it('keeps the user turn running when an optional returned file is no longer available', async () => {
+  const f = await fixture()
+  await f.compare()
   await f.ctx.plugin(RevisionPlugin, f.config)
-}
-
-it('does not clear active protection by comparing a return to itself or using an unrelated baseline', async () => {
-  const f = await fixture(); await f.compare()
-  await f.revisions.delivered(f.root, f.agent.id, ['returned.md'], signal)
-  const result = await f.revisions.request({ action: 'compare', baseline_path: 'returned.md', revised_path: 'returned.md' }, f.agent, signal)
-  expect(result).toContain('甲：我不相信你。'); expect(result).toContain('甲：证据就在这里，别再骗我。')
-  await writeFile(join(f.root, 'other.md'), returned)
-  await expect(f.revisions.request({ action: 'compare', baseline_path: 'other.md', revised_path: 'returned.md' }, f.agent, signal)).rejects.toThrow('ACTIVE_COMPARISON')
-  await writeFile(join(f.root, 'returned.md'), baseline)
-  await expect(f.revisions.request({ action: 'compare', baseline_path: 'baseline.md', revised_path: 'returned.md' }, f.agent, signal)).rejects.toThrow('BASELINE_REQUIRED')
-})
-
-it('does not infer an absent baseline from a first import', async () => {
-  const f = await fixture()
-  await expect(f.revisions.request({ action: 'compare', revised_path: 'returned.md' }, f.agent, signal)).rejects.toThrow('BASELINE_REQUIRED')
-})
-
-it('does not adopt a model candidate as a new return that drops earlier user edits', async () => {
-  const f = await fixture(); await f.compare()
-  await writeFile(join(f.root, 'model-draft.md'), baseline + '\n无关新增。')
-  await expect(f.revisions.request({ action: 'compare', baseline_path: 'baseline.md', revised_path: 'model-draft.md' }, f.agent, signal))
-    .rejects.toThrow('USER_EDIT_PROTECTED')
-})
-
-it('requires a fresh comparison when the user return changes after the first comparison', async () => {
-  const f = await fixture(); await f.compare()
-  await writeFile(join(f.root, 'candidate.md'), returned)
-  await writeFile(join(f.root, 'returned.md'), returned + '\n用户刚刚补的收尾。')
-  await expect(f.revisions.validate(f.root, f.agent.id, ['candidate.md'], signal)).rejects.toThrow('RETURN_CHANGED')
-  await expect(f.revisions.request({ action: 'review', candidate_paths: ['candidate.md'] }, f.agent, signal)).rejects.toThrow('RETURN_CHANGED')
-  expect(await f.revisions.refresh(f.root, f.agent.id, signal)).toContain('用户刚刚补的收尾。')
-  await expect(f.revisions.validate(f.root, f.agent.id, ['candidate.md'], signal)).rejects.toThrow('USER_EDIT_PROTECTED')
-})
-
-it('keeps automatic external-change discovery within the delivering session', async () => {
-  const f = await fixture()
-  await f.revisions.delivered(f.root, 'other-session', ['baseline.md'], signal)
-  await writeFile(join(f.root, 'baseline.md'), returned)
-  expect(await f.revisions.refresh(f.root, f.agent.id, signal)).toBeUndefined()
-  expect(await f.revisions.refresh(f.root, 'other-session', signal)).toContain('修改者尚未确认')
-})
-
-it('does not extract an authorization substring from a negative human message', async () => {
-  const f = await fixture(); const result = await f.compare()
-  const parsed = JSON.parse(result.slice(result.indexOf('{'))) as { changes: Array<{ id: string; after: string[] }> }
-  const change = parsed.changes.find(entry => entry.after.includes('甲：证据就在这里，别再骗我。'))
-  if (!change) throw Error('Expected changed dialogue')
-  const quote = '允许修改用户改稿：甲：证据就在这里，别再骗我。'
-  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '不要按这个授权：' + quote }] })); await f.agent.whenIdle()
-  await expect(f.revisions.request({ action: 'authorize', change_id: change.id, authorization_quote: quote }, f.agent, signal))
-    .rejects.toThrow('SCOPED_AUTHORIZATION')
-})
-
-it.each(['精修一下。', '不要修改甲：证据就在这里，别再骗我。', '允许修改用户改稿：甲：证据就在这里，别再骗我。'])
-('requires a real, exact, scoped permission and refuses generic or negative intent: %s', async (quote) => {
-  const f = await fixture(); const result = await f.compare()
-  const parsed: unknown = JSON.parse(result.slice(result.indexOf('{')))
-  const changeId = (parsed as { changes: Array<{ id: string; after: string[] }> }).changes.find(change => change.after.includes('甲：证据就在这里，别再骗我。'))?.id
-  if (!changeId) throw Error('Expected changed dialogue')
-  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: quote }] })); await f.agent.whenIdle()
-  const run = f.revisions.request({ action: 'authorize', change_id: changeId, authorization_quote: quote }, f.agent, signal)
-  if (quote.startsWith('允许')) expect(await run).toContain('authorized_changes')
-  else await expect(run).rejects.toThrow('SCOPED_AUTHORIZATION')
-})
-
-it('checks actual candidate bytes at export, GUI present and IM return instead of trusting an earlier review', async () => {
-  const f = await fixture(); await ctxPlugin(f); await f.compare()
-  for (const name of ['present', 'screenplay_export_docx', 'dsh_im_return_file']) {
-    f.ctx.tools.register(defineTool({ name, description: 'Delivery test probe', parameters: {
-      files: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { path: { type: 'string' } } } },
-      inputs: { type: 'array', items: { type: 'string' } }, path: { type: 'string' },
-    }, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: () => Promise.resolve('delivered') }))
-  }
-  await writeFile(join(f.root, 'candidate.md'), returned)
-  expect(await f.revisions.request({ action: 'review', candidate_paths: ['candidate.md'] }, f.agent, signal)).toContain('passed')
-  await writeFile(join(f.root, 'candidate.md'), baseline)
-  for (const [name, args] of [
-    ['present', { files: [{ path: 'candidate.md' }] }],
-    ['screenplay_export_docx', { inputs: ['candidate.md'] }],
-    ['dsh_im_return_file', { path: 'candidate.md' }],
-  ] as const) {
-    const result = await f.ctx.tools.execute({ name, arguments: args, callId: ToolCallId(name), agent: f.agent, signal })
-    expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.content)).toContain('USER_EDIT_PROTECTED')
-  }
+  await rm(join(f.root, 'returned.md'))
+  const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续。' }] })
+  const result = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
+    messages: [message], turn: 1, step: 1, signal,
+  }, async () => ({ kind: 'enter' as const, messages: [message] }))
+  expect(result.kind).toBe('enter')
+  if (result.kind === 'enter') expect(JSON.stringify(result.messages)).toContain('返稿差异未能读取')
 })

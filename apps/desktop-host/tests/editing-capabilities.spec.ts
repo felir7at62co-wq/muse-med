@@ -26,6 +26,7 @@ function rows(id: string): readonly PresetRow[] {
 
 it('combines editing delivery guidance with the short-drama production tools', () => {
   const combined = rows('short-drama')
+  expect(combined.find(row => row.id === 'tool-skill')?.config).toEqual({ scopedCatalogOwner: true })
   for (const id of ['editing-policy', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render',
     'tool-fs', 'tool-skill', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
     expect(combined.some(row => row.id === id), id).toBe(true)

@@ -825,7 +825,7 @@ it('queries each accepted queued split task without another upload or loss of pi
 it('returns a live inspect call for pending work instead of treating the local receipt as a watcher', async () => {
   const f = await setup()
   const pending = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
-  expect(pending.resume_status).toEqual({ method: 'inspect', project: f.project, receipt: pending.receipt })
+  expect(pending.resume_status).toEqual({ method: 'inspect', project: f.project.replaceAll('\\', '/'), receipt: pending.receipt })
   expect(pending.polling_note).toContain('Bash')
   const done = await finishAudioTranscription(f.project, pending.receipt, { ...f.account, audioStatus: async id => ({ id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] }) }, undefined, false)
   expect(done).not.toHaveProperty('resume_status')

@@ -262,7 +262,7 @@
     },
     {
       "name": "manuscript_revision",
-      "description": "用户修改过剧本、台词或文稿后要求精修时，先 compare 上一稿与实际返稿，查看增删改并默认保留用户修改；不要从旧稿改回。支持 Word/Markdown/文本，改名或重新上传用明确的两个路径关联，不凭文件名猜。review 检查完整候选，status 读取保护；authorize 仅限真实用户明确点名该处原文授权，普通精修不授权。不能识别没有基线的历史改动。",
+      "description": "对照上一稿与最新返稿，返回实际增删改、原句和版本，支持Word/Markdown/文本。compare建立对照，status读取差异，review可选对照候选稿；没有基线时如实说明。仅提供提示，不拦截保存、导出或交付。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -271,8 +271,7 @@
             "enum": [
               "compare",
               "status",
-              "review",
-              "authorize"
+              "review"
             ]
           },
           "baseline_path": {
@@ -289,14 +288,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "change_id": {
-            "type": "string",
-            "description": "仅 authorize 使用，对比返回的单处修改 ID。"
-          },
-          "authorization_quote": {
-            "type": "string",
-            "description": "仅真实用户明确原话：允许修改用户改稿：或允许恢复用户删除：后紧接该处完整文字；不能自行生成授权。"
           }
         },
         "required": [

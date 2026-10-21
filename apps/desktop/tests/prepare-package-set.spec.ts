@@ -185,13 +185,7 @@ describe('desktop package-set selection', () => {
       'package/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
       'package/skills/audio-transcribe/SKILL.md',
       'package/skills/audio-transcribe/scripts/transcribe.py',
-      'package/skills/muse-script-doctor/SKILL.md',
-      'package/skills/muse-dialogue-polish/SKILL.md',
-      'package/skills/muse-dialogue-polish/references/dialogue-workflow.md',
-      'package/skills/muse-episode-design/SKILL.md',
-      'package/skills/muse-episode-design/references/episode-workflow.md',
-      'package/skills/reviewing-micro-drama-scripts/SKILL.md',
-      'package/skills/screenplay-format/SKILL.md',
+      'package/skills/office-support/export_docx.py',
       'package/skills/media-link-import/scripts/import_media.py',
     ]
     for (const required of files.slice(1)) {

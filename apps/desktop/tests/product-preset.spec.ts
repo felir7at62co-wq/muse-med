@@ -85,10 +85,6 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     expect(source).toContain("watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
     expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
-    expect(prompt).toContain('结合实际读过的人物处境、关系、冲突和情绪回报')
-    expect(prompt).toContain('理解这部作品可能吸引什么观众、应该带来怎样的观看感受')
-    expect(prompt).toContain('不虚构人口画像、市场数据或热度')
-    expect(prompt).toContain('普通转写、格式转换不额外增加这套分析')
     expect(prompt).toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')
     expect(prompt).toContain('仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合')
     expect(prompt).toContain('不套用人类面部与无面容三视图版式')
@@ -118,7 +114,10 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     }
     expect(prompt).not.toContain('pipeline_state.json')
     expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', sessionVideoSelection: true })
-    expect(rows.find(row => row.id === 'screenplay-project')?.config).toMatchObject({ reviewMode: 'advisory' })
+    expect(rows.some(row => row.id === 'screenplay-project')).toBe(false)
+    expect(rows.some(row => row.id === 'editing-policy')).toBe(true)
+    expect(prompt).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')
+    expect(prompt).toContain('已明确授权的范围自主执行，不逐包追加审批')
     expect((await ctx.agentPresets.resolve('editing')).id).toBe('short-drama')
     const editingSource = (await ctx.agentPresets.readDocument('short-drama')).content
     const editingRows = yaml.load(editingSource, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
@@ -133,7 +132,7 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     expect(editingRows.find(row => row.id === 'tool-fs-search')?.config).toMatchObject({ sampleOverCapGlobResults: false })
     const editingSkill = join(productRoot, '..', 'skills', 'editing', 'SKILL.md')
     await expect(readFile(editingSkill, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    expect(await readFile(`${editingSkill}.disabled`, 'utf8')).toContain('name: muse-script-editing')
+    await expect(readFile(`${editingSkill}.disabled`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
     let calls = 0
     ctx.tools.register(defineContentToolFixture({

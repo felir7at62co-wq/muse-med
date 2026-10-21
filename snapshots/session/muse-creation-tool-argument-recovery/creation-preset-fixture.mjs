@@ -9,7 +9,7 @@ export async function apply(ctx) {
   ctx.on('llm/stream', async function* (options, next) {
     for (const result of options.messages.filter(message => message.role === 'tool' && message.isError)) {
       const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('')
-      assert.ok(text.includes('ToolCallError:'))
+      assert.ok(text.includes('ToolCallError:'), text)
       assert.equal(text.includes('file://'), false)
       assert.equal(text.includes('node:internal'), false)
     }

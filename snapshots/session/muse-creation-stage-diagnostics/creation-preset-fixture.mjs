@@ -1,4 +1,4 @@
-/** Exercise located scene failures and lossless-return recovery through the actual creation preset and Node PTC. */
+/** Exercise located scene failures and lossless-return recovery through an opt-in source-project composition and Node PTC. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile, rm } from 'node:fs/promises'
@@ -12,7 +12,7 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt', 'skills', 'llm',
 /** Mount a synthetic readonly project and assert located failures without partial publication. @param ctx - Headless services. */
 export async function apply(ctx) {
   await ctx.plugin(Jubian, { baseUrl: 'https://snapshot-jubian.invalid', workspaceSecrets: false }).await()
-  await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })
+  await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true, optionalSourceDiagnostics: true })
   let requests = 0
   const originals = new Map()
   ctx.on('agent/created', async ({ agent }) => {

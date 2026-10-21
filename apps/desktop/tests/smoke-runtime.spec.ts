@@ -31,16 +31,9 @@ vi.mock('node:child_process', async (importOriginal) => {
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
-const professionalGuides = [
-  ['muse-script-doctor', 'doctor-workflow.md'],
-  ['muse-dialogue-polish', 'dialogue-workflow.md'],
-  ['muse-episode-design', 'episode-workflow.md'],
-  ['screenplay-format', 'writing-quality.md'],
-  ['screenplay-format', 'narrative-layers.md'],
-  ['reviewing-micro-drama-scripts', 'platform-guidelines.md'],
-] as const
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
   'muse-llm-wiki', 'muse-project-participation',
+  'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
   'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
   'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
 
@@ -96,18 +89,15 @@ function fixture(packaged = false) {
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design',
-    'reviewing-micro-drama-scripts', 'screenplay-format']) {
+  for (const name of ['audio-transcribe']) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
-  for (const [name, guide] of professionalGuides) {
-    const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'references', guide))
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, '# fixture guide')
-  }
+  const exporter = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/office-support/export_docx.py'))
+  mkdirSync(dirname(exporter), { recursive: true })
+  writeFileSync(exporter, '# Word export helper')
   for (const name of retiredHostSkills) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md.disabled'))
     mkdirSync(dirname(path), { recursive: true })
@@ -140,7 +130,7 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory',
-    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
@@ -274,7 +264,7 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'jubian_budget', 'video_contact_sheet', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'screenplay_export_docx', 'jubian_budget', 'video_contact_sheet', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
@@ -284,7 +274,7 @@ it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'jubian_budget', 
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a missing product skill %s', async (name) => {
+it.each(['tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a missing product skill %s', async (name) => {
   const f = fixture()
   const index = f.skills.findIndex(skill => skill.name === name)
   f.skills.splice(index, 1)
@@ -299,17 +289,12 @@ it('rejects a missing shared snatch skill', async () => {
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product skill jubian-snatch')
 })
 
-it.each(professionalGuides)('rejects an installed product without %s', async (name) => {
-  const f = fixture(true)
-  f.skills.splice(f.skills.findIndex(skill => skill.name === name), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill ' + name)
-})
-
-it.each(professionalGuides)('rejects %s without its installed method guide', async (name, guide) => {
-  const f = fixture(true)
-  const skill = f.skills.find(value => value.name === name)!
-  rmSync(join(dirname(skill.path), 'references', guide))
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing professional method guide ' + name + '/' + guide)
+it.each([false, true])('rejects a runtime without its Word export helper (packaged=%s)', async (packaged) => {
+  const f = fixture(packaged)
+  const path = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/office-support/export_docx.py')
+    .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+  rmSync(path)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing Word export helper')
 })
 
 it('rejects a shared transcription skill without its packaged script', async () => {
@@ -649,7 +634,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   expect(f.dispose).toHaveBeenCalledTimes(12)
 })
 
-it.each(['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format',
+it.each(['audio-transcribe',
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects required packaged skill %s without a filesystem path', async (name) => {
   const f = fixture()
   const list = f.ctx.skills.list.getMockImplementation()!
@@ -659,14 +644,14 @@ it.each(['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-script
     ? 'missing product skill ' + name : 'missing shared Muse skill ' + name)
 })
 
-it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import'])('rejects re-enabling retired Host skill %s', async (name) => {
+it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format'])('rejects re-enabling retired Host skill %s', async (name) => {
   const f = fixture()
   const path = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
   writeFileSync(path, '# enabled old resource')
   await expect(f.apply(f.ctx)).rejects.toThrow('retired Host skill is enabled: ' + name)
 })
 
-it.each(['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format',
+it.each(['audio-transcribe',
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a disabled file pretending to be active skill %s', async (name) => {
   const f = fixture()
   const skill = f.skills.find(value => value.name === name)!
@@ -676,19 +661,19 @@ it.each(['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-script
   await expect(f.apply(f.ctx)).rejects.toThrow('disabled skill is model-invocable')
 })
 
-it.each(['muse-script-doctor', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
+it.each(['audio-transcribe', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
   const f = fixture()
   const get = f.ctx.skills.get.getMockImplementation()!
   f.ctx.skills.get.mockImplementation(async target => target === name ? undefined : get(target))
-  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'muse-script-doctor'
-    ? 'professional skill did not load from the packaged Host: ' + name
+  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'audio-transcribe'
+    ? 'shared skill did not load from the packaged Host: ' + name
     : 'shot-writing skill did not load from its packaged resource: ' + name)
 })
 
-it('loads the full professional and shot-writing skills through the scoped registry', async () => {
+it('loads the transcription and shot-writing skills through the scoped registry', async () => {
   const f = fixture()
   await f.apply(f.ctx)
-  for (const name of ['audio-transcribe', 'muse-script-doctor', 'reviewing-micro-drama-scripts', 'screenplay-format',
+  for (const name of ['audio-transcribe',
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
     expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
   }

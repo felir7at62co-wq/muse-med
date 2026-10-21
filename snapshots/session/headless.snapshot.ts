@@ -72,7 +72,7 @@ const museSharedSkills = [
   ['muse-project-participation', join(museLegacySkills, 'muse-project-participation.skill.txt')],
   ['muse-llm-wiki', join(museLegacySkills, 'muse-llm-wiki.skill.txt')],
   ['douyin-download', join(museLegacySkills, 'douyin-download.skill.txt')],
-  ['screenplay-format', join(repoRoot, 'apps/desktop-host/skills/screenplay-format/SKILL.md')],
+  ['screenplay-format', join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills/screenplay-format/SKILL.md')],
   ['wechat-shortdrama-harvest', join(museLegacySkills, 'wechat-shortdrama-harvest.skill.txt')],
   ['audio-transcribe', join(repoRoot, 'apps/desktop-host/skills/audio-transcribe/SKILL.md')],
   ['transcript-to-novel', join(museLegacySkills, 'transcript-to-novel.skill.txt')],
@@ -521,6 +521,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(target), { recursive: true })
     await copyFile(editingCordisSkill, target)
   },
+  async 'muse-minimal-writing'(cwd) {
+    await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+    await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+  },
   async 'muse-editing-skill'(cwd) {
     for (const [name, source] of [['muse-script-editing', museEditingSkill], ...museSharedSkills]) {
       const target = join(cwd, '.dsh', 'skills', name, 'SKILL.md')
@@ -529,9 +533,9 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     }
     const episodeGuide = join(cwd, '.dsh/skills/trope-adaptation/references/episode-design.md')
     await mkdir(dirname(episodeGuide), { recursive: true })
-    await copyFile(join(repoRoot, 'apps/desktop-host/skills/trope-adaptation/references/episode-design.md'), episodeGuide)
+    await copyFile(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills/trope-adaptation/references/episode-design.md'), episodeGuide)
     for (const name of ['screenplay-format', 'screenplay-project']) {
-      await cp(join(repoRoot, 'apps/desktop-host/skills', name, 'references'),
+      await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name, 'references'),
         join(cwd, '.dsh/skills', name, 'references'), { recursive: true })
     }
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-bible/references'),
@@ -545,13 +549,13 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       join(target, 'SKILL.md'))
   },
   async 'muse-script-safety-skill'(cwd) {
-    await cp(join(repoRoot, 'apps/desktop-host/skills/reviewing-micro-drama-scripts'),
+    await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills/reviewing-micro-drama-scripts'),
       join(cwd, '.dsh/skills/reviewing-micro-drama-scripts'), { recursive: true })
   },
   async 'muse-editing-trial-skills'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     for (const name of ['muse-episode-design', 'muse-script-doctor', 'muse-dialogue-polish']) {
-      await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+      await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
       if (name !== 'muse-script-doctor') {
         await copyFile(join(museLegacySkills, `${name}.skill.txt`), join(cwd, '.dsh', 'skills', name, 'SKILL.md'))
       }
@@ -559,7 +563,7 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
   },
   async 'muse-current-professional-skills'(cwd) {
     for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'screenplay-format']) {
-      await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+      await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
     }
   },
   async 'muse-creation-skills'(cwd) {

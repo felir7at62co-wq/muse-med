@@ -12,7 +12,7 @@
         "index": 0,
         "id": "call_creation_skill",
         "name": "run_code",
-        "argumentsDelta": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"return await tools.skill({name: \\\"screenplay-project\\\"});\"}"
+        "argumentsDelta": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-project\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
       },
       {
         "type": "block-end",
@@ -21,7 +21,7 @@
           "type": "tool-call",
           "id": "call_creation_skill",
           "name": "run_code",
-          "arguments": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"return await tools.skill({name: \\\"screenplay-project\\\"});\"}"
+          "arguments": "{\"description\":\"读取完整的来源与审校工具指南\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-project\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
         }
       },
       {
@@ -92,7 +92,7 @@
         "index": 0,
         "id": "call_creation_format",
         "name": "run_code",
-        "argumentsDelta": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"return await tools.skill({name: \\\"screenplay-format\\\"});\"}"
+        "argumentsDelta": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-format\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
       },
       {
         "type": "block-end",
@@ -101,7 +101,7 @@
           "type": "tool-call",
           "id": "call_creation_format",
           "name": "run_code",
-          "arguments": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"return await tools.skill({name: \\\"screenplay-format\\\"});\"}"
+          "arguments": "{\"description\":\"读取共享剧本格式入口\",\"code\":\"try { const skill = await tools.skill({name: \\\"screenplay-format\\\"}); return { available: true, skill }; } catch (error) { return { available: false, error: error instanceof Error ? error.message : String(error) }; }\"}"
         }
       },
       {
@@ -170,14 +170,14 @@
       {
         "type": "text-delta",
         "index": 0,
-        "text": "已读取完整项目审校指南、视频复看指南和共享写作标准。读图按请求预算分批，图片须进入成功模型轮；事实与场次字段分开，保留原来源、真实编号与修订号。只读查询不改变修订号；新修改之后重新读回受影响版本。未进行视频作品验收。"
+        "text": "写作与项目审校技能已退出创作目录；视频复看与 Wiki 工具仍可用。文稿格式按系统提示词，实际资料读取结果保留在当前会话。未进行视频作品验收。"
       },
       {
         "type": "block-end",
         "index": 0,
         "block": {
           "type": "text",
-          "text": "已读取完整项目审校指南、视频复看指南和共享写作标准。读图按请求预算分批，图片须进入成功模型轮；事实与场次字段分开，保留原来源、真实编号与修订号。只读查询不改变修订号；新修改之后重新读回受影响版本。未进行视频作品验收。"
+          "text": "写作与项目审校技能已退出创作目录；视频复看与 Wiki 工具仍可用。文稿格式按系统提示词，实际资料读取结果保留在当前会话。未进行视频作品验收。"
         }
       },
       {
