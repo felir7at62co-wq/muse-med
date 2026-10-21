@@ -68,7 +68,7 @@ describe('packed npm UTF-8 and complete archive validation', () => {
 
   it('rejects traversal, drive paths, links and special members without extracting them', () => {
     const { archive } = fixture({ 'package/package.json': '{}' })
-    for (const path of ['../escape', '/escape', 'C:/escape', 'package\\escape']) {
+    for (const path of ['../escape', '/escape', 'C:/escape', 'package\\..\\escape']) {
       const header = Buffer.alloc(512)
       new Header({ path, type: 'File', mode: 0o644, size: 0 }).encode(header)
       writeFileSync(archive, gzipSync(Buffer.concat([header, Buffer.alloc(1024)])))
