@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-video-package-pacing
+profile: headless
+composition: muse-editing-skill
+recording: authored
+writerOutput: true
+header:
+  class: muse-video-package-pacing
+  pin: true
+  systemPromptSource: muse-editing-skill
+  toolSchemasSource: muse-editing-skill
+workspace:
+  setup: muse-minimal-writing

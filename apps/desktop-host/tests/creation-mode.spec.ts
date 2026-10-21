@@ -158,6 +158,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).not.toContain('再加载 muse-creation')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_ocr')
     expect(text).toContain('按8个有效字/秒计算预算')
+    expect(text).toContain('配速指视频包内部的对白、动作、停顿与切镜快慢')
+    expect(text).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')
     expect(text).toContain('当编写短剧镜头脚本时，建议每个镜头控制在1–4秒')
     expect(text).toContain('禁止镜头时长字段')
     expect(text).toContain('站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包')
