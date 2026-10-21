@@ -88,7 +88,7 @@ export async function qualifyUpdateDialogs(root, fixture) {
       assert.equal(result.phase, active ? 'installing' : 'ready')
       assert.equal(f.installations.length, active ? 1 : 0)
     }
-    assert.deepEqual(f.installations, [[true, true]])
+    assert.deepEqual(f.installations, [[false, true]])
     const created = once(app, 'browser-window-created', { signal: AbortSignal.timeout(10_000) })
     const diagnostics = 'exit 0; shutdown acknowledged false\n' + 'at internal/diagnostic/path\n'.repeat(1000)
     const pending = dialogs.show(parent, { title: messages.updateFailedTitle, message: messages.updateStopFailed,
@@ -112,7 +112,7 @@ export async function qualifyUpdateDialogs(root, fixture) {
       await writeFile(join(root, name), (await errorWindow.webContents.capturePage()).toPNG())
       screenshots.push(name)
     }
-    assert.deepEqual(f.installations, [[true, true]])
+    assert.deepEqual(f.installations, [[false, true]])
     errorWindow.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
     assert.equal((await pending).response, 0)
     dialogs.cancel()

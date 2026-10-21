@@ -89,6 +89,9 @@ jobs:
       - name: Check native Windows install and automatic update UI
         if: matrix.target == 'win-x64'
         run: pnpm --dir apps/desktop run test:installer
+      - name: Check real Electron update download and confirmation UI
+        if: matrix.target == 'win-x64' && github.event_name == 'workflow_dispatch'
+        run: pnpm --dir apps/desktop run test:updates:local
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
       - name: Check bundled Host integrations against built dependencies
@@ -103,9 +106,6 @@ jobs:
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
         run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
-      - name: Check real Electron update download and confirmation UI
-        if: matrix.target == 'win-x64' && github.event_name == 'workflow_dispatch'
-        run: pnpm --dir apps/desktop run test:updates:local
       - name: Accept the real candidate update download before publication
         if: github.event_name == 'workflow_dispatch'
         env:

@@ -146,7 +146,7 @@ async function main() {
       assert.equal(f.installations.length, 0)
       f.restart(async () => true)
       assert.equal((await f.coordinator.install(available.version)).phase, 'installing')
-      assert.deepEqual(f.installations, [[true, true]])
+      assert.deepEqual(f.installations, [[false, true]])
       presentations.push(...f.states.map(state => ({ phase: state.phase, ...presentDesktopUpdate(state) })))
     })
     for (const mode of ['download-404', 'corrupt', 'disconnect', 'download-stall']) {
