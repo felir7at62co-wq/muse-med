@@ -146,7 +146,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载；原生产品目录消费产品构建为该包新增的 `./catalog` 导出。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
 应用 → 桌面插件把六个内置社区包与用户自装插件分开显示，仅在你主动加载在线目录后联网，本地过滤，并把确认过的 npm 来源条目交给既有桌面包事务安装。仅 GitHub 或 tarball 来源的条目仍可浏览并给出仓库链接，但不能由该管理器安装。开发模式下包变更是只读的；目录网络失败既不会下载任何内容，也不会隐藏内置清单。
 

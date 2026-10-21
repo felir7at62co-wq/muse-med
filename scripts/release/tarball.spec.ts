@@ -29,7 +29,7 @@ afterEach(() => {
 describe('packed npm UTF-8 and complete archive validation', () => {
   it('reads a real UTF-8 PAX archive with long Chinese member names without a system tar dependency', () => {
     const manifest = { name: 'muse-reverse-tools', version: '0.1.0', peerDependencies: { '@deepseek-ai/dsh-tools': '1.0.0' } }
-    const unicode = `package/resources/分析方法/${'长路径'.repeat(30)}/跨站请求伪造.md`
+    const unicode = `package/resources/分析方法/${'长路径'.repeat(20)}/跨站请求伪造.md`
     const { archive } = fixture({ 'package/package.json': JSON.stringify(manifest), [unicode]: '中文方法正文\n' })
     const before = readFileSync(archive)
     expect(tarballFiles(archive)).toEqual(['package/package.json', unicode])

@@ -496,7 +496,7 @@ jobs:
         run: bash scripts/prepare-ci-bubblewrap.sh
 
       - name: Check Hongguo source status and catalog availability
-        run: node --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+        run: node --import tsx/esm --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
 
       - name: Run compatibility smokes
         env:
@@ -740,7 +740,7 @@ jobs:
           }
       - name: Check Hongguo source status and catalog availability
         shell: pwsh
-        run: node --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+        run: node --import tsx/esm --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
 
       - name: Run Windows-specific native tests
         shell: pwsh

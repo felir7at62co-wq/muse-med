@@ -293,8 +293,11 @@ async function run() {
       'reload retained or replayed the old completion')
     states.push('reload=cleared-without-replay')
 
+    await hidden()
+    const beforeFinalNotice = notices.length
     controller.show(window)
     const disposed = latest()
+    check(notices.length === beforeFinalNotice + 1, 'background disposal phase did not create a fresh notice')
     const lateClick = disposed.listeners('click')[0]
     if (!lateClick) throw new Error('disposed notice has no click callback')
     const beforeDispose = notices.length

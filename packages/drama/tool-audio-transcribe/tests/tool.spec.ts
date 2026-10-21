@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
-import { finishAudioTranscription, startAudioTranscription, type AudioAccount, type AudioRunResult } from '../src/runner.ts'
+import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, type AudioAccount, type AudioRunResult } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
@@ -68,7 +68,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
 })
 
 it('queries the original receipt and renders the canonical response', async () => {
-  const { call, account } = await fixture()
+  const { call, account, config } = await fixture()
   const result = await call({ method: 'status', project: 'project', receipt: 'original.json' })
   expect(finishAudioTranscription).toHaveBeenCalledOnce()
   const args = vi.mocked(finishAudioTranscription).mock.calls[0]
@@ -78,6 +78,8 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(allowResumeUpload).toBe(true)
+  expect(await args[5]!.probe!('original-staged.wav', signal)).toBe(30)
+  expect(probeMediaDuration).toHaveBeenCalledWith('original-staged.wav', config, signal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
 })

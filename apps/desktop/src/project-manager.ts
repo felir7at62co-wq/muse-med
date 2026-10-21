@@ -2,7 +2,9 @@
 
 import { valid } from 'semver'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
+  constants,
   copyFileSync,
   existsSync,
   fsyncSync,
@@ -206,13 +208,13 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
 }
 
 /**
- * Copy the profile manifest aside before an upgrade rewrites it.
+ * Retain a unique manifest copy before each upgrade rewrite, without replacing earlier copies.
  * @param projectDir - Active desktop profile directory.
  */
 function backupProfileManifest(projectDir: string): void {
   const path = join(projectDir, 'package.json')
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/gu, '').replace('T', '-')
-  copyFileSync(path, `${path}.${stamp}.bak`)
+  copyFileSync(path, `${path}.${stamp}-${randomUUID()}.bak`, constants.COPYFILE_EXCL)
 }
 
 /**

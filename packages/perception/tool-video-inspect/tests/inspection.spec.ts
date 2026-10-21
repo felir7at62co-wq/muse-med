@@ -290,6 +290,13 @@ it('keeps whitespace OCR indeterminate and detects changed artifact readback', a
 it('bounds complete bridge JSON before spawning a recognizer', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 8, maxOcrBridgeInputBytes: 1024 })
   const run = mockWindowsOcr()
+  const original = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    if (!args[1].includes('image2pipe')) return await original(...args)
+    const image = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(256), Buffer.from([0xff, 0xd9])])
+    return { bytes: Buffer.concat(Array.from({ length: 8 }, () => image)),
+      diagnostic: Array.from({ length: 8 }, (_, index) => `n:${index} pts:${index} pts_time:${index / 2}`).join('\n') }
+  })
   expect((await h.ocr({ end_seconds: 4 })).value).toMatchObject({ scan_status: 'failed',
     failure_code: 'ocr_runtime_unavailable', coverage: { planned_frame_count: 8, processed_frame_count: 0, failed_frame_count: 8 } })
   expect(run.mock.calls.filter(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toHaveLength(0)

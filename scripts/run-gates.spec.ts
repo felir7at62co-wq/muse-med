@@ -558,7 +558,7 @@ describe('gate graph validation', () => {
     })
   })
 
-  it.each(['ci-windows-complete', 'ci-windows-observational-ready'] as const)(
+  it.each(['ci-primary', 'ci-linux-primary', 'ci-artifacts', 'ci-consumers', 'ci-windows-complete', 'ci-windows-observational-ready'] as const)(
     'provisions the locked Electron binary before built smoke in %s', (mode) => {
       const gates = withPnpmEntrypoint(() => gatesForMode(mode))
       const install = gates.find(gate => gate.id === 'electron-install')
@@ -595,14 +595,14 @@ describe('gate graph validation', () => {
   )
 
   it.each(['ci-coverage', 'ci-artifacts', 'ci-windows-blocking'] as const)(
-    'only provisions Electron for native Windows coverage in %s', (mode) => {
+    'provisions Electron only for its native coverage or built-smoke consumer in %s', (mode) => {
       const original = Object.getOwnPropertyDescriptor(process, 'platform')
       for (const platform of ['linux', 'darwin', 'win32'] as const) {
         const gates = withPlatform(platform, () => withPnpmEntrypoint(() => gatesForMode(mode)))
-        const needed = platform === 'win32' && mode === 'ci-coverage'
+        const needed = mode === 'ci-artifacts' || platform === 'win32' && mode === 'ci-coverage'
         expect(gates.filter(gate => gate.id === 'electron-install')).toHaveLength(needed ? 1 : 0)
         if (needed) {
-          expect(gates.find(gate => gate.id === 'coverage')?.needs).toContain('electron-install')
+          expect(gates.find(gate => gate.id === (mode === 'ci-artifacts' ? 'built-bin-smoke' : 'coverage'))?.needs).toContain('electron-install')
           expect(gates.find(gate => gate.id === 'electron-install')?.env).toEqual({ ELECTRON_GET_USE_PROXY: '1' })
           expect(gates.filter(gate => gate.id !== 'electron-install').every(gate => gate.env?.ELECTRON_GET_USE_PROXY === undefined)).toBe(true)
         }
@@ -847,6 +847,7 @@ describe('Node 24 lane ownership', () => {
     })
     expect(subject.map(item => item.id)).toEqual([
       'build',
+      'electron-install',
       'node-compat',
       'publint',
       'lint-and-duplication',
@@ -873,7 +874,7 @@ describe('Node 24 lane ownership', () => {
       'node-next-types',
       'built-bin-smoke',
     ]) {
-      expect(subject.find(item => item.id === id)?.needs).toEqual(['build'])
+      expect(subject.find(item => item.id === id)?.needs).toEqual(id === 'built-bin-smoke' ? ['build', 'electron-install'] : ['build'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'expected-output')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })

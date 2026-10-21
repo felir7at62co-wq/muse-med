@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -885,6 +885,32 @@ it.each(['verified', 'outside-audio', 'changed-audio'] as const)('verifies legac
   const rows = JSON.parse(await readFile(result.output_json!, 'utf8')) as { start: number; end: number; text: string }[]
   expect(rows.map(row => row.end)).toEqual([20.5, 21])
   expect(rows.every(row => row.text === 'keep original words')).toBe(true)
+})
+
+it('preserves a staged-audio read failure without treating it as expired audio or uploading again', async () => {
+  const f = await splitFixture(), firstPart = f.receipt.parts[0]!
+  const before = await readFile(f.first.receipt, 'utf8')
+  await rm(firstPart.mp3)
+  await mkdir(firstPart.mp3)
+  let uploads = 0
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async () => { uploads++; throw new Error('Unexpected upload') },
+    audioStatus: async id => ({ id, status: 'complete', segments: [{ start: 0, end: 20.5, text: 'original speech' }] }),
+  }
+  await expect(finishAudioTranscription(f.project, f.first.receipt, account, undefined, false,
+    { waitMs: 0, pollIntervalMs: 1, probe: async () => 20.6 })).rejects.toHaveProperty('code', expect.stringMatching(/^(EISDIR|EACCES|EPERM)$/u))
+  expect(uploads).toBe(0)
+  expect(await readFile(f.first.receipt, 'utf8')).toBe(before)
+})
+
+it('provides the upload-recovery command for an original task without submitting from a read-only inspection', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  f.setJob({ id: first.job_id, status: 'processing',
+    recovery: { capability: 'none', next_action: 'resume_upload', automatic_resubmit: false } })
+  const result = await finishAudioTranscription(f.project, first.receipt, f.account)
+  expect(result.resume_status).toMatchObject({ method: 'status', receipt: first.receipt.replaceAll('\\', '/') })
+  expect(f.counts()).toEqual({ submits: 1, queries: 1 })
 })
 
 it('retains verified legacy durations and warnings after audio cleanup and recreates missing outputs without upload', async () => {
