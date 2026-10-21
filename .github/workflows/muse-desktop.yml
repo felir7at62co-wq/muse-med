@@ -80,7 +80,7 @@ jobs:
           pnpm --dir packages/drama/skills pack --pack-destination ../../../.artifacts/drama-skill-pack
           python -c "from pathlib import Path; import subprocess, sys; files=list(Path('.artifacts/drama-skill-pack').glob('*.tgz')); assert len(files)==1, files; subprocess.run([sys.executable, 'packages/drama/skills/tests/verify_pack.py', str(files[0])], check=True)"
       - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts scripts/release/pack.spec.ts
+        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts packages/client/ui-permission-presets/tests scripts/release/pack.spec.ts
       - name: Configure unsigned Muse packaging
         run: >-
           node --input-type=module -e "import { writeFileSync } from 'node:fs';
@@ -91,9 +91,9 @@ jobs:
         run: pnpm --dir apps/desktop run test:installer
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
-      - name: Check bundled Feishu integration against built dependencies
+      - name: Check bundled Host integrations against built dependencies
         run: |
-          pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts
+          pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop-host/tests/permission-settings.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts
           node --test third_party/plugins/compatibility/muse-feishu-channel.test.mjs third_party/plugins/compatibility/muse-feishu-reliability.test.mjs
           node --import tsx/esm --test third_party/plugins/compatibility/feishu-desktop.test.mjs
       - name: Replay the Feishu delivery and Codex subscription Sessions

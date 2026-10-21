@@ -23,15 +23,6 @@
   config:
     policy: never
 
-- id: permission
-  config:
-    defaultPreset: danger-full-access
-    registerCommand: false
-    presets:
-      read-only: { sandbox: read-only, approval: ask }
-      workspace-write: { sandbox: workspace-write, approval: ask }
-      danger-full-access: { sandbox: danger-full-access, approval: never }
-
 # The upstream preset registry is the engine, and the product declares every preset itself: the
 # composition directories under `presets/` become six rows through the adapter in src/index.ts, which
 # knows the runtime directory holding them. The product therefore imports none of the base bundle's
@@ -72,7 +63,7 @@
   disabled: true
 
 - id: ui-permission
-  disabled: true
+  disabled: false
 
 - id: ui-settings-models
   config:

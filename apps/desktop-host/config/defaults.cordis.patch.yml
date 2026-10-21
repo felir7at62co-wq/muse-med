@@ -16,7 +16,7 @@
 - id: permission
   config:
     defaultPreset: danger-full-access
-    registerCommand: false
+    registerCommand: true
     presets:
       read-only: { sandbox: read-only, approval: ask }
       workspace-write: { sandbox: workspace-write, approval: ask }
