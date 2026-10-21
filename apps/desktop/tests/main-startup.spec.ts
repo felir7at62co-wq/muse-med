@@ -595,7 +595,7 @@ describe('desktop main startup', () => {
     const zh = locale === 'zh-CN'
     expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
       type: 'info', title: zh ? '关于 Muse' : 'About Muse', message: 'Muse',
-      detail: `${zh ? '版本' : 'Version'} V${packaged ? '1.0.0' : '1.0.0-beta.1'}\nDSH 1.2.3\n${zh ? '提交' : 'Commit'} abcdef0`, buttons: [zh ? '确定' : 'OK'], cancelId: 0,
+      detail: `${zh ? '版本' : 'Version'} V${packaged ? '1.0.0' : '1.0.0-beta.1'}\n${zh ? '提交' : 'Commit'} abcdef0`, buttons: [zh ? '确定' : 'OK'], cancelId: 0,
     }))
     // A dialog that cannot open is logged, not surfaced as an unhandled rejection.
     harness.dialog.showMessageBox.mockRejectedValueOnce(new Error('overlay unavailable'))
