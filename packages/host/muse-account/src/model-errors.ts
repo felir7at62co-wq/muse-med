@@ -23,6 +23,7 @@ const messages = {
   UNSUPPORTED_CONTENT: 'Muse model does not support the supplied content.',
   INVALID_REPLAY_STATE: 'Muse model history cannot be replayed. Please select a compatible model.',
   IMAGE_OFFLOAD_REQUIRED: 'Muse model request requires image offloading.',
+  MODEL_ACCESS_UNCERTAIN: 'Muse model access could not be confirmed. Please retry later or contact the Muse administrator.',
   PI_AI_ERROR: 'Upstream model request failed. Please retry or contact the Muse administrator.',
   UNKNOWN: 'Muse model request failed. Please retry or contact the Muse administrator.',
 } as const

@@ -26,12 +26,18 @@ export interface DirectModelOptions {
   readonly fetcher?: typeof fetch
 }
 
+function interruptedAccess(signal: AbortSignal): LlmError {
+  return signal.aborted
+    ? new LlmError('Muse model request cancelled', 'ABORTED')
+    : new LlmError('Muse model access could not be confirmed', 'MODEL_ACCESS_UNCERTAIN')
+}
+
 /** Acquire once, stream directly, check login liveness and release after supplier teardown.
  * @param options - Current gateway and captured login revision.
  * @param model - Catalog-authorized supplier model.
  * @param signal - Caller cancellation and account authorization lifetime.
  * @param stream - Supplier stream factory receiving only this call's temporary credential.
- * @returns Unchanged model chunks; cleanup failure never repeats the supplier call.
+ * @returns Unchanged model chunks; ambiguous admission failures are classified without enabling automatic retry.
  */
 export async function* streamWithModelLease(
   options: DirectModelOptions, model: string, signal: AbortSignal,
@@ -43,19 +49,41 @@ export async function* streamWithModelLease(
     'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1', 'x-muse-zhipu-direct': 'leased-v1' }
   const path = '/api/desktop-models/zhipu-official/leases'
   const request = async (suffix: string, method: string, requestSignal: AbortSignal, body?: string): Promise<Response> => {
-    const response = await (options.fetcher ?? fetch)(new URL(path + suffix, options.baseUrl), {
-      method, headers, redirect: 'error', signal: requestSignal, ...(body === undefined ? {} : { body }),
-    })
-    if (!response.ok) throw new LlmError('Muse model admission unavailable', response.status === 401 ? 'AUTH' : 'RATE_LIMIT')
+    let response: Response
+    try {
+      response = await (options.fetcher ?? fetch)(new URL(path + suffix, options.baseUrl), {
+        method, headers, redirect: 'error', signal: requestSignal, ...(body === undefined ? {} : { body }),
+      })
+    } catch (_error) { throw interruptedAccess(requestSignal) }
+    if (!response.ok) {
+      const status = response.status
+      const code = status === 401 || status === 403 ? 'AUTH' : status === 429 ? 'RATE_LIMIT'
+        : status >= 500 ? 'SERVER' : 'INVALID_REQUEST'
+      const retryAfter = response.headers.get('retry-after')
+      const delay = retryAfter === null ? NaN : /^\d+(?:\.\d+)?$/u.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()
+      const failure = new LlmError('Muse model admission rejected', code, { status,
+        ...(Number.isFinite(delay) && delay > 0 ? { providerRetryAfterMs: delay } : {}),
+      })
+      try { await response.body?.cancel() }
+      catch (_cleanupError) { /* The HTTP refusal remains authoritative. */ }
+      throw failure
+    }
     return response
   }
-  signal.throwIfAborted()
+  try { signal.throwIfAborted() }
+  catch (_error) { throw interruptedAccess(signal) }
   // Admission may wait for the server's bounded queue; the caller owns cancellation.
   const started = performance.now()
   const acquired = await request('', 'POST', signal, JSON.stringify({ model }))
-  const text = await acquired.text()
+  let text: string
+  try { text = await acquired.text() }
+  catch (_error) { throw interruptedAccess(signal) }
   if (text.length > 8192) throw new LlmError('Invalid Muse model access', 'INVALID_CONFIG')
-  const parsed = leaseSchema.safeParse(JSON.parse(text))
+  let value: unknown
+  try { value = JSON.parse(text) }
+  catch (_error) { throw new LlmError('Invalid Muse model access', 'INVALID_CONFIG') }
+  const parsed = leaseSchema.safeParse(value)
   if (!parsed.success) throw new LlmError('Invalid Muse model access', 'INVALID_CONFIG')
   const lease = parsed.data
   const controller = new AbortController()
@@ -81,7 +109,11 @@ export async function* streamWithModelLease(
   try {
     const current = await readMuseSession(options.sessionFile, options.baseUrl)
     if (current?.revision !== options.revision) throw new LlmError('Muse login changed', 'MISSING_CREDENTIAL')
-    combined.throwIfAborted()
+    try { combined.throwIfAborted() }
+    catch (error) {
+      if (signal.aborted) throw interruptedAccess(signal)
+      throw error
+    }
     check()
     yield* stream({ baseURL: lease.baseURL, apiKey: lease.apiKey }, combined)
   } finally {
