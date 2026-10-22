@@ -123,9 +123,6 @@
   config: {}
 
 - insert:
-    - id: muse-lvpaopao-bridge
-      name: muse-lvpaopao/bridge
-
     - id: muse-hindsight
       name: '@deepseek-ai/dsh-desktop-host/hindsight'
 

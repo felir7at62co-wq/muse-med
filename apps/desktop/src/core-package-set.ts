@@ -78,7 +78,7 @@ export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
-  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao',
+  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

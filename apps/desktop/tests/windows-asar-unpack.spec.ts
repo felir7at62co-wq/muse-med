@@ -241,8 +241,6 @@ it('places product media scripts where external Python can open them', async () 
     join('node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py'),
     join('node_modules', 'muse-douyin-download', 'python', 'runtime', 'yt-dlp.pyz'),
     join('node_modules', 'muse-hongguo-download', 'python', 'decrypt.py'),
-    join('node_modules', 'muse-lvpaopao', 'native', 'boot.py'),
-    join('node_modules', 'muse-lvpaopao', 'native', 'passive-probe', 'next-stage', 'mac_runtime.py'),
   ]
   for (const relativeScript of scripts) {
     const source = join(input.source, relativeScript)

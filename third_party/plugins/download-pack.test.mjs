@@ -19,6 +19,7 @@ test('packs every owned tool through pnpm without modifying source or exposing l
   const output = mkdtempSync(join(tmpdir(), 'muse-download-pack-'))
   const pins = JSON.parse(readFileSync(join(import.meta.dirname, 'owned-downloads.json'), 'utf8'))
   const names = Object.keys(pins)
+  assert.equal(names.includes('muse-lvpaopao'), false, 'Development-only Lvpaopao is excluded from release bundles')
   const before = names.map(name =>
     readFileSync(join(import.meta.dirname, name, 'package.json')))
   try {
@@ -49,8 +50,7 @@ test('packs every owned tool through pnpm without modifying source or exposing l
         entry.on('data', chunk => { hash.update(chunk) })
         entry.on('end', () => { entries.set(entry.path, hash.digest('hex')) })
       } })
-      const manifest = JSON.parse(readFileSync(join(import.meta.dirname, name, 'package.json'), 'utf8'))
-      assert.ok(entries.has(`package/${manifest.main.replace(/^\.\//u, '')}`))
+      assert.ok(entries.has('package/src/index.js'))
       assert.doesNotMatch([...entries.keys()].join('\n'), /(?:^|\/)(?:node_modules|config\.json|devices\.json|\.env)(?:\/|$|\n)/u)
       if (Object.hasOwn(embeddedSourceRoots, name)) {
         const source = JSON.parse(readFileSync(join(import.meta.dirname, name, 'SOURCE.json'), 'utf8'))
