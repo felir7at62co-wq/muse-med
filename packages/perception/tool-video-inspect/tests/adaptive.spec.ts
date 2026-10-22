@@ -2,7 +2,7 @@
 import { expect, it } from 'vitest'
 import { adaptivePlan, sceneTimecodes } from '../src/adaptive.ts'
 
-const limits = { maxFrames: 2, maxPlanPoints: 100, scenePaddingSeconds: 0.1 }
+const limits = { maxFrames: 2, maxPlanPoints: 100, scenePaddingSeconds: 0.1, utterancePreviewCharacters: 80 }
 const input = { start: 0, end: 4, duration: 4, uniform: [1, 3], cuts: [2] }
 
 it('selects both sides of a detected cut and defers ASR and uniform observations without inventing identities', () => {
@@ -13,6 +13,7 @@ it('selects both sides of a detected cut and defers ASR and uniform observations
   expect(plan.selected).toEqual([{ time: 1.9, reasons: ['before_scene_cut'] }, { time: 2.1, reasons: ['after_scene_cut'] }])
   expect(plan.deferred).toEqual([{ time: 0.5, reasons: ['speaker_change_utterance'] }, { time: 1, reasons: ['uniform_checkpoint'] },
     { time: 2.5, reasons: ['speaker_change_utterance'] }, { time: 3, reasons: ['uniform_checkpoint'] }])
+  expect(JSON.stringify(plan.deferred)).not.toContain('甲说话')
 })
 
 it('merges coincident events and keeps clipped utterances within the inspected range', () => {
@@ -22,9 +23,11 @@ it('merges coincident events and keeps clipped utterances within the inspected r
     { start: 2, end: 3, text: '继续说话', speaker_id: '1' },
     { start: 3, end: 4, text: '下一窗口', speaker_id: '1' },
   ] } }, { ...limits, maxFrames: 10 })
-  expect(plan.selected).toEqual([{ time: 1.5, reasons: ['speaker_change_utterance'] },
-    { time: 1.9, reasons: ['uniform_checkpoint', 'before_scene_cut'] }, { time: 2.1, reasons: ['uniform_checkpoint', 'after_scene_cut'] },
-    { time: 2.5, reasons: ['utterance_midpoint'] }])
+  expect(plan.selected).toEqual([{ time: 1.5, reasons: ['speaker_change_utterance'],
+    utterances: [{ start: 0, end: 2, text: '开始前已在说话', text_truncated: false, speaker_id: '1' }] },
+  { time: 1.9, reasons: ['uniform_checkpoint', 'before_scene_cut'] }, { time: 2.1, reasons: ['uniform_checkpoint', 'after_scene_cut'] },
+  { time: 2.5, reasons: ['utterance_midpoint'],
+    utterances: [{ start: 2, end: 3, text: '继续说话', text_truncated: false, speaker_id: '1' }] }])
   expect(plan.deferred).toEqual([])
 })
 
@@ -34,6 +37,7 @@ it('keeps a boundary-adjacent scene sample below the exclusive end and drops poi
   ] }, { ...limits, maxFrames: 10 })
   expect(plan.selected.map(point => point.time)).toEqual([0, 0.1, 1, 3.89, 4 - Number.EPSILON * 4])
   expect(plan.selected.find(point => point.time === 1)?.reasons).toEqual(['speaker_change_utterance', 'utterance_midpoint'])
+  expect(plan.selected.find(point => point.time === 1)?.utterances?.map(row => row.text)).toEqual(['', '重复', '又重复'])
 })
 
 it('rejects invalid transcript ranges, malformed input and candidate budget overflow', () => {
@@ -41,7 +45,21 @@ it('rejects invalid transcript ranges, malformed input and candidate budget over
     expect(() => adaptivePlan({ ...input, transcript }, limits)).toThrow()
   }
   expect(() => adaptivePlan(input, { ...limits, maxPlanPoints: 1 })).toThrow('point budget')
-  expect(adaptivePlan({ ...input, cuts: [], transcript: [{ start: 0, end: 1, text: '未分离说话人' }] }, limits).selected[0]).toEqual({ time: 0.5, reasons: ['utterance_midpoint'] })
+  expect(() => adaptivePlan({ ...input, transcript: Array.from({ length: 3 }, () => ({ start: 0, end: 1, text: '重合时码' })) },
+    { ...limits, maxPlanPoints: 2 })).toThrow('point budget')
+  expect(adaptivePlan({ ...input, cuts: [], transcript: [{ start: 0, end: 1, text: '未分离说话人' }] }, limits).selected[0])
+    .toEqual({ time: 0.5, reasons: ['utterance_midpoint'], utterances: [{ start: 0, end: 1, text: '未分离说话人', text_truncated: false }] })
+})
+
+it('bounds ASR previews by visible characters without changing original speech times or inventing a speaker', () => {
+  const plan = adaptivePlan({ ...input, cuts: [], transcript: [
+    { start: 0, end: 1, text: '别走👨‍👩‍👧‍👦等我。', speaker_id: 'job-a:2' },
+    { start: 2, end: 3, text: '好。' },
+  ] }, { ...limits, utterancePreviewCharacters: 3 })
+  expect(plan.selected.map(point => point.utterances)).toEqual([
+    [{ start: 0, end: 1, text: '别走👨‍👩‍👧‍👦', text_truncated: true, speaker_id: 'job-a:2' }],
+    [{ start: 2, end: 3, text: '好。', text_truncated: false }],
+  ])
 })
 
 it('parses actual detector timecodes, accepts no cuts and rejects nonfinite or out-of-range detector output', () => {

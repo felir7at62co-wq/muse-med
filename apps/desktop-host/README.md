@@ -41,6 +41,8 @@ The Office composition registers `manuscript_revision` globally. It compares the
 
 Comparisons show inserted, changed and deleted paragraphs. Optional candidate comparison reports differences without refusing writes, export or presentation. The Agent follows the current user request and latest returned file; legacy authorization records are readable but are not prerequisites.
 
+The read-only `measure` action compares explicit `source_paths` and `candidate_paths` over the same story range without creating a returned-draft baseline. It returns file hashes, per-file and total counts, differences and growth. Counts include headings and speaker names: letters and numbers are counted separately from all non-whitespace characters, and neither count estimates Word's word count or net prose. `max_growth_percent` supplies the user's upper tolerance; raw ASR dialogue alone is not an equivalent source for a script containing visual action.
+
 Workspace-local records remain under `.muse/manuscript-revisions/`. The Office `manuscriptRevisions` settings configure resource limits; comparisons never silently truncate. Differences enter logged model context. See the [migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.md).
 
 ## Bundled bridge selection
@@ -72,6 +74,8 @@ New Muse tasks use one short-drama director Agent for writing, revision, transcr
 Manuscript formatting and returned-draft guidance live in the system prompt. When a character’s emotions shift, dialogue uses parenthetical descriptions of tone, expression or simultaneous short actions to make the emotion visible. During video transcription, expressions and actions follow the footage and tone follows the original audio; unclear visual details are checked in sampled frames before being written. Creative writing and review skills are retired from the bundled catalog; Office, transcription and video-production skills remain available. The Agent follows the user request without a prescribed writing or approval sequence.
 
 The optional source-comparison implementation is not mounted in the default writing preset and adds no save reminders. `manuscript_revision` compares actual previous and returned files, preserves versioned differences across requests and optionally reports candidate differences. Comparison advice does not block writes, exports or presentation; a missing baseline is reported explicitly.
+
+Faithful transcription records the original speech and events. Adaptation guidance preserves the main story, relationships and key causes while allowing later nonessential beats, progression and dialogue to follow the adaptation direction. Its default length target is 100%–110% of the corresponding source, subject to the user's requirements. Length reports provide advice without blocking delivery; repetition, filler and invented facts do not satisfy the target.
 
 The Desktop product disables the upstream Web preview notice for native and browser access.
 

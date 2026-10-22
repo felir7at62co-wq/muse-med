@@ -23,13 +23,15 @@ const image = z.strictObject({ attachmentId: z.string().min(1).transform(Attachm
 const frame = z.strictObject({ requested_seconds: z.number().nonnegative(), timestamp_seconds: z.number().nonnegative(), image })
 const binding = z.object({ path: z.string().min(1), source_version: z.string().min(1).transform(FsVersion), duration_seconds: positive,
   inspection: z.literal('sampled_frames'), interval, frames: z.array(frame).min(1), manifest_path: z.string().min(1) })
+const observation = z.strictObject({ time: z.number().nonnegative(), reasons: z.array(z.string()),
+  utterances: z.array(z.strictObject({ start: z.number().nonnegative(), end: z.number().nonnegative(),
+    text: z.string(), text_truncated: z.boolean(), speaker_id: z.string().min(1).optional() })).optional() })
 const inspection = binding.omit({ inspection: true, frames: true }).loose().extend({
   inspection: z.enum(['metadata', 'sampled_frames']), frames: z.array(frame), manifest_path: z.string().min(1), verified_readback: z.boolean(),
   width: positive.int(), height: positive.int(), video_codec: z.string(), has_audio: z.boolean(), window_plan: z.array(interval).optional(),
   next_start_seconds: z.number().nonnegative().optional(),
   sampling_plan: z.strictObject({ strategy: z.literal('scene_dialogue'),
-    selected: z.array(z.strictObject({ time: z.number().nonnegative(), reasons: z.array(z.string()) })),
-    deferred: z.array(z.strictObject({ time: z.number().nonnegative(), reasons: z.array(z.string()) })) }).optional(),
+    selected: z.array(observation), deferred: z.array(observation) }).optional(),
   transcript_source: z.strictObject({ path: z.string(), version: z.string().transform(FsVersion) }).optional(),
 })
 const eventRef = z.strictObject({ seq: z.number().int().nonnegative().transform(SessionSeq), sha256: digest })

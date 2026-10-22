@@ -96,6 +96,20 @@ it('routes inspect to the original receipt without permitting a recovery upload'
   expect(startAudioTranscription).not.toHaveBeenCalled()
 })
 
+it('returns observed speaker coverage as advisory result metadata', async () => {
+  const { call } = await fixture()
+  const response: AudioRunResult = { status: 'complete', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job',
+    output_json: 'project/transcript/raw/source-v1.json', speaker_summary: {
+      status: 'not_provided', total_segments: 2, labelled_segments: 0, unlabelled_segments: 2, observed_groups: 0,
+      note: '本结果未提供说话人分组；结合画面核对角色。',
+    } }
+  vi.mocked(finishAudioTranscription).mockResolvedValueOnce(response)
+  const result = await call({ method: 'inspect', project: 'project', receipt: response.receipt })
+  expect(result.isError).toBe(false)
+  expect(result.value).toEqual(response)
+  expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(response) }])
+})
+
 it.each(['start', 'status'] as const)('explains a %s queue refusal without changing its recovery response', async (method) => {
   const { call } = await fixture()
   const response: AudioRunResult = { status: 'processing', receipt: 'project/transcript/jobs/source-v1.json',

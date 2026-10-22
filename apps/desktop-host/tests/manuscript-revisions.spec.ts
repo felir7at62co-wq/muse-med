@@ -1,7 +1,8 @@
 /** Real returned files and tool dispatch protect user revisions across a resumed refinement. */
 import { afterEach, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
@@ -123,4 +124,82 @@ it('keeps the user turn running when an optional returned file is no longer avai
   }, async () => ({ kind: 'enter' as const, messages: [message] }))
   expect(result.kind).toBe('enter')
   if (result.kind === 'enter') expect(JSON.stringify(result.messages)).toContain('返稿差异未能读取')
+})
+
+const measuredSchema = z.object({
+  state: z.literal('measured'), advisory: z.literal(true),
+  source_files: z.array(z.object({ path: z.string(), sha256: z.string(), lettersAndNumbers: z.number() })),
+  candidate_files: z.array(z.object({ path: z.string(), sha256: z.string(), lettersAndNumbers: z.number() })),
+  source: z.object({ nonWhitespaceCharacters: z.number(), lettersAndNumbers: z.number() }),
+  candidate: z.object({ nonWhitespaceCharacters: z.number(), lettersAndNumbers: z.number() }),
+  difference: z.number(), ratio: z.number().nullable(), growthPercent: z.number().nullable(),
+  maxGrowthPercent: z.number().optional(), assessment: z.string(), notice: z.string(),
+})
+
+it('measures corresponding complete Word, Markdown, and text files without a revision baseline or ledger', async () => {
+  const f = await fixture()
+  const source = docx('<w:document xmlns:w="urn:test"><w:body><w:p><w:r><w:t>甲：A𠮷2。</w:t></w:r></w:p></w:body></w:document>')
+  await writeFile(join(f.root, 'source.docx'), source)
+  await writeFile(join(f.root, 'source-2.txt'), '乙：去。')
+  await writeFile(join(f.root, 'candidate.md'), '甲：A𠮷2。\n乙：去。\n▲停。')
+  const result = measuredSchema.parse(JSON.parse(await f.revisions.request({ action: 'measure',
+    source_paths: ['source.docx', 'source-2.txt'], candidate_paths: ['candidate.md'], max_growth_percent: 10 }, f.agent, signal)))
+  expect(result.source.lettersAndNumbers).toBe(6)
+  expect(result.candidate.lettersAndNumbers).toBe(7)
+  expect(result.difference).toBe(1)
+  expect(result.ratio).toBe(7 / 6)
+  expect(result.assessment).toBe('above_requested_growth')
+  expect(result.source_files[0]?.sha256).toBe(createHash('sha256').update(source).digest('hex'))
+  expect(result.source_files[0]?.path).toBe(await realpath(join(f.root, 'source.docx')))
+  expect(result.notice).toContain('不是精准净正文字数或Word字数')
+  expect(result.notice).toContain('原始ASR通常只有对白')
+  expect(await readFile(join(f.root, 'source.docx'))).toEqual(Buffer.from(source))
+  await expect(readFile(join(f.root, '.muse/manuscript-revisions/ledger.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('keeps an existing returned-draft baseline unchanged while measuring different source files', async () => {
+  const f = await fixture()
+  await f.compare()
+  const ledgerPath = join(f.root, '.muse/manuscript-revisions/ledger.json')
+  const ledgerBefore = await readFile(ledgerPath, 'utf8')
+  await writeFile(join(f.root, 'source.txt'), '字'.repeat(30_000))
+  await writeFile(join(f.root, 'candidate.md'), '字'.repeat(80_000))
+  const result = measuredSchema.parse(JSON.parse(await f.revisions.request({ action: 'measure',
+    source_paths: ['source.txt'], candidate_paths: ['candidate.md'] }, f.agent, signal)))
+  expect(result.source.lettersAndNumbers).toBe(30_000)
+  expect(result.candidate.lettersAndNumbers).toBe(80_000)
+  expect(result.difference).toBe(50_000)
+  expect(result.maxGrowthPercent).toBeUndefined()
+  expect(result.assessment).toBe('no_growth_limit')
+  expect(await readFile(ledgerPath, 'utf8')).toBe(ledgerBefore)
+})
+
+it('reports an empty source without claiming the length target has been met', async () => {
+  const f = await fixture()
+  await writeFile(join(f.root, 'empty.txt'), '？！\n')
+  const result = measuredSchema.parse(JSON.parse(await f.revisions.request({ action: 'measure',
+    source_paths: ['empty.txt'], candidate_paths: ['returned.md'], max_growth_percent: 10 }, f.agent, signal)))
+  expect(result.ratio).toBeNull()
+  expect(result.growthPercent).toBeNull()
+  expect(result.assessment).toBe('empty_source')
+})
+
+it('does not double-count canonical aliases or infer a source from the returned-draft ledger', async () => {
+  const f = await fixture()
+  await f.compare()
+  await expect(f.revisions.request({ action: 'measure', candidate_paths: ['returned.md'] }, f.agent, signal))
+    .rejects.toThrow('measure 需要 source_paths')
+  await expect(f.revisions.request({ action: 'measure', source_paths: ['baseline.md', './baseline.md'],
+    candidate_paths: ['returned.md'] }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_DUPLICATE_PATH')
+  await expect(f.revisions.request({ action: 'measure', source_paths: ['baseline.md'],
+    candidate_paths: ['returned.md', './returned.md'] }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_DUPLICATE_PATH')
+})
+
+it('bounds the number of requested files and validates an explicitly supplied tolerance', async () => {
+  const f = await fixture()
+  const limited = new ManuscriptRevisions({ ...f.config, maxDocuments: 1 })
+  await expect(limited.request({ action: 'measure', source_paths: ['baseline.md'],
+    candidate_paths: ['returned.md'] }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_DOCUMENT_LIMIT')
+  await expect(f.revisions.request({ action: 'measure', source_paths: ['baseline.md'],
+    candidate_paths: ['returned.md'], max_growth_percent: -1 }, f.agent, signal)).rejects.toThrow()
 })

@@ -65,7 +65,7 @@
     },
     {
       "name": "audio_transcribe",
-      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2076,7 +2076,7 @@
     },
     {
       "name": "video_contact_sheet",
-      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
+      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes, unviewed cut candidates and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2139,7 +2139,7 @@
     },
     {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects visual-cut sides and ASR utterance midpoints with original speech context, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2165,7 +2165,7 @@
           },
           "strategy": {
             "type": "string",
-            "description": "Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.",
+            "description": "Default uniform. scene_dialogue detects visual cuts and, when transcript_path is supplied, samples actual ASR utterance midpoints with source times, text previews and optional speaker_id. Deferred observations remain unviewed.",
             "enum": [
               "uniform",
               "scene_dialogue"
