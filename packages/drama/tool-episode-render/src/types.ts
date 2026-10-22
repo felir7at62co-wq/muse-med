@@ -9,7 +9,7 @@
 import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
 
 /** The operation one `drama_render` call runs. */
-export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles'
+export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview'
 
 /** How much one render check's failure matters. */
 export type CheckSeverity = 'failure' | 'warning'
@@ -283,8 +283,8 @@ export interface RenderSummary {
  *
  * The field spellings are the pipeline's own snake_case, because the result is
  * read next to `body_end`, `shot_00N.mp4`, and the delivery numbers it reports.
- * Every field is always present: a method that did not measure something reports
- * the empty value, so a caller never has to branch on which keys exist.
+ * Base fields are always present, with empty values for measurements not made.
+ * Explicit audio profiles add optional `audio_mix` evidence.
  */
 export interface DramaRenderReport {
   /** The operation that produced this result. */
@@ -327,6 +327,8 @@ export interface DramaRenderReport {
   readonly not_checked: string[]
   /** Optional music-plan evidence; empty values when no plan was checked. */
   readonly bgm_plan: BgmPlanReport
+  /** Explicit audio-profile evidence; omitted for unchanged legacy calls. */
+  readonly audio_mix?: AudioMixReport
   /** One Chinese line per failure-severity check that failed. */
   readonly failures: string[]
   /** One Chinese line per warning-severity check that failed, plus every non-blocking observation. */
@@ -407,4 +409,102 @@ export interface AudioMixSpec {
   readonly masterVolume: number
   /** Gain applied to the BGM bed. */
   readonly bgmVolume: number
+  /** Explicit project profile; omission preserves the legacy filter. */
+  readonly profile?: ResolvedAudioMixProfile
+  /** Original-audio input index; render uses 1 and audio previews use 0. */
+  readonly originalInput?: number
+  /** Ending-audio input index when an ending exists. */
+  readonly endingInput?: number
+  /** Expose an independent, already-gained music output pad named musicstem. */
+  readonly musicStem?: boolean
+  /** Shared timeline offset for a bounded audio preview. */
+  readonly startSeconds?: number
+}
+
+/** Explicit, versioned choices for added music; original sound is not speech-separated. */
+export interface AudioMixProfile {
+  /** Profile format version. */
+  readonly schema_version: 1
+  /** Legacy gains, no added music, or original-audio-driven ducking. */
+  readonly mode: 'legacy' | 'no_bgm' | 'ducking'
+  /** Gain of the retained original audio. */
+  readonly original_gain?: number
+  /** Gain of the added music. */
+  readonly music_gain?: number
+  /** Duration of each measurement frame, in milliseconds. */
+  readonly analysis_window_ms: number
+  /** Required explicit compressor parameters in ducking mode. */
+  readonly ducking?: {
+    readonly threshold_db: number
+    readonly ratio: number
+    readonly attack_ms: number
+    readonly release_ms: number
+    readonly knee: number
+  }
+}
+
+/** Project profile after deployment gains have been captured once. */
+export interface ResolvedAudioMixProfile extends AudioMixProfile {
+  /** Absolute, real project-owned profile path. */
+  readonly path: string
+  /** Resolved original-audio gain. */
+  readonly original_gain: number
+  /** Resolved added-music gain. */
+  readonly music_gain: number
+}
+
+/** Paths and explicit parameters of one audio mix or bounded audition. */
+export interface AudioMixReport {
+  /** Report version. */
+  readonly schema_version: 1
+  /** Real project-owned profile path. */
+  readonly profile_path: string
+  /** Selected added-music behavior. */
+  readonly mode: AudioMixProfile['mode']
+  /** Effective parameters, excluding the profile path. */
+  readonly parameters: AudioMixProfile & { readonly original_gain: number; readonly music_gain: number }
+  /** Original-audio energy is not semantic voice activity detection. */
+  readonly detector: 'source_audio_rms_not_speech_vad' | 'none'
+  /** Original sound, which can already contain effects or music. */
+  readonly original_audio: string
+  /** Added-music input; empty in no_bgm mode. */
+  readonly music_audio: string
+  /** Music-only output; never contains the original audio. */
+  readonly music_stem: string
+  /** Whether a composer receipt supplied source-window gains for this exact bed. */
+  readonly composition_gain_status: 'provided' | 'not_provided'
+  /** Verified composer receipt and its per-source gains. */
+  readonly composition?: {
+    readonly path: string
+    readonly bed_sha256: string
+    readonly segments: {
+      readonly track: string
+      readonly source: string
+      readonly start_seconds: number
+      readonly end_seconds: number
+      readonly source_mean_db: number
+      readonly applied_gain_db: number
+    }[]
+  }
+  /** Bounded, aligned audio comparison and measurement paths. */
+  readonly preview?: {
+    readonly start_seconds: number
+    readonly duration_seconds: number
+    readonly selected_mix: string
+    readonly without_added_music: string
+    readonly music_stem: string
+    readonly analysis: string
+  }
+}
+
+/** One fixed-duration audio frame measured by FFmpeg astats. */
+export interface AudioWindow {
+  /** Offset relative to the start of the audition. */
+  readonly time_seconds: number
+  /** RMS level in dBFS; null denotes digital silence. */
+  readonly rms_dbfs: number | null
+  /** Sample peak in dBFS; null denotes digital silence. */
+  readonly peak_dbfs: number | null
+  /** Both RMS and peak are negative infinity. */
+  readonly silent: boolean
 }

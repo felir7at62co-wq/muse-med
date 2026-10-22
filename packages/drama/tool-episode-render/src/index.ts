@@ -18,6 +18,7 @@
  */
 
 import { resolve } from 'node:path'
+import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -125,6 +126,18 @@ interface DramaRenderArguments {
   bgm?: string
   /** Optional episode/segments music plan to report, not a listening verdict. */
   bgmPlan?: string
+  /** Composer receipt for exact-bed gain evidence in audio_preview. */
+  bgmGeneration?: string
+  /** Explicit project-owned audio profile. */
+  mixProfile?: string
+  /** Original sound for an audio audition; defaults to the episode master. */
+  audio?: string
+  /** Audio audition offset on the body timeline. */
+  startSeconds?: number
+  /** Audio audition duration, at most 60 seconds. */
+  durationSeconds?: number
+  /** Explicit intended use for an audio preview's advisory music license report. */
+  intendedUse?: 'commercial' | 'non_commercial' | 'unknown'
   /** Ending sound; required only for photorealistic or legacy marked delivery. */
   endingAudio?: string
   /** Ending effect video; required only for photorealistic or legacy marked delivery. */
@@ -178,9 +191,11 @@ interface RenderCall extends CallBase {
   /** The last body shot this render delivers. */
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
-  readonly bgm: string
+  readonly bgm?: string
   /** Optional absolute path of the declared BGM plan. */
   readonly bgmPlan?: string
+  /** Explicit project-owned audio profile. */
+  readonly mixProfile?: string
   /** Absolute path of the ending sound. */
   readonly endingAudio?: string
   /** Absolute path of the ending effect video. */
@@ -204,7 +219,20 @@ interface VerifyCall extends CallBase {
 }
 
 /** One call with every path it needs already resolved. */
-type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall
+interface AudioPreviewCall extends CallBase {
+  readonly method: 'audio_preview'
+  readonly timelinePath: string
+  readonly audio: string
+  readonly bgm?: string
+  readonly bgmPlan?: string
+  readonly bgmGeneration?: string
+  readonly intendedUse?: 'commercial' | 'non_commercial' | 'unknown'
+  readonly profilePath: string
+  readonly startSeconds: number
+  readonly durationSeconds: number
+}
+
+type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall | AudioPreviewCall
 
 /**
  * Resolve one call's configuration into the settings every method takes.
@@ -274,22 +302,41 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       subtitleSrt: resolve(project, args.subtitleSrt ?? paths.subtitle),
     }
   }
+  if (args.method === 'audio_preview') {
+    return {
+      method: 'audio_preview', project, episode,
+      timelinePath: resolve(project, required(args.timeline, 'audio_preview', 'timeline', '正文时间线 JSON。')),
+      audio: resolve(project, args.audio ?? paths.masterAudio),
+      ...(args.bgm === undefined ? {} : { bgm: resolve(project, args.bgm) }),
+      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
+      ...(args.bgmGeneration === undefined ? {} : { bgmGeneration: resolve(project, args.bgmGeneration) }),
+      ...(args.intendedUse === undefined ? {} : { intendedUse: args.intendedUse }),
+      profilePath: resolve(project, required(args.mixProfile, 'audio_preview', 'mixProfile', '项目内显式音频配置 JSON。')),
+      startSeconds: required(args.startSeconds, 'audio_preview', 'startSeconds', '正文起点，秒。'),
+      durationSeconds: required(args.durationSeconds, 'audio_preview', 'durationSeconds', '试听时长，大于 0 且最多 60 秒。'),
+    }
+  }
   if (args.method === 'render') {
     const lastShot = required(args.lastShot, 'render', 'lastShot',
       '本集最后一个镜头号，例如 9；时间线里 shot <= lastShot 的镜头数必须正好等于它。')
     if (!Number.isInteger(lastShot) || lastShot < 1) {
       throw new Error(`drama_render render 的 lastShot 必须是正整数镜头号，收到 ${JSON.stringify(lastShot)}。`)
     }
+    const timelinePath = resolve(project, required(args.timeline, 'render', 'timeline',
+      '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。'))
+    const subtitleSrt = resolve(project, required(args.subtitleSrt, 'render', 'subtitleSrt',
+      '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。'))
+    const bgm = args.mixProfile === undefined
+      ? required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。') : args.bgm
     return {
       method: 'render',
       project,
       episode,
-      timelinePath: resolve(project, required(args.timeline, 'render', 'timeline',
-        '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。')),
-      subtitleSrt: resolve(project, required(args.subtitleSrt, 'render', 'subtitleSrt',
-        '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。')),
+      timelinePath,
+      subtitleSrt,
       lastShot,
-      bgm: resolve(project, required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
+      ...(bgm === undefined ? {} : { bgm: resolve(project, bgm) }),
+      ...(args.mixProfile === undefined ? {} : { mixProfile: resolve(project, args.mixProfile) }),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
       ...(args.endingAudio === undefined ? {} : { endingAudio: resolve(project, args.endingAudio) }),
       ...(args.endingEffect === undefined ? {} : { endingEffect: resolve(project, args.endingEffect) }),
@@ -395,6 +442,19 @@ export async function runDramaRender(
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
+  if (call.method === 'audio_preview') {
+    const preview = await previewAudio({ ...call, toolkit, settings })
+    return buildReport({ method: 'audio_preview', project: call.project, episode: call.episode,
+      timeline: preview.timeline, sources: new Map(), expectedDurationSeconds: call.durationSeconds,
+      written: preview.written, output: preview.output, encoder: '', gpuRequested: false, gpuUsed: false,
+      encoderFallbackReason: '', encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME,
+      media: NO_MEDIA, checks: [], audioMix: preview.mix, bgmPlan: preview.bgmPlan, logPath: '',
+      warnings: ['短时 RMS/采样峰值不是人工听感验收；原声可能已有音乐和音效。',
+        ...(preview.mix.music_audio && !preview.bgmPlan.path ? ['未提供配乐计划，曲目来源、使用时段与许可未知。'] : []),
+        ...(preview.mix.music_audio && preview.mix.composition_gain_status === 'not_provided'
+          ? ['未提供匹配的配乐合成收据，各源曲作曲增益未测得；不能只凭总 music_gain 推断。'] : []),
+        ...(preview.mix.mode === 'ducking' ? ['压低由原声能量触发，不是语义 VAD 或纯对白分离。'] : [])] })
+  }
   if (call.method === 'prepare') {
     return prepareReport(call, await prepareEpisode({
       toolkit,
@@ -424,7 +484,8 @@ export async function runDramaRender(
       timelinePath: call.timelinePath,
       subtitleSrt: call.subtitleSrt,
       lastShot: call.lastShot,
-      bgm: call.bgm,
+      ...(call.bgm === undefined ? {} : { bgm: call.bgm }),
+      ...(call.mixProfile === undefined ? {} : { mixProfile: call.mixProfile }),
       ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }),
       ...(call.endingAudio === undefined ? {} : { endingAudio: call.endingAudio }),
       ...(call.endingEffect === undefined ? {} : { endingEffect: call.endingEffect }),
@@ -446,12 +507,12 @@ export async function runDramaRender(
 /** One sentence every check field repeats. */
 const CHECK_SHAPE = 'severity=failure 表示交付不可用（ok=false），warning 只记录不阻塞。'
 
-/** Model-facing result schema: every field of the canonical report, all of them always present. */
+/** Model-facing base report and optional evidence for explicit audio profiles. */
 const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
+    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview'],
       description: '产生本结果的操作。' },
     ok: { type: 'boolean', required: true,
       description: '是否成功且没有任何 failure 级检查失败；false 时交付不可用，看 failures 里的修法。' },
@@ -530,6 +591,7 @@ const RESULT_SCHEMA = {
           fix: { type: 'string', required: true, description: '中文修法；通过时为空串。' },
         },
       } },
+    audio_mix: AUDIO_MIX_RESULT_SCHEMA,
     bgm_plan: { type: 'object', required: true, additionalProperties: false,
       description: '声明的配乐段落、音频许可事实、用途风险和同序复用提醒；不是试听或版权核验结论。未读取计划时许可与用途为 unknown。',
       properties: {
@@ -573,7 +635,7 @@ const RESULT_SCHEMA = {
   },
 } as const
 
-/** What the model reads before calling: the four methods, medium-specific delivery, and known traps. */
+/** What the model reads before calling: the methods, medium-specific delivery, and known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + 'subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，'
   + '建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。'
@@ -624,11 +686,11 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'drama_render',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
+      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview'],
         description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
-          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。' },
+          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析。' },
       project: { type: 'string', required: true,
-        description: '项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
+        description: '项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
@@ -651,11 +713,21 @@ export function apply(ctx: Context, config: Config = {}): void {
           + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
-      bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；'
+      bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 除显式 no_bgm 配置外必填，相对路径以 project 为基准；'
         + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。' },
       bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
         + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
         + '校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。' },
+      mix_profile: { type: 'string', description: 'render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。'
+        + 'mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。'
+        + 'ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。'
+        + 'no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。'
+        + '未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。' },
+      bgm_generation: { type: 'string', description: 'audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。' },
+      audio: { type: 'string', description: 'audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。' },
+      start_seconds: { type: 'number', description: 'audio_preview 必填：正文试听起点，非负秒数。' },
+      duration_seconds: { type: 'number', description: 'audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。' },
+      intended_use: { type: 'string', enum: ['commercial', 'non_commercial', 'unknown'], description: 'audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。' },
       ending_audio: { type: 'string',
         description: '片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
@@ -674,10 +746,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       schema: RESULT_SCHEMA,
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async ({ subtitle_srt, last_shot, ending_audio, ending_effect, bgm_plan, ...args }) => await runDramaRender({
+    execute: async ({ subtitle_srt, last_shot, ending_audio, ending_effect, bgm_plan,
+      mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation, ...args }) => await runDramaRender({
       ...args,
       ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
       ...(bgm_plan === undefined ? {} : { bgmPlan: bgm_plan }),
+      ...(mix_profile === undefined ? {} : { mixProfile: mix_profile }),
+      ...(bgm_generation === undefined ? {} : { bgmGeneration: bgm_generation }),
+      ...(start_seconds === undefined ? {} : { startSeconds: start_seconds }),
+      ...(duration_seconds === undefined ? {} : { durationSeconds: duration_seconds }),
+      ...(intended_use === undefined ? {} : { intendedUse: intended_use }),
       ...(last_shot === undefined ? {} : { lastShot: last_shot }),
       ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
       ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),

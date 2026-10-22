@@ -161,6 +161,26 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('renders an explicit no_bgm profile without reading music or a music plan and refuses output replacement', async () => {
+    const prepared = await preparedProject()
+    await rm(prepared.bgm)
+    const profile = join(prepared.project, 'audio', 'no-music.json')
+    await writePlaceholder(profile, JSON.stringify({ schema_version: 1, mode: 'no_bgm',
+      original_gain: 1, analysis_window_ms: 100 }))
+    const channel = renderChannel(prepared)
+    const report = await render(prepared, channel, false, join(prepared.project, 'missing-plan.json'), { mixProfile: profile })
+    expect(report.audio_mix).toMatchObject({ mode: 'no_bgm', original_audio: prepared.paths.masterAudio,
+      music_audio: '', music_stem: '', detector: 'none' })
+    expect(report.bgm_plan.path).toBe('')
+    expect(channel.calls.some(call => call.args.includes(prepared.bgm))).toBe(false)
+    const final = channel.calls.find(call => call.args.includes('-filter_complex') && call.args.includes('aac'))
+    expect(final?.args[final.args.indexOf('-filter_complex') + 1]).not.toContain('sidechaincompress')
+    const before = await readFile(prepared.output)
+    await expect(render(prepared, renderChannel(prepared), false, undefined, { mixProfile: profile }))
+      .rejects.toThrow('不会覆盖')
+    expect(await readFile(prepared.output)).toEqual(before)
+  })
+
   it('refuses an animation timeline marking an included ending before media commands', async () => {
     const prepared = await preparedProject()
     await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))

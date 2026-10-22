@@ -60,7 +60,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 
 `prepare` checks selected source bytes before probing, again before copying, and after copying. `render` checks current prepared sources before media work, checks actual encoded-cache bytes before use, and rechecks the source hashes consumed by this render before publishing its staged output under the manifest writer lock. A late ban leaves the previous delivery untouched. `verify` never deletes files: `video_bans` reports a directly banned output, or “当前选片含禁用素材，已有输出需复核” for currently selected sources. Without an immutable output source record, `output_source_mapping` remains in `not_checked` rather than certifying which versions an older output contains.
 
-### The four render methods
+### Render and audio audition methods
 
 | Method | Reads | Writes | Use it for |
 |---|---|---|---|
@@ -68,20 +68,26 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `prepare` | The shot-sources manifest and the subtitle | `video/<集>/shot_00N.mp4`, `audio/<集>.wav`, `editing/<集>-timeline.json`, `editing/<集>.srt` | Building every input a render reads, without encoding picture |
 | `render` | The timeline, prepared shots, master, subtitle, BGM, and medium-required ending assets | The delivered MP4 and `exports/.render_cache/<集>/render.log` | Producing the delivery and returning its measured parameters |
 | `verify` | The delivered file, its timeline, and its subtitle | Nothing | Checking a delivery after the fact, or re-checking one from an earlier session |
+| `audio_preview` | Project-owned original sound, timeline, explicit mix profile and optional music metadata | New aligned WAV auditions, music stem and analysis JSON under `audio/previews/` | Comparing added music against retained original sound before rendering picture |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `subtitles`, `prepare`, `render`, or `verify` |
+| `method` | always | `subtitles`, `prepare`, `render`, `verify`, or `audio_preview` |
 | `project` | always | Project root holding `video/`, `audio/`, `editing/`, and `exports/` |
 | `episode` | always | Episode number; padded to two digits on every path |
 | `shots` | `subtitles`, `prepare` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
 | `lines` | `subtitles` | Per-shot line plan: `{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`; each entry is one cue, already split to delivery length |
 | `alignment` | `subtitles` | Recognition timings: `{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
-| `timeline` | `render`, `verify` | Timeline JSON, normally the one `prepare` wrote |
+| `timeline` | `render`, `verify`, `audio_preview` | Timeline JSON, normally the one `prepare` wrote |
 | `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
-| `bgm` | `render` | The BGM bed, looped to the body end |
-| `bgm_plan` | optional, `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
+| `bgm` | music-enabled `render`, `audio_preview` | The BGM bed, looped to the body end; ignored and unopened by an explicit `no_bgm` profile |
+| `bgm_plan` | optional, `render`, `audio_preview` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
+| `mix_profile` | `audio_preview`; optional, `render` | Project-owned versioned audio profile; omission preserves legacy rendering |
+| `audio` | optional, `audio_preview` | Project-owned original audio; defaults to `audio/<集>.wav` |
+| `start_seconds`, `duration_seconds` | `audio_preview` | Nonnegative body offset and positive audition duration of at most 60 seconds, without crossing body end |
+| `bgm_generation` | optional, `audio_preview` | Project-owned composer receipt; its media SHA-256 must match the BGM before per-source gains are reported |
+| `intended_use` | optional, `audio_preview` | `commercial`, `non_commercial`, or `unknown`; overrides the plan's declared use for advisory license-risk reporting |
 | `ending_audio` | marked `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
 | `ending_effect` | marked `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
@@ -90,6 +96,16 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 Every relative project input and output path resolves from `project`, including manifests, subtitle plans, alignment, subtitles, BGM, ending files, and explicit output. Absolute paths remain unchanged. Pass an absolute `project` across tools; a relative project root is resolved once from the process working directory. Ending assets outside the project use their installed absolute paths. Binary and font deployment configuration is unchanged.
 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
+
+### Explicit audio profiles and auditions
+
+Pass `mix_profile` explicitly to select a project-owned JSON file. `schema_version` is `1`; `mode` is `legacy`, `no_bgm`, or `ducking`; `analysis_window_ms` is 10–1000. Optional `original_gain` and `music_gain` accept 0–8 and otherwise capture the existing deployment gains. `ducking` requires explicit `threshold_db` (−60–0), `ratio` (1–20), `attack_ms` (0.01–2000), `release_ms` (0.01–9000), and `knee` (1–8) under its `ducking` object. No profile means the existing fixed-gain render, without new report fields.
+
+`no_bgm` never requires or opens `bgm`, `bgm_plan`, or a composition receipt. It preserves the source's own sound, including any existing music or effects; it does not separate speech or remove embedded music. `ducking` uses original-audio RMS energy as its sidechain, not semantic voice activity detection. Attack and release smooth the added-music gain, and the original signal enters the mix once. Explicit-profile renders require new project-owned output paths and publish a separate, already-gained music-only `<output-name>.music-stem.wav` when music is enabled; existing outputs are not replaced.
+
+`audio_preview` requires the profile, timeline and explicit audition interval. It processes from body zero with the final render's filter builder, then trims the outputs, so the sidechain history at the audition offset is retained. Trimming uses rounded 48 kHz sample bounds and rebuilt output timestamps, preventing overlapping AAC join timestamps from stretching an A/B window. The new preview directory contains `selected_mix.wav`, `without_added_music.wav`, an optional `music_stem.wav`, and `analysis.json`; repeated calls create different directories. Profile and audition paths must remain project-owned after resolving links. The music stem never includes the original audio.
+
+The analysis separates frame RMS/sample peaks in dBFS from EBU R128 momentary (400 ms) and short-term (3 s) loudness in LUFS. Loudness observations occur every 100 ms relative to the audition start; incomplete windows return null with explicit warmup flags. These measurements do not establish listening approval. The report retains track names, intervals, declared licenses and use risks from an optional `bgm_plan`; absent metadata stays unknown. A hash-matched `bgm_generation` additionally supplies each source's measured mean and applied composition gain, distinct from the final `music_gain`.
 
 ### Medium and delivery snapshot
 
@@ -200,6 +216,7 @@ The package is built on four commitments:
 | [`src/delivery-policy.ts`](src/delivery-policy.ts) | Validates project/timeline metadata, rejects medium conflicts, and resolves legacy warnings and medium treatment |
 | [`src/delivery.ts`](src/delivery.ts) | Delivery defaults and style: geometry, encoder arguments, the ASS header and timestamps, the shipped ending assets, the ending filter, and the audio mix graph |
 | [`src/ffmpeg.ts`](src/ffmpeg.ts) | Process channel, ffmpeg and ffprobe wrappers, and shared media measurement |
+| [`src/audio.ts`](src/audio.ts) | Explicit audio profiles, project-owned auditions, composition receipts and short-window energy/loudness measurements |
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT parsing and writing, and the ASS document the delivery burns |
@@ -210,7 +227,7 @@ The package is built on four commitments:
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`: the shot-sources manifest, the probes, the copied layout, and the master audio graph |
 | [`src/render.ts`](src/render.ts) | `render`: the encode pipeline, the concat, the burn-in, the mix, and the render log |
 | [`src/verify.ts`](src/verify.ts) | The delivery verdict `render` shares, plus `verify`'s decode probes, black, silence, and subtitle-bound checks |
-| [`src/report.ts`](src/report.ts) | The canonical result: one shape every method fills, empty where it measured nothing |
+| [`src/report.ts`](src/report.ts) | Shared base results, empty where no measurement ran, plus optional explicit-profile audio evidence |
 | [`src/types.ts`](src/types.ts) | Types only: the timeline, the shot source, the measured facts, and the model-facing result |
 | — | No runtime invariant companion is published: the package holds no state between calls and every answer is a function of the files it reads and the processes it starts. |
 
@@ -240,7 +257,7 @@ The request includes `drama_render` and `drama_video`, with parameter and result
 
 #### Token effect
 
-The render result contains one `clips` row per shot and up to thirteen checks, including the optional ban check. `drama_video` adds a fixed schema; its `list` result grows by one row per recorded version, while other methods return only the selected decision. A render of a nine-shot episode returns nine clip rows whatever the encode cost, and a passing delivery leaves `failures` empty and every `fix` an empty string.
+The render result contains one `clips` row per shot and up to thirteen checks, including the optional ban check. `drama_video` adds a fixed schema; its `list` result grows by one row per recorded version, while other methods return only the selected decision. A render of a nine-shot episode returns nine clip rows whatever the encode cost, and a passing delivery leaves `failures` empty and every `fix` an empty string. Explicit audio profiles add `audio_mix`; frame measurements stay in its analysis file instead of expanding the tool result.
 
 #### KV Cache effect
 
@@ -254,12 +271,12 @@ These limits define what this package is and what it is not. They are current co
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
 - **Delivery metadata does not expose arbitrary filters** — project-bible geometry and explicit medium are validated and snapshotted; rate control, subtitle style, shipped ending hashes and limiter remain fixed. Only binaries, gains, encoder preference and fonts are plugin `Config` fields.
-- **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Final MP4 publication uses a staged sibling and rename after ban checks; failures before publication retain the old delivery.
+- **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Legacy final MP4 publication uses a staged sibling and rename after ban checks; explicit audio profiles publish MP4/music stems without replacement. Failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
 - **A required ending is rebuilt on every marked render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.
 - **`prepare` copies, it does not link** — every source video is copied into the project, so a nine-shot episode needs room for the reviewed cuts twice. Hard links would break as soon as the source is rewritten.
 - **One episode per call** — `last_shot` bounds a render to the body shots it delivers, but a call never renders several episodes, and no method reads `pipeline_state.json`.
-- **The mix is not metered** — `amix` with `normalize=0` keeps the operator's gains exactly, and `alimiter=0.95` is the only ceiling. A source louder than the master it replaced can still clip before the limiter, and `verify`'s silence check does not detect it.
+- **Auditions are not automatic mastering or speech separation** — short-window dBFS and LUFS measurements require `audio_preview`; legacy rendering and `verify` do not add them. Source-driven ducking can react to effects and embedded music, and no measurement certifies musical suitability or removes source-internal music.
 - **Subtitle bounds are checked, not corrected** — `verify` reports a cue that runs past `body_end`; nothing clamps it, because where a line should end is the subtitle author's decision.
 - **`subtitles` trusts the recognizer's times** — the alignment settles when each line is spoken, and this package checks that it covers every declared line and that its text is the script's, but it cannot judge how accurate the recognizer was. `speech_alignment` stays in `not_checked` for exactly that reason, and producing the alignment is the caller's step.
 

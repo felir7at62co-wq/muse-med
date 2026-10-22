@@ -1060,6 +1060,28 @@ describe('tokenizeSessionFixtureCwd', () => {
     expect(tokenizeSessionFixtureCwd(out)).toBe(out)
   })
 
+  it('tokenizes JSON-escaped Windows cwd paths without altering sibling or external paths', () => {
+    const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-json-test`
+    const body = { project: cwd, config_path: `${cwd}\\project_config.json`,
+      forward_path: `${cwd.replaceAll('\\', '/')}/editing/24-timeline.json`,
+      sibling: `${cwd}-backup\\project_config.json`, external: String.raw`D:\media\retained.wav`,
+      reason: 'Keep this user feedback unchanged.' }
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd }),
+      JSON.stringify({ type: 'tool/result', data: { content: [{ type: 'text', text: JSON.stringify(body, null, 2) }] } }),
+      '',
+    ].join('\n')
+
+    const output = tokenizeSessionFixtureCwd(raw)
+    const row = JSON.parse(output.split('\n')[1] as string) as { data: { content: { text: string }[] } }
+    const block = row.data.content[0]
+    if (block === undefined) throw new Error('Missing tokenized tool result')
+    const rendered: unknown = JSON.parse(block.text)
+    expect(rendered).toEqual({ ...body, project: '{{cwd}}', config_path: '{{cwd}}\\project_config.json',
+      forward_path: '{{cwd}}/editing/24-timeline.json' })
+    expect(tokenizeSessionFixtureCwd(output)).toBe(output)
+  })
+
   it('collapses a residual macOS realpath prefix around an existing cwd token', () => {
     const raw = [
       JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: '{{cwd}}' }),

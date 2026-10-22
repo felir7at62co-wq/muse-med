@@ -609,6 +609,15 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       }, null, 2) + '\n')
     }
   },
+  async 'muse-bgm-project-feedback'(cwd) {
+    for (const name of ['tweet-drama-project-bible', 'tweet-drama-background-render']) {
+      const source = join(repoRoot, 'packages/drama/skills/skills', name)
+      const target = join(cwd, '.dsh/skills', name)
+      await mkdir(target, { recursive: true })
+      await copyFile(join(source, 'SKILL.md'), join(target, 'SKILL.md'))
+      if (existsSync(join(source, 'references'))) await cp(join(source, 'references'), join(target, 'references'), { recursive: true })
+    }
+  },
   async 'muse-drama-pipeline-skill'(cwd) {
     const renderTarget = join(cwd, '.dsh/skills/tweet-drama-background-render/SKILL.md')
     await mkdir(dirname(renderTarget), { recursive: true })
@@ -1648,6 +1657,48 @@ describe('headless recorded-session snapshots', () => {
                 retry_registration: false, original_idempotency_key: 'offline-original-voice-key', paid_requests: 0 })
               expect(pending.next).toContain('继续无此参考音频的已授权初始视频或其他独立工作')
               expect(pending).not.toHaveProperty('lease_id')
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
+            if (scenario.name === 'muse-bgm-project-feedback') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'bgm_match', 'drama_bgm'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-project-bible' })
+              expect(JSON.parse(calls[1]!.arguments)).toEqual({ name: 'tweet-drama-background-render' })
+              expect(JSON.parse(calls[2]!.arguments)).toEqual({ method: 'match', project: '.',
+                context_tags: ['family-conflict', 'dense-dialogue'], valence: 5, arousal: 5, limit: 5, intended_use: 'non_commercial' })
+              expect(JSON.parse(calls[3]!.arguments)).toEqual({ method: 'compose', project: '.', episode: 24,
+                timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              const bibleBlock = results[0]?.content.find(block => block.type === 'text')
+              const renderBlock = results[1]?.content.find(block => block.type === 'text')
+              if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
+              for (const text of ['project_bible.bgm_feedback', '先 `drama_project action=read`', '时间来自该次明确用户反馈']) {
+                expect(bibleBlock.text).toContain(text)
+              }
+              for (const text of ['可以只用一首，也可以不额外添加 BGM', '实际可播放 A/B 试听', '集中一次请求反馈', 'audio_preview']) {
+                expect(renderBlock.text).toContain(text)
+              }
+              const matchBlock = results[2]?.content.find(block => block.type === 'text')
+              const composeBlock = results[3]?.content.find(block => block.type === 'text')
+              if (matchBlock?.type !== 'text' || composeBlock?.type !== 'text') throw new Error('Missing real BGM feedback tool results')
+              const matched: unknown = JSON.parse(matchBlock.text)
+              expect(matched).toMatchObject({ evaluated_tracks: 1, candidates: [], withheld_count: 1, music_optional: true,
+                project_preferences: { status: 'ready', feedback_count: 1, context_tags: ['family-conflict', 'dense-dialogue'] },
+                withheld_candidates: [{ source_sha256: `sha256:${'a'.repeat(64)}`, valence: 5, arousal: 5, distance: 0,
+                  project_preference: { decision: 'reject', feedback_id: 'explicit-user-24-1',
+                    reason: 'The user rejected the instrumentation under this dense family dialogue.',
+                    recorded_at: '2026-10-22T06:00:00Z', history_count: 1, history_truncated: false,
+                    history: [{ feedback_id: 'explicit-user-24-1', applicable: true }] } }],
+                recommendation: 'No unrejected candidate in this scene; deliver without added BGM or ask once for an explicit user change.' })
+              const composed: unknown = JSON.parse(composeBlock.text)
+              expect(composed).toMatchObject({ method: 'compose', episode: '24', music_decision: 'none', status: 'no_added_music',
+                decision_reason: 'Respect explicit user feedback in this dialogue scene; preserve the original audio.',
+                segments: [], output: '', report: '', license_records: [], policy_findings: [], media: { size_bytes: 0, sha256: '' } })
+              expect(existsSync(join(cwd, 'audio'))).toBe(false)
+              expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
             if (scenario.name === 'muse-voice-periods') {

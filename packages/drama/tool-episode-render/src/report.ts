@@ -3,14 +3,14 @@
  *
  * The result keeps the pipeline's own snake_case spellings, because it is read
  * next to `body_end`, `body_end_seconds`, and the delivery specification it
- * reports on. Every field is always present: a method that did not measure
- * something reports the empty value, so a caller never has to branch on which
- * keys exist.
+ * reports on. Base fields are always present, with empty values for measurements
+ * not made; an explicit audio profile adds optional `audio_mix` evidence.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/report
  */
 
 import type {
+  AudioMixReport,
   BgmPlanReport,
   DramaRenderMethod,
   DramaRenderReport,
@@ -53,6 +53,8 @@ export interface ReportInput {
   readonly method: DramaRenderMethod
   /** Optional declared BGM plan validated by render. */
   readonly bgmPlan?: BgmPlanReport
+  /** Explicit profile evidence; omitted for legacy callers. */
+  readonly audioMix?: AudioMixReport
   /** Absolute project root. */
   readonly project: string
   /** Two-digit episode number. */
@@ -180,6 +182,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     ].filter(id => !input.checks.some(check => check.id === id)),
     bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [],
       intended_use: 'unknown', license_records: [] },
+    ...(input.audioMix === undefined ? {} : { audio_mix: input.audioMix }),
     failures,
     warnings,
     log_path: input.logPath,

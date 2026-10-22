@@ -21,7 +21,7 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue, type ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import * as Bgm from '../src/index.ts'
 
 class Reader implements SubprocessOutputReader {
@@ -82,8 +82,6 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     await mkdir(join(root, 'music'), { recursive: true })
     await writeFile(join(root, 'music', 'cue.mp3'), 'cue bytes')
     await writeFile(join(root, 'music', 'tail.mp3'), 'tail bytes')
-    // The batch gate wants two tracks per episode and a cut on a package
-    // boundary, so the fixture carries both.
     await writeFile(join(root, 'editing', '01-timeline.json'), JSON.stringify({
       body_end: 12, clips: [{ shot: 1, start_us: 0 }, { shot: 2, start_us: 6_000_000 }],
     }))
@@ -158,6 +156,18 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     const visible = JSON.parse(rendered[0]?.text ?? '') as Record<string, unknown>
     expect(visible.intended_use).toBe('commercial')
     expect(visible.license_records).toHaveLength(2)
+    expect(visible.preview_notice).toContain('不是试听')
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn')
+    await writeFile(join(root, 'editing', 'bgm-plan.json'), JSON.stringify({ episodes: [{
+      episode: '01', body_duration_seconds: 12, music_decision: 'none',
+      decision_reason: '保留对白和现场声', segments: [],
+    }] }))
+    await rm(join(root, 'music'), { recursive: true })
+    const noMusic = await tool.execute({ ...args, method: 'compose' }, runContext())
+    expect(validateJsonSchemaValue(tool.output.schema, noMusic, '')).toEqual([])
+    expect(noMusic).toMatchObject({ music_decision: 'none', decision_reason: '保留对白和现场声',
+      status: 'no_added_music', output: '', report: '', segments: [], license_records: [], policy_findings: [] })
+    expect(spawn).not.toHaveBeenCalled()
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-bgm-compose')
     await entry?.fiber?.dispose()
     expect(ctx.tools.get('drama_bgm')).toBeUndefined()

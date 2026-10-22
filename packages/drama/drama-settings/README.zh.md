@@ -50,6 +50,8 @@ kind: "package-bundle"
 
 `project_config.json` 是权威数据。`project_bible` 保存风格、明确的视觉类型、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
 
+`bgm_feedback` 追加明确的用户决定，只作用于本项目及相近的 `context_tags`，不是全局黑名单。每条须包含唯一且不可变的 `feedback_id`、`track_id` 或 `source_sha256`（64 位十六进制，可带 `sha256:` 前缀）、`decision`（`accept` 或 `reject`）、非空文本标签、`reason` 和带明确时区的有效 ISO `recorded_at`。可选 `episode` 为正安全整数；`user_quote` 保留非空原话。调用方提供已知反馈时间，不得把 Agent 审美判断记成用户反馈；存储只验证字段，不验证发言人身份。用户后来明确改口时，在旧记录之后追加新 ID。原样重传同一记录幂等；改写已有 ID 的内容会失败。省略字段或传 `[]` 保留历史。反馈变更只建议复核草稿和成片，不删除已完成工作，也不授权重新付费生成。
+
 每个角色可记录项目拥有的 `role_class`，值为 `lead`、`important_support`、`support` 或 `extra`。Host 工作流默认只为主角检索公共人物参考库，其他角色必须提供具体剧情理由；Catalog metadata 不决定角色重要性，也不授予使用权限。
 
 `visual_medium` 接受 `animation_3d` 和 `photorealistic`，与自由文本 `style` 独立。3D 漫的草稿和成片不新增片尾或水印；仿真人保留二者。旧项目缺值时保留缺值并明确提示类型未确认，沿用旧版带标识交付，绝不从风格文本或比例猜测。类型变化写入版本记录，并提示复核资产、镜头、视频、草稿和成片阶段，不删除已完成任务。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 负责明确选择，[渲染器](../tool-episode-render/README.zh.md) 负责时间线快照与交付规则执行。
@@ -167,7 +169,7 @@ Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内�
 
 #### Token 影响
 
-调用追加随数据变化的 JSON。配置长度随角色声音档案、稳定包映射、已完成任务和修订历史增长；预览还包含拟议配置及其 Markdown 投影。
+调用追加随数据变化的 JSON。配置长度随角色声音档案、稳定包映射、已完成任务、配乐反馈和修订历史增长；预览还包含拟议配置及其 Markdown 投影。
 
 #### KV Cache effect
 

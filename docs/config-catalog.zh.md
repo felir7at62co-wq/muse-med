@@ -3967,11 +3967,11 @@ export interface Config {
   readonly terminationGraceMs?: number
   /** Collected output cap for each process stream. */
   readonly outputMaxBytes?: number
-  /** Distinct tracks every episode must use. */
+  /** Suggested distinct tracks per episode with music. */
   readonly minTracksPerEpisode?: number
   /** Episodes one track may appear in across a batch. */
   readonly maxEpisodesPerTrack?: number
-  /** Tracks every episode must use that no other episode in the batch uses. */
+  /** Suggested tracks not reused by other batch episodes. */
   readonly freshTracksPerEpisode?: number
   /** Seconds a cut may sit away from a package boundary. */
   readonly boundaryToleranceSeconds?: number
@@ -4018,7 +4018,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:74`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**

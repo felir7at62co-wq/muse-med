@@ -20,9 +20,12 @@
 /deepseek-ai-dsh-tool-episode-render/use-this-package/reversible-video-bans:
   en: bb04e98a08b2006c
   zh: 6aa143d0ccea86f8
-/deepseek-ai-dsh-tool-episode-render/use-this-package/the-four-render-methods:
-  en: e4f0558efa3e3363
-  zh: 7cb2bb1098e8fa18
+/deepseek-ai-dsh-tool-episode-render/use-this-package/render-and-audio-audition-methods:
+  en: c694196e5bb82f79
+  zh: f5964b3f10037e2e
+/deepseek-ai-dsh-tool-episode-render/use-this-package/explicit-audio-profiles-and-auditions:
+  en: 78c3c324394122c4
+  zh: 26ff2f647e3b9dd1
 /deepseek-ai-dsh-tool-episode-render/use-this-package/medium-and-delivery-snapshot:
   en: 1f6454e91193b2ba
   zh: bbc0a9874ab16173
@@ -51,8 +54,8 @@
   en: eba56c4904730ee1
   zh: 644340f08ae55cda
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation/source-map:
-  en: 4e4f30844885c442
-  zh: 4fbd6edb86759090
+  en: 5674e599425b41e0
+  zh: 9bd61d0c974b5a8b
 /deepseek-ai-dsh-tool-episode-render/further-exploration:
   en: 2647dcc45b64eb22
   zh: c9b42a2dba999a25
@@ -66,14 +69,14 @@
   en: a45fec94cf58f426
   zh: 5308a05e459d5ee9
 /deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/token-effect:
-  en: a2d2a59a244b729d
-  zh: 4a1006c484f4afa8
+  en: 168d3e94481c140f
+  zh: 294d54b65537bcea
 /deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/kv-cache-effect:
   en: 064f99a9c816466f
   zh: 656fd64286b15620
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
-  en: b4b66e19103314b2
-  zh: 94a33877cdcfdeb0
+  en: 451ffb82e0729777
+  zh: 36efd24fdc40b2e5
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
   en: 7592720dbb825107
   zh: b45c7ac69e2f8d1a

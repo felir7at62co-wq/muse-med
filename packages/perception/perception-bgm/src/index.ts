@@ -27,6 +27,7 @@ import { resolvePython, resolveWeights, defaultWeightsPath, defaultIndexPath, re
   type BgmConfig } from './config.ts'
 import { loadCatalog, downloadTrack } from './catalog.ts'
 import type { CatalogTrack } from './types.ts'
+import { musicPreferenceFor, parseContextTags, readProjectMusicFeedback } from './preferences.ts'
 
 export const name = 'perception-bgm'
 export const inject = ['tools']
@@ -176,6 +177,11 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
       + '公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。'
       + 'match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。'
       + '**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。'
+      + '选曲前传 project 读取 project_config.json/project_bible.bgm_feedback，并传当前剧情的 context_tags。'
+      + '只有反馈的全部场景标签命中才暂不推荐已否决曲目；其他场景仍展示历史供你判断，不是全局黑名单。'
+      + '用户明确改口应通过 drama_project 追加新反馈，不能把 Agent 的偏好写成用户意见。'
+      + '被暂不推荐的曲目仍在 withheld_candidates 中可审查；保留原情绪距离，不臆造语义相似度。'
+      + '根据对白密度、情绪、配器、切点与许可判断，一首或无后加配乐都是正常交付；低信心时集中一次试听反馈，不为凑数硬配乐。'
       + '**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**',
     parameters: {
       method: { type: 'string', required: true, enum: ['match', 'index', 'inspect', 'download'],
@@ -188,6 +194,8 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
       valence: { type: 'number', description: 'match 必填：目标愉悦度，1–9。' },
       arousal: { type: 'number', description: 'match 必填：目标能量，1–9。' },
       limit: { type: 'number', description: 'match 可选：返回候选数，默认 5，上限 20。' },
+      project: { type: 'string', description: 'match 推荐提供：项目目录（相对当前工作目录或绝对路径）。每次只读最新 project_bible.bgm_feedback；不使用其他项目或全局偏好。' },
+      context_tags: { type: 'array', items: { type: 'string' }, description: 'match 可选：当前场景显式标签，例如堂屋、家庭冲突。复用项目反馈的相同标签；不是自动文本语义匹配。未提供时只展示反馈，不自动排除。' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -218,18 +226,46 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
               || args.valence < 1 || args.valence > 9 || args.arousal < 1 || args.arousal > 9) {
               throw new Error('match requires numeric valence and arousal on the 1–9 scale')
             }
+            const contextTags = parseContextTags(args.context_tags)
+            if (args.context_tags !== undefined && args.project === undefined) throw new Error('context_tags requires project so user feedback can be read before selection')
+            const feedback = args.project === undefined ? undefined : await readProjectMusicFeedback(args.project, signal)
             const tracks = catalog ? await loadCatalog(catalog, networkSignal(catalog.networkTimeoutMs))
               : await loadIndex(indexPath, signal)
             signal.throwIfAborted()
             if (tracks.length === 0) {
+              if (feedback !== undefined) return { target: { valence: args.valence, arousal: args.arousal },
+                evaluated_tracks: 0, candidates: [], withheld_candidates: [], withheld_count: 0, music_optional: true,
+                project_preferences: { config_path: feedback.config_path, status: feedback.status,
+                  feedback_count: feedback.records.length, context_tags: contextTags },
+                recommendation: 'No indexed music candidate is available; deliver without added BGM and explain the missing library. Do not invent a track or permission.',
+                note: 'No suitable candidate is a normal production outcome, not a requirement to add music.' }
               throw new Error(catalog ? 'no tracks in the configured BGM catalog'
                 : `no indexed tracks at ${indexPath}; run index on a music directory first`)
             }
             const limit = Math.min(Math.max(Math.trunc(args.limit ?? 5), 1), 20)
+            const ranked = rank(tracks, { valence: args.valence, arousal: args.arousal }, feedback ? tracks.length : limit, intendedUse)
+            const reviewed = ranked.map(candidate => ({ candidate,
+              preference: feedback === undefined ? undefined : musicPreferenceFor({
+                ...(typeof candidate.track_id === 'string' ? { track_id: candidate.track_id } : {}),
+                ...(typeof candidate.source_sha256 === 'string' ? { source_sha256: candidate.source_sha256 }
+                  : typeof candidate.track_id === 'string' && candidate.track_id.startsWith('sha256:') ? { source_sha256: candidate.track_id } : {}),
+              }, feedback, contextTags) }))
+            const withheld = reviewed.filter(row => row.preference?.decision === 'reject')
+            const present = (row: typeof reviewed[number]): Record<string, JsonValue> => ({ ...row.candidate,
+              ...(row.preference === undefined ? {} : { project_preference: row.preference }) })
             return {
               target: { valence: args.valence, arousal: args.arousal },
               evaluated_tracks: tracks.length,
-              candidates: rank(tracks, { valence: args.valence, arousal: args.arousal }, limit, intendedUse),
+              candidates: reviewed.filter(candidate => !withheld.includes(candidate)).slice(0, limit).map(present),
+              ...(feedback === undefined ? {} : {
+                project_preferences: { config_path: feedback.config_path, status: feedback.status,
+                  feedback_count: feedback.records.length, context_tags: contextTags,
+                  matching_rule: 'stable track ID or SHA-256; every feedback context tag must match; latest appended applicable user decision wins',
+                  scope_note: 'Other-context feedback is advisory history, not a global blacklist. Read drama_project before mapping similar story contexts.' },
+                withheld_candidates: withheld.slice(0, limit).map(present), withheld_count: withheld.length,
+                music_optional: true,
+                ...(reviewed.length === withheld.length ? { recommendation: 'No unrejected candidate in this scene; deliver without added BGM or ask once for an explicit user change.' } : {}),
+              }),
               note: 'candidates are ranked by measured distance; choose one yourself.',
             }
           }

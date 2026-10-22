@@ -31,11 +31,11 @@ export interface Config {
   readonly terminationGraceMs?: number
   /** Collected output cap for each process stream. */
   readonly outputMaxBytes?: number
-  /** Distinct tracks every episode must use. */
+  /** Suggested distinct tracks per episode with music. */
   readonly minTracksPerEpisode?: number
   /** Episodes one track may appear in across a batch. */
   readonly maxEpisodesPerTrack?: number
-  /** Tracks every episode must use that no other episode in the batch uses. */
+  /** Suggested tracks not reused by other batch episodes. */
   readonly freshTracksPerEpisode?: number
   /** Seconds a cut may sit away from a package boundary. */
   readonly boundaryToleranceSeconds?: number
@@ -81,6 +81,10 @@ const RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     method: { type: 'string', required: true, enum: ['preview', 'compose', 'verify'] },
+    music_decision: { type: 'string', enum: ['music', 'none'], description: '计划明确声明的配乐决定；省略为旧连续计划。' },
+    decision_reason: { type: 'string', description: '明确配乐决定的理由。' },
+    status: { type: 'string', enum: ['no_added_music'], description: '不加配乐：未生成、未验证任何 WAV。' },
+    preview_notice: { type: 'string', description: 'preview 是 JSON 计划检查，实际试听使用 drama_render.audio_preview。' },
     intended_use: { type: 'string', required: true, enum: ['commercial', 'non_commercial', 'unknown'],
       description: '计划声明的发行用途；未声明为 unknown。' },
     license_records: { type: 'array', required: true, items: BGM_LICENSE_RECORD_TOOL_SCHEMA,
@@ -98,11 +102,11 @@ const RESULT_SCHEMA = {
     batch_episodes: { type: 'array', required: true, items: { type: 'string' },
       description: '本批参与跨集复用核对的集号（来自计划同目录的全部计划文件）。' },
     policy_findings: { type: 'array', required: true,
-      description: '本计划违反的批次选曲规则，每条含规则号、现状与改法；合规时为空。不拦截调用。',
+      description: '选曲与切点建议，每条含规则号、现状和建议；允许保留合适曲目或无配乐，不拦截调用。',
       items: { type: 'object', additionalProperties: false, properties: {
         rule: { type: 'string', required: true, description: '规则号：R1 每集曲目数、R2 集内重复、R3 单曲集数、R4 全新曲目、R5 切点。' },
         detail: { type: 'string', required: true, description: '这条规则现在违反成什么样。' },
-        fix: { type: 'string', required: true, description: '该改什么：换哪几首、切点移到哪。' },
+        fix: { type: 'string', required: true, description: '可考虑的调整，不是交付门禁。' },
       } } },
     media: {
       type: 'object', required: true, additionalProperties: false,
@@ -120,14 +124,16 @@ const RESULT_SCHEMA = {
 
 const DESCRIPTION = '短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。'
   + '可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。'
-  + 'preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。'
+  + '计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。'
+  + 'music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。'
+  + 'preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。'
+  + '实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。'
   + 'compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；'
   + '先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。'
   + 'verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。'
-  + '**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：'
-  + '每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、'
-  + '整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、'
-  + '每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。'
+  + '跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：'
+  + '默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、'
+  + '不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。'
   + '批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），'
   + '因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。'
   + '同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。'
@@ -157,8 +163,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: '项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json；相对路径以 project 为基准。' },
       plan: { type: 'string', required: true,
         description: '项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，'
-          + '并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。段落必须连续完整覆盖正文，'
-          + '跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。' },
+          + '并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。music_decision=music 可单曲或留白；'
+          + 'none 配合 decision_reason 和 segments=[] 表示不加配乐；省略决定须连续覆盖。policy_findings 仅为可审查建议。' },
       output: { type: 'string', description: '项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。' },
     },
     output: {

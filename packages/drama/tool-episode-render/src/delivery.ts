@@ -7,7 +7,7 @@
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec, RenderSettings, TimelineDelivery } from './types.ts'
+import type { AudioMixSpec, RenderSettings, ResolvedAudioMixProfile, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -290,6 +290,7 @@ export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: 
  * @returns The filter graph, whose only output pad is `[a]`.
  */
 export function audioMixFilter(spec: AudioMixSpec): string {
+  if (spec.profile !== undefined) return profiledAudioMixFilter(spec, spec.profile)
   const total = spec.totalSeconds.toFixed(6)
   const body = spec.bodyEndSeconds.toFixed(6)
   const delayMs = Math.round(spec.bodyEndSeconds * 1000)
@@ -301,6 +302,44 @@ export function audioMixFilter(spec: AudioMixSpec): string {
     + `[2:a]atrim=0:${body},volume=${String(spec.bgmVolume)}[a1];`
     + ending
     + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`
+}
+
+/** Compile the same explicit profile for final delivery and bounded audio auditions. */
+function profiledAudioMixFilter(spec: AudioMixSpec, profile: ResolvedAudioMixProfile): string {
+  const original = spec.originalInput ?? 1
+  const total = spec.totalSeconds.toFixed(6)
+  const body = spec.bodyEndSeconds.toFixed(6)
+  const start = (spec.startSeconds ?? 0).toFixed(6)
+  const parts = [`[${String(original)}:a]atrim=start=${start}:duration=${total},`
+    + `asetpts=PTS-STARTPTS,apad,atrim=0:${total},volume=${String(profile.original_gain)}`
+    + (profile.mode === 'ducking' ? ',asplit=2[a0][sc]' : '[a0]')]
+  const labels = ['[a0]']
+  if (profile.mode !== 'no_bgm') {
+    parts.push(`[${String(original + 1)}:a]atrim=start=${start}:duration=${body},`
+      + `asetpts=PTS-STARTPTS,volume=${String(profile.music_gain)}[music]`)
+    if (profile.mode === 'ducking') {
+      const duck = profile.ducking
+      if (duck === undefined) throw new Error('ducking 音频配置缺少显式压缩参数。')
+      const threshold = Math.pow(10, duck.threshold_db / 20).toFixed(9)
+      parts.push('[music][sc]sidechaincompress='
+        + `threshold=${threshold}:ratio=${String(duck.ratio)}:attack=${String(duck.attack_ms)}`
+        + `:release=${String(duck.release_ms)}:knee=${String(duck.knee)}:makeup=1:detection=rms:link=maximum[ducked]`)
+    }
+    const music = profile.mode === 'ducking' ? 'ducked' : 'music'
+    if (spec.musicStem) parts.push(`[${music}]asplit=2[a1][musicstem]`)
+    labels.push(spec.musicStem ? '[a1]' : `[${music}]`)
+  }
+  if (spec.endingSeconds > 0) {
+    const input = spec.endingInput ?? original + (profile.mode === 'no_bgm' ? 1 : 2)
+    const delay = String(Math.round(spec.bodyEndSeconds * 1000))
+    parts.push(`[${String(input)}:a]atrim=0:${spec.endingSeconds.toFixed(6)},`
+      + `adelay=${delay}|${delay},volume=1[a2]`)
+    labels.push('[a2]')
+  }
+  parts.push(labels.join('')
+    + (labels.length === 1 ? 'anull,' : `amix=inputs=${String(labels.length)}:duration=longest:normalize=0,`)
+    + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`)
+  return parts.join(';')
 }
 
 /** One ASS timestamp: `H:MM:SS.cc` with two fractional digits. */

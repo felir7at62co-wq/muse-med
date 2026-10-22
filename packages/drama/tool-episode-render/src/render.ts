@@ -17,9 +17,10 @@
  * @module @deepseek-ai/dsh-tool-episode-render/render
  */
 
-import { appendFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, link, mkdir, mkdtemp, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
-import { dirname, resolve } from 'node:path'
+import { dirname, parse, resolve } from 'node:path'
+import { audioMixReport, loadAudioMixProfile, requireNewAudioOutput, requireProjectAudioFile } from './audio.ts'
 import { readBgmPlan } from './bgm.ts'
 import { fileSha256, readCacheIdentity } from './cache.ts'
 import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord } from './source-record.ts'
@@ -71,9 +72,11 @@ export interface RenderInput {
   /** The last body shot this render delivers. */
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
-  readonly bgm: string
+  readonly bgm?: string
   /** Optional declared segment plan; never substitutes for listening review. */
   readonly bgmPlan?: string
+  /** Explicit project-owned audio profile; omission retains legacy behavior. */
+  readonly mixProfile?: string
   /** Absolute path of the ending sound. */
   readonly endingAudio?: string
   /** Absolute path of the ending effect video. */
@@ -142,14 +145,31 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const totalSeconds = bodyEndSeconds + policy.endingSeconds
   const expectedDurationSeconds = Number(totalSeconds.toFixed(6))
 
+  const profile = input.mixProfile === undefined ? undefined
+    : await loadAudioMixProfile(input.project, input.mixProfile, settings)
+  const bgm = profile?.mode === 'no_bgm' ? undefined : input.bgm
+  if (bgm === undefined && profile?.mode !== 'no_bgm') {
+    throw new Error('drama_render render 需要 bgm；无新增配乐请显式使用 no_bgm 音频配置。')
+  }
+  const musicStem = profile !== undefined && bgm !== undefined
+    ? resolve(dirname(input.output), `${parse(input.output).name}.music-stem.wav`) : ''
+  if (profile !== undefined) {
+    await requireProjectAudioFile(input.project, paths.masterAudio)
+    if (bgm !== undefined) await requireProjectAudioFile(input.project, bgm)
+    await requireNewAudioOutput(input.project, input.output)
+    await requireNewAudioOutput(input.project, sourceRecordPathFor(input.output))
+    if (musicStem) await requireNewAudioOutput(input.project, musicStem)
+  }
+
   await requireFile(paths.masterAudio, '整集原声 master', '请先跑 prepare 生成 audio/<集>.wav。')
-  await requireFile(input.bgm, 'BGM', '请给出这部剧实际使用的 BGM 文件路径。')
+  if (bgm !== undefined) await requireFile(bgm, 'BGM', '请给出这部剧实际使用的 BGM 文件路径。')
   if (endingAssets !== undefined) {
     await requireEndingAssetFile(endingAssets.audio, ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET)
     await requireEndingAssetFile(endingAssets.effect, ENDING_EFFECT_ASSET, ENDING_AUDIO_ASSET)
   }
 
-  const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
+  const bgmPlan = await readBgmPlan(bgm === undefined ? undefined : input.bgmPlan,
+    input.episode, bodyEndSeconds, bgm ?? '', input.project)
   // Every input is judged before the first media command runs, so a substituted
   // ending asset or an over-long effect costs nothing but the message.
   if (endingAssets !== undefined) {
@@ -251,10 +271,11 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   ])
   const staging = await mkdtemp(resolve(dirname(input.output), '.drama-render-'))
   const stagedOutput = resolve(staging, 'output.mp4')
+  const stagedStem = resolve(staging, 'music-stem.wav')
   try {
     await runFfmpeg(toolkit, [
       '-y', '-v', 'error', '-i', subtitled, '-i', paths.masterAudio,
-      '-stream_loop', '-1', '-i', input.bgm,
+      ...(bgm === undefined ? [] : ['-stream_loop', '-1', '-i', bgm]),
       ...(endingAssets === undefined ? [] : ['-i', endingAssets.audio]),
       '-filter_complex', audioMixFilter({
         bodyEndSeconds,
@@ -262,14 +283,31 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
         endingSeconds: policy.endingSeconds,
         masterVolume: settings.masterVolume,
         bgmVolume: settings.bgmVolume,
+        ...(profile === undefined ? {} : { profile, musicStem: Boolean(musicStem), endingInput: bgm === undefined ? 2 : 3 }),
       }),
       '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy',
       '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', stagedOutput,
+      ...(musicStem ? ['-map', '[musicstem]', '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', stagedStem] : []),
     ])
     consumedHashes.push(await fileSha256(stagedOutput))
     await withFileLock(resolve(input.project, 'video-bans.json'), async () => {
       await assertVideoHashesAllowed(input.project, consumedHashes)
-      await rename(stagedOutput, input.output)
+      if (profile === undefined) {
+        await rename(stagedOutput, input.output)
+      } else {
+        const published: string[] = []
+        try {
+          const pairs: [string, string][] = [[stagedOutput, input.output]]
+          if (musicStem) pairs.push([stagedStem, musicStem])
+          for (const [source, target] of pairs) {
+            await link(source, target)
+            published.push(target)
+          }
+        } catch (error) {
+          for (const target of published.reverse()) await unlink(target)
+          throw error
+        }
+      }
     })
   } finally {
     await rm(staging, { recursive: true, force: true })
@@ -309,7 +347,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
     sources,
     expectedDurationSeconds,
-    written: [input.output, sourceRecordPath, paths.renderLog],
+    written: [input.output, ...(musicStem ? [musicStem] : []), sourceRecordPath, paths.renderLog],
+    ...(profile === undefined ? {} : { audioMix: audioMixReport(profile, paths.masterAudio, bgm ?? '', musicStem) }),
     output: input.output,
     encoder: choice.encoder,
     gpuRequested: settings.preferNvenc,

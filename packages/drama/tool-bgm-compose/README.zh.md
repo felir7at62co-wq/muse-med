@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-无需手写 FFmpeg 命令，即可把 Agent 已确认的单集配乐计划变成一条实测 WAV 底轨。`drama_bgm` 校验剧情完整覆盖、测量源曲起点与音量、交叉淡化选定曲目，并核验固定输出格式。它不选曲，也不判断音乐是否适合剧情。需要情绪候选时单独调用 `bgm_match`；其 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，合成器本身不依赖该模型。
+无需手写 FFmpeg 命令，即可把 Agent 已确认的单集配乐计划变成一条实测 WAV 底轨。`drama_bgm` 校验选定剧情时段、测量源曲起点与音量、交叉淡化相接曲目，并核验固定输出格式。它不选曲，也不判断音乐是否适合剧情。需要情绪候选时单独调用 `bgm_match`；其 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，合成器本身不依赖该模型。
 
 ## 目录
 
@@ -39,16 +39,18 @@ kind: "package-reference"
 | `commandTimeoutMs` | `300000` | 单条媒体命令的最长执行时间 |
 | `terminationGraceMs` | `5000` | provider 终止进程的宽限时间 |
 | `outputMaxBytes` | `1048576` | 每条进程输出流的最大收集字节数 |
-| `minTracksPerEpisode` | `2` | 每集必须用到的不同曲目数 |
+| `minTracksPerEpisode` | `1` | 有乐集建议使用的不同曲目数 |
 | `maxEpisodesPerTrack` | `2` | 一首曲子在整批中最多出现的集数 |
-| `freshTracksPerEpisode` | `1` | 每集必须有的、本批其它集都没用过的曲目数 |
+| `freshTracksPerEpisode` | `0` | 建议使用的、本批其它集未复用的曲目数 |
 | `boundaryToleranceSeconds` | `0.05` | 切点距离镜头包边界允许的秒数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-bgm-compose)是全部可用字段的完整来源。
 
 ### 计划与方法
 
-计划使用 `episodes[].segments[]`。选中集声明 `body_duration_seconds`、可选 `crossfade_seconds`，以及连续的段落；每段包含 `track`、`source`、`start_seconds`、`end_seconds` 与 `reason`。段落可以冻结 `source_start_seconds` 和 `source_sha256`；`valence` 与 `arousal` 可保留候选实测值，但不会调用 `bgm_match`。
+计划使用 `episodes[].segments[]`。选中集声明 `body_duration_seconds`、可选 `crossfade_seconds`，以及有序段落；每段包含 `track`、`source`、`start_seconds`、`end_seconds` 与非空 `reason`。段落可以冻结 `source_start_seconds` 和 `source_sha256`；`valence` 与 `arousal` 可保留候选实测值，但不会调用 `bgm_match`。
+
+显式 `music_decision` 必须附有非空 `decision_reason`。`music` 允许单曲，以及选定段落之前、之间或之后留白。段落仍须有序、不重叠且位于正文范围内；只有相接段落交叉淡化。省略决定保留连续完整覆盖正文及原有连续混音图。`none` 必须搭配 `segments: []`：所有方法均返回 `status: no_added_music`、空 `output` 和 `report`，无实测媒体事实或许可记录。它们不读取源曲，不伪造静音 WAV，不宣称音频验证通过，也不改已有文件。
 
 每集可声明 `intended_use` 为 `commercial`、`non_commercial` 或 `unknown`，每段可保留选定下载返回的 `track_id` 与 `license_info`。所有方法返回 `intended_use` 和逐曲 `license_records`，已分析段落同时保留规范化许可声明。[许可信息库](../bgm-license-info/README.zh.md)定义字段与缺失数据规则。音频 `source` 仍是文件路径，`license_info.source` 表示权利依据来源。商业用途冲突只提示风险，不阻止合成。`preview` 与 `compose` 为每项许可记录附上实测 `source_sha256`；`verify` 只保留计划可选的摘要声明，不读取源曲或认证使用权。
 
@@ -56,13 +58,15 @@ kind: "package-reference"
 
 | 方法 | 写入 | 结果 |
 |---|---|---|
-| `preview` | 不写正式产物 | 解析后的源哈希、源曲起点、实测平均音量、应用增益，以及本次核对过的批次集号 |
+| `preview` | 不写正式产物 | 包含源哈希、起点、实测音量、增益和批次集号的 JSON 计划分析，不是实际试听 |
 | `compose` | 48 kHz 双声道 `pcm_s16le` WAV 及相邻 `.generation.json` | 预检事实，加上实测媒体参数与输出 SHA-256 |
 | `verify` | 无 | 现有 WAV 的实测容器与音频参数；不读取原始源曲，`segments` 为空 |
 
-三个方法都会在 `policy_findings` 中报告曲目复用与切点位置的问题；这些报告用于指导选曲，不阻止合成。批次是计划文件所在目录里所有含 `episodes` 数组的 JSON（`episodes/segments/<集>.json`），`batch_episodes` 说明核对了哪些集。无法读取或解析的批次文件会使调用失败；能解析但没有 `episodes` 数组的文件不属于计划。建议为：每集至少 `minTracksPerEpisode` 首不同曲目、一集内不重复同一首、整批之内同一首最多出现在 `maxEpisodesPerTrack` 集、每集至少 `freshTracksPerEpisode` 首未被其它批次集使用的曲目、每个切点距时间线的镜头包边界不超过 `boundaryToleranceSeconds` 秒、每段 `reason` 非空。曲目身份按解析后的 `source` 路径判定；`track` 仅为展示名。时间线必须包含 `clips`，工具才能核对包边界。无效媒体、项目路径和输出时长仍会在发布产物前使调用失败。
+三个方法都会在 `policy_findings` 中返回曲目复用与切点位置建议，不要求必须改完才能交付；无配乐计划豁免。默认允许一首，不要求新曲；部署配置的更严格数量仍只是建议。复用或段内切点符合剧情和用户偏好时可以保留。批次是计划文件所在目录里所有含 `episodes` 数组的 JSON（`episodes/segments/<集>.json`），`batch_episodes` 说明核对了哪些集。无法读取或解析的批次文件会使调用失败；能解析但没有 `episodes` 数组的文件不属于计划。曲目身份按解析后的 `source` 路径判定；`track` 仅为展示名。时间线缺少 `clips` 时返回无法核对包边界的建议。无效媒体、项目路径和输出时长仍会在发布产物前使调用失败。
 
-`compose` 以 `-17.5 dB` 为平均音量目标，自动提升最多 `+9 dB`，让每个交叉淡化以剧情边界为中心，开头淡入 1.5 秒，结尾 2.5 秒淡出。它在无覆盖发布前暂存并探测两个产物；命令或校验失败会清除暂存文件，并保留已有目标不变。把返回的绝对 `output` 传给 `drama_render.bgm`，把返回的绝对 `plan` 传给 `drama_render.bgm_plan`。
+`compose` 以 `-17.5 dB` 为平均音量目标，自动提升最多 `+9 dB`，让交叉淡化以相接剧情边界为中心。每组连续有乐段开头淡入 1.5 秒，结尾 2.5 秒淡出，留白处不加音乐。它在无覆盖发布前暂存并探测两个产物；命令或校验失败会清除暂存文件，并保留已有目标不变。把实际生成的绝对 `output` 传给 `drama_render.bgm`，把绝对 `plan` 传给 `drama_render.bgm_plan`；不可将无配乐结果的空输出当作已生成文件。
+
+`preview` 返回 `preview_notice`，区分 JSON 检查与试听。实际原声/配乐对照请使用 `drama_render.audio_preview`，并在正式渲染中沿用同一混音配置。合成增益及有效媒体参数本身不能证明对白清晰或创作审核通过。
 
 -----
 

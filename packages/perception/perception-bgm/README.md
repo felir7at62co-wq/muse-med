@@ -33,6 +33,8 @@ The published catalogue at `https://muse.tos-cn-beijing.volces.com/bgm/index.jso
 
 Candidates, downloads and published tracks include `license_info` (`status`, `license`, `commercial_use`, `source`, `attribution`, `scope`) and `license_warnings`. These fields carry the supplied rights declaration, never a verified grant. Missing fields remain `unknown`; commercial permission without a license, source and scope becomes unknown. Optional `intended_use` on `match` and `download` is `commercial`, `non_commercial` or `unknown` (default); it changes risk warnings, never permissions or tool availability. A non-commercial declaration used commercially reports a warning without blocking. Download hashes identify audio bytes, not usage rights. Unsupported approval statuses or malformed field types reject the declaration; warnings are recomputed for the current use rather than copied from stored metadata.
 
+Before selection, pass an absolute `project` and explicit story `context_tags` to `match`. Each call rereads user-confirmed `project_bible.bgm_feedback` from `project_config.json`, written through `drama_project`'s preview/revision workflow. Stable track IDs or content hashes survive renaming. A rejection applies only when every feedback tag occurs in the current scene; other-context feedback remains visible, not a global blacklist. The latest appended applicable user decision can reverse an earlier rejection without erasing history. Matching retains the original emotion distance, moves applicable rejections to auditable `withheld_candidates`, and does not prevent downloads. Acceptances are annotated, not assigned an invented emotional score. If every candidate is rejected, no added music is an ordinary recommendation. Missing legacy feedback preserves matching; malformed feedback is reported instead of silently discarded. Omitting `project` keeps the legacy result shape and does not read project preferences.
+
 | Configuration | Resolution |
 |---|---|
 | `pythonExecutable` | Existing absolute executable; otherwise `DSH_PERCEPTION_PYTHON`; an unusable path prevents analysis only |
@@ -104,7 +106,7 @@ The [generated `bgm_match` schema](../../../docs/tool-catalog.md#deepseek-aidsh-
 
 #### Token effect
 
-The mount adds one fixed tool schema. Match results are bounded to at most 20 candidates; index failure lists grow with failed files. Python analysis does not call a language model.
+The mount adds one fixed tool schema. Match results contain at most 20 recommended and 20 withheld candidates, with up to eight recent identity-feedback excerpts per candidate; text and history-display budgets have explicit truncation flags, while `history_count` and `config_path` locate the complete unchanged history. Matching uses full records, not their display excerpts. Index failure lists grow with failed files. Python analysis does not call a language model.
 
 #### KV Cache effect
 
@@ -118,6 +120,7 @@ Append-only. Stable schema text preserves the request prefix; calls add tool res
 - The worker directly owns a local subprocess; subprocess-service integration remains separate lifecycle work. Forced termination can bypass Python temporary-directory cleanup.
 - The public catalogue must remain reachable even for cached downloads. The cache has no automatic eviction; no upload credential is accepted or needed.
 - Concurrent writers to one index are not coordinated. Use one index writer at a time; malformed JSON or unreadable indexes are currently treated as empty; malformed rights declarations reject matching.
+- Scene tags are explicit, not semantic embeddings: the agent reads the project's feedback and maps similar story contexts before matching. Preference records must represent actual user feedback, not an agent's own taste. A better emotion distance or an accepted track does not prove dramatic suitability, clear rights or dialogue audibility; use the render tool's audible music/no-added-music comparison. No new CLAP or feature-extraction model is loaded.
 - Workspace gates require this package to remain private and omit `publishConfig`. A Desktop packer must resolve workspace dependency ranges and include its runtime dependency closure; public npm publication is disabled.
 
 <a id="dev-note"></a>

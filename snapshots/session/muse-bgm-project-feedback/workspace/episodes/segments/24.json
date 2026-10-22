@@ -1,0 +1,12 @@
+{
+  "episodes": [
+    {
+      "episode": "24",
+      "intended_use": "non_commercial",
+      "music_decision": "none",
+      "decision_reason": "Respect explicit user feedback in this dialogue scene; preserve the original audio.",
+      "body_duration_seconds": 8,
+      "segments": []
+    }
+  ]
+}

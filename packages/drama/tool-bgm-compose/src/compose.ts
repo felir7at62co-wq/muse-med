@@ -53,6 +53,8 @@ const SegmentSchema = z.object({
 const EpisodeSchema = z.object({
   episode: z.string().required(),
   intended_use: z.union(['commercial', 'non_commercial', 'unknown'] as const),
+  music_decision: z.union(['music', 'none'] as const),
+  decision_reason: z.string(),
   body_duration_seconds: z.number().required(),
   crossfade_seconds: z.number(),
   segments: z.array(SegmentSchema).required(),
@@ -231,7 +233,8 @@ async function loadBatch(directory: string): Promise<BgmBatchRow[]> {
       throw new Error(`${directory} 里的 ${entry.name} 有 episodes 数组但不是合法的 BGM 计划：`
         + '请修好它的字段后重试。', { cause: error })
     }
-    for (const row of parsed.episodes) rows.push({ episode: row.episode, segments: [...row.segments] })
+    for (const row of parsed.episodes) rows.push({ episode: row.episode, segments: [...row.segments],
+      ...(row.music_decision === undefined ? {} : { music_decision: row.music_decision }) })
   }
   return rows
 }
@@ -357,19 +360,18 @@ export async function runDramaBgm(
   const { bodyEndSeconds, boundaries } = await readTimeline(timelinePath.resolved)
   const loaded = await loadPlan(planPath, episode, project)
   const plan = validateEpisodePlan(loaded.selected, bodyEndSeconds)
-  // The reuse rules are reported, not enforced: the agent reads them in this
-  // call's own result and changes the selection, and a delivery that still
-  // breaks them is the agent's decision to make, not this tool's to block.
-  const policyFindings = auditBgmBatch({ episode, segments: loaded.selected.segments }, {
+  const policyFindings = auditBgmBatch({ episode, segments: loaded.selected.segments,
+    ...(loaded.selected.music_decision === undefined ? {} : { music_decision: loaded.selected.music_decision }) }, {
     project,
     batch: loaded.batch,
     boundaries,
     ...(settings.policy === undefined ? {} : { limits: settings.policy }),
   })
-  const output = resolveOutputPath(project, args.output ?? `audio/bgm/${episode}.wav`)
-  if (extname(output).toLowerCase() !== '.wav') throw new Error('BGM 输出必须使用 .wav 扩展名。')
+  const output = loaded.selected.music_decision === 'none'
+    ? '' : resolveOutputPath(project, args.output ?? `audio/bgm/${episode}.wav`)
+  if (output !== '' && extname(output).toLowerCase() !== '.wav') throw new Error('BGM 输出必须使用 .wav 扩展名。')
   const parsed = parse(output)
-  const reportPath = resolve(parsed.dir, `${parsed.name}.generation.json`)
+  const reportPath = output === '' ? '' : resolve(parsed.dir, `${parsed.name}.generation.json`)
   const intendedUse = parseBgmUsage(loaded.selected.intended_use)
   const licenseRecordsFor = (segments: readonly BgmPlanSegment[]) => segments.map((segment) => {
     const licenseInfo = normalizeLicenseInfo(segment.license_info)
@@ -383,6 +385,13 @@ export async function runDramaBgm(
     }
   })
   const base = {
+    ...(loaded.selected.music_decision === undefined ? {} : {
+      music_decision: loaded.selected.music_decision,
+      ...(loaded.selected.decision_reason === undefined ? {} : { decision_reason: loaded.selected.decision_reason }),
+    }),
+    ...(args.method === 'preview' ? {
+      preview_notice: '此结果仅为计划与来源 JSON 检查，不是试听。实际混音试听请使用 drama_render.audio_preview。',
+    } : {}),
     intended_use: intendedUse,
     license_records: licenseRecordsFor(loaded.selected.segments),
     episode,
@@ -392,9 +401,12 @@ export async function runDramaBgm(
     output,
     body_duration_seconds: bodyEndSeconds,
     crossfade_seconds: plan.crossfadeSeconds,
-    repeated_sequence_episodes: loaded.repeated,
+    repeated_sequence_episodes: loaded.selected.music_decision === 'none' ? [] : loaded.repeated,
     batch_episodes: loaded.batchEpisodes,
     policy_findings: policyFindings,
+  }
+  if (loaded.selected.music_decision === 'none') {
+    return { method: args.method, ...base, status: 'no_added_music', segments: [], report: '', media: EMPTY_MEDIA }
   }
   if (args.method === 'verify') {
     await requireProjectFile(projectRoot,
@@ -419,6 +431,7 @@ export async function runDramaBgm(
       segments.map(segment => segment.applied_gain_db),
       bodyEndSeconds,
       plan.crossfadeSeconds,
+      loaded.selected.music_decision === 'music' ? plan.segments : undefined,
     )
     await renderBgm(settings.ffmpegPath, settings.channel, segments.map(segment => segment.source),
       graph, wavTemporary, settings.signal)

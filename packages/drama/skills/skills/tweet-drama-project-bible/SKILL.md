@@ -1,6 +1,6 @@
 ---
 name: tweet-drama-project-bible
-description: Use when 读取制作剧本、分析受众定位与题材影视风格、创建短剧、确认项目参数、维护项目圣经或修改既有角色、声音、镜头包与交付要求。
+description: Use when 读取制作剧本、分析受众定位与题材影视风格、创建短剧、确认项目参数、维护项目圣经与配乐用户反馈或修改既有角色、声音、镜头包与交付要求。
 ---
 
 # 项目圣经与创作启动
@@ -53,6 +53,14 @@ description: Use when 读取制作剧本、分析受众定位与题材影视风�
 project_bible 的 style、visual_medium、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的预算，current_settings_budget_cents 是未单独授权项目的默认值；实际项目额度和已花/预留从 drama_project 结果的 budget 或 jubian_budget action=read 读取。单独明确授权的项目额度覆盖默认值，不被默认4000再次压低；不要改 cordis.patch.yml 或 project_config.json 来提高额度。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
 
 额度不够时先核对已花、在途预留及所需总额度。用户已明确该项目与新总金额就直接用 jubian_budget update 保存并真实回读，不重复询问；没有明确额度授权时用 ask_user_question，id 固定为 jubian-budget-<script_id>，正文说明“项目<真实ID>的总预算调整为多少元”，选项或用户填写答案必须包含新总金额。普通聊天金额应明确项目ID，或使用当前真实项目根目录的会话；较宽工作区内未指明项目的“预算5000”不能套给任意项目。update 的 project_dir 必须绑定同一 script_id，limit_cny 是新总额度而非追加金额，expected_revision 原样取 read 结果。版本冲突先重读，再用同一仍有效授权金额提交；撤回、拒绝或金额不符不能写入。设置页的“项目实际预算”与工具读写同一 authorization.json，保存后下一次计费立即生效，无需重启。保留已有花费、在途预留及历史估算；不能通过清账或新建项目规避额度。
+
+## 项目配乐反馈
+
+继续选曲或调整混音前，先 `drama_project action=read` 读取 `project_bible.bgm_feedback`。按剧情、对白密度、配器和切点理解反馈的 `context_tags`；仅在本项目相近语境中使用，不把某场拒绝扩大成全局曲目黑名单。用户后来对同一曲目和语境明确改口时，以后追加的决定为准，保留旧记录。
+
+只有用户明确接受或拒绝后，才通过同一 read/preview/update 流程追加 `bgm_feedback`。每条用新的稳定 `feedback_id`，保留实际 `track_id` 或实测 `source_sha256`（64 位十六进制，可带 `sha256:` 前缀），填写 `decision=accept|reject`、非空 `context_tags`、有用户依据的 `reason` 和带时区的已知 ISO `recorded_at`；可附正整数 `episode` 与原话 `user_quote`。时间来自该次明确用户反馈，不猜测历史时间；无可靠时间时先保留待补记录，不伪造写入。Agent 自己的选曲判断、距离分数和未获反馈的试听结果不能伪装成用户意见。已有 ID 不能改写，重试原样重传即可；明确改口使用新 ID 追加，不删除旧记录。
+
+一首配乐或不额外配乐都可以作为正常方案，曲数不是审美门禁；先给出有依据的自主方案，仅在信心低或会明显改变既定方向时集中一次询问并提供实际可播放的对照。反馈只指导受影响的配乐与交付复核，不授权重做视频、替换认可素材或重复付费。曲目许可与模型许可分别核实，认可配乐效果不代表授予商用许可。
 
 ## 角色与声音一致性
 
