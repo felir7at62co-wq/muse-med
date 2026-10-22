@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 These retained source snapshots record Muse community-plugin dependencies. [sources.json](sources.json) records each public upstream repository, version, license, and either its revision or recovered release archive SHA-256. The snapshots retain upstream source and manifests; some text files normalize CRLF to LF. No installed profile, credentials, user media, or generated runtime is a build input. The translation gate excludes the retained upstream directories and hash-checked embedded upstream resources; Muse-owned source and documentation remain checked.
 
-[owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. The inventory also includes the local [reverse tools](muse-reverse-tools/README.md) and independent [Fanqie downloader](muse-fanqie-download/README.md). Their READMEs own configuration and verification limits; they do not change the retained upstream inventory.
+[owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. The inventory also includes the local [reverse tools](muse-reverse-tools/README.md) and independent [Fanqie downloader](muse-fanqie-download/README.md) and [Lvpaopao downloads](muse-lvpaopao/README.md). Their READMEs own configuration and verification limits; they do not change the retained upstream inventory.
 
 Entries with `desktop: false` in the source inventory are retained for explicit compatibility work but omitted from default builds, Desktop packaging and development activation. Codex subscription is included in the product build; the optional Codex CLI peer is not selected solely by the subscription plugin. `--only dsh-codex-subscription` builds its reviewed artifact separately.
 

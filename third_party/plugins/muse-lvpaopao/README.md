@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Muse's director Agent can find a Lvpaopao drama by title, read its actual episode catalog and save each account-playable episode in a resumable local task. This experimental source is development-only and excluded from Desktop release inputs and default compositions; its standalone bundle adds only the connection provider. Local setup prepares a private helper from owned resources, while an explicit SSH configuration retains the legacy remote path. Windows and a separately prepared isolated Mac copy have each passed native 36-episode download acceptance; the Mac public tool also reconciles and delivers those files without new acquisitions.
+Muse's director Agent can find a Lvpaopao drama by title, read its actual episode catalog and save each account-playable episode in a resumable local task. The Desktop composition includes the shared connection and scoped tool; its standalone bundle adds only the connection provider. Local setup prepares a private helper from owned resources, while an explicit SSH configuration retains the legacy remote path. Windows and a separately prepared isolated Mac copy have each passed native 36-episode download acceptance; the Mac public tool also reconciles and delivers those files without new acquisitions.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Muse's director Agent can find a Lvpaopao drama by title, read its actual episod
 <a id="use-this-package"></a>
 ## Use this package
 
-Development builds must explicitly mount `muse-lvpaopao/bridge` globally and the package root inside their intended Agent. The standalone [bundle patch](cordis.patch.yml) inserts only the provider, without a global tool. The consumer requires Tools, Agents, subprocess and the shared provider. The release inventory does not build or install this package.
+Desktop mounts `muse-lvpaopao/bridge` globally and the package root inside the unified director Agent. The internal preset ID remains `short-drama`; this package does not add a selectable mode. The standalone [bundle patch](cordis.patch.yml) inserts only the provider, without a global tool. Desktop already supplies that provider and does not select this standalone bundle again. The consumer requires Tools, Agents, subprocess and the shared provider.
 
 ```yaml
 - insert:
@@ -99,7 +99,7 @@ The [provider](src/bridge.ts) owns one lazy local or explicit SSH connection and
 
 The [series engine](src/series.ts) locks each source/destination task and saves episode state before acquisition. The [episode copy](src/episode-download.ts) checks source identity, original key, playable-episode authorization, decoded-file metadata and exact local bytes before publishing a receipt. Local copies and native transfers retain validated partial state for resumption. The [catalog resolver](src/catalog.ts) controls title selection and actual directory coverage; the tool projection exposes bounded metadata instead of signed playback addresses or arbitrary helper errors.
 
-Helper cleanup requires disposal, script unload, detach, server closure and managed process exit. Mac download receipts use the current user’s Keychain with authenticated ECIES encryption; Windows retains DPAPI. Mac HTTPS uses system roots with hostname and certificate verification enabled. Temporary target-object changes may persist until those objects are destroyed or the target restarts; unloading a hook does not promise full rollback. The [bootstrap](native/boot.py) verifies the exact supported runtime rather than accepting other versions by name.
+Helper cleanup requires disposal, script unload, detach, server closure and managed process exit. Mac download receipts use the current user’s Keychain with authenticated ECIES encryption; Windows retains DPAPI. Mac HTTPS uses system roots with hostname and certificate verification enabled. Temporary target-object changes may persist until those objects are destroyed or the target restarts; unloading a hook does not promise full rollback. Desktop keeps native Python inputs outside `app.asar`, and the provider resolves that unpacked resource directory. The [bootstrap](native/boot.py) verifies the exact supported runtime rather than accepting other versions by name.
 
 </details>
 

@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-Muse 编导 Agent 可按剧名查找绿泡泡剧目、读取实际分集目录，并在可恢复的本机任务中逐集保存账号可播放的内容。此实验源码仅供开发使用，不进入 Desktop 发布输入和默认组合；独立 bundle 只添加连接 provider。本机准备流程从自有资源生成私有 helper，显式 SSH 配置则保留旧远程路径。Windows 和单独准备的 Mac 隔离副本均已通过原生下载 36 集的测试；Mac 公开工具还能核对并交付这些文件，无需重新获取播放地址。
+Muse 编导 Agent 可按剧名查找绿泡泡剧目、读取实际分集目录，并在可恢复的本机任务中逐集保存账号可播放的内容。Desktop 组合包含共享连接和作用域内工具，独立 bundle 只添加连接 provider。本机准备流程从自有资源生成私有 helper，显式 SSH 配置则保留旧远程路径。Windows 和单独准备的 Mac 隔离副本均已通过原生下载 36 集的测试；Mac 公开工具还能核对并交付这些文件，无需重新获取播放地址。
 
 ## 目录
 
@@ -25,7 +25,7 @@ Muse 编导 Agent 可按剧名查找绿泡泡剧目、读取实际分集目录�
 <a id="use-this-package"></a>
 ## 使用此包
 
-开发构建必须显式在全局挂载 `muse-lvpaopao/bridge`，并在目标 Agent 内挂载包根入口。独立[包补丁](cordis.patch.yml) 只插入 provider，不注册全局工具。consumer 需要 Tools、Agents、subprocess 及共享 provider。发布清单不构建或安装此包。
+Desktop 在全局挂载 `muse-lvpaopao/bridge`，在统一编导 Agent 内挂载包根入口。内部预设 ID 保持 `short-drama`；此包不添加可选模式。独立[包补丁](cordis.patch.yml) 只插入 provider，不注册全局工具。Desktop 已提供该 provider，不会再次选择此独立 bundle。consumer 需要 Tools、Agents、subprocess 及共享 provider。
 
 ```yaml
 - insert:
@@ -99,7 +99,7 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 
 [整剧引擎](src/series.ts) 为每个来源与目标目录对应的任务加锁，在获取媒体前保存集状态。[分集复制](src/episode-download.ts) 发布回执前会检查来源身份、原始 key、可播放集授权、已解码文件元数据及准确的本机字节。本机复制和原生传输会保留已验证的部分状态以便恢复。[目录解析](src/catalog.ts) 管理剧名选择及实际目录覆盖，工具投影提供有界元数据，不输出签名播放地址或任意 helper 错误。
 
-helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。
+helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。Mac 下载回执通过当前用户 Keychain 使用带认证的 ECIES 加密；Windows 保留 DPAPI。Mac HTTPS 使用系统根证书，保持主机名及证书验证。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。Desktop 将原生 Python 输入保留在 `app.asar` 外，provider 解析对应的解包资源目录。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。
 
 </details>
 

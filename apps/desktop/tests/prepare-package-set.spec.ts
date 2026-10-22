@@ -107,21 +107,6 @@ describe('desktop package-set selection', () => {
       .toContain('dsh-codex-subscription')
   })
 
-  it('excludes development-only Lvpaopao from release inputs and default Host composition', () => {
-    const plugin = 'muse-lvpaopao'
-    expect(DESKTOP_SOURCE_PLUGINS).not.toContain(plugin)
-    const pins = JSON.parse(readFileSync(new URL('../../../third_party/plugins/owned-downloads.json', import.meta.url), 'utf8')) as Record<string, unknown>
-    expect(pins).not.toHaveProperty(plugin)
-    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, plugin]
-    const available = new Map(names.map(name => [name, packed(name)]))
-    expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
-      .not.toContain(plugin)
-    for (const path of ['config/desktop.cordis.patch.yml', 'presets/short-drama/agent.cordis.yml']) {
-      const composition = readFileSync(new URL(`../../desktop-host/${path}`, import.meta.url), 'utf8')
-      expect(composition).not.toMatch(/\bname:\s*muse-lvpaopao(?:\/bridge)?\s*$/mu)
-    }
-  })
-
   it('does not activate a packed optional Codex CLI peer solely for subscription OAuth', () => {
     const available = new Map([
       ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],

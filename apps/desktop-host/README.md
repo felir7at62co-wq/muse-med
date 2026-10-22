@@ -19,9 +19,9 @@ The Host reads `<Muse home>/hindsight/connection.json` with `baseUrl`, `token` a
 
 The opt-in [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) reads `MUSE_HINDSIGHT_LOCAL_E2E_REQUESTS`, an absolute path to a private JSON array of previously authorized requests (`label`, `connectionFile`, optional `cwd`, `scope`, `key`, `content`, `source`, original UUID `operation_id`, and `query`). It reconciles existing receipts, rejects absent or failed operations without resubmitting, and verifies sourced semantic recall through both the HTTP client and registered tool in a real Session. The test uses a scripted model adapter; it does not establish autonomous creative quality or long-series memory reliability.
 
-The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
+Desktop includes the [Lvpaopao download plugin](../../third_party/plugins/muse-lvpaopao/README.md). One Host-owned bridge serves the unified director’s scoped `lvpaopao` tool; native setup and connection start only when requested. Missing Python dependencies or a qualified logged-in WeChat runtime return a setup result without blocking Desktop startup. The plugin README owns platform qualification and isolated-Mac restrictions.
 
-The experimental [Lvpaopao plugin](../../third_party/plugins/muse-lvpaopao/README.md) is development-only. Desktop release inputs and default Host and director compositions exclude it; enabling it in a separate development build requires explicit plugin composition.
+The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 
