@@ -97,7 +97,7 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 
 [整剧引擎](src/series.ts) 为每个来源与目标目录对应的任务加锁，在获取媒体前保存集状态。[分集复制](src/episode-download.ts) 发布回执前会检查来源身份、原始 key、可播放集授权、已解码文件元数据及准确的本机字节。本机复制和原生传输会保留已验证的部分状态以便恢复。[目录解析](src/catalog.ts) 管理剧名选择及实际目录覆盖，工具投影提供有界元数据，不输出签名播放地址或任意 helper 错误。
 
-helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。
+helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。Mac 下载回执通过当前用户 Keychain 使用带认证的 ECIES 加密；Windows 保留 DPAPI。Mac HTTPS 使用系统根证书，保持主机名及证书验证。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。Desktop 将原生 Python 输入保留在 `app.asar` 外，provider 解析对应的解包资源目录。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。
 
 </details>
 

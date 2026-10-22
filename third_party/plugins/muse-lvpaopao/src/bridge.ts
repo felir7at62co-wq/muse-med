@@ -2,13 +2,13 @@
 import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { lstat, realpath } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type {} from '@deepseek-ai/dsh-agent'
 import { Config as TransportConfig, validateConfig, verifyLocalHelper, localHelperEnvironment } from './config.ts'
 import { JsonlRequestPort } from './jsonl.ts'
+import { nativeResourcesDirectory } from './resources.ts'
 import { BridgeError, type Action, type Parameters } from './port.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -98,7 +98,7 @@ export default class LvpaopaoBridge extends Service {
     maxQueuedRequests: Schema.number().step(1).min(1).max(64).default(8),
     autoSetup: Schema.boolean().default(true),
     pythonExecutable: Schema.string().default(process.env.MUSE_LVPAOPAO_PYTHON_PATH || process.env.MUSE_DOUYIN_PYTHON_PATH || ''),
-    resourcesDirectory: Schema.string().default(fileURLToPath(new URL('../native/', import.meta.url))),
+    resourcesDirectory: Schema.string().default(nativeResourcesDirectory(import.meta.url)),
     setupTimeoutMs: Schema.number().step(1).min(1000).max(600000).default(120000),
     setupShutdownTimeoutMs: Schema.number().step(1).min(100).max(60000).default(10000),
     helperLifetimeMs: Schema.number().step(1).min(60000).max(14400000).default(3600000),

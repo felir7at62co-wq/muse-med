@@ -19,6 +19,8 @@ Host 读取 `<Muse home>/hindsight/connection.json` 的 `baseUrl`、`token`、`n
 
 可选的 [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) 读取 `MUSE_HINDSIGHT_LOCAL_E2E_REQUESTS`：该变量为私有 JSON 数组文件的绝对路径，数组保存此前已授权请求的 `label`、`connectionFile`、可选 `cwd`、`scope`、`key`、`content`、`source`、原始 UUID `operation_id` 和 `query`。测试核对已有收据，遇到不存在或失败的操作直接拒绝，不重新提交，并通过 HTTP 客户端及真实会话中注册的工具验证带来源的语义召回。测试使用脚本模型适配器，不代表已验证自主创作质量或长篇剧目的记忆稳定性。
 
+Desktop 包含[绿泡泡下载插件](../../third_party/plugins/muse-lvpaopao/README.zh.md)。统一编导的作用域内 `lvpaopao` 工具使用同一个 Host 共享连接，仅在请求时开始原生准备和连接。缺少 Python 依赖或已验证且已登录的微信运行时会返回准备结果，不阻止 Desktop 启动。平台验证范围及 Mac 隔离副本限制由插件 README 说明。
+
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
