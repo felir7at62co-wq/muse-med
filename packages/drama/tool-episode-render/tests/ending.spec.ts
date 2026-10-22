@@ -331,12 +331,16 @@ describe('requireEndingEffectFits', () => {
 
   it('accepts the shipped effect, which is shorter than the ending window', async () => {
     const effect = shippedEndingAsset('ending_effect.mp4')
-    await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect)).resolves.toBeUndefined()
+    await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect)).resolves.toEqual({
+      fit: 'source_once', sourceDurationSeconds: 1.02, targetDurationSeconds: 1.02, speed: 1,
+    })
   })
 
   it('accepts an effect that ends exactly on the ending window', async () => {
     const effect = 'C:/proj/assets/ending_effect.mp4'
-    await expect(requireEndingEffectFits(probingToolkit(effect, ENDING_SECONDS), effect)).resolves.toBeUndefined()
+    await expect(requireEndingEffectFits(probingToolkit(effect, ENDING_SECONDS), effect)).resolves.toMatchObject({
+      fit: 'source_once', sourceDurationSeconds: 2, targetDurationSeconds: 2, speed: 1,
+    })
   })
 
   it('rejects an effect longer than the ending window instead of truncating it', async () => {
@@ -348,6 +352,18 @@ describe('requireEndingEffectFits', () => {
     const effect = 'C:/proj/assets/unreadable_effect.mp4'
     await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect + '.other'))
       .rejects.toThrow('ffprobe')
+  })
+
+  it('measures the complete source for explicit stretching rather than padding or looping', async () => {
+    const effect = shippedEndingAsset('ending_effect.mp4')
+    await expect(requireEndingEffectFits(probingToolkit(effect, 1.02), effect, 'stretch_to_window')).resolves.toEqual({
+      fit: 'stretch_to_window', sourceDurationSeconds: 1.02, targetDurationSeconds: 2, speed: 0.51,
+    })
+  })
+
+  it('rejects an unmeasured zero-length effect before selecting a speed', async () => {
+    const effect = 'effect.mp4'
+    await expect(requireEndingEffectFits(probingToolkit(effect, 0), effect, 'stretch_to_window')).rejects.toThrow('正数时长')
   })
 })
 

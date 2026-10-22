@@ -207,6 +207,25 @@ it('rejects a library save failure even when the child exits zero', async () => 
   }
 })
 
+it('preserves embedded-text warnings and limited subtitle editability from the generator', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const script = fakePython.replace('editor_open_verified:false',
+    "editor_open_verified:false,subtitle_overlay:{evidence_kind:'caller_declared',overlay_cue_count:1,retained_embedded_count:1,all_subtitles_editable:false}")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', script, f.input.request_file, f.input.drafts_dir] }))
+  try {
+    const result = await Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config)
+    expect(result).toMatchObject({ editor_open_verified: false, warnings: ['subtitle requires review'],
+      subtitle_overlay: { evidence_kind: 'caller_declared', overlay_cue_count: 1,
+        retained_embedded_count: 1, all_subtitles_editable: false } })
+  } finally {
+    spy.mockRestore()
+    await f.ctx.fiber.dispose()
+    await rm(f.root, { recursive: true, force: true })
+  }
+})
+
 it('rejects oversized requests before starting a generator', async () => {
   const f = await fixture(1)
   const spy = vi.spyOn(f.ctx.subprocess, 'spawn')

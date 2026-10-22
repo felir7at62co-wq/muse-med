@@ -1,0 +1,12 @@
+version: 1
+scenario: drama-subtitle-overlay
+profile: headless
+composition: drama-subtitle-overlay
+recording: authored
+header:
+  class: drama-subtitle-overlay
+  pin: true
+writerOutput: true
+workspace:
+  setup: drama-subtitle-overlay
+  final: true

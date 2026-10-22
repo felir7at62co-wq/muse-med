@@ -20,9 +20,9 @@
 /deepseek-ai-dsh-tool-episode-render/use-this-package/reversible-video-bans:
   en: bb04e98a08b2006c
   zh: 6aa143d0ccea86f8
-/deepseek-ai-dsh-tool-episode-render/use-this-package/the-four-render-methods:
-  en: 0720e14a7e5cb68e
-  zh: f84a1374ce7cd9d1
+/deepseek-ai-dsh-tool-episode-render/use-this-package/render-methods:
+  en: 6bc495edb996cbd2
+  zh: 9b5325bd4867f9b4
 /deepseek-ai-dsh-tool-episode-render/use-this-package/medium-and-delivery-snapshot:
   en: f77eb898123acc96
   zh: 80d36e9af8f910c1
@@ -30,17 +30,20 @@
   en: c93766a59eea2309
   zh: eb19e7c3639acbb0
 /deepseek-ai-dsh-tool-episode-render/use-this-package/marked-delivery-prerequisites-the-two-ending-files:
-  en: fb6b51c1334cd892
-  zh: 73e2d8dcea16c927
+  en: de33577677b9ac8c
+  zh: c1b85a1a119dced6
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-subtitles-does:
   en: beea892d4d05b7b9
   zh: 5ac626ef9031b998
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-prepare-writes:
   en: 737aa11eadbdeaaf
   zh: a36030423543b0a7
+/deepseek-ai-dsh-tool-episode-render/use-this-package/existing-picture-text-and-overlay-exports:
+  en: ec3630a2c1047a92
+  zh: 113323094eb6599f
 /deepseek-ai-dsh-tool-episode-render/use-this-package/delivery-style:
-  en: 15c9579df2a8826c
-  zh: fe3678570110b98f
+  en: 40a261ef8f6ae121
+  zh: e911b3481c1a9dcd
 /deepseek-ai-dsh-tool-episode-render/use-this-package/the-three-known-traps:
   en: e5bd784ee79e3644
   zh: f1df2cc076f9248d
@@ -54,8 +57,8 @@
   en: eba56c4904730ee1
   zh: 644340f08ae55cda
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation/source-map:
-  en: 4e4f30844885c442
-  zh: 4fbd6edb86759090
+  en: ce7663cb1a614cc9
+  zh: 713f8ba54c0d66bc
 /deepseek-ai-dsh-tool-episode-render/further-exploration:
   en: 2647dcc45b64eb22
   zh: c9b42a2dba999a25
@@ -75,8 +78,8 @@
   en: 064f99a9c816466f
   zh: 656fd64286b15620
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
-  en: 6084b91d9701f040
-  zh: dc1413d9b0d875b7
+  en: 0a30df45a210f94c
+  zh: 8bbd62f84b5a9015
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
   en: 7592720dbb825107
   zh: b45c7ac69e2f8d1a

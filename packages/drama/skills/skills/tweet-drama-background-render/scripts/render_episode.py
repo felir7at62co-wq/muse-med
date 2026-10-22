@@ -276,10 +276,10 @@ def verify_ending_asset(path: Path, asset: tuple[str, str, str]) -> None:
 
 
 def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int = HEIGHT,
-                         fps: float = FPS) -> str:
-    """Blend the ending effect over the frozen frame, at the effect's own speed.
+                         fps: float = FPS, timing: dict | None = None) -> str:
+    """Blend original-speed playback or an explicitly stretched complete source over the freeze.
 
-    Nothing retimes the effect, so it covers the opening of the ending for as long
+    By default nothing retimes the effect, so it covers the opening for as long
     as it lasts and the rest of the window is the freeze frame; the black pad is
     what makes that remainder the freeze, because a black effect frame screens over
     the frozen frame without changing it.
@@ -287,14 +287,17 @@ def ending_effect_filter(ending_duration: float, width: int = WIDTH, height: int
     scale = DESIGN_WIDTH / min(width, height)
     canvas_width, canvas_height = (math.floor(value * scale + 0.5) for value in (width, height))
     effect_width, effect_height = (math.floor(value / 2 + 0.5) for value in (canvas_width, canvas_height))
+    stretch = timing is not None and timing['fit'] == 'stretch_to_window'
+    timestamps = f"setpts=(PTS-STARTPTS)/{timing['speed']:.12g}," if stretch else 'setpts=PTS-STARTPTS,'
+    pad = '' if stretch else f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
     return (
         f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},fps={fps:g},format=gbrp[base];"
-        "[1:v]setpts=PTS-STARTPTS,"
+        f"[1:v]{timestamps}"
         f"scale={effect_width}:{effect_height}:force_original_aspect_ratio=increase,"
         f"crop={effect_width}:{effect_height},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
         "tmix=frames=2:weights='1 1',"
-        f"tpad=stop_mode=add:stop_duration={ending_duration:.3f}:color=black,"
+        f"{pad}"
         f"trim=0:{ending_duration:.3f},tpad=stop_mode=clone:stop_duration={1/fps:.9f},"
         f"fps={fps:g},scale={width}:{height}:flags=lanczos,"
         "eq=contrast=1.28:brightness=-0.14:saturation=1.15,format=gbrp[fx];"
@@ -315,6 +318,8 @@ def render(args: argparse.Namespace) -> dict:
         raise FileNotFoundError(args.bgm)
     timeline = json.loads(args.timeline.read_text(encoding="utf-8"))
     policy = _delivery_policy.resolve_delivery(timeline, project)
+    effect_fit = _delivery_policy.ending_effect_fit(timeline)
+    effect_timing = None
     width, height, fps = policy["width"], policy["height"], policy["fps"]
     ending_duration = policy["ending_duration_us"] / 1_000_000
     if ending_duration:
@@ -328,6 +333,14 @@ def render(args: argparse.Namespace) -> dict:
                 raise FileNotFoundError(resource)
         verify_ending_asset(args.ending_audio.resolve(), ENDING_AUDIO)
         verify_ending_asset(args.ending_effect.resolve(), ENDING_EFFECT)
+        if 'ending_effect_fit' in timeline:
+            source_duration = float(probe(args.ending_effect)['format']['duration'])
+            if not math.isfinite(source_duration) or source_duration <= 0:
+                raise ValueError('ending effect must have a positive measured duration')
+            effect_timing = {'fit': effect_fit, 'source_duration_seconds': source_duration,
+                             'target_duration_seconds': ending_duration if effect_fit == 'stretch_to_window'
+                             else min(source_duration, ending_duration),
+                             'speed': source_duration / ending_duration if effect_fit == 'stretch_to_window' else 1.0}
     episode = str(args.episode).zfill(2)
     full_end_us = max((int(item["start_us"]) + int(item["duration_us"])
                        for item in timeline.get("clips", [])), default=0)
@@ -372,6 +385,8 @@ def render(args: argparse.Namespace) -> dict:
     cache_inputs = {"sources": source_hashes, "clips": clips, "encoder": encoder,
                     "encoder_args": encoder_args, "video_filter": common_vf,
                     "width": width, "height": height, "fps": fps}
+    if effect_timing is not None:
+        cache_inputs['ending_effect'] = effect_timing
     if ending_duration and args.freeze_image:
         cache_inputs["freeze_image_sha256"] = hashlib.sha256(args.freeze_image.read_bytes()).hexdigest()
     try:
@@ -406,7 +421,7 @@ def render(args: argparse.Namespace) -> dict:
             ending_effect = args.ending_effect.resolve()
             if not ending_effect.exists():
                 raise FileNotFoundError(ending_effect)
-            effect_filter = ending_effect_filter(ending_duration, width, height, fps)
+            effect_filter = ending_effect_filter(ending_duration, width, height, fps, effect_timing)
             run([FFMPEG, "-y", "-v", "error", "-loop", "1", "-i", str(freeze_image),
                  "-i", str(ending_effect), "-filter_complex", effect_filter, "-map", "[v]",
                  "-t", f"{ending_duration:.3f}", "-an", "-r", f"{fps:g}",
@@ -468,7 +483,8 @@ def render(args: argparse.Namespace) -> dict:
             "codec": "h264", "fps": fps, "target_bitrate": TARGET_BITRATE,
             "max_bitrate": MAX_BITRATE, "duration": actual,
             "expected_duration": total_duration, "width": width, "height": height,
-            "visual_medium": policy["visual_medium"], "warnings": [*policy["warnings"], *subtitle_warnings]}
+            "visual_medium": policy["visual_medium"], "warnings": [*policy["warnings"], *subtitle_warnings],
+            **({'ending_effect': effect_timing} if effect_timing is not None else {})}
 
 
 def subtitle_filter(ass: Path, width: int = WIDTH, height: int = HEIGHT, fps: float = FPS) -> str:

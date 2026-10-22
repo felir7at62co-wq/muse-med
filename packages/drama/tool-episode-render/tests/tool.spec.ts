@@ -2,6 +2,7 @@
 
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -177,9 +178,9 @@ describe('registration', () => {
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
       'alignment', 'bgm', 'bgm_plan', 'ending_audio', 'ending_effect', 'episode', 'force', 'last_shot', 'lines',
-      'method', 'output', 'project', 'shots', 'subtitle_srt', 'timeline',
+      'method', 'output', 'project', 'shots', 'subtitle_plan', 'subtitle_srt', 'timeline',
     ])
-    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles'])
+    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'subtitle_overlay'])
     for (const field of ['shots', 'lines', 'alignment', 'timeline', 'subtitle_srt', 'bgm', 'bgm_plan',
       'ending_audio', 'ending_effect', 'output']) {
       expect(parameters.properties[field]?.description).toContain('相对路径以 project 为基准')
@@ -236,6 +237,71 @@ describe('registration', () => {
   it('fails a call through the registered executor when an argument is missing', async () => {
     await expect(dramaRender().execute({ method: 'verify', project: 'C:/proj', episode: 1 }, runContext()))
       .rejects.toThrow('drama_render verify 需要 timeline')
+  })
+})
+
+describe('subtitle overlay application', () => {
+  async function plan(project: string, source: string): Promise<string> {
+    const target = join(project, 'subtitle-plan.json')
+    await writePlaceholder(target, JSON.stringify({ schema_version: 1, decisions: [{ shot: 1,
+      source_sha256: createHash('sha256').update(await readFile(source)).digest('hex'),
+      start_seconds: 1.68, end_seconds: 3.58, text: '台词', action: 'retain_embedded',
+      reason: '源片预览已见同句', evidence_paths: ['qa/frame.png'] }] }))
+    return target
+  }
+
+  it('exports a schema-valid resolved overlay through the actual registered executor without a media command', async () => {
+    const prepared = await preparedProject(), tool = dramaRender()
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    const result = await tool.execute({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitle_srt: prepared.subtitle, subtitle_plan: subtitlePlan,
+      output: 'editing/export-overlay.srt' }, runContext()) as DramaRenderReport
+    expect(validateJsonSchemaValue(tool.output.schema, result, '')).toEqual([])
+    expect(result.subtitle_overlay).toMatchObject({ retained_cue_indexes: [1], overlay_cue_count: 0,
+      resolved_srt: join(prepared.project, 'editing/export-overlay.srt') })
+    expect(result.not_checked).toContain('embedded_subtitles')
+    expect(result.subtitle_overlay?.retained_text_editable).toBe(false)
+    expect(result.subtitle_overlay?.original_cue_count).toBe(1)
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    expect(await readFile(result.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('台词')
+    expect(result.ok).toBe(true)
+  })
+
+  it('prepares byte-identical videos before resolving the optional plan while keeping the authored installed SRT', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'media/p1-clean.mp4'))
+    const result = await run({ method: 'prepare', project: prepared.project, episode: 2, shots: prepared.shots,
+      subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+    expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
+    expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
+    expect(await readFile(join(prepared.project, 'editing/02.srt'), 'utf8')).toContain('台词')
+    expect(await readFile(result.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('台词')
+  })
+
+  it('burns only resolved cues and returns their bound report during final render', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
+      lastShot: 1, subtitlePlan }, settingsWith(channel.channel))
+    expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
+    expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
+    expect(await readFile(join(prepared.project, 'exports/.render_cache/02/display.ass'), 'utf8')).not.toContain('台词')
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    expect(result.written).toContain(result.subtitle_overlay?.decision_report)
+  })
+
+  it('does not silently accept the plan on an unsupported operation', () => {
+    expect(() => resolveCall({ method: 'verify', project: 'project', episode: 2, subtitlePlan: 'plan.json' })).toThrow('仅用于')
+  })
+  it('passes explicit timeline effect timing into encoding and a schema-valid measured report', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    await writePlaceholder(prepared.timeline, JSON.stringify({ ...JSON.parse(await readFile(prepared.timeline, 'utf8')),
+      ending_effect_fit: 'stretch_to_window' }))
+    const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
+      lastShot: 1 }, settingsWith(channel.channel))
+    expect(result.ending_effect).toEqual({ fit: 'stretch_to_window', source_duration_seconds: 1.02,
+      target_duration_seconds: 2, speed: 0.51 })
+    expect(channel.calls.some(call => call.args.some(arg => arg.includes('setpts=(PTS-STARTPTS)/0.51')))).toBe(true)
   })
 })
 

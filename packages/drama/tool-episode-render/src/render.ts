@@ -52,6 +52,8 @@ import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { deliveryChecks } from './verify.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
+import { resolveSubtitleOverlay } from './subtitle-plan.ts'
+import type { EndingEffectTiming } from './types.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -70,6 +72,8 @@ export interface RenderInput {
   readonly timelinePath: string
   /** Absolute path of the subtitle to burn. */
   readonly subtitleSrt: string
+  /** Optional explicit source-bound subtitle-overlay plan. */
+  readonly subtitlePlan?: string
   /** The last body shot this render delivers. */
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
@@ -144,6 +148,10 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const bodyEndSeconds = bodyEndSecondsOf(clips)
   const totalSeconds = bodyEndSeconds + policy.endingSeconds
   const expectedDurationSeconds = Number(totalSeconds.toFixed(6))
+  const overlay = input.subtitlePlan === undefined ? undefined : await resolveSubtitleOverlay({
+    project: input.project, episode: input.episode, timeline: { ...timeline, clips, bodyEndSeconds },
+    subtitleSrt: input.subtitleSrt, planPath: input.subtitlePlan,
+  })
 
   await requireFile(paths.masterAudio, '整集原声 master', '请先跑 prepare 生成 audio/<集>.wav。')
   await requireFile(input.bgm, 'BGM', '请给出这部剧实际使用的 BGM 文件路径。')
@@ -153,15 +161,16 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   }
 
   const bgmPlan = await readBgmPlan(input.bgmPlan, input.episode, bodyEndSeconds, input.bgm, input.project)
-  const preview = buildRenderPreview({ settings, delivery: policy.delivery, subtitle: input.subtitleSrt,
+  const preview = buildRenderPreview({ settings, delivery: policy.delivery, subtitle: overlay?.report.resolved_srt ?? input.subtitleSrt,
     master: paths.masterAudio, bgm: input.bgm, ...(input.bgmPlan === undefined ? {} : { bgmPlan: input.bgmPlan }) })
   const previewWarnings = renderPreviewWarnings(preview)
   // Every input is judged before the first media command runs, so a substituted
   // ending asset or an over-long effect costs nothing but the message.
+  let endingTiming: EndingEffectTiming | undefined
   if (endingAssets !== undefined) {
     await requireShippedEndingAsset(endingAssets.audio, ENDING_AUDIO_ASSET)
     await requireShippedEndingAsset(endingAssets.effect, ENDING_EFFECT_ASSET)
-    await requireEndingEffectFits(toolkit, endingAssets.effect)
+    endingTiming = await requireEndingEffectFits(toolkit, endingAssets.effect, timeline.endingEffectFit)
   }
   const choice = await chooseEncoder(toolkit, settings.preferNvenc, policy.delivery.fps)
   const gpuUsed = choice.encoder !== 'libx264'
@@ -173,6 +182,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     `project=${input.project}`,
     `bgm_plan=${JSON.stringify(bgmPlan)}`,
     `render_preview=${JSON.stringify(preview)}`,
+    ...(timeline.endingEffectFit === undefined ? [] : [`ending_effect=${JSON.stringify(endingTiming)}`]),
+    ...(overlay === undefined ? [] : [`subtitle_overlay=${JSON.stringify(overlay.report)}`]),
     `delivery=${JSON.stringify(policy.delivery)} add_watermark=${String(policy.addWatermark)}`,
     ...policy.warnings.map(warning => `warning=${warning}`),
     ...previewWarnings.map(warning => `warning=${warning}`),
@@ -230,7 +241,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       + `sequential_tail_md5=${tailFrame.sequentialTailMd5} `
       + `from_sequential_decode=${String(tailFrame.fromSequentialDecode)}`)
     const ending = resolve(paths.cacheDir, 'ending.mp4')
-    await buildEndingClip(toolkit, tailFrame.path, endingAssets.effect, ending, choice.encoder, choice.args, policy.delivery)
+    await buildEndingClip(toolkit, tailFrame.path, endingAssets.effect, ending, choice.encoder, choice.args, policy.delivery, endingTiming)
     consumedHashes.push(await fileSha256(ending))
     await assertVideoHashesAllowed(input.project, consumedHashes)
     segments.push(ending)
@@ -241,8 +252,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const base = resolve(paths.cacheDir, 'base.mp4')
   await runFfmpeg(toolkit, ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c', 'copy', base])
 
-  const cues = await readSubtitleCues(input.subtitleSrt)
-  subtitleWarnings.push(...subtitleTextWarnings(cues))
+  const cues = overlay?.cues ?? await readSubtitleCues(input.subtitleSrt)
+  subtitleWarnings.push(...(overlay?.warnings ?? []), ...subtitleTextWarnings(cues))
   const ass = resolve(paths.cacheDir, 'display.ass')
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
@@ -302,7 +313,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     outputSha256: await fileSha256(input.output),
     sizeBytes: media.sizeBytes,
     durationSeconds: media.durationSeconds,
-    inputs: consumedHashes,
+    inputs: [...consumedHashes, ...(overlay === undefined ? [] : [overlay.report.plan_sha256,
+      overlay.report.original_srt_sha256, overlay.report.resolved_srt_sha256])],
     encoder: choice.encoder,
     checks,
     now: new Date(),
@@ -313,12 +325,14 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     method: 'render',
     bgmPlan,
     renderPreview: preview,
+    ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
+    ...(timeline.endingEffectFit === undefined || endingTiming === undefined ? {} : { endingEffect: endingTiming }),
     project: input.project,
     episode: input.episode,
     timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
     sources,
     expectedDurationSeconds,
-    written: [input.output, sourceRecordPath, paths.renderLog],
+    written: [input.output, sourceRecordPath, paths.renderLog, ...overlay?.written ?? []],
     output: input.output,
     encoder: choice.encoder,
     gpuRequested: settings.preferNvenc,

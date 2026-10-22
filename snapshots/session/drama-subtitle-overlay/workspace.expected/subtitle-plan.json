@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "shot": 1,
+      "source_sha256": "8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5",
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "原片已有对白",
+      "action": "retain_embedded",
+      "reason": "Synthetic fixture explicitly declares matching text in source pixels; this is not a real OCR attestation.",
+      "evidence_paths": []
+    }
+  ]
+}

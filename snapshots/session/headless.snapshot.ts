@@ -488,7 +488,35 @@ function modelFromSession(log: string): { provider: string; model: string } {
   throw new Error('headless snapshot session has no request model')
 }
 
-async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<void> {
+interface PreparedWorkspace {
+  readonly expectedRoot?: string
+}
+
+function expandSubtitleOverlayExpectedReport(text: string, cwd: string): string {
+  const report = JSON.parse(text) as JsonObject
+  const expand = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.startsWith('{{cwd}}/')) {
+      throw new Error('subtitle-overlay expected paths must start with {{cwd}}/')
+    }
+    return join(cwd, ...value.slice('{{cwd}}/'.length).split('/'))
+  }
+  for (const field of ['plan_path', 'original_srt', 'resolved_srt', 'decision_report']) {
+    report[field] = expand(report[field])
+  }
+  if (!Array.isArray(report.sources)) throw new Error('subtitle-overlay expected sources must be an array')
+  report.sources = report.sources.map((source: JsonObject) => ({ ...source, path: expand(source.path) }))
+  return `${JSON.stringify(report, null, 2)}\n`
+}
+
+async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const report = join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json')
+  await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), cwd))
+  return expectedRoot
+}
+
+async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
     for (const entry of await readdir(source)) {
@@ -496,13 +524,22 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
     }
   }
   const setup = scenario.manifest.workspace?.setup
-  if (setup === undefined) return
+  if (setup === undefined) return {}
   const prepare = workspaceSetups[setup]
   if (prepare === undefined) throw new Error(`${scenario.name}: unknown workspace setup ${setup}`)
-  await prepare(cwd)
+  return await prepare(cwd, scenario.dir) ?? {}
 }
 
-const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'drama-subtitle-overlay'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
+    const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
+    const sourceRoot = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build')
+    await mkdir(skillRoot, { recursive: true })
+    await copyFile(join(sourceRoot, 'SKILL.md'), join(skillRoot, 'SKILL.md'))
+    await cp(join(sourceRoot, 'references'), join(skillRoot, 'references'), { recursive: true })
+    return { expectedRoot: await prepareSubtitleOverlayExpectedWorkspace(cwd, scenarioDir) }
+  },
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
   },
@@ -988,6 +1025,53 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('subtitle overlay workspace expected expands only declared path fields', async () => {
+    const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
+    const report = JSON.parse(template) as JsonObject
+    report.reason = '{{cwd}}/this-is-business-text'
+    report.text = 'Keep the literal {{cwd}} token in ordinary text'
+    const cwd = join(tmpdir(), 'declared-overlay-fixture-root')
+    const expanded = JSON.parse(expandSubtitleOverlayExpectedReport(JSON.stringify(report), cwd)) as JsonObject
+    expect(expanded.plan_path).toBe(join(cwd, 'subtitle-plan.json'))
+    expect(expanded.original_srt).toBe(join(cwd, 'original.srt'))
+    expect(expanded.resolved_srt).toBe(join(cwd, 'editing', 'review-overlay.srt'))
+    expect(expanded.decision_report).toBe(join(cwd, 'editing', 'review-overlay.srt.decision-report.json'))
+    expect(expanded.sources).toEqual([
+      { shot: 1, path: join(cwd, 'video', '01', 'shot_001.mp4'),
+        sha256: '8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5' },
+      { shot: 2, path: join(cwd, 'video', '01', 'shot_002.mp4'),
+        sha256: '14ad6e103e046d598b197655f9be00ff780789867cd43cd6ee54569ca0473ed7' },
+    ])
+    expect(expanded.reason).toBe(report.reason)
+    expect(expanded.text).toBe(report.text)
+    expect(() => expandSubtitleOverlayExpectedReport(JSON.stringify({ ...report, plan_path: '/unowned/path' }), cwd))
+      .toThrow('expected paths must start with {{cwd}}/')
+  })
+
+  it('subtitle overlay workspace expected preserves the source oracle and detects changed business fields and extra files', async () => {
+    const ownerDir = join(snapshotsRoot, 'drama-subtitle-overlay')
+    const original = await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-overlay-oracle-'))
+    try {
+      const expectedRoot = await prepareSubtitleOverlayExpectedWorkspace(cwd, ownerDir)
+      const expected = await captureExpectedWorkspaceSnapshot(expectedRoot)
+      const actualRoot = join(cwd, 'actual')
+      await cp(expectedRoot, actualRoot, { recursive: true, verbatimSymlinks: true })
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).toEqual(expected)
+      await writeFile(join(actualRoot, 'unexpected.txt'), 'This extra user-visible file must fail comparison.\n')
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      await rm(join(actualRoot, 'unexpected.txt'))
+      const reportPath = join(actualRoot, 'editing', 'review-overlay.srt.decision-report.json')
+      const report = JSON.parse(await readFile(reportPath, 'utf8')) as { decisions: JsonObject[] }
+      report.decisions[0]!.reason = 'Changed business evidence must not be normalized away.'
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      expect(await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))).toEqual(original)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('seeds resumed ASR receipts with a canonical workspace through a directory alias', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-asr-workspace-alias-'))
     try {
@@ -1350,6 +1434,8 @@ describe('headless recorded-session snapshots', () => {
       let actualLogs: SessionLog[] = []
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
+      let expectedWorkspaceRoot: string | undefined
+      let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
@@ -1409,7 +1495,7 @@ describe('headless recorded-session snapshots', () => {
               await mkdir(profileDir, { recursive: true })
               await copyFile(join(scenario.dir, 'profile.patch.yml'), join(profileDir, 'cordis.patch.yml'))
             }
-            await seedWorkspace(scenario, cwd)
+            expectedWorkspaceRoot = (await seedWorkspace(scenario, cwd)).expectedRoot
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
             })
@@ -1738,6 +1824,9 @@ describe('headless recorded-session snapshots', () => {
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
             })
+            if (expectedWorkspaceRoot !== undefined) {
+              preparedExpectedWorkspace = await captureExpectedWorkspaceSnapshot(expectedWorkspaceRoot)
+            }
           },
         })
       } finally {
@@ -1799,7 +1888,8 @@ describe('headless recorded-session snapshots', () => {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)
       }
       if (scenario.manifest.workspace?.final === true) {
-        const expectedWorkspace = await captureExpectedWorkspaceSnapshot(join(scenario.dir, 'workspace.expected'))
+        const expectedWorkspace = preparedExpectedWorkspace
+          ?? await captureExpectedWorkspaceSnapshot(join(scenario.dir, 'workspace.expected'))
         expect(finalWorkspace, `${scenario.name}: complete final workspace`).toEqual(expectedWorkspace)
       } else {
         expect(finalWorkspace, `${scenario.name}: a changed workspace requires workspace.final`).toEqual(initialWorkspace)

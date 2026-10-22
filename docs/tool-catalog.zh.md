@@ -5944,17 +5944,18 @@ The three methods share one schema and report `review_mode`. `validate` and `pre
   "properties": {
     "method": {
       "type": "string",
-      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。",
+      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档写出 SRT；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。",
       "enum": [
         "prepare",
         "render",
         "verify",
-        "subtitles"
+        "subtitles",
+        "subtitle_overlay"
       ]
     },
     "project": {
       "type": "string",
-      "description": "项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。"
+      "description": "项目根目录（含 video/、audio/、editing/、exports/）；各方法必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。"
     },
     "episode": {
       "type": "integer",
@@ -5974,11 +5975,15 @@ The three methods share one schema and report `review_mode`. `validate` and `pre
     },
     "timeline": {
       "type": "string",
-      "description": "时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
+      "description": "时间线 JSON 路径；render、verify、subtitle_overlay 必填，相对路径以 project 为基准；可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
     },
     "subtitle_srt": {
       "type": "string",
       "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。"
+    },
+    "subtitle_plan": {
+      "type": "string",
+      "description": "prepare/render 可选、subtitle_overlay 必填的 JSON 路径。{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:\"retain_embedded\",reason,evidence_paths:[]}]}。时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。相对路径以 project 为基准。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。"
     },
     "last_shot": {
       "type": "integer",
@@ -5998,11 +6003,11 @@ The three methods share one schema and report `review_mode`. `validate` and `pre
     },
     "ending_effect": {
       "type": "string",
-      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。"
+      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：缺省按自身原速只播放一次，覆盖开头 1.020 秒，其余 0.980 秒定格；时间线显式 stretch_to_window 时以 speed=0.51 铺满两秒。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
     },
     "output": {
       "type": "string",
-      "description": "成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。相对路径以 project 为基准，绝对路径保持不变。"
+      "description": "render 成片输出（省略写 exports/<集>.mp4），verify 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。"
     },
     "force": {
       "type": "boolean",

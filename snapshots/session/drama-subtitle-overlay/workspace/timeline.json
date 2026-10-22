@@ -1,0 +1,15 @@
+{
+  "clips": [
+    {
+      "shot": 1,
+      "start_us": 0,
+      "duration_us": 2000000
+    },
+    {
+      "shot": 2,
+      "start_us": 2000000,
+      "duration_us": 2000000
+    }
+  ],
+  "body_end": 4
+}

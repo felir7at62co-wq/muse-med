@@ -60,7 +60,7 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 
 `prepare` checks selected source bytes before probing, again before copying, and after copying. `render` checks current prepared sources before media work, checks actual encoded-cache bytes before use, and rechecks the source hashes consumed by this render before publishing its staged output under the manifest writer lock. A late ban leaves the previous delivery untouched. `verify` never deletes files: `video_bans` reports a directly banned output, or “当前选片含禁用素材，已有输出需复核” for currently selected sources. Without an immutable output source record, `output_source_mapping` remains in `not_checked` rather than certifying which versions an older output contains.
 
-### The four render methods
+### Render methods
 
 | Method | Reads | Writes | Use it for |
 |---|---|---|---|
@@ -68,28 +68,30 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `prepare` | The shot-sources manifest and the subtitle | `video/<集>/shot_00N.mp4`, `audio/<集>.wav`, `editing/<集>-timeline.json`, `editing/<集>.srt` | Building every input a render reads, without encoding picture |
 | `render` | The timeline, prepared shots, master, subtitle, BGM, and medium-required ending assets | The delivered MP4 and `exports/.render_cache/<集>/render.log` | Producing the delivery and returning its measured parameters |
 | `verify` | The delivered file, its timeline, and its subtitle | Nothing | Checking a delivery after the fact, or re-checking one from an earlier session |
+| `subtitle_overlay` | The timeline, prepared videos, original SRT and explicit subtitle plan | A new overlay SRT and decision report | Retaining matching picture text without adding a second dialogue caption |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `subtitles`, `prepare`, `render`, or `verify` |
+| `method` | always | `subtitles`, `prepare`, `render`, `verify`, or `subtitle_overlay` |
 | `project` | always | Project root holding `video/`, `audio/`, `editing/`, and `exports/` |
 | `episode` | always | Episode number; padded to two digits on every path |
 | `shots` | `subtitles`, `prepare` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
 | `lines` | `subtitles` | Per-shot line plan: `{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`; each entry is one cue, already split to delivery length |
 | `alignment` | `subtitles` | Recognition timings: `{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
-| `timeline` | `render`, `verify` | Timeline JSON, normally the one `prepare` wrote |
-| `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
+| `timeline` | `render`, `verify`, `subtitle_overlay` | Timeline JSON, normally the one `prepare` wrote |
+| `subtitle_srt` | `prepare`, `render`, `verify`, `subtitle_overlay` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
+| `subtitle_plan` | `subtitle_overlay`; optional for `prepare` and `render` | Shot-local retain-embedded decisions bound to selected source hashes; omitted calls preserve existing overlay behavior |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
 | `bgm` | `render`; optional preview in `prepare` | The pure BGM bed, looped to the body end; not a dialogue-plus-music review mix |
 | `bgm_plan` | optional, `prepare` / `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval. `prepare` reads it when `bgm` is also provided |
 | `ending_audio` | marked `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
-| `ending_effect` | marked `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
-| `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
+| `ending_effect` | marked `render` | The shipped `tweet-drama-background-render/assets/ending_effect.mp4`; default `source_once` plays it at original speed, while explicit timeline `stretch_to_window` fits the complete source across the 2-second ending |
+| `output` | `verify` (`render` and `subtitle_overlay` optional) | The delivered file, or a new project-local overlay SRT; explicit overlay exports use `<output>.decision-report.json` and never replace either file |
 | `force` | optional | `render` ignores its per-shot cache and re-encodes every clip |
 
 Every relative project input and output path resolves from `project`, including manifests, subtitle plans, alignment, subtitles, BGM, ending files, and explicit output. Absolute paths remain unchanged. Pass an absolute `project` across tools; a relative project root is resolved once from the process working directory. Ending assets outside the project use their installed absolute paths. Binary and font deployment configuration is unchanged.
 
-Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
+Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, a `source_once` effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
 ### Medium and delivery snapshot
 
@@ -122,7 +124,7 @@ Marked `render` requires both shipped ending assets and validates their bytes be
 | Ending effect | `tweet-drama-background-render/assets/ending_effect.mp4` | 904,502 | `49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010` |
 | Ending sound | `tweet-drama-background-render/assets/ending_audio.mp3` | 83,432 | `d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f` |
 
-The marked ending lasts exactly two seconds (`ENDING_SECONDS = 2`). Its sound contributes only its first two seconds, delayed to body end. The effect plays once at its own speed; an effect longer than the window fails instead of being truncated. Both ending arguments are required for this mode.
+The marked ending lasts exactly two seconds (`ENDING_SECONDS = 2`). Its sound contributes only its first two seconds, delayed to body end. An omitted timeline `ending_effect_fit` retains `source_once`: the effect plays once at its own speed and an effect longer than the window fails. Explicit `stretch_to_window` fits the complete source into the two-second window without looping or black padding. With the shipped 1.020-second effect, the measured speed is 0.51; explicit fits return `ending_effect` source duration, target coverage and speed. Neither strategy changes the body boundary, ending audio or shipped-byte checks. Both ending arguments remain required.
 
 ### What subtitles does
 
@@ -150,6 +152,14 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 
 `bgm_plan` also preserves the episode's optional `intended_use`, segment `track_id`, and `license_info`, and returns normalized per-track `license_records`. The [license metadata library](../bgm-license-info/README.md) defines unknown facts and use-risk warnings. Warnings remain advisory and are included in the render report; declarations do not certify rights or replace model-license requirements. A declared `source_sha256` is retained without rehashing each source track. Methods that do not read a plan, including `verify`, return unknown intended use and empty license records, with `bgm_license_info` in `not_checked`.
 
+### Existing picture text and overlay exports
+
+Inspect source text with the existing offline [video inspection tools](../../perception/tool-video-inspect/README.md) before authoring `subtitle_plan`. Its JSON uses `schema_version: 1` and `decisions` containing `shot`, actual `source_sha256`, shot-local `start_seconds` and `end_seconds`, `text`, `action: "retain_embedded"`, `reason`, and optional `evidence_paths`. These references remain caller declarations, not Host-issued OCR or acceptance receipts. Missing or ambiguous OCR needs preview, not a paid erase or regeneration request.
+
+`subtitle_overlay` requires prepared `video/<集>/shot_00N.mp4` inputs and hashes every selected timeline source. It omits an external cue only when the decision covers the complete cue and its punctuation-normalized text matches. Partial overlap, unmatched text and empty observations leave the complete cue in place with review advice; the resolver does not split or invent timing. A source-hash mismatch or invalid shot-local interval fails as stale input. The original SRT remains unchanged. `prepare` and `render` accept the same optional plan; rendering burns only the resolved external cues.
+
+The result's `subtitle_overlay` binds the plan, original SRT, new `resolved_srt` and all selected videos by SHA-256, and names the full `decision_report`. Without explicit `output`, files use a new `editing/subtitle-overlays/epNN-<unique>/` directory. A draft consumer must reuse that resolved SRT and report rather than filtering again. `retained_embedded` entries describe text already in video pixels: they are not editable subtitle clips and cannot inherit external font size or position. The authored transcript remains separately available. Technical success does not certify that every source frame is free of other text.
+
 ### Delivery style
 
 | Element | Value |
@@ -157,7 +167,7 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Picture | Snapshot width, height and fps; legacy 1440x2560 at 60 fps; H.264 high@5.1, `yuv420p` |
 | Rate control | 24M target, 30M peak, 48M buffer, two-second GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
-| Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
+| Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. Default `source_once` screen-blends the effect at 0.90 over the opening 1.020 seconds; explicit timeline `stretch_to_window` fits its complete motion across both seconds |
 | Subtitles | Without project overrides: configured font family, size 40 on the 1080px-wide ASS canvas and a 140/1920-height bottom margin. Project settings override only the body family, size and margin. Spacing -2, width-scaled black outline, bottom-centred alignment, the single marked-delivery `内容由AI生成` watermark and `ScaledBorderAndShadow: yes` remain unchanged. The burn chain ends on `fps` and `setpts` at the snapshot rate |
 | Audio | Effective project or deployment gains (defaults: episode master 1.45, BGM 0.24) to the body end; marked delivery retains the ending sound's first 2 seconds delayed to the body end, `amix` normalised off and `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
@@ -219,6 +229,7 @@ The package is built on four commitments:
 | [`src/paths.ts`](src/paths.ts) | Where one episode's render inputs and outputs live, and the existence check that distinguishes a cache miss from a broken path |
 | [`src/timeline.ts`](src/timeline.ts) | Reading, validating, selecting, laying out, and serializing the episode timeline |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT parsing and writing, and the ASS document the delivery burns |
+| [`src/subtitle-plan.ts`](src/subtitle-plan.ts) | Source-bound existing-text decisions and separate overlay exports |
 | [`src/speech.ts`](src/speech.ts) | Alignment parsing and line placement on the episode clock, with no recognition |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`: the line plan, the per-shot detection, and the written SRT |
 | [`src/encoder.ts`](src/encoder.ts) | The NVENC probe and the CPU fallback with its recorded reason |
@@ -277,6 +288,7 @@ These limits define what this package is and what it is not. They are current co
 - **One episode per call** — `last_shot` bounds a render to the body shots it delivers, but a call never renders several episodes, and no method reads `pipeline_state.json`.
 - **The mix is not metered** — `amix` with `normalize=0` keeps the operator's gains exactly, and `alimiter=0.95` is the only ceiling. A source louder than the master it replaced can still clip before the limiter, and `verify`'s silence check does not detect it.
 - **Subtitle bounds are checked, not corrected** — `verify` reports a cue that runs past `body_end`; nothing clamps it, because where a line should end is the subtitle author's decision.
+- **Embedded text remains picture content** — explicit overlay decisions do not erase text, make it editable, unify its style or establish continuous OCR coverage. Uncertain decisions produce review advice without blocking the episode.
 - **`subtitles` trusts the recognizer's times** — the alignment settles when each line is spoken, and this package checks that it covers every declared line and that its text is the script's, but it cannot judge how accurate the recognizer was. `speech_alignment` stays in `not_checked` for exactly that reason, and producing the alignment is the caller's step.
 
 <a id="dev-note"></a>
