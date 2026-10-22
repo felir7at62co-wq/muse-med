@@ -101,6 +101,8 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 
 helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。Mac 下载回执通过当前用户 Keychain 使用带认证的 ECIES 加密；Windows 保留 DPAPI。Mac HTTPS 使用系统根证书，保持主机名及证书验证。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。Desktop 将原生 Python 输入保留在 `app.asar` 外，provider 解析对应的解包资源目录。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。
 
+下载接受 `vodpreview.wxamedia.com` 子域及已有 QQ/Qpic CDN 主机上的 HTTPS 媒体地址。所有解析地址都必须是公网地址；重定向、内网目标、无效 TLS 证书及未通过完整媒体验证的文件仍会被拒绝。不同租户的预览域名使用同一下载与回执流程。
+
 </details>
 
 -----

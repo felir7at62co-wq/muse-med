@@ -101,6 +101,8 @@ The [series engine](src/series.ts) locks each source/destination task and saves 
 
 Helper cleanup requires disposal, script unload, detach, server closure and managed process exit. Mac download receipts use the current user’s Keychain with authenticated ECIES encryption; Windows retains DPAPI. Mac HTTPS uses system roots with hostname and certificate verification enabled. Temporary target-object changes may persist until those objects are destroyed or the target restarts; unloading a hook does not promise full rollback. Desktop keeps native Python inputs outside `app.asar`, and the provider resolves that unpacked resource directory. The [bootstrap](native/boot.py) verifies the exact supported runtime rather than accepting other versions by name.
 
+Downloads accept HTTPS media addresses on subdomains of `vodpreview.wxamedia.com`, as well as the existing QQ/Qpic CDN hosts. Each resolved address must be public; redirects, private-network destinations, invalid TLS certificates and failed complete-media validation remain rejected. Tenant-specific preview hostnames do not select a different download or receipt path.
+
 </details>
 
 -----

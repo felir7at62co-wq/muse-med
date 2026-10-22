@@ -60,10 +60,19 @@ class Tests(unittest.TestCase):
         with mock.patch.object(media.socket,'getaddrinfo',return_value=[(0,0,0,'',('127.0.0.1',443))]):
             with self.assertRaises(media.MediaFailure):media.check_url('https://a.qq.com/x')
 
-    def test_observed_native_cdn_is_accepted_while_neighbor_domain_is_not(self):
+    def test_native_preview_cdn_accepts_different_tenant_subdomains(self):
         with mock.patch.object(media.socket,'getaddrinfo',return_value=[(0,0,0,'',('8.8.8.8',443))]):
-            self.assertEqual(media.check_url('https://1500046565.vodpreview.wxamedia.com/path'),'1500046565.vodpreview.wxamedia.com')
-            with self.assertRaises(media.MediaFailure):media.check_url('https://other.vodpreview.wxamedia.com/path')
+            for host in ('1500046565.vodpreview.wxamedia.com','1500999999.vodpreview.wxamedia.com','other.vodpreview.wxamedia.com'):
+                with self.subTest(host=host):self.assertEqual(media.check_url('https://'+host+'/path'),host)
+
+    def test_preview_cdn_rejects_neighbor_domains_and_nonpublic_addresses(self):
+        for host in ('vodpreview.wxamedia.com','evilvodpreview.wxamedia.com','a.vodpreview.wxamedia.com.evil.example','a.wxamedia.com'):
+            with self.subTest(host=host),mock.patch.object(media.socket,'getaddrinfo') as resolve:
+                with self.assertRaisesRegex(media.MediaFailure,'^cdn-host-unverified$'):media.check_url('https://'+host+'/path')
+                resolve.assert_not_called()
+        for address in ('127.0.0.1','10.0.0.1','169.254.169.254','::1'):
+            with self.subTest(address=address),mock.patch.object(media.socket,'getaddrinfo',return_value=[(0,0,0,'',(address,443))]):
+                with self.assertRaisesRegex(media.MediaFailure,'^nonpublic-cdn-address$'):media.check_url('https://other.vodpreview.wxamedia.com/path')
 
     def test_old_two_argument_call_validates_decode_hash_and_cannot_overwrite(self):
         self.harness();result=media.download(URL,self.output)

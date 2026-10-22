@@ -76,7 +76,7 @@ def check_url(url):
     if not isinstance(url,str) or len(url)>8192:raise MediaFailure('url-invalid')
     parsed=urllib.parse.urlsplit(url);host=parsed.hostname
     if parsed.scheme!='https' or not host or parsed.username or parsed.password or parsed.port not in (None,443):raise MediaFailure('url-invalid')
-    if not (host=='1500046565.vodpreview.wxamedia.com' or host=='qq.com' or host.endswith('.qq.com') or host.endswith('.qpic.cn')):raise MediaFailure('cdn-host-unverified')
+    if not (host.endswith('.vodpreview.wxamedia.com') or host=='qq.com' or host.endswith('.qq.com') or host.endswith('.qpic.cn')):raise MediaFailure('cdn-host-unverified')
     addresses=socket.getaddrinfo(host,443,type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):raise MediaFailure('nonpublic-cdn-address')
     return host
