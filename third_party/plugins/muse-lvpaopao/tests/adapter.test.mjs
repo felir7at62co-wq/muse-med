@@ -12,7 +12,8 @@ import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { Config as ConsumerConfig, registerLvpaopao } from '../src/index.ts'
 import { validateConfig, remoteCommand } from '../src/config.ts'
-import { projectResult } from '../src/result.ts'
+import { projectResult, errorResult } from '../src/result.ts'
+import { BridgeError } from '../src/port.ts'
 
 const defaults = { transport: 'ssh', localPython: '', localHelper: '', sshExecutable: 'ssh', sshHostAlias: 'lvpaopao-test', remotePython: 'C:\\test\\python.exe',
   remoteHelper: 'C:\\test\\run-persistent-host.py', helperSha256: 'a'.repeat(64), cwd: process.cwd(),
@@ -20,6 +21,15 @@ const defaults = { transport: 'ssh', localPython: '', localHelper: '', sshExecut
   maxFrameBytes: 16384, maxPending: 8, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
   downloadEnabled: false, outputDir: '', scpExecutable: 'scp', copyTimeoutMs: 180000, copyPollIntervalMs: 100,
   maxMediaBytes: 209715200, downloadRequestTimeoutMs: 600000 }
+
+test('setup failures explain the qualified runtime and one explicit status recovery before query retries', () => {
+  for (const code of ['mac-isolated-wechat-required', 'mac-runtime-build-unsupported', 'mac-runtime-home-invalid', 'setup-timeout']) {
+    const result = errorResult('search', new BridgeError(code))
+    assert.equal(result.ok, false); assert.equal(result.status, code)
+    assert.deepEqual(result.data, {}); assert.match(result.warnings[0], /status once/)
+    assert.match(result.warnings[0], /native business request was submitted/)
+  }
+})
 
 test('scoped consumer configuration exposes model limits without Windows or output coordinates', () => {
   assert.deepEqual(ConsumerConfig({}), { maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
@@ -89,6 +99,17 @@ test('waiting target is a useful lifecycle response only for the exact configure
   assert.throws(() => projectResult('status', { ...waiting, expectedAppId: 'wx0000000000000000' }, defaults))
   assert.throws(() => projectResult('status', { ...waiting, ready: true }, defaults))
   assert.throws(() => projectResult('status', { ...waiting, privateResult: 'secret' }, defaults))
+})
+
+test('accepted status reports readiness even when auxiliary business login state is false', () => {
+  const value = { operation: 'status', status: 'status-returned', identityMatched: true, hostLoginState: false, timedOut: false }
+  const result = projectResult('status', value, defaults)
+  assert.equal(result.ok, true); assert.equal(result.data.ready, true)
+  assert.equal(result.data.hostLoginState, false); assert.match(result.warnings[0], /not desktop WeChat login/)
+  for (const patch of [{ identityMatched: false }, { timedOut: true }, { status: 'native-wrapper-unavailable' }]) {
+    const failure = projectResult('status', { ...value, ...patch }, defaults)
+    assert.equal(failure.ok, false); assert.equal(failure.data.ready, false)
+  }
 })
 
 test('real Loader registers the typed tool, ToolRuntime exposes safe JSON, and disposal removes it', async () => {

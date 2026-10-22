@@ -63,6 +63,27 @@ class Tests(unittest.TestCase):
                 boot.prepare('/resources','/home',3600000,discover=lambda:None,stage=stage,wait=lambda _seconds:True)
         stage.assert_not_called()
 
+    def test_mac_missing_isolated_copy_fails_before_waiting_or_staging(self):
+        runtime=SimpleNamespace(discover=mock.Mock(return_value=None),verify=mock.Mock(),MacRuntimeFailure=RuntimeError)
+        with mock.patch.object(boot,'_mac_runtime',return_value=runtime),mock.patch.object(boot,'check_dependencies'),mock.patch.object(boot,'stage_runtime') as stage:
+            with self.assertRaisesRegex(boot.SetupFailure,'^mac-isolated-wechat-required$'):
+                boot.prepare_mac('/resources','/home',3600000)
+        runtime.discover.assert_called_once();runtime.verify.assert_not_called();stage.assert_not_called()
+
+    def test_mac_preparation_retains_only_fixed_safe_discovery_failures(self):
+        for message,expected in [('mac-runtime-build-unsupported','mac-runtime-build-unsupported'),('mac-runtime-home-invalid','mac-runtime-home-invalid'),('private path and process diagnostic','setup-required')]:
+            runtime=SimpleNamespace(discover=mock.Mock(side_effect=RuntimeError(message)),verify=mock.Mock(),MacRuntimeFailure=RuntimeError)
+            with self.subTest(message=message),mock.patch.object(boot,'_mac_runtime',return_value=runtime),mock.patch.object(boot,'check_dependencies'):
+                with self.assertRaisesRegex(boot.SetupFailure,'^'+expected+'$'):boot.prepare_mac('/resources','/home',3600000)
+            runtime.verify.assert_not_called()
+
+    def test_mac_verified_target_still_uses_shared_staging_without_launching_wechat(self):
+        runtime=SimpleNamespace(discover=mock.Mock(return_value=TARGET),verify=mock.Mock(),MacRuntimeFailure=RuntimeError)
+        stage=mock.Mock(return_value={'transport':'local'});prepare=boot.prepare
+        with mock.patch.object(boot,'_mac_runtime',return_value=runtime),mock.patch.object(boot,'check_dependencies'),mock.patch.object(boot,'prepare',side_effect=lambda *args,**kwargs:prepare(*args,stage=stage,**kwargs)):
+            self.assertEqual(boot.prepare_mac('/resources','/home',3600000),{'transport':'local'})
+        runtime.verify.assert_called_once_with(TARGET);stage.assert_called_once_with('/resources','/home',TARGET,3600000,max_callbacks=4096)
+
     def test_lifetime_is_explicit_and_bounded_before_side_effects(self):
         for value in (True,59999,14400001,0):
             with self.assertRaisesRegex(boot.SetupFailure,'setup-lifetime-invalid'):boot.prepare('/resources','/home',value)

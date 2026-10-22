@@ -135,6 +135,38 @@ test('failed preparation is explicit and cached rather than silently selecting a
   assert.equal(f.setups.length, 1); assert.equal(f.rpcs.length, 0); assert.equal(f.setups[0].waits, 1)
 })
 
+test('fixed Mac setup failures remain cached until explicit status recovery, without business replay', async t => {
+  for (const code of ['mac-isolated-wechat-required', 'mac-runtime-build-unsupported', 'mac-runtime-home-invalid']) {
+    await t.test(code, async sub => {
+      let attempts = 0
+      const f = await fixture(sub, { prepare(control) {
+        if (++attempts === 1) control.finish(JSON.stringify({ error: { code } }), 1); else control.finish()
+      } })
+      await assert.rejects(f.bridge.request('search', { query: 'not-submitted' }, signal()), { code })
+      await assert.rejects(f.bridge.request('rankings', {}, signal()), { code })
+      assert.equal(f.setups.length, 1); assert.equal(f.rpcs.length, 0)
+      assert.deepEqual(await f.bridge.request('status', {}, signal()), { operation: 'status' })
+      assert.equal(f.setups.length, 2); assert.equal(f.rpcs.length, 1)
+    })
+  }
+})
+
+test('failed bootstrap stdout cannot expose arbitrary codes, extra fields, lossy or oversized diagnostics', async t => {
+  for (const options of [
+    { text: JSON.stringify({ error: { code: 'private-secret' } }) },
+    { text: JSON.stringify({ error: { code: 'mac-isolated-wechat-required', detail: 'private-secret' } }) },
+    { text: JSON.stringify({ error: { code: 'mac-isolated-wechat-required' }, detail: 'private-secret' }) },
+    { text: JSON.stringify({ error: { code: 'mac-isolated-wechat-required' } }), lossy: true },
+    { text: ' '.repeat(65537) },
+  ]) {
+    await t.test('reject unsafe diagnostics', async sub => {
+      const f = await fixture(sub, { lossy: options.lossy, prepare(control) { control.finish(options.text, 1) } })
+      await assert.rejects(f.bridge.resolveConfiguration(signal()), { code: 'setup-required' })
+      assert.equal(f.rpcs.length, 0)
+    })
+  }
+})
+
 test('unknown, oversized, nonlocal, escaped and tampered bootstrap results cannot start the helper', async t => {
   const mutations = [
     value => JSON.stringify({ ...value, token: 'private-unknown-field' }),

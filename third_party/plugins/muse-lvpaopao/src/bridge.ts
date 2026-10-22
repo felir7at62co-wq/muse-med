@@ -49,6 +49,24 @@ interface QueuedRequest {
   readonly detach: () => void
 }
 
+/** Fixed bootstrap failures safe to expose without process diagnostics or paths. */
+const MAC_SETUP_ERRORS = ['mac-isolated-wechat-required', 'mac-runtime-build-unsupported', 'mac-runtime-home-invalid'] as const
+
+/** Read only an allowlisted code from the failed bootstrap's bounded stdout. */
+function preparationError(text: string): BridgeError {
+  try {
+    const value: unknown = JSON.parse(text)
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value).length === 1 && 'error' in value
+      && value.error !== null && typeof value.error === 'object' && !Array.isArray(value.error)
+      && Object.keys(value.error).length === 1 && 'code' in value.error) {
+      const code = value.error.code
+      if (MAC_SETUP_ERRORS.some(known => known === code)) return new BridgeError(String(code))
+    }
+  } catch (error) { void error; /* Unrecognized output is never forwarded. */ }
+  return new BridgeError('setup-required')
+}
+
 /** Read one bounded private file without following a replacement symlink. */
 function readConnection(path: string): TransportConfig | undefined {
   if (!isAbsolute(path) || /[\x00\r\n]/.test(path)) throw new Error('lvpaopao: connectionFile must be absolute')
@@ -179,7 +197,7 @@ export default class LvpaopaoBridge extends Service {
     if (this.settings !== undefined) return this.settings
     if (!this.config.autoSetup) throw new BridgeError('unconfigured')
     if (recover && this.setupCleanupFailure === undefined && this.initializationFailure !== undefined
-      && ['setup-required', 'setup-timeout'].includes(this.initializationFailure.code)) {
+      && ['setup-required', 'setup-timeout', ...MAC_SETUP_ERRORS].includes(this.initializationFailure.code)) {
       this.initialization = undefined; this.initializationFailure = undefined
     }
     this.initialization ??= this.ctx.agents.withoutInitiator(async () => {
@@ -240,9 +258,10 @@ export default class LvpaopaoBridge extends Service {
         if (active.aborted) aborted()
       })
       if (active.aborted) throw new BridgeError(this.lifetime.signal.aborted ? 'connection-closed' : 'setup-timeout')
-      if (outcome.exitCode !== 0 || outcome.signal !== null) throw new BridgeError('setup-required')
       const output = handle.collected.stdout?.readFrom(0)
       if (output === undefined || output.lossy || Buffer.byteLength(output.text) > 65536) throw new BridgeError('setup-required')
+      if (outcome.signal !== null) throw new BridgeError('setup-required')
+      if (outcome.exitCode !== 0) throw preparationError(output.text)
       let value: unknown
       try { value = JSON.parse(output.text) }
       catch (error) { void error; throw new BridgeError('setup-required') }

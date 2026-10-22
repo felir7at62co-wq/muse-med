@@ -277,7 +277,14 @@ def prepare(resources,home,lifetime_ms,*,discover=discover_target,verify=verify_
 def prepare_mac(resources,home,lifetime_ms,*,emit_wait=None,max_callbacks=4096):
     """Prepare an already isolated, logged-in Mac copy; never modify or launch ordinary WeChat."""
     runtime=_mac_runtime()
-    return prepare(resources,home,lifetime_ms,discover=runtime.discover,verify=runtime.verify,emit_wait=emit_wait,max_callbacks=max_callbacks)
+    def discover():
+        try:target=runtime.discover()
+        except runtime.MacRuntimeFailure as error:
+            code=str(error)
+            raise SetupFailure(code if code in ('mac-runtime-build-unsupported','mac-runtime-home-invalid') else 'setup-required') from None
+        if target is None:raise SetupFailure('mac-isolated-wechat-required')
+        return target
+    return prepare(resources,home,lifetime_ms,discover=discover,verify=runtime.verify,emit_wait=emit_wait,max_callbacks=max_callbacks)
 
 
 def main():

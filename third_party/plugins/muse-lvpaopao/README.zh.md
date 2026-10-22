@@ -44,6 +44,8 @@ Desktop 在全局挂载 `muse-lvpaopao/bridge`，在统一编导 Agent 内挂载
 
 没有显式连接文件时，`autoSetup:true` 会在首次原生请求时启动本机准备。Host 选定的 Python 必须已具备 [Windows 依赖文件](native/requirements-windows-25560.lock) 或 [Mac arm64 依赖文件](native/requirements-macos-arm64-269602.lock) 中锁定的依赖，FFmpeg/FFprobe 需通过 Host 媒体路径或可执行文件查找可用。bootstrap 验证支持的微信运行时及当前进程身份，将自有 helper 源码复制到 `<Muse home>/lvpaopao/runtime`，并封存 imports manifest 与本机进程 attestation。它不安装微信、不获取凭证，也不代用户登录。Mac 要求已有单独准备的隔离微信副本和私有 home；此流程不会创建、重新签名或启动该副本，也不修改原版微信。请在已登录且已验证的微信中打开绿泡泡；状态返回 `waiting-target` 时重新打开。
 
+Mac 未运行合格副本时，准备流程立即返回 `mac-isolated-wechat-required`，不再等待通用超时；构建不受支持或私有 home 不匹配也会返回独立的固定错误。修正运行时后显式调用一次 `status`，失败的查询不会自动重放准备流程。验收通过的 `status-returned` 包含 `ready:true`；`hostLoginState` 是小程序辅助业务状态，不代表桌面微信登录状态，也不是查询前提。
+
 provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有效文件优先于自动准备。本机连接使用 `transport:local`、`localPython`/`localHelper` 绝对路径、`cwd` 和准确的 `helperSha256`；旧 SSH 连接使用 `transport:ssh`、`sshHostAlias`、Windows `remotePython`/`remoteHelper` 绝对路径、`cwd` 和哈希。省略 `transport` 的现有显式文件保留旧的 `ssh` 默认值，自动准备从不回退到 SSH。修改私有文件后，重启或重新组合 provider；已存在但配置无效会导致激活失败。不要把凭证、进程 attestation 或播放地址放进 profile、源码或模型参数。
 
 | Provider 配置 | 默认值 | 含义 |

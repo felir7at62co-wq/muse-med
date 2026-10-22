@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-lvpaopao-setup
+profile: headless
+composition: muse-lvpaopao-setup
+recording: authored
+header:
+  class: muse-lvpaopao-setup
+  pin: true
+writerOutput: true
+workspace:
+  final: true

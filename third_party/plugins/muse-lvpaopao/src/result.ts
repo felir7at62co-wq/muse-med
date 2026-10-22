@@ -189,6 +189,10 @@ export function projectResult(action: Action, value: unknown, limits: Pick<Confi
   const success = `${downloadAction ? 'download' : action}-returned`
   const ok = value.status === success && data.identityMatched === true && data.timedOut !== true
   const warnings: string[] = []
+  if (action === 'status') {
+    data.ready = ok
+    if (ok && data.hostLoginState === false) warnings.push('The Lvpaopao connection is ready. hostLoginState is auxiliary mini-program business state, not desktop WeChat login or a query prerequisite. Evaluate search and rankings by their actual results.')
+  }
   if (action === 'episodes' && data.partial === true) warnings.push('Only the returned episode numbers are verified; this is not a complete-series result.')
   if (downloadAction) warnings.push('This response contains no verified local file; it cannot establish a completed download.')
   if (!ok) warnings.push('This operation did not return an accepted result. Use the actual status; do not infer provider availability or retry an unknown outcome automatically.')
@@ -204,7 +208,11 @@ export function projectResult(action: Action, value: unknown, limits: Pick<Confi
  */
 export function errorResult(action: ToolAction, error: unknown): Result {
   const code = error instanceof BridgeError ? error.code : 'transport-error'
-  const warnings = code === 'setup-required' ? ['Local setup is not ready. Use a qualified WeChat runtime (Mac currently requires a separately prepared isolated copy), log in and open Lvpaopao, then explicitly call status. Do not replay an unknown media request.']
+  const warnings = code === 'mac-isolated-wechat-required' ? ['The qualified isolated Mac WeChat copy is not running. Ordinary WeChat cannot initialize this adapter. Open the separately prepared isolated copy, log in and open Lvpaopao, then call status once. Do not repeat search or rankings while setup is unavailable. No native business request was submitted.']
+    : code === 'mac-runtime-build-unsupported' ? ['The isolated Mac WeChat build does not match the supported executable hashes. Use the verified isolated build; do not modify ordinary WeChat or retry queries. After correcting the runtime, call status once. No native business request was submitted.']
+    : code === 'mac-runtime-home-invalid' ? ['The Mac copy is not running with its verified private data directory. Start the prepared isolated copy with its private home, then call status once. Do not change ordinary WeChat data or retry queries. No native business request was submitted.']
+    : code === 'setup-timeout' ? ['Local runtime initialization timed out before the native business request was submitted. Check the qualified WeChat runtime, login and target window first; on Mac use the separately prepared isolated copy. After correcting setup, call status once rather than repeating search or rankings.']
+    : code === 'setup-required' ? ['Local setup is not ready. Use a qualified WeChat runtime (Mac currently requires a separately prepared isolated copy), log in and open Lvpaopao, then explicitly call status. Do not replay an unknown media request.']
     : code === 'target-not-ready' ? ['The existing connection is waiting for Lvpaopao. Call status after opening or reconnecting the target; this operation did not start native business work.'] : []
   return { action, ok: false, status: code, data: action === 'status' || code === 'target-not-ready' ? { ready: false } : {}, warnings, error: {
     code, message: 'The requested operation was not completed. Check connection status and the original operation before retrying.',
