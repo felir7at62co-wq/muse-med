@@ -30,7 +30,7 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt']
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - Snapshot composition.
- * @param config - Product preset id (editing by default), platform-shell visibility and clock recording.
+ * @param config - Product preset id, shell visibility, clock recording and optional historical source diagnostics.
  */
 export async function apply(ctx, config) {
   const requestedPreset = config.presetId ?? 'editing'
@@ -75,6 +75,12 @@ export async function apply(ctx, config) {
           source = source.replace(`'@deepseek-ai/dsh-desktop-host/${entry}'`,
             JSON.stringify(new URL(`../muse-creation-ptc/${entry}.mjs`, import.meta.url).href))
         }
+      }
+      if (config.optionalSourceDiagnostics === true) {
+        if (presetId !== 'creation') throw new Error('Optional source diagnostics require the PTC fixture')
+        // Historical source-project cases opt in without restoring the retired product tool policy.
+        source = source.replace(/- id: creation-policy\n  name: [^\n]+\n/u,
+          "- id: optional-source-project\n  name: '@deepseek-ai/dsh-screenplay-project'\n  config:\n    reviewMode: advisory\n    refinementMode: source-preserving-v1\n    storyFaithfulMode: story-faithful-v2\n")
       }
       if (presetId === 'short-drama') {
         source = source.replace("'@deepseek-ai/dsh-desktop-host/short-drama-guidance'",

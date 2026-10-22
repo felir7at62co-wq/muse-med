@@ -26,6 +26,7 @@ function rows(id: string): readonly PresetRow[] {
 
 it('combines editing delivery guidance with the short-drama production tools', () => {
   const combined = rows('short-drama')
+  expect(combined.find(row => row.id === 'tool-skill')?.config).toEqual({ scopedCatalogOwner: true })
   for (const id of ['editing-policy', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render',
     'tool-fs', 'tool-skill', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
     expect(combined.some(row => row.id === id), id).toBe(true)
@@ -87,6 +88,10 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(prompt).toContain('用户明确指定其他格式时按其要求')
     expect(prompt).toContain('screenplay_export_docx')
     expect(prompt).toContain('不重新转写视频或重写剧本')
+    expect(prompt).toContain('忠实转写按原声和实际事件记录')
+    expect(prompt).toContain('后续围绕改编方向调整非关键桥段')
+    expect(prompt).toContain('100%—110%为提示目标')
+    expect(prompt).toContain('不拿纯ASR对白量冒充含动作正文的原稿字数')
     expect(prompt).toContain(`http://127.0.0.1:${ctx.webServer.port}`)
     expect(prompt).toContain('你没有隐式读取到 DOM、路由或截图')
     expect(prompt).toContain('不启动替代服务器')

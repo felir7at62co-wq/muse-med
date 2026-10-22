@@ -25,8 +25,7 @@ it('loads retained Muse Wiki guidance for logged-in navigation, cited synthesis,
     }
     expect(input).toMatch(/冲突.*重读.*合并/su)
     expect(input).toMatch(/当前.*登录.*不.*密钥/su)
-    const editing = renderSkillContent((await ctx.skills.get('muse-script-editing'))!)
-    expect(editing).toContain('muse-llm-wiki')
+    expect(CREATION_SKILL_NAMES).toContain('muse-llm-wiki')
     const preset = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
     expect(preset).not.toContain('muse-llm-wiki')
   } finally {

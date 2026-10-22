@@ -262,7 +262,7 @@
     },
     {
       "name": "manuscript_revision",
-      "description": "用户修改过剧本、台词或文稿后要求精修时，先 compare 上一稿与实际返稿，查看增删改并默认保留用户修改；不要从旧稿改回。支持 Word/Markdown/文本，改名或重新上传用明确的两个路径关联，不凭文件名猜。review 检查完整候选，status 读取保护；authorize 仅限真实用户明确点名该处原文授权，普通精修不授权。不能识别没有基线的历史改动。",
+      "description": "支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -272,7 +272,7 @@
               "compare",
               "status",
               "review",
-              "authorize"
+              "measure"
             ]
           },
           "baseline_path": {
@@ -283,20 +283,23 @@
             "type": "string",
             "description": "用户最新返稿的真实本地路径。"
           },
-          "candidate_paths": {
+          "source_paths": {
             "type": "array",
-            "description": "完整精修正文，按交付顺序。",
+            "description": "measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。",
             "items": {
               "type": "string"
             }
           },
-          "change_id": {
-            "type": "string",
-            "description": "仅 authorize 使用，对比返回的单处修改 ID。"
+          "candidate_paths": {
+            "type": "array",
+            "description": "完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。",
+            "items": {
+              "type": "string"
+            }
           },
-          "authorization_quote": {
-            "type": "string",
-            "description": "仅真实用户明确原话：允许修改用户改稿：或允许恢复用户删除：后紧接该处完整文字；不能自行生成授权。"
+          "max_growth_percent": {
+            "type": "number",
+            "description": "仅measure：增长百分比上限；按本产品100%-110%的篇幅目标传10，用户另有要求时覆盖。未提供则标明未设置，不假称已满足增长目标。"
           }
         },
         "required": [

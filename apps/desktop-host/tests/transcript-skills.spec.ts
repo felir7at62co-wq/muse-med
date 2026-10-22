@@ -97,6 +97,8 @@ it('keeps cloud transcription receipts and versioned raw results in the project'
     expect(input).toContain('`subtitles`（极速识别）')
     expect(input).toContain('`screenplay`（标准识别）')
     expect(input).toContain('查询与重试保持原用途')
+    expect(input).toContain('按当前会话的剧本格式整理正文')
+    expect(input).not.toContain('transcript-to-script')
   } finally {
     await ctx.fiber.dispose()
   }

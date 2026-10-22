@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { apply as installEditingGuidance } from './editing-policy.ts'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from './creation-guidance.ts'
 import { apply as installShortDramaGuidance } from './short-drama-guidance.ts'
 
@@ -98,7 +99,6 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'schedule_list',
   'schedule_update',
   'screenplay_export_docx',
-  'screenplay_project',
   'skill',
   'todo_update',
   'todo_write',
@@ -120,6 +120,7 @@ const allowedToolSections = new Set(['tool:goal', 'tool:jobs'])
  */
 export function apply(ctx: Context): void {
   installShortDramaGuidance(ctx)
+  installEditingGuidance(ctx)
   ctx.systemPrompt.section({ name: CREATION_GUIDANCE_SECTION,
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), interpolate: false, text: CREATION_GUIDANCE })
   ctx.tools.restrict({ futureAllow: CREATION_TOOL_NAMES, includeOwn: true })

@@ -3,6 +3,7 @@ scenario: muse-script-refinement
 profile: headless
 composition: muse-script-refinement
 recording: authored
+writerOutput: true
 header:
   class: muse-script-refinement
   pin: true

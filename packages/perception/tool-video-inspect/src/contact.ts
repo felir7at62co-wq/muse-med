@@ -7,7 +7,7 @@ import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { Config, VideoFrame } from './index.ts'
-import { adaptivePlan, sceneTimecodes } from './adaptive.ts'
+import { ADAPTIVE_PLAN_SCHEMA, SAMPLING_ADVICE, adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
 import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { planSamples } from './sample.ts'
 
@@ -36,6 +36,8 @@ export interface VideoContactSheet extends VideoMetadata {
   rows: number
   pages: ContactPage[]
   next_start_seconds?: number
+  /** Selected and unviewed scene-strategy candidates; a cut does not establish a story scene change. */
+  sampling_plan?: AdaptivePlan
 }
 
 const schema = { type: 'object', additionalProperties: false, properties: {
@@ -43,6 +45,7 @@ const schema = { type: 'object', additionalProperties: false, properties: {
   duration_seconds: { type: 'number', required: true }, width: { type: 'integer', required: true }, height: { type: 'integer', required: true },
   video_codec: { type: 'string', required: true }, has_audio: { type: 'boolean', required: true },
   manifest_path: { type: 'string', required: true }, next_start_seconds: { type: 'number' },
+  sampling_plan: ADAPTIVE_PLAN_SCHEMA,
   interval: { type: 'object', additionalProperties: false, required: true, properties: {
     start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
   } },
@@ -81,7 +84,8 @@ export function contactContent(value: VideoContactSheet): ContentBlock[] {
     + '\nThese are overview thumbnails, not continuous viewing or detailed frame approval. Audio has not been transcribed.'
     + '\nFor a doubtful cell, first obtain successful video_inspect method=metadata for the current file. '
     + 'Then use method=sample with the same file_path, a bounded start_seconds/end_seconds containing the cell time, '
-    + 'and timestamps_seconds; inspect its actual larger image.' }]
+    + 'and timestamps_seconds; inspect its actual larger image.'
+    + `\n${SAMPLING_ADVICE}` }]
   for (const page of pages) {
     content.push({ type: 'text', text: JSON.stringify({ page: page.page, cells: page.frames.map(frame => ({
       cell: frame.cell, index: frame.index, requested_seconds: frame.requested_seconds, timestamp_seconds: frame.timestamp_seconds,
@@ -101,7 +105,7 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_contact_sheet',
     description: 'View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. '
-      + 'Returns actual overview images, ordered cell timecodes and a saved manifest. Extra frames form further pages. '
+      + 'Returns actual overview images, ordered cell timecodes, unviewed cut candidates and a saved manifest. Extra frames form further pages. '
       + 'Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Local source video in the current Session filesystem.' },
@@ -165,16 +169,18 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
         throw Error('Grid dimensions exceed image limits; reduce rows, columns or tile_width')
       }
       const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath, undefined, signal)
+      let samplingPlan: AdaptivePlan | undefined
       if (args.strategy === 'scene') {
         const detected = await runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-v', 'error', '-protocol_whitelist', 'file,pipe',
           '-ss', String(start), '-copyts', '-i', source, '-t', String(end - start), '-map', '0:v:0', '-an', '-sn', '-dn',
           '-vf', `trim=start=${start}:end=${end},scale=320:-2,select='gt(scene,${config.sceneThreshold})',metadata=print:file=-`,
           '-f', 'null', '-'], policy, signal,
         { ...limits, maxBytes: config.maxTranscriptBytes })
-        timestamps = adaptivePlan({ start, end, duration: metadata.duration_seconds, uniform: timestamps,
+        samplingPlan = adaptivePlan({ start, end, duration: metadata.duration_seconds, uniform: timestamps,
           cuts: sceneTimecodes(detected.bytes, start, end) },
         { maxFrames: count, maxPlanPoints: config.maxPlanPoints,
-          scenePaddingSeconds: config.scenePaddingSeconds }).selected.map(point => point.time)
+          scenePaddingSeconds: config.scenePaddingSeconds, utterancePreviewCharacters: config.utterancePreviewCharacters })
+        timestamps = samplingPlan.selected.map(point => point.time)
       }
       const pages: ContactPage[] = []
       let totalBytes = 0
@@ -208,6 +214,7 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
       if (!ctx.fs.contains(await ctx.fs.resolve(policy.workspaceRoot, { signal }), manifest)) throw Error('Contact-sheet manifest must be inside the workspace')
       const value: VideoContactSheet = { ...metadata, path: target.displayPath, source_version: info.version,
         interval: { start_seconds: start, end_seconds: end }, columns, rows, pages, manifest_path: manifest.displayPath,
+        ...samplingPlan === undefined ? {} : { sampling_plan: samplingPlan },
         ...end < metadata.duration_seconds ? { next_start_seconds: end } : {} }
       const serialized = JSON.stringify(value, null, 2) + '\n'
       await ctx.fs.writeText(manifest, serialized, { kind: 'createIfAbsent' }, signal, policy)

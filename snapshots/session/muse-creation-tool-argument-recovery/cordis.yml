@@ -1,4 +1,4 @@
-# Mount the actual creation preset with both platform shells hidden for portability.
+# Mount optional source-project diagnostics with both platform shells hidden.
 - id: tool-bash
   disabled: true
 - id: tool-pwsh

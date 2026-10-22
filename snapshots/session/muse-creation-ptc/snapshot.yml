@@ -12,4 +12,4 @@ header:
   class: muse-creation-ptc
   pin: true
 workspace:
-  setup: muse-creation-skills
+  setup: muse-minimal-writing
