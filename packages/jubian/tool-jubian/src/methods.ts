@@ -889,9 +889,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             ? '未指定 delivery_resolution：无法判断哪些结果低于交付分辨率。'
             : `交付分辨率 ${target}。`)
           + 'needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。'
+          + '仿真人剧默认使用原片，不自动转高清。'
           + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
           + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
           + '普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。'
+          + '1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。'
           + '已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。',
       }
     }
@@ -1064,7 +1066,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       // returns the submission rather than waiting for the result.
       return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),
         next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
-          + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。' }
+          + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。'
+          + '目标档位不承诺精确像素；交付报告区分目标与文件实际宽高，不因尺寸非精确 1080×1920 就将成功任务记为失败。' }
     }
     case 'retry': {
       requireKey(args.idempotency_key)

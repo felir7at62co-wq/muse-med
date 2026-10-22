@@ -1,6 +1,7 @@
 version: 1
 # The fixture fixes only its subprocess clock; the real Muse preset produces and
 # persists the time message before a keyless adapter checks the model request.
+# The catalog includes the same bundled diagnostic document on every platform.
 scenario: muse-time-context
 profile: headless
 composition: muse-time-context
@@ -9,5 +10,5 @@ header:
   class: muse-time-context
   pin: true
 workspace:
-  setup: muse-editing-trial-skills
+  setup: muse-time-context
 writerOutput: true

@@ -2,11 +2,14 @@ import { Context } from '@deepseek-ai/cordis'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, vi } from 'vitest'
+import { promisify } from 'node:util'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
 
 const fakePython = `
@@ -19,9 +22,98 @@ fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JS
 console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',name:'candidate-95',path:target,id:'draft-id',success:true,error:'',quality:'needs_review',warnings:['subtitle requires review'],review_path:path.join(target,'muse-review.json')}],quality:'needs_review',warnings:['subtitle requires review'],library:{name:'pyJianYingDraft',version:'0.3.1'},editor_open_verified:false}));
 `
 
+// Opt in with the packaged media runtime; never replace Python or the generator in this test.
+const mediaPython = process.env.DSH_TEST_MEDIA_PYTHON
+const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
+const runFile = promisify(execFile)
+
+it.runIf(Boolean(mediaPython && mediaFfmpeg))('generates separate editable tracks through the native Host tool and packaged Python', async () => {
+  if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
+  const f = await fixture()
+  try {
+    const video = join(f.root, 'video.mp4')
+    const audio = join(f.root, 'dialogue.wav')
+    const bgm = join(f.root, 'music-only.wav')
+    const subtitles = join(f.root, 'subtitles.srt')
+    const timeline = join(f.root, 'timeline.json')
+    await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+      'color=blue:s=160x120:r=24:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video]).result
+    for (const [file, frequency] of [[audio, 440], [bgm, 220]] as const) {
+      await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+        `sine=frequency=${frequency}:duration=2`, '-ar', '48000', '-ac', '2', file]).result
+    }
+    await writeFile(subtitles, '1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n')
+    await writeFile(timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
+      body_end: 2.032, delivery: { visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 } }))
+    const request = { project: f.root, episode: 95,
+      name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, timeline,
+      bgm, bgm_role: 'music_only' }
+    await writeFile(f.input.request_file, JSON.stringify(request))
+    await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+      graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
+    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('native-draft-runtime'), signal: f.signal })
+    expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+    expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+      library: { name: 'pyJianYingDraft' } })
+    const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
+      duration: number
+      tracks: { type: string; name: string; segments: { volume: number }[] }[]
+      materials: { texts: { content: string }[] }
+    }
+    expect(content.duration).toBe(2000000)
+    expect(content.tracks.filter((track: { type: string }) => track.type === 'video')).toHaveLength(1)
+    expect(content.tracks.filter((track: { type: string }) => track.type === 'text')).toHaveLength(1)
+    expect(content.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(2)
+    expect(content.tracks.find(track => track.name === '视频轨道')?.segments.map(segment => segment.volume)).toEqual([0])
+    expect(content.tracks.find(track => track.name === '主音频轨道')?.segments.map(segment => segment.volume)).toEqual([1])
+    expect(content.materials.texts.some((text: { content: string }) => text.content.includes('原生草稿回归'))).toBe(true)
+    const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
+    const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
+    expect(repeated.isError).toBe(true)
+    expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
+    await writeFile(f.input.request_file, JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' }))
+    const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
+    expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
+    expect(mixed.value).toMatchObject({ success: true })
+    expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+    const mixContent = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-mix-95', 'draft_content.json'), 'utf8')) as {
+      tracks: { type: string }[]
+    }
+    expect(mixContent.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(1)
+  } finally {
+    await f.dispose()
+  }
+}, 120000)
+
 async function fixture(maxInputBytes = 65536) {
   const root = await mkdtemp(join(tmpdir(), 'muse-jianying-draft-'))
   const ctx = new Context()
+  const controller = new AbortController()
+  const children = new Set<Promise<void>>()
+  let disposal: Promise<void> | undefined
+  const dispose = () => disposal ??= (async () => {
+    controller.abort(new Error('Draft fixture cleanup cancelled its work'))
+    await Promise.all(children)
+    await ctx.fiber.dispose()
+    await rm(root, { recursive: true, force: true })
+  })()
+  onTestFinished(dispose)
+  const startExternal = (command: string, args: string[]) => {
+    controller.signal.throwIfAborted()
+    const result = runFile(command, args, { cwd: root, timeout: 30000, windowsHide: true, signal: controller.signal })
+    const closed = new Promise<void>(resolve => result.child.once('close', () => { resolve() }))
+    children.add(closed)
+    void closed.then(() => { children.delete(closed) })
+    const collected = (async () => {
+      try { return await result }
+      finally { await closed }
+    })()
+    return { child: result.child, result: collected }
+  }
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
@@ -31,13 +123,49 @@ async function fixture(maxInputBytes = 65536) {
     await writeFile(input.request_file, JSON.stringify({ episode: 95, name_prefix: 'candidate-' }))
     const config: Draft.Config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
       graceMs: 100, maxInputBytes, maxOutputBytes: 65536 }
-    return { root, ctx, input, config }
+    return { root, ctx, input, config, signal: controller.signal, startExternal, dispose }
   } catch (error) {
-    await ctx.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
+    await dispose()
     throw error
   }
 }
+
+it('cancels raw fixture children and awaits their exit before disposing the Host and removing files', async () => {
+  const f = await fixture()
+  try {
+    await expect(f.startExternal(process.execPath, ['-e',
+      'process.stdout.write("kept-output"); process.stderr.write("kept-error"); process.exit(9)']).result)
+      .rejects.toMatchObject({ code: 9, stdout: 'kept-output', stderr: 'kept-error' })
+    const running = f.startExternal(process.execPath, ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 1000)'])
+    const outcome = running.result.then(value => ({ value }), (error: unknown) => ({ error }))
+    const events: string[] = []
+    const stdout = running.child.stdout
+    if (stdout === null) throw new Error('Fixture child must expose stdout')
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => { stdout.off('data', ready); running.child.off('close', stopped) }
+      const ready = () => { cleanup(); resolve() }
+      const stopped = () => { cleanup(); reject(new Error('Fixture child stopped before readiness')) }
+      stdout.once('data', ready)
+      running.child.once('close', stopped)
+    })
+    const pid = running.child.pid
+    if (pid === undefined) throw new Error('Fixture child must have an operating-system pid')
+    expect(process.kill(pid, 0)).toBe(true)
+    running.child.once('close', () => { events.push('raw child closed') })
+    f.ctx.effect(() => () => { events.push('Host disposed') })
+    await f.dispose()
+    events.push('files removed')
+    expect(events).toEqual(['raw child closed', 'Host disposed', 'files removed'])
+    expect(await outcome).toMatchObject({ error: { name: 'AbortError', code: 'ABORT_ERR' } })
+    expect(() => process.kill(pid, 0)).toThrow()
+    await expect(access(f.root)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(f.signal.aborted).toBe(true)
+    expect(() => f.startExternal(process.execPath, ['-e', 'process.exit(0)'])).toThrow('Draft fixture cleanup cancelled')
+    await f.dispose()
+  } finally {
+    await f.dispose()
+  }
+})
 
 it('runs the draft bridge directly with managed argv and removes its tool on disposal', async () => {
   const f = await fixture()
@@ -62,8 +190,7 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
     expect(f.ctx.tools.get('jianying_draft')).toBeUndefined()
   } finally {
     spy.mockRestore()
-    await f.ctx.fiber.dispose()
-    await rm(f.root, { recursive: true, force: true })
+    await f.dispose()
   }
 })
 
@@ -76,8 +203,7 @@ it('rejects a library save failure even when the child exits zero', async () => 
     await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config)).rejects.toThrow('save rejected')
   } finally {
     spy.mockRestore()
-    await f.ctx.fiber.dispose()
-    await rm(f.root, { recursive: true, force: true })
+    await f.dispose()
   }
 })
 
@@ -90,8 +216,7 @@ it('rejects oversized requests before starting a generator', async () => {
     expect(spy).not.toHaveBeenCalled()
   } finally {
     spy.mockRestore()
-    await f.ctx.fiber.dispose()
-    await rm(f.root, { recursive: true, force: true })
+    await f.dispose()
   }
 })
 
@@ -129,7 +254,6 @@ it('awaits the managed generator exit when the caller cancels', async () => {
   } finally {
     releaseExit.resolve(undefined)
     spy.mockRestore()
-    await f.ctx.fiber.dispose()
-    await rm(f.root, { recursive: true, force: true })
+    await f.dispose()
   }
 })

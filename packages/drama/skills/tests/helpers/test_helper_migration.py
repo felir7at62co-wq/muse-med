@@ -54,7 +54,7 @@ class SplitWorkScopeTests(unittest.TestCase):
         return manifest
 
     def snapshot(self):
-        return {str(path.relative_to(self.project)): path.read_bytes()
+        return {path.relative_to(self.project).as_posix(): path.read_bytes()
                 for path in self.project.rglob("*") if path.is_file()}
 
     def read_manifest(self):

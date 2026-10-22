@@ -4,7 +4,8 @@ import childProcess from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { writeSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
+import { projectSubtitleFixtureReport } from './report-fixture.mjs'
 
 export const name = 'subtitle-probe-fixture'
 export const inject = ['tools']
@@ -17,14 +18,7 @@ export function apply(ctx) {
     const decision = await next()
     if (exec.callId !== 'call_subtitle_timing' || decision.kind !== 'accept') return decision
     assert.equal(result.isError, false)
-    const report = JSON.parse(result.content[0].text)
-    assert.equal(report.project, process.cwd())
-    assert.equal(report.clips[0].source, join(process.cwd(), 'media.mp4'))
-    assert.deepEqual(report.written, [join(process.cwd(), 'result.srt')])
-    const slash = value => value.split('\\').join('/')
-    report.project = slash(report.project)
-    report.clips = report.clips.map(clip => ({ ...clip, source: slash(clip.source) }))
-    report.written = report.written.map(slash)
+    const report = await projectSubtitleFixtureReport(JSON.parse(result.content[0].text), process.cwd())
     return { kind: 'accept', content: [{ type: 'text', text: JSON.stringify(report, null, 2) }] }
   })
   ctx.effect(() => {

@@ -50,7 +50,7 @@ Mount the plugin as one row of a short-drama preset; it needs only the tool regi
 | `subtitleFontFamily` | `SimHei` | ASS subtitle font family |
 | `watermarkFontFamily` | `Microsoft YaHei` | ASS watermark font family |
 
-Font families are deployment configuration, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. Deployments providing Noto Sans CJK SC can set both families to `Noto Sans CJK SC`. This does not change `fontsDir` or install fonts: libass must have access to the selected families. When the medium requires a mark and ending, the single ASS burn follows their concatenation and uses the same watermark family throughout.
+Font families above are deployment defaults, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. A project can override the body subtitle family as described below, but not the watermark family. Deployments providing Noto Sans CJK SC can set both defaults to `Noto Sans CJK SC`. Selecting a family does not change `fontsDir` or install fonts: libass must have access to it, or may fall back to a different installed font. When the medium requires a mark and ending, the single ASS burn follows their concatenation and uses the same watermark family throughout.
 
 ### Reversible video bans
 
@@ -80,8 +80,8 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `timeline` | `render`, `verify` | Timeline JSON, normally the one `prepare` wrote |
 | `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
-| `bgm` | `render` | The BGM bed, looped to the body end |
-| `bgm_plan` | optional, `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
+| `bgm` | `render`; optional preview in `prepare` | The pure BGM bed, looped to the body end; not a dialogue-plus-music review mix |
+| `bgm_plan` | optional, `prepare` / `render` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval. `prepare` reads it when `bgm` is also provided |
 | `ending_audio` | marked `render` | The ending sound; only the shipped `tweet-drama-background-render/assets/ending_audio.mp3` is accepted. The ending plays its first 2 seconds, delayed to the body end |
 | `ending_effect` | marked `render` | The ending effect; only the shipped `tweet-drama-background-render/assets/ending_effect.mp4` is accepted. It plays once at its own speed over the opening of the 2-second ending |
 | `output` | `verify` (`render` optional) | The delivered file; `render` defaults to `exports/<集>.mp4` |
@@ -93,11 +93,25 @@ Tool calls use the snake_case parameter names above; the registered executor map
 
 ### Medium and delivery snapshot
 
-`project_config.json.project_bible.visual_medium` explicitly selects `animation_3d` or `photorealistic`; free-text `style` and aspect ratio never select a policy. `prepare` writes `delivery: {visual_medium?, width, height, fps}` into the timeline using project-bible delivery values, defaulting omitted geometry fields to 1440x2560 at 60 fps. Width and height must be positive even integers; fps must be a positive integer no greater than 240. Present invalid values, including null, fail before media work.
+`project_config.json.project_bible.visual_medium` explicitly selects `animation_3d` or `photorealistic`; free-text `style` and aspect ratio never select a policy. `prepare` writes project-bible geometry and any explicit subtitle/audio sections into `timeline.delivery`, defaulting omitted geometry fields to 1440x2560 at 60 fps. Width and height must be positive even integers; fps must be a positive integer no greater than 240. Present invalid values, including null, fail before media work.
 
 `render` and `verify` preserve snapshot geometry. An explicit snapshot medium wins when the project omits it; an explicit project medium supplies a missing snapshot medium. If both explicitly disagree, the operation requires a new `prepare` rather than silently changing the timeline. Old timelines without delivery metadata retain legacy geometry. When neither source declares a medium, reports warn and retain the legacy marked output. An explicit `canvas` conflicting with snapshot dimensions is rejected; animation also rejects a declared `body_end` differing from the clip end, requiring a body-only timeline to be prepared again.
 
 `animation_3d` outputs only the body duration, adds no watermark style or event, mixes only master and BGM, and never opens ending assets, extracts a tail frame or concatenates a stale ending. Body subtitles remain enabled. `photorealistic` and unclassified legacy projects keep the following marked delivery behavior. Every method's `expected_duration_seconds` includes only its selected ending length.
+
+### Project subtitle and audio settings
+
+Keep approved settings under `project_bible.delivery` in `project_config.json`, not a root-level `delivery`. This is a partial example, not a replacement project file. Read and narrowly edit the existing file, preserving its schema version, revision, history, budget and remote bindings; `drama_project.changes.delivery` currently accepts geometry only, not these subtitle/audio fields:
+
+```json
+{"project_bible":{"visual_medium":"animation_3d","delivery":{"width":480,"height":854,"fps":24,"subtitle":{"font_size_px":30,"margin_bottom_px":18},"audio":{"master_gain":1,"bgm_gain":0.1}}}}
+```
+
+`subtitle.font_family` optionally selects an already available, nonblank ASS-safe family without commas or line breaks. `font_size_px` is a positive finite nominal output-pixel size, not a measured glyph height; `margin_bottom_px` is finite from zero through output height. The renderer converts these into ASS design coordinates and rounds the bottom margin to an integer design unit. Alignment, spacing, outline and watermark remain unchanged. `audio.master_gain` and `audio.bgm_gain` are finite linear gains from 0 through 8; zero mutes that input. Source selection, mixing, normalization, limiter and ending gain are unchanged.
+
+Each subtitle/audio section resolves as a whole: an explicit timeline section, including `{}`, wins over the current project section. A field absent from that selected section uses deployment or legacy defaults, not a field from the other section. A missing timeline section may inherit the current project section. Run `prepare` again to adopt changed project settings, and render to a new candidate rather than overwrite an approved file. Callers with no explicit sections retain their old timeline, ASS and mixing defaults. Review actual output; an SRT alone does not record approved appearance.
+
+Editable drafts read the same explicit audio sections with the same section priority. Without explicit gains their SDK defaults remain 1/1, independently of the formal renderer's deployment defaults; set both gains when matching the two paths. Draft typography uses separate editor units and is not changed by these formal-render subtitle fields. No font is installed or copied by these settings.
 
 ### Marked delivery prerequisites: the two ending files
 
@@ -126,11 +140,13 @@ The written file is plain SRT, so a line can be hand-edited before `prepare` ins
 
 `prepare` copies each source video to `video/<集>/shot_00N.mp4`, lays the timeline out from the ffprobe-measured durations rather than declared ones, assembles the episode master by placing each shot's own sound at its own start (no gain, no per-shot resampling, one 48 kHz lossless write), and installs the subtitle at `editing/<集>.srt`. It encodes no picture. A cue that ends after the assembled picture is reported as a warning.
 
+`prepare` and `render` return `render_preview`: effective delivery geometry, the subtitle file and font, ASS design values and nominal output-pixel equivalents, and the explicit master/BGM/plan paths and gains. `render` writes the same facts into its log. Other methods return null rather than claiming to reconstruct a prior render's inputs. Missing prepare music inputs and an omitted optional plan produce advice, not a new approval requirement. An empty `bgm_plan` means no declared plan was checked, not that no music was mixed. SRT carries cue text and timing, not the approved review video's font style; compare the preview with the approved version before rendering. Nominal pixel values are scaled design values, not measured glyph bounds or a visual verdict. The tool does not identify pure music or verify that a bed contains its declared tracks by listening.
+
 After successful preparation, `editing/<集>-sources.json` records `{shots:[{shot,package?,video,audio,sha256}]}` with absolute source paths and the prepared video's SHA-256. `package` is an optional explicit 1-based position in `episode_packages/<集>/package.json`'s `video_tasks`; it is never inferred from `shot`. Multiple clips may map to one package. The previous selection record is removed before inputs are changed, so failed preparation cannot leave it claiming completion. Source selection is evidence of copied bytes, not content approval. Explicitly mapped rows also record `package_sha256` when the episode package file exists: its full-byte SHA-256, including the referenced shot content. Review records must carry the same measured hash to count as current; any package-file change, including formatting, conservatively invalidates that episode's evidence. Missing package files leave this field absent rather than blocking legacy preparation.
 
 Per-shot encoding caches require a matching source-byte hash, executable and exact encoding arguments, including duration. Cache identities are published only after a successful nonempty encode; missing identities and changed sources/settings re-encode automatically. `force` still bypasses reuse.
 
-A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`. Duration must match the current body; segments must have valid, ordered, in-bounds times. Gaps, overlaps, one track and recurring motifs remain creative choices. Repeat advice compares resolved source paths in order within this plan, without case folding or audio fingerprinting. The reported bed hash binds the declaration to this render input; it does not establish that the bed contains those tracks or fits the scene.
+A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`. Duration must match the current body; segments must have valid, ordered, in-bounds times. `prepare` preserves its prepared files and reports optional plan reading or validation failures as warnings, leaving the plan unchecked; `render` still rejects those failures before encoding. Gaps, overlaps, one track and recurring motifs remain creative choices. Repeat advice compares resolved source paths in order within this plan, without case folding or audio fingerprinting. The reported bed hash binds the declaration to this render input; it does not establish that the bed contains those tracks or fits the scene.
 
 `bgm_plan` also preserves the episode's optional `intended_use`, segment `track_id`, and `license_info`, and returns normalized per-track `license_records`. The [license metadata library](../bgm-license-info/README.md) defines unknown facts and use-risk warnings. Warnings remain advisory and are included in the render report; declarations do not certify rights or replace model-license requirements. A declared `source_sha256` is retained without rehashing each source track. Methods that do not read a plan, including `verify`, return unknown intended use and empty license records, with `bgm_license_info` in `not_checked`.
 
@@ -142,8 +158,8 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 | Rate control | 24M target, 30M peak, 48M buffer, two-second GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. The shipped effect plays once at its own speed over the opening 1.020 seconds, screen-blended over the freeze at 0.90; the remaining 0.980 seconds are the freeze frame |
-| Subtitles | Configured font family, size 40 on the 1080px-wide ASS canvas, spacing -2, a black outline scaled from 7px at 1440px delivery width (the ASS field is 5 at both 1440px and 480px delivery), bottom-centred with a 140/1920-height bottom safe area, plus the single bottom-right `内容由AI生成` mark only for marked delivery. `ScaledBorderAndShadow: yes` keeps the edge proportional to output. The burn chain ends on `fps` and `setpts` at the snapshot rate |
-| Audio | Episode master at 1.45, BGM at 0.24 to the body end, when marked, the ending sound's first 2 seconds delayed to the body end, `amix` normalised off, `alimiter=0.95` |
+| Subtitles | Without project overrides: configured font family, size 40 on the 1080px-wide ASS canvas and a 140/1920-height bottom margin. Project settings override only the body family, size and margin. Spacing -2, width-scaled black outline, bottom-centred alignment, the single marked-delivery `内容由AI生成` watermark and `ScaledBorderAndShadow: yes` remain unchanged. The burn chain ends on `fps` and `setpts` at the snapshot rate |
+| Audio | Effective project or deployment gains (defaults: episode master 1.45, BGM 0.24) to the body end; marked delivery retains the ending sound's first 2 seconds delayed to the body end, `amix` normalised off and `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
 ### The three known traps
@@ -253,7 +269,7 @@ Append-only. The tool registration carries a stable name, description, and schem
 These limits define what this package is and what it is not. They are current constraints, not a task backlog.
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
-- **Delivery metadata does not expose arbitrary filters** — project-bible geometry and explicit medium are validated and snapshotted; rate control, subtitle style, shipped ending hashes and limiter remain fixed. Only binaries, gains, encoder preference and fonts are plugin `Config` fields.
+- **Delivery metadata does not expose arbitrary filters** — geometry, medium and optional subtitle/audio settings are validated and snapshotted; rate control, outline, watermark, shipped ending hashes and limiter remain fixed. Font availability, measured glyph bounds and perceived balance still need output review. Only binaries, gains, encoder preference and default fonts are plugin `Config` fields.
 - **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Final MP4 publication uses a staged sibling and rename after ban checks; failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
 - **A required ending is rebuilt on every marked render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.

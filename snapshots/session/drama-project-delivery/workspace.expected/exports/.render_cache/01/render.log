@@ -1,0 +1,30 @@
+episode=01
+project={{cwd}}
+bgm_plan={"path":"","bed_sha256":"","segments":[],"repeated_sequence_episodes":[],"intended_use":"unknown","license_records":[]}
+render_preview={"delivery":{"visual_medium":"animation_3d","width":480,"height":854,"fps":24},"subtitle":{"path":"{{cwd}}/editing/01.srt","font_family":"Project font","design_width":1080,"design_height":1922,"font_size_design":67.518,"spacing_design":-2,"outline_design":5,"margin_bottom_design":41,"font_size_output_px":30,"outline_output_px":2.222,"margin_bottom_output_px":18.217},"audio":{"master_path":"{{cwd}}/audio/01.wav","bgm_path":"{{cwd}}/approved-bgm.wav","bgm_plan_path":"","master_gain":1,"bgm_gain":0.1}}
+delivery={"visual_medium":"animation_3d","width":480,"height":854,"fps":24,"subtitle":{"font_family":"Project font","font_size_px":30,"margin_bottom_px":18},"audio":{"master_gain":1,"bgm_gain":0.1}} add_watermark=false
+warning=未提供 bgm_plan，曲目、分段和许可尚未核对；空计划不表示没有混入 BGM，实际音轨见 render_preview.audio.bgm_path。
+warning=render_preview 列出交付规格、字幕设计单位及名义输出像素、音轨路径与增益；请与已认可版本核对。SRT 不携带字体样式，已有字幕审查片的观感不会自动继承；音轨是否为纯配乐、是否遮盖对白仍需试听。
+encoder=libx264 gpu_requested=false gpu_used=false
+encoder_fallback_reason=preferNvenc=false：本次不探测 GPU 编码器，直接用 libx264。
+body_end_seconds=5.000000 ending_seconds=0.000 expected_duration_seconds=5.000000
+target_bitrate=24M max_bitrate=30M min_bitrate_bps=4600000
+encoded_shots=1 reused_shots=(none)
+episode=01
+project={{cwd}}
+bgm_plan={"path":"","bed_sha256":"","segments":[],"repeated_sequence_episodes":[],"intended_use":"unknown","license_records":[]}
+render_preview={"delivery":{"visual_medium":"animation_3d","width":480,"height":854,"fps":24},"subtitle":{"path":"{{cwd}}/editing/01.srt","font_family":"Project font","design_width":1080,"design_height":1922,"font_size_design":67.518,"spacing_design":-2,"outline_design":5,"margin_bottom_design":41,"font_size_output_px":30,"outline_output_px":2.222,"margin_bottom_output_px":18.217},"audio":{"master_path":"{{cwd}}/audio/01.wav","bgm_path":"{{cwd}}/approved-bgm.wav","bgm_plan_path":"","master_gain":1,"bgm_gain":0.1}}
+delivery={"visual_medium":"animation_3d","width":480,"height":854,"fps":24,"subtitle":{"font_family":"Project font","font_size_px":30,"margin_bottom_px":18},"audio":{"master_gain":1,"bgm_gain":0.1}} add_watermark=false
+warning=未提供 bgm_plan，曲目、分段和许可尚未核对；空计划不表示没有混入 BGM，实际音轨见 render_preview.audio.bgm_path。
+warning=render_preview 列出交付规格、字幕设计单位及名义输出像素、音轨路径与增益；请与已认可版本核对。SRT 不携带字体样式，已有字幕审查片的观感不会自动继承；音轨是否为纯配乐、是否遮盖对白仍需试听。
+encoder=libx264 gpu_requested=false gpu_used=false
+encoder_fallback_reason=preferNvenc=false：本次不探测 GPU 编码器，直接用 libx264。
+body_end_seconds=5.000000 ending_seconds=0.000 expected_duration_seconds=5.000000
+target_bitrate=24M max_bitrate=30M min_bitrate_bps=4600000
+encoded_shots=1 reused_shots=(none)
+output={{cwd}}/exports/candidate.mp4 size_bytes=5000000 bitrate_bps=8000000 duration_seconds=5.000000
+check duration ok 实测 5.000000s，应为 5.000000s，差 0.000000s
+check video_stream ok 实测 480x854 h264
+check frame_rate ok 实测 24.0000fps，应为 24fps
+check audio_stream ok 实测 音轨=aac 48000Hz
+check bitrate_floor ok 实测 8.000 Mbps，下限 4.6 Mbps
