@@ -1,0 +1,98 @@
+{
+  "name": "muse-lvpaopao",
+  "version": "0.1.0",
+  "description": "Target-bound local Lvpaopao catalog and resumable series downloads for Muse",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./port": {
+      "types": "./lib/port.d.ts",
+      "default": "./lib/port.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./bridge": {
+      "types": "./lib/bridge.d.ts",
+      "default": "./lib/bridge.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "native/boot.py",
+    "native/requirements-windows-25560.lock",
+    "native/requirements-macos-arm64-269602.lock",
+    "native/passive-probe/run-observation.py",
+    "native/passive-probe/observe-launch.js",
+    "native/passive-probe/next-stage/enable-target-debug.js",
+    "native/passive-probe/next-stage/enable-target-debug-25799.js",
+    "native/passive-probe/next-stage/runtime_profiles.py",
+    "native/passive-probe/next-stage/remote_wire.py",
+    "native/passive-probe/next-stage/native_rpc.py",
+    "native/passive-probe/next-stage/run-native-identity.py",
+    "native/passive-probe/next-stage/run-persistent-host.py",
+    "native/passive-probe/next-stage/operations/__init__.py",
+    "native/passive-probe/next-stage/operations/fixed_operations.py",
+    "native/passive-probe/next-stage/operations/fixed-operation.js",
+    "native/passive-probe/next-stage/persistent_media.py",
+    "native/passive-probe/next-stage/download_media.py",
+    "native/passive-probe/next-stage/secure_media_receipt.py",
+    "native/passive-probe/next-stage/mac_media_protector.py",
+    "native/passive-probe/next-stage/mac_runtime.py",
+    "native/passive-probe/next-stage/enable-target-debug-mac-269602.js",
+    "native/passive-probe/next-stage/post_upgrade_peer.py",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "README.i18n.yaml",
+    "LICENSE",
+    "SOURCE.json"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "package": "node scripts/pack.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.1",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-agent": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-session": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-home-paths": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-atomic-write": "0.2.1-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-subprocess": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.1",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.6-alpha.1",
+    "@deepseek-ai/cordis-plugin-include": "1.0.10-alpha.1",
+    "@types/node": "22.20.0",
+    "typescript": "6.0.3",
+    "@deepseek-ai/dsh-subprocess-local": "0.2.1-alpha.1",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-agent": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-session": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-home-paths": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-session-projection": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-atomic-write": "0.2.1-alpha.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

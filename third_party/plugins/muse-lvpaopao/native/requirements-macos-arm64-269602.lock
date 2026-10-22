@@ -1,0 +1,4 @@
+# Qualified local CPython 3.14 / macOS arm64 wheels. Install with --require-hashes.
+frida==17.24.2 --hash=sha256:3fe131883f807c95a34fb0c3160d305fe53ea64c2dd1c947b4d0606bbac91b7c
+protobuf==7.36.2 --hash=sha256:cbc70b17ee27e28894c7fee8bb04be1abead49e936bc70eb60052531eee2079e
+websockets==17.2 --hash=sha256:06e46da092bca3a52e98f0458c66b247993ce501a07cd09c858be3296511ab7d

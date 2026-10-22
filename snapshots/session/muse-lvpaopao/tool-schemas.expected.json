@@ -1,0 +1,76 @@
+{
+  "initial": [
+    {
+      "name": "lvpaopao",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "search",
+              "detail",
+              "episodes",
+              "download_first_episode",
+              "download_episode",
+              "download_status",
+              "download_series",
+              "series_status",
+              "rankings"
+            ]
+          },
+          "boardType": {
+            "type": "integer",
+            "description": "rankings: board type from returned boards; defaults to the app reputation board (6)."
+          },
+          "pageIndex": {
+            "type": "integer",
+            "description": "rankings: zero-based page; defaults to 0."
+          },
+          "coldStartTime": {
+            "type": "integer",
+            "description": "rankings: reuse the returned timestamp with the same board and count for subsequent pages."
+          },
+          "query": {
+            "type": "string",
+            "description": "search/download_series: title. download_series selects only one exact match; otherwise use returned candidates."
+          },
+          "srcAppId": {
+            "type": "string",
+            "description": "Source AppID returned by search; required with dramaId except title lookup."
+          },
+          "dramaId": {
+            "type": "string",
+            "description": "Source drama ID, kept as a string. series_status uses this identity to read saved progress."
+          },
+          "start": {
+            "type": "integer",
+            "description": "episodes: first positive requested number."
+          },
+          "count": {
+            "type": "integer",
+            "description": "episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking."
+          },
+          "episodeNo": {
+            "type": "integer",
+            "description": "download_episode/download_status: actual episode number from the catalog."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation."
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

@@ -1,0 +1,39 @@
+{
+  "title": "离线纸灯全集",
+  "localHelperLaunches": 1,
+  "nativeMethods": [
+    "search",
+    "detail",
+    "episodes",
+    "download_episode",
+    "download_episode",
+    "search",
+    "detail",
+    "episodes"
+  ],
+  "completedEpisodes": [
+    1,
+    2
+  ],
+  "localFiles": [
+    {
+      "episodeNo": 1,
+      "bytes": 72,
+      "sha256": "f1a60e45ae19e04ef05a30d6cbc81086b5eb409a148fc1007f6695feac0e58c8",
+      "attempts": 1
+    },
+    {
+      "episodeNo": 2,
+      "bytes": 72,
+      "sha256": "0b5580c8fd4e45eb1c97de02188f6bf91978e0372400552dbf77e6eb5ce0db2b",
+      "attempts": 1
+    }
+  ],
+  "statusNativeRequests": 0,
+  "repeatedDownloadAcquisitions": 0,
+  "stableTask": true,
+  "originalRequestKeysRetained": true,
+  "realExternalCalls": 0,
+  "realMediaDecodePerformed": false,
+  "cleanupAcknowledged": true
+}
