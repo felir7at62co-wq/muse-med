@@ -102,6 +102,12 @@ export async function apply(ctx, config) {
   }, 'snapshot-hongguo-source-resolver')
   class SnapshotAccount extends Service { constructor(ctx) { super(ctx, 'museAccount') } }
   await ctx.plugin(SnapshotAccount)
+  class SnapshotLvpaopaoBridge extends Service {
+    constructor(ctx) { super(ctx, 'lvpaopaoBridge') }
+    async request() { throw new Error('Native Lvpaopao requests are unavailable in catalog snapshots') }
+    async resolveConfiguration() { throw new Error('Native Lvpaopao configuration is unavailable in catalog snapshots') }
+  }
+  await ctx.plugin(SnapshotLvpaopaoBridge)
   await ctx.plugin(CharacterLibraryTos, CharacterLibraryTos.Config({})).await()
   await ctx.plugin(CharacterLibrary.default).await()
   const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))

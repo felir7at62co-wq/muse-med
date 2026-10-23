@@ -64,11 +64,16 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   await mkdir(dependency, { recursive: true })
   await writeFile(join(dependency, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-atomic-write', type: 'module', exports: './index.js' }))
   await writeFile(join(dependency, 'index.js'), 'export const fixtureDependency = "installed-peer"\n')
-  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download']) {
+  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao']) {
     const directory = join(source, plugin)
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module', exports: './index.js' }))
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',
+      exports: plugin === 'muse-lvpaopao' ? { '.': { default: './lib/index.js' } } : './index.js' }))
     await writeFile(join(directory, 'index.js'), 'export { fixtureDependency } from "@deepseek-ai/dsh-atomic-write"\n')
+    if (plugin === 'muse-lvpaopao') {
+      await mkdir(join(directory, 'src'))
+      await writeFile(join(directory, 'src', 'index.ts'), 'export { fixtureDependency } from "@deepseek-ai/dsh-atomic-write"\n')
+    }
   }
   const original = join(source, 'muse-hongguo-download')
   const linked = join(root, 'old-source-link')
@@ -84,6 +89,12 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   expect(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write'))
     .toBe(await realpath(join(dependency, 'index.js')))
   expect(await importPlugin(installed)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
+  const nativeInstalled = join(nodeModules, 'muse-lvpaopao')
+  expect(await realpath(nativeInstalled)).not.toBe(await realpath(join(source, 'muse-lvpaopao')))
+  const nativeManifest = JSON.parse(await readFile(join(nativeInstalled, 'package.json'), 'utf8')) as {
+    exports: { '.': { default: string } }
+  }
+  expect(nativeManifest.exports['.'].default).toBe(process.env.DSH_EXAMPLE_MODE === 'lib' ? './lib/index.js' : './src/index.ts')
   expect(await realpath(join(nodeModules, 'muse-hongguo-search'))).toBe(await realpath(join(source, 'muse-hongguo-search')))
 })
 

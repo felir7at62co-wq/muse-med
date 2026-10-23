@@ -65,7 +65,7 @@
     },
     {
       "name": "audio_transcribe",
-      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字与字词时间戳；status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -513,13 +513,14 @@
         "properties": {
           "method": {
             "type": "string",
-            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析。",
+            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。",
             "enum": [
               "prepare",
               "render",
               "verify",
               "subtitles",
-              "audio_preview"
+              "audio_preview",
+              "subtitle_overlay"
             ]
           },
           "project": {
@@ -2345,6 +2346,77 @@
       }
     },
     {
+      "name": "lvpaopao",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "search",
+              "detail",
+              "episodes",
+              "download_first_episode",
+              "download_episode",
+              "download_status",
+              "download_series",
+              "series_status",
+              "rankings"
+            ]
+          },
+          "boardType": {
+            "type": "integer",
+            "description": "rankings: board type from returned boards; defaults to the app reputation board (6)."
+          },
+          "pageIndex": {
+            "type": "integer",
+            "description": "rankings: zero-based page; defaults to 0."
+          },
+          "coldStartTime": {
+            "type": "integer",
+            "description": "rankings: reuse the returned timestamp with the same board and count for subsequent pages."
+          },
+          "query": {
+            "type": "string",
+            "description": "search/download_series: title. download_series selects only one exact match; otherwise use returned candidates."
+          },
+          "srcAppId": {
+            "type": "string",
+            "description": "Source AppID returned by search; required with dramaId except title lookup."
+          },
+          "dramaId": {
+            "type": "string",
+            "description": "Source drama ID, kept as a string. series_status uses this identity to read saved progress."
+          },
+          "start": {
+            "type": "integer",
+            "description": "episodes: first positive requested number."
+          },
+          "count": {
+            "type": "integer",
+            "description": "episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking."
+          },
+          "episodeNo": {
+            "type": "integer",
+            "description": "download_episode/download_status: actual episode number from the catalog."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation."
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
       "name": "mcp__muse-account__muse_account_status",
       "description": "Read the current MUSE account identity. Set verify=true to confirm the saved session with the gateway. No password or cookie is returned.",
       "parameters": {
@@ -3499,7 +3571,7 @@
     },
     {
       "name": "video_contact_sheet",
-      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
+      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes, unviewed cut candidates and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -3562,7 +3634,7 @@
     },
     {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
+      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects visual-cut sides and ASR utterance midpoints with original speech context, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -3588,7 +3660,7 @@
           },
           "strategy": {
             "type": "string",
-            "description": "Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.",
+            "description": "Default uniform. scene_dialogue detects visual cuts and, when transcript_path is supplied, samples actual ASR utterance midpoints with source times, text previews and optional speaker_id. Deferred observations remain unviewed.",
             "enum": [
               "uniform",
               "scene_dialogue"

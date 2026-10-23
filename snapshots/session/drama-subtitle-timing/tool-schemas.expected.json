@@ -28,13 +28,14 @@
         "properties": {
           "method": {
             "type": "string",
-            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析。",
+            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。",
             "enum": [
               "prepare",
               "render",
               "verify",
               "subtitles",
-              "audio_preview"
+              "audio_preview",
+              "subtitle_overlay"
             ]
           },
           "project": {
