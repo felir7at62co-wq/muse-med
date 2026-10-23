@@ -569,10 +569,11 @@ describe('jubian_video', () => {
       .toMatchObject({ outcome: 'accepted' })
     expect(calls.at(-1)?.path).toContain('/retry/42')
   })
-  it('reports a batch item as uncertain when the ledger cannot be read for its original key', async () => {
+  it.each([new Error('ledger storage unavailable'), 'ledger storage unavailable'])
+  ('reports a batch item as uncertain when its ledger rejects with %s', async (failure) => {
     const { client, calls } = imageProvider()
     const find = vi.spyOn(ledger, 'find').mockResolvedValueOnce(undefined)
-      .mockRejectedValue(new Error('ledger storage unavailable'))
+      .mockRejectedValue(failure)
     onTestFinished(() => { find.mockRestore() })
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'unreadable-key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
