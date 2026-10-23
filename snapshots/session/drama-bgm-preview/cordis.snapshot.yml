@@ -4,12 +4,6 @@
     runnerCommand: [snapshot-unused-runner]
     runnerFailureSignatures: [snapshot-unused-runner-failure]
 
-# This scenario validates BGM inputs, not the platform's shell tool schema.
-- id: tool-bash
-  disabled: true
-- id: tool-pwsh
-  disabled: true
-
 # Keyless replay keeps the BGM composition intact and replaces only the model adapter.
 - id: tool-bash
   disabled: true

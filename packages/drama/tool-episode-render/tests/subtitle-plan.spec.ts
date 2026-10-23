@@ -76,6 +76,15 @@ describe('source-bound subtitle overlay', () => {
     const input = await fixture()
     await expect(resolveSubtitleOverlay({ ...input, outputSrt: join(input.project, '../outside.srt') })).rejects.toThrow('项目目录内')
   })
+  it('allows a project root alias without following output links inside the project', async () => {
+    const input = await fixture(), parent = await tempProject()
+    temporary.push(parent)
+    const project = join(parent, 'project')
+    await symlink(input.project, project, process.platform === 'win32' ? 'junction' : 'dir')
+    const result = await resolveSubtitleOverlay({ ...input, project, outputSrt: 'editing/alias.srt' })
+    expect(result.cues.map(cue => cue.text)).toEqual(['外加字幕'])
+    expect(await readFile(result.report.resolved_srt, 'utf8')).toContain('外加字幕')
+  })
   it('keeps an existing report unchanged without leaving a newly written SRT', async () => {
     const input = await fixture(), outputSrt = join(input.project, 'editing/export.srt')
     const report = outputSrt + '.decision-report.json'

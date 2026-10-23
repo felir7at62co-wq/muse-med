@@ -12,7 +12,7 @@ export async function projectSubtitleFixtureReport(report, cwd) {
   const srt = join(cwd, 'result.srt')
   const review = `${srt}.review.txt`
   assert.equal(report.method, 'subtitles')
-  assert.equal(report.summary.failed_checks, 0)
+  assert.equal(report.summary.failed_checks, 0, 'aligned fixture has no subtitle check defects')
   assert.equal(report.project, cwd)
   assert.equal(report.clips[0].source, join(cwd, 'media.mp4'))
   assert.deepEqual(report.written, [srt, review])

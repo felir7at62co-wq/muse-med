@@ -49,8 +49,8 @@ function textKey(text: string): string { return text.normalize('NFKC').replace(/
 function micros(seconds: number): number { return Math.round(seconds * 1_000_000) }
 const digest = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex')
 
-async function requireUnlinkedOutput(file: string): Promise<void> {
-  for (let current = file;; current = dirname(current)) {
+async function requireUnlinkedOutput(file: string, project: string): Promise<void> {
+  for (let current = file; current !== resolve(project); current = dirname(current)) {
     try {
       if ((await lstat(current)).isSymbolicLink()) throw new Error('字幕导出路径不得经过符号链接或 junction。')
     } catch (error) {
@@ -130,12 +130,12 @@ export async function resolveSubtitleOverlay(input: {
     const inside = relative(input.project, resolvedSrt)
     if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new Error('subtitle_overlay output 必须在项目目录内。')
     decisionReport = `${resolvedSrt}.decision-report.json`
-    await requireUnlinkedOutput(resolvedSrt)
-    await requireUnlinkedOutput(decisionReport)
+    await requireUnlinkedOutput(resolvedSrt, input.project)
+    await requireUnlinkedOutput(decisionReport, input.project)
     await mkdir(dirname(resolvedSrt), { recursive: true })
   } else {
     const parent = resolve(input.project, 'editing', 'subtitle-overlays')
-    await requireUnlinkedOutput(parent)
+    await requireUnlinkedOutput(parent, input.project)
     await mkdir(parent, { recursive: true })
     const directory = await mkdtemp(resolve(parent, `ep${input.episode}-`))
     resolvedSrt = resolve(directory, 'resolved-overlay.srt')
