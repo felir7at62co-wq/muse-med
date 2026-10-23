@@ -97,7 +97,7 @@ Every relative project input and output path resolves from `project`, including 
 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, an ending effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
-Project-root aliases are accepted for audio paths; inputs and existing output parents must still resolve inside the real project. Explicit render-profile gains override project gains, which override deployment defaults; the render preview reports these same effective gains.
+Project-root aliases are accepted for audio paths; inputs and existing output parents must still resolve inside the real project. Explicit audio-profile gains in auditions and renders override project gains, which override deployment defaults; the render preview reports these same effective gains.
 
 ### Explicit audio profiles and auditions
 

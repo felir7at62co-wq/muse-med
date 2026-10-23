@@ -6,7 +6,8 @@ import z from '@deepseek-ai/schemastery'
 import { licenseRiskWarnings } from '@deepseek-ai/dsh-bgm-license-info'
 import { readBgmPlan } from './bgm.ts'
 import { fileSha256 } from './cache.ts'
-import { audioMixFilter } from './delivery.ts'
+import { audioMixFilter, deliveryRenderSettings } from './delivery.ts'
+import { resolveDeliveryPolicy } from './delivery-policy.ts'
 import { captureFfmpeg, MediaCommandError, runFfmpeg } from './ffmpeg.ts'
 import { readTimeline } from './timeline.ts'
 import type { AudioMixProfile, AudioMixReport, AudioWindow, BgmPlanReport, MediaToolkit, RenderSettings,
@@ -321,7 +322,9 @@ export async function previewAudio(input: AudioPreviewInput): Promise<AudioPrevi
   if (input.startSeconds + input.durationSeconds > timeline.bodyEndSeconds + 0.000001) {
     throw new Error('音频试听窗口不能超过正文时间线。')
   }
-  const profile = await loadAudioMixProfile(input.project, input.profilePath, input.settings)
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  const profile = await loadAudioMixProfile(input.project, input.profilePath,
+    deliveryRenderSettings(input.settings, policy.delivery))
   const original = await requireProjectAudioFile(input.project, input.audio)
   let music = ''
   if (profile.mode !== 'no_bgm') {
