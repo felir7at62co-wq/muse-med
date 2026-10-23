@@ -338,3 +338,31 @@ test('arbitrary episode rejects wrong serial, inaccessible media and out of rang
     assert.equal(f.calls.length, 2);
   }
 });
+
+test('engagement reads only selected episode metadata and never projects friend counts or personal data', async () => {
+  const f = fixture({operation: 'engagement', ...selection, episodeNo: 2}, {native(action, data) {
+    assert.equal(action, 'usergetdramameta'); assert.equal(data.media_no, '2');
+    return Promise.resolve({base_resp: {ret: 0}, like_sum: 0, comment_sum: 12, share_sum: 31,
+      public_like_cur_media_amount: 245, public_like_count_cur_media: 3, public_like_count_sum_media: 9,
+      friends_list_cur_media: [{username: secret}], play_url: fakeUrl});
+  }});
+  const result = await f.promise;
+  assert.equal(result.publicResult.status, 'engagement-returned');
+  assert.deepEqual(result.publicResult.counts, {likes: 0, comments: 12, recommendations: 245, shares: 31});
+  assert.equal(result.publicResult.episodeNo, 2); assert.equal(result.publicResult.businessCalls, 1);
+  assert.equal(result.privateResult, null); assert.equal(f.calls.length, 1);
+  assert.ok(!JSON.stringify(result).includes(secret)); assert.ok(!JSON.stringify(result).includes('friends'));
+});
+
+test('unavailable or invalid engagement counters stay null rather than zero', async () => {
+  for (const meta of [{}, {like_sum: -1, comment_sum: '5', share_sum: true, public_like_cur_media_amount: 2 ** 54}]) {
+    const f = fixture({operation: 'engagement', ...selection, episodeNo: 1}, {native: () => Promise.resolve(meta)});
+    const result = await f.promise;
+    assert.equal(result.publicResult.status, 'engagement-unavailable');
+    assert.deepEqual(result.publicResult.counts, {likes: null, comments: null, recommendations: null, shares: null});
+  }
+  for (const episodeNo of [0, -1, true, 1.5, '1']) {
+    const f = fixture({operation: 'engagement', ...selection, episodeNo});
+    assert.equal((await f.promise).publicResult.status, 'parameters-invalid'); assert.equal(f.calls.length, 0);
+  }
+});

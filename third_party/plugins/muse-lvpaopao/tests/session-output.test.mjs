@@ -21,7 +21,7 @@ const params = { srcAppId: 'wx0123456789abcdef', dramaId: 'sample_1' }
 const config = { transport: 'ssh', localPython: '', localHelper: '', sshExecutable: 'ssh-test', sshHostAlias: 'test-host', remotePython: 'C:\\Test\\python.exe',
   remoteHelper: 'C:\\Test\\helper.py', helperSha256: 'a'.repeat(64), cwd: process.cwd(),
   connectTimeoutMs: 1000, requestTimeoutMs: 1000, cancelTimeoutMs: 100, shutdownTimeoutMs: 1000,
-  maxFrameBytes: 16384, maxPending: 8, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
+  maxFrameBytes: 16384, maxPending: 8, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50, maxSeriesEpisodes: 400,
   downloadEnabled: true, outputDir: '/must-not-use-connection-output', scpExecutable: 'scp-test', copyTimeoutMs: 1000,
   copyPollIntervalMs: 50, maxMediaBytes: 10000, downloadRequestTimeoutMs: 1000 }
 function response() {

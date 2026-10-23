@@ -117,7 +117,7 @@ export class JsonlRequestPort implements RequestPort {
     }
     if (!record(value) || value.protocol_version !== 1 || value.helper_sha256 !== this.config.helperSha256
       || value.expected_app_id !== 'wx404dde55fb12df78' || typeof value.ready !== 'boolean'
-      || !Array.isArray(value.actions) || ![5, 7, ACTIONS.length].includes(value.actions.length)
+      || !Array.isArray(value.actions) || ![5, 7, 8, ACTIONS.length].includes(value.actions.length)
       || !ACTIONS.slice(0, 5).every(action => Array.isArray(value.actions) && value.actions.includes(action))
       || value.actions.some(item => !ACTIONS.some(action => action === item)) || new Set(value.actions).size !== value.actions.length) {
       this.fail(new BridgeError('handshake-mismatch'))

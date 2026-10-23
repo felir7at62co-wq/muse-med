@@ -75,6 +75,10 @@ The provider first reads `<Muse home>/lvpaopao/connection.json`. An existing val
 
 Call `rankings` without pagination fields to read the first reputation-board page. The result contains the service's board labels, source positions, drama titles and source IDs, plus `total` and `hasMore`. Choose other `boardType` values from the returned `boards`; keep `count` and the returned `coldStartTime` when advancing zero-based `pageIndex`. Invalid rows remain gaps with `partial:true`, rather than shifting later ranks. Rankings are live service responses, so their contents can change between calls. Select a returned source identity for details or series download.
 
+### Read interaction counts
+
+Call `engagement` with an exact `query` or selected `srcAppId` and `dramaId` to read all actual catalog episodes; add `episodeNo` for one episode. Results contain likes, comments, all-user recommendations and shares, each episode observation, observation start/end times, coverage and missing episode numbers. Series totals are sums of episode counts, not distinct people or a simultaneous platform-wide total. Missing, malformed, rejected or unread counts remain `null`; `knownTotals` only sum available observations. A failed read stops further requests without replay; ambiguous titles require source selection. This read does not submit likes, comments, recommendations, shares or media downloads.
+
 ### Download and resume a series
 
 Ask the director Agent to download a named drama, or call `download_series` with `query`. A single normalized exact title match selects the source only when search is complete. Otherwise the tool returns candidates with `selection-required`; select `srcAppId` and `originDramaId`, then pass them as `srcAppId` and `dramaId`. Media acquisition does not start while selection is unresolved. The tool reads details and pages the directory, preserves actual returned episode numbers, and reports missing or partial coverage instead of inventing episodes.

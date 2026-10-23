@@ -1,4 +1,5 @@
 /** Allowlisted model-visible projection of the native helper response. */
+import { engagementReportSchema, episodeEngagementSchema, type EngagementReport, type EpisodeEngagement } from './engagement-data.ts'
 import { BridgeError, type Action } from './port.ts'
 import type { SeriesResult } from './series.ts'
 import type { Config } from './config.ts'
@@ -13,7 +14,7 @@ const candidate = { type: 'object', additionalProperties: false, properties: {
 } } as const
 /** Canonical schema shared by Native and PTC callers. */
 export const outputSchema = { type: 'object', additionalProperties: false, properties: {
-  action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings'] },
+  action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings', 'engagement'] },
   ok: { type: 'boolean', required: true }, status: { type: 'string', required: true },
   data: { type: 'object', required: true, additionalProperties: false, properties: {
     identityMatched: { type: 'boolean' }, ready: { type: 'boolean' }, appVersion: { type: 'string' },
@@ -42,6 +43,7 @@ export const outputSchema = { type: 'object', additionalProperties: false, prope
       durationSeconds: { type: 'number', required: true }, width: { type: 'integer', required: true }, height: { type: 'integer', required: true },
       hasAudio: { type: 'boolean', required: true }, fullDecodePassed: { type: 'boolean', required: true },
     } },
+    engagement: engagementReportSchema, episodeEngagement: episodeEngagementSchema,
     supportedActions: { type: 'array', items: { type: 'string' } },
     series: { type: 'object', additionalProperties: false, properties: {
       taskId: { type: 'string', required: true }, taskDirectory: { type: 'string', required: true }, manifestPath: { type: 'string', required: true },
@@ -78,6 +80,7 @@ export interface ResultData {
   boards?: { type: number; name: string }[]
   entries?: (Candidate & { rank: number })[]
   series?: SeriesSummary
+  engagement?: EngagementReport; episodeEngagement?: EpisodeEngagement
   failurePhase?: 'before-call' | 'call-pending' | 'response-received' | 'projection'
   failureKind?: 'TypeError' | 'ReferenceError' | 'RangeError' | 'Error' | 'other'
   nativeErrorCode?: number | null
@@ -144,6 +147,20 @@ export function projectResult(action: Action, value: unknown, limits: Pick<Confi
     if (value[key] === undefined || value[key] === null) continue
     if (!count(value[key])) throw new BridgeError('invalid-response')
     data[key] = value[key]
+  }
+  if (action === 'engagement') {
+    const counts = value.counts
+    if (!count(value.episodeNo) || value.episodeNo < 1 || !record(counts)
+      || Object.keys(counts).length !== 4
+      || !['likes', 'comments', 'recommendations', 'shares'].every(key => Object.hasOwn(counts, key) && (counts[key] === null || count(counts[key])))
+      || value.observedAtMs !== null && (!count(value.observedAtMs) || value.observedAtMs < 1)) throw new BridgeError('invalid-response')
+    const { likes, comments, recommendations, shares } = counts
+    if (!(likes === null || count(likes)) || !(comments === null || count(comments))
+      || !(recommendations === null || count(recommendations)) || !(shares === null || count(shares))) throw new BridgeError('invalid-response')
+    if (value.status === 'engagement-returned' && (value.observedAtMs === null || [likes, comments, recommendations, shares].every(item => item === null))) throw new BridgeError('invalid-response')
+    data.episodeEngagement = { episodeNo: value.episodeNo, status: value.status,
+      observedAtMs: typeof value.observedAtMs === 'number' ? value.observedAtMs : null,
+      counts: { likes, comments, recommendations, shares } }
   }
   if (value.candidates !== undefined) {
     if (!Array.isArray(value.candidates) || value.candidates.length > limits.maxResultItems) throw new BridgeError('invalid-response')

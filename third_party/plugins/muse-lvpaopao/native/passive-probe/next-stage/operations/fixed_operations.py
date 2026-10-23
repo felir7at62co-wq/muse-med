@@ -7,7 +7,7 @@ import re
 
 from native_rpc import FixedOperation
 
-OPERATIONS = ('status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'rankings')
+OPERATIONS = ('status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'rankings', 'engagement')
 TARGET_APP_ID = 'wx404dde55fb12df78'
 COMMON = {'operation', 'status', 'identityMatched', 'appVersion', 'envVersion', 'pluginVersion', 'hostLoginState', 'businessCalls', 'timedOut'}
 DIAGNOSTICS = {'failurePhase', 'failureKind', 'nativeErrorCode'}
@@ -16,6 +16,7 @@ EXTRA = {
     'status': {'hasRequire', 'hasBizRequest', 'hasNativeWrapper'},
     'search': {'resultCount', 'partial', 'candidates'},
     'rankings': {'boardType', 'pageIndex', 'pageSize', 'coldStartTime', 'total', 'hasMore', 'partial', 'boards', 'entries'},
+    'engagement': {'srcAppId', 'dramaId', 'episodeNo', 'observedAtMs', 'counts'},
     'detail': DETAIL,
     'episodes': DETAIL | {'requestedStart', 'requestedEndExclusive', 'episodeNumbers', 'partial'},
     'download_first_episode': DETAIL | {'serialNo', 'isStraight', 'hasPrivateMedia'},
@@ -26,7 +27,7 @@ STATUSES = {
     'plugin-version-invalid', 'native-wrapper-unavailable', 'login-state-unavailable',
     'runtime-info-unavailable', 'status-returned', 'business-error',
     'rankings-list-unavailable', 'rankings-returned', 'search-list-unavailable', 'search-returned', 'drama-info-unavailable',
-    'detail-returned', 'episode-range-outside-detail', 'episode-list-unavailable',
+    'engagement-returned', 'engagement-unavailable', 'detail-returned', 'episode-range-outside-detail', 'episode-list-unavailable',
     'episodes-returned', 'first-episode-free-unconfirmed', 'playable-response-invalid',
     'playable-list-unavailable', 'playable-episode-unconfirmed',
     'straight-playback-unconfirmed', 'playable-url-unavailable',
@@ -48,7 +49,7 @@ def _drama_id(value):
 
 def validate_parameters(operation, parameters):
     """Return the exact tagged template arguments; opaque drama IDs remain strings."""
-    fields = {'rankings': {'boardType', 'pageIndex', 'count', 'coldStartTime'}, 'status': set(), 'search': {'query'}, 'detail': {'srcAppId', 'dramaId'}, 'episodes': {'srcAppId', 'dramaId', 'start', 'count'}, 'download_first_episode': {'srcAppId', 'dramaId'}, 'download_episode': {'srcAppId', 'dramaId', 'episodeNo'}}
+    fields = {'engagement': {'srcAppId', 'dramaId', 'episodeNo'}, 'rankings': {'boardType', 'pageIndex', 'count', 'coldStartTime'}, 'status': set(), 'search': {'query'}, 'detail': {'srcAppId', 'dramaId'}, 'episodes': {'srcAppId', 'dramaId', 'start', 'count'}, 'download_first_episode': {'srcAppId', 'dramaId'}, 'download_episode': {'srcAppId', 'dramaId', 'episodeNo'}}
     if not isinstance(operation, str) or operation not in fields or not isinstance(parameters, dict) or set(parameters) != fields[operation]:
         raise OperationError('parameters-invalid')
     if operation == 'rankings' and (not _integer(parameters['boardType'], 1, 2147483647) or not _integer(parameters['pageIndex'], 0, 10000) or not _integer(parameters['count'], 1, 20) or not _integer(parameters['coldStartTime'], 1, 2147483647)):
@@ -61,11 +62,11 @@ def validate_parameters(operation, parameters):
             query.encode('utf8')
         except UnicodeError:
             raise OperationError('parameters-invalid') from None
-    if operation in ('detail', 'episodes', 'download_first_episode', 'download_episode') and (not _app_id(parameters['srcAppId']) or not _drama_id(parameters['dramaId'])):
+    if operation in ('detail', 'episodes', 'download_first_episode', 'download_episode', 'engagement') and (not _app_id(parameters['srcAppId']) or not _drama_id(parameters['dramaId'])):
         raise OperationError('parameters-invalid')
     if operation == 'episodes' and (type(parameters['start']) is not int or not 1 <= parameters['start'] <= (1 << 53) - 21 or type(parameters['count']) is not int or not 1 <= parameters['count'] <= 20):
         raise OperationError('parameters-invalid')
-    if operation == 'download_episode' and (type(parameters['episodeNo']) is not int or not 1 <= parameters['episodeNo'] <= (1 << 53) - 1):
+    if operation in ('download_episode', 'engagement') and (type(parameters['episodeNo']) is not int or not 1 <= parameters['episodeNo'] <= (1 << 53) - 1):
         raise OperationError('parameters-invalid')
     return {'operation': operation, **parameters}
 
@@ -99,17 +100,27 @@ def _public(operation, parameters, value):
         raise OperationError('public-result-invalid')
     if 'nativeErrorCode' in value and value['nativeErrorCode'] is not None and not _integer(value['nativeErrorCode'], -(1 << 31), (1 << 31) - 1):
         raise OperationError('public-result-invalid')
-    if any(type(value[key]) is not bool for key in ('identityMatched', 'timedOut')) or not _integer(value['businessCalls'], 0, 0 if operation == 'status' else 1 if operation in ('search', 'rankings', 'detail') else 2):
+    if any(type(value[key]) is not bool for key in ('identityMatched', 'timedOut')) or not _integer(value['businessCalls'], 0, 0 if operation == 'status' else 1 if operation in ('search', 'rankings', 'detail', 'engagement') else 2):
         raise OperationError('public-result-invalid')
     if not _text(value['appVersion'], 64) or value['envVersion'] not in (None, 'release', 'trial', 'develop') or value['hostLoginState'] is not None and type(value['hostLoginState']) is not bool:
         raise OperationError('public-result-invalid')
     if value['pluginVersion'] is not None and (not isinstance(value['pluginVersion'], str) or len(value['pluginVersion']) > 32 or re.fullmatch(r'\d+\.\d+\.\d+', value['pluginVersion']) is None):
         raise OperationError('public-result-invalid')
-    bool_fields = {'status': ('hasRequire', 'hasBizRequest', 'hasNativeWrapper'), 'search': ('partial',), 'rankings': ('partial', 'hasMore'), 'detail': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization'), 'episodes': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'partial'), 'download_first_episode': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'isStraight', 'hasPrivateMedia'), 'download_episode': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'isStraight', 'hasPrivateMedia')}[operation]
+    bool_fields = {'engagement': (), 'status': ('hasRequire', 'hasBizRequest', 'hasNativeWrapper'), 'search': ('partial',), 'rankings': ('partial', 'hasMore'), 'detail': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization'), 'episodes': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'partial'), 'download_first_episode': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'isStraight', 'hasPrivateMedia'), 'download_episode': ('isFirstMediaFree', 'hasVideoInfo', 'hasPlayAuthorization', 'isStraight', 'hasPrivateMedia')}[operation]
     if any(type(value[key]) is not bool for key in bool_fields):
         raise OperationError('public-result-invalid')
     if operation in ('detail', 'episodes', 'download_first_episode', 'download_episode'):
         if value['srcAppId'] != parameters['srcAppId'] or value['dramaId'] != parameters['dramaId'] or not _text(value['title'], 160) or value['episodeCount'] is not None and not _integer(value['episodeCount'], 1, (1 << 53) - 1):
+            raise OperationError('public-result-invalid')
+    if operation == 'engagement':
+        counts = value['counts']
+        if value['srcAppId'] != parameters['srcAppId'] or value['dramaId'] != parameters['dramaId'] or value['episodeNo'] != parameters['episodeNo'] or type(value['episodeNo']) is not int:
+            raise OperationError('public-result-invalid')
+        if not isinstance(counts, dict) or set(counts) != {'likes', 'comments', 'recommendations', 'shares'} or any(item is not None and not _integer(item, 0, (1 << 53) - 1) for item in counts.values()):
+            raise OperationError('public-result-invalid')
+        if value['observedAtMs'] is not None and not _integer(value['observedAtMs'], 1, (1 << 53) - 1):
+            raise OperationError('public-result-invalid')
+        if value['status'] == 'engagement-returned' and (value['observedAtMs'] is None or all(item is None for item in counts.values())):
             raise OperationError('public-result-invalid')
     if operation == 'search':
         candidates = value['candidates']
@@ -153,8 +164,8 @@ def _public(operation, parameters, value):
         raise OperationError('public-result-invalid')
     if operation == 'download_episode' and (value['serialNo'] is not None and (type(value['serialNo']) is not int or value['serialNo'] != parameters['episodeNo']) or value['hasPrivateMedia'] and (not value['isStraight'] or value['serialNo'] != parameters['episodeNo'] or value['episodeCount'] is None or value['serialNo'] > value['episodeCount'])):
         raise OperationError('public-result-invalid')
-    success = {'status': 'status-returned', 'search': 'search-returned', 'rankings': 'rankings-returned', 'detail': 'detail-returned', 'episodes': 'episodes-returned', 'download_first_episode': 'first-episode-address-returned', 'download_episode': 'episode-address-returned'}[operation]
-    if value['status'] == success and (not value['identityMatched'] or value['pluginVersion'] is None or value['hostLoginState'] is None or value['businessCalls'] != {'status': 0, 'search': 1, 'rankings': 1, 'detail': 1, 'episodes': 2, 'download_first_episode': 2, 'download_episode': 2}[operation] or value['timedOut']):
+    success = {'engagement': 'engagement-returned', 'status': 'status-returned', 'search': 'search-returned', 'rankings': 'rankings-returned', 'detail': 'detail-returned', 'episodes': 'episodes-returned', 'download_first_episode': 'first-episode-address-returned', 'download_episode': 'episode-address-returned'}[operation]
+    if value['status'] == success and (not value['identityMatched'] or value['pluginVersion'] is None or value['hostLoginState'] is None or value['businessCalls'] != {'engagement': 1, 'status': 0, 'search': 1, 'rankings': 1, 'detail': 1, 'episodes': 2, 'download_first_episode': 2, 'download_episode': 2}[operation] or value['timedOut']):
         raise OperationError('public-result-invalid')
     if operation == 'episodes' and value['status'] == success and value['requestedEndExclusive'] is None:
         raise OperationError('public-result-invalid')

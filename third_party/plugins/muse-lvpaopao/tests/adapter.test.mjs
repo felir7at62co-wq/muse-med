@@ -18,7 +18,7 @@ import { BridgeError } from '../src/port.ts'
 const defaults = { transport: 'ssh', localPython: '', localHelper: '', sshExecutable: 'ssh', sshHostAlias: 'lvpaopao-test', remotePython: 'C:\\test\\python.exe',
   remoteHelper: 'C:\\test\\run-persistent-host.py', helperSha256: 'a'.repeat(64), cwd: process.cwd(),
   connectTimeoutMs: 1000, requestTimeoutMs: 1000, cancelTimeoutMs: 100, shutdownTimeoutMs: 100,
-  maxFrameBytes: 16384, maxPending: 8, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
+  maxFrameBytes: 16384, maxPending: 8, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50, maxSeriesEpisodes: 400,
   downloadEnabled: false, outputDir: '', scpExecutable: 'scp', copyTimeoutMs: 180000, copyPollIntervalMs: 100,
   maxMediaBytes: 209715200, downloadRequestTimeoutMs: 600000 }
 

@@ -24,6 +24,7 @@ model_result = await call_operation(rpc, 'search', {'query': '老手'})
 | `status` | `{}` | 0 | `hasRequire`, `hasBizRequest`, `hasNativeWrapper` |
 | `search` | `{query}` | 1 | `resultCount`, `partial`, `candidates[{title,srcAppId,originDramaId}]` |
 | `detail` | `{srcAppId,dramaId}` | 1 | `srcAppId`, `dramaId`, `title`, `episodeCount`, `isFirstMediaFree`, `hasVideoInfo`, `hasPlayAuthorization` |
+| `engagement` | `{srcAppId,dramaId,episodeNo}` | 1 | Source identity, actual episode number, `observedAtMs`, nullable `counts{likes,comments,recommendations,shares}` |
 | `episodes` | `{srcAppId,dramaId,start,count}` | 2 | Detail fields, `requestedStart`, `requestedEndExclusive`, `episodeNumbers`, `partial` |
 | `download_first_episode` | `{srcAppId,dramaId}` | 2 | Detail fields, `serialNo`, `isStraight`, `hasPrivateMedia` |
 | `download_episode` | `{srcAppId,dramaId,episodeNo}` | 2 | Detail fields, actual `serialNo`, `isStraight`, `hasPrivateMedia` |
@@ -37,6 +38,8 @@ Public metadata includes operation/status, matched identity, app/plugin/login st
 Queries contain at most 80 Unicode code points. App IDs use `wx` plus sixteen lowercase hexadecimal characters. Drama IDs remain opaque 1–128-character strings, preserving leading zeros. Safe nonnegative numeric response IDs may be converted exactly; unsafe IDs are omitted and mark search results partial. Search returns at most fifty actual candidates.
 
 Episodes first reads current detail, then accepts one-based `start` and a count of 1–20. The provider receives an exclusive end: episodes 1–20 use `end_no=21`. Results contain only distinct actual returned episode numbers in numerical order. Missing, duplicate, malformed or out-of-range rows and clipping at the final episode set `partial`; missing numbers are never invented.
+
+`engagement` reads only `usergetdramameta` for the selected episode. It maps `like_sum`, `comment_sum`, `public_like_cur_media_amount` and `share_sum`; friend-only public-like counts, personal records and playback data are excluded. Only safe nonnegative integers are accepted, including zero; other values remain null. Series orchestration and aggregation belong to the tool consumer.
 
 Native business dispatch begins synchronously in the original evaluation stack. A call has a 15-second Promise deadline; a two-call operation has a 35-second RPC deadline. These deadlines cannot cancel a native call already sent to WeChat. Timeout, context loss or cancellation can leave completion unknown and never authorize automatic replay. Operations do not unlock episodes, launch advertisements or change user state.
 

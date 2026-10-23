@@ -107,7 +107,7 @@ def make_protocol(shared,operations,NativeRpc,call_operation):
                 if method=='hello':
                     if set(params)!={'expected_app_id','helper_sha256'} or params['expected_app_id']!=self.config['expectedAppId'] or params['helper_sha256']!=hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
                         self.error(identifier,'helper-identity-mismatch');return
-                    result={'protocol_version':1,'helper_sha256':params['helper_sha256'],'expected_app_id':self.config['expectedAppId'],'actions':['status','search','detail','episodes','download_first_episode','download_episode','download_status','rankings'],'ready':self.ready}
+                    result={'protocol_version':1,'helper_sha256':params['helper_sha256'],'expected_app_id':self.config['expectedAppId'],'actions':['status','search','detail','episodes','download_first_episode','download_episode','download_status','rankings','engagement'],'ready':self.ready}
                 elif method=='status' and not self.ready:
                     if params:self.error(identifier,'parameters-invalid');return
                     result={'status':'waiting_target','ready':False,'expectedAppId':self.config['expectedAppId']}
@@ -194,7 +194,7 @@ async def main():
     if cached is not None and (not isinstance(cached,dict) or set(cached)!={'srcAppId','dramaId'}
             or not isinstance(cached['srcAppId'],str) or re.fullmatch(r'wx[0-9a-f]{16}',cached['srcAppId']) is None
             or not isinstance(cached['dramaId'],str) or re.fullmatch(r'[A-Za-z0-9_-]{1,64}',cached['dramaId']) is None):raise RuntimeError('saved-media-config-invalid')
-    actions=['status','search','detail','episodes','rankings']+(['download_first_episode','download_episode'] if deployment.get('downloadEnabled',False) else [])
+    actions=['status','search','detail','episodes','rankings','engagement']+(['download_first_episode','download_episode'] if deployment.get('downloadEnabled',False) else [])
     shared=load_shared();protocol=make_protocol(shared,fixed_operations(actions),NativeRpc,call_operation)
     shared.IdentityProtocol=protocol
     cleanup_resources=shared.cleanup_resources

@@ -42,6 +42,18 @@ def parameters(operation):
 
 
 class Tests(unittest.TestCase):
+    def test_engagement_metadata_preserves_null_and_zero_and_rejects_extra_personal_data(self):
+        params = {**SELECTION, 'episodeNo': 2}
+        value = public('status')
+        for key in ('hasRequire', 'hasBizRequest', 'hasNativeWrapper'):
+            value.pop(key)
+        value.update(operation='engagement', status='engagement-returned', businessCalls=1, **params,
+                     observedAtMs=1792730976000, counts={'likes': 0, 'comments': None, 'recommendations': 34, 'shares': 4})
+        self.assertEqual(split_result('engagement', params, {'publicResult': value, 'privateResult': None})[0], value)
+        for patch in ({'episodeNo': True}, {'episodeNo': 3}, {'observedAtMs': None}, {'counts': {**value['counts'], 'username': 'private'}}, {'counts': {**value['counts'], 'likes': -1}}):
+            with self.assertRaises(OperationError):
+                split_result('engagement', params, {'publicResult': {**value, **patch}, 'privateResult': None})
+
     def test_ranking_pages_keep_identity_and_source_rank_positions(self):
         params = {'boardType': 6, 'pageIndex': 1, 'count': 2, 'coldStartTime': 1792530000}
         value = public('search')

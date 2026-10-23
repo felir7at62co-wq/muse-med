@@ -9,7 +9,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { registerLvpaopao } from '../src/index.ts'
 import { projectResult } from '../src/result.ts'
 
-const limits = { maxQueryChars: 80, maxResultItems: 50, maxEpisodeCount: 20 }
+const limits = { maxQueryChars: 80, maxResultItems: 50, maxEpisodeCount: 20, maxSeriesEpisodes: 400 }
 const params = { boardType: 6, pageIndex: 1, count: 2, coldStartTime: 1792530000 }
 const source = { title: '合成榜单剧', srcAppId: 'wx6522458df7ed3af2', originDramaId: '00123' }
 const script = await readFile(new URL('../native/passive-probe/next-stage/operations/fixed-operation.js', import.meta.url), 'utf8')

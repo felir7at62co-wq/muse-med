@@ -24,6 +24,7 @@ model_result = await call_operation(rpc, 'search', {'query': '老手'})
 | `status` | `{}` | 0 | `hasRequire`, `hasBizRequest`, `hasNativeWrapper` |
 | `search` | `{query}` | 1 | `resultCount`, `partial`, `candidates[{title,srcAppId,originDramaId}]` |
 | `detail` | `{srcAppId,dramaId}` | 1 | `srcAppId`, `dramaId`, `title`, `episodeCount`, `isFirstMediaFree`, `hasVideoInfo`, `hasPlayAuthorization` |
+| `engagement` | `{srcAppId,dramaId,episodeNo}` | 1 | 来源标识、实际集号、`observedAtMs`、可空的 `counts{likes,comments,recommendations,shares}` |
 | `episodes` | `{srcAppId,dramaId,start,count}` | 2 | 详情字段及 `requestedStart`, `requestedEndExclusive`, `episodeNumbers`, `partial` |
 | `download_first_episode` | `{srcAppId,dramaId}` | 2 | 详情字段及 `serialNo`, `isStraight`, `hasPrivateMedia` |
 | `download_episode` | `{srcAppId,dramaId,episodeNo}` | 2 | 详情字段及实际 `serialNo`, `isStraight`, `hasPrivateMedia` |
@@ -37,6 +38,8 @@ model_result = await call_operation(rpc, 'search', {'query': '老手'})
 搜索词最多 80 个 Unicode 码点。AppID 是 `wx` 加十六位小写十六进制字符。剧目 ID 保持为 1–128 字符的不透明字符串，保留前导零。响应中安全的非负数字 ID 可精确转为字符串；不安全 ID 会被略过并标记搜索结果不完整。搜索最多返回五十个实际候选。
 
 分集操作先读当前详情，再接受从 1 开始的 `start` 和 1–20 的数量。提供方使用右开结束值：1–20 集发送 `end_no=21`。结果仅包含实际返回、去重并排序的集号。缺项、重复、格式错误、超出范围或在最后一集截断均设置 `partial`，不会补造缺失集号。
+
+`engagement` 仅为指定集读取 `usergetdramameta`，映射 `like_sum`、`comment_sum`、`public_like_cur_media_amount` 和 `share_sum`；不包含仅好友的推荐计数、个人记录或播放数据。只接受安全的非负整数，包括零；其他值保持 null。整剧编排及累计由工具消费端负责。
 
 原生业务调用在原求值栈中同步发起。单次 Promise 时限为 15 秒，两次业务调用的 RPC 时限为 35 秒。这些时限不能取消已发送到微信的原生调用。超时、上下文丢失或取消后，完成情况可能未知，均不授权自动重放。操作不会解锁剧集、启动广告或修改用户状态。
 

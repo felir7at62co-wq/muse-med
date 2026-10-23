@@ -168,7 +168,7 @@ test('real ToolRuntime preserves only registered safe download errors across per
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
     const adapter = ctx.plugin({ name: 'lvpaopao-safe-download-error-test', inject: ['tools'], apply(child) {
-      registerLvpaopao(child, f.port, { ...config, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50 })
+      registerLvpaopao(child, f.port, { ...config, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50, maxSeriesEpisodes: 400 })
     } })
     await adapter.await()
     assert.ok(ctx.tools.get('lvpaopao'))

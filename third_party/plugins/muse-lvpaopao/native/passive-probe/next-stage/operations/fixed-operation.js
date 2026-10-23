@@ -2,7 +2,7 @@
   'use strict';
   const params = @@PARAMS@@;
   const targetAppId = 'wx404dde55fb12df78';
-  const operations = ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'rankings'];
+  const operations = ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'rankings', 'engagement'];
   const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const appId = value => typeof value === 'string' && /^wx[0-9a-f]{16}$/.test(value);
   const dramaId = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
@@ -37,14 +37,14 @@
   else if (operation === 'search') fields = ['operation', 'query'];
   else if (operation === 'rankings') fields = ['operation', 'boardType', 'pageIndex', 'count', 'coldStartTime'];
   else if (operation === 'episodes') fields = ['operation', 'srcAppId', 'dramaId', 'start', 'count'];
-  else if (operation === 'download_episode') fields = ['operation', 'srcAppId', 'dramaId', 'episodeNo'];
+  else if (operation === 'download_episode' || operation === 'engagement') fields = ['operation', 'srcAppId', 'dramaId', 'episodeNo'];
   else if (operation !== null) fields = ['operation', 'srcAppId', 'dramaId'];
   if (!fields || Object.keys(params).length !== fields.length || fields.some(key => !Object.prototype.hasOwnProperty.call(params, key))) return result;
   if (operation === 'search' && (typeof params.query !== 'string' || Array.from(params.query).length > 80 || params.query.trim().length === 0 || /[\u0000-\u001f\u007f]/.test(params.query))) return result;
-  if (['detail', 'episodes', 'download_first_episode', 'download_episode'].includes(operation) && (!appId(params.srcAppId) || !dramaId(params.dramaId))) return result;
+  if (['detail', 'episodes', 'download_first_episode', 'download_episode', 'engagement'].includes(operation) && (!appId(params.srcAppId) || !dramaId(params.dramaId))) return result;
   if (operation === 'episodes' && (!Number.isSafeInteger(params.start) || params.start < 1 || !Number.isSafeInteger(params.count) || params.count < 1 || params.count > 20 || !Number.isSafeInteger(params.start + params.count))) return result;
 
-  if (operation === 'download_episode' && (!Number.isSafeInteger(params.episodeNo) || params.episodeNo < 1)) return result;
+  if ((operation === 'download_episode' || operation === 'engagement') && (!Number.isSafeInteger(params.episodeNo) || params.episodeNo < 1)) return result;
   if (operation === 'rankings' && (!Number.isInteger(params.boardType) || params.boardType < 1 || params.boardType > 2147483647 || !Number.isInteger(params.pageIndex) || params.pageIndex < 0 || params.pageIndex > 10000 || !Number.isInteger(params.count) || params.count < 1 || params.count > 20 || !Number.isInteger(params.coldStartTime) || params.coldStartTime < 1 || params.coldStartTime > 2147483647)) return result;
 
   if (operation === 'status') Object.assign(out, {hasRequire: false, hasBizRequest: false, hasNativeWrapper: false});
@@ -53,6 +53,7 @@
   if (['detail', 'episodes', 'download_first_episode', 'download_episode'].includes(operation)) Object.assign(out, {srcAppId: params.srcAppId, dramaId: params.dramaId, title: null, episodeCount: null, isFirstMediaFree: false, hasVideoInfo: false, hasPlayAuthorization: false});
   if (operation === 'episodes') Object.assign(out, {requestedStart: params.start, requestedEndExclusive: null, episodeNumbers: [], partial: false});
   if (operation === 'download_first_episode' || operation === 'download_episode') Object.assign(out, {serialNo: null, isStraight: false, hasPrivateMedia: false});
+  if (operation === 'engagement') Object.assign(out, {srcAppId: params.srcAppId, dramaId: params.dramaId, episodeNo: params.episodeNo, observedAtMs: null, counts: {likes: null, comments: null, recommendations: null, shares: null}});
   out.status = 'identity-unavailable';
 
   try {
@@ -156,6 +157,16 @@
         ? {query_string: 'action=' + encodeURIComponent(action) + '&direct_result=true', post_data: JSON.stringify(data)}
         : {query_string: Object.keys(data).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key])).join('&'), post_data: '{}'};
       return bounded(() => native.default(reqData, 'webapi_wxadramaplayer'));
+    }
+    if (operation === 'engagement') {
+      const meta = await request('usergetdramameta', {...selection, media_no: params.episodeNo});
+      if (!businessOk(meta)) { out.status = 'business-error'; return result; }
+      phase = 'projection';
+      const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+      out.counts = {likes: count(meta.like_sum), comments: count(meta.comment_sum), recommendations: count(meta.public_like_cur_media_amount), shares: count(meta.share_sum)};
+      out.observedAtMs = Date.now();
+      out.status = Object.values(out.counts).some(value => value !== null) ? 'engagement-returned' : 'engagement-unavailable';
+      return result;
     }
     const detail = await request('getdramainfo', {...selection, platform: (device.platform === 'android' || device.platform === 'devtools') ? 'android' : device.platform, sdk_version: base.SDKVersion || '', media_no: operation === 'download_episode' ? params.episodeNo : 1, scene: typeof wx.getEnterOptionsSync === 'function' ? wx.getEnterOptionsSync().scene || 0 : 0, force_jump_flag: 0, mp_auto_ad: 0});
     if (!businessOk(detail)) { out.status = 'business-error'; return result; }

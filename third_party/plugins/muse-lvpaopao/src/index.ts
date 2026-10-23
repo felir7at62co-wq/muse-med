@@ -1,4 +1,5 @@
 /** Agent-scoped Lvpaopao catalog and resumable local series downloads. */
+import { readEngagement } from './engagement.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { join } from 'node:path'
@@ -17,10 +18,9 @@ import { resolveSeriesCatalog } from './catalog.ts'
 import { runSeries, readStoredSeriesStatus, type EpisodeRequest, type SeriesFailure, type SeriesOptions } from './series.ts'
 
 /** Agent-scoped metadata bounds; connection coordinates belong to the shared bridge. */
-export interface ToolLimits { readonly maxQueryChars: number; readonly maxEpisodeCount: number; readonly maxResultItems: number }
+export interface ToolLimits { readonly maxQueryChars: number; readonly maxEpisodeCount: number; readonly maxResultItems: number; readonly maxSeriesEpisodes: number }
 /** Configurable orchestration bounds, without host paths or credentials. */
 export interface PluginConfig extends ToolLimits {
-  readonly maxSeriesEpisodes: number
   readonly maxAttempts: number
   readonly retryDelayMs: number
   readonly seriesLockWaitMs: number
@@ -45,11 +45,16 @@ export const inject = ['tools', 'agents', 'subprocess', 'lvpaopaoBridge']
 function parameters(action: ToolAction, args: Parameters, limits: ToolLimits): Parameters {
   const allowed = action === 'status' ? [] : action === 'search' ? ['query']
     : action === 'rankings' ? ['boardType', 'pageIndex', 'count', 'coldStartTime']
+    : action === 'engagement' ? ['query', 'srcAppId', 'dramaId', 'episodeNo']
     : action === 'episodes' ? ['srcAppId', 'dramaId', 'start', 'count']
       : action === 'download_series' ? ['query', 'srcAppId', 'dramaId']
         : action === 'download_episode' || action === 'download_status' ? ['srcAppId', 'dramaId', 'episodeNo', 'idempotencyKey'] : ['srcAppId', 'dramaId']
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new BridgeError('invalid-arguments')
   if (action === 'status') return {}
+  if (action === 'engagement') {
+    if (args.episodeNo !== undefined && (!Number.isSafeInteger(args.episodeNo) || args.episodeNo < 1 || args.episodeNo > limits.maxSeriesEpisodes)) throw new BridgeError('invalid-arguments')
+    return args
+  }
   if (action === 'rankings') {
     const boardType = args.boardType ?? 6, pageIndex = args.pageIndex ?? 0, count = args.count ?? 20
     const coldStartTime = args.coldStartTime ?? Math.floor(Date.now() / 1000)
@@ -97,18 +102,18 @@ export function registerLvpaopao(ctx: Context, port: RequestPort, config: ToolLi
   ctx.effect(() => async () => { lifetime.abort(); await Promise.allSettled([...operations]); await port.dispose() })
   ctx.tools.register(defineTool({
     name: 'lvpaopao',
-    description: 'Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.',
+    description: 'Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.',
     parameters: {
-      action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings'] },
+      action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings', 'engagement'] },
       boardType: { type: 'integer', description: 'rankings: board type from returned boards; defaults to the app reputation board (6).' },
       pageIndex: { type: 'integer', description: 'rankings: zero-based page; defaults to 0.' },
       coldStartTime: { type: 'integer', description: 'rankings: reuse the returned timestamp with the same board and count for subsequent pages.' },
-      query: { type: 'string', description: 'search/download_series: title. download_series selects only one exact match; otherwise use returned candidates.' },
+      query: { type: 'string', description: 'search/download_series/engagement: title. download_series selects only one exact match; otherwise use returned candidates.' },
       srcAppId: { type: 'string', description: 'Source AppID returned by search; required with dramaId except title lookup.' },
       dramaId: { type: 'string', description: 'Source drama ID, kept as a string. series_status uses this identity to read saved progress.' },
       start: { type: 'integer', description: 'episodes: first positive requested number.' },
       count: { type: 'integer', description: 'episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking.' },
-      episodeNo: { type: 'integer', description: 'download_episode/download_status: actual episode number from the catalog.' },
+      episodeNo: { type: 'integer', description: 'engagement: omit for full-series totals or select one actual catalog episode. download_episode/download_status: actual catalog episode.' },
       idempotencyKey: { type: 'string', description: 'download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation.' },
       outputDir: { type: 'string', description: 'Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming.' },
     },
@@ -120,6 +125,11 @@ export function registerLvpaopao(ctx: Context, port: RequestPort, config: ToolLi
         const extended = action === 'download_episode' || action === 'download_status' || action === 'download_series' || action === 'series_status'
         if (outputDir !== undefined && action !== 'download_first_episode' && !extended) throw new BridgeError('invalid-arguments')
         const input = parameters(action, rest, config)
+        if (action === 'engagement') {
+          const work = readEngagement(port, input, config, active)
+          operations.add(work)
+          try { return await work } finally { operations.delete(work) }
+        }
         if (extended) {
           if (operation === undefined) throw new BridgeError('capability-not-ready')
           const work = operation(action, input, active, outputDir)

@@ -1,5 +1,5 @@
 /** Private helper vocabulary; never exposes native CDP or media URLs. */
-export const ACTIONS = ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'rankings'] as const
+export const ACTIONS = ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'rankings', 'engagement'] as const
 /** High-level operations accepted by the target-specific helper. */
 export type Action = typeof ACTIONS[number]
 /** Tool and helper parameters; method-specific requirements are checked by the executor. */
