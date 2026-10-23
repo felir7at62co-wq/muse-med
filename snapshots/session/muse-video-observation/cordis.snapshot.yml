@@ -21,6 +21,7 @@
                 defaultReasoningEffort: max
                 inputModalities: [text, image]
     - id: snapshot-video-media
+      # The media double includes decoder lookahead beyond the four-second episode.
       name: '../../../packages/perception/tool-video-inspect/tests/snapshot-media.ts'
     - id: tool-video-inspect
       name: '@deepseek-ai/dsh-tool-video-inspect'

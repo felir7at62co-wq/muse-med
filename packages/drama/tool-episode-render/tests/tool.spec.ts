@@ -267,6 +267,18 @@ describe('subtitle overlay application', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('allocates an independent subtitle candidate when no output path is supplied', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    const report = await run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+    expect(report.subtitle_overlay?.resolved_srt).toContain(join(prepared.project, 'editing/subtitle-overlays/ep02-'))
+    expect(report.subtitle_overlay?.retained_cue_indexes).toEqual([1])
+    expect(report.written).toHaveLength(2)
+    expect(channel.calls).toEqual([])
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+  })
+
   it('prepares byte-identical videos before resolving the optional plan while keeping the authored installed SRT', async () => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'media/p1-clean.mp4'))
@@ -372,6 +384,21 @@ describe('resolveSettings', () => {
 })
 
 describe('resolveCall', () => {
+  it('resolves optional audition inputs and defaults only its original audio', () => {
+    const project = resolve('audio-project')
+    const input = { method: 'audio_preview' as const, project, episode: 1,
+      timeline: 'timeline.json', mixProfile: 'mix.json', startSeconds: 0, durationSeconds: 1 }
+    expect(resolveCall(input)).toMatchObject({ method: 'audio_preview', audio: join(project, 'audio/01.wav') })
+    expect(resolveCall({ ...input, audio: 'original.wav', bgm: 'music.wav', bgmPlan: 'plan.json',
+      bgmGeneration: 'receipt.json', intendedUse: 'commercial' })).toMatchObject({
+      audio: join(project, 'original.wav'), bgm: join(project, 'music.wav'),
+      bgmPlan: join(project, 'plan.json'), bgmGeneration: join(project, 'receipt.json'), intendedUse: 'commercial',
+    })
+    expect(resolveCall({ method: 'render', project, episode: 1, timeline: 'timeline.json', subtitleSrt: 'a.srt',
+      lastShot: 1, mixProfile: 'mix.json' })).not.toHaveProperty('bgm')
+    expect(resolveCall({ method: 'subtitle_overlay', project, episode: 1, timeline: 'timeline.json',
+      subtitleSrt: 'a.srt', subtitlePlan: 'plan.json' })).not.toHaveProperty('outputSrt')
+  })
   it('uses the installed episode subtitle path when an aligned cue build omits an output', () => {
     const project = resolve('project')
     expect(resolveCall({ method: 'subtitles', project, episode: 2, shots: 'shots.json',

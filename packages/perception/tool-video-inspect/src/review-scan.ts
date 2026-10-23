@@ -78,17 +78,20 @@ export async function scanReviewFrames(ctx: Context, source: string, duration: n
   for (let start = 0; start < duration; start += config.reviewChunkSeconds) {
     signal.throwIfAborted()
     const end = Math.min(duration, start + config.reviewChunkSeconds)
+    const maxLocalTime = end - start + 0.001
     const common = [ffmpeg, '-nostdin', '-hide_banner', '-v', 'error', '-protocol_whitelist', 'file,pipe',
       '-ss', String(start), '-i', source, '-t', String(end - start), '-map', '0:v:0', '-an', '-sn', '-dn']
     const limits = { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }
+    // Output -t does not bound upstream filter metadata or thumbnail lookahead.
+    // Keep the boundary frame for cut continuity without admitting later frames.
     const cuts = await runMedia(ctx, [...common, '-vf',
-      "scale=320:-2,select='gte(scene,0)',metadata=print:file=-", '-f', 'null', '-'], policy, signal,
+      `scale=320:-2,select='gte(scene,0)*lt(t,${maxLocalTime})',metadata=print:file=-`, '-f', 'null', '-'], policy, signal,
     { ...limits, maxBytes: config.reviewMaxScanBytes })
     const scores = new TextDecoder('utf-8', { fatal: true }).decode(cuts.bytes)
     let seen = false
     for (const row of scores.matchAll(/frame:\s*(\d+)\s+pts:\s*\S+\s+pts_time:(\S+)[^\n]*\r?\n\s*lavfi\.scene_score=([\d.e+-]+)/g)) {
       const index = Number(row[1]), local = Number(row[2]), score = Number(row[3])
-      if (!Number.isSafeInteger(index) || !Number.isFinite(local) || !Number.isFinite(score) || local < 0 || local >= end - start + 0.001) throw Error('VIDEO_SCAN_INCOMPLETE: invalid decoded timecode')
+      if (!Number.isSafeInteger(index) || !Number.isFinite(local) || !Number.isFinite(score) || local < 0 || local >= maxLocalTime) throw Error('VIDEO_SCAN_INCOMPLETE: invalid decoded timecode')
       seen = true; closing = Math.max(closing, start + local)
       if (score > config.sceneThreshold) {
         add(start + local - config.scenePaddingSeconds, 'before_cut')
@@ -98,7 +101,7 @@ export async function scanReviewFrames(ctx: Context, source: string, duration: n
     }
     if (!seen) throw Error('VIDEO_SCAN_INCOMPLETE: no decoded frame metadata for scan interval')
     const thumbnails = await runMedia(ctx, [...common, '-vf',
-      `fps=${config.reviewAnalysisFps},scale=48:32,format=rgb24`, '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1'], policy, signal,
+      `fps=${config.reviewAnalysisFps},select='lt(t,${maxLocalTime})',scale=48:32,format=rgb24`, '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1'], policy, signal,
     { ...limits, maxBytes: Math.ceil(config.reviewChunkSeconds * config.reviewAnalysisFps + 2) * 48 * 32 * 3 })
     for (const time of appearanceCandidates(thumbnails.bytes, config, start, end)) add(time, 'appearance_or_continuity')
     progress(end, frames())

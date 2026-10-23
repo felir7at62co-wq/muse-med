@@ -387,7 +387,7 @@ export async function runDramaBgm(
   const base = {
     ...(loaded.selected.music_decision === undefined ? {} : {
       music_decision: loaded.selected.music_decision,
-      ...(loaded.selected.decision_reason === undefined ? {} : { decision_reason: loaded.selected.decision_reason }),
+      decision_reason: loaded.selected.decision_reason,
     }),
     ...(args.method === 'preview' ? {
       preview_notice: '此结果仅为计划与来源 JSON 检查，不是试听。实际混音试听请使用 drama_render.audio_preview。',
