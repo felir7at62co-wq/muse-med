@@ -11,7 +11,7 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import * as Jubian from '../../../jubian/tool-jubian/src/index.ts'
 import * as Assets from '../src/index.ts'
 import { character, scene, tree } from './matching-fixture.ts'
-import { mapping, reuseProject, card } from './reuse-fixture.ts'
+import { mapping, reuseProject, image } from './reuse-fixture.ts'
 import { handoffProvider } from './handoff-fixture.ts'
 
 it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] as const)(
@@ -67,13 +67,17 @@ it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] a
             arguments: args, signal: new AbortController().signal })
           expect(applied.isError, JSON.stringify(applied.content)).not.toBe(true)
           const board = mock.boards.get(shot.storyboard_id)
-          expect(board?.modelConfig).toEqual(card(shot.storyboard_id).modelConfig)
+          const expectedMaterials = [
+            image(11, 'lead', '陆沉舟（职场装）', 'https://example.invalid/lu.png', 1),
+            image(12, 'bg', '大厅', 'https://example.invalid/lobby.png', 2),
+            { materialKey: 'voice', materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav', sortOrder: 1 },
+          ]
+          expect(board?.modelConfig).toEqual({
+            prompt: '@[阿舟](lead)走进@[大厅](bg)，@[阿舟](lead)停下。@[声线](voice)',
+            platformName: 'fixture', resolution: '720p', materialList: expectedMaterials,
+          })
           expect(board?.privateProviderField).toEqual({ retained: true })
-          expect(board?.storyboardMaterialList).toEqual(expect.arrayContaining([
-            expect.objectContaining({ materialKey: 'lead', materialAssetId: 11, assetId: 'asset-11', sortOrder: 1 }),
-            expect.objectContaining({ materialKey: 'bg', materialAssetId: 12, sortOrder: 2 }),
-            expect.objectContaining({ materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav' }),
-          ]))
+          expect(board?.storyboardMaterialList).toEqual(expectedMaterials)
           const repeated = await tools.execute({ callId: ToolCallId('repeat-' + String(shot.storyboard_id)), name: 'jubian_storyboard',
             arguments: args, signal: new AbortController().signal })
           expect(repeated.isError).not.toBe(true)
