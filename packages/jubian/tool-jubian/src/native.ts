@@ -34,7 +34,8 @@ import {
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { acceptedWriteResponse, bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
+import { acceptedWriteResponse, bodyHash, estimatedCostReservation, need, requireKey, writeUnderLedger } from './write.ts'
+import type { CostEstimate } from './write.ts'
 import { atomicWriteJson } from './json-file.ts'
 import { assertSelectionReady, clearReselection } from './reselection.ts'
 export { atomicWriteJson } from './json-file.ts'
@@ -642,24 +643,6 @@ Record<string, unknown>[] {
     })
 }
 
-/** Agent-calculated reservation for one package, independent of the project spending limit. */
-interface VideoEstimate {
-  /** CNY amount calculated from current pricing and this package's content. */
-  estimated_cost_cny?: string | undefined
-  /** Rate, usage assumptions, or comparable completed task used for the estimate. */
-  estimate_basis?: string | undefined
-}
-
-/** Validate an optional model-supplied estimate before reserving money. */
-function estimatedVideoQuote(input: VideoEstimate): { amount: string; unit: string } | undefined {
-  if (input.estimated_cost_cny === undefined && input.estimate_basis === undefined) return undefined
-  const amount = centsOf(input.estimated_cost_cny)
-  if (amount === null || amount <= 0 || !input.estimate_basis?.trim()) {
-    throw new JubianError('INVALID_ARGUMENT', 'estimated_cost_cny requires a positive CNY amount and estimate_basis from current pricing or comparable actual cost')
-  }
-  return { amount: (amount / 100).toFixed(2), unit: 'CNY' }
-}
-
 /** A recorded images-then-audio serializer key prevents a normalized preview from charging again. */
 async function recordedGroupedKey(ledger: JubianLedger, preview: NativeVideoPreview):
 Promise<{ key: string; outcome: string } | null> {
@@ -684,7 +667,7 @@ Promise<{ key: string; outcome: string } | null> {
  * @param assertModel - Optional synchronous conversation choice check before reserving a new paid request.
  * @returns Submission or reconciliation evidence, including unresolved outcomes without automatic resubmission.
  */
-export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: VideoEstimate & {
+export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: CostEstimate & {
   preview_path?: string | undefined
   project_dir?: string | undefined
   storyboard_id?: number | undefined
@@ -804,7 +787,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         state.reconciliationFailed = true
       }
       return response
-    }, () => estimatedVideoQuote(args), { scriptId: preview.scriptId,
+    }, () => estimatedCostReservation(args), { scriptId: preview.scriptId,
       ...(assertModel ? { beforeReserve: () => { assertModel(object(JSON.parse(String(preview.payload.modelConfig)))) } } : {}) })
   const putSent = state.sent || result.replayed
   const putOutcome = result.outcome
@@ -836,7 +819,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
 }
 
 /** One independently keyed preview within an approved video batch. */
-export interface VideoBatchItem extends VideoEstimate { preview_path: string; idempotency_key: string }
+export interface VideoBatchItem extends CostEstimate { preview_path: string; idempotency_key: string }
 
 /** Deployment limits for one batch of storyboard-native submissions. */
 export interface VideoBatchOptions { concurrency: number; maxItems: number }
@@ -1006,7 +989,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
   }
   await ledger.beginManyChecked(keys, async () => {
     const decisions = await Promise.all(items.map(item => checkBudget({ ledger,
-      method: 'storyboard_native_submit', scriptId: item.preview.scriptId, quote: estimatedVideoQuote(item) })))
+      method: 'storyboard_native_submit', scriptId: item.preview.scriptId, quote: estimatedCostReservation(item) })))
     const budgets = decisions.map((budget) => {
       if (budget.status === 'refused' || budget.chargedAmount === undefined || budget.chargedUnit === undefined) {
         throw new JubianError('BUDGET_EXCEEDED', budget.reason)

@@ -12,7 +12,30 @@
  */
 import { createHash } from 'node:crypto'
 import type { JubianLedger, JubianLedgerBegin, JubianLedgerMethod } from '@deepseek-ai/dsh-jubian'
-import { JubianError, checkBudget } from '@deepseek-ai/dsh-jubian'
+import { JubianError, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
+
+/** Caller-calculated reservation, independent of the project spending limit. */
+export interface CostEstimate {
+  /** CNY amount calculated from current pricing and the request's content. */
+  estimated_cost_cny?: string | undefined
+  /** Rate, usage assumptions, or comparable completed task used for the estimate. */
+  estimate_basis?: string | undefined
+}
+
+/**
+ * Validate an optional caller-supplied estimate before reserving money.
+ * @param input - Declared CNY amount and the pricing or comparable-cost basis.
+ * @returns The positive reservation, or undefined when both fields were omitted.
+ * @throws {JubianError} `INVALID_ARGUMENT` for an incomplete or nonpositive estimate.
+ */
+export function estimatedCostReservation(input: CostEstimate): { amount: string; unit: string } | undefined {
+  if (input.estimated_cost_cny === undefined && input.estimate_basis === undefined) return undefined
+  const amount = centsOf(input.estimated_cost_cny)
+  if (amount === null || amount <= 0 || !input.estimate_basis?.trim()) {
+    throw new JubianError('INVALID_ARGUMENT', 'estimated_cost_cny requires a positive CNY amount and estimate_basis from current pricing or comparable actual cost')
+  }
+  return { amount: (amount / 100).toFixed(2), unit: 'CNY' }
+}
 
 /** What one ledger-guarded write produced. */
 export interface WriteOutcome {
