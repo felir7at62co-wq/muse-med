@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianLedger } from '../src/ledger.ts'
+import type { JubianLedgerBegin } from '../src/ledger.ts'
 
 let root: string
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'jubian-ledger-')) })
@@ -152,4 +153,220 @@ describe('JubianLedger', () => {
     expect((JSON.parse(lines[0]!) as { phase: string }).phase).toBe('begin')
     expect((JSON.parse(lines[1]!) as { phase: string }).phase).toBe('settle')
   })
+
+  it('rejects a forged not_sent settlement without changing the intent', async () => {
+    const ledger = new JubianLedger({ root })
+    await ledger.begin({ idempotencyKey: 'forged-not-sent', method: 'image_generate',
+      requestSha256: `sha256:${'f'.repeat(64)}` })
+    await expect(ledger.settle('forged-not-sent', {
+      httpStatus: null,
+      applicationCode: null,
+      responseSha256: null,
+      outcome: 'not_sent',
+    } as never)).rejects.toThrow('settlement outcome')
+    expect((await ledger.find('forged-not-sent'))?.outcome).toBeNull()
+  })
+
+  it('does not recover an open intent or an unknown request with response evidence', async () => {
+    const ledger = new JubianLedger({ root })
+    const open = await ledger.begin({ idempotencyKey: 'open', method: 'image_generate',
+      requestSha256: `sha256:${'1'.repeat(64)}` })
+    const responded = await ledger.begin({ idempotencyKey: 'responded', method: 'image_generate',
+      requestSha256: `sha256:${'2'.repeat(64)}` })
+    await ledger.settle('responded', { httpStatus: 503, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const otherMethod = await ledger.begin({ idempotencyKey: 'other-method', method: 'storyboard_generate',
+      requestSha256: `sha256:${'3'.repeat(64)}` })
+    await ledger.settle('other-method', { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    for (const [record, key] of [[open.record, 'open'], [responded.record, 'responded'],
+      [otherMethod.record, 'other-method']] as const) {
+      await expect(ledger.preDispatchAbort({ recordId: record.record_id, idempotencyKey: key,
+        method: record.method, requestSha256: record.request_sha256, actor: 'desktop-host',
+        guardEvidenceSha256: `sha256:${'a'.repeat(64)}`,
+        reconciliationEvidenceSha256: `sha256:${'b'.repeat(64)}` }))
+        .rejects.toThrow('only an unknown image request with no response evidence')
+    }
+    const unknown = await ledger.begin({ idempotencyKey: 'unknown', method: 'image_generate',
+      requestSha256: `sha256:${'4'.repeat(64)}` })
+    await ledger.settle('unknown', { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    await expect(ledger.resumeChecked('unknown', { recordId: unknown.record.record_id, actor: 'desktop-host',
+      guardEvidenceSha256: `sha256:${'a'.repeat(64)}`,
+      reconciliationEvidenceSha256: `sha256:${'b'.repeat(64)}` }, async () => ({
+      idempotencyKey: 'unknown', method: 'image_generate', requestSha256: unknown.record.request_sha256,
+    }))).rejects.toThrow('no trusted pre-dispatch abort')
+    expect((await ledger.find('open'))?.outcome).toBeNull()
+    expect((await ledger.find('responded'))?.outcome).toBe('unknown')
+    expect((await ledger.find('unknown'))?.outcome).toBe('unknown')
+  })
+
+  it('reopens one trusted pre-dispatch abort under the same key exactly once', async () => {
+    const ledger = new JubianLedger({ root })
+    const input = { idempotencyKey: 'recoverable', method: 'image_generate' as const,
+      requestSha256: `sha256:${'3'.repeat(64)}`, scriptId: 2708, quotedAmount: '1.20', quoteUnit: 'CNY',
+      quoteStandardId: 42, quoteObservedAt: '2026-10-20T00:00:00.000Z' }
+    const began = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const abort = { recordId: began.record.record_id, idempotencyKey: input.idempotencyKey,
+      method: input.method, requestSha256: input.requestSha256, actor: 'desktop-host',
+      guardEvidenceSha256: `sha256:${'c'.repeat(64)}`,
+      reconciliationEvidenceSha256: `sha256:${'d'.repeat(64)}` }
+    expect(await ledger.preDispatchAbort(abort)).toMatchObject({ outcome: 'not_sent',
+      idempotency_key: input.idempotencyKey })
+    expect(await ledger.preDispatchAbort(abort)).toMatchObject({ outcome: 'not_sent',
+      idempotency_key: input.idempotencyKey })
+    expect(await ledger.unresolved()).toEqual([])
+
+    const evidence = { recordId: abort.recordId, actor: abort.actor,
+      guardEvidenceSha256: abort.guardEvidenceSha256,
+      reconciliationEvidenceSha256: abort.reconciliationEvidenceSha256 }
+    const prepare = vi.fn(async () => ({ ...input, quoteObservedAt: '2026-10-20T01:00:00.000Z' }))
+    expect(await ledger.resumeChecked(input.idempotencyKey, evidence, prepare)).toMatchObject({
+      record_id: began.record.record_id, idempotency_key: input.idempotencyKey, outcome: null,
+      quote_observed_at: '2026-10-20T01:00:00.000Z',
+    })
+    await expect(ledger.resumeChecked(input.idempotencyKey, evidence, prepare))
+      .rejects.toThrow('already resumed')
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    await expect(ledger.preDispatchAbort(abort)).rejects.toThrow('already resumed')
+    await expect(ledger.resumeChecked(input.idempotencyKey, evidence, prepare))
+      .rejects.toThrow('already resumed')
+    expect(prepare).toHaveBeenCalledTimes(1)
+
+    const lines = (await readFile((await ledger.files())[0]!, 'utf8')).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.map(line => line.phase)).toEqual(['begin', 'settle', 'pre_dispatch_abort', 'resume', 'settle'])
+    expect(lines[2]).toMatchObject({ record_id: began.record.record_id,
+      idempotency_key: input.idempotencyKey, method: input.method, request_sha256: input.requestSha256,
+      actor: abort.actor, guard_evidence_sha256: abort.guardEvidenceSha256,
+      reconciliation_evidence_sha256: abort.reconciliationEvidenceSha256 })
+  })
+
+  it('rejects mismatched recovery evidence and prepared intent identity without appending', async () => {
+    const ledger = new JubianLedger({ root })
+    const input: JubianLedgerBegin = { idempotencyKey: 'bound', method: 'image_generate',
+      requestSha256: `sha256:${'4'.repeat(64)}`, scriptId: 2708, quotedAmount: '2.00', quoteUnit: 'CNY',
+      quoteStandardId: 7, quoteObservedAt: '2026-10-20T00:00:00.000Z' }
+    const began = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const abort = { recordId: began.record.record_id, idempotencyKey: input.idempotencyKey,
+      method: input.method, requestSha256: input.requestSha256, actor: 'desktop-host',
+      guardEvidenceSha256: `sha256:${'e'.repeat(64)}`,
+      reconciliationEvidenceSha256: `sha256:${'f'.repeat(64)}` }
+    await expect(ledger.preDispatchAbort({ ...abort, recordId: 'another-record' }))
+      .rejects.toThrow('identity differs')
+    await ledger.preDispatchAbort(abort)
+
+    const evidence = { recordId: abort.recordId, actor: abort.actor,
+      guardEvidenceSha256: abort.guardEvidenceSha256,
+      reconciliationEvidenceSha256: abort.reconciliationEvidenceSha256 }
+    const prepare = vi.fn(async () => input)
+    for (const changed of [
+      { recordId: 'another-record' },
+      { actor: 'another-host' },
+      { guardEvidenceSha256: `sha256:${'0'.repeat(64)}` },
+      { reconciliationEvidenceSha256: `sha256:${'9'.repeat(64)}` },
+    ]) {
+      await expect(ledger.resumeChecked(input.idempotencyKey, { ...evidence, ...changed }, prepare))
+        .rejects.toThrow('evidence differs')
+    }
+    expect(prepare).not.toHaveBeenCalled()
+
+    const mismatches: JubianLedgerBegin[] = [
+      { ...input, idempotencyKey: 'another-key' },
+      { ...input, method: 'storyboard_save' },
+      { ...input, requestSha256: `sha256:${'5'.repeat(64)}` },
+      { ...input, scriptId: 2709 },
+      { ...input, quotedAmount: '2.01' },
+      { ...input, quoteUnit: 'USD' },
+      { ...input, quoteStandardId: 8 },
+    ]
+    for (const prepared of mismatches) {
+      await expect(ledger.resumeChecked(input.idempotencyKey, evidence, async () => prepared))
+        .rejects.toThrow('identity differs')
+    }
+    expect((await ledger.find(input.idempotencyKey))?.outcome).toBe('not_sent')
+    const lines = (await readFile((await ledger.files())[0]!, 'utf8')).trim().split('\n')
+    expect(lines).toHaveLength(3)
+  })
+
+  it('refuses incomplete recovery proof, missing intents and changed abort identities without appending', async () => {
+    const ledger = new JubianLedger({ root })
+    const input: JubianLedgerBegin = { idempotencyKey: 'proof', method: 'image_generate', requestSha256: 'sha256:body' }
+    const started = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const proof = { recordId: started.record.record_id, idempotencyKey: input.idempotencyKey,
+      method: input.method, requestSha256: input.requestSha256, actor: 'host',
+      guardEvidenceSha256: 'a'.repeat(64), reconciliationEvidenceSha256: 'b'.repeat(64) }
+    for (const patch of [{ recordId: ' ' }, { actor: ' ' }, { guardEvidenceSha256: '' },
+      { reconciliationEvidenceSha256: '' }]) {
+      await expect(ledger.preDispatchAbort({ ...proof, ...patch })).rejects.toThrow('must be nonempty')
+    }
+    for (const patch of [{ guardEvidenceSha256: 'not-a-digest' }, { reconciliationEvidenceSha256: 'NOT-SHA256' }]) {
+      await expect(ledger.preDispatchAbort({ ...proof, ...patch })).rejects.toThrow('must be SHA-256')
+    }
+    for (const patch of [{ idempotencyKey: '' }, { requestSha256: ' ' }]) {
+      await expect(ledger.preDispatchAbort({ ...proof, ...patch })).rejects.toThrow('key and request hash')
+    }
+    await expect(ledger.preDispatchAbort({ ...proof, idempotencyKey: 'absent' })).rejects.toThrow('no matching intent')
+    await expect(ledger.resumeChecked('absent', proof, async () => input)).rejects.toThrow('no matching intent')
+    for (const patch of [{ recordId: 'another-record' }, { method: 'storyboard_save' as const }, { requestSha256: 'another-body' }]) {
+      await expect(ledger.preDispatchAbort({ ...proof, ...patch })).rejects.toThrow('identity differs')
+    }
+    expect((await readFile((await ledger.files())[0]!, 'utf8')).trim().split('\n')).toHaveLength(2)
+    await ledger.preDispatchAbort(proof)
+    await expect(ledger.preDispatchAbort({ ...proof, actor: 'another-host' })).rejects.toThrow('already recorded with different evidence')
+    expect((await ledger.find(input.idempotencyKey))?.outcome).toBe('not_sent')
+  })
+
+  it('ignores malformed durable abort evidence and reads legacy resume metadata without a new quote timestamp', async () => {
+    const ledger = new JubianLedger({ root })
+    const input: JubianLedgerBegin = { idempotencyKey: 'legacy-recovery', method: 'image_generate',
+      requestSha256: 'sha256:body', quoteObservedAt: '2026-10-20T00:00:00.000Z' }
+    const started = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const file = (await ledger.files())[0]!
+    const abort = { phase: 'pre_dispatch_abort', record_id: started.record.record_id,
+      idempotency_key: input.idempotencyKey, method: input.method, request_sha256: input.requestSha256,
+      actor: 'host', guard_evidence_sha256: 'a'.repeat(64), reconciliation_evidence_sha256: 'b'.repeat(64) }
+    await appendFile(file, JSON.stringify({ ...abort, actor: null }) + '\n')
+    expect((await ledger.find(input.idempotencyKey))?.outcome).toBe('unknown')
+    await appendFile(file, JSON.stringify(abort) + '\n')
+    expect((await ledger.find(input.idempotencyKey))?.outcome).toBe('not_sent')
+    await appendFile(file, JSON.stringify({ ...abort, phase: 'resume', script_id: null,
+      quoted_amount: null, quote_unit: null, quote_standard_id: null }) + '\n')
+    expect(await ledger.find(input.idempotencyKey)).toMatchObject({ outcome: null,
+      quote_observed_at: input.quoteObservedAt })
+  })
+
+  it('resumes an unquoted intent without changing its identity and filters unresolved project records', async () => {
+    const ledger = new JubianLedger({ root })
+    const input: JubianLedgerBegin = { idempotencyKey: 'unquoted', method: 'image_generate', requestSha256: 'sha256:body' }
+    const started = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const proof = { recordId: started.record.record_id, idempotencyKey: input.idempotencyKey,
+      method: input.method, requestSha256: input.requestSha256, actor: 'host',
+      guardEvidenceSha256: 'a'.repeat(64), reconciliationEvidenceSha256: 'b'.repeat(64) }
+    const aborted = await ledger.preDispatchAbort(proof)
+    expect(await ledger.find(input.idempotencyKey)).toEqual(aborted)
+    expect(await ledger.resumeChecked(input.idempotencyKey, proof, async () => input)).toEqual(started.record)
+    expect(await ledger.find(input.idempotencyKey)).toEqual(started.record)
+    await ledger.begin({ ...input, idempotencyKey: 'project-open', scriptId: 7 })
+    await ledger.begin({ ...input, idempotencyKey: 'project-accepted', scriptId: 7 })
+    await ledger.settle('project-accepted', { httpStatus: 200, applicationCode: 200,
+      responseSha256: 'sha256:receipt', outcome: 'accepted' })
+    await ledger.begin({ ...input, idempotencyKey: 'other-project', scriptId: 8 })
+    await ledger.settle('other-project', { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    expect((await ledger.unresolved(7)).map(record => record.idempotency_key)).toEqual(['project-open'])
+    expect((await ledger.unresolved()).map(record => record.idempotency_key)).toEqual(['unquoted', 'project-open', 'other-project'])
+  })
+
 })

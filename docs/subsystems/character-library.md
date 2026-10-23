@@ -4,6 +4,8 @@ English | [中文](character-library.zh.md)
 
 The Host-owned [character library](../../packages/drama/character-library/README.md) reads historical character references through an object-store service. The [TOS provider](../../packages/drama/character-library-tos/README.md) supplies bounded reads from fixed prefixes using Host credential references. [Model tools](../../packages/drama/tool-character-reference/README.md) search candidates and attach verified images to the Session; they do not approve, upload, bind or generate assets.
 
+For an image personally commissioned/generated and uploaded by the signed-in user, the separate Jubian tool can ask that user to attest to its source and rights for one project-private reference generation. The Host rechecks project, role, Catalog identity and SHA before issuing a one-shot private grant, uploading exact bytes and allowing a budgeted generation. This is not public-library approval: `pending_review` remains unchanged, and the image or derivative cannot be automatically cast, formally bound, published or reused by another user or project. An unknown paid result remains blocked until reconciled under the original idempotency key.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -108,4 +110,25 @@ abstract get(key: string, maxBytes: number, signal?: AbortSignal): Promise<Chara
 ```
 
 Source: [`packages/drama/character-library/src/store.ts`](../../packages/drama/character-library/src/store.ts)
+
+<a id="ctxcharacterreferenceauthority--characterreferenceauthority"></a>
+
+### `ctx.characterReferenceAuthority` — `CharacterReferenceAuthority`
+
+Host-only current-project and image identity reader; use authorization is separate.
+
+```ts cordis-catalog
+/**
+ * Re-read the current project and candidate bytes, rejecting any changed identity.
+ * @param session - Current Agent Session whose Host-owned project binding is authoritative.
+ * @param request - Expected project, character, Catalog, and image identities.
+ * @param signal - Optional execution cancellation.
+ * @returns Verified project identity, role, image status, content type, digest, and bytes.
+ */
+read( session: Session, request: CharacterReferenceAuthorityRequest, signal?: AbortSignal, ): Promise<AuthoritativeCharacterReference>
+```
+
+Types: [Session](session.md)
+
+Source: [`packages/drama/tool-character-reference/src/authority.ts`](../../packages/drama/tool-character-reference/src/authority.ts)
 <!-- END GENERATED cordis-surface -->

@@ -353,15 +353,25 @@ it('rejects missing mapping files without inventing empty plans', async () => {
   expect(await readFile(join(root, 'assets_manifest.json'), 'utf8')).toBe(before)
 })
 
-it('recognizes an already bound card without permitting repeat execution', async () => {
+it.each(['missing', 'conflicting', 'matching'] as const)('recognizes an already bound card only when both reference sources match: %s', async (configState) => {
   const root = await project(), original = card()
   const materials = original.storyboardMaterialList
   if (!Array.isArray(materials)) throw new Error('Missing fixture materials')
   materials[0] = { materialKey: 'lead', materialAssetId: 11, assetId: 'asset-11', fileName: '陆沉舟（职场装）',
     materialType: 'image', materialUrl: 'https://example.invalid/lu.png', sortOrder: 1 }
+  if (configState !== 'missing') {
+    const config = original.modelConfig
+    if (config === null || typeof config !== 'object' || Array.isArray(config)) throw new Error('Missing fixture model config')
+    original.modelConfig = { ...config, materialList: materials.map((row: Record<string, unknown>) => {
+      if (configState === 'conflicting' && row.materialKey === 'lead') return { ...row, materialAssetId: 99 }
+      return { ...row }
+    }) }
+  }
+  const before = JSON.stringify(original)
   const mock = reuseProvider({ cards: [original] })
   const result = await reusePreview(mock.client, root, 'requirements.json', 'reuse.json', limits)
-  expect(result.shots[0]?.status).toBe('already_bound')
+  expect(result.shots[0]?.status).toBe(configState === 'matching' ? 'already_bound' : 'awaiting_confirmation')
+  expect(JSON.stringify(original)).toBe(before)
   expect(result.shots[0]?.apply_allowed).toBe(false)
   expect(mock.calls.every(call => call.method === 'GET')).toBe(true)
 })

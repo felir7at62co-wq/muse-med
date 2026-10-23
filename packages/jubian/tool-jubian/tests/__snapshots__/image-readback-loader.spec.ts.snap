@@ -41,6 +41,13 @@ exports[`records an active candidate without confirming its casting or charging 
     "settledCents": 0,
     "reservedCents": 0
   },
+  "identity_reference": {
+    "status": "missing",
+    "asset_id": null,
+    "material_id": null,
+    "url": null,
+    "reason": "新父资产没有可自动识别的同角色图；本次无身份参考，不保证面孔连续。"
+  },
   "parent_asset_id": 163126,
   "image_style": "anime",
   "resolution": "1K",

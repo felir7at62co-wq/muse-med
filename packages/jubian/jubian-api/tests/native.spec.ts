@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildNativeVideoPreview, childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates,
+  assertImageReferenceConsistency, buildNativeVideoPreview, childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates,
   isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
   normalizedPrompt, readBackIdentity, resolveVideoModel, validateVideoDuration, stableJson, stableSha256,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
@@ -49,6 +49,95 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedIdentity: subjectIdentitySignature(MATERIALS),
   expectedModel: nativeModelSignature(JSON.stringify(MODEL_CONFIG)),
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
+
+describe('saved image reference consistency', () => {
+  it.each([undefined, null, {}, { materialList: undefined }, { materialList: null }, { materialList: [] },
+    { materialList: [{ materialType: 'audio', materialKey: 'voice' }] }])
+  ('does not invent an image baseline from missing historical config %j', (config) => {
+    expect(() => { assertImageReferenceConsistency({ ...STORYBOARD, modelConfig: config }) }).not.toThrow()
+  })
+
+  it.each([{}, 'not-json', [null]])('refuses an unreadable nonempty config reference list %j', (materialList) => {
+    expect(() => { assertImageReferenceConsistency({ ...STORYBOARD, modelConfig: { materialList } }) }).toThrow()
+  })
+
+  it.each([null, '', 'lead'])('refuses missing or duplicate saved image keys %j', (materialKey) => {
+    expect(() => {
+      assertImageReferenceConsistency({ ...STORYBOARD, modelConfig: { materialList: [
+        MATERIALS[0], { ...MATERIALS[1], materialKey },
+      ] } })
+    }).toThrow('materialKey')
+  })
+
+  it('accepts legacy numeric-parent omissions without skipping trusted identity or URL comparisons', () => {
+    for (const source of ['model', 'storyboard']) {
+      const legacy = MATERIALS.map(({ materialAssetId: _parent, materialUrl, ...material }) => ({ ...material, imageUrl: materialUrl }))
+      expect(() => {
+        assertImageReferenceConsistency({ ...STORYBOARD,
+          storyboardMaterialList: source === 'storyboard' ? legacy : MATERIALS,
+          modelConfig: { materialList: JSON.stringify(source === 'model' ? legacy : MATERIALS) } })
+      }).not.toThrow()
+    }
+  })
+
+  it('hashes unusual keys and subject IDs, and reports missing identity values without raw URLs', () => {
+    const materialKey = 'https://media.example/key?token=do-not-echo'
+    try {
+      assertImageReferenceConsistency({ ...STORYBOARD, storyboardMaterialList: [{ ...MATERIALS[0], materialKey }],
+        modelConfig: { materialList: [{ ...MATERIALS[0], materialKey, assetId: null, materialUrl: null },
+          { ...MATERIALS[1], assetId: 'https://media.example/id?token=do-not-echo' }] } })
+      expect.fail('a conflicting reference must be refused')
+    } catch (error) {
+      expect(String(error)).toContain('sha256:')
+      expect(String(error)).toContain('"assetId":null')
+      expect(String(error)).toContain('"materialUrlSha256":null')
+      expect(String(error)).not.toContain('https://')
+      expect(String(error)).not.toContain('do-not-echo')
+    }
+  })
+
+  it.each(['assetId', 'materialAssetId', 'materialUrl', 'materialKey'])
+  ('refuses conflicting %s across the two nonempty saved reference sources', (field) => {
+    const baseline = structuredClone(MATERIALS) as Record<string, unknown>[]
+    baseline[0]![field] = field === 'materialAssetId' ? 99999
+      : field === 'materialUrl' ? 'https://media.example/other.jpg?token=do-not-echo' : 'different'
+    expect(() => buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: baseline }) },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' }))
+      .toThrow(/IMAGE_REFERENCE_CONFLICT.*modelConfig\.materialList.*storyboardMaterialList/)
+  })
+
+  it('does not expose signed URL queries in the conflict diagnostic', () => {
+    try {
+      buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+        modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: [
+          { ...MATERIALS[0], materialUrl: 'https://media.example/other.jpg?token=do-not-echo' }, MATERIALS[1],
+        ] }) }, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+      expect.fail('a conflicting reference must be refused')
+    } catch (error) {
+      const detail: unknown = expect.stringContaining('IMAGE_REFERENCE_CONFLICT')
+      expect(error).toMatchObject({ code: 'CONTRACT_CHANGED', detail })
+      expect(String(error)).not.toContain('do-not-echo')
+      expect(String(error)).not.toContain('https://')
+    }
+  })
+
+  it('accepts a reordered baseline with equivalent numeric wire identities', () => {
+    const materialList = [...MATERIALS].reverse().map(material => ({ ...material,
+      materialAssetId: String(material.materialAssetId), sortOrder: String(material.sortOrder) }))
+    expect(buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList }) },
+    assets: ASSETS, models: CATALOGUE, createdAt: 'now' }).status).toBe('prepared')
+  })
+
+  it('refuses a conflicting frozen config even when its fingerprint was recomputed', () => {
+    const payload = structuredClone(PREVIEW.payload)
+    payload.modelConfig = JSON.stringify({ ...JSON.parse(String(payload.modelConfig)),
+      materialList: [{ ...MATERIALS[0], assetId: 'different' }, MATERIALS[1]] })
+    expect(() => validateNativeVideoPreview({ ...PREVIEW, payload,
+      idempotencyKey: stableSha256(submissionSemantics(payload)) })).toThrow('IMAGE_REFERENCE_CONFLICT')
+  })
+})
 
 it.each([undefined, null])('prepares an explicit empty backup list when the saved field is %s', (backups) => {
   const config = { ...MODEL_CONFIG, backupModelList: backups }

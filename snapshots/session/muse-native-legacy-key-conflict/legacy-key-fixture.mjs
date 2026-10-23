@@ -29,6 +29,7 @@ const storyboard = { id: 916953, scriptId: 2708, isGenerate: 1, storyboardName: 
     { materialType: 'audio', materialKey: 'voice', fileName: 'lead voice', materialUrl: origin + 'voice.wav',
       sortOrder: 1, audioDuration: 2 },
   ] }
+storyboard.modelConfig = JSON.stringify({ ...JSON.parse(storyboard.modelConfig), materialList: storyboard.storyboardMaterialList })
 export const inputs = { storyboard, assets, models, createdAt: '2026-09-29T11:40:41.000Z' }
 
 export function apply(ctx) {

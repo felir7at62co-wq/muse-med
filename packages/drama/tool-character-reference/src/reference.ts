@@ -34,7 +34,7 @@ export interface CharacterRoleAuthority {
     projectDirectory: string,
     characterId: string,
     signal?: AbortSignal,
-  ): Promise<{ readonly characterId: string; readonly roleClass: CharacterRoleClass }>
+  ): Promise<{ readonly characterId: string; readonly roleClass: CharacterRoleClass | null }>
 }
 
 interface CharacterReferenceCandidate {
@@ -195,15 +195,18 @@ export async function matchCharacterReferences(
   const directory = safeText(projectDirectory, 4096, 'current project workspace')
   signal?.throwIfAborted()
   const authoritative = await authority.read(directory, validated.characterId, signal)
-  if (authoritative.characterId !== validated.characterId || authoritative.roleClass !== validated.claimedRole) {
+  if (authoritative.characterId !== validated.characterId
+    || (authoritative.roleClass !== null && authoritative.roleClass !== validated.claimedRole)) {
     throw new Error('drama_character_references role_class conflicts with the current project bible.')
   }
   signal?.throwIfAborted()
-  const result = await library.matchCandidates(serviceRequest(validated, authoritative.roleClass), signal)
+  const result = await library.matchCandidates(serviceRequest(validated,
+    authoritative.roleClass ?? validated.claimedRole), signal)
   const base = {
     character_id: validated.characterId,
     reason: result.reason,
-    uncertainty: [...result.uncertainties],
+    uncertainty: [...result.uncertainties, ...(authoritative.roleClass === null
+      ? ['当前项目尚未登记 role_class；本次仅按 Agent 声明做只读检索，不构成素材使用授权。'] : [])],
     ...SAFETY,
   }
   if (result.status === 'no_match') return { ...base, status: 'no_match', candidates: [] }

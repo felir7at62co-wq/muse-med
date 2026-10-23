@@ -625,6 +625,32 @@ describe('a project reconcile before creating a paid asset', () => {
     expect(generate({ reader, projectRoot: explicit })).toEqual({ kind: 'allow' })
   })
 
+  it('binds a script id when the session workspace is itself the project root', () => {
+    const reader = fakeReader({
+      [join(WORKSPACE, 'project_config.json')]: PROJECT_CONFIG_TEXT,
+      [join(WORKSPACE, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()),
+    })
+    expect(generate({ reader })).toEqual({ kind: 'allow' })
+  })
+
+  it('does not use root evidence when the workspace project id differs', () => {
+    const reader = fakeReader({
+      [join(WORKSPACE, 'project_config.json')]: JSON.stringify({ jubian_script_id: SCRIPT_ID + 1 }),
+      [join(WORKSPACE, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()),
+    })
+    expect(reason(generate({ reader }))).toContain('门禁无法核对它引用的资产')
+  })
+
+  it('refuses an ambiguous script id declared by both the workspace root and a child project', () => {
+    const reader = fakeReader({
+      [join(WORKSPACE, 'project_config.json')]: PROJECT_CONFIG_TEXT,
+      [join(WORKSPACE, '_probe', 'asset-reconcile.json')]: JSON.stringify(report()),
+      [PROJECT_CONFIG]: PROJECT_CONFIG_TEXT,
+      [RECONCILE]: JSON.stringify(report()),
+    }, { [WORKSHOP]: ['demo-drama'] })
+    expect(reason(generate({ reader }))).toContain('门禁无法核对它引用的资产')
+  })
+
   it("does not accept a sibling project's evidence", () => {
     // The evidence is per project: a sibling's fresh reconcile says nothing about
     // what this project's remote side already contains, so it cannot authorize

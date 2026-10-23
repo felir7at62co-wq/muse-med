@@ -437,13 +437,66 @@ describe('read-only character library', () => {
     await expect(repeated.library.browse({ collection: 'urban' })).resolves.toMatchObject({ scanned: 1 })
 
     const duplicate = setup()
-    const left = v2('same', jpeg)
-    const right = v2('other-key', jpeg)
+    const left = v2('same', jpeg, { collection: 'ancient' })
+    const right = v2('same', jpeg, { collection: 'urban' })
     seed(duplicate.store, left)
-    duplicate.store.seedJson(right.metadataKey, { ...right.metadata, id: 'same' })
-    await expect(duplicate.library.browse({ collection: 'urban' })).rejects.toMatchObject({
+    seed(duplicate.store, right)
+    await expect(duplicate.library.browse({ collection: 'all' })).rejects.toMatchObject({
       code: 'CATALOG_REJECTED',
     })
+  })
+
+  it('rejects metadata stored outside its canonical asset directory', async () => {
+    const { store, library } = setup()
+    const fixture = v2('canonical-id', jpeg)
+    store.seedJson(`${URBAN_PREFIX}different-directory/metadata.json`, fixture.metadata)
+    await expect(library.browse({ collection: 'urban' })).rejects.toMatchObject({
+      code: 'CATALOG_REJECTED', stage: 'browse',
+    })
+    await expectLibraryError(library.detail({
+      catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:canonical-id`,
+    }), 'ASSET_NOT_FOUND', 'detail')
+  })
+
+  it('rejects malformed exact metadata heads, read failures, and conflicting identities', async () => {
+    const fixture = v2('exact-invalid', jpeg)
+    const validHead = {
+      key: fixture.metadataKey,
+      bytes: 1,
+      etag: null,
+      contentType: 'application/json',
+    }
+    const malformedHeads: unknown[] = [
+      1,
+      { ...validHead, key: `${URBAN_PREFIX}wrong/metadata.json` },
+      { ...validHead, bytes: '1' },
+      { ...validHead, bytes: 1.5 },
+      { ...validHead, bytes: -1 },
+      { ...validHead, bytes: 256 * 1024 + 1 },
+      { ...validHead, etag: 1 },
+      { ...validHead, contentType: 1 },
+    ]
+    for (const malformed of malformedHeads) {
+      const { store, library } = setup()
+      store.head = async key => key === fixture.metadataKey
+        ? malformed as CharacterLibraryObjectHead
+        : null
+      await expectLibraryError(library.detail({
+        catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:exact-invalid`,
+      }), 'CATALOG_REJECTED', 'detail')
+    }
+
+    const failed = setup()
+    failed.store.head = async () => { throw new Error('synthetic head failure') }
+    await expectLibraryError(failed.library.detail({
+      catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:exact-invalid`,
+    }), 'LIST_FAILED', 'detail')
+
+    const conflicting = setup()
+    conflicting.store.seedJson(fixture.metadataKey, { ...fixture.metadata, id: 'different-id' })
+    await expectLibraryError(conflicting.library.detail({
+      catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:exact-invalid`,
+    }), 'CATALOG_REJECTED', 'detail')
   })
 
   it('loads detail and rejects invalid or missing catalog identities', async () => {
@@ -454,6 +507,12 @@ describe('read-only character library', () => {
       catalogAssetId: 'character:' + CHARACTER_LIBRARY_SOURCE_ID + ':detail',
     })
     expect(entry.metadataKey).toBe(fixture.metadataKey)
+    expect(store.listCalls).toBe(0)
+    expect(store.calls).toEqual([
+      `head:${ANCIENT_PREFIX}detail/metadata.json`,
+      `head:${URBAN_PREFIX}detail/metadata.json`,
+      `get:${fixture.metadataKey}`,
+    ])
     await expectLibraryError(library.detail({ catalogAssetId: 'other:detail' }), 'INVALID_REQUEST', 'detail')
     await expectLibraryError(library.detail({
       catalogAssetId: 'character:' + CHARACTER_LIBRARY_SOURCE_ID + ':missing',
@@ -474,6 +533,14 @@ describe('read-only character library', () => {
       metadataStatus: 'pending_review',
       safety: { applyAllowed: false },
     })
+    expect(store.listCalls).toBe(0)
+    expect(store.calls).toEqual([
+      `head:${ANCIENT_PREFIX}preview/metadata.json`,
+      `head:${URBAN_PREFIX}preview/metadata.json`,
+      `get:${fixture.metadataKey}`,
+      `get:${fixture.metadataKey}`,
+      `get:${fixture.imageKey}`,
+    ])
     result.data[0] = 0
     expect(store.objects.get(fixture.imageKey)?.data[0]).toBe(0xff)
     await expectLibraryError(library.preview({
@@ -525,7 +592,7 @@ describe('read-only character library', () => {
     })).rejects.toMatchObject({ code: 'PREVIEW_UNAVAILABLE', stage: 'preview' })
   })
 
-  it('rejects metadata identity, key and original-image changes between listing and preview', async () => {
+  it('rejects metadata identity, key and original-image changes between exact lookup and preview', async () => {
     for (const change of ['id', 'image_key', 'metadata_claim'] as const) {
       const { store, library } = setup()
       const fixture = v2('stable', jpeg)
@@ -546,6 +613,16 @@ describe('read-only character library', () => {
         catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:stable`,
       }), 'IMAGE_MISMATCH', 'preview')
     }
+  })
+
+  it('rejects the same exact Catalog identity in both reviewed collections without scanning', async () => {
+    const { store, library } = setup()
+    seed(store, v2('duplicate-exact', jpeg, { collection: 'ancient' }))
+    seed(store, v2('duplicate-exact', jpeg, { collection: 'urban' }))
+    await expectLibraryError(library.detail({
+      catalogAssetId: `character:${CHARACTER_LIBRARY_SOURCE_ID}:duplicate-exact`,
+    }), 'CATALOG_REJECTED', 'detail')
+    expect(store.listCalls).toBe(0)
   })
 
   it('rejects an invalid expected digest and a changed verified original image', async () => {
@@ -597,7 +674,7 @@ describe('recommendation policy', () => {
       'IMAGE_INVALID', 'preview')
   })
 
-  it('ranks stronger metadata matches first and retains a bounded supporting-role exception', async () => {
+  it('ranks stronger metadata matches first and records bounded story context', async () => {
     const { store, library } = setup()
     seed(store, v2('weak', jpeg, { tags: ['温柔'] }))
     seed(store, v2('strong', jpeg, { tags: ['温柔', '英勇'] }))
@@ -609,8 +686,48 @@ describe('recommendation policy', () => {
     if (result.status !== 'candidates') throw new Error('unexpected result')
     expect(result.candidates.map(candidate => String(candidate.entry.catalogAssetId).split(':').at(-1)))
       .toEqual(['strong', 'weak'])
-    expect(result.uncertainties).toContain('supporting_role_exception')
+    expect(result.uncertainties).not.toContain('supporting_role_exception')
     expect(result.reason).toContain('关键角色需要保持镜头连续性。')
+  })
+
+  it('ranks a realistic portrait ahead of illustrated matches for a Chinese live-action request', async () => {
+    const { store, library } = setup()
+    const seedFlat = (id: string, style: string, appearance: readonly string[]): void => {
+      const prefix = URBAN_PREFIX + id + '/'
+      store.seedJson(prefix + 'metadata.json', {
+        asset_id: id, file_name: 'portrait.jpg', category: 'character', era: 'modern',
+        style, gender: 'male', appearance, source: 'owner supplied', status: 'pending_review',
+      })
+      store.seed(prefix + 'portrait.jpg', jpeg, 'image/jpeg')
+    }
+    for (const id of ['anime-a', 'anime-b', 'anime-c']) {
+      seedFlat(id, 'anime_illustration', ['黑色短发'])
+    }
+    seedFlat('realistic', 'realistic', ['西装领带'])
+    const result = await library.matchCandidates({ roleClass: 'important_support', collection: 'urban',
+      requiredEra: '现代', gender: 'male', styleTerms: ['真人写实'], traitTerms: ['短发'] })
+    expect(result.status).toBe('candidates')
+    if (result.status !== 'candidates') throw new Error('unexpected result')
+    expect(String(result.candidates[0]?.entry.catalogAssetId)).toContain(':realistic')
+    expect(result.candidates[0]?.matched).toContain('art_style:realistic')
+    expect(result.candidates[0]?.entry.metadataStatus).toBe('pending_review')
+    expect(result.candidates[0]?.entry.safety.canBind).toBe(false)
+  })
+
+  it('does not classify an unfamiliar portrait style as live action or illustration', async () => {
+    const { store, library } = setup()
+    const prefix = URBAN_PREFIX + 'pencil/'
+    store.seedJson(prefix + 'metadata.json', {
+      asset_id: 'pencil', file_name: 'portrait.jpg', category: 'character', era: 'modern',
+      style: 'pencil', gender: 'male', appearance: ['短发'], source: 'owner supplied', status: 'pending_review',
+    })
+    store.seed(prefix + 'portrait.jpg', jpeg, 'image/jpeg')
+    const result = await library.matchCandidates({ roleClass: 'support', collection: 'urban',
+      gender: 'male', styleTerms: ['真人写实'] })
+    expect(result.status).toBe('candidates')
+    if (result.status !== 'candidates') throw new Error('unexpected result')
+    expect(result.candidates[0]?.entry.artStyle).toBe('pencil')
+    expect(result.candidates[0]?.matched).toEqual(['gender'])
   })
 
   it('returns no candidates for an empty match without reading image objects', async () => {
@@ -703,22 +820,19 @@ describe('recommendation policy', () => {
     expect(result.reason).toContain('did not break the tie')
   })
 
-  it('skips non-leads by default and permits a bounded story-specific exception', async () => {
+  it('lets the Agent search non-leads without a reason and records optional story context', async () => {
     const { store, library } = setup()
     seed(store, v2('support', jpeg, { tags: ['医生'] }))
-    const skipped = await library.recommend({ roleClass: 'support', roleTerms: ['医生'] })
-    expect(skipped).toMatchObject({
-      status: 'no_match',
-      uncertainties: ['supporting_role_default_skip'],
-    })
-    expect(store.listCalls).toBe(0)
+    const searched = await library.recommend({ roleClass: 'support', roleTerms: ['医生'] })
+    expect(searched.status).toBe('recommended')
+    expect(store.listCalls).toBeGreaterThan(0)
     const allowed = await library.recommend({
       roleClass: 'support',
       supportingUseReason: '本集关键医生需要保持跨镜头一致。',
       roleTerms: ['医生'],
     })
     expect(allowed.status).toBe('recommended')
-    expect(allowed.reason).toContain('本集关键医生')
+    expect(allowed.reason).toContain('Story context: 本集关键医生')
     await expectLibraryError(library.recommend({
       roleClass: 'extra',
       supportingUseReason: 'x'.repeat(301),
@@ -756,7 +870,7 @@ describe('recommendation policy', () => {
     expect(noEraText.candidate.matched).not.toContain('query:missing')
   })
 
-  it('reports a supporting-role exception and unconfirmed era when no candidate wins', async () => {
+  it('reports story context and unconfirmed era when no candidate wins', async () => {
     const { store, library } = setup()
     const fixture = v2('no-era', jpeg, { tags: ['护士'] })
     delete (fixture.metadata as { era?: readonly string[] }).era
@@ -771,7 +885,7 @@ describe('recommendation policy', () => {
       roleClass: 'support', supportingUseReason: '本集必须保持配角连续性。', roleTerms: ['不存在'],
     })
     expect(none).toMatchObject({
-      status: 'no_match', uncertainties: ['supporting_role_exception'], applyAllowed: false,
+      status: 'no_match', uncertainties: [], applyAllowed: false,
     })
     expect(none.reason).toContain('本集必须保持配角连续性')
   })

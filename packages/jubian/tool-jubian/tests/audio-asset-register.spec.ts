@@ -69,6 +69,19 @@ it('rejects an empty voice name and a claimed key belonging to another request',
   expect(f.requests).toEqual([])
 })
 
+it('does not reuse an image-only not-sent recovery state for audio registration', async () => {
+  const f = await fixture()
+  const { record } = await f.ledger.begin({ idempotencyKey: args.idempotency_key, method: 'asset_register',
+    scriptId: args.script_id, requestSha256: bodyHash(body) })
+  const find = vi.spyOn(f.ledger, 'find').mockResolvedValue({ ...record, outcome: 'not_sent' })
+  try {
+    await expect(registerAudioAsset(f.client, f.ledger, args, limits))
+      .rejects.toThrow('cannot use an image-generation pre-dispatch recovery state')
+    expect(f.requests).toEqual([])
+    expect(await f.ledger.records()).toEqual([record])
+  } finally { find.mockRestore() }
+})
+
 it.each([
   { total: 3, repeated: false }, { total: 2, repeated: true },
 ])('refuses changed totals or repeated identities across pages %j', async ({ total, repeated }) => {

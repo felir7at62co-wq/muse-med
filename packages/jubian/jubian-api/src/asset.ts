@@ -27,7 +27,7 @@ export interface ImageGeneration {
   status: 'pending' | 'succeeded' | 'failed' | 'unknown'
   task_id: number | null
   result_id: number | null
-  error_code: 'reference_limit' | 'content_refused' | 'provider_failure' | null
+  error_code: 'reference_limit' | 'content_refused' | 'insufficient_credits' | 'provider_failure' | null
   max_reference_images: number | null
 }
 
@@ -51,7 +51,9 @@ export function readImageGeneration(data: unknown): ImageGeneration | null {
     return { status, task_id: row.taskId === undefined || row.taskId === null ? null : id(row.taskId),
       result_id: row.resultId === undefined || row.resultId === null ? null : id(row.resultId),
       error_code: status === 'failed' ? maxReferenceImages !== null ? 'reference_limit'
-        : /request was rejected by the safety system/i.test(message) ? 'content_refused' : 'provider_failure' : null,
+        : /request was rejected by the safety system/i.test(message) ? 'content_refused'
+          : /用户额度不足|余额不足|insufficient (?:credits|balance|quota)/iu.test(message)
+            ? 'insufficient_credits' : 'provider_failure' : null,
       max_reference_images: maxReferenceImages }
   })
 }

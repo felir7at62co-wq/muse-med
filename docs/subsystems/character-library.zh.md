@@ -4,6 +4,8 @@
 
 Host 管理的[人物库](../../packages/drama/character-library/README.zh.md)通过对象存储服务读取历史人物参考。[TOS 提供方](../../packages/drama/character-library-tos/README.zh.md)使用 Host 凭据引用，从固定前缀执行有界读取。[模型工具](../../packages/drama/tool-character-reference/README.zh.md)检索候选并将校验后的图片加入会话；它们不审批、上传、绑定或生成资产。
 
+对于已登录用户本人委托生成并上传的图片，独立的剧变工具可直接询问该用户来源及本项目参考生图权利。Host 在签发一次项目私有授权、托管上传精确字节并允许预算内生图前，重读项目、角色、Catalog 身份与 SHA。这不是公共库审核：`pending_review` 不变，原图与衍生图不能自动确认出演、正式绑定、发布或供其他用户、项目复用。付费结果未知时仍只能用原幂等键对账。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -108,4 +110,25 @@ abstract get(key: string, maxBytes: number, signal?: AbortSignal): Promise<Chara
 ```
 
 Source: [`packages/drama/character-library/src/store.ts`](../../packages/drama/character-library/src/store.ts)
+
+<a id="ctxcharacterreferenceauthority--characterreferenceauthority"></a>
+
+### `ctx.characterReferenceAuthority` — `CharacterReferenceAuthority`
+
+Host-only current-project and image identity reader; use authorization is separate.
+
+```ts cordis-catalog
+/**
+ * Re-read the current project and candidate bytes, rejecting any changed identity.
+ * @param session - Current Agent Session whose Host-owned project binding is authoritative.
+ * @param request - Expected project, character, Catalog, and image identities.
+ * @param signal - Optional execution cancellation.
+ * @returns Verified project identity, role, image status, content type, digest, and bytes.
+ */
+read( session: Session, request: CharacterReferenceAuthorityRequest, signal?: AbortSignal, ): Promise<AuthoritativeCharacterReference>
+```
+
+Types: [Session](session.zh.md)
+
+Source: [`packages/drama/tool-character-reference/src/authority.ts`](../../packages/drama/tool-character-reference/src/authority.ts)
 <!-- END GENERATED cordis-surface -->

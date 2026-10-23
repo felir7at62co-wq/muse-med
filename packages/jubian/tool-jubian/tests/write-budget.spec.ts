@@ -1,12 +1,38 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { afterEach, expect, it, vi } from 'vitest'
 import { acceptedWriteResponse, bodyHash, requireArguments, writeUnderLedger } from '../src/write.ts'
 
 const temporary: string[] = []
 afterEach(async () => { await Promise.all(temporary.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+
+it.each(['already-aborted', 'aborted-during-preparation'] as const)
+('refuses an image recovery without Host evidence when %s', async (scenario) => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-recovery-race-'))
+  temporary.push(root)
+  const ledger = new JubianLedger({ root, defaultLimitCents: () => 1000 })
+  const payload = { name: 'same' }, key = 'recovery-race'
+  const abort = async () => {
+    const { record } = await ledger.begin({ idempotencyKey: key, method: 'image_generate', scriptId: 2708,
+      requestSha256: bodyHash(payload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+    await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
+    await ledger.preDispatchAbort({ recordId: record.record_id, idempotencyKey: key, method: 'image_generate',
+      requestSha256: bodyHash(payload), actor: 'fixture-owner', guardEvidenceSha256: 'a'.repeat(64),
+      reconciliationEvidenceSha256: 'b'.repeat(64) })
+  }
+  if (scenario === 'already-aborted') await abort()
+  const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 200 },
+    response_sha256: null, data: null }))
+  await expect(writeUnderLedger(ledger, key, 'image_generate', async () => {
+    if (scenario === 'aborted-during-preparation') await abort()
+    return payload
+  }, send, () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' })))
+    .rejects.toThrow(scenario === 'already-aborted' ? 'matching Host recovery evidence' : 'Recovery state changed')
+  expect(send).not.toHaveBeenCalled()
+  expect(await ledger.find(key)).toMatchObject({ outcome: 'not_sent' })
+})
 
 it('requires one storyboard-create body while accepting inline or file-backed requests', () => {
   expect(() => { requireArguments('jubian_storyboard', { method: 'create' }) }).toThrow('body or body_path')
@@ -76,6 +102,45 @@ it('does not record or send a paid write when this user has no project grant', a
     .rejects.toThrow('authorization.json')
   expect(send).not.toHaveBeenCalled()
   expect(await ledger.records()).toEqual([])
+})
+
+it('keeps provider rejection response evidence while leaving its paid outcome unknown', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-rejected-response-'))
+  temporary.push(root)
+  const ledger = new JubianLedger({ root, defaultLimitCents: () => 1000 })
+  const digest = `sha256:${'a'.repeat(64)}`
+  const send = vi.fn(async (): Promise<never> => {
+    throw new JubianError('CONTRACT_CHANGED', 'provider rejected the request', {
+      httpStatus: 200, applicationCode: 500, responseSha256: digest,
+    })
+  })
+  await expect(writeUnderLedger(ledger, 'rejected-image', 'image_generate', () => ({ assetName: 'candidate' }),
+    send, () => ({ scriptId: 2708, amount: '0.12', unit: 'CNY' }))).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(send).toHaveBeenCalledOnce()
+  expect(await ledger.find('rejected-image')).toMatchObject({
+    outcome: 'unknown', http_status: 200, application_code: 500, response_sha256: digest,
+  })
+})
+
+it('awaits an external authorization check before reserving or sending a paid write', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-external-authorization-'))
+  temporary.push(root)
+  const ledgerRoot = join(root, 'ledger')
+  await mkdir(ledgerRoot)
+  await writeFile(join(ledgerRoot, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+    '2708': { limit: '1.00', unit: 'CNY' },
+  } }))
+  const ledger = new JubianLedger({ root: ledgerRoot })
+  let authorized = false
+  const send = vi.fn(async () => {
+    expect(authorized).toBe(true)
+    return { transport: { http_status: 200, application_code: 0 }, response_sha256: null, data: {} }
+  })
+  await writeUnderLedger(ledger, 'authorized-image', 'image_generate', () => ({ name: 'ready' }), send,
+    () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' }), {
+      beforeReserve: async () => { await Promise.resolve(); authorized = true },
+    })
+  expect(send).toHaveBeenCalledOnce()
 })
 
 it('allows only one of two overlapping paid keys at the remaining limit', async () => {

@@ -52,14 +52,14 @@
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | 所有付费写入（image_generate、image_generate_batch、generate、submit_video、submit_video_batch、erase_subtitle、upscale）都要求调用方提供 idempotency_key（每个批量项独立），在请求发出前将意图记录到账本；image_generate_batch 在任何请求前校验全部本地项，再按配置的有界并发执行各自预算内的生图写入；submit_video_batch 核对全部预览并预约整批预算后，并行提交分镜；去字幕与转高清受理后即返回，后续读取 subtasks。启用 sessionVideoSelection 时提供 jubian_video_model，记录配置的初始规格或用户明确选择的视频设置，不修改项目默认值。jubian_claim 只检查或认领用户明确授权的一个剧本池 ID；jubian_snatch 通过后台任务观察明确授权且范围有界的剧本池。 |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_character_reference_authorize`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`、`drama_project` | `ctx.tools`、`ctx.settings`、已存在的绝对项目目录 | `tool/call`、`tool/result`、`project_config.json` 与 `project-bible.md`、剪映草稿根目录的 Settings 值 | - | drama_project 维护权威 JSON、受版本检查保护的修订、视频包身份与已完成任务历史。生成尺寸与交付尺寸分别记录；初始预算是 Settings 快照，实际计费请求执行当前 Settings 与账号账本授权。drama_draft_dir 读取，或验证并保存已配置的剪映草稿根目录。 |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json`、`muse_production：本地方案和回执；apply 只免费原生写卡并回读，绝不提交付费生成` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。 |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
 | `@deepseek-ai/dsh-tool-bgm-compose` | `drama_bgm` | `ctx.tools`、`ctx.subprocess`、`PATH` 上（或配置的）ffmpeg 与 ffprobe、单集时间线与明确 BGM 计划 | `tool/call`、`tool/result`、`compose` 时写项目内的 48 kHz 双声道 PCM WAV 及相邻生成报告 | - | `preview` 校验剧情完整覆盖并回报源哈希、偏移、实测平均音量与增益，不发布产物；`compose` 交叉淡化选定曲目，暂存 WAV 通过 ffprobe 后才发布；`verify` 测量已有 WAV，不重写它。工具不选曲，也不调用 `bgm_match`；剧情解读与最终选曲归 Agent。 |
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。`prepare` 构建渲染输入并保存项目画布和视觉类型快照，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。3D 漫不新增片尾或水印；仿真人保留 AI 标记及真实尾帧定格的两秒片尾。旧项目缺类型时告警并保留带标识交付；目标码率 24M、上限 30M、下限 4.6 Mbps。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
-| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_view`、`drama_character_references` | `ctx.tools`、`ctx.settings`、`ctx.characterLibrary（Host 管理的只读人物素材库）`、`ctx.attachments` 与 `ctx.llm`（看图时） | `tool/call`、`tool/result`；看图时保存图像附件 | - | `drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 和原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当当前模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。两个工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。 |
+| `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_project`、`drama_character_reference_view`、`drama_character_references` | `ctx.tools`、`ctx.settings`、`ctx.characterLibrary（Host 管理的只读人物素材库）`、多项目选择时的当前人类消息、`ctx.attachments` 与 `ctx.llm`（看图时） | `tool/call`、`tool/result`；看图时保存图像附件 | - | `drama_character_reference_project` 列出 Host 校验的项目与角色；唯一有效项目可直接采用，多项目须由当前人类消息明确指名。`drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 和原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当当前模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。这些工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。 |
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 
@@ -4005,7 +4005,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
 
 ### `jubian_asset`
 
-剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交；未知或等待中只续读原任务。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务。register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交，insufficient_credits 时请用户处理剧变生图通道额度；未知或等待中只续读原任务。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_character_reference 是受控人物库上传**：普通 Muse 用户先调用 jubian_character_reference_authorize，在界面确认本人上传与本项目生图权利；Host 再重读当前项目角色与 Catalog 原图，核对一次性授权和 SHA 后上传；它不接受 Agent 路径、TOS key 或 URL，返回的 managed_reference_id 只可用于同一授权的一次 image_generate；pending_review 图及其衍生结果不得自动 confirm_casting、正式绑定、发布或跨项目复用。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务。register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -4013,7 +4013,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
   "properties": {
     "method": {
       "type": "string",
-      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别登记已有图片或音频（有副作用、不生成）；remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。",
+      "description": "get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别登记已有图片或音频（有副作用、不生成）；remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_character_reference=按 Host 授权上传精确人物库原图，不回传 URL；upload_audio=上传短 PCM WAV 声音参考（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。",
       "enum": [
         "get",
         "list",
@@ -4023,6 +4023,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
         "register",
         "remove",
         "upload_reference",
+        "upload_character_reference",
         "upload_audio",
         "create_folder",
         "move",
@@ -4060,6 +4061,39 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
     "image_path": {
       "type": "string",
       "description": "upload_reference 必填：本地参考图路径（jpg/jpeg/png/webp）。"
+    },
+    "character_reference": {
+      "type": "object",
+      "description": "仅用于 Host 托管的人物库参考图：提供授权、项目角色、Catalog 与 SHA 身份；不接受路径、TOS key 或 URL。上传成功后，image_generate 还须带回 managed_reference_id。",
+      "additionalProperties": false,
+      "properties": {
+        "authorization_id": {
+          "type": "string"
+        },
+        "authorization_version": {
+          "type": "integer"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "catalog_asset_id": {
+          "type": "string"
+        },
+        "image_sha256": {
+          "type": "string"
+        },
+        "managed_reference_id": {
+          "type": "string",
+          "description": "upload_character_reference 返回的 Host 私有上传关联；image_generate 必填。"
+        }
+      },
+      "required": [
+        "authorization_id",
+        "authorization_version",
+        "character_id",
+        "catalog_asset_id",
+        "image_sha256"
+      ]
     },
     "audio_path": {
       "type": "string",
@@ -4103,7 +4137,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
     },
     "asset_name": {
       "type": "string",
-      "description": "image_generate 必填、rename 必填：资产名。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
+      "description": "普通 image_generate 与 rename 必填：资产名；Host 托管人物库参考生图可省略，以已核验角色名为准。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
     },
     "episode": {
       "type": "string",
@@ -4167,7 +4201,7 @@ web_search and web_fetch keep provider selection behind ctx.web so model-visible
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_budget`
 
@@ -4208,7 +4242,7 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_catalog`
 
@@ -4257,6 +4291,42 @@ Read a project total budget, spent/reserved amounts and exact revision; save a n
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_character_reference_authorize`
+
+仅当你本人委托生成并亲自上传一张 pending_review 人物图时使用。Host 重读当前项目、角色和图片 SHA，直接向当前 Muse 用户询问来源及一次项目内参考生图权利；Agent 的回答或提示词不构成授权。批准后返回一次性授权 ID；不批准发布、正式绑定、他人或跨项目复用。随后用 jubian_asset.upload_character_reference 托管上传，生图仍受项目预算与幂等账本限制。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "script_id": {
+      "type": "integer",
+      "description": "当前 Host 项目的剧变 ID。"
+    },
+    "character_id": {
+      "type": "string",
+      "description": "当前项目登记的精确角色 ID。"
+    },
+    "catalog_asset_id": {
+      "type": "string",
+      "description": "已检索并看图的精确 Catalog ID。"
+    },
+    "image_sha256": {
+      "type": "string",
+      "description": "看图工具返回的完整原图 SHA-256。"
+    }
+  },
+  "required": [
+    "script_id",
+    "character_id",
+    "catalog_asset_id",
+    "image_sha256"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 ### `jubian_claim`
 
 剧变剧本池单本操作：inspect 只读；claim 会真实认领，必须有用户对该 ID 的明确授权与当前账号 canClaim=1。按 viewRole 选择认领端点；写前记账。未知结果只读对账，不换 key 重投。
@@ -4293,7 +4363,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_find`
 
@@ -4342,7 +4412,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_media`
 
@@ -4385,7 +4455,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_model`
 
@@ -4486,7 +4556,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_organize`
 
@@ -4520,7 +4590,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_snatch`
 
@@ -4572,7 +4642,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_storyboard`
 
@@ -4937,11 +5007,11 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_video`
 
-剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
+剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。
 
 ```json
 {
@@ -4979,7 +5049,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     },
     "asset_name": {
       "type": "string",
-      "description": "image_generate 必填、rename 必填：资产名。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
+      "description": "普通 image_generate 与 rename 必填：资产名；Host 托管人物库参考生图可省略，以已核验角色名为准。给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；不给 episode 时原样发送。rename 发送的就是最终的完整名称。"
     },
     "asset_type": {
       "type": "number",
@@ -5061,7 +5131,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           },
           "references": {
             "type": "array",
-            "description": "本项有序参考图 HTTPS URL。",
+            "description": "本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。",
             "items": {
               "type": "string"
             }
@@ -5112,14 +5182,47 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     },
     "references": {
       "type": "array",
-      "description": "image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。",
+      "description": "image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。",
       "items": {
         "type": "string"
       }
     },
+    "character_reference": {
+      "type": "object",
+      "description": "仅用于 Host 托管的人物库参考图：提供授权、项目角色、Catalog 与 SHA 身份；不接受路径、TOS key 或 URL。上传成功后，image_generate 还须带回 managed_reference_id。",
+      "additionalProperties": false,
+      "properties": {
+        "authorization_id": {
+          "type": "string"
+        },
+        "authorization_version": {
+          "type": "integer"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "catalog_asset_id": {
+          "type": "string"
+        },
+        "image_sha256": {
+          "type": "string"
+        },
+        "managed_reference_id": {
+          "type": "string",
+          "description": "upload_character_reference 返回的 Host 私有上传关联；image_generate 必填。"
+        }
+      },
+      "required": [
+        "authorization_id",
+        "authorization_version",
+        "character_id",
+        "catalog_asset_id",
+        "image_sha256"
+      ]
+    },
     "parent_asset_id": {
       "type": "number",
-      "description": "image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。"
+      "description": "image_generate 可选：仅在用户明确要求替换现有资产时提供，此时重生成（PUT）；不给则新建候选资产（POST）。旧资产的 Active 材质不能证明本次生成成功。"
     },
     "episode": {
       "type": "string",
@@ -5198,7 +5301,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
 ### `jubian_watch`
 
@@ -5229,9 +5332,9 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 }
 ```
 
-来源： [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
-所有付费写入（image_generate、image_generate_batch、generate、submit_video、submit_video_batch、erase_subtitle、upscale）都要求调用方提供 idempotency_key（每个批量项独立），在请求发出前将意图记录到账本；image_generate_batch 在任何请求前校验全部本地项，再按配置的有界并发执行各自预算内的生图写入；submit_video_batch 核对全部预览并预约整批预算后，并行提交分镜；去字幕与转高清受理后即返回，后续读取 subtasks。启用 sessionVideoSelection 时提供 jubian_video_model，记录配置的初始规格或用户明确选择的视频设置，不修改项目默认值。jubian_claim 只检查或认领用户明确授权的一个剧本池 ID；jubian_snatch 通过后台任务观察明确授权且范围有界的剧本池。
+Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
 
 <a id="deepseek-aidsh-drama-settings"></a>
 
@@ -6291,6 +6394,34 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
 
 ## `@deepseek-ai/dsh-tool-character-reference`
 
+### `drama_character_reference_project`
+
+列出当前 Session 工作区内经 Host 校验的剧变项目；唯一有效项目可由 Agent 直接选定并读取角色清单。工作区有多个项目时先列出并询问用户，不得自行猜测；只传剧变项目 ID，不接受本机路径。选定结果给出经圣经校验的角色 ID、名称、类型和已有项目主绑定资产 ID；资产 ID 不代表公共库使用许可。人物检索仍会重读圣经和角色身份。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "select"
+      ]
+    },
+    "script_id": {
+      "type": "integer",
+      "description": "仅在 select 时填写 Host 列出的唯一项目 ID，或用户明确指名的多个项目之一。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
+
 ### `drama_character_reference_view`
 
 实际查看先前检索到的一张人物候选图片。传入候选的 catalog_asset_id 和 image_sha256；Host 重新读取并核对图片身份与原图 SHA-256，然后把图片作为图像内容交给当前支持看图的模型。看图不授予素材使用、绑定或发布许可。
@@ -6319,7 +6450,7 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
 
 ### `drama_character_references`
 
-根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角默认可检索；配角默认跳过，只有提供剧情相关例外理由才检索。工具返回候选身份、原图 SHA-256 与文字匹配依据；检索本身不代表已经看图。agent 可按候选 ID 调用 `drama_character_reference_view` 实际查看图片，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。
+根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角、配角和群演均可检索；Agent 根据出场方式、一致性需求和用户目标决定是否检索，不把剧情理由当作检索许可。工具返回候选身份、原图 SHA-256 与文字匹配依据；检索本身不代表已经看图。agent 可按候选 ID 调用 `drama_character_reference_view` 实际查看图片，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。
 
 ```json
 {
@@ -6335,7 +6466,7 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
     },
     "role_class": {
       "type": "string",
-      "description": "项目角色类型声明；Host 会与当前 Session 项目圣经中的权威值核对，不一致时拒绝。",
+      "description": "根据当前剧本声明角色类型；圣经已登记时 Host 会核对，缺省时仅用于只读初排并标明不确定性，不授予素材使用权。",
       "enum": [
         "lead",
         "important_support",
@@ -6345,7 +6476,7 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
     },
     "supporting_use_reason": {
       "type": "string",
-      "description": "非主角使用公共参考库的剧情相关例外理由；缺失时非主角默认不检索。"
+      "description": "可选的剧本依据，用于解释本次检索；不是配角检索的通行证，也不授予素材使用权。"
     },
     "collection": {
       "type": "string",
@@ -6396,4 +6527,4 @@ Source: [`packages/drama/tool-drama-assets/src/index.ts`](../packages/drama/tool
 
 来源：[`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts)
 
-`drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 与原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。两个工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。
+`drama_character_reference_project` 列出 Host 校验的项目；工作区内只有一个有效项目时，Agent 可直接查看其角色，无须用户额外选择。多个项目时，必须由当前人类消息明确指出其中一个；结果只返回经验证的角色清单，不暴露本机路径。`drama_character_references` 每次重读选定的圣经，最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 与原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。这些工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。
