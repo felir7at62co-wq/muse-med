@@ -154,6 +154,8 @@ kind: "package-reference"
 
 ### 原片已有文字与外加字幕导出
 
+字幕导出允许项目根目录及其上层的路径别名，包括 macOS 系统目录别名。项目内部输出路径上的链接仍会被拒绝，已有输出文件不会被替换。
+
 编写 `subtitle_plan` 前，使用现有离线[视频检查工具](../../perception/tool-video-inspect/README.zh.md)查看源片文字。JSON 使用 `schema_version: 1` 与 `decisions`，条目含 `shot`、实际 `source_sha256`、镜内 `start_seconds`/`end_seconds`、`text`、`action: "retain_embedded"`、`reason` 及可选 `evidence_paths`。这些引用仍是调用方声明，不是 Host 签发的 OCR 或验收凭据。OCR 缺失或不确定时应预览，不代表授权付费去字或重新生成。
 
 `subtitle_overlay` 需要准备后的 `video/<集>/shot_00N.mp4`，并计算时间线全部选源的哈希。只有决定完整覆盖 cue 且去标点规范化后的文字匹配时，才省略该条外加字幕。部分重叠、文字不符或没有观察对象时保留整条 cue 并给复核建议，不拆句、不编造时码。源哈希不匹配或镜内区间无效时，作为陈旧输入报错。原 SRT 保持不变。`prepare`、`render` 接受同一可选计划；渲染只烧录解析后的外加 cue。

@@ -154,6 +154,8 @@ A supplied BGM plan contains `episodes:[{episode:"02",body_duration_seconds:12,s
 
 ### Existing picture text and overlay exports
 
+Subtitle exports accept aliases above or at the project root, including macOS system directory aliases. Links within the project output path remain rejected, and existing output files are never replaced.
+
 Inspect source text with the existing offline [video inspection tools](../../perception/tool-video-inspect/README.md) before authoring `subtitle_plan`. Its JSON uses `schema_version: 1` and `decisions` containing `shot`, actual `source_sha256`, shot-local `start_seconds` and `end_seconds`, `text`, `action: "retain_embedded"`, `reason`, and optional `evidence_paths`. These references remain caller declarations, not Host-issued OCR or acceptance receipts. Missing or ambiguous OCR needs preview, not a paid erase or regeneration request.
 
 `subtitle_overlay` requires prepared `video/<集>/shot_00N.mp4` inputs and hashes every selected timeline source. It omits an external cue only when the decision covers the complete cue and its punctuation-normalized text matches. Partial overlap, unmatched text and empty observations leave the complete cue in place with review advice; the resolver does not split or invent timing. A source-hash mismatch or invalid shot-local interval fails as stale input. The original SRT remains unchanged. `prepare` and `render` accept the same optional plan; rendering burns only the resolved external cues.
