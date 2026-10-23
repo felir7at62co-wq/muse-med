@@ -125,6 +125,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials.',
   },
   {
+    key: 'characterReferenceAuthority',
+    pkg: 'tool-character-reference',
+    title: 'Current-project character reference identity',
+    mode: 'service',
+    consumers: ['tool-jubian'],
+    note: 'Re-reads the current project, registered character and Catalog image digest for managed reference use; it does not grant image rights.',
+  },
+  {
     key: 'agentNotes',
     pkg: 'api-agent-notes',
     title: 'Configured Agent Notes editor',

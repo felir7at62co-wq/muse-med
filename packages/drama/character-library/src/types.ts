@@ -126,7 +126,7 @@ export interface CharacterLibraryPreview {
 /** Structured, bounded role requirements supplied by a Host consumer. */
 export interface CharacterRecommendationRequest {
   readonly roleClass: CharacterRoleClass
-  /** Required for any non-lead lookup; recorded in the recommendation explanation, never in catalog metadata. */
+  /** Optional story context recorded in the recommendation explanation, never in catalog metadata. */
   readonly supportingUseReason?: string
   readonly collection?: CharacterLibraryCollection | 'all'
   readonly query?: string

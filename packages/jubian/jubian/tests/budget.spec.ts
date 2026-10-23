@@ -230,6 +230,36 @@ describe('checkBudget', () => {
     expect(decision.reservedCents).toBe(800)
   })
 
+  it('releases a proven pre-dispatch abort and reserves the same quote again on resume', async () => {
+    const { ledger, authorizationPath } = await fixture(AUTHORIZED)
+    const input = { idempotencyKey: 'recoverable', method: 'image_generate' as const, scriptId: 2708,
+      requestSha256: `sha256:${'1'.repeat(64)}`, quotedAmount: '8.00', quoteUnit: 'CNY' }
+    const began = await ledger.begin(input)
+    await ledger.settle(input.idempotencyKey, { httpStatus: null, applicationCode: null,
+      responseSha256: null, outcome: 'unknown' })
+    const abort = { recordId: began.record.record_id, idempotencyKey: input.idempotencyKey,
+      method: input.method, requestSha256: input.requestSha256, actor: 'desktop-host',
+      guardEvidenceSha256: `sha256:${'2'.repeat(64)}`,
+      reconciliationEvidenceSha256: `sha256:${'3'.repeat(64)}` }
+    await ledger.preDispatchAbort(abort)
+
+    expect(await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '3.00', unit: 'CNY' }, authorizationPath }))
+      .toMatchObject({ status: 'authorized', reservedCents: 0 })
+    const evidence = { recordId: abort.recordId, actor: abort.actor,
+      guardEvidenceSha256: abort.guardEvidenceSha256,
+      reconciliationEvidenceSha256: abort.reconciliationEvidenceSha256 }
+    await ledger.resumeChecked(input.idempotencyKey, evidence, async () => {
+      expect(await checkBudget({ ledger, method: input.method, scriptId: input.scriptId,
+        quote: { amount: input.quotedAmount, unit: input.quoteUnit }, authorizationPath }))
+        .toMatchObject({ status: 'authorized', reservedCents: 0, chargedAmount: input.quotedAmount })
+      return input
+    })
+    expect(await checkBudget({ ledger, method: 'image_generate', scriptId: 2708,
+      quote: { amount: '3.00', unit: 'CNY' }, authorizationPath }))
+      .toMatchObject({ status: 'refused', reservedCents: 800 })
+  })
+
   it('refuses when the settled spend plus this quote passes the limit', async () => {
     const { ledger, authorizationPath } = await fixture(AUTHORIZED)
     await record(ledger, { key: 'a', scriptId: 2708, amount: '9.50', unit: 'CNY', settle: 'accepted' })

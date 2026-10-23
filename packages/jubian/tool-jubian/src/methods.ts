@@ -37,6 +37,7 @@ import type { AssetCategory, Naming } from './naming.ts'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
 import { need, requireKey, writeUnderLedger } from './write.ts'
+import type { WriteOutcome } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
@@ -49,6 +50,7 @@ import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
 import { readUpscaleQuote } from './upscale-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
+import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
@@ -94,6 +96,8 @@ export interface MethodArgs {
   asset_type?: number
   /** Shared audio registration's stable character identity; supplied together with voice_period_id. */
   character_id?: string
+  /** Host-managed public-library authorization; never carries a path, object key, or reference URL. */
+  character_reference?: CharacterReferenceQaToolBinding
   /** Shared audio registration's explicit life period; costume changes keep this value. */
   voice_period_id?: string
   /** `jubian_asset register`: the existing image or audio URL the new asset will reference. */
@@ -171,6 +175,16 @@ export interface MethodArgs {
   material_ids?: number[]
   /** `move`: destination folder, or the category number to move back to the library root. */
   target_folder_id?: number
+}
+
+/** Model-supplied identities the Host must re-read before a managed reference side effect. */
+export interface CharacterReferenceQaToolBinding {
+  authorization_id?: string
+  authorization_version?: number
+  character_id?: string
+  catalog_asset_id?: string
+  image_sha256?: string
+  managed_reference_id?: string
 }
 
 /** One paid image request within a batch; the project identity belongs to the batch. */
@@ -297,6 +311,8 @@ export interface MethodDeps {
   storyboardBatch?: ImageBatchOptions
   /** Batch submission returns before asset polling so every item can start promptly. */
   deferImageReadback?: boolean
+  /** Host-private one-shot authorization and reference URL for one managed Catalog image. */
+  characterReferenceGeneration?: CharacterReferenceQaGenerationPreparation
 }
 
 /** Read the task's parent identity before its generated child results. */
@@ -347,8 +363,8 @@ const IMAGE_ACTIVE_POLL_MS = 3_000
  * `generated` identifies one active, unselected image candidate before its parent
  * has been confirmed. The four incomplete states are distinct facts:
  * `failed` saw a terminal asset status, `timeout` ran out of
- * budget, `replayed` sent nothing at all, and `unverified` could not even name
- * the asset to read.
+ * budget, `replayed` sent nothing at all, and `unverified` could not verify
+ * this generation even when its requested parent asset is known.
  */
 type ImageAssetStatus = 'active' | 'generated' | 'failed' | 'timeout' | 'replayed' | 'unverified'
 
@@ -382,7 +398,7 @@ function unread(status: 'replayed' | 'unverified', error: string): ImageReadback
  * @param assetId - Accepted asset ID, when the provider returned one.
  * @returns Caller-facing guidance naming the only safe next action.
  */
-function imageNext(readback: ImageReadback, assetId: number | null): string {
+function imageNext(readback: ImageReadback, assetId: number | null, requestedParentId?: number): string {
   switch (readback.status) {
     case 'active':
       return '生成图已就绪：material_id 是可用于 confirm_casting 的生成材质 ID，image_url 是这张生成图。'
@@ -391,18 +407,59 @@ function imageNext(readback: ImageReadback, assetId: number | null): string {
       return '候选图片已生成且材质 Active，父资产尚未确认出演。先查看 image_url，审核通过后用 material_id '
         + '正常 confirm_casting，再回读父资产与已采用材质；不要重新付费生图。'
     case 'failed':
-      return '资产已被提供方判为失败，不会再有生成图；重新生成要换一个新的 idempotency_key，'
-        + '同一个 key 不会再次发送。'
+      return '提供方已判为失败，不会再有本次生成图；先核对失败原因、费用与授权，'
+        + '不要自动换 key 重投。同一个 key 不会再次发送。'
     case 'timeout':
-      return '受理已计费（outcome=accepted）但回读超时：不要换 key 重投，'
-        + '用 jubian_asset get 和 generated_image 查询原 parent_asset_id 的父状态及候选图。'
+      return '请求已受理并记入本地账本（outcome=accepted），供应商实际扣费仍待核对；不要换 key 重投。'
+        + (requestedParentId !== undefined
+          ? `只读查询现有资产 ${requestedParentId} 的 generated_image，新任务/材质必须与旧图区分。`
+          : assetId === null
+            ? '回执没有资产 ID；只能依据原请求的精确任务/资产身份只读对账，不能用同名历史资产冒充。'
+            : `只读查询新资产 ${assetId} 的 get/generated_image，核对本次任务和候选图。`)
     case 'replayed':
-      return '本次是重放：没有发送任何请求。资产身份请用 jubian_asset list/get 回读。'
-    case 'unverified':
+      if (requestedParentId !== undefined) return `本次是重放，没有发送请求。原请求针对现有资产 ${requestedParentId}；`
+        + '只读查询该资产的 generated_image，核对本次新增任务与材质，不能把旧图当作本次结果。'
       return assetId === null
-        ? '没有确认资产与生成图：先回读 jubian_asset list 核对，确认前不要落盘，也不要换 key 重投。'
+        ? '本次是重放，没有发送请求；原回执没有资产 ID。只能依据原请求的精确任务/资产身份只读对账，'
+          + '不能用同名历史资产认领本次结果，也不要换 key 重投。'
+        : '本次是重放：没有发送任何请求。用 jubian_asset get 回读原资产 ID，不要换 key 重投。'
+    case 'unverified':
+      if (requestedParentId !== undefined) return `受理请求针对现有资产 ${requestedParentId}，`
+        + '但尚未核实本次新任务和新材质。只读查询该资产的 generated_image；旧的 Active 材质不证明重生成功。'
+        + '未确认前不要落盘、宣称出图或换 key 重投。'
+      return assetId === null
+        ? '受理回执没有资产 ID，生成结果尚未归属本次请求。保留原幂等键与响应摘要，'
+          + '仅凭精确任务/资产身份只读对账；同名历史资产不是本次结果。无法证明归属就停止，'
+          + '不要落盘或宣称本次出图，也不要换 key 重投。'
         : `尚未确认生成图：用 jubian_asset get 和 generated_image 查询 parent_asset_id=${assetId}；`
           + '确认前不要落盘，也不要换 key 重投。'
+  }
+}
+
+/**
+ * Return the only safe continuation for an isolated QA reference generation.
+ * @param readback - The provider readback outcome.
+ * @param assetId - Accepted asset ID, when the provider returned one.
+ * @returns QA-only guidance that never promotes or reuses the generated asset.
+ */
+function managedCharacterReferenceNext(readback: ImageReadback, assetId: number | null,
+  authorizationEnvironment: CharacterReferenceQaGenerationPreparation['authorizationEnvironment'],
+  requestedParentId?: number): string {
+  const restriction = authorizationEnvironment === 'isolated_qa'
+    ? '隔离 QA 结果只能查看和记录：不得 confirm_casting、正式绑定、发布或跨项目复用。'
+    : '项目私有一次性参考结果只供本项目审图：不得自动 confirm_casting、正式绑定、发布或跨项目复用。'
+  switch (readback.status) {
+    case 'active':
+    case 'generated':
+      return `生成图已就绪；查看 image_url 并记录人工质量结论。${restriction}`
+    case 'failed':
+      return `提供方已判定失败；本次一次性授权不允许重投或更换幂等键。${restriction}`
+    case 'timeout':
+      return `${imageNext(readback, assetId, requestedParentId)}${restriction}`
+    case 'replayed':
+      return `本次是账本重放，没有发送新请求；${imageNext(readback, assetId, requestedParentId)}${restriction}`
+    case 'unverified':
+      return `${imageNext(readback, assetId, requestedParentId)}${restriction}`
   }
 }
 
@@ -462,7 +519,9 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number, newAss
                 ? `原生图任务${generation.task_id ?? '未提供'}已失败：最多${generation.max_reference_images}张参考图。请修正引用数量。`
                 : generation.error_code === 'content_refused'
                   ? `原生图任务${generation.task_id ?? '未提供'}已被供应商内容审核拒绝；不要原样重复提交。`
-                  : `原生图任务${generation.task_id ?? '未提供'}已失败：供应商报告生成失败。原请求不可继续等待。` }
+                  : generation.error_code === 'insufficient_credits'
+                    ? `原生图任务${generation.task_id ?? '未提供'}已因供应商额度不足失败；先由用户处理额度，不能自动重投。`
+                    : `原生图任务${generation.task_id ?? '未提供'}已失败：供应商报告生成失败。原请求不可继续等待。` }
           }
         }
         const candidates = responseRecords(data).filter(row => wireText(row.assetId) === String(assetId)
@@ -489,18 +548,24 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number, newAss
         waited_ms: elapsed,
         error: `回读超时：在 ${budget}ms 内没有核实可用生成图`
           + `（最后观察到的状态：${observed ?? '未提供'}${lastError === null ? '' : `；生成图读取失败：${lastError}`}）。`
-          + '受理已被计费，不要换 key 重投。' }
+          + '本地已记录受理，供应商实际扣费须另行核对；不要换 key 重投。' }
     }
     await sleep(interval)
   }
 }
 
-/** Preserve the accepted asset ID in the result when its free readback fails. */
+/** Preserve the accepted asset ID without mistaking an existing parent's old material for a new image. */
 async function readbackAcceptedImage(client: JubianClient, assetId: number | null, newAsset: boolean,
-  options: ImageMethodOptions): Promise<ImageReadback> {
+  options: ImageMethodOptions, requestedParentId?: number): Promise<ImageReadback> {
+  if (!newAsset) {
+    const target = requestedParentId ?? assetId
+    return unread('unverified', `重生请求针对现有资产 ${target ?? '未提供'}；其旧的 Active 状态和旧材质不能证明本次出图。`
+      + '只读查询该资产的 generated_image，核对本次新增任务及材质；不要换 key 重投。')
+  }
   if (assetId === null) {
     return unread('unverified', '受理响应没有给出可回读的资产 ID，无法确认生成图；'
-      + '用 jubian_asset list 按 asset_name 找到该资产后再读 generated_image。')
+      + '不能按 asset_name 将同名历史资产当作本次结果。保留原幂等键与响应摘要，只读核对精确身份；'
+      + '无法核实时停止，不要再次提交生图。')
   }
   try { return await awaitGeneratedImage(client, assetId, newAsset, options) }
   catch (error) {
@@ -727,14 +792,28 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       const assetId = need(args.asset_id)
       const result = await client.request({
         method: 'GET', path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })
-      const generation = readImageGeneration(result.data)
+      const rows = responseRecords(result.data)
+      const scoped = rows.filter(row => row.assetId === undefined || wireText(row.assetId) === String(assetId))
+      if (scoped.length !== rows.length || scoped.length === 0) {
+        throw new JubianError('CONTRACT_CHANGED', 'Generated-image response has no verified target asset')
+      }
+      // A regenerated parent retains older, already-used material rows. Read the highest
+      // observed task ID, not an old Active image or provider-dependent list order.
+      const taskId = (row: Record<string, unknown>): number => {
+        const parsed = Number(row.taskId)
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : -1
+      }
+      const latest = [...scoped].sort((a, b) => taskId(b) - taskId(a))[0] as Record<string, unknown>
+      const generation = readImageGeneration(latest)
       if (generation !== null && generation.status !== 'succeeded') {
         return { image: null, generation,
           guidance: generation.status === 'failed'
-            ? '原任务已失败，保留原任务号与回执。修正已确认的原因后才可提交新的修订请求。'
+            ? generation.error_code === 'insufficient_credits'
+              ? '原任务因供应商额度不足失败，保留任务号和回执；请用户处理额度，不要自动新建付费任务。'
+              : '原任务已失败，保留原任务号与回执。修正已确认的原因后才可提交新的修订请求。'
             : '尚未确认可用图片，继续查询原资产；不要更换 key 重复付费。' }
       }
-      return { image: readGeneratedImage(result.data), ...generation === null ? {} : { generation } }
+      return { image: readGeneratedImage(latest), ...generation === null ? {} : { generation } }
     }
     case 'confirm_casting': {
       requireKey(args.idempotency_key)
@@ -957,14 +1036,15 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           if (result['status'] !== 'returned' || result['outcome'] !== 'accepted'
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
-          const newAsset = (prepared[index] as (typeof prepared)[number]).item.parent_asset_id === undefined
-          const readback = await readbackAcceptedImage(client, assetId, newAsset, deps.image ?? {})
+          const requestedParentId = (prepared[index] as (typeof prepared)[number]).item.parent_asset_id
+          const newAsset = requestedParentId === undefined
+          const readback = await readbackAcceptedImage(client, assetId, newAsset, deps.image ?? {}, requestedParentId)
           results[index] = { ...result, asset_status: readback.status,
             generation_status: imageGenerationStatus('accepted', false, readback.status),
             material_id: readback.material_id,
             image_url: readback.image_url, observed_asset_status: readback.observed_status,
             waited_ms: readback.waited_ms, readback_error: readback.error,
-            next: imageNext(readback, assetId) }
+            next: imageNext(readback, assetId, requestedParentId) }
         }
       }
       await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => readbackWorker()))
@@ -976,8 +1056,45 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
+      const managedReference = deps.characterReferenceGeneration
+      if (args.character_reference !== undefined && managedReference === undefined) {
+        throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference authorization is unavailable')
+      }
+      if (managedReference !== undefined) {
+        if (args.references !== undefined && args.references.length > 0) {
+          throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference generation does not accept caller URLs')
+        }
+        if (args.character_reference?.authorization_id !== managedReference.authorizationId
+          || args.character_reference.authorization_version !== managedReference.authorizationVersion
+          || need(args.script_id) !== managedReference.scriptId
+          || args.character_reference.character_id !== managedReference.characterId
+          || args.character_reference.catalog_asset_id !== managedReference.catalogAssetId
+          || args.character_reference.image_sha256 !== managedReference.imageSha256
+          || args.character_reference.managed_reference_id !== managedReference.managedReferenceId) {
+          throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference identity conflicts with Host evidence')
+        }
+        if (args.parent_asset_id !== undefined) {
+          throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference generation cannot replace an existing asset')
+        }
+      }
       const selection: ImageModelSelection = imageSelection(args, deps.image?.selection)
-      const { assetName, assetType } = imageIdentity(args, deps.naming ?? resolveNaming())
+      // An episode locates the source scene, but a managed reference always creates
+      // the current character's asset. Trust the Host identity over a caller-supplied
+      // display name, and do not prefix that character name with EPxx.
+      const imageArgs = { ...args }
+      if (managedReference !== undefined) {
+        delete imageArgs.episode
+        imageArgs.asset_name = managedReference.characterName
+      }
+      const { assetName: characterAssetName, assetType } = imageIdentity(imageArgs, deps.naming ?? resolveNaming())
+      if (managedReference !== undefined && assetType !== 1) {
+        throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference target must be the current project character')
+      }
+      // Provider asset names must be unique within a project. Keep the Host-checked
+      // character identity, but name this one-shot derivative independently of any
+      // existing official or fallback asset for the same character.
+      const assetName = managedReference === undefined ? characterAssetName
+        : `${characterAssetName}-参考候选-${managedReference.authorizationId.slice(0, 8)}`
       const imageStyle = resolveImageStyle(need(args.prompt), args.image_style)
       // Ordinary replays skip this catalogue read. A batch supplies its one
       // preflight catalogue so every row is validated before any paid request.
@@ -989,39 +1106,90 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         return imageCatalogue(cached.data, deps.image?.allowedStandardIds)
       }
       let selectors: ImageModelSelectors | undefined
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
-        async () => {
-          const rows = await catalogue()
-          selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
-          return buildImageRequest({ scriptId: need(args.script_id), assetName,
-            assetType, prompt: need(args.prompt), imageStyle, references: args.references ?? [],
-            ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
-            ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
-        },
-        body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
-          path: '/aigc/asset', body: need(body) }),
-        () => {
-          const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
-          return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
-            observedAt: new Date().toISOString() }
-        }, { scriptId: need(args.script_id), verifyReplayBody: true })
+      let result: WriteOutcome
+      try {
+        result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
+          async () => {
+            const rows = await catalogue()
+            selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
+            return buildImageRequest({ scriptId: need(args.script_id), assetName,
+              assetType, prompt: need(args.prompt), imageStyle,
+              references: managedReference === undefined ? args.references ?? [] : [managedReference.materialUri],
+              ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
+              ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
+          },
+          body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
+            path: '/aigc/asset', body: need(body) }),
+          () => {
+            const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
+            return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
+              observedAt: new Date().toISOString() }
+          }, { scriptId: need(args.script_id), verifyReplayBody: true,
+            ...(managedReference === undefined ? {} : { beforeReserve: async () => {
+              await managedReference.beforeReserve()
+            }, ...(managedReference.preDispatchRecovery === undefined ? {} : {
+              preDispatchRecovery: managedReference.preDispatchRecovery,
+            }) }) })
+      } catch (error) {
+        if (managedReference !== undefined) {
+          try {
+            managedReference.settleUnknown()
+          } catch (_settlementError) {
+            // The original paid-request or authorization settlement failure remains authoritative.
+          }
+        }
+        throw error
+      }
+      if (managedReference !== undefined) {
+        const receipt = { outcome: result.outcome, response_sha256: result.response_sha256 }
+        if (result.replayed) {
+          await managedReference.reconcileRecorded(result.outcome, receipt)
+        } else if (result.outcome === 'accepted') {
+          managedReference.settleAccepted(receipt)
+        } else {
+          managedReference.settleUnknown(receipt)
+        }
+      }
       const model = selectors as ImageModelSelectors
-      const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
+      const assetId = result.outcome !== 'accepted' || result.data === null || result.data === undefined
+        || !Number.isSafeInteger(Number(result.data))
         ? null : Number(result.data)
       const readback = result.replayed
         ? unread('replayed', '这个 idempotency_key 已有记录：本次没有发送请求，也没有回读资产。'
-          + '用 jubian_asset get/list 读取该资产，再用 generated_image 确认生成图。')
+          + (args.parent_asset_id !== undefined
+            ? `原请求针对现有资产 ${args.parent_asset_id}；只读核对该资产新增任务和材质，不能用旧图冒充。`
+            : assetId === null
+              ? '原回执没有资产 ID；不能把同名历史资产认作本次结果，只能只读核对原请求的精确身份。'
+              : `用 jubian_asset get/generated_image 回读原资产 ID ${assetId}。`))
         : result.outcome === 'accepted'
           ? deps.deferImageReadback
             ? unread('unverified', '批次已受理，正在逐项回读资产状态。')
-            : await readbackAcceptedImage(client, assetId, args.parent_asset_id === undefined, deps.image ?? {})
+            : await readbackAcceptedImage(client, assetId, args.parent_asset_id === undefined,
+              deps.image ?? {}, args.parent_asset_id)
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
-            + '先回读 jubian_asset list，不要换 key 重投。')
+            + '仅凭原请求的精确身份只读对账，不能用同名历史资产认领，也不要换 key 重投。')
       return { replayed: result.replayed, outcome: result.outcome,
+        ...(managedReference === undefined ? {} : { character_reference: {
+          authorization_id: managedReference.authorizationId,
+          authorization_version: managedReference.authorizationVersion,
+          managed_reference_id: managedReference.managedReferenceId,
+          script_id: managedReference.scriptId,
+          character_id: managedReference.characterId,
+          role_class: managedReference.roleClass,
+          catalog_asset_id: managedReference.catalogAssetId,
+          image_sha256: managedReference.imageSha256,
+          catalog_status: 'pending_review',
+          qa_only: managedReference.authorizationEnvironment === 'isolated_qa',
+          project_private_only: managedReference.authorizationEnvironment === 'project_private',
+          publish_allowed: false,
+          formal_bind_allowed: false,
+          cross_project_reuse_allowed: false,
+        } }),
         generation_status: imageGenerationStatus(result.outcome, result.replayed, readback.status),
         idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
         parent_asset_id: assetId,
+        ...(args.parent_asset_id === undefined ? {} : { requested_parent_asset_id: args.parent_asset_id }),
         image_style: imageStyle,
         resolution: model.resolution,
         // Which catalogue row was actually bought from, echoed so a price can never
@@ -1030,7 +1198,10 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         asset_status: readback.status, material_id: readback.material_id, image_url: readback.image_url,
         observed_asset_status: readback.observed_status, waited_ms: readback.waited_ms,
         readback_error: readback.error,
-        next: imageNext(readback, assetId) }
+        next: managedReference === undefined
+          ? imageNext(readback, assetId, args.parent_asset_id)
+          : managedCharacterReferenceNext(readback, assetId,
+            managedReference.authorizationEnvironment, args.parent_asset_id) }
     }
     case 'upscale': {
       requireKey(args.idempotency_key)

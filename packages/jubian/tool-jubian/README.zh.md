@@ -1,5 +1,5 @@
 ---
-description: "十二个剧变（Jubian）工具：剧本池查询和授权认领、制作目录、资产、分镜、计费生成、媒体下载与后台作业。"
+description: "十二个剧变（Jubian）核心工具，普通 Muse 会话另有项目私有人物图授权工具：剧本池、资产、分镜、计费生成、媒体下载与后台作业。"
 kind: "package-bundle"
 ---
 
@@ -15,7 +15,7 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 ## 概述
 
-`dsh-tool-jubian` 给 DSH 模型十二个剧本池和剧变制作工具：目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；付费提交和明确带键的写入使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
+`dsh-tool-jubian` 给 DSH 模型十二个核心工具；普通 Muse 会话另有项目私有人物图授权工具。功能涵盖目录读取、剧本查找、授权认领、资产与分镜编辑、只读组织视图、参考图上传、计费的图片与视频生成、去字幕、转高清、媒体下载与后台作业。读取免费；付费提交和明确带键的写入使用调用方给出的幂等键，插件在请求离开前记录 intent，在响应返回后记录 settle。同一个 key 重放不会重复写入；支持对账的方法可以重新读取。
 
 ## 目录
 
@@ -31,11 +31,11 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 <a id="use-this-package"></a>
 ## 使用本包
 
-在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；十二个工具会在描述中说明各自的副作用。
+在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；工具会在描述中说明各自的副作用。
 
 ### 何时选择
 
-当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为十二个 schema 在挂载期间始终对模型可见。
+当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为这些 schema 在挂载期间始终对模型可见。
 
 ### 会话视频模型选择
 
@@ -61,6 +61,8 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
       name: '@deepseek-ai/dsh-tool-jubian'
       # config is optional:
       # ledgerRoot: D:\somewhere\jubian-ledger   # default <DSH_HOME>/jubian/ledger
+      # characterReferenceQaAuthorizationDataRoot: D:\outside-repository\character-reference-qa
+      # characterReferenceQaAuthorizationDatabasePath: D:\outside-repository\character-reference-qa\authorization.sqlite
       # baseUrl: https://web.jubianai.net/prod-api
       # timeoutMs: 30000
       # workspaceSecrets: true                   # default true
@@ -80,6 +82,8 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `ledgerRoot` | `<DSH_HOME>/jubian/ledger` | 存放写账本的目录；每天一个 NDJSON 文件 |
+| `characterReferenceQaAuthorizationDataRoot` | 无；路径关闭 | 仓库外的绝对、所有者私有受信根目录，用于容纳隔离 QA 授权库及 SQLite sidecar；必须与 `characterReferenceQaAuthorizationDatabasePath` 一起配置 |
+| `characterReferenceQaAuthorizationDatabasePath` | 无；路径关闭 | 必须严格解析到 `characterReferenceQaAuthorizationDataRoot` 之下的 SQLite 绝对路径；两项都配置才启用，两项都省略则关闭 |
 | `baseUrl` | 传输层自己的默认 origin | 覆盖所有请求的 origin |
 | `timeoutMs` | 传输层自己的默认值 | 单次调用的中止预算，单位毫秒 |
 | `watchPollIntervalMs` | `15000` | 观察轮询间隔，毫秒；1..60000 范围内的整数 |
@@ -93,7 +97,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 | `workspaceSecrets` | `true` | 凭证库没有值时，是否允许用 workspace 的流水线密钥文件顶替 |
 | `imagePlatformId` | 无 | `taskType=2` 目录里 `image_generate` 从哪个 `platformId` 购买，如 `KU_AI`；这是兜底锁定，只在短剧设置段没有锁定行时生效 |
 | `imageStandardId` | 无 | `image_generate` 从哪一行（`standardId`，即该行自己的 `id`）购买；它与 `imagePlatformId` 给出其一即可锁定一行，同样受设置页优先级约束 |
-| `imageActiveTimeoutMs` | `180000` | `image_generate` 等待父资产 Active 或核实新父资产对应的 Active 未选用候选图的上限，超过即报回读超时 |
+| `imageActiveTimeoutMs` | `180000` | 新建资产等待本次生成图的上限；重生现有资产须精确回读新任务，旧 Active 图不能证明本次成功 |
 | `imageActivePollMs` | `3000` | 上面这次回读的轮询间隔 |
 | `imageBatchConcurrency` | `3` | 一批同时执行的图片请求上限；整数 1..8 |
 | `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
@@ -106,7 +110,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 
 `nameSeparator` 或 `seriesLabel` 为空白会让挂载失败：用它们组合出来的名字无法再切回各段。
 
-新建父资产可能不提供 `hsAssetStatus`，但其生成材质已为 Active。回读只接受属于该新父资产的唯一 Active HTTPS 材质，不替代确认出演。替换已有父资产时若缺状态仍保持 pending，旧材质不能满足这条回读规则。
+新建父资产可能不提供 `hsAssetStatus`，但其生成材质已为 Active。回读只接受属于该新父资产的唯一 Active HTTPS 材质，不替代确认出演。重生已有父资产时，即使旧状态为 Active，提交结果仍保持未核实；结果回显 `requested_parent_asset_id`，须对这个精确资产执行 `jubian_asset generated_image`，区分最新任务与旧材质后才能宣称有新图。
 
 一个账户目录可能把同一个 modelId 按平台列成多行，各自单价不同；`image_generate` 不会替你挑其中一行，所以目录里有多行 `gpt-image-2` 而没有锁定行时，请求体构造阶段就会失败，并列出每个候选行的 `platformId`、`standardId`、单价与单位。
 
@@ -118,7 +122,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 
 单张 `image_generate` 可选填 `image_aspect_ratio`，仅接受 `16:9`（保持原默认）或 `9:16`。工具在已选模型／平台的实时目录行中寻找匹配的 `videoStandardId`；`imageStandardId` 仍只锁定计价模型行，不选择画幅。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少匹配规格会在计费资产请求前被拒绝。`image_generate_batch` 暂不暴露此参数，批次项仍默认 16:9。远端是否受理 9:16 图片仍须另行验证。
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，在挂载时注册全部十二个工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，注册十二个核心工具及普通会话中的项目私有授权工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
 ### 凭证
 
@@ -157,11 +161,13 @@ inherited process environment (read-only, highest)
 
 读不动的目录报告为 `jubian-image/catalogue-unreadable`，消息就是传输层自己的原因，页面原样显示。这里不缓存：每次调用都重读账户，因为某一行的价格与是否存在属于账户状态，而不是插件状态。
 
-### 十二个工具
+### 工具
+
+普通 Muse 会话还会显示 `jubian_character_reference_authorize`：它只读核对当前项目、角色及待审核图，并请已登录用户直接确认本人委托生成、亲自上传及本项目一次衍生生图权利；此步不等于公共库审核或付费请求。
 
 `jubian_budget` 和 `jubianBudget` 设置命名空间共享 `<账本目录>/authorization.json` 及计费调用账务读取方。未单独授权的项目沿用当前短剧默认值，初始为 ¥4000；单独授权金额覆盖默认值。聊天更新要求真实用户预算文字明确对应项目或 Session 的绑定项目，或真实 `ask_user_question` 回答明确询问该项目总预算。Assistant 自述、无关答案、已撤回授权或金额不符均不能授权更新。读取返回精确修订；更新保留已花、预留及估算，立即返回实际保存数据，无需重启。[项目圣经技能](../../drama/skills/skills/tweet-drama-project-bible/SKILL.md) 描述缺少授权时的询问。设置写入方将用户提交项目总额度视为授权；这一本地流程不对拥有直接文件访问权限的用户隔离文件。
 
-十二个注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
+已注册工具就是全部面向模型的表面。本包不发布系统提示词区段，因此模型需要的每条操作事实都写在工具描述或 schema 描述里。
 
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
@@ -174,6 +180,7 @@ inherited process environment (read-only, highest)
 | | `confirm_casting` | 用 `GET` 改变远端状态；需要 `idempotency_key` |
 | | `remove` | 不可恢复地删除已检查的图片父资产；音频必须使用专门的删除方法 |
 | | `upload_reference` | 免费且不创建任务；向提供方对象存储写入一个对象 |
+| | `upload_character_reference` | 仅限隔离 QA；Host 重读一张精确的 Catalog 图片并执行该授权唯一一次托管上传，不返回路径、对象 key 或 URL |
 | | `upload_audio` | 免费且不创建任务；测量最长 15 秒的本地 PCM WAV 参考，再上传一个对象 |
 | | `register`, `audio_list`, `audio_get` | 按明确类别登记已上传媒体；音频类别为 4，读取限定项目的真实身份 |
 | | `audio_delete_preview`, `audio_delete_apply` | 检查授权音频及引用，再删除一次并回读验证 |
@@ -199,6 +206,7 @@ inherited process environment (read-only, highest)
 免费 prepare_video 结果的 next 简短提醒按系统提示词的固定自检清单核对本次提交，并保留准备不创建生成任务、不收费及原 fingerprint 提交方式的说明。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
 
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
+- `jubian_character_reference_authorize` 仅在普通 Muse 会话中显示。它核对当前项目、角色与待审核图，再直接请已登录用户声明本人委托生成并上传、拥有本项目一次衍生生图权利；不会批准公共库使用或发出付费请求。
 - `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。`production_type` 与 `share_target_type` 原样转发为 `productionType` 与 `shareTargetType`，且只对 `mine` 有效：控制台打开「漫剧视频」时自己发的那次请求，就是在同一个 `/aigc/script/list` 上带 `productionType=0` 与 `shareTargetType=1`，所以这一对参数正是列出漫剧项目的方式。两个取值都是提供方自己的编码——本工具既不解释、也不校验、也不给默认值，因此省略的那个根本不会出现在查询串里。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
@@ -217,7 +225,7 @@ inherited process environment (read-only, highest)
 `jubian_storyboard list` 接收 `script_id` 和可选的 `page_num`/`page_size`，返回 `storyboards.rows`、`total`（未提供时为 null）和请求页号。空项目返回空列表。未绑定的分集表示为 `episode_id: null`；来自其他项目的行会被拒绝。按总数分页读取；没有总数时继续到空页。详情用 `get`。模型 `preview` 需要已存设置或明确的 `changes`；缺字段或缺分集归属时会点名受影响分镜。它不是查询入口。
 
 `create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
-- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后核实父资产 Active 或新父资产下唯一 Active 未采用候选图，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 按实时模型、规格与价格提交一次计费转换，只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
+- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。写入是异步的：新建父资产时核实本次生成材质后才返回 `material_id` 和 `image_url`；重生现有父资产时先保持未核实，须读回本次新任务和新材质，不能把旧 Active 图片当新图；见下文「计费生图路径」。`upscale` 按实时模型、规格与价格提交一次计费转换，只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
 - `jubian_media` 下载一个提供方媒体，返回路径、探测出的媒体类型、字节数与 sha256。`output_path` 缺少扩展名或与实际格式冲突时，按探测出的格式修正；调用方必须读取返回的 `path`。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
 
 ### 账号剧本池认领
@@ -352,7 +360,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 
 ### 计费生图路径
 
-图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key` 与 `parent_asset_id` 供对账。`succeeded` 要求已核实生成图；`asset_status: generated` 表示候选图仍需审图和确认出演，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。这些状态都不改变计费重试规则。
+图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key`、如有的提供方 `parent_asset_id`，以及显式重生目标 `requested_parent_asset_id` 供对账。`succeeded` 要求核实属于本次生成的图，不能用已有 Active 旧材质冒充；`asset_status: generated` 表示候选图仍需审图和确认出演，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。`jubian_asset generated_image` 对精确资产读取最新任务；额度不足时报告 `insufficient_credits`，不把旧材质当新结果。这些状态都不改变计费重试规则。
 
 `image_generate` 是「一次计费写 + 一次免费回读」，而它到底写在哪一行目录上，是部署决定而不是猜测：
 
@@ -374,11 +382,27 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 | `active` | 资产已读到 `Active`，生成图也已读回 | 用 `material_id` 调 `confirm_casting`，用 `image_url` 作为图片；此时才可安全落盘或送审 |
 | `generated` | 新父资产状态为空，但已核实同父 ID 下唯一 Active 未采用候选图 | 先审图，再用 `material_id` 确认出演；父资产尚未正式采用 |
 | `timeout` | 回读预算用尽时仍未取得可用图 | 没有任何重投；稍后用 `jubian_asset` 的 `get` 或 `generated_image` 续读，绝不要换 key |
-| `failed` | 提供方把该资产判为终止失败 | 换一个新的 `idempotency_key` 重新生成 |
+| `failed` | 提供方把本次生成判为终止失败 | 先核对失败原因与实际费用；再次生成须另行授权并使用新 key，不重发旧 key |
 | `replayed` | 该 key 已有记录，本次既没有发送也没有回读 | 用 `jubian_asset` 读取该资产 |
-| `unverified` | 没有拿回资产 ID，或这次写并未被受理 | 先读 `jubian_asset` 的 `list`，再下任何结论 |
+| `unverified` | 即使已知现有目标资产，本次生成仍未被证实 | 如有 `requested_parent_asset_id`，对精确资产读 `jubian_asset generated_image`；不可从旧材质推断成功 |
 
 回读超时是**报告**出来的，不是抛出来的：计费写已经被受理、账本也已经记下，抛异常会把一次已经完成的扣费呈现成一次失败调用。任何未完成的结果都带 `readback_error`，写明确认了什么、没确认什么；无论哪种结论，结果都带 `parent_asset_id`、`model_selection`（`standard_id` 与 `platform_id`，即实际购买的那一行）、`observed_asset_status` 与 `waited_ms`。
+
+### 用户本人上传图的项目私有参考
+
+普通 Muse 会话可将本人委托生成并亲自上传、仍为 `pending_review` 的图片，仅用于**当前单个项目的一张衍生参考生图**。Agent 实际看图后调用 `jubian_character_reference_authorize`；Host 重读经验证的项目、已登记角色、Catalog 原图字节与 SHA-256，直接询问当前用户图片来源及交给剧变做本项目参考生图的权利。Agent 消息、metadata 声明或聊天推断不能替代本人在界面的确认。拒绝或界面不可用时不会创建授权。用户回答后，Host 再次核对身份，才将一次性授权写入 `<DSH_HOME>/jubian/character-reference-private/authorizations.sqlite`，并将它绑定当前 Session、项目、角色、Catalog ID 与 SHA。它不修改 TOS metadata，也不把图片变成公共库已批准素材。
+
+用返回的授权 ID 与版本调用 `jubian_asset upload_character_reference`，再把 Host 私有的 `managed_reference_id` 交给一次 `jubian_video image_generate`。不得传路径、TOS key、原始 URL 或 `references`。可选的 `episode` 只说明剧情来源，不改变已核验的项目角色身份。Host 为这张一次性衍生图生成稳定且绑定授权的候选资产名，避免与该角色已有的正式资产或回退生成资产重名。项目预算与付费幂等账本照常生效；上传或生成结果未知时，只用原 key 做只读对账，不得换 key。生图结果标明 `project_private_only: true`、`qa_only: false`，但原图和衍生图仍不得自动确认出演、正式绑定、发布、供他人使用或跨项目复用；这些动作需要另行审核。本人确认只是**项目私有权利声明**，不是公共库权威审核。
+
+### 隔离 QA 托管人物参考
+
+只有 Host 挂载 `characterReferenceAuthority`，并把 `characterReferenceQaAuthorizationDataRoot` 与 `characterReferenceQaAuthorizationDatabasePath` 都配成仓库外的绝对路径、且数据库严格位于该受信根目录之下时，这条**独立的隔离 QA 路径**才会启用。只配一项、逃逸根目录或使用符号链接都会关闭失败；在 POSIX 上，已有目录、数据库文件与 SQLite sidecar 必须已经仅限所有者访问。只追加的 Host 私有授权带版本，并精确绑定当前项目、人物、角色级别、Catalog 素材 ID、原图 SHA-256 与 `pending_review` 状态。Agent 可把这些身份交给 `jubian_asset upload_character_reference` 和 `jubian_video image_generate`，但没有任何 Tool 能创建、扩大或撤销隔离 QA 授权；这些操作只属于 Host 操作面。启用此路径不会将旧 QA 授权转成用户项目私有授权。
+
+一份有效授权只允许一次 Host 托管上传和一次计费生图，两次操作分别固定为首次使用的幂等键。Host 会在上传前重读当前项目人物及精确 Catalog 字节，并在消耗生图额度前再次重读。上传结果只返回 `managed_reference_id`；路径、对象 key 与材质 URL 始终由 Host 私下保管，只有同一授权版本、项目、人物、角色级别、Catalog ID 与 SHA 仍然一致时，`image_generate` 才会在内部注入已记录的材质 URL。上传或生图结果未知时，禁止再次发送，只能由 Host 使用同一个 key 对账。
+
+`pending_review` 仍是非生产证据：生成结果固定保留 `publish_allowed: false`、`formal_bind_allowed: false` 与 `cross_project_reuse_allowed: false`。这条路径不能替换已有资产，也不授权确认出演、发布、正式绑定或跨项目复用。它不会写入源人物库 TOS；该存储始终只是托管剧变上传所用精确字节的只读来源。
+
+配置这份授权数据库后，工具行会拒绝其他所有写操作。目录与项目查询、明确列出的资产及任务读取和预算读取仍可使用；只有精确的托管上传及其一次托管 `image_generate` 可以写入。确认出演、普通登记或上传、资产整理、分镜／模型／认领写入、批量生图、高清转换、重试和模型发起的媒体下载都会在访问提供方或写本地文件前被拒绝。
 
 ### 安全写入：幂等与账本
 
@@ -429,7 +453,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 已获授权的提交完成后先做别的，稍后回读 `subtasks`；用上文的操作观察器核验是否完成，而不是靠最初的响应。
 
-`image_generate` 是唯一例外，而且只是因为不这样做结果就没法用：该方法在调用内部等待并核实自己的生成图已可用，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。
+新建资产时，`image_generate` 会在调用内部等待本次生成图，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。重生现有资产时，不把旧 Active 图当作本次结果；须精确回读新任务和新材质后才能核实。
 
 `image_generate` 用 `image_style: "anime"` 选择2D/3D动漫，`"live_action"` 选择真人；批量 `items` 逐项提供，顶层的批次 `image_style` 会被拒绝。旧调用从提示词开头的正向媒介声明解析，可带精确的 `项目风格:` 或 `项目风格：` 前缀，未标记的旧提示词保留真人。显式选择冲突在计费前失败。回执里的 `image_style` 是解析后的请求选择，不是视觉验收结论。完整提示词保留3D细分画风，实际图像仍需查看；未知提交按原 key 对账。
 
@@ -474,12 +498,14 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 | [`src/reference.ts`](src/reference.ts) | 本地参考图上传：读文件、可选的 `ffmpeg` 重编码、读取前端 bundle，以及带签名的对象 `PUT` |
 | [`src/token.ts`](src/token.ts) | `jubianToken` Remote 命名空间：只围绕那一个凭据引用，由 `apply` 与工具一起挂载 |
 | [`src/image.ts`](src/image.ts) | 计费生图通道的锁定——`drama` 设置段压过本行 config，逐次调用解析——以及只读的 `jubianImage` Remote 命名空间，用来列出人可以锁定的那些行 |
+| [`src/character-reference-qa-authorization.ts`](src/character-reference-qa-authorization.ts) | 隔离 QA 的 Host 私有只追加 SQLite 授权，以及一次上传、一次生图状态机 |
+| [`src/character-reference-qa-bridge.ts`](src/character-reference-qa-bridge.ts) | 重读精确项目与 Catalog 证据，隐藏托管材质 URL，并只把它注入唯一一次获授权的生图请求 |
 | [`src/client/mount.ts`](src/client/mount.ts) | 浏览器半边：生成 Remote 贡献的挂载生命周期、设置项注册与注入面 |
 | — | 不发布运行时不变量配套入口，因为这是面向模型的适配器、不拥有独立生命周期事件流；执行关系属于它调用的能力 seam。 |
 
 ### 写路径
 
-写方法先拒绝缺失的 key，再向账本查这个 key 是否已存在。命中时直接返回已存结果，既不编译请求体也不发请求。未命中时编译请求体——可能需要先读提供方，例如图片生成要取实时选择器——记录报价快照，追加 intent，只发送一次请求，再追加 settle。请求抛错时同样会追加一条状态为 null 的 settle，所以文件总能显示这次尝试已经离开进程。
+写方法先拒绝缺失的 key，再向账本查这个 key 是否已存在。命中时直接返回已存结果，既不编译请求体也不发请求。未命中时编译请求体——可能需要先读提供方，例如图片生成要取实时选择器——记录报价快照，追加 intent，只发送一次请求，再追加 settle。请求抛错时仍追加 `unknown` 的 settle：提供方拒绝会保留已观察到的 HTTP 状态、应用码和响应摘要，不保存响应正文；传输失败的响应字段为 null。两者都不能自动重发。
 
 ### 读路径
 
@@ -494,7 +520,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 当包级约定不够用时阅读以下页面。它们从生成目录进入这一行之下的两个包，以及它所依赖的凭证规则。
 
-- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——十二个工具的精确 schema 与描述。
+- [生成工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-jubian)——已注册工具的精确 schema 与描述。
 - [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)——每个受支持配置字段及其源声明。
 - [dsh-jubian 传输层源码](../jubian/src/index.ts)——这一行所依赖的客户端、五个稳定失败码、凭证修复与写账本。
 - [dsh-jubian-api](../jubian-api/README.zh.md)——每个方法背后的读取器与请求构造器。
@@ -538,7 +564,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`generate` 的描述区分免费准备、带预览的付费提交和旧 key 的只读账本返回。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它受理后会核实父资产 Active 或新父资产下唯一 Active 未采用候选图再返回、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及模型应当把候选念给用户而不是自己挑，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 不生成、不收费，但同步会话模型时可以免费保存，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
+描述把 `jubian_video` 的 `image_generate`、`image_generate_batch` 与 `upscale`、`jubian_storyboard` 的 `submit_video` 与 `erase_subtitle`、以及 `jubian_asset` 的 `remove` 标为计费或不可撤销，并写明 `confirm_casting` 虽然动词像读取，却用 `GET` 改变了远端状态。`generate` 的描述区分免费准备、带预览的付费提交和旧 key 的只读账本返回。`jubian_video` 的 `subtasks` 写明它的 `POST` 只读。`jubian_video` 的 `image_generate` 另外写明它新建资产须核实生成图，重生现有资产则须精确核对新任务，不能沿用旧 Active 材质、每个 `asset_status` 取值是什么含义、目录里有多行 `gpt-image-2` 而未锁定行时会失败、锁定行要么是人在短剧设置页上选的、要么是 `imagePlatformId`/`imageStandardId` 配置给的，以及Agent 可依据项目需求与已批准预算自主选择精确目录行，只有偏好不明时再询问用户，还有类别决定 `assetType`、场景与道具不能按角色发。`image_generate_batch` 写明批内逐项独立计费和记录、`status: returned` 不代表图已可用。`jubian_asset` 写明 `create_folder`、`move` 与 `rename` 会真实写入、同名文件夹或目标文件夹不存在时只报告不发送，以及批量改名或搬家必须先取得用户明确同意。`jubian_organize` 写明它只读、不重命名也不移动，但仍会写一个本地索引文件。`jubian_storyboard` 写明整条分镜原生顺序：`select_assets` 强制 `isGenerate=0`、`prepare_video` 不生成、不收费，但同步会话模型时可以免费保存，以及 direct 建任务 `POST` 被禁止。异步方法写明它们受理即返回、完成与否要之后从 `subtasks` 回读。
 
 #### Token 影响
 

@@ -65,8 +65,8 @@ export interface JubianLedgerRecord {
   application_code: number | null
   /** Response body hash, filled by the settle line. */
   response_sha256: string | null
-  /** `accepted` only for HTTP 2xx with an application code of 0 or 200; otherwise `unknown`; null before settling. */
-  outcome: 'accepted' | 'unknown' | null
+  /** Accepted, unresolved, proven not sent, or awaiting settlement. */
+  outcome: 'accepted' | 'unknown' | 'not_sent' | null
 }
 
 /** What one `begin` call needs. */
@@ -89,6 +89,36 @@ export interface JubianLedgerSettlement {
   outcome: 'accepted' | 'unknown'
 }
 
+/** Trusted Host evidence that an unresolved image request stopped before dispatch. */
+export interface JubianLedgerPreDispatchAbort {
+  /** Exact identity of the existing intent. */
+  recordId: string
+  /** Exact idempotency key of the existing intent. */
+  idempotencyKey: string
+  /** Method repeated from the intent; only `image_generate` is recoverable. */
+  method: JubianLedgerMethod
+  /** Exact request-body hash repeated from the intent. */
+  requestSha256: string
+  /** Trusted Host actor that observed the abort. */
+  actor: string
+  /** Hash of the guard evidence that stopped dispatch. */
+  guardEvidenceSha256: string
+  /** Hash of the read-only reconciliation evidence showing no remote request. */
+  reconciliationEvidenceSha256: string
+}
+
+/** Evidence required to consume one pre-dispatch abort exactly once. */
+export interface JubianLedgerResumeEvidence {
+  /** Exact identity of the intent being resumed. */
+  recordId: string
+  /** Trusted Host actor recorded by the pre-dispatch abort. */
+  actor: string
+  /** Exact guard-evidence hash recorded by the pre-dispatch abort. */
+  guardEvidenceSha256: string
+  /** Exact reconciliation-evidence hash recorded by the pre-dispatch abort. */
+  reconciliationEvidenceSha256: string
+}
+
 /** The verdict of a `begin`: a fresh intent, or an existing record that must not be re-sent. */
 export interface JubianLedgerBeginResult {
   /** True when the key was already recorded, so nothing was or should be sent. */
@@ -105,13 +135,40 @@ export interface JubianLedgerOptions {
   defaultLimitCents?: () => number | undefined
 }
 
+/** One folded record and the recovery events that affect future transitions. */
+interface FoldedLedgerRecord {
+  record: JubianLedgerRecord | undefined
+  preDispatchAbort: JubianLedgerPreDispatchAbort | undefined
+  resumed: boolean
+}
+
+function sameIntentIdentity(record: JubianLedgerRecord, line: Record<string, unknown>): boolean {
+  return line.record_id === record.record_id
+    && line.idempotency_key === record.idempotency_key
+    && line.method === record.method
+    && line.request_sha256 === record.request_sha256
+}
+
+function recoveryEvidence(line: Record<string, unknown>): JubianLedgerPreDispatchAbort | undefined {
+  if (typeof line.record_id !== 'string' || typeof line.idempotency_key !== 'string'
+    || typeof line.method !== 'string' || typeof line.request_sha256 !== 'string'
+    || typeof line.actor !== 'string' || typeof line.guard_evidence_sha256 !== 'string'
+    || typeof line.reconciliation_evidence_sha256 !== 'string') return undefined
+  return { recordId: line.record_id, idempotencyKey: line.idempotency_key,
+    method: line.method as JubianLedgerMethod, requestSha256: line.request_sha256, actor: line.actor,
+    guardEvidenceSha256: line.guard_evidence_sha256,
+    reconciliationEvidenceSha256: line.reconciliation_evidence_sha256 }
+}
+
 /**
- * Read one record out of the two lines that describe it.
+ * Read one record and its recovery state from parsed NDJSON lines.
  * @param lines - Parsed NDJSON lines in append order.
- * @returns The merged record, or undefined when no intent line exists.
+ * @returns The merged record and its recovery state.
  */
-function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined {
+function foldState(lines: Record<string, unknown>[]): FoldedLedgerRecord {
   let record: JubianLedgerRecord | undefined
+  let preDispatchAbort: JubianLedgerPreDispatchAbort | undefined
+  let resumed = false
   for (const line of lines) {
     if (line.phase === 'begin') {
       record = {
@@ -125,13 +182,62 @@ function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined 
         quote_observed_at: (line.quote_observed_at as string | null) ?? null,
         http_status: null, application_code: null, response_sha256: null, outcome: null,
       }
-    } else if (line.phase === 'settle' && record !== undefined && record.idempotency_key === line.idempotency_key) {
+      preDispatchAbort = undefined
+      resumed = false
+    } else if (line.phase === 'settle' && record !== undefined && record.outcome !== 'not_sent'
+      && record.idempotency_key === line.idempotency_key
+      && (line.outcome === 'accepted' || line.outcome === 'unknown')) {
       record = { ...record, http_status: line.http_status as number | null,
         application_code: line.application_code as number | null,
-        response_sha256: line.response_sha256 as string | null, outcome: line.outcome as 'accepted' | 'unknown' }
+        response_sha256: line.response_sha256 as string | null, outcome: line.outcome }
+    } else if (line.phase === 'pre_dispatch_abort' && record !== undefined && preDispatchAbort === undefined
+      && record.method === 'image_generate' && record.outcome === 'unknown'
+      && record.http_status === null && record.application_code === null && record.response_sha256 === null
+      && sameIntentIdentity(record, line)) {
+      const evidence = recoveryEvidence(line)
+      if (evidence !== undefined) {
+        preDispatchAbort = evidence
+        record = { ...record, outcome: 'not_sent' }
+      }
+    } else if (line.phase === 'resume' && record !== undefined && preDispatchAbort !== undefined && !resumed
+      && record.outcome === 'not_sent' && sameIntentIdentity(record, line)
+      && line.actor === preDispatchAbort.actor
+      && line.guard_evidence_sha256 === preDispatchAbort.guardEvidenceSha256
+      && line.reconciliation_evidence_sha256 === preDispatchAbort.reconciliationEvidenceSha256
+      && line.script_id === record.script_id && line.quoted_amount === record.quoted_amount
+      && line.quote_unit === record.quote_unit && line.quote_standard_id === record.quote_standard_id) {
+      record = { ...record,
+        quote_observed_at: typeof line.quote_observed_at === 'string' ? line.quote_observed_at : record.quote_observed_at,
+        http_status: null, application_code: null, response_sha256: null, outcome: null }
+      resumed = true
     }
   }
-  return record
+  return { record, preDispatchAbort, resumed }
+}
+
+function fold(lines: Record<string, unknown>[]): JubianLedgerRecord | undefined {
+  return foldState(lines).record
+}
+
+function requireRecoveryEvidence(input: JubianLedgerPreDispatchAbort | JubianLedgerResumeEvidence): void {
+  if (!input.recordId.trim() || !input.actor.trim() || !input.guardEvidenceSha256.trim()
+    || !input.reconciliationEvidenceSha256.trim()) {
+    throw new Error('Jubian ledger: recovery identity, actor and evidence hashes must be nonempty')
+  }
+  const sha256 = /^(?:sha256:)?[a-f0-9]{64}$/u
+  if (!sha256.test(input.guardEvidenceSha256) || !sha256.test(input.reconciliationEvidenceSha256)) {
+    throw new Error('Jubian ledger: recovery evidence hashes must be SHA-256 digests')
+  }
+}
+
+function sameResumeIntent(record: JubianLedgerRecord, input: JubianLedgerBegin): boolean {
+  return input.idempotencyKey === record.idempotency_key
+    && input.method === record.method
+    && input.requestSha256 === record.request_sha256
+    && (input.scriptId ?? null) === record.script_id
+    && (input.quotedAmount ?? null) === record.quoted_amount
+    && (input.quoteUnit ?? null) === record.quote_unit
+    && (input.quoteStandardId ?? null) === record.quote_standard_id
 }
 
 /** Append-only, two-phase ledger for paid and state-changing Jubian calls. */
@@ -156,6 +262,10 @@ export class JubianLedger {
    * @returns The merged record, or undefined when the key is new.
    */
   async find(idempotencyKey: string): Promise<JubianLedgerRecord | undefined> {
+    return fold(await this.linesFor(idempotencyKey))
+  }
+
+  private async linesFor(idempotencyKey: string): Promise<Record<string, unknown>[]> {
     const matches: Record<string, unknown>[] = []
     for (const file of await this.files()) {
       for (const line of (await readFile(file, 'utf8')).split('\n')) {
@@ -164,7 +274,7 @@ export class JubianLedger {
         if (parsed.idempotency_key === idempotencyKey) matches.push(parsed)
       }
     }
-    return fold(matches)
+    return matches
   }
 
   /**
@@ -249,12 +359,126 @@ export class JubianLedger {
    * @param settlement - Transport and application outcome.
    */
   async settle(idempotencyKey: string, settlement: JubianLedgerSettlement): Promise<void> {
-    const now = new Date()
-    await mkdir(this.root, { recursive: true })
-    await appendFile(this.fileFor(now), `${JSON.stringify({ phase: 'settle', idempotency_key: idempotencyKey,
-      settled_at: now.toISOString(), http_status: settlement.httpStatus,
-      application_code: settlement.applicationCode, response_sha256: settlement.responseSha256,
-      outcome: settlement.outcome })}\n`, 'utf8')
+    const suppliedOutcome: unknown = settlement.outcome
+    if (suppliedOutcome !== 'accepted' && suppliedOutcome !== 'unknown') {
+      throw new Error('Jubian ledger: settlement outcome must be accepted or unknown')
+    }
+    await withLedgerQueue(this.root, async () => {
+      const now = new Date()
+      await mkdir(this.root, { recursive: true })
+      await appendFile(this.fileFor(now), `${JSON.stringify({ phase: 'settle', idempotency_key: idempotencyKey,
+        settled_at: now.toISOString(), http_status: settlement.httpStatus,
+        application_code: settlement.applicationCode, response_sha256: settlement.responseSha256,
+        outcome: settlement.outcome })}\n`, 'utf8')
+    })
+  }
+
+  /**
+   * Record trusted proof that one unresolved image request stopped before dispatch.
+   * Only an `unknown` settlement with no response evidence is eligible. The event
+   * repeats the full intent identity so unrelated evidence cannot release a key.
+   * @param input - Existing intent identity and trusted Host evidence.
+   * @returns The record folded to `not_sent` after the append succeeds.
+   */
+  async preDispatchAbort(input: JubianLedgerPreDispatchAbort): Promise<JubianLedgerRecord> {
+    requireRecoveryEvidence(input)
+    if (!input.idempotencyKey.trim() || !input.requestSha256.trim()) {
+      throw new Error('Jubian ledger: recovery key and request hash must be nonempty')
+    }
+    return await withLedgerQueue(this.root, async () => {
+      const lines = await this.linesFor(input.idempotencyKey)
+      const state = foldState(lines)
+      const record = state.record
+      if (record === undefined) throw new Error('Jubian ledger: pre-dispatch abort has no matching intent')
+      if (state.resumed) {
+        throw new Error('Jubian ledger: pre-dispatch abort was already resumed')
+      }
+      if (state.preDispatchAbort !== undefined) {
+        const prior = state.preDispatchAbort
+        if (record.outcome === 'not_sent'
+          && input.recordId === prior.recordId
+          && input.idempotencyKey === prior.idempotencyKey
+          && input.method === prior.method
+          && input.requestSha256 === prior.requestSha256
+          && input.actor === prior.actor
+          && input.guardEvidenceSha256 === prior.guardEvidenceSha256
+          && input.reconciliationEvidenceSha256 === prior.reconciliationEvidenceSha256) {
+          return record
+        }
+        throw new Error('Jubian ledger: pre-dispatch abort was already recorded with different evidence')
+      }
+      if (record.method !== 'image_generate' || record.outcome !== 'unknown'
+        || record.http_status !== null || record.application_code !== null || record.response_sha256 !== null) {
+        throw new Error('Jubian ledger: only an unknown image request with no response evidence can be marked not sent')
+      }
+      if (input.recordId !== record.record_id || input.method !== record.method
+        || input.requestSha256 !== record.request_sha256) {
+        throw new Error('Jubian ledger: pre-dispatch abort identity differs from the intent')
+      }
+      const now = new Date()
+      const event = { phase: 'pre_dispatch_abort', record_id: record.record_id,
+        idempotency_key: record.idempotency_key, method: record.method, request_sha256: record.request_sha256,
+        actor: input.actor, guard_evidence_sha256: input.guardEvidenceSha256,
+        reconciliation_evidence_sha256: input.reconciliationEvidenceSha256, aborted_at: now.toISOString() }
+      await mkdir(this.root, { recursive: true })
+      await appendFile(this.fileFor(now), `${JSON.stringify(event)}\n`, 'utf8')
+      const folded = fold([...lines, event])
+      if (folded === undefined || folded.outcome !== 'not_sent') {
+        throw new Error('Jubian ledger: pre-dispatch abort did not fold to not_sent')
+      }
+      return folded
+    })
+  }
+
+  /**
+   * Recheck authorization and consume a trusted pre-dispatch abort once.
+   * Preparation runs while the `not_sent` record does not reserve budget. Its
+   * returned intent must repeat the original key, method, body, project and quote;
+   * only quote observation time may advance.
+   * @param idempotencyKey - Exact key of the record being resumed.
+   * @param evidence - Exact abort identity and evidence hashes.
+   * @param prepare - Revalidates the current guard and budget before the resume append.
+   * @returns The original record folded back to an unsettled state.
+   */
+  async resumeChecked(idempotencyKey: string, evidence: JubianLedgerResumeEvidence,
+    prepare: () => Promise<JubianLedgerBegin>): Promise<JubianLedgerRecord> {
+    requireRecoveryEvidence(evidence)
+    return await withLedgerQueue(this.root, async () => {
+      const lines = await this.linesFor(idempotencyKey)
+      const state = foldState(lines)
+      const record = state.record
+      if (record === undefined) throw new Error('Jubian ledger: resume has no matching intent')
+      if (state.resumed) throw new Error('Jubian ledger: pre-dispatch abort was already resumed')
+      if (state.preDispatchAbort === undefined || record.outcome !== 'not_sent') {
+        throw new Error('Jubian ledger: record has no trusted pre-dispatch abort')
+      }
+      const abort = state.preDispatchAbort
+      if (evidence.recordId !== record.record_id || evidence.recordId !== abort.recordId
+        || evidence.actor !== abort.actor
+        || evidence.guardEvidenceSha256 !== abort.guardEvidenceSha256
+        || evidence.reconciliationEvidenceSha256 !== abort.reconciliationEvidenceSha256) {
+        throw new Error('Jubian ledger: resume evidence differs from the pre-dispatch abort')
+      }
+      const input = await prepare()
+      if (!sameResumeIntent(record, input)) {
+        throw new Error('Jubian ledger: prepared resume identity differs from the original intent')
+      }
+      const now = new Date()
+      const event = { phase: 'resume', record_id: record.record_id, idempotency_key: record.idempotency_key,
+        method: record.method, request_sha256: record.request_sha256, script_id: record.script_id,
+        quoted_amount: record.quoted_amount, quote_unit: record.quote_unit,
+        quote_standard_id: record.quote_standard_id,
+        quote_observed_at: input.quoteObservedAt ?? record.quote_observed_at,
+        actor: abort.actor, guard_evidence_sha256: abort.guardEvidenceSha256,
+        reconciliation_evidence_sha256: abort.reconciliationEvidenceSha256, resumed_at: now.toISOString() }
+      await mkdir(this.root, { recursive: true })
+      await appendFile(this.fileFor(now), `${JSON.stringify(event)}\n`, 'utf8')
+      const folded = foldState([...lines, event])
+      if (folded.record === undefined || !folded.resumed || folded.record.outcome !== null) {
+        throw new Error('Jubian ledger: resume event did not reopen the intent')
+      }
+      return folded.record
+    })
   }
 
   /**

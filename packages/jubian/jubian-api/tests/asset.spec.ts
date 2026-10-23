@@ -15,6 +15,10 @@ describe('readImageGeneration', () => {
     expect(readImageGeneration({ resultStatus: 'failed' })).toMatchObject({ error_code: 'provider_failure' })
     expect(readImageGeneration({ resultStatus: 'failed', resultMsg: 'Your request was rejected by the safety system.' }))
       .toMatchObject({ error_code: 'content_refused', max_reference_images: null })
+    expect(readImageGeneration({ resultStatus: 'failed', taskId: 619422, resultId: 1180188,
+      resultMsg: '用户额度不足, 剩余额度: ＄-7.811628 (request id: hidden)' }))
+      .toEqual({ status: 'failed', task_id: 619422, result_id: 1180188,
+        error_code: 'insufficient_credits', max_reference_images: null })
   })
 
   it('distinguishes a successful task, explicit pending work and unknown status from URL-only replies', () => {

@@ -56,6 +56,18 @@ describe('JubianClient.request', () => {
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   })
 
+  it('retains redacted HTTP and application evidence for a rejected provider write', async () => {
+    const thrown = await client(async () => jsonResponse({ code: 500, msg: 'asset name exists' }))
+      .request({ method: 'POST', path: '/aigc/asset', body: { assetName: 'candidate' } })
+      .catch((error: unknown) => error)
+    expect(thrown).toBeInstanceOf(JubianError)
+    const evidence = (thrown as JubianError).responseEvidence
+    expect(evidence?.httpStatus).toBe(200)
+    expect(evidence?.applicationCode).toBe(500)
+    expect(evidence?.responseSha256).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(JSON.stringify(evidence)).not.toContain('asset name exists')
+  })
+
   it('hands a flat envelope to the reader instead of the undefined data field it lacks', async () => {
     // The provider's list endpoints answer `{ code, total, rows }` with no
     // `data`, so returning `envelope.data` there would be `undefined` and every

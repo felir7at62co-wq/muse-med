@@ -52,6 +52,7 @@ export { REGION_BEGIN, REGION_END }
 export const SERVICE_PAGE: Record<string, string> = {
   characterLibrary: 'character-library.md',
   characterLibraryObjectStore: 'character-library.md',
+  characterReferenceAuthority: 'character-library.md',
   speechToText: 'voice-input.md',
   speechController: 'voice-input.md',
   otel: 'otel.md',
@@ -852,6 +853,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
+  CharacterReferenceAuthorityRequest: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterLibraryStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
   CharacterLibraryBrowseRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
   CharacterLibraryBrowseResult: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',

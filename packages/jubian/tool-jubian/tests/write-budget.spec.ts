@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { afterEach, expect, it, vi } from 'vitest'
 import { acceptedWriteResponse, bodyHash, requireArguments, writeUnderLedger } from '../src/write.ts'
 
@@ -76,6 +76,45 @@ it('does not record or send a paid write when this user has no project grant', a
     .rejects.toThrow('authorization.json')
   expect(send).not.toHaveBeenCalled()
   expect(await ledger.records()).toEqual([])
+})
+
+it('keeps provider rejection response evidence while leaving its paid outcome unknown', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-rejected-response-'))
+  temporary.push(root)
+  const ledger = new JubianLedger({ root, defaultLimitCents: () => 1000 })
+  const digest = `sha256:${'a'.repeat(64)}`
+  const send = vi.fn(async (): Promise<never> => {
+    throw new JubianError('CONTRACT_CHANGED', 'provider rejected the request', {
+      httpStatus: 200, applicationCode: 500, responseSha256: digest,
+    })
+  })
+  await expect(writeUnderLedger(ledger, 'rejected-image', 'image_generate', () => ({ assetName: 'candidate' }),
+    send, () => ({ scriptId: 2708, amount: '0.12', unit: 'CNY' }))).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(send).toHaveBeenCalledOnce()
+  expect(await ledger.find('rejected-image')).toMatchObject({
+    outcome: 'unknown', http_status: 200, application_code: 500, response_sha256: digest,
+  })
+})
+
+it('awaits an external authorization check before reserving or sending a paid write', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-external-authorization-'))
+  temporary.push(root)
+  const ledgerRoot = join(root, 'ledger')
+  await mkdir(ledgerRoot)
+  await writeFile(join(ledgerRoot, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+    '2708': { limit: '1.00', unit: 'CNY' },
+  } }))
+  const ledger = new JubianLedger({ root: ledgerRoot })
+  let authorized = false
+  const send = vi.fn(async () => {
+    expect(authorized).toBe(true)
+    return { transport: { http_status: 200, application_code: 0 }, response_sha256: null, data: {} }
+  })
+  await writeUnderLedger(ledger, 'authorized-image', 'image_generate', () => ({ name: 'ready' }), send,
+    () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' }), {
+      beforeReserve: async () => { await Promise.resolve(); authorized = true },
+    })
+  expect(send).toHaveBeenCalledOnce()
 })
 
 it('allows only one of two overlapping paid keys at the remaining limit', async () => {

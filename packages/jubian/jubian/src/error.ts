@@ -38,17 +38,26 @@ export class JubianError extends Error {
   /** The package-authored detail this error carries, or undefined when it carries none. */
   readonly detail: string | undefined
 
+  /** Redacted response identity for paid-write reconciliation; never includes a provider body. */
+  readonly responseEvidence: {
+    readonly httpStatus: number
+    readonly applicationCode: number | null
+    readonly responseSha256: string | null
+  } | undefined
+
   /**
    * @param code - Stable failure category.
    * @param detail - Optional caller-facing detail this package authored, such as the name of a missing
    *   argument. Provider text must never be passed here: a remote message would then reach a model's
    *   context through the error, which is exactly what the codes exist to prevent.
+   * @param responseEvidence - Numeric status and response hash when the provider did answer.
    */
-  constructor(code: JubianErrorCode, detail?: string) {
+  constructor(code: JubianErrorCode, detail?: string, responseEvidence?: JubianError['responseEvidence']) {
     super(detail === undefined ? MESSAGES[code] : `${MESSAGES[code]}: ${detail}`)
     this.name = 'JubianError'
     this.code = code
     this.detail = detail
+    this.responseEvidence = responseEvidence
   }
 }
 

@@ -222,7 +222,7 @@ function bindProjectMethod(
   if (methods === undefined || method === undefined || !methods.includes(method)) return undefined
   const workspace = workspaceRoot(call)
   if (workspace === undefined) return { refusal: unboundRefusal(call, method, '找不到工作目录') }
-  const project = operationProject(call, resolve(workspace, call.workshopDir))
+  const project = operationProject(call, workspace, resolve(workspace, call.workshopDir))
   return project === undefined
     ? { refusal: unboundRefusal(call, method, '这次调用没有说明它属于哪个项目') }
     : { method, project }
@@ -378,15 +378,17 @@ function calledMethod(call: GateCall): string | undefined {
  * The one project a call operates on, resolved from the call itself.
  *
  * In order: an explicit `projectRoot` the caller injected, then the call's own
- * `project_dir` argument, then the project among the workshop's children whose
- * `project_config.json` declares the `script_id` the call names. Nothing here
- * searches sideways — a call that names no project yields no project, which is what
- * stops one project's evidence from authorizing another project's operation.
+ * `project_dir` argument, then the workspace root itself when its
+ * `project_config.json` declares the `script_id` the call names, then the project
+ * among the workshop's children that declares that id. Nothing here searches
+ * sideways — a call that names no project yields no project, which is what stops
+ * one project's evidence from authorizing another project's operation.
  * @param call - The pending call and its readers.
+ * @param workspaceRoot - The session's verified workspace root.
  * @param workshopRoot - Directory holding the drama projects.
  * @returns The project root, or undefined when the call does not identify one.
  */
-function operationProject(call: GateCall, workshopRoot: string): string | undefined {
+function operationProject(call: GateCall, workspaceRoot: string, workshopRoot: string): string | undefined {
   const explicit = call.projectRoot
   if (typeof explicit === 'string' && explicit.trim().length > 0 && isAbsolute(explicit)) return resolve(explicit)
   const args = record(call.arguments)
@@ -396,10 +398,13 @@ function operationProject(call: GateCall, workshopRoot: string): string | undefi
   }
   const wanted = Number(args?.['script_id'])
   if (args?.['script_id'] !== undefined && Number.isFinite(wanted)) {
+    const matches: string[] = []
+    if (projectScriptId(join(workspaceRoot, PROJECT_CONFIG), call.reader) === wanted) matches.push(workspaceRoot)
     for (const name of call.reader.listDirectoryNames(workshopRoot)) {
       const candidate = resolve(workshopRoot, name)
-      if (projectScriptId(join(candidate, PROJECT_CONFIG), call.reader) === wanted) return candidate
+      if (projectScriptId(join(candidate, PROJECT_CONFIG), call.reader) === wanted) matches.push(candidate)
     }
+    if (matches.length === 1) return matches[0]
   }
   return undefined
 }
