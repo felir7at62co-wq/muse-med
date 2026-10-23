@@ -538,8 +538,7 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
         if (!(error instanceof JubianError) || error.code !== 'CONTRACT_CHANGED') throw error
         lastError = error.message
       }
-    } else if (observed !== null
-      && (FAILED_STATUSES as readonly string[]).includes(observed.trim().toLowerCase())) {
+    } else if ((FAILED_STATUSES as readonly string[]).includes(observed.trim().toLowerCase())) {
       return { status: 'failed', material_id: null, image_url: null, observed_status: observed,
         waited_ms: now() - started, error: `资产状态为 ${observed}，不会再有生成图。` }
     }
