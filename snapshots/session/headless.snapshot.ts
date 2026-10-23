@@ -561,6 +561,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
       }
     }
   },
+  async 'muse-time-context'(cwd) {
+    await workspaceSetups['muse-editing-trial-skills']!(cwd)
+    await workspaceSetups['windows-acl-skill']!(cwd)
+  },
   async 'muse-current-professional-skills'(cwd) {
     for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'screenplay-format']) {
       await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })

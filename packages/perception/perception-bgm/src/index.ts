@@ -175,8 +175,10 @@ export function apply(ctx: Context, config: BgmConfig = {}): void {
       + 'inspect：只分析一首并返回它的数值。'
       + '公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。'
       + 'match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。'
+      + '选曲报告保留来源、许可、署名与范围；unknown 不表示可商用，declared 也不表示已核验授权。'
       + '**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。'
-      + '**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**',
+      + '**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**'
+      + '分析模型许可与曲目使用许可分别判断；match/download 不运行该分析模型，曲目授权也不能代替模型使用许可。',
     parameters: {
       method: { type: 'string', required: true, enum: ['match', 'index', 'inspect', 'download'],
         description: 'match=按坐标排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。' },

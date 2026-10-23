@@ -1,0 +1,13 @@
+version: 1
+scenario: drama-project-delivery
+profile: headless
+composition: drama-project-delivery
+recording: authored
+header:
+  class: drama-project-delivery
+  pin: true
+  systemPromptSource: drama-subtitle-timing
+  toolSchemasSource: drama-subtitle-timing
+writerOutput: true
+workspace:
+  final: true

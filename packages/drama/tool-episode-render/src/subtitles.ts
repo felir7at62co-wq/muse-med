@@ -2,11 +2,12 @@
  * Subtitle input: reading the SRT the pipeline produced and composing the ASS
  * script the delivery style burns in.
  *
- * The burned-in subtitle is part of the delivered picture, so its style is the
- * delivery specification rather than a tool parameter: size 40 with -2 spacing
+ * The burned-in subtitle is part of the delivered picture. Without an explicit
+ * project subtitle section it retains design size 40 with -2 spacing
  * and a black outline scaled to the delivery width, bottom-centred on a 1080x1920
  * canvas by default. The policy selects the canvas and optional bottom-right AI mark. The outline's ASS
- * field is derived from that delivered width by `assOutline` — the field is in
+ * Explicit project font/size/margin override those defaults, not the watermark.
+ * The outline's field is derived from that delivered width by `assOutline` — the field is in
  * canvas units and libass scales it to the rasterized frame.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/subtitles

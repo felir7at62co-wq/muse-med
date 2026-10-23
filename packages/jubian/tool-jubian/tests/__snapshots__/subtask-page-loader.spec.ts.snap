@@ -66,7 +66,7 @@ exports[`logs the actual failed child page and its download guidance into the ne
       }
     ]
   },
-  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",
         "type": "text",
       },
@@ -121,7 +121,7 @@ exports[`logs the actual running child page and its download guidance into the n
       }
     ]
   },
-  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",
         "type": "text",
       },
@@ -176,7 +176,7 @@ exports[`logs the actual succeeded child page and its download guidance into the
       }
     ]
   },
-  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 1 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
+  "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 1 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",
         "type": "text",
       },

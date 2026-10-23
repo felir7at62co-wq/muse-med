@@ -19,6 +19,7 @@ import type {
   RenderCheck,
   RenderClipReport,
   RenderSummary,
+  RenderPreview,
   TailFrameEvidence,
   TailFrameReport,
   Timeline,
@@ -53,6 +54,8 @@ export interface ReportInput {
   readonly method: DramaRenderMethod
   /** Optional declared BGM plan validated by render. */
   readonly bgmPlan?: BgmPlanReport
+  /** Effective inputs for prepare/render; absent for methods that do not choose render inputs. */
+  readonly renderPreview?: RenderPreview
   /** Absolute project root. */
   readonly project: string
   /** Two-digit episode number. */
@@ -180,6 +183,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     ].filter(id => !input.checks.some(check => check.id === id)),
     bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [],
       intended_use: 'unknown', license_records: [] },
+    render_preview: input.renderPreview ?? null,
     failures,
     warnings,
     log_path: input.logPath,

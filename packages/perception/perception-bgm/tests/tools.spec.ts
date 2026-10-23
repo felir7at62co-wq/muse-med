@@ -45,6 +45,10 @@ describe('bgm_match registration', () => {
     expect(registered[0]?.parameters?.properties?.intended_use).toMatchObject({ enum: ['commercial', 'non_commercial', 'unknown'] })
     expect(registered[0]?.parameters?.properties).not.toHaveProperty('license_info')
     expect(registered[0]?.description).toContain('license_warnings')
+    expect(registered[0]?.description).toContain('unknown 不表示可商用')
+    expect(registered[0]?.description).toContain('declared 也不表示已核验授权')
+    expect(registered[0]?.description).toContain('分析模型许可与曲目使用许可分别判断')
+    expect(registered[0]?.description).toContain('match/download 不运行该分析模型')
   })
 
   it('explains that the scale is the model 1-9 and what the methods do', async () => {

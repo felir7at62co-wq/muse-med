@@ -5,8 +5,8 @@
  * Project medium and timeline delivery geometry determine output treatment.
  * Explicit 3D animation omits added marks and endings. Photorealistic and
  * unclassified legacy projects retain the marked two-second ending; missing
- * classification is reported. Rate control and body subtitle styling remain
- * the approved delivery specification.
+ * classification is reported. Explicit project subtitle and linear mix settings
+ * override the existing delivery defaults; rate control is unchanged.
  *
  * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
@@ -22,16 +22,19 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
+import { FONT_FAMILY_PATTERN } from './delivery.ts'
 import { deliveryPolicyFor } from './delivery-policy.ts'
+import { readBgmPlan } from './bgm.ts'
 import { BGM_LICENSE_RECORD_TOOL_SCHEMA, LICENSE_INFO_TOOL_SCHEMA } from '@deepseek-ai/dsh-bgm-license-info'
 import { createMediaToolkit } from './ffmpeg.ts'
 import { buildEpisodeCues } from './cues.ts'
 import type { BuiltCues } from './cues.ts'
 import { episodeNumberOf, episodePaths } from './paths.ts'
 import { prepareEpisode } from './prepare.ts'
+import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { renderEpisode } from './render.ts'
-import type { DramaRenderMethod, DramaRenderReport, RenderCheck, RenderSettings } from './types.ts'
+import type { BgmPlanReport, DramaRenderMethod, DramaRenderReport, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
 import { registerDramaVideo } from './video.ts'
 
@@ -59,9 +62,6 @@ const DEFAULT_FONTS_DIR = 'C:/Windows/Fonts'
 /** Default ASS font families for deployments without overrides. */
 const DEFAULT_SUBTITLE_FONT_FAMILY = 'SimHei'
 const DEFAULT_WATERMARK_FONT_FAMILY = 'Microsoft YaHei'
-
-/** ASS font names must contain visible text and cannot inject fields or lines. */
-const FONT_FAMILY_PATTERN = /^(?=[^,\r\n]*\S)[^,\r\n]+$/u
 
 /**
  * Plugin config. Every field is a deployment-varying choice: where the media
@@ -151,6 +151,10 @@ interface PrepareCall extends CallBase {
   readonly shotsPath: string
   /** Absolute path of the subtitle to install. */
   readonly subtitleSrt: string
+  /** Optional BGM bed selected for the later render preview. */
+  readonly bgm?: string
+  /** Optional plan selected for the later render preview. */
+  readonly bgmPlan?: string
 }
 
 /** A resolved `subtitles` call: the manifest, the declared lines, and the SRT to write. */
@@ -256,6 +260,8 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '成片清单的路径，内容形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4"}]}。')),
       subtitleSrt: resolve(project, required(args.subtitleSrt, 'prepare', 'subtitleSrt',
         '本集 SRT 字幕的路径，prepare 会把它装到 editing/<集>.srt 供烧录。')),
+      ...(args.bgm === undefined ? {} : { bgm: resolve(project, args.bgm) }),
+      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
     }
   }
   if (args.method === 'subtitles') {
@@ -311,10 +317,26 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
 }
 
 /** The result of a `prepare` call that wrote nothing but its own layout. */
-function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof prepareEpisode>>): DramaRenderReport {
+async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof prepareEpisode>>,
+  settings: RenderSettings): Promise<DramaRenderReport> {
   const sources = new Map(prepared.shots.map(shot => [shot.source.shot, shot.video]))
+  const policy = deliveryPolicyFor(prepared.timeline.delivery)
+  const preview = buildRenderPreview({ settings, delivery: policy.delivery, subtitle: episodePaths(call.project, call.episode).subtitle,
+    master: episodePaths(call.project, call.episode).masterAudio,
+    ...(call.bgm === undefined ? {} : { bgm: call.bgm }), ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }) })
+  const warnings = [...prepared.warnings, ...renderPreviewWarnings(preview)]
+  let bgmPlan: BgmPlanReport | undefined
+  if (call.bgm !== undefined && call.bgmPlan !== undefined) {
+    try {
+      bgmPlan = await readBgmPlan(call.bgmPlan, call.episode, prepared.timeline.bodyEndSeconds, call.bgm, call.project)
+    } catch (error) {
+      warnings.push(`prepare 已完成；可选 BGM 计划未核对：${call.bgmPlan}；${String(error)}；render 将重新校验。`)
+    }
+  }
   const reportInput: ReportInput = {
     method: 'prepare',
+    renderPreview: preview,
+    ...(bgmPlan === undefined ? {} : { bgmPlan }),
     project: call.project,
     episode: call.episode,
     timeline: prepared.timeline,
@@ -333,7 +355,7 @@ function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof pr
     tailFrame: NO_TAIL_FRAME,
     media: NO_MEDIA,
     checks: [],
-    warnings: prepared.warnings,
+    warnings,
     logPath: '',
   }
   return buildReport(reportInput)
@@ -396,13 +418,13 @@ export async function runDramaRender(
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
   if (call.method === 'prepare') {
-    return prepareReport(call, await prepareEpisode({
+    return await prepareReport(call, await prepareEpisode({
       toolkit,
       project: call.project,
       episode: call.episode,
       shotsPath: call.shotsPath,
       subtitleSrt: call.subtitleSrt,
-    }))
+    }), settings)
   }
   if (call.method === 'subtitles') {
     return subtitlesReport(call, await buildEpisodeCues({
@@ -549,6 +571,27 @@ const RESULT_SCHEMA = {
           },
         } },
       } },
+    render_preview: { required: true,
+      description: 'prepare/render 的最终交付规格、字幕设计值与名义输出像素、实际音轨路径及增益；非字形实测、试听或验收结论。其它方法为 null。',
+      oneOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, properties: {
+        delivery: { type: 'object', required: true, additionalProperties: false, properties: {
+          visual_medium: { type: 'string', enum: ['animation_3d', 'photorealistic'] },
+          width: { type: 'integer', required: true }, height: { type: 'integer', required: true }, fps: { type: 'integer', required: true },
+        } },
+        subtitle: { type: 'object', required: true, additionalProperties: false, properties: {
+          path: { type: 'string', required: true }, font_family: { type: 'string', required: true },
+          design_width: { type: 'number', required: true }, design_height: { type: 'number', required: true },
+          font_size_design: { type: 'number', required: true }, spacing_design: { type: 'number', required: true },
+          outline_design: { type: 'number', required: true }, margin_bottom_design: { type: 'number', required: true },
+          font_size_output_px: { type: 'number', required: true }, outline_output_px: { type: 'number', required: true },
+          margin_bottom_output_px: { type: 'number', required: true },
+        } },
+        audio: { type: 'object', required: true, additionalProperties: false, properties: {
+          master_path: { type: 'string', required: true }, bgm_path: { type: 'string', required: true },
+          bgm_plan_path: { type: 'string', required: true }, master_gain: { type: 'number', required: true }, bgm_gain: { type: 'number', required: true },
+        } },
+      } }],
+    },
     not_checked: { type: 'array', required: true, items: { type: 'string' },
       description: '本次未测量的 QA 项；ok=true 只表示已执行检查通过，不代表内容、字幕或配乐全部通过。' },
     failures: { type: 'array', required: true, items: { type: 'string' },
@@ -588,6 +631,11 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
   + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
   + 'prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。'
+  + 'project_bible.delivery 可显式配置 subtitle.{font_family,font_size_px,margin_bottom_px}（字号和底距为成片像素）'
+  + '与 audio.{master_gain,bgm_gain}（0..8 线性增益，0 为静音）；prepare 同时快照已配 section。'
+  + 'render 按 section 优先用时间线，再用项目显式 section，最后沿用部署/旧样式默认；已快照的 section 不逐字段继承后改项目，更新须重跑 prepare。'
+  + 'prepare/render 的 render_preview 明示最终规格、字幕设计字号与名义输出像素、实际 BGM 路径及增益；'
+  + '请与已认可审查版核对，SRT 不携带审查片的字体样式。prepare 可附 bgm/bgm_plan 预览选曲，未附只提示，不阻塞。'
   + 'render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。'
   + '3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。'
   + 'render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。'
@@ -596,11 +644,11 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
   + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
   + '拼接后烧录 ASS 字幕'
-  + '（默认 SimHei 40，字体服从部署配置；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，'
+  + '（未配置项目样式时默认 SimHei 40，字体服从部署配置，40 为设计字号而非成片像素；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，'
   + '烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；'
   + '把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；'
   + '右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），'
-  + '再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，'
+  + '再把整集原声（默认增益 1.45）+ BGM（默认增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，项目显式增益不改变此混音算法，'
   + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
   + 'GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，'
   + '回退原因写进 encoder_fallback_reason 与渲染日志。'
@@ -651,9 +699,10 @@ export function apply(ctx: Context, config: Config = {}): void {
           + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
-      bgm: { type: 'string', description: '本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；'
-        + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。' },
-      bgm_plan: { type: 'string', description: 'render 可选：现有 episodes/segments 配乐计划 JSON；'
+      bgm: { type: 'string', description: '本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 必填，prepare 可选用于预览。相对路径以 project 为基准；'
+        + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。' },
+      bgm_plan: { type: 'string', description: 'prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，'
+        + '读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。'
         + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
         + '校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。' },
       ending_audio: { type: 'string',

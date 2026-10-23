@@ -7,8 +7,10 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { inspect } from 'node:util'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -80,85 +82,154 @@ function publicSpecifiers(pkg: WorkspacePackage): string[] {
   return [...specifiers].sort()
 }
 
+/**
+ * Return the privilege-free directory-link type for the supplied host platform.
+ * @param platform - Host platform owning the directory links.
+ * @returns Junctions on Windows and directory symlinks elsewhere.
+ */
+export function nodeNextDirectoryLinkType(platform: NodeJS.Platform): 'junction' | 'dir' {
+  return platform === 'win32' ? 'junction' : 'dir'
+}
+
+/**
+ * Link the target package directory inside the disposable consumer.
+ * @param target - Existing source directory; it remains owned by the workspace.
+ * @param link - New link path owned by the disposable consumer.
+ */
+export function linkNodeNextDirectory(target: string, link: string): void {
+  symlinkSync(resolve(target), link, nodeNextDirectoryLinkType(process.platform))
+}
+
+/**
+ * Remove the owned consumer path without traversing symbolic links or junctions.
+ * @param path - Disposable consumer path; a missing path is already removed.
+ */
+export function removeNodeNextConsumer(path: string): void {
+  let stat
+  try {
+    stat = lstatSync(path)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
+    throw error
+  }
+  if (stat.isSymbolicLink()) {
+    unlinkSync(path)
+  } else if (stat.isDirectory()) {
+    for (const name of readdirSync(path)) removeNodeNextConsumer(resolve(path, name))
+    rmdirSync(path)
+  } else {
+    unlinkSync(path)
+  }
+}
+
+/**
+ * Retain the failure's compiler output, stack, and filesystem/process context.
+ * @param error - Compiler, filesystem, or other thrown failure.
+ * @returns Diagnostic text without dropping non-compiler exceptions.
+ */
+export function formatNodeNextFailure(error: unknown): string {
+  const details = typeof error === 'object' && error !== null ? error : {}
+  const context = ['code', 'errno', 'syscall', 'path', 'dest']
+    .filter(key => key in details)
+    .map(key => `${key}: ${inspect(Reflect.get(details, key), { colors: false })}`)
+  const output = ['stdout', 'stderr'].map((key) => {
+    const value: unknown = Reflect.get(details, key)
+    return typeof value === 'string' || Buffer.isBuffer(value) ? value.toString() : ''
+  })
+  const diagnostic = error instanceof Error ? error.stack ?? `${error.name}: ${error.message}` : inspect(error, { colors: false })
+  return [diagnostic, ...context, ...output].filter(Boolean).join('\n')
+}
+
 function linkPackage(pkg: WorkspacePackage, nodeModules: string): void {
   const parts = pkg.name.split('/')
   const link = resolve(nodeModules, ...parts)
   mkdirSync(dirname(link), { recursive: true })
-  symlinkSync(pkg.dir, link, 'dir')
+  linkNodeNextDirectory(pkg.dir, link)
 }
 
-const packages = workspacePackages()
-const badSpecifiers = relativeSpecifiersMissingExtensions()
-if (badSpecifiers.length > 0) {
-  console.error('verify-node-next-types: declaration files still contain relative specifiers without file extensions.')
-  console.error(badSpecifiers.join('\n'))
-  process.exit(1)
-}
-
-const missingOutputs = packages
-  .filter(pkg => pkg.manifest.types && !existsSync(resolve(pkg.dir, pkg.manifest.types)))
-  .map(pkg => `${pkg.name}: missing ${pkg.manifest.types}`)
-
-if (missingOutputs.length > 0) {
-  console.error('verify-node-next-types: build outputs are missing; run `pnpm run build` first.')
-  console.error(missingOutputs.join('\n'))
-  process.exit(1)
-}
-
-const tmp = mkdtempSync(resolve(root, '.node-next-types-'))
-let failed = false
-
-try {
-  const nodeModules = resolve(tmp, 'node_modules')
-  mkdirSync(nodeModules, { recursive: true })
-  for (const pkg of packages) linkPackage(pkg, nodeModules)
-
-  const rootTypes = resolve(root, 'node_modules/@types/node')
-  if (existsSync(rootTypes)) {
-    const typesDir = resolve(nodeModules, '@types')
-    mkdirSync(typesDir, { recursive: true })
-    symlinkSync(rootTypes, resolve(typesDir, 'node'), 'dir')
+function verifyNodeNextTypes(): number {
+  const packages = workspacePackages()
+  const badSpecifiers = relativeSpecifiersMissingExtensions()
+  if (badSpecifiers.length > 0) {
+    console.error('verify-node-next-types: declaration files still contain relative specifiers without file extensions.')
+    console.error(badSpecifiers.join('\n'))
+    return 1
   }
 
-  writeFileSync(resolve(tmp, 'package.json'), `${JSON.stringify({ type: 'module', private: true }, null, 2)}\n`)
-  writeFileSync(resolve(tmp, 'tsconfig.json'), `${JSON.stringify({
-    compilerOptions: {
-      target: 'es2024',
-      module: 'NodeNext',
-      moduleResolution: 'NodeNext',
-      strict: true,
-      // Third-party SDK declarations can have their own lib-check noise under a
-      // symlinked temp install. The explicit scan above owns our regression:
-      // relative specifiers without file extensions in built declarations.
-      skipLibCheck: true,
-      preserveSymlinks: true,
-      noEmit: true,
-      types: ['node'],
-    },
-    include: ['index.ts'],
-  }, null, 2)}\n`)
+  const missingOutputs = packages
+    .filter(pkg => pkg.manifest.types && !existsSync(resolve(pkg.dir, pkg.manifest.types)))
+    .map(pkg => `${pkg.name}: missing ${pkg.manifest.types}`)
 
-  const imports = packages.flatMap(publicSpecifiers)
-    .map((specifier, index) => `import * as mod${index} from ${JSON.stringify(specifier)};\nvoid mod${index};`)
-    .join('\n')
-  writeFileSync(resolve(tmp, 'index.ts'), `${imports}\n`)
+  if (missingOutputs.length > 0) {
+    console.error('verify-node-next-types: build outputs are missing; run `pnpm run build` first.')
+    console.error(missingOutputs.join('\n'))
+    return 1
+  }
 
-  // tsc's JS entry via the current node, not the .bin shim: the extensionless
-  // shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd variant needs
-  // shell:true, which space-joins args UNESCAPED (DEP0190) — a hazard for the
-  // temp tsconfig path. The JS entry behaves identically on every platform.
-  execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
-    cwd: root,
-    stdio: 'pipe',
-  })
-  console.log(`verify-node-next-types: ${packages.length} workspace package declaration API(s) compile under NodeNext.`)
-} catch (error: unknown) {
-  failed = true
-  const output = error as { stdout?: Buffer; stderr?: Buffer }
-  console.error('verify-node-next-types: NodeNext consumer typecheck failed.\n')
-  console.error(`${output.stdout?.toString() ?? ''}${output.stderr?.toString() ?? ''}`)
-} finally {
-  rmSync(tmp, { recursive: true, force: true })
+  const tmp = mkdtempSync(resolve(root, '.node-next-types-'))
+  let failed = false
+
+  try {
+    const nodeModules = resolve(tmp, 'node_modules')
+    mkdirSync(nodeModules, { recursive: true })
+    for (const pkg of packages) linkPackage(pkg, nodeModules)
+
+    const rootTypes = resolve(root, 'node_modules/@types/node')
+    if (existsSync(rootTypes)) {
+      const typesDir = resolve(nodeModules, '@types')
+      mkdirSync(typesDir, { recursive: true })
+      linkNodeNextDirectory(rootTypes, resolve(typesDir, 'node'))
+    }
+
+    writeFileSync(resolve(tmp, 'package.json'), `${JSON.stringify({ type: 'module', private: true }, null, 2)}\n`)
+    writeFileSync(resolve(tmp, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: {
+        target: 'es2024',
+        module: 'NodeNext',
+        moduleResolution: 'NodeNext',
+        strict: true,
+        // Third-party SDK declarations can have their own lib-check noise under a
+        // symlinked temp install. The explicit scan above owns our regression:
+        // relative specifiers without file extensions in built declarations.
+        skipLibCheck: true,
+        preserveSymlinks: true,
+        noEmit: true,
+        types: ['node'],
+      },
+      include: ['index.ts'],
+    }, null, 2)}\n`)
+
+    const imports = packages.flatMap(publicSpecifiers)
+      .map((specifier, index) => `import * as mod${index} from ${JSON.stringify(specifier)};\nvoid mod${index};`)
+      .join('\n')
+    writeFileSync(resolve(tmp, 'index.ts'), `${imports}\n`)
+
+    // tsc's JS entry via the current node, not the .bin shim: the extensionless
+    // shim isn't spawnable on Windows (CVE-2024-27980) and the .cmd variant needs
+    // shell:true, which space-joins args UNESCAPED (DEP0190) — a hazard for the
+    // temp tsconfig path. The JS entry behaves identically on every platform.
+    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', resolve(tmp, 'tsconfig.json'), '--pretty', 'false'], {
+      cwd: root,
+      stdio: 'pipe',
+    })
+    console.log(`verify-node-next-types: ${packages.length} workspace package declaration API(s) compile under NodeNext.`)
+  } catch (error: unknown) {
+    failed = true
+    console.error('verify-node-next-types: NodeNext consumer typecheck failed.\n')
+    console.error(formatNodeNextFailure(error))
+  } finally {
+    try {
+      removeNodeNextConsumer(tmp)
+    } catch (error) {
+      failed = true
+      console.error('verify-node-next-types: temporary consumer cleanup failed.\n')
+      console.error(formatNodeNextFailure(error))
+    }
+  }
+
+  return failed ? 1 : 0
 }
 
-if (failed) process.exit(1)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = verifyNodeNextTypes()
+}

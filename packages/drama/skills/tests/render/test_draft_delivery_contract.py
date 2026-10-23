@@ -6,6 +6,7 @@ temporary directory.
 """
 import argparse
 import errno
+import hashlib
 import importlib.util
 import json
 import shutil
@@ -25,6 +26,7 @@ SRT = ('1\n00:00:00,000 --> 00:00:00,900\n孕八周。指标目前正常。\n\n'
        '2\n00:00:00,900 --> 00:00:02,000\n但你最近睡眠不太好，注意休息。\n\n'
        '3\n00:00:02,000 --> 00:00:04,000\n八周？\n')
 DRAFT_NAME = '候选A-25'
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def load_draft_module():
@@ -66,6 +68,22 @@ class DraftDeliveryContractTests(unittest.TestCase):
             subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
                             '-i', 'testsrc=size=160x120:rate=24:duration=2', '-pix_fmt', 'yuv420p',
                             str(source / f'p{shot}.mp4')], check=True)
+        cls.video_with_audio = source / 'source-with-audio.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(source / 'p1.mp4'),
+                        '-i', str(cls.audio), '-map', '0:v:0', '-map', '1:a:0',
+                        '-c:v', 'copy', '-c:a', 'aac', '-t', '2', str(cls.video_with_audio)],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                                '-show_entries', 'stream=codec_name', '-of', 'json',
+                                str(cls.video_with_audio)], check=True, capture_output=True,
+                               text=True, timeout=30, creationflags=NO_WINDOW)
+        if json.loads(probe.stdout)['streams'] != [{'codec_name': 'aac'}]:
+            raise AssertionError('The duplicate-dialogue fixture must contain a real AAC stream')
+        cls.short_video = source / 'non-integral-frame-with-audio.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'testsrc=size=160x120:rate=24:duration=2.041667', '-i', str(cls.audio),
+                        '-map', '0:v:0', '-map', '1:a:0', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                        '-t', '2.048', str(cls.short_video)], check=True, timeout=30, creationflags=NO_WINDOW)
 
     @classmethod
     def tearDownClass(cls):
@@ -179,6 +197,44 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertFalse((draft_dir / 'ending-evidence.json').exists())
         self.assertEqual(len(self.texts(content)), 3)
 
+    def test_project_audio_gains_reach_independent_sdk_tracks_without_duplicate_source_audio(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        (root / 'project_config.json').write_text(json.dumps({'project_bible': {
+            'visual_medium': 'animation_3d', 'delivery': {
+                'audio': {'master_gain': 1, 'bgm_gain': 0.24}}}}), encoding='utf-8')
+        (root / '04_bgm').mkdir()
+        shutil.copy2(self.audio, root / '04_bgm/bed.wav')
+        shutil.copy2(self.video_with_audio, root / '02_media/25/p1.mp4')
+        content = self.generate_content(root)
+        tracks = {track['name']: track for track in content['tracks']}
+        self.assertEqual(tracks['主音频轨道']['segments'][0]['volume'], 1)
+        self.assertEqual(tracks['BGM轨道']['segments'][0]['volume'], 0.24)
+        self.assertTrue(all(segment['volume'] == 0 for segment in self.segments(content, 'video')))
+        self.assertEqual(content['duration'], 4_000_000)
+
+    def test_audio_snapshot_preserves_zero_and_does_not_merge_later_project_gains(self):
+        timeline = self.delivery_timeline('animation_3d')
+        timeline['delivery']['audio'] = {'master_gain': 0}
+        root = self.build_root(timeline=timeline)
+        (root / 'project_config.json').write_text(json.dumps({'project_bible': {'delivery': {
+            'audio': {'master_gain': 2, 'bgm_gain': 0.24}}}}), encoding='utf-8')
+        (root / '04_bgm').mkdir()
+        shutil.copy2(self.audio, root / '04_bgm/bed.wav')
+        content = self.generate_content(root)
+        tracks = {track['name']: track for track in content['tracks']}
+        self.assertEqual(tracks['主音频轨道']['segments'][0]['volume'], 0)
+        self.assertEqual(tracks['BGM轨道']['segments'][0]['volume'], 1)
+
+    def test_invalid_project_audio_is_rejected_before_creating_a_draft(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+        (root / 'project_config.json').write_text(json.dumps({'project_bible': {'delivery': {
+            'audio': {'bgm_gain': None}}}}), encoding='utf-8')
+        with patch.object(self.module.draft.DraftFolder, 'create_draft',
+                          side_effect=AssertionError('invalid input must not create a draft')):
+            with self.assertRaisesRegex(self.module.DraftInputError, 'bgm_gain'):
+                self.generate(root)
+        self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
     def test_landscape_delivery_snapshot_preserves_unit_scale_for_854_by_480_source(self):
         timeline = self.delivery_timeline('animation_3d')
         timeline['delivery'].update(width=1920, height=1080, fps=30)
@@ -271,6 +327,138 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(self.module.VOICE_VOLUME, 1.0)
         self.assertEqual([segment['volume'] for segment in self.segments(content, 'audio')], [1.0])
 
+    def test_embedded_dialogue_is_muted_only_after_the_independent_main_track_is_added(self):
+        root = self.body_only_root()
+        for shot in (1, 2):
+            shutil.copy2(self.video_with_audio, root / f'02_media/25/p{shot}.mp4')
+        content = self.generate_content(root)
+        self.assertEqual([segment['volume'] for segment in self.segments(content, 'video')], [0, 0])
+        self.assertEqual([segment['volume'] for segment in self.segments(content, 'audio')], [1.0])
+
+    def test_failed_main_audio_import_keeps_embedded_video_audio_and_the_reviewable_draft(self):
+        original_add = self.module.draft.ScriptFile.add_segment
+        def fail_main_audio(script, segment, track=None):
+            if isinstance(segment, self.module.draft.AudioSegment):
+                raise RuntimeError('main audio could not be added')
+            return original_add(script, segment, track)
+        for failure in ('material', 'segment'):
+            with self.subTest(failure=failure):
+                root = self.body_only_root()
+                for shot in (1, 2):
+                    shutil.copy2(self.video_with_audio, root / f'02_media/25/p{shot}.mp4')
+                mocked = (patch.object(self.module.draft, 'AudioMaterial', side_effect=RuntimeError('main audio unreadable'))
+                          if failure == 'material' else patch.object(self.module.draft.ScriptFile, 'add_segment', fail_main_audio))
+                with mocked:
+                    content = self.generate_content(root)
+                self.assertEqual([segment['volume'] for segment in self.segments(content, 'video')], [1.0, 1.0])
+                self.assertFalse(self.segments(content, 'audio'))
+                review = json.loads((root / 'jianying' / DRAFT_NAME / 'muse-review.json').read_text(encoding='utf-8'))
+                self.assertTrue(any('主音频轨没有任何片段' in warning for warning in review['warnings']))
+
+    def body_gap_root(self, clip_duration_us=2_048_000, medium='animation_3d'):
+        timeline = {'clips': [{'shot': shot, 'start_us': (shot - 1) * clip_duration_us,
+                               'duration_us': clip_duration_us} for shot in (1, 2)],
+                    'body_end': 2 * clip_duration_us / 1e6,
+                    'delivery': {'visual_medium': medium, 'width': 480, 'height': 854, 'fps': 24}}
+        root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:01,000\n原声时钟\n')
+        for shot in (1, 2):
+            shutil.copy2(self.short_video, root / f'02_media/25/p{shot}.mp4')
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        f'sine=frequency=440:duration={2 * clip_duration_us / 1e6:.6f}', '-ar', '48000',
+                        str(root / '01_audio/25.wav')], check=True, timeout=30, creationflags=NO_WINDOW)
+        return root, timeline
+
+    def test_small_sdk_video_tails_use_verified_frames_without_moving_body_audio_or_subtitles(self):
+        for medium in ('animation_3d', 'photorealistic'):
+            with self.subTest(medium=medium):
+                root, timeline = self.body_gap_root(medium=medium)
+                draft_dir = self.generate(root)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
+                self.assertEqual(len(evidence), 2)
+                video = self.segments(content, 'video')
+                self.assertEqual([segment['target_timerange'] for segment in video[:4]], [
+                    {'start': 0, 'duration': 2_042_000}, {'start': 2_042_000, 'duration': 6_000},
+                    {'start': 2_048_000, 'duration': 2_042_000}, {'start': 4_090_000, 'duration': 6_000}])
+                self.assertTrue(all(segment['speed'] == 1.0 and segment['volume'] == 0 for segment in video[:4]))
+                self.assertEqual(self.segments(content, 'audio')[0]['target_timerange'], {'start': 0, 'duration': 4_096_000})
+                self.assertEqual(self.segments(content, 'text')[0]['target_timerange'], {'start': 0, 'duration': 1_000_000})
+                self.assertEqual(json.loads((root / '05_timeline/25.timeline.json').read_text(encoding='utf-8')), timeline)
+                for hold in evidence:
+                    source, image = Path(hold['source']), Path(hold['image'])
+                    self.assertEqual(hold['source_sha256'], hashlib.sha256(source.read_bytes()).hexdigest())
+                    self.assertEqual(hold['image_sha256'], hashlib.sha256(image.read_bytes()).hexdigest())
+                    expected = self.module.decoded_frame_hashes(source, hold['selected_duration_us'])[-1]
+                    self.assertEqual(self.module.decoded_frame_hashes(image), [expected])
+                    self.assertEqual(hold['frame_rgb_md5'], expected)
+                if medium == 'animation_3d':
+                    self.assertEqual(content['duration'], 4_096_000)
+                    self.assertFalse((draft_dir / 'ending-evidence.json').exists())
+                    self.assertFalse({'片尾音', '片尾特效', 'AI内容标识'} & {track['name'] for track in content['tracks']})
+                else:
+                    self.assertEqual(video[-1]['target_timerange'], {'start': 4_096_000, 'duration': 2_000_000})
+                    self.assertEqual(content['duration'], 6_096_000)
+                review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+                self.assertFalse(any('视频段数' in warning or '时间范围' in warning for warning in review['warnings']))
+
+    def test_large_sdk_video_tails_remain_reviewable_without_automatic_holds(self):
+        root, _timeline = self.body_gap_root(clip_duration_us=2_300_000)
+        with self.assertLogs(self.module.logger, level='WARNING') as captured:
+            draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(self.segments(content, 'video')), 2)
+        self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
+        self.assertIn('超过容差；不自动补帧', '\n'.join(captured.output))
+        self.assertTrue((draft_dir / 'muse-review.json').exists())
+
+    def test_body_tail_tolerance_includes_200ms_but_does_not_extend_beyond_it(self):
+        for extra_us in (0, 1):
+            with self.subTest(extra_us=extra_us):
+                root, _timeline = self.body_gap_root(clip_duration_us=2_242_000 + extra_us)
+                draft_dir = self.generate(root)
+                evidence_path = draft_dir / 'body-tail-evidence.json'
+                self.assertEqual(evidence_path.is_file(), extra_us == 0)
+                if evidence_path.is_file():
+                    holds = json.loads(evidence_path.read_text(encoding='utf-8'))['holds']
+                    self.assertEqual([hold['duration_us'] for hold in holds], [200_000, 200_000])
+
+    def test_unverified_body_tail_keeps_existing_segments_and_returns_a_review_warning(self):
+        root, _timeline = self.body_gap_root()
+        with patch.object(self.module, 'extract_draft_tail', side_effect=self.module.DraftInputError('frame mismatch')):
+            draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        video = self.segments(content, 'video')
+        self.assertEqual([segment['target_timerange'] for segment in video], [
+            {'start': 0, 'duration': 2_042_000}, {'start': 2_048_000, 'duration': 2_042_000}])
+        self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
+        review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertEqual(len([warning for warning in review['warnings'] if 'frame mismatch' in warning]), 2)
+
+    def test_body_tail_records_do_not_excuse_missing_or_changed_source_segments(self):
+        root, timeline = self.body_gap_root()
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        holds = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips(timeline))
+        cues = self.module.parse_srt_cues(root / '03_subtitle/25.srt')
+        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan, body_tail_holds=holds)
+        for tamper in ('missing_source', 'missing_hold', 'changed_hold', 'undeclared_hold'):
+            with self.subTest(tamper=tamper):
+                bad = json.loads(json.dumps(content))
+                track = next(track for track in bad['tracks'] if track['name'] == '视频轨道')
+                records = holds
+                if tamper == 'missing_source':
+                    track['segments'].pop(0)
+                elif tamper == 'missing_hold':
+                    track['segments'].pop(1)
+                elif tamper == 'changed_hold':
+                    track['segments'][1]['target_timerange']['duration'] += 1
+                else:
+                    records = []
+                with self.assertRaisesRegex(self.module.DraftInputError, '视频段数|正文末帧补齐'):
+                    self.module.verify_draft_delivery(bad, self.clips(timeline), 4_096_000, cues, plan,
+                                                       body_tail_holds=records)
+
     def test_punctuated_lines_become_single_line_cues_matching_the_draft(self):
         root = self.build_root()
         content = self.generate_content(root)
@@ -296,7 +484,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIn('建议长度', '\n'.join(notes.output))
         draft = root / 'jianying' / DRAFT_NAME
         self.assertTrue((draft / 'draft_content.json').is_file())
-        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text(encoding='utf-8'))['warnings'])
 
     def test_alignment_warning_preserves_a_reviewable_subtitled_draft(self):
         root = self.build_root()
@@ -306,7 +494,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIn('字幕对齐待核', '\n'.join(notes.output))
         draft = root / 'jianying' / DRAFT_NAME
         self.assertTrue((draft / 'draft_content.json').is_file())
-        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text(encoding='utf-8'))['warnings'])
 
     def test_alignment_warning_without_srt_preserves_other_tracks(self):
         root = self.build_root(srt=None)
@@ -317,7 +505,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIn('字幕对齐待核', '\n'.join(notes.output))
         draft = root / 'jianying' / DRAFT_NAME
         self.assertTrue((draft / 'draft_content.json').is_file())
-        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text(encoding='utf-8'))['warnings'])
 
     def test_subtitle_import_failure_returns_a_warning_and_saved_candidate(self):
         root = self.build_root()
@@ -337,7 +525,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIn('BGM 未导入', '\n'.join(notes.output))
         draft = root / 'jianying' / DRAFT_NAME
         self.assertTrue((draft / 'draft_content.json').is_file())
-        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text(encoding='utf-8'))['warnings'])
 
     def test_short_bgm_is_kept_without_looping_and_reported_for_review(self):
         root = self.build_root()
@@ -350,7 +538,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertIn('时长短于正文', '\n'.join(notes.output))
         draft = root / 'jianying' / DRAFT_NAME
         self.assertTrue((draft / 'draft_content.json').is_file())
-        self.assertTrue(json.loads((draft / 'muse-review.json').read_text())['warnings'])
+        self.assertTrue(json.loads((draft / 'muse-review.json').read_text(encoding='utf-8'))['warnings'])
 
     def test_verified_bgm_and_subtitles_remain_editable_tracks(self):
         root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
@@ -541,6 +729,40 @@ class DraftDeliveryContractTests(unittest.TestCase):
         with self.assertRaisesRegex(self.module.DraftInputError, 'body_end'):
             self.generate(root)
         self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
+
+    def test_32ms_container_tail_uses_clip_clock_and_retains_the_source_timeline(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d', body_end=4.032))
+        timeline_path = root / '05_timeline/25.timeline.json'
+        original = timeline_path.read_bytes()
+        content = self.generate_content(root)
+        self.assertEqual(content['duration'], 4_000_000)
+        self.assertEqual([segment['target_timerange'] for segment in self.segments(content, 'video')],
+                         [{'start': 0, 'duration': 2_000_000},
+                          {'start': 2_000_000, 'duration': 2_000_000}])
+        review = json.loads((root / 'jianying' / DRAFT_NAME / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertTrue(any('容器尾差' in warning for warning in review['warnings']))
+        self.assertEqual(timeline_path.read_bytes(), original)
+
+    def test_bgm_role_controls_the_independent_track_without_classifying_the_filename(self):
+        for role, include in ((None, True), ('music_only', True), ('dialogue_music_mix', False)):
+            with self.subTest(role=role):
+                root = self.body_only_root()
+                (root / '04_bgm').mkdir()
+                shutil.copy2(self.audio, root / '04_bgm/review-mix.wav')
+                shutil.copytree(root, root / 'materials')
+                (root / 'jianying').mkdir()
+                result = self.module.generate_draft(str(root / 'jianying'), str(root / 'materials'),
+                    name_prefix='候选A-', project=str(root), bgm_role=role)
+                self.assertTrue(result['success'], result)
+                content = json.loads((root / 'jianying' / DRAFT_NAME / 'draft_content.json').read_text(encoding='utf-8'))
+                self.assertEqual(len([track for track in content['tracks'] if track['name'] == 'BGM轨道']), int(include))
+                self.assertEqual(len([track for track in content['tracks'] if track['name'] == '主音频轨道']), 1)
+                if role == 'dialogue_music_mix':
+                    self.assertTrue(any('不导入独立 BGM 轨' in warning for warning in result['warnings']))
+                elif role is None:
+                    self.assertTrue(any('未分析或确认其不含对白' in warning for warning in result['warnings']))
+                else:
+                    self.assertFalse(any('未声明为 music_only' in warning for warning in result['warnings']))
 
     def test_delivery_checks_notice_duration_and_freeze_count_separately_from_subtitles(self):
         content = self.generate_content(self.build_root())

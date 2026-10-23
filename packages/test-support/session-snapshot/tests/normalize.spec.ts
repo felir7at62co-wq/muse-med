@@ -1060,6 +1060,78 @@ describe('tokenizeSessionFixtureCwd', () => {
     expect(tokenizeSessionFixtureCwd(out)).toBe(out)
   })
 
+  it('tokenizes JSON-escaped Windows cwd paths without altering sibling or external paths', () => {
+    const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-json-test`
+    const body = { project: cwd, config_path: `${cwd}\\project_config.json`,
+      forward_path: `${cwd.replaceAll('\\', '/')}/editing/24-timeline.json`,
+      nested_json: JSON.stringify({ project: cwd, reason: 'Keep the nested diagnostic.' }),
+      sibling: `${cwd}-backup\\project_config.json`, external: String.raw`D:\media\retained.wav`,
+      reason: 'Keep this user feedback unchanged.' }
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd }),
+      JSON.stringify({ type: 'tool/result', data: { content: [{ type: 'text', text: JSON.stringify(body, null, 2) }] } }),
+      '',
+    ].join('\n')
+
+    const output = tokenizeSessionFixtureCwd(raw)
+    const row = JSON.parse(output.split('\n')[1] as string) as { data: { content: { text: string }[] } }
+    const block = row.data.content[0]
+    if (block === undefined) throw new Error('Missing tokenized tool result')
+    const rendered: unknown = JSON.parse(block.text)
+    expect(rendered).toEqual({ ...body, project: '{{cwd}}', config_path: '{{cwd}}\\project_config.json',
+      forward_path: '{{cwd}}/editing/24-timeline.json',
+      nested_json: JSON.stringify({ project: '{{cwd}}', reason: 'Keep the nested diagnostic.' }) })
+    expect(tokenizeSessionFixtureCwd(output)).toBe(output)
+  })
+
+  it('retains complete PTC diagnostics while tokenizing a nested Windows cwd after a fullwidth colon', () => {
+    const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-ptc-error`
+    const escapedCwd = JSON.stringify(cwd).slice(1, -1)
+    const failure = `scene_file_missing: 场次 JSON 文件不可用：${cwd}\\missing-scene.json`
+    const schemaReason = 'beats.0.requires_knowledge: Invalid input: expected array, received undefined'
+    const result = { failure, batch_failure: 'fact_batch: 本次批量审校 21 条，允许 1–20 条。',
+      schema_failure: `scene_file_invalid: 场次文件 ${cwd}\\invalid-scene.json 不符合完整场次字段要求：\n${schemaReason}`,
+      sibling: `${cwd}-backup\\missing-scene.json`, external: String.raw`D:\media\retained.wav`,
+      non_cwd_error: String.raw`scene_file_missing: 场次 JSON 文件不可用：D:\other\missing-scene.json`,
+      feedback: 'Keep this user feedback and every diagnostic unchanged.' }
+    const dispatch = { type: 'tool/ptc-dispatch', data: { name: 'screenplay_project', isError: true,
+      arguments: { request: { method: 'stage_files', files: ['missing-scene.json'] } },
+      content: [{ type: 'text', text: `Error: scene_file_missing: 场次 JSON 文件不可用：${cwd}\\missing-scene.json` }] } }
+    const toolResult = { type: 'tool/result', data: { message: { role: 'tool', isError: false,
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } } }
+    const raw = [JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd }),
+      JSON.stringify(dispatch), JSON.stringify(toolResult), ''].join('\n')
+
+    const output = tokenizeSessionFixtureCwd(raw)
+    const rows = output.trim().split('\n')
+    expect(JSON.parse(rows[1] as string) as typeof dispatch).toEqual({ type: 'tool/ptc-dispatch', data: { name: 'screenplay_project', isError: true,
+      arguments: { request: { method: 'stage_files', files: ['missing-scene.json'] } },
+      content: [{ type: 'text', text: 'Error: scene_file_missing: 场次 JSON 文件不可用：{{cwd}}\\missing-scene.json' }] } })
+    const renderedResult = JSON.parse(rows[2] as string) as typeof toolResult
+    const rendered: unknown = JSON.parse(renderedResult.data.message.content[0]!.text)
+    expect(rendered).toEqual({ ...result,
+      failure: failure.replace(cwd, '{{cwd}}'),
+      schema_failure: result.schema_failure.replace(cwd, '{{cwd}}') })
+    expect(normalizeSessionLog(raw, { cwd, sessionIds: [], cwdAliases: [escapedCwd] }))
+      .toBe(normalizeSessionLog(output, { cwd: '{{cwd}}', sessionIds: [] }))
+    const posixCwd = '/tmp/dsh-log-snap-ptc-error'
+    const posixResult = { ...result,
+      failure: `scene_file_missing: 场次 JSON 文件不可用：${posixCwd}/missing-scene.json`,
+      schema_failure: `scene_file_invalid: 场次文件 ${posixCwd}/invalid-scene.json 不符合完整场次字段要求：\n${schemaReason}` }
+    const posixRows = [
+      { type: 'session', id: 's', createdAt: 1, cwd: posixCwd },
+      { ...dispatch, data: { ...dispatch.data,
+        content: [{ type: 'text', text: `Error: scene_file_missing: 场次 JSON 文件不可用：${posixCwd}/missing-scene.json` }] } },
+      { ...toolResult, data: { message: { ...toolResult.data.message,
+        content: [{ type: 'text', text: JSON.stringify(posixResult, null, 2) }] } } },
+    ]
+    const normalized = normalizeSessionLog(raw, { cwd, sessionIds: [], cwdAliases: [escapedCwd] })
+    expect(normalized).toBe(normalizeSessionLog(posixRows.map(row => JSON.stringify(row)).join('\n'),
+      { cwd: posixCwd, sessionIds: [] }))
+    expect(normalizeSessionLog(normalized, { cwd: '{{cwd}}', sessionIds: [] })).toBe(normalized)
+    expect(tokenizeSessionFixtureCwd(output)).toBe(output)
+  })
+
   it('collapses a residual macOS realpath prefix around an existing cwd token', () => {
     const raw = [
       JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: '{{cwd}}' }),

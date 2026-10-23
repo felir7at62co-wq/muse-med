@@ -217,7 +217,7 @@ inherited process environment (read-only, highest)
 `jubian_storyboard list` 接收 `script_id` 和可选的 `page_num`/`page_size`，返回 `storyboards.rows`、`total`（未提供时为 null）和请求页号。空项目返回空列表。未绑定的分集表示为 `episode_id: null`；来自其他项目的行会被拒绝。按总数分页读取；没有总数时继续到空页。详情用 `get`。模型 `preview` 需要已存设置或明确的 `changes`；缺字段或缺分集归属时会点名受影响分镜。它不是查询入口。
 
 `create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
-- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后核实父资产 Active 或新父资产下唯一 Active 未采用候选图，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 提交一次计费的 1080p 转换（SeedVR2 视频高清，1 元/条），只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
+- `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。这次写是异步的，因此该方法随后核实父资产 Active 或新父资产下唯一 Active 未采用候选图，并返回它的 `material_id`（`confirm_casting` 要的就是它）与 `image_url`；见下文「计费生图路径」。`upscale` 按实时模型、规格与价格提交一次计费转换，只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
 - `jubian_media` 下载一个提供方媒体，返回路径、探测出的媒体类型、字节数与 sha256。`output_path` 缺少扩展名或与实际格式冲突时，按探测出的格式修正；调用方必须读取返回的 `path`。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
 
 ### 账号剧本池认领
@@ -393,6 +393,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 只有 intent 没有 settle 的那条，就是超时留下的"未知态"，也是回答那次调用到底扣没扣费的唯一依据。只有 HTTP 为 2xx 且信封 `code` 为 `0` 或 `200` 时 `outcome` 才是 `accepted`；其余一律 `unknown`。
 
+费用报告分列提交估算、账本占账与提供方任务行 `real_cost` 观测。账本 `settled` 和 `reserved` 金额采用提交报价或估算，不是提供方官方账单。包括 ASR 在内的未返回费用保持未知，不当作零；已知任务行合计不代表整集官方总实扣。
+
 <a id="errors"></a>
 ### 错误
 
@@ -412,6 +414,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 ### 提交异步阶段
 
 `upscale` 将源身份与 SeedVR2 选择字段提交到 `/aigc/storyboard/hdConversion`，不发送 `videoResolution` 字段。任何端点（包括错误路径）产生的 `unknown` 记录，在路由修复后仍受同一账本 key 保护。考虑再次提交前必须核对提供方任务与费用；修改路径不构成换新 key 的授权（[路由证据](../../../.agents/notes/implemented/bug-fix/2026-09-21-jubian-upscale-route.zh.md)）。
+
+`1080p` 等高清分辨率表示目标档位，不保证精确像素。报告须区分目标与输出文件探测得到的实际宽高；成功任务的实际尺寸不同，不因此判为高清失败。目标档位和成功解码都不证明画质已经改善。
 
 去字幕与转高清都是提供方的异步任务。`erase_subtitle` 与 `upscale` 在提供方受理后立刻返回，并附上被受理的任务 ID；实测一次转高清会持续几分钟到十几分钟。
 
