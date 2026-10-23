@@ -423,6 +423,23 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-workspace-files -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-argument-loop -->
+<a id="deepseek-aidsh-argument-loop"></a>
+
+## `@deepseek-ai/dsh-argument-loop`
+
+- `inject`: `llm`
+- `source`: [`packages/guard/argument-loop/src/index.ts:24`](../packages/guard/argument-loop/src/index.ts)
+
+```ts config-catalog
+/** Deployment policy; the package deliberately supplies no global threshold. */
+export interface Config {
+  /** Occurrences of one decoded member name within one JSON object that stop a response. */
+  repeatedPropertyLimit: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-argument-loop -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-attachment-local -->
 <a id="deepseek-aidsh-attachment-local"></a>
 

@@ -119,7 +119,7 @@ The analysis separates frame RMS/sample peaks in dBFS from EBU R128 momentary (4
 
 ### Project subtitle and audio settings
 
-Keep approved settings under `project_bible.delivery` in `project_config.json`, not a root-level `delivery`. This is a partial example, not a replacement project file. Read and narrowly edit the existing file, preserving its schema version, revision, history, budget and remote bindings; `drama_project.changes.delivery` currently accepts geometry only, not these subtitle/audio fields:
+Keep approved settings under `project_bible.delivery` in `project_config.json`, not a root-level `delivery`. This is a partial example, not a replacement project file. Read and narrowly edit the existing file, preserving its schema version, revision, history, budget and remote bindings; `drama_project.changes.delivery` accepts geometry and the separate draft-style section below, not these formal-render subtitle/audio fields:
 
 ```json
 {"project_bible":{"visual_medium":"animation_3d","delivery":{"width":480,"height":854,"fps":24,"subtitle":{"font_size_px":30,"margin_bottom_px":18},"audio":{"master_gain":1,"bgm_gain":0.1}}}}
@@ -130,6 +130,13 @@ Keep approved settings under `project_bible.delivery` in `project_config.json`, 
 Each subtitle/audio section resolves as a whole: an explicit timeline section, including `{}`, wins over the current project section. A field absent from that selected section uses deployment or legacy defaults, not a field from the other section. A missing timeline section may inherit the current project section. Run `prepare` again to adopt changed project settings, and render to a new candidate rather than overwrite an approved file. Callers with no explicit sections retain their old timeline, ASS and mixing defaults. Review actual output; an SRT alone does not record approved appearance.
 
 Editable drafts read the same explicit audio sections with the same section priority. Without explicit gains their SDK defaults remain 1/1, independently of the formal renderer's deployment defaults; set both gains when matching the two paths. Draft typography uses separate editor units and is not changed by these formal-render subtitle fields. No font is installed or copied by these settings.
+
+<a id="project-draft-style"></a>
+### Project draft style
+
+Set editable Jianying typography through `drama_project.changes.delivery.draft_style`, for example `{"watermark":{"font_size_ui":7},"subtitle":{"font_family":"山海经","font_size_ui":11,"border_width_ui":20,"transform_y":-0.465625}}`. Font sizes use editor UI units greater than zero through 100; the black border uses UI units from 0 through 100, and vertical position is from -1 through 1. A font name must contain 1–128 characters after trimming and no control characters. A stored request does not establish editor resource availability or usage rights; it does not install or download fonts.
+
+`prepare` preserves this optional section in `timeline.delivery.draft_style`; the whole saved section, including `{}`, wins over current project values. Omitted fields in the selected section retain draft defaults, not fields from the other section. Run `prepare` again to adopt project changes. This section does not change formal-render ASS or mix settings, and animation still omits the watermark and ending. The draft exporter owns font resolution and reports any fallback; inspect the candidate and its review rather than treating the requested family as verified appearance.
 
 ### Marked delivery prerequisites: the two ending files
 

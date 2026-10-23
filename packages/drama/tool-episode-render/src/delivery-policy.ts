@@ -6,7 +6,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
-import type { DeliveryAudio, DeliveryPolicy, DeliverySubtitle, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
+import type { DeliveryAudio, DeliveryDraftStyle, DeliveryPolicy, DeliverySubtitle, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
 
 /** Reject malformed explicit metadata instead of treating it as missing. */
 function object(value: unknown, path: string): Record<string, unknown> {
@@ -65,6 +65,33 @@ function audio(value: unknown, path: string): DeliveryAudio {
   }
 }
 
+/** Parse explicit editor-unit typography without installing or resolving fonts. */
+function draftStyle(value: unknown, path: string): DeliveryDraftStyle {
+  const row = object(value, path)
+  const watermark = Object.hasOwn(row, 'watermark') ? object(row.watermark, `${path}.watermark`) : undefined
+  const body = Object.hasOwn(row, 'subtitle') ? object(row.subtitle, `${path}.subtitle`) : undefined
+  if (body !== undefined && Object.hasOwn(body, 'font_family')
+    && (typeof body.font_family !== 'string' || body.font_family.trim().length === 0
+      || body.font_family.trim().length > 128 || /[\p{Cc}]/u.test(body.font_family))) {
+    throw new Error(`${path}.subtitle.font_family 必须是去除首尾空白后长度 1–128 且不含控制字符的字体名。`)
+  }
+  return {
+    ...(watermark === undefined ? {} : { watermark: {
+      ...(Object.hasOwn(watermark, 'font_size_ui')
+        ? { font_size_ui: bounded(watermark.font_size_ui, `${path}.watermark.font_size_ui`, 0, 100, true) } : {}),
+    } }),
+    ...(body === undefined ? {} : { subtitle: {
+      ...(typeof body.font_family === 'string' ? { font_family: body.font_family.trim() } : {}),
+      ...(Object.hasOwn(body, 'font_size_ui')
+        ? { font_size_ui: bounded(body.font_size_ui, `${path}.subtitle.font_size_ui`, 0, 100, true) } : {}),
+      ...(Object.hasOwn(body, 'border_width_ui')
+        ? { border_width_ui: bounded(body.border_width_ui, `${path}.subtitle.border_width_ui`, 0, 100) } : {}),
+      ...(Object.hasOwn(body, 'transform_y')
+        ? { transform_y: bounded(body.transform_y, `${path}.subtitle.transform_y`, -1, 1) } : {}),
+    } }),
+  }
+}
+
 /** Reject a positive output size that rounds to zero in the actual ASS representation. */
 function assertRepresentableSubtitle(delivery: TimelineDelivery, path: string): void {
   if (delivery.subtitle?.font_size_px !== undefined && subtitleRenderStyle(delivery).font_size_design <= 0) {
@@ -91,6 +118,7 @@ export function parseTimelineDelivery(value: unknown, path: string): TimelineDel
     width, height, fps,
     ...(Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
     ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
+    ...(Object.hasOwn(row, 'draft_style') ? { draft_style: draftStyle(row.draft_style, `${path}.draft_style`) } : {}),
   }
   assertRepresentableSubtitle(delivery, path)
   return delivery
@@ -121,6 +149,7 @@ export async function readProjectDelivery(project: string): Promise<TimelineDeli
     ...(Object.hasOwn(geometry, 'fps') ? { fps: geometry.fps } : {}),
     ...(Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
     ...(Object.hasOwn(geometry, 'audio') ? { audio: geometry.audio } : {}),
+    ...(Object.hasOwn(geometry, 'draft_style') ? { draft_style: geometry.draft_style } : {}),
     ...(Object.hasOwn(bible, 'visual_medium') ? { visual_medium: bible.visual_medium } : {}),
   }, `${path}.project_bible.delivery`)
 }
@@ -146,7 +175,7 @@ export function deliveryPolicyFor(delivery: TimelineDelivery = DEFAULT_DELIVERY)
  * Resolve a timeline snapshot against the current project's explicit medium.
  * @param project - Absolute project root.
  * @param snapshot - Delivery metadata read from the timeline, if present.
- * Subtitle and audio sections inherit independently: a saved section (even `{}`)
+ * Subtitle, audio and draft-style sections inherit independently: a saved section (even `{}`)
  * wins over the current project section; only a missing section inherits it.
  * Omitted fields inside the selected section retain deployment/legacy defaults.
  * @returns Snapshot geometry and selected sections, or legacy geometry when absent.
@@ -164,6 +193,7 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
     ...(snapshot?.subtitle !== undefined || current.subtitle === undefined ? {} : { subtitle: current.subtitle }),
     ...(snapshot?.audio !== undefined || current.audio === undefined ? {} : { audio: current.audio }),
+    ...(snapshot?.draft_style !== undefined || current.draft_style === undefined ? {} : { draft_style: current.draft_style }),
   }
   // A legacy timeline may retain different geometry from the current project.
   // Validate the inherited margin against the frame that will actually be rendered.

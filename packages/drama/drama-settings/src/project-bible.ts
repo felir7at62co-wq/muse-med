@@ -1,7 +1,8 @@
 /** Authoritative project settings, revision previews and a derived readable project bible. */
-import { createHash, randomBytes } from 'node:crypto'
-import { lstat, open, readFile, rename, unlink } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { lstat, open, readFile, unlink } from 'node:fs/promises'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type SettingsForms from '@deepseek-ai/dsh-settings'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ProjectBudget } from '@deepseek-ai/dsh-jubian/types'
@@ -41,6 +42,17 @@ export const PROJECT_BIBLE_CHANGES = {
   delivery: { type: 'object', additionalProperties: false, description: 'Delivery target; omitted numeric fields inherit the current project or Settings.', properties: {
     width: { type: 'integer' }, height: { type: 'integer' }, fps: { type: 'integer' },
     min_bitrate_mbps: { type: 'number' }, max_effective_chars_per_shot: { type: 'integer' },
+    draft_style: { type: 'object', additionalProperties: false, description: 'Editable Jianying typography in editor UI units, not formal-render pixels. Replaces the whole draft-style section; {} restores draft defaults after prepare.', properties: {
+      watermark: { type: 'object', additionalProperties: false, properties: {
+        font_size_ui: { type: 'number', description: 'Editor font size, greater than 0 and at most 100. Animation omits the watermark.' },
+      } },
+      subtitle: { type: 'object', additionalProperties: false, properties: {
+        font_family: { type: 'string', description: 'Requested trimmed font name, 1–128 characters, no controls. Missing or unsupported editor resources require a warning and system-font fallback; no font download or license approval.' },
+        font_size_ui: { type: 'number', description: 'Editor font size, greater than 0 and at most 100.' },
+        border_width_ui: { type: 'number', description: 'Black border from 0 through 100 editor units, not the raw serialized width.' },
+        transform_y: { type: 'number', description: 'Editor-relative vertical position from -1 through 1.' },
+      } },
+    } },
   } },
   episode_plan: { type: 'object', additionalProperties: false, description: 'Flexible outline and episode length; fixed counts are optional.', properties: {
     mode: { type: 'string', enum: ['flexible', 'fixed'] }, outline: { type: 'string' },
@@ -287,6 +299,32 @@ async function state(root: string): Promise<{ config: JsonObject; revision: stri
   return { config, revision: digest(contents) }
 }
 
+/** Validate explicit editor typography without resolving a platform font catalogue. */
+function validateDraftStyle(value: JsonValue): void {
+  const style = object(value, 'delivery.draft_style')
+  for (const section of ['watermark', 'subtitle']) {
+    if (style[section] === undefined) continue
+    const fields = object(style[section], `delivery.draft_style.${section}`)
+    const bounds = section === 'watermark'
+      ? [['font_size_ui', 0, 100]] as const
+      : [['font_size_ui', 0, 100], ['border_width_ui', 0, 100], ['transform_y', -1, 1]] as const
+    for (const [key, minimum, maximum] of bounds) {
+      const number = fields[key]
+      if (number === undefined) continue
+      if (typeof number !== 'number' || !Number.isFinite(number) || number < minimum || number > maximum
+        || (key === 'font_size_ui' && number === 0)) {
+        throw new Error(`delivery.draft_style.${section}.${key} is outside its finite editor-unit range.`)
+      }
+    }
+    if (section === 'subtitle' && fields.font_family !== undefined) {
+      const family = fields.font_family
+      if (typeof family !== 'string' || !family.trim() || family.trim().length > 128 || /[\p{Cc}]/u.test(family)) {
+        throw new Error('delivery.draft_style.subtitle.font_family requires 1–128 trimmed characters without controls.')
+      }
+    }
+  }
+}
+
 /** Validate owned numeric, selector and record fields at the durable/model JSON boundary. */
 function validateBible(bible: JsonObject): void {
   if (bible.schema_version !== 1) throw new Error('Unsupported project_bible.schema_version; expected 1.')
@@ -299,6 +337,7 @@ function validateBible(bible: JsonObject): void {
     throw new Error('visual_medium must be animation_3d or photorealistic; preserve custom creative guidance in style.')
   }
   const delivery = object(bible.delivery, 'delivery')
+  if (delivery.draft_style !== undefined) validateDraftStyle(delivery.draft_style)
   for (const key of ['width', 'height', 'fps', 'max_effective_chars_per_shot']) {
     if (delivery[key] !== undefined) positive(delivery[key], `delivery.${key}`)
   }
@@ -556,19 +595,10 @@ export async function previewProjectBible(settings: SettingsForms, directory: st
     markdown: markdown(proposed.config) }, budget)
 }
 
-/** Exclusive temporary file in the destination directory, replaced by one atomic rename. */
+/** Replace an inspected regular output through the shared owner-only atomic writer. */
 async function atomic(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${randomBytes(12).toString('hex')}.tmp`
-  const handle = await open(temporary, 'wx', 0o600)
-  try {
-    try { await handle.writeFile(content, 'utf8') } finally { await handle.close() }
-    await plainFile(path)
-    await rename(temporary, path)
-  } finally {
-    try { await unlink(temporary) } catch (error) {
-      if (!hasCode(error, 'ENOENT')) throw error
-    }
-  }
+  await plainFile(path)
+  await writeFileAtomic(path, content, { mode: 0o600 })
 }
 
 /**

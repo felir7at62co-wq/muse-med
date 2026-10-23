@@ -255,6 +255,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-argument-loop` | yes | Stop high-confidence repeated JSON members in streamed agent tool arguments without automatic tool replay |
 | `@deepseek-ai/dsh-composition-guard` | yes | Composition guard plugin: detects and reports a running session whose preset-provided tools were withdrawn by a live composition reload |
 | `@deepseek-ai/dsh-guard-drama` | yes | Drama-pipeline gate plugin: intercepts tool dispatch to enforce the short-drama pipeline's decidable hard rules |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
