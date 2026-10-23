@@ -1,0 +1,11 @@
+{
+  "setupLaunches": 2,
+  "helperLaunches": 1,
+  "nativeMethods": [
+    "status",
+    "search"
+  ],
+  "ready": true,
+  "auxiliaryLoginState": false,
+  "realExternalCalls": 0
+}

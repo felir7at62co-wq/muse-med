@@ -19,6 +19,8 @@ Host 读取 `<Muse home>/hindsight/connection.json` 的 `baseUrl`、`token`、`n
 
 可选的 [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) 读取 `MUSE_HINDSIGHT_LOCAL_E2E_REQUESTS`：该变量为私有 JSON 数组文件的绝对路径，数组保存此前已授权请求的 `label`、`connectionFile`、可选 `cwd`、`scope`、`key`、`content`、`source`、原始 UUID `operation_id` 和 `query`。测试核对已有收据，遇到不存在或失败的操作直接拒绝，不重新提交，并通过 HTTP 客户端及真实会话中注册的工具验证带来源的语义召回。测试使用脚本模型适配器，不代表已验证自主创作质量或长篇剧目的记忆稳定性。
 
+Desktop 包含[绿泡泡下载插件](../../third_party/plugins/muse-lvpaopao/README.zh.md)。统一编导的作用域内 `lvpaopao` 工具使用同一个 Host 共享连接，仅在请求时开始原生准备和连接。缺少 Python 依赖或已验证且已登录的微信运行时会返回准备结果，不阻止 Desktop 启动。平台验证范围及 Mac 隔离副本限制由插件 README 说明。
+
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
@@ -41,6 +43,8 @@ Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。�
 Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回的 Markdown、UTF-8 文本或 Word 文稿。同一会话此前交付的文件在下一次真人输入时检测外部变化，修改者保持未确认。改名文件可以通过明确路径关联；缺少基线时如实说明，不声称已经识别历史修改。
 
 对照展示新增、改写和删除的段落。可选候选稿对照返回差异，不拒绝写入、导出或交付。Agent 依据用户当前要求和最新返稿处理；旧授权记录仍可读取，但不作为前提。
+
+只读 `measure` 动作通过显式 `source_paths` 与 `candidate_paths` 比较同一故事范围，不建立返稿基线。结果包含文件哈希、各文件与合计计数、差额及增幅。计数含标题和人物名，分别统计文字数字数与非空白字符数，两者均不估算 Word 字数或净正文。`max_growth_percent` 传入用户的增幅上限；纯 ASR 对白不能充当含画面动作剧本的等量来源。
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。
 
@@ -73,6 +77,8 @@ Muse 新任务使用同一个短剧编导 Agent，处理写作、改稿、转写
 文稿格式与返稿指导放在系统提示词中。人物情绪波动时，对白通过语气、神态或同步短动作括注呈现情绪。视频转写的神态与动作以画面、语气以原声为依据，画面不清楚时先抽帧查看，再据实写入。创作写作与审稿技能退出内置目录，Office、转写与视频制作技能仍可用。Agent 遵循用户要求，不规定写作或审批顺序。
 
 默认写作入口不挂载可选的来源审校实现，也不追加保存后审校提醒。`manuscript_revision` 对照实际上一稿与返稿，跨轮保存版本差异，并可选对照候选稿。差异提示不阻止写入、导出或交付；缺少基线时明确说明。
+
+忠实转写记录原声与实际事件。改编指导保留主线、人物关系和关键因果，允许后续非关键桥段、推进方式和对白沿改编方向变化。默认篇幅提示目标为对应原稿的 100%—110%，用户另有要求时从其要求。篇幅报告不拦截交付，不用重复、空泛描写或编造事实凑字。
 
 Desktop 产品在原生窗口和浏览器访问中均关闭上游 Web 预览版说明。
 

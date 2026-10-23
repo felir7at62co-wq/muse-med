@@ -1,0 +1,13 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-lvpaopao/native/passive-probe/next-stage/operations/README.md
+/fixed-lvpaopao-operations:
+  en: 7b39d413cfbee0fc
+  zh: e70f30f0e3420122
+/fixed-lvpaopao-operations/operation-fields:
+  en: 93e31ed88cfb5797
+  zh: 521d25f65f36f1ae
+/fixed-lvpaopao-operations/validation-and-lifecycle:
+  en: 144afa179ceb5b3f
+  zh: d05242167260d7fe

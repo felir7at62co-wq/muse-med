@@ -10,6 +10,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { diffManuscript, validateManuscriptCandidate, type ManuscriptDiff } from './manuscript-diff.ts'
 import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
+import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -55,9 +56,11 @@ type Ledger = z.infer<typeof ledgerSchema>
 type Review = z.infer<typeof reviewSchema>
 
 const argumentsSchema = z.strictObject({
-  action: z.enum(['compare', 'status', 'review', 'authorize']),
+  action: z.enum(['compare', 'status', 'review', 'authorize', 'measure']),
   baseline_path: z.string().min(1).optional(), revised_path: z.string().min(1).optional(),
+  source_paths: z.array(z.string().min(1)).min(1).optional(),
   candidate_paths: z.array(z.string().min(1)).min(1).optional(),
+  max_growth_percent: z.number().min(0).optional(),
   change_id: z.string().optional(), authorization_quote: z.string().optional(),
 })
 
@@ -195,6 +198,33 @@ export class ManuscriptRevisions {
   async request(raw: unknown, agent: Agent, signal: AbortSignal): Promise<string> {
     const args = argumentsSchema.parse(raw), cwd = agent.session.header.cwd
     if (cwd === undefined) throw Error('MANUSCRIPT_WORKSPACE: 此工具需要工作区。')
+    if (args.action === 'measure') {
+      if (!args.source_paths?.length || !args.candidate_paths?.length) {
+        throw Error('measure 需要 source_paths 和 candidate_paths，明确本轮对应范围；不会用返稿基线代替原作。')
+      }
+      if (args.source_paths.length + args.candidate_paths.length > this.config.maxDocuments) {
+        throw Error('MANUSCRIPT_DOCUMENT_LIMIT: 本次篇幅统计文件过多，请按实际对应范围分批统计。')
+      }
+      const collect = async (paths: readonly string[]) => {
+        const documents = await Promise.all(paths.map(path => readManuscript(path, cwd, this.config, signal)))
+        if (new Set(documents.map(document => document.path)).size !== documents.length) {
+          throw Error('MANUSCRIPT_DUPLICATE_PATH: 同一组统计文件包含重复路径，未重复计数。')
+        }
+        const totals: ManuscriptLength = { nonWhitespaceCharacters: 0, lettersAndNumbers: 0 }
+        const files = documents.map(({ path, sha256, text }) => {
+          const counts = measureManuscriptLength(text)
+          totals.nonWhitespaceCharacters += counts.nonWhitespaceCharacters
+          totals.lettersAndNumbers += counts.lettersAndNumbers
+          return { path, sha256, ...counts }
+        })
+        return { files, totals }
+      }
+      const [source, candidate] = await Promise.all([collect(args.source_paths), collect(args.candidate_paths)])
+      return JSON.stringify({ state: 'measured', advisory: true,
+        source_files: source.files, candidate_files: candidate.files,
+        ...compareManuscriptLengths(source.totals, candidate.totals, args.max_growth_percent),
+        notice: '按所提供文件的完整提取文本统计，标题、场次、人物标签均计入。lettersAndNumbers按Unicode文字和数字计数，不计空白、标点和符号；不是精准净正文字数或Word字数。仅比较本轮相同覆盖范围和口径；原始ASR通常只有对白，不能与含动作、场景的成稿总量冒称对应正文篇幅。未提供max_growth_percent时不假设增长容差。结果仅提示，不拦截保存、导出或交付。' })
+    }
     return this.transact(cwd, signal, async (ledger) => {
       if (args.action === 'compare') {
         if (!args.revised_path) throw Error('compare 需要 revised_path；不得用旧稿代替返稿。')
@@ -255,18 +285,20 @@ export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
   ctx.tools.register(defineTool({
     name: 'manuscript_revision',
-    description: '对照上一稿与最新返稿，返回实际增删改、原句和版本，支持Word/Markdown/文本。compare建立对照，status读取差异，review可选对照候选稿；没有基线时如实说明。仅提供提示，不拦截保存、导出或交付。',
+    description: '支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。',
     parameters: {
-      action: { type: 'string', required: true, enum: ['compare', 'status', 'review'] },
+      action: { type: 'string', required: true, enum: ['compare', 'status', 'review', 'measure'] },
       baseline_path: { type: 'string', description: '实际上一稿路径；同路径返稿已有交付快照时可省略。' },
       revised_path: { type: 'string', description: '用户最新返稿的真实本地路径。' },
-      candidate_paths: { type: 'array', items: { type: 'string' }, description: '完整精修正文，按交付顺序。' },
+      source_paths: { type: 'array', items: { type: 'string' }, description: 'measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。' },
+      candidate_paths: { type: 'array', items: { type: 'string' }, description: '完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。' },
+      max_growth_percent: { type: 'number', description: '仅measure：增长百分比上限；按本产品100%-110%的篇幅目标传10，用户另有要求时覆盖。未提供则标明未设置，不假称已满足增长目标。' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     async execute(args, exec) {
       if (!exec.agent) throw Error('manuscript_revision requires an agent Session')
       const result = await revisions.request(args, exec.agent, exec.signal)
-      if (args.action !== 'review') exec.deferContext(context(result))
+      if (args.action === 'compare' || args.action === 'status') exec.deferContext(context(result))
       return result
     },
     presentCall: () => ({ card: 'generic', title: 'Manuscript revisions', kind: 'read' }),

@@ -4682,6 +4682,8 @@ export interface Config {
   maxPlanPoints: number
   /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
   maxTranscriptBytes: number
+  /** Largest original ASR text preview per candidate utterance, in Unicode grapheme clusters. */
+  utterancePreviewCharacters: number
   /** Default grid columns for overview pages. */
   contactColumns: number
   /** Default grid rows for overview pages. */
