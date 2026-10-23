@@ -752,10 +752,10 @@ describe('character-reference isolated QA authorization store', () => {
     await mkdir(path, { mode: 0o700 })
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
     await rm(path, { recursive: true })
-    await symlink(join(root, 'elsewhere'), path)
-    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
-    await rm(path)
     if (process.platform !== 'win32') {
+      await symlink(join(root, 'elsewhere'), path)
+      await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
+      await rm(path)
       await writeFile(path + '-wal', '', { mode: 0o644 })
       await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('accessible beyond its owner')
     }
