@@ -19,9 +19,9 @@ export default class OfflineSetup extends SubprocessRuntime {
     writeFileSync(helper, source, { flag: 'wx', mode: 0o600 })
     this.configuration = { transport: 'local', localPython: process.execPath, localHelper: helper, cwd,
       helperSha256: createHash('sha256').update(source).digest('hex') }
-    this.setups = 0; this.helpers = 0; this.methods = []; this.closed = false
+    this.setups = 0; this.helpers = 0; this.methods = []; this.peers = []
     ctx.on('agent/created', ({ agent }) => { agent.ctx.tools.restrict({ futureAllow: ['lvpaopao'], includeOwn: true }) })
-    ctx.on('agent/turn-stopping', ({ agent }) => {
+    ctx.inject(['lvpaopaoBridge'], bridgeCtx => bridgeCtx.on('agent/turn-stopping', async ({ agent }) => {
       const result = id => {
         const message = agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)?.data.message
         assert.ok(message); assert.equal(message.isError, false)
@@ -37,11 +37,16 @@ export default class OfflineSetup extends SubprocessRuntime {
       assert.match(recovered.warnings[0], /not desktop WeChat login/)
       assert.equal(search.data.candidates[0].title, '离线纸灯')
       assert.equal(this.setups, 2); assert.equal(this.helpers, 1); assert.deepEqual(this.methods, ['status', 'search'])
+      this.peers[0].close('hook-stopped')
+      const renewed = await bridgeCtx.lvpaopaoBridge.request('status', {}, new AbortController().signal)
+      assert.equal(renewed.status, 'status-returned')
+      assert.equal(this.setups, 3); assert.equal(this.helpers, 2)
+      assert.deepEqual(this.methods, ['status', 'search', 'status'])
       writeFileSync(join(agent.session.header.cwd, 'setup-proof.json'), JSON.stringify({ setupLaunches: this.setups,
         helperLaunches: this.helpers, nativeMethods: this.methods, ready: recovered.data.ready,
-        auxiliaryLoginState: recovered.data.hostLoginState, realExternalCalls: 0 }, null, 2) + '\n')
-    })
-    ctx.effect(() => () => { assert.equal(this.closed, true) })
+        auxiliaryLoginState: recovered.data.hostLoginState, idleMacRecovery: true, realExternalCalls: 0 }, null, 2) + '\n')
+    }))
+    ctx.effect(() => () => { assert.equal(this.peers.length, 2); assert.ok(this.peers.every(peer => peer.exited)) })
   }
 
   spawn(spec) {
@@ -53,18 +58,23 @@ export default class OfflineSetup extends SubprocessRuntime {
     const exitCode = preparation && this.setups === 1 ? 1 : 0
     if (preparation) queueMicrotask(() => settled.resolve({ exitCode, signal: null }))
     else {
-      assert.equal(++this.helpers, 1)
+      assert.ok(++this.helpers <= 2)
       let buffer = ''
       const reply = frame => stdout.write(JSON.stringify({ protocol: 1, ...frame }) + '\n')
+      const peer = { exited: false, close(status) {
+        peer.exited = true
+        reply({ type: 'event', event: 'closed', details: { status, cleanup: { dispose: true, unload: true, detach: true, serverClosed: true } } })
+        stdout.end(); settled.resolve({ exitCode: 0, signal: null })
+      } }
+      this.peers.push(peer)
       stdin.on('data', chunk => {
         buffer += chunk.toString()
         for (;;) {
           const end = buffer.indexOf('\n'); if (end === -1) break
           const frame = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1)
           if (frame.type === 'close') {
-            this.closed = true
-            reply({ type: 'event', event: 'closed', details: { status: 'control-close', cleanup: { dispose: true, unload: true, detach: true, serverClosed: true } } })
-            stdout.end(); settled.resolve({ exitCode: 0, signal: null }); continue
+            if (!peer.exited) peer.close('control-close')
+            continue
           }
           let value
           if (frame.method === 'hello') value = { protocol_version: 1, helper_sha256: this.configuration.helperSha256,

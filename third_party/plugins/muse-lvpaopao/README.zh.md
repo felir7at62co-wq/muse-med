@@ -97,6 +97,8 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 
 [provider](src/bridge.ts) 管理一个懒创建的本机或显式 SSH 连接，并串行处理 Agent 共享的原生请求。释放 Agent 会等待其拥有的请求和复制结束，不会释放 Host provider。取消已确认时保留仍存活的 transport。`target-not-ready` 结果，或 worker 清理已确认后的 `transfer-failed`，也会保留健康连接；终止错误或清理未确认会关闭该代际。清理确认后，可用显式 `status` 恢复。provider 不会自动重放失败的业务请求。
 
+helper 空闲期间退出后，若所有清理标志及进程成功退出均已确认，显式 `status` 可重建连接，也接受 Mac 的 `hook-stopped` 状态。原生连接仍遵守配置的生命周期；恢复不会重放搜索或媒体请求。清理标志缺失或进程退出失败时仍保持终止状态。
+
 [整剧引擎](src/series.ts) 为每个来源与目标目录对应的任务加锁，在获取媒体前保存集状态。[分集复制](src/episode-download.ts) 发布回执前会检查来源身份、原始 key、可播放集授权、已解码文件元数据及准确的本机字节。本机复制和原生传输会保留已验证的部分状态以便恢复。[目录解析](src/catalog.ts) 管理剧名选择及实际目录覆盖，工具投影提供有界元数据，不输出签名播放地址或任意 helper 错误。
 
 helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进程退出全部确认。Mac 下载回执通过当前用户 Keychain 使用带认证的 ECIES 加密；Windows 保留 DPAPI。Mac HTTPS 使用系统根证书，保持主机名及证书验证。临时目标对象改动可能持续到对象销毁或目标重启；卸载 hook 不承诺完整回滚。Desktop 将原生 Python 输入保留在 `app.asar` 外，provider 解析对应的解包资源目录。[bootstrap](native/boot.py) 验证准确的受支持运行时，不会仅凭版本名称接受其他版本。

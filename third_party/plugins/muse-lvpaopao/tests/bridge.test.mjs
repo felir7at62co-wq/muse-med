@@ -33,10 +33,10 @@ function subprocessFixture(onRequest = (frame, connection) => connection.result(
     subprocess: { spawn(spec) {
       options.onSpawn?.(spec)
       const stdin = new PassThrough(), stdout = new PassThrough(), settled = Promise.withResolvers()
-      const connection = { index: connections.length, spec, stdin, stdout,
+      const connection = { index: connections.length, spec, stdin, stdout, exited: false,
         reply(frame) { stdout.write(JSON.stringify(frame) + '\n') },
         result(frame, value) { connection.reply({ protocol: 1, type: 'result', id: frame.id, value }) },
-        finish() { stdout.end(); settled.resolve({ exitCode: 0, signal: null }) },
+        finish() { connection.exited = true; stdout.end(); settled.resolve({ exitCode: 0, signal: null }) },
         closed() {
           connection.reply({ protocol: 1, type: 'event', event: 'closed', details: {
             status: 'control-close', cleanup: { dispose: true, unload: true, detach: true, serverClosed: options.cleanup !== false },
@@ -56,6 +56,7 @@ function subprocessFixture(onRequest = (frame, connection) => connection.result(
             else connection.result(frame, { protocol_version: 1, helper_sha256: rawConfig.helperSha256,
               expected_app_id: 'wx404dde55fb12df78', actions: [...ACTIONS], ready: true })
           } else if (frame.type === 'close') {
+            if (connection.exited) continue
             if (options.onClose) options.onClose(connection)
             else connection.closed()
           } else onRequest(frame, connection)
@@ -255,6 +256,34 @@ test('failed cleanup remains terminal even for an explicit status request', asyn
   assert.equal(wire.connections.length, 1)
   // Exercise the exact cleanup promise registered by the service; Cordis reports effect rejections through its logger.
   await assert.rejects(f.bridge.dispose(), /remote-cleanup-unconfirmed/)
+})
+
+test('one explicit status recovers an idle Mac hook exit after confirmed cleanup without replaying business', async t => {
+  const wire = subprocessFixture((frame, connection) => connection.result(frame, { ready: true }))
+  const f = await fixture(t, wire.subprocess)
+  await f.bridge.request('status', {}, signal())
+  const previous = wire.connections[0]
+  previous.reply({ protocol: 1, type: 'event', event: 'closed', details: {
+    status: 'hook-stopped', cleanup: { dispose: true, unload: true, detach: true, serverClosed: true },
+  } })
+  previous.finish()
+  assert.deepEqual(await f.bridge.request('status', {}, signal()), { ready: true })
+  assert.equal(wire.connections.length, 2)
+  assert.equal(wire.frames.some(value => value.frame.method === 'search'), false)
+})
+
+test('idle Mac exit cannot recover when hook cleanup is incomplete', async t => {
+  const wire = subprocessFixture((frame, connection) => connection.result(frame, {}))
+  const f = await fixture(t, wire.subprocess)
+  await f.bridge.request('status', {}, signal())
+  const previous = wire.connections[0]
+  previous.reply({ protocol: 1, type: 'event', event: 'closed', details: {
+    status: 'hook-stopped', cleanup: { dispose: true, unload: false, detach: true, serverClosed: true },
+  } })
+  previous.finish()
+  await assert.rejects(f.bridge.request('status', {}, signal()), { code: 'remote-cleanup-unconfirmed' })
+  await assert.rejects(f.bridge.request('status', {}, signal()), { code: 'remote-cleanup-unconfirmed' })
+  assert.equal(wire.connections.length, 1)
 })
 
 test('Host unload stops admission and waits for active cancellation plus complete remote cleanup', async t => {

@@ -310,6 +310,15 @@ export default class LvpaopaoBridge extends Service {
   private async perform(request: QueuedRequest): Promise<unknown> {
     const signal = AbortSignal.any([request.signal, this.lifetime.signal])
     if (signal.aborted) throw new BridgeError('cancelled')
+    if (this.terminal === undefined && request.action === 'status' && this.port?.terminalFailure) {
+      this.terminal = new BridgeError('connection-closed')
+      try { await this.closeGeneration() }
+      catch (error) {
+        void error
+        this.cleanupFailed = true
+        this.terminal = new BridgeError('remote-cleanup-unconfirmed')
+      }
+    }
     if (this.terminal !== undefined) {
       if (request.action !== 'status' || this.cleanupFailed) throw this.terminal
       await this.generationCleanup

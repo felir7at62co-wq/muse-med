@@ -153,7 +153,7 @@ export class JsonlRequestPort implements RequestPort {
       if (this.event === 'closed') {
         this.closedEvent = true
         const cleanup = frame.details.cleanup
-        this.closedCleanupConfirmed = ['control-close', 'control-eof', 'host-context-ended', 'hook-disposed', 'peer-ended', 'deadline', 'cancelled'].includes(String(frame.details.status))
+        this.closedCleanupConfirmed = ['control-close', 'control-eof', 'host-context-ended', 'hook-disposed', 'hook-stopped', 'peer-ended', 'deadline', 'cancelled'].includes(String(frame.details.status))
           && record(cleanup) && ['dispose', 'unload', 'detach', 'serverClosed'].every(key => cleanup[key] === true)
         if (!this.closing) { this.closing = true; this.fail(new BridgeError('connection-closed')) }
       }

@@ -133,7 +133,7 @@ test('closed events cannot claim cleanup when a flag is false, absent, or the pr
     ...['dispose', 'unload', 'detach', 'serverClosed'].map(key => ({ closedDetails: { status: 'control-close',
       cleanup: { dispose: true, unload: true, detach: true, serverClosed: true, [key]: false } } })),
     { exitCode: 1 },
-    ...['hook-disposed', 'peer-ended'].flatMap(status => [
+    ...['hook-disposed', 'hook-stopped', 'peer-ended'].flatMap(status => [
       { closedDetails: { status, cleanup: { dispose: true, unload: true, detach: true } } },
       { closedDetails: { status, cleanup: { dispose: true, unload: true, detach: true, serverClosed: false } } },
       { exitCode: 1, closedDetails: { status, cleanup: { dispose: true, unload: true, detach: true, serverClosed: true } } },
@@ -146,7 +146,7 @@ test('closed events cannot claim cleanup when a flag is false, absent, or the pr
 })
 
 test('hook disposal and peer EOF confirm cleanup only with complete flags and a successful exit', async () => {
-  for (const status of ['hook-disposed', 'peer-ended']) {
+  for (const status of ['hook-disposed', 'hook-stopped', 'peer-ended']) {
     const f = fixture((frame, reply) => reply({ protocol: 1, type: 'result', id: frame.id, value: {} }), {
       closedDetails: { status, cleanup: { dispose: true, unload: true, detach: true, serverClosed: true } },
     })
