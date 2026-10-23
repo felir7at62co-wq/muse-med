@@ -55,14 +55,14 @@ class DraftInputError(ValueError):
 #   letter_spacing                      = 字间距 UI 值 * 0.05 → 0  写成 0.0
 #   line_spacing                        = 0.02 + 行间距 * 0.05→ 0  写成 0.02（基线，不是设置）
 #   styles[0].strokes[0].width          = 描边 UI 值 / 100 * 0.2 → 20 写成 0.04
-# 所以规范里的「字号 11、字间距 0、黑色描边 20」与草稿文件里的 11.0 / 0.0 / 0.04 是同一套
-# 参数的两个量纲，不是两个值。字体不传 font 就不写 styles[0].font，剪映按自己的系统
-# 默认黑体渲染：规范里的「系统默认黑体」在草稿文件里没有可核对的字段。
-SUBTITLE_FONT_SIZE = 11.0
+# 默认的 UI 值与序列化值使用不同量纲；实际外观仍须在编辑器预览。
+# 省略 font 时不写 styles[0].font，不能从文件确认剪映选择的实际字族。
+_DEFAULT_DRAFT_STYLE = _draft_inputs.draft_style({})
+SUBTITLE_FONT_SIZE = _DEFAULT_DRAFT_STYLE['subtitle']['font_size_ui']
 SUBTITLE_LETTER_SPACING = 0
-SUBTITLE_BORDER_UI_WIDTH = 20.0
+SUBTITLE_BORDER_UI_WIDTH = _DEFAULT_DRAFT_STYLE['subtitle']['border_width_ui']
 SUBTITLE_BORDER_COLOR = (0.0, 0.0, 0.0)
-SUBTITLE_TRANSFORM_Y = -0.465625
+SUBTITLE_TRANSFORM_Y = _DEFAULT_DRAFT_STYLE['subtitle']['transform_y']
 
 # 时间线唯一形状：{"clips": [{"shot": 1, "start_us": 0, "duration_us": 10080000}]}，与
 # drama_render prepare 写出的 editing/<集>-timeline.json 同形（见其 timeline.ts 的
@@ -85,13 +85,33 @@ VOICE_VOLUME = 1.0
 BGM_VOLUME = 1.0
 WATERMARK_TEXT = "内容由AI生成"
 WATERMARK_TRACK = "AI内容标识"
-WATERMARK_FONT_SIZE = 6.0
+WATERMARK_FONT_SIZE = _DEFAULT_DRAFT_STYLE['watermark']['font_size_ui']
 
 
-def watermark_position(width: int, height: int) -> tuple[float, float]:
-    """Place the text center inside the lower-right safe area on either canvas orientation."""
-    text_width = len(WATERMARK_TEXT) * 44 * height / 1920
+def watermark_position(width: int, height: int, font_size_ui: float = WATERMARK_FONT_SIZE) -> tuple[float, float]:
+    """Adjust the lower-right text center for its estimated width; preview remains necessary."""
+    text_width = len(WATERMARK_TEXT) * 44 * height / 1920 * font_size_ui / WATERMARK_FONT_SIZE
     return max(0.0, 0.90 - text_width / width), -0.8625
+
+
+def draft_font_choice(name: str | None) -> dict:
+    """Describe an exact library reference or a visible default fallback, without downloading fonts."""
+    choice = {'requested': name, 'resolved': '剪映系统默认字体', 'resource_id': None,
+              'status': 'default', 'warnings': []}
+    if name is None:
+        return choice
+    font = next((item for item in draft.FontType if name in (item.name, item.value.name)), None)
+    if font is None or font.value.is_vip:
+        reason = '不在当前打包字体目录中' if font is None else '标为会员资源，尚未确认账号许可'
+        choice.update(status='fallback', warnings=[
+            f'请求字体“{name}”{reason}；已回退剪映系统默认字体，实际字族由剪映决定。'
+            '未下载或购买字体；请核对预览，选用可用且获许可的字体后重新生成。'])
+        return choice
+    choice.update(resolved=font.value.name, resource_id=font.value.resource_id,
+                  status='reference_unverified', warnings=[
+                      f'已写入字体“{font.value.name}”的剪映资源引用；仅有目录元数据，'
+                      '尚未验证本机资源可用性或使用许可，请在剪映预览中核对；未下载字体。'])
+    return choice
 
 
 def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
@@ -102,10 +122,18 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
         clock = _draft_inputs.body_clock(payload, end, TIMELINE_TOLERANCE_US, ENDING_DURATION_US)
         policy = _delivery_policy.resolve_delivery(payload, project)
         audio = _draft_inputs.audio_gains(payload, project)
+        style = _draft_inputs.draft_style(payload, project)
         _delivery_policy.reject_animation_ending({**payload, "body_end": clock["body_end_us"] / 1e6}, end, policy)
     except ValueError as error:
         raise DraftInputError(str(error)) from error
     body_end, included = clock["body_end_us"], clock["included"]
+    font = draft_font_choice(style['subtitle']['font_family'])
+    style_warnings = []
+    if (policy['add_watermark'] and len(WATERMARK_TEXT) * 44 * policy['height'] / 1920
+            * style['watermark']['font_size_ui'] / WATERMARK_FONT_SIZE > policy['width'] * 0.8):
+        style_warnings.append(
+            f"AI 内容标识字号 {style['watermark']['font_size_ui']:g} 的估算宽度超过画布安全区域；"
+            "已保留项目字号，请预览确认是否越界，并按需调整 delivery.draft_style.watermark.font_size_ui。")
     body_clips = {shot: dict(clip) for shot, clip in clips.items()}
     last_shot = max(clips, key=lambda shot: clips[shot]["start_us"] + clips[shot]["duration_us"]) if clips else None
     if included:
@@ -120,7 +148,8 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
     return {"body_clips": body_clips, "body_end_us": body_end, "included": included,
             "duration_us": body_end + policy["ending_duration_us"], "last_shot": last_shot,
             "canvas": {key: policy[key] for key in ("width", "height")}, "policy": policy,
-            "audio": audio, "warnings": clock["warnings"]}
+            "audio": audio, "draft_style": style, "subtitle_font": font,
+            "warnings": [*clock["warnings"], *font['warnings'], *style_warnings]}
 
 
 def draft_decode_timeout_seconds() -> float:
@@ -220,6 +249,7 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
         timerange = Timerange(plan["body_end_us"], min(ENDING_DURATION_US, material.duration))
         ending = draft.AudioSegment(material, timerange) if kind == "audio" else draft.VideoSegment(material, timerange)
         if kind == "video":
+            ending.volume = 0
             ending.set_mix_mode(draft.MixModeType.滤色)
         script.add_segment(ending, track)
     with source.open("rb") as stream:
@@ -233,16 +263,16 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                                                      encoding="utf-8")
 
 
-def append_draft_watermark(script, duration_us: int, canvas: dict) -> None:
+def append_draft_watermark(script, duration_us: int, canvas: dict, font_size_ui: float = WATERMARK_FONT_SIZE) -> None:
     """Add one editable white AI notice spanning the body and ending, independently of subtitles."""
     from pyJianYingDraft.track import TrackSpec
     from pyJianYingDraft.time_util import Timerange
     from pyJianYingDraft.text_segment import TextSegment, TextStyle
     from pyJianYingDraft.segment import ClipSettings
-    x, y = watermark_position(canvas["width"], canvas["height"])
+    x, y = watermark_position(canvas["width"], canvas["height"], font_size_ui)
     track = script.append_track(TrackSpec(draft.TrackType.text, WATERMARK_TRACK))
     segment = TextSegment(WATERMARK_TEXT, Timerange(0, duration_us),
-                          style=TextStyle(size=WATERMARK_FONT_SIZE, color=(1.0, 1.0, 1.0), align=2),
+                          style=TextStyle(size=font_size_ui, color=(1.0, 1.0, 1.0), align=2),
                           clip_settings=ClipSettings(transform_x=x, transform_y=y))
     script.add_segment(segment, track)
 
@@ -968,6 +998,10 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         DraftInputError: 有任何一项不成立，报文逐条列出失败项与实测值。
     """
     failures = []
+    selected_style = ending['draft_style'] if ending is not None and 'draft_style' in ending else _draft_inputs.draft_style({})
+    subtitle_style = selected_style['subtitle']
+    watermark_font_size = selected_style['watermark']['font_size_ui']
+    expected_font_id = (ending or {}).get('subtitle_font', {}).get('resource_id')
     video_segments = [segment for track in content.get("tracks", [])
                       if track.get("type") == "video" and track.get("name") == "视频轨道"
                       for segment in track.get("segments", [])]
@@ -981,6 +1015,10 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     add_watermark = ending is None or ending["policy"]["add_watermark"]
     total_duration = body_end + (ENDING_DURATION_US if include_ending else 0)
     expected_audio = audio_duration_us
+    for track in content.get('tracks', []):
+        if track.get('type') == 'video' and track.get('name') == '片尾特效':
+            if any(segment.get('volume') != 0 for segment in track.get('segments', [])):
+                failures.append('片尾覆盖视频须静音；保留独立片尾音，避免效果自带音频叠播。')
     if ending is not None:
         total_duration = ending["duration_us"]
     if not audio_segments:
@@ -1086,11 +1124,11 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         styles = data.get("styles") or [{}]
         style = styles[0]
         expected_x, expected_y = watermark_position(content["canvas_config"]["width"],
-                                                     content["canvas_config"]["height"])
+                                                     content["canvas_config"]["height"], watermark_font_size)
         if (data.get("text") != WATERMARK_TEXT or _duration_us(watermark) != total_duration
                 or watermark.get("target_timerange", {}).get("start") != 0):
             failures.append("AI 内容标识必须为“内容由AI生成”并覆盖正文和 2 秒片尾。")
-        if (style.get("size") != WATERMARK_FONT_SIZE or style.get("strokes")
+        if (style.get("size") != watermark_font_size or style.get("strokes")
                 or style.get("fill", {}).get("content", {}).get("solid", {}).get("color") != [1.0, 1.0, 1.0]):
             failures.append("AI 内容标识必须使用白色、无描边的小字。")
         transform = (watermark.get("clip") or {}).get("transform", {})
@@ -1129,23 +1167,25 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         style = (json.loads(material.get("content") or "{}").get("styles") or [{}])[0]
         strokes = style.get("strokes") or [{}]
         stroke = strokes[0]
-        if style.get("size") != SUBTITLE_FONT_SIZE:
-            failures.append(f"字幕字号 {style.get('size')!r} != {SUBTITLE_FONT_SIZE}。")
+        if style.get("size") != subtitle_style['font_size_ui']:
+            failures.append(f"字幕字号 {style.get('size')!r} != {subtitle_style['font_size_ui']}。")
         if material.get("letter_spacing") != SUBTITLE_LETTER_SPACING * 0.05:
             failures.append(f"字幕字间距 {material.get('letter_spacing')!r} != "
                             f"{SUBTITLE_LETTER_SPACING * 0.05}。")
         if material.get("line_spacing") != 0.02:
             failures.append(f"字幕行间距 {material.get('line_spacing')!r} != 0.02（基线）。")
-        if abs(float(stroke.get("width", 0)) - SUBTITLE_BORDER_UI_WIDTH / 100 * 0.2) > 1e-6:
+        if abs(float(stroke.get("width", 0)) - subtitle_style['border_width_ui'] / 100 * 0.2) > 1e-6:
             failures.append(f"字幕描边 {stroke.get('width')!r} != "
-                            f"{SUBTITLE_BORDER_UI_WIDTH / 100 * 0.2}。")
+                            f"{subtitle_style['border_width_ui'] / 100 * 0.2}。")
         if (stroke.get("content", {}).get("solid", {}).get("color")) != list(SUBTITLE_BORDER_COLOR):
             failures.append(f"字幕描边颜色 {stroke.get('content')!r} != {list(SUBTITLE_BORDER_COLOR)}。")
-        if "font" in style:
-            failures.append("字幕写了 font 字段；草稿契约是剪映系统默认字体，不写该字段。")
-        if (segment.get("clip") or {}).get("transform", {}).get("y") != SUBTITLE_TRANSFORM_Y:
+        if expected_font_id is None and 'font' in style:
+            failures.append('字幕应回退剪映系统默认字体，不写 font 字段。')
+        elif expected_font_id is not None and style.get('font', {}).get('id') != expected_font_id:
+            failures.append('字幕字体资源引用与本次已解析的项目样式不一致。')
+        if (segment.get("clip") or {}).get("transform", {}).get("y") != subtitle_style['transform_y']:
             failures.append(f"字幕纵坐标 {(segment.get('clip') or {}).get('transform')!r} != "
-                            f"transform_y={SUBTITLE_TRANSFORM_Y}。")
+                            f"transform_y={subtitle_style['transform_y']}。")
         text = json.loads(material.get("content") or "{}").get("text", "")
         if any(char in SUBTITLE_PUNCTUATION for char in text):
             failures.append(f"字幕仍带标点：{text!r}。")
@@ -1542,7 +1582,8 @@ def main_with_args(args, results=None):
                     append_draft_ending(script, video_track, last_source, last_duration, draft_path,
                                         ending_plan, root)
                 if ending_plan["policy"]["add_watermark"]:
-                    append_draft_watermark(script, ending_plan["duration_us"], canvas)
+                    append_draft_watermark(script, ending_plan["duration_us"], canvas,
+                                           ending_plan['draft_style']['watermark']['font_size_ui'])
             except Exception as error:
                 refuse(f"定格或AI标识创建失败：{error}")
 
@@ -1565,8 +1606,12 @@ def main_with_args(args, results=None):
                         from pyJianYingDraft.segment import ClipSettings
 
                         # 字幕样式：字幕预排与草稿量纲的约定见文件顶部常量注释，改这里就是改草稿。
+                        subtitle_style = ending_plan['draft_style']['subtitle']
+                        subtitle_font_id = ending_plan['subtitle_font']['resource_id']
+                        subtitle_font = next((item for item in draft.FontType
+                                              if item.value.resource_id == subtitle_font_id), None)
                         text_style = TextStyle(
-                            size=SUBTITLE_FONT_SIZE,
+                            size=subtitle_style['font_size_ui'],
                             bold=False,
                             letter_spacing=SUBTITLE_LETTER_SPACING,
                             color=(1.0, 1.0, 1.0),
@@ -1575,14 +1620,15 @@ def main_with_args(args, results=None):
                         )
                         
                         # Keep the verified relative subtitle position on the 2K canvas.
-                        clip_settings = ClipSettings(transform_y=SUBTITLE_TRANSFORM_Y)
+                        clip_settings = ClipSettings(transform_y=subtitle_style['transform_y'])
                         style_reference = TextSegment(
                             "字幕样式",
                             Timerange(0, 500000),
+                            font=subtitle_font,
                             style=text_style,
                             clip_settings=clip_settings,
                             border=TextBorder(alpha=1.0, color=SUBTITLE_BORDER_COLOR,
-                                              width=SUBTITLE_BORDER_UI_WIDTH),
+                                              width=subtitle_style['border_width_ui']),
                         )
                         
                         # 导入字幕
@@ -1768,6 +1814,7 @@ def main_with_args(args, results=None):
         review_path = draft_path / 'muse-review.json'
         review_path.write_text(json.dumps({
             'status': 'needs_review', 'warnings': review_warnings,
+            'draft_style': ending_plan['draft_style'], 'subtitle_font': ending_plan['subtitle_font'],
             'next': '草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。'
         }, ensure_ascii=False, indent=2), encoding='utf-8')
         result.update(success=True, id=saved_content.get("id", ""), error="",

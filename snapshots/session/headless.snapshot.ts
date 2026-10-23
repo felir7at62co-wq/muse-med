@@ -618,6 +618,10 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
     await mkdir(dirname(renderTarget), { recursive: true })
     await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-background-render/SKILL.md'), renderTarget)
   },
+  async 'muse-jianying-project-style-skill'(cwd) {
+    await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build'),
+      join(cwd, '.dsh/skills/tweet-drama-draft-build'), { recursive: true })
+  },
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
       join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })

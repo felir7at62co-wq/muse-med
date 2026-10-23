@@ -52,13 +52,15 @@ kind: "package-bundle"
 
 每个角色可记录项目拥有的 `role_class`，值为 `lead`、`important_support`、`support` 或 `extra`。Host 工作流默认只为主角检索公共人物参考库，其他角色必须提供具体剧情理由；Catalog metadata 不决定角色重要性，也不授予使用权限。
 
+`changes.delivery.draft_style` 通过相同的预览及版本保护更新，记录已确认的可编辑草稿排版。提供草稿样式节时整节替换原值；`{}` 在重新准备后恢复导出器默认，省略则保留原值。这些字段使用编辑器 UI 单位，不是正式成片像素。[渲染器参考](../tool-episode-render/README.zh.md#project-draft-style)定义可用字段及时间线优先级。记录请求字体不会下载它，也不验证资源可用性或许可；导出器报告实际回退供复核。
+
 `visual_medium` 接受 `animation_3d` 和 `photorealistic`，与自由文本 `style` 独立。3D 漫的草稿和成片不新增片尾或水印；仿真人保留二者。旧项目缺值时保留缺值并明确提示类型未确认，沿用旧版带标识交付，绝不从风格文本或比例猜测。类型变化写入版本记录，并提示复核资产、镜头、视频、草稿和成片阶段，不删除已完成任务。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 负责明确选择，[渲染器](../tool-episode-render/README.zh.md) 负责时间线快照与交付规则执行。
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。
 
 `voice_profiles` 保存同一 `character_id` 在童年、成年等不同人生时期的独立声线。每项包含唯一且非空的 `voice_period_id`、可选 `label` 及相同的平铺声音字段；新时期须提供 `description`。更新按时期 ID 合并，保留其他时期和旧 `voice_profile`。省略该数组或传 `[]` 不删除时期。`reference_audio: null` 只清除该时期的引用字段。服装和情绪变化不代表不同声音时期。删除检查分别报告每个仍引用资产的时期。
 
-工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
+工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。两次替换均通过共享原子写入器请求 `0600` mode；Windows 暂态重命名干扰有界重试，持续失败仍拒绝并保留原目标字节。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
 
 ### 设置页
 

@@ -5,6 +5,61 @@ import math
 from pathlib import Path
 
 
+def draft_style(timeline: dict, project: Path | None = None) -> dict:
+    """Select one saved/project UI-style section; absent fields retain legacy draft defaults."""
+    project_delivery = {}
+    if project is not None:
+        path = Path(project) / 'project_config.json'
+        if path.exists():
+            config = json.loads(path.read_text(encoding='utf-8-sig'))
+            if not isinstance(config, dict) or not isinstance(config.get('project_bible', {}), dict):
+                raise ValueError(f'{path}: project_bible must be an object')
+            project_delivery = config.get('project_bible', {}).get('delivery', {})
+    snapshot = timeline.get('delivery', {})
+    for container, label in ((project_delivery, 'project_bible.delivery'), (snapshot, 'timeline.delivery')):
+        if not isinstance(container, dict):
+            raise ValueError(f'{label} must be an object')
+        if 'draft_style' not in container:
+            continue
+        section = container['draft_style']
+        if not isinstance(section, dict):
+            raise ValueError(f'{label}.draft_style must be an object')
+        for kind in ('watermark', 'subtitle'):
+            if kind not in section:
+                continue
+            row = section[kind]
+            field = f'{label}.draft_style.{kind}'
+            if not isinstance(row, dict):
+                raise ValueError(f'{field} must be an object')
+            ranges = {'font_size_ui': (0, 100)}
+            if kind == 'subtitle':
+                ranges.update({'border_width_ui': (0, 100), 'transform_y': (-1, 1)})
+                if 'font_family' in row:
+                    name = row['font_family']
+                    if (not isinstance(name, str) or not name.strip() or len(name.strip()) > 128
+                            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in name)):
+                        raise ValueError(f'{field}.font_family must be a nonempty font name '
+                                         'of at most 128 characters without control characters')
+            for key, (minimum, maximum) in ranges.items():
+                if key not in row:
+                    continue
+                value = row[key]
+                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                        or not math.isfinite(value) or not minimum <= value <= maximum
+                        or (key == 'font_size_ui' and value == 0)):
+                    raise ValueError(f'{field}.{key} must be a finite UI value '
+                                     f'between {minimum} and {maximum}'
+                                     + (' (positive)' if key == 'font_size_ui' else ''))
+    selected = snapshot['draft_style'] if 'draft_style' in snapshot else project_delivery.get('draft_style', {})
+    watermark = selected.get('watermark', {})
+    subtitle = selected.get('subtitle', {})
+    return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 6.0)},
+            'subtitle': {'font_family': subtitle.get('font_family', '').strip() or None,
+                         'font_size_ui': subtitle.get('font_size_ui', 11.0),
+                         'border_width_ui': subtitle.get('border_width_ui', 20.0),
+                         'transform_y': subtitle.get('transform_y', -0.465625)}}
+
+
 def audio_gains(timeline: dict, project: Path | None = None) -> dict:
     """Use an explicit audio snapshot or project section; missing gains retain SDK unit volume."""
     project_delivery = {}
