@@ -88,7 +88,9 @@ export async function resolveSubtitleOverlay(input: {
   const sourceClips = new Map<number, { clip: Timeline['clips'][number]; source: { shot: number; path: string; sha256: string } }>()
   for (const clip of input.timeline.clips) {
     const video = resolve(paths.videoDir, shotFileName(clip.shot))
-    sourceClips.set(clip.shot, { clip, source: { shot: clip.shot, path: video, sha256: await fileSha256(video) } })
+    sourceClips.set(clip.shot, {
+      clip: sourceClips.get(clip.shot)?.clip ?? clip, source: { shot: clip.shot, path: video, sha256: await fileSha256(video) },
+    })
   }
   const sources = [...sourceClips.values()].map(entry => entry.source)
   const retained = new Set<number>()
