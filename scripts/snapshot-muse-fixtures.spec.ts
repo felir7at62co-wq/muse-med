@@ -170,7 +170,7 @@ it('rejects the real candidate report when the alignment input is incomplete', a
   const { root, report } = await subtitleReport(false)
   expect(report.checks).toEqual([expect.objectContaining({ id: 'subtitle_line_coverage', severity: 'warning', ok: false })])
   expect(await readFile(join(root, 'result.srt.review.txt'), 'utf8')).toContain('对齐文档里没有这一镜的时间')
-  await expect(projectSubtitleFixtureReport(report, root)).rejects.toThrow('deep-equal')
+  await expect(projectSubtitleFixtureReport(report, root)).rejects.toThrow('no subtitle check defects')
 })
 
 it('keeps rejecting a missing warning, failed alignment check or unexpected written file', async () => {

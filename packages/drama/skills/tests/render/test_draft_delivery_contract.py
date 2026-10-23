@@ -5,6 +5,7 @@ The generation tests run the real generator against real (tiny) media through th
 temporary directory.
 """
 import argparse
+import hashlib
 import errno
 import hashlib
 import importlib.util
@@ -156,6 +157,95 @@ class DraftDeliveryContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already exists'):
             request_module.generate_request(request, str(drafts))
         self.assertEqual(content_path.read_bytes(), saved)
+
+    def all_retained_request(self):
+        root = self.build_root(timeline=self.delivery_timeline('animation_3d'), srt='\n')
+        drafts = root / 'editor'
+        drafts.mkdir()
+        original = root / 'original.srt'
+        original.write_text(SRT, encoding='utf-8')
+        digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        srt = root / '03_subtitle/25.srt'
+        videos = [root / f'02_media/25/p{shot}.mp4' for shot in (1, 2)]
+        retained = [{'cue_index': index, 'shot': 1 if index < 3 else 2, 'text': cue['text'],
+                     'start_seconds': cue['start_us'] / 1e6, 'end_seconds': cue['end_us'] / 1e6, 'editable': False}
+                    for index, cue in enumerate(self.module.parse_srt_cues(original), 1)]
+        report = {'schema_version': 1, 'episode': '25', 'resolved_srt': str(srt),
+                  'resolved_srt_sha256': digest(srt), 'original_srt': str(original),
+                  'original_srt_sha256': digest(original), 'original_cue_count': len(retained),
+                  'sources': [{'shot': shot, 'sha256': digest(video)} for shot, video in enumerate(videos, 1)],
+                  'timeline_clips': TIMELINE['clips'], 'overlay_cue_count': 0,
+                  'retained_cue_indexes': list(range(1, len(retained) + 1)),
+                  'retained_embedded': retained, 'warnings': ['源画面烧录字不可编辑']}
+        report_path = root / 'overlay-report.json'
+        report_path.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
+        request = {'project': str(root), 'episode': 25, 'name_prefix': '全烧录-',
+                   'audio': str(root / '01_audio/25.wav'), 'videos': [str(video) for video in videos],
+                   'subtitle_srt': str(srt), 'timeline': str(root / '05_timeline/25.timeline.json'),
+                   'subtitle_overlay_report': str(report_path)}
+        spec = importlib.util.spec_from_file_location('empty_overlay_request', SCRIPT.with_name('generate_draft_request.py'))
+        request_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(request_module)
+        return root, drafts, request, request_module, report_path, report
+
+    def test_all_embedded_dialogue_saves_real_draft_without_importing_an_empty_text_track(self):
+        root, drafts, request, request_module, report_path, report = self.all_retained_request()
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]), \
+                patch.object(self.module.draft.ScriptFile, 'import_srt', side_effect=AssertionError('empty SRT must not be imported')):
+            result = request_module.generate_request(request, str(drafts))
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertFalse(result['editor_open_verified'])
+        self.assertEqual(result['subtitle_overlay']['overlay_cue_count'], 0)
+        self.assertEqual(result['subtitle_overlay']['retained_embedded_count'], 3)
+        self.assertFalse(result['subtitle_overlay']['all_subtitles_editable'])
+        saved = Path(result['drafts'][0]['path'])
+        content = json.loads((saved / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(content['duration'], 4_000_000)
+        self.assertEqual(self.texts(content), [])
+        self.assertFalse((saved / '25.normalized.srt').read_text(encoding='utf-8').strip())
+        review = json.loads((saved / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertEqual(review['subtitle_overlay'], result['subtitle_overlay'])
+        self.assertEqual(Path(review['subtitle_overlay']['report_path']).read_bytes(), report_path.read_bytes())
+        self.assertFalse(any('没有字幕轨' in warning for warning in result['warnings']))
+        self.assertEqual(len(self.module.parse_srt_cues(Path(report['original_srt']))), 3)
+
+    def test_empty_overlay_is_not_authorized_without_a_bound_report(self):
+        _root, drafts, request, request_module, _report_path, _report = self.all_retained_request()
+        del request['subtitle_overlay_report']
+        request['allow_empty_subtitle_seq'] = '25'
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            result = request_module.generate_request(request, str(drafts))
+        self.assertFalse(result['success'], result)
+        self.assertIn('不接受空字幕', result['error'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertFalse((drafts / '全烧录-25').exists())
+
+    def test_zero_overlay_binds_actual_original_subtitle_hash_and_cue_count(self):
+        _root, drafts, request, request_module, report_path, report = self.all_retained_request()
+        report['original_cue_count'] = 2
+        report['retained_embedded'] = report['retained_embedded'][:2]
+        report['retained_cue_indexes'] = [1, 2]
+        report_path.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            with self.assertRaisesRegex(ValueError, 'original subtitle hash or cue count'):
+                request_module.generate_request(request, str(drafts))
+        report['original_cue_count'] = 3
+        report['retained_embedded'].append({'cue_index': 3, 'editable': False})
+        report['retained_cue_indexes'] = [1, 2, 3]
+        report['original_srt_sha256'] = '0' * 64
+        report_path.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            with self.assertRaisesRegex(ValueError, 'original subtitle hash or cue count'):
+                request_module.generate_request(request, str(drafts))
+        self.assertFalse((drafts / '全烧录-25').exists())
+
+    def test_allow_empty_parser_does_not_accept_nonblank_unparseable_subtitles(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'not-a-subtitle.srt'
+            source.write_text('unparseable text', encoding='utf-8')
+            with self.assertRaisesRegex(self.module.DraftInputError, '没有可解析的 cue'):
+                self.module.normalize_srt(source, allow_empty=True)
 
     @staticmethod
     def segments(content, track_type):
@@ -716,6 +806,43 @@ class DraftDeliveryContractTests(unittest.TestCase):
             self.assertEqual(span['start'], 4_000_000)
             self.assertLessEqual(span['duration'], 2_000_000)
         self.assertEqual(len(self.segments(content, 'video')), 3)
+
+    def test_explicit_stretch_uses_the_complete_effect_for_two_seconds_and_keeps_source_bytes(self):
+        for fit in ('source_once', 'stretch_to_window'):
+            with self.subTest(fit=fit):
+                timeline = self.delivery_timeline('photorealistic', ending_effect_fit=fit)
+                root = self.build_root(timeline=timeline)
+                (root / '06_ending').mkdir()
+                assets = SCRIPT.parents[2] / 'tweet-drama-background-render/assets'
+                for name in ('ending_audio.mp3', 'ending_effect.mp4'):
+                    shutil.copy2(assets / name, root / '06_ending' / name)
+                original = (root / '06_ending/ending_effect.mp4').read_bytes()
+                draft_dir = self.generate(root)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                track = next(item for item in content['tracks'] if item['name'] == '片尾特效')
+                self.assertEqual(len(track['segments']), 1)
+                segment = track['segments'][0]
+                self.assertEqual(segment['source_timerange'], {'start': 0, 'duration': 1_020_000})
+                target = 2_000_000 if fit == 'stretch_to_window' else 1_020_000
+                speed = 0.51 if fit == 'stretch_to_window' else 1.0
+                self.assertEqual(segment['target_timerange'], {'start': 4_000_000, 'duration': target})
+                self.assertAlmostEqual(segment['speed'], speed)
+                evidence = json.loads((draft_dir / 'ending-evidence.json').read_text(encoding='utf-8'))['ending_effect']
+                self.assertEqual(evidence['fit'], fit)
+                self.assertEqual(evidence['source_duration_us'], 1_020_000)
+                self.assertEqual(evidence['target_duration_us'], target)
+                self.assertAlmostEqual(evidence['speed'], speed)
+                self.assertEqual((draft_dir / 'Resources/ending_effect.mp4').read_bytes(), original)
+                self.assertEqual((root / '06_ending/ending_effect.mp4').read_bytes(), original)
+                self.assertEqual(content['duration'], 6_000_000)
+
+    def test_invalid_ending_fit_fails_before_creating_any_draft(self):
+        for fit in (None, 'loop', True, {}):
+            with self.subTest(fit=fit):
+                root = self.build_root(timeline={**TIMELINE, 'ending_effect_fit': fit})
+                with self.assertRaisesRegex(self.module.DraftInputError, 'ending_effect_fit'):
+                    self.generate(root)
+                self.assertFalse((root / 'jianying' / DRAFT_NAME).exists())
 
     def test_damaged_video_or_failed_extraction_does_not_leave_a_deliverable_draft(self):
         root = self.build_root()

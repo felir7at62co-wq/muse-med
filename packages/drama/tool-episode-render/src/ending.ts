@@ -23,7 +23,7 @@ import { fileSha256 } from './cache.ts'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, endingEffectFilter, type ShippedEndingAsset } from './delivery.ts'
 import { probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { pathExists } from './paths.ts'
-import type { TimelineDelivery, MediaToolkit, TailFrameEvidence } from './types.ts'
+import type { EndingEffectFit, EndingEffectTiming, TimelineDelivery, MediaToolkit, TailFrameEvidence } from './types.ts'
 
 /**
  * How far before the end the seek starts.
@@ -97,17 +97,25 @@ export async function requireShippedEndingAsset(path: string, asset: ShippedEndi
 /**
  * Fail when the ending effect cannot fit inside the ending window.
  *
- * The effect plays at its own speed and is never retimed, so an effect longer
+ * With source_once the effect plays at its own speed, so an effect longer
  * than the window would be cut mid-action by the ending's own length. That
  * mismatch is a failed render rather than a silently truncated ending.
  * @param toolkit - The binaries and channel to use.
  * @param effect - Absolute path of the ending effect video.
- * @throws {Error} When the effect's own duration exceeds {@link ENDING_SECONDS}.
+ * @param fit - Explicit fit; omission preserves original-speed playback.
+ * @returns Measured source duration, actual effect coverage and playback speed.
+ * @throws {Error} When the duration is invalid or source_once exceeds {@link ENDING_SECONDS}.
  * @throws {MediaCommandError} When the effect cannot be probed.
  */
-export async function requireEndingEffectFits(toolkit: MediaToolkit, effect: string): Promise<void> {
+export async function requireEndingEffectFits(
+  toolkit: MediaToolkit, effect: string, fit: EndingEffectFit = 'source_once',
+): Promise<EndingEffectTiming> {
   const measured = (await probeMedia(toolkit, effect)).durationSeconds
-  if (measured <= ENDING_SECONDS) return
+  if (!Number.isFinite(measured) || measured <= 0) throw new Error('片尾特效必须有可测得的正数时长。')
+  if (fit === 'stretch_to_window') return { fit, sourceDurationSeconds: measured,
+    targetDurationSeconds: ENDING_SECONDS, speed: measured / ENDING_SECONDS }
+  if (measured <= ENDING_SECONDS) return { fit, sourceDurationSeconds: measured,
+    targetDurationSeconds: measured, speed: 1 }
   throw new Error(`片尾特效 ${effect} 时长 ${measured.toFixed(3)} 秒，超过片尾 ${ENDING_SECONDS.toFixed(3)} 秒的窗口。`
     + '特效按自身原速只播放一次，超出的部分会被截断；'
     + '请换用不超长的片尾特效，或先把它裁到这个窗口以内。')
@@ -253,8 +261,8 @@ export async function extractTailFrame(
  *
  * The freeze image is a looped input and `-t` cuts the result at exactly
  * {@link ENDING_SECONDS}, so the ending's length never depends on the effect's own
- * duration: the effect plays at its own speed over the opening of the window and
- * the rest of it is the freeze frame.
+ * duration. Original-speed playback leaves the rest as the freeze frame;
+ * explicit stretch timing instead retimes the complete source across the window.
  * @param toolkit - The binaries and channel to use.
  * @param tailFrame - Absolute path of the frozen frame.
  * @param effect - Absolute path of the ending effect video.
@@ -262,6 +270,7 @@ export async function extractTailFrame(
  * @param encoder - The encoder the body clips were encoded with.
  * @param delivery - Optional output geometry; omitted for legacy delivery.
  * @param encoderArgs - That encoder's rate-control arguments.
+ * @param timing - Optional measured source and explicitly selected effect fit.
  */
 export async function buildEndingClip(
   toolkit: MediaToolkit,
@@ -271,10 +280,11 @@ export async function buildEndingClip(
   encoder: string,
   encoderArgs: readonly string[],
   delivery: TimelineDelivery = DEFAULT_DELIVERY,
+  timing?: EndingEffectTiming,
 ): Promise<void> {
   await runFfmpeg(toolkit, [
     '-y', '-v', 'error', '-loop', '1', '-i', tailFrame, '-i', effect,
-    '-filter_complex', endingEffectFilter(delivery), '-map', '[v]',
+    '-filter_complex', endingEffectFilter(delivery, timing), '-map', '[v]',
     '-t', ENDING_SECONDS.toFixed(3), '-an', '-r', String(delivery.fps), '-c:v', encoder, ...encoderArgs, target,
   ])
 }

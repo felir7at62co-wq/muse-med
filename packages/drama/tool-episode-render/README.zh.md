@@ -72,7 +72,7 @@ kind: "package-reference"
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify` 或 `audio_preview` |
+| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify`、`audio_preview` 或 `subtitle_overlay` |
 | `project` | 总是 | 项目根目录（含 `video/`、`audio/`、`editing/`、`exports/`） |
 | `episode` | 总是 | 集号；所有路径都补成两位 |
 | `shots` | `subtitles`、`prepare` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
@@ -89,13 +89,13 @@ kind: "package-reference"
 | `bgm_generation` | 可选，`audio_preview` | 项目内配乐合成收据；媒体 SHA-256 必须匹配 BGM 才返回各源曲增益 |
 | `intended_use` | 可选，`audio_preview` | `commercial`、`non_commercial` 或 `unknown`；覆盖计划中的声明用途，用于建议性许可风险提示 |
 | `ending_audio` | 带标记 `render` | 片尾音；只接受随包 `tweet-drama-background-render/assets/ending_audio.mp3`。成片只取它的前 2 秒，延迟到正片结束处 |
-| `ending_effect` | 带标记 `render` | 片尾特效；只接受随包 `tweet-drama-background-render/assets/ending_effect.mp4`。按自身原速只播放一次，覆盖 2 秒片尾的开头 |
-| `output` | `verify`（`render` 可选） | 成片文件；`render` 省略时写 `exports/<集>.mp4` |
+| `ending_effect` | 带标记 `render` | 随包 `tweet-drama-background-render/assets/ending_effect.mp4`；默认 `source_once` 按原速播放，时间线显式 `stretch_to_window` 时把完整源特效适配 2 秒片尾 |
+| `output` | `verify`（`render`、`subtitle_overlay` 可选） | 成片或项目内全新外加字幕 SRT；显式字幕导出使用 `<output>.decision-report.json`，两文件均不覆盖 |
 | `force` | 可选 | `render` 忽略逐镜缓存、全部重编 |
 
 所有项目输入与输出的相对路径都以 `project` 为基准，包括清单、字幕计划、对齐文档、字幕、BGM、片尾文件和显式输出。绝对路径保持不变。跨工具传递绝对 `project`；相对项目根目录只在入口按进程工作目录解析一次。项目外的片尾素材使用其安装位置的绝对路径。二进制与字体的部署配置保持不变。
 
-工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。通用必填参数在读文件前检查；片尾参数仅在异步解析明确媒介、选定带标记交付后才要求提供。让渲染无法进行的一切——缺输入、命令失败、片尾素材不是随包字节、特效长于片尾窗口、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
+工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。通用必填参数在读文件前检查；片尾参数仅在异步解析明确媒介、选定带标记交付后才要求提供。让渲染无法进行的一切——缺输入、命令失败、片尾素材不是随包字节、`source_once` 特效长于片尾窗口、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
 
 音频路径允许使用项目根目录的路径别名；输入及已有输出父目录解析后仍须位于真实项目目录内。渲染时显式音频配置的增益优先于项目增益，项目增益优先于部署默认值；渲染预览显示相同的实际增益。
 
@@ -140,7 +140,7 @@ kind: "package-reference"
 | 片尾特效 | `tweet-drama-background-render/assets/ending_effect.mp4` | 904,502 | `49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010` |
 | 片尾音 | `tweet-drama-background-render/assets/ending_audio.mp3` | 83,432 | `d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f` |
 
-带标记交付的片尾严格为 2 秒（`ENDING_SECONDS = 2`）；片尾音只取前两秒，延迟至正片结束。特效按自身原速播放一次；长于窗口时直接报错，不截断。该模式必须提供两个片尾参数。
+带标记交付的片尾严格为 2 秒（`ENDING_SECONDS = 2`）；片尾音只取前两秒，延迟至正片结束。时间线省略 `ending_effect_fit` 时保持 `source_once`：特效按自身原速播放一次，长于窗口时失败。显式 `stretch_to_window` 将完整源特效适配两秒窗口，不循环、不补黑场。随包特效长 1.020 秒，实测 speed 为 0.51；显式策略会返回 `ending_effect` 的源时长、目标覆盖时长和速度。两种策略均不改变正文终点、片尾音或随包字节校验，仍须提供两个片尾参数。
 
 ### subtitles 做什么
 
@@ -168,6 +168,16 @@ kind: "package-reference"
 
 `bgm_plan` 还保留每集可选的 `intended_use`、每段的 `track_id` 与 `license_info`，并返回规范化逐曲 `license_records`。[许可信息库](../bgm-license-info/README.zh.md)定义未知字段与用途风险提示。风险只作建议并进入渲染报告，不认证使用权或替代模型许可要求。计划中的 `source_sha256` 声明保留，但不逐曲重新计算哈希。不读取计划的方法（包括 `verify`）返回 unknown 用途和空许可记录，并在 `not_checked` 中列出 `bgm_license_info`。
 
+### 原片已有文字与外加字幕导出
+
+字幕导出允许项目根目录及其上层的路径别名，包括 macOS 系统目录别名。项目内部输出路径上的链接仍会被拒绝，已有输出文件不会被替换。
+
+编写 `subtitle_plan` 前，使用现有离线[视频检查工具](../../perception/tool-video-inspect/README.zh.md)查看源片文字。JSON 使用 `schema_version: 1` 与 `decisions`，条目含 `shot`、实际 `source_sha256`、镜内 `start_seconds`/`end_seconds`、`text`、`action: "retain_embedded"`、`reason` 及可选 `evidence_paths`。这些引用仍是调用方声明，不是 Host 签发的 OCR 或验收凭据。OCR 缺失或不确定时应预览，不代表授权付费去字或重新生成。
+
+`subtitle_overlay` 需要准备后的 `video/<集>/shot_00N.mp4`，并计算时间线全部选源的哈希。只有决定完整覆盖 cue 且去标点规范化后的文字匹配时，才省略该条外加字幕。部分重叠、文字不符或没有观察对象时保留整条 cue 并给复核建议，不拆句、不编造时码。源哈希不匹配或镜内区间无效时，作为陈旧输入报错。原 SRT 保持不变。`prepare`、`render` 接受同一可选计划；渲染只烧录解析后的外加 cue。
+
+结果中的 `subtitle_overlay` 以 SHA-256 绑定计划、原 SRT、新 `resolved_srt` 和全部所选视频，并给出完整 `decision_report` 路径。未显式提供 `output` 时，文件放在全新 `editing/subtitle-overlays/epNN-<unique>/` 目录。草稿消费方须复用该 SRT 与报告，不能另做一次过滤。`retained_embedded` 描述视频像素中已有的文字：它们不是可编辑字幕片段，也无法继承外加字幕的字号和位置。作者对白仍单独保留。技术成功不证明所有源帧均没有其他文字。
+
 ### 交付样式
 
 | 元素 | 取值 |
@@ -175,7 +185,7 @@ kind: "package-reference"
 | 画面 | 快照宽高与帧率，旧版默认 1440x2560@60，H.264 high@5.1，`yuv420p` |
 | 码率控制 | 目标 24M、上限 30M、缓冲 48M、GOP 2 秒 |
 | 总码率下限 | 成片整体 4.6 Mbps |
-| 片尾 | 3D 动画无片尾；带标记交付用最后一镜的真实尾帧定格 2.000 秒。随包特效按自身原速只播放一次，覆盖开头 1.020 秒，以 0.90 不透明度叠在定格帧上；剩下 0.980 秒是纯定格帧 |
+| 片尾 | 3D 动画无片尾；带标记交付用最后一镜的真实尾帧定格 2.000 秒。默认 `source_once` 将特效以 0.90 不透明度叠在开头 1.020 秒；时间线显式 `stretch_to_window` 时，完整运动覆盖两秒 |
 | 字幕 | 未覆盖项目设置时：配置字族、1080px 宽 ASS 画布上的字号 40、画布高度 140/1920 的底边距。项目只覆盖正文的字族、字号和边距。字距 -2、按宽度缩放的黑描边、底部居中、带标记交付唯一的 `内容由AI生成` 水印及 `ScaledBorderAndShadow: yes` 保持不变；烧录链以快照帧率的 `fps` 和 `setpts` 结尾 |
 | 音频 | 项目或部署的实际增益（默认原声 1.45、BGM 0.24）铺到正片结束；带标记交付保留片尾音前 2 秒延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
 | 容器 | AAC 192k / 48kHz，`+faststart` |
@@ -238,6 +248,7 @@ kind: "package-reference"
 | [`src/paths.ts`](src/paths.ts) | 一集的渲染输入与产物路径，以及把「缓存未命中」与「路径坏了」区分开的存在性检查 |
 | [`src/timeline.ts`](src/timeline.ts) | 分集时间线的读取、校验、选取、铺排与序列化 |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT 解析与写出，以及交付烧录用的 ASS 文档 |
+| [`src/subtitle-plan.ts`](src/subtitle-plan.ts) | 绑定源视频的已有文字决定与独立外加字幕导出 |
 | [`src/speech.ts`](src/speech.ts) | 读对齐文档并把台词落到整集时钟上，不做识别 |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、对齐文档与写出的 SRT |
 | [`src/encoder.ts`](src/encoder.ts) | NVENC 探测，以及带原因记录的 CPU 回退 |
@@ -296,6 +307,7 @@ kind: "package-reference"
 - **一次调用只处理一集**——`last_shot` 把一次渲染限定在它交付的正片镜头上，但一次调用从不渲染多集，也没有任何方法读取 `pipeline_state.json`。
 - **试听不等于自动母带处理或语音分离**——短窗 dBFS/LUFS 测量需要 `audio_preview`；旧渲染与 `verify` 不增加这些测量。原声驱动压低可能响应音效和内嵌音乐，任何测量都不能认证配乐审美或移除源内音乐。
 - **字幕只检查不修正**——`verify` 报出越过 `body_end` 的 cue；没有任何东西去钳制它，因为一句字幕该在哪里结束是字幕作者的决定。
+- **烧录字仍是画面内容**——明确外加字幕决定不会去字、令文字可编辑、统一样式或证明连续 OCR 覆盖；不确定决定只给复核建议，不阻断整集。
 - **`subtitles` 信任识别给出的时间**——对齐文档决定每一句什么时候说；本包只核对它覆盖了每条声明台词、且文本就是剧本原文，判断不了识别本身有多准，所以 `speech_alignment` 一直留在 `not_checked`。对齐文档由调用方产出。
 
 <a id="dev-note"></a>

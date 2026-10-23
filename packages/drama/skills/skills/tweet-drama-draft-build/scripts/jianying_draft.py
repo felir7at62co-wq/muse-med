@@ -102,6 +102,7 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
         clock = _draft_inputs.body_clock(payload, end, TIMELINE_TOLERANCE_US, ENDING_DURATION_US)
         policy = _delivery_policy.resolve_delivery(payload, project)
         audio = _draft_inputs.audio_gains(payload, project)
+        effect_fit = _delivery_policy.ending_effect_fit(payload)
         _delivery_policy.reject_animation_ending({**payload, "body_end": clock["body_end_us"] / 1e6}, end, policy)
     except ValueError as error:
         raise DraftInputError(str(error)) from error
@@ -120,7 +121,7 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
     return {"body_clips": body_clips, "body_end_us": body_end, "included": included,
             "duration_us": body_end + policy["ending_duration_us"], "last_shot": last_shot,
             "canvas": {key: policy[key] for key in ("width", "height")}, "policy": policy,
-            "audio": audio, "warnings": clock["warnings"]}
+            "audio": audio, "warnings": clock["warnings"], "ending_effect_fit": effect_fit}
 
 
 def draft_decode_timeout_seconds() -> float:
@@ -206,6 +207,7 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                                  Timerange(plan["body_end_us"], ENDING_DURATION_US))
     script.add_segment(segment, video_track)
     ending_assets = materials_root / "06_ending"
+    effect_evidence = None
     for filename, kind, track_name in (("ending_audio.mp3", "audio", "片尾音"),
                                       ("ending_effect.mp4", "video", "片尾特效")):
         path = ending_assets / filename
@@ -218,9 +220,23 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
         track = script.append_track(TrackSpec(getattr(draft.TrackType, kind), track_name))
         material = draft.AudioMaterial(str(local)) if kind == "audio" else draft.VideoMaterial(str(local))
         timerange = Timerange(plan["body_end_us"], min(ENDING_DURATION_US, material.duration))
-        ending = draft.AudioSegment(material, timerange) if kind == "audio" else draft.VideoSegment(material, timerange)
+        if kind == "video" and plan.get("ending_effect_fit") == "stretch_to_window":
+            if material.duration <= 0:
+                raise DraftInputError("片尾特效必须有可测得的正数时长。")
+            timerange = Timerange(plan["body_end_us"], ENDING_DURATION_US)
+            ending = draft.VideoSegment(material, timerange,
+                                        source_timerange=Timerange(0, material.duration),
+                                        speed=material.duration / ENDING_DURATION_US)
+        else:
+            ending = draft.AudioSegment(material, timerange) if kind == "audio" else draft.VideoSegment(material, timerange)
         if kind == "video":
             ending.set_mix_mode(draft.MixModeType.滤色)
+            effect_evidence = {"fit": plan.get("ending_effect_fit", "source_once"),
+                               "source": str(local), "source_sha256": hashlib.sha256(local.read_bytes()).hexdigest(),
+                               "source_duration_us": material.duration,
+                               "target_start_us": timerange.start, "target_duration_us": timerange.duration,
+                               "speed": material.duration / ENDING_DURATION_US
+                               if plan.get("ending_effect_fit") == "stretch_to_window" else 1.0}
         script.add_segment(ending, track)
     with source.open("rb") as stream:
         source_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -229,6 +245,8 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                 "image": str(image), "image_sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
                 "body_end_us": plan["body_end_us"], "duration_us": plan["duration_us"],
                 "already_included": plan["included"]}
+    if effect_evidence is not None:
+        evidence["ending_effect"] = effect_evidence
     (draft_path / "ending-evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
                                                      encoding="utf-8")
 
@@ -876,12 +894,14 @@ def normalize_subtitle_text(text: str) -> list:
     return lines or [""]
 
 
-def parse_srt_cues(srt_path) -> list:
+def parse_srt_cues(srt_path, *, allow_empty=False) -> list:
     """读 SRT 的 cue：返回 [{"start_us", "end_us", "text"}]，时间取整到微秒。"""
     try:
         raw = Path(srt_path).read_text(encoding="utf-8-sig")
     except OSError as exc:
         raise DraftInputError(f"字幕文件 {srt_path} 读取失败: {exc}") from exc
+    if allow_empty and not raw.strip():
+        return []
     timing = re.compile(r"(\d+):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{1,3})")
 
     def to_us(hours: int, minutes: int, seconds: int, millis: int) -> int:
@@ -907,10 +927,10 @@ def parse_srt_cues(srt_path) -> list:
     return cues
 
 
-def normalize_srt(srt_path, output_path=None) -> list:
+def normalize_srt(srt_path, output_path=None, *, allow_empty=False) -> list:
     """规范化已对齐的短句文字并保留时间；未传输出路径时只校验。"""
     normalized = []
-    for index, cue in enumerate(parse_srt_cues(srt_path), start=1):
+    for index, cue in enumerate(parse_srt_cues(srt_path, allow_empty=allow_empty), start=1):
         lines = normalize_subtitle_text(cue["text"])
         if len(lines) != 1:
             logger.warning(f"字幕文件 {srt_path} 第 {index} 条超过建议长度；保留当前文字与时间，不均分估时。")
@@ -1352,8 +1372,9 @@ def main_with_args(args, results=None):
         for note in [subtitle_marker, subtitle_marker.with_suffix('.review.txt')]:
             if note.is_file() and note.read_text(encoding='utf-8').strip():
                 warn(f"字幕对齐待核：{note}；保留选择继续生成，由 Muse 核听决定是否调整。")
+        allow_empty_subtitle = getattr(args, 'allow_empty_subtitle_seq', None) == seq
         if srt_path and srt_path.exists():
-            checked_cues = normalize_srt(srt_path)
+            checked_cues = normalize_srt(srt_path, allow_empty=allow_empty_subtitle)
             if any(effective_character_count(cue['text']) > SUBTITLE_MAX_EFFECTIVE_CHARS for cue in checked_cues):
                 warn(f"字幕 {srt_path} 超过建议长度，保留原文和时间，请 Muse 核对。")
         else:
@@ -1547,15 +1568,17 @@ def main_with_args(args, results=None):
                 logger.info(f"[{draft_name}] Importing subtitle...")
                 normalized_srt = draft_path / f"{seq}.normalized.srt"
                 try:
-                    normalized_cues = normalize_srt(srt_path, normalized_srt)
+                    normalized_cues = normalize_srt(srt_path, normalized_srt, allow_empty=allow_empty_subtitle)
                 except DraftInputError as error:
                     refuse(str(error))
                 logger.info(f"[{draft_name}] 字幕 {len(normalized_cues)} 条（去标点/单行/≤"
                             f"{SUBTITLE_MAX_EFFECTIVE_CHARS} 有效字），写出 {normalized_srt}")
-                if not hasattr(script, 'import_srt'):
+                if not normalized_cues:
+                    logger.info(f"[{draft_name}] 全部对白字已保留在源画面；不导入空的后加字幕轨。")
+                elif not hasattr(script, 'import_srt'):
                     warn("剪映草稿库缺少 import_srt，当前候选没有可编辑字幕；请 Muse 核对。")
                 try:
-                    if hasattr(script, 'import_srt'):
+                    if normalized_cues and hasattr(script, 'import_srt'):
                         # 导入字幕到文本轨道，设置样式
                         from pyJianYingDraft.text_segment import TextStyle, TextBorder, TextSegment
                         from pyJianYingDraft.segment import ClipSettings
@@ -1810,6 +1833,7 @@ def generate_draft(
     project: str = None,
     require_bgm: bool = False,
     bgm_role: str = None,
+    allow_empty_subtitle_seq: str = None,
 ) -> dict:
     """
     生成剪映草稿（供 DraftGenerator 直接调用）。
@@ -1823,6 +1847,7 @@ def generate_draft(
         project: 视频禁用清单所属项目；省略时从素材目录祖先定位
         require_bgm: 兼容调用方的配乐要求，只追加提示，不因选曲未完成阻断草稿
         bgm_role: music_only 或 dialogue_music_mix 用途声明；不表示已经分析音轨确认无对白
+        allow_empty_subtitle_seq: 内部已绑定全烧录字幕报告的唯一集号，仅允许其空白后加 SRT
 
     返回:
         success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计已保存并回读一致的草稿。
@@ -1842,6 +1867,7 @@ def generate_draft(
         new_template=None,
         require_bgm=require_bgm,
         bgm_role=bgm_role,
+        allow_empty_subtitle_seq=allow_empty_subtitle_seq,
     )
     results = []
     error = ""

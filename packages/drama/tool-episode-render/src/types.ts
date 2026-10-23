@@ -9,7 +9,22 @@
 import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
 
 /** The operation one `drama_render` call runs. */
-export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview'
+export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview' | 'subtitle_overlay'
+
+/** How the effect source occupies the existing ending window. */
+export type EndingEffectFit = 'source_once' | 'stretch_to_window'
+
+/** Measured effect timing passed to the ending encoder. */
+export interface EndingEffectTiming {
+  /** Explicit source playback treatment. */
+  readonly fit: EndingEffectFit
+  /** Measured source duration. */
+  readonly sourceDurationSeconds: number
+  /** Actual effect coverage, at most the existing ending window. */
+  readonly targetDurationSeconds: number
+  /** Source seconds consumed per output second. */
+  readonly speed: number
+}
 
 /** How much one render check's failure matters. */
 export type CheckSeverity = 'failure' | 'warning'
@@ -75,6 +90,8 @@ export interface DeliveryPolicy {
 
 /** One episode timeline: the clips plus the body end they imply. */
 export interface Timeline {
+  /** Explicit effect treatment; omitted timelines retain source-once playback. */
+  readonly endingEffectFit?: EndingEffectFit
   /** Project delivery settings captured when this timeline was prepared. */
   readonly delivery?: TimelineDelivery
   /** Original body_end when the source JSON declares it; checked for animation endings. */
@@ -107,6 +124,72 @@ export interface SubtitleCue {
   readonly endSeconds: number
   /** The cue's text with its line breaks removed. */
   readonly text: string
+}
+
+/** An authored instruction to retain existing picture text instead of overlaying a whole cue. */
+export interface EmbeddedSubtitleDecision {
+  /** Shot number on this timeline. */
+  readonly shot: number
+  /** SHA-256 of the actual selected shot video. */
+  readonly source_sha256: string
+  /** Inclusive start relative to the shot, seconds. */
+  readonly start_seconds: number
+  /** Exclusive end relative to the shot, seconds. */
+  readonly end_seconds: number
+  /** Dialogue expected in the picture. */
+  readonly text: string
+  /** Keep the existing picture text, without an additional overlay. */
+  readonly action: 'retain_embedded'
+  /** The caller's rationale, not an independently issued inspection receipt. */
+  readonly reason: string
+  /** Caller-declared OCR/frame evidence references, not trusted Host attestations. */
+  readonly evidence_paths: readonly string[]
+}
+
+/** Compact result binding a resolved subtitle overlay to its source files. */
+export interface SubtitleOverlayReport {
+  /** Two-digit episode number. */
+  readonly episode: string
+  /** Authored plan path. */
+  readonly plan_path: string
+  /** Actual plan SHA-256. */
+  readonly plan_sha256: string
+  /** Unmodified authored SRT. */
+  readonly original_srt: string
+  /** Actual original SRT SHA-256. */
+  readonly original_srt_sha256: string
+  /** New SRT containing only external overlays. */
+  readonly resolved_srt: string
+  /** Actual resolved SRT SHA-256. */
+  readonly resolved_srt_sha256: string
+  /** Full decision report JSON. */
+  readonly decision_report: string
+  /** Selected videos checked against authored source digests. */
+  readonly sources: { readonly shot: number; readonly path: string; readonly sha256: string }[]
+  /** Ordered selected clip geometry used for local-to-episode time mapping. */
+  readonly timeline_clips: { readonly shot: number; readonly start_us: number; readonly duration_us: number }[]
+  /** Authored cue indexes whose matching text is retained in the video pixels. */
+  readonly retained_cue_indexes: number[]
+  /** Whole authored cues retained in the original video pixels, on the episode clock. */
+  readonly retained_embedded: {
+    readonly cue_index: number
+    readonly shot: number
+    readonly text: string
+    readonly start_seconds: number
+    readonly end_seconds: number
+    readonly source_sha256: string
+    readonly editable: false
+  }[]
+  /** Original cue count. */
+  readonly original_cue_count: number
+  /** Cue count in the resolved external overlay. */
+  readonly overlay_cue_count: number
+  /** Authored references do not certify OCR accuracy or inspection. */
+  readonly evidence_kind: 'caller_declared'
+  /** Retained text is burned in, not editable subtitle content. */
+  readonly retained_text_editable: false
+  /** External styles cannot change existing picture text. */
+  readonly retained_text_style_adjustable: false
 }
 
 /** One stream of an ffprobe report, narrowed to the fields this package reads. */
@@ -357,6 +440,15 @@ export interface RenderPreview {
  * Explicit audio profiles add optional `audio_mix` evidence.
  */
 export interface DramaRenderReport {
+  /** Explicit subtitle-overlay decisions; omitted for legacy calls. */
+  readonly subtitle_overlay?: SubtitleOverlayReport
+  /** Measured timing for an explicitly selected effect fit. */
+  readonly ending_effect?: {
+    readonly fit: EndingEffectFit
+    readonly source_duration_seconds: number
+    readonly target_duration_seconds: number
+    readonly speed: number
+  }
   /** The operation that produced this result. */
   readonly method: DramaRenderMethod
   /** Whether the operation completed and every failure-severity check passed. */

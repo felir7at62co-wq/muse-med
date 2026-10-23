@@ -8,7 +8,7 @@
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec, RenderSettings, ResolvedAudioMixProfile, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
+import type { AudioMixSpec, EndingEffectTiming, RenderSettings, ResolvedAudioMixProfile, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -254,7 +254,7 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * The filter graph that turns the frozen tail frame and the ending effect into
  * the ending clip.
  *
- * The effect keeps its own timeline — nothing retimes it — so it covers the
+ * By default the effect keeps its own timeline, so it covers the
  * opening of the ending for as long as it lasts, 1.020 seconds for the shipped
  * asset, and the rest of the window is the freeze frame. What makes that
  * remainder the freeze is the black pad: a black effect frame screens over the
@@ -262,19 +262,28 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * {@link ENDING_SECONDS} even though the effect is shorter. The effect's frames
  * are interpolated to 120 fps and averaged back to 60 before the pad, and the
  * result is screen-blended over the freeze at {@link EFFECT_BLEND_OPACITY}.
+ * Explicit stretch_to_window timing instead retimes the complete source across
+ * the ending window, without repeating it or padding its tail with black.
  * @param delivery - Output geometry and frame rate.
+ * @param timing - Optional measured source and selected ending-fit timing.
  * @returns The filter graph, whose only output pad is `[v]`.
  */
-export function endingEffectFilter(delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
+export function endingEffectFilter(
+  delivery: TimelineDelivery = DEFAULT_DELIVERY,
+  timing?: EndingEffectTiming,
+): string {
   const canvas = assCanvas(delivery)
   const effectWidth = Math.round(canvas.width / 2)
   const effectHeight = Math.round(canvas.height / 2)
+  const stretch = timing?.fit === 'stretch_to_window'
+  const timestamps = stretch ? `setpts=(PTS-STARTPTS)/${String(timing.speed)},` : 'setpts=PTS-STARTPTS,'
+  const pad = stretch ? '' : `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
   return `[0:v]${deliveryScaleFilter('gbrp', delivery)}[base];`
-    + '[1:v]setpts=PTS-STARTPTS,'
+    + `[1:v]${timestamps}`
     + `scale=${String(effectWidth)}:${String(effectHeight)}:force_original_aspect_ratio=increase,`
     + `crop=${String(effectWidth)}:${String(effectHeight)},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,`
     + "tmix=frames=2:weights='1 1',"
-    + `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
+    + pad
     + `trim=0:${ENDING_SECONDS.toFixed(3)},`
     + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},fps=${String(delivery.fps)},`
     + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`

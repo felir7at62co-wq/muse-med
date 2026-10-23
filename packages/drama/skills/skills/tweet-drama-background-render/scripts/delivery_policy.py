@@ -99,3 +99,11 @@ def reject_animation_ending(timeline: dict, end_us: int, policy: dict) -> None:
             or not math.isfinite(body_end) or round(body_end * 1_000_000) != end_us):
         raise ValueError('animation_3d cannot include an ending after body_end; '
                          'rerun prepare with body-only clips (重新 prepare)')
+
+
+def ending_effect_fit(timeline: dict) -> str:
+    """Read only the explicit timeline fit; omission keeps original-speed playback."""
+    fit = timeline.get('ending_effect_fit', 'source_once')
+    if fit not in ('source_once', 'stretch_to_window'):
+        raise ValueError('ending_effect_fit must be source_once or stretch_to_window')
+    return fit

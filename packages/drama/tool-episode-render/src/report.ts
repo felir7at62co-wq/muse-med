@@ -23,6 +23,8 @@ import type {
   TailFrameEvidence,
   TailFrameReport,
   Timeline,
+  SubtitleOverlayReport,
+  EndingEffectTiming,
 } from './types.ts'
 
 /** The tail-frame record for a method that built no ending. */
@@ -50,6 +52,10 @@ export const NO_MEDIA: MediaFacts = {
 
 /** Everything one method's report is built from. */
 export interface ReportInput {
+  /** Optional explicit subtitle-overlay resolution. */
+  readonly subtitleOverlay?: SubtitleOverlayReport
+  /** Optional timing for an explicitly selected ending effect fit. */
+  readonly endingEffect?: EndingEffectTiming
   /** The operation that produced the result. */
   readonly method: DramaRenderMethod
   /** Optional declared BGM plan validated by render. */
@@ -159,6 +165,11 @@ export function buildReport(input: ReportInput): DramaRenderReport {
   }
   return {
     method: input.method,
+    ...(input.subtitleOverlay === undefined ? {} : { subtitle_overlay: input.subtitleOverlay }),
+    ...(input.endingEffect === undefined ? {} : { ending_effect: {
+      fit: input.endingEffect.fit, source_duration_seconds: input.endingEffect.sourceDurationSeconds,
+      target_duration_seconds: input.endingEffect.targetDurationSeconds, speed: input.endingEffect.speed,
+    } }),
     ok: failures.length === 0,
     project: input.project,
     episode: input.episode,

@@ -171,10 +171,15 @@ describe('renderEpisode', () => {
     await writePlaceholder(profile, JSON.stringify({ schema_version: 1, mode: 'no_bgm',
       ...(originalGain === undefined ? {} : { original_gain: originalGain }), analysis_window_ms: 100 }))
     const channel = renderChannel(prepared)
-    const report = await render(prepared, channel, false, join(prepared.project, 'missing-plan.json'), { mixProfile: profile })
+    const subtitlePlan = join(prepared.project, 'subtitle-plan.json')
+    await writePlaceholder(subtitlePlan, JSON.stringify({ schema_version: 1, decisions: [] }))
+    const report = await render(prepared, channel, false, join(prepared.project, 'missing-plan.json'),
+      { mixProfile: profile, subtitlePlan })
     expect(report.audio_mix).toMatchObject({ mode: 'no_bgm', original_audio: prepared.paths.masterAudio,
       music_audio: '', music_stem: '', detector: 'none' })
     expect(report.bgm_plan.path).toBe('')
+    expect(report.subtitle_overlay?.plan_path).toBe(subtitlePlan)
+    expect(report.written).toContain(report.subtitle_overlay?.resolved_srt)
     expect(report.render_preview?.audio).toMatchObject({ master_gain: originalGain ?? 0.7, bgm_gain: 0,
       bgm_path: '', bgm_plan_path: '' })
     expect(report.warnings.join('\n')).not.toContain('尚未提供 BGM')

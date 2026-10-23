@@ -178,6 +178,24 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('tpad=stop_mode=add:stop_duration=2.000:color=black', value)
         self.assertIn('trim=0:2.000', value)
 
+    def test_explicit_ending_fit_retimes_the_complete_source_without_black_padding(self):
+        render = load('render_ending_stretch_test', RENDER / 'scripts/render_episode.py')
+        policy = load('render_fit_policy_test', RENDER / 'scripts/delivery_policy.py')
+        self.assertEqual(policy.ending_effect_fit({}), 'source_once')
+        self.assertEqual(policy.ending_effect_fit({'ending_effect_fit': 'stretch_to_window'}), 'stretch_to_window')
+        for invalid in (None, True, 'loop', {}):
+            with self.assertRaisesRegex(ValueError, 'ending_effect_fit'):
+                policy.ending_effect_fit({'ending_effect_fit': invalid})
+        timing = {'fit': 'stretch_to_window', 'source_duration_seconds': 1.02,
+                  'target_duration_seconds': 2.0, 'speed': 0.51}
+        value = render.ending_effect_filter(2.0, timing=timing)
+        self.assertIn('[1:v]setpts=(PTS-STARTPTS)/0.51,', value)
+        self.assertNotIn('tpad=stop_mode=add', value)
+        self.assertNotIn('loop=', value)
+        self.assertIn('trim=0:2.000', value)
+        self.assertEqual(render.ending_effect_filter(2.0, timing={'fit': 'source_once'}),
+                         render.ending_effect_filter(2.0))
+
     def test_ending_effect_layout_follows_landscape_canvas_without_portrait_stretch(self):
         render = load('render_ending_canvas_test', RENDER / 'scripts/render_episode.py')
         portrait = render.ending_effect_filter(2.0)

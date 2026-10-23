@@ -68,6 +68,18 @@ class SkillSuite(unittest.TestCase):
                          "Agent 自己的选曲判断", "已有 ID 不能改写", "不授权重做视频"):
             self.assertIn(required, bible)
 
+    def test_embedded_subtitles_are_reviewed_without_claiming_editability(self):
+        render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
+        draft = (SKILLS / "tweet-drama-draft-build/SKILL.md").read_text(encoding="utf-8")
+        for required in ("video_ocr", "video_inspect", "subtitle_plan", "retain_embedded", "source_sha256",
+                         "普通识别疑点只提示", "不能宣称整集字幕均可编辑"):
+            self.assertIn(required, render)
+        for required in ("resolved_srt", "subtitle_overlay_report", "不可编辑", "不自动付费去字"):
+            self.assertIn(required, draft)
+        for source in (render, draft):
+            self.assertIn("stretch_to_window", source)
+            self.assertIn("省略", source)
+
     def test_shipped_scripts_start_console_children_hidden(self):
         """A windowless parent must pass CREATE_NO_WINDOW, or Windows pops a console."""
         launches = 0

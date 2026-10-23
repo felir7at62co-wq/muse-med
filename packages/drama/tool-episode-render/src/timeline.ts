@@ -71,6 +71,10 @@ export function parseTimelineDocument(document: unknown, path: string): Timeline
     }
   }
   const row = document as Record<string, unknown>
+  const endingEffectFit = row.ending_effect_fit
+  if (endingEffectFit !== undefined && endingEffectFit !== 'source_once' && endingEffectFit !== 'stretch_to_window') {
+    throw new Error(`${path}.ending_effect_fit 必须是 source_once 或 stretch_to_window。`)
+  }
   const delivery = Object.hasOwn(row, 'delivery') ? parseTimelineDelivery(row.delivery, `${path}.delivery`) : undefined
   if (Object.hasOwn(row, 'body_end')
     && (typeof row.body_end !== 'number' || !Number.isFinite(row.body_end) || row.body_end < 0)) {
@@ -91,6 +95,7 @@ export function parseTimelineDocument(document: unknown, path: string): Timeline
   }
   return {
     clips, bodyEndSeconds: bodyEndSecondsOf(clips),
+    ...(endingEffectFit === undefined ? {} : { endingEffectFit }),
     ...(delivery === undefined ? {} : { delivery }),
     ...(typeof row.body_end === 'number' ? { declaredBodyEndSeconds: row.body_end } : {}),
   }
@@ -173,6 +178,7 @@ export function formatTimelineDocument(timeline: Timeline): string {
   return `${JSON.stringify({
     clips: timeline.clips.map(clip => ({ shot: clip.shot, start_us: clip.startUs, duration_us: clip.durationUs })),
     body_end: timeline.declaredBodyEndSeconds ?? timeline.bodyEndSeconds,
+    ...(timeline.endingEffectFit === undefined ? {} : { ending_effect_fit: timeline.endingEffectFit }),
     ...(timeline.delivery === undefined ? {} : { delivery: timeline.delivery }),
   }, null, 2)}\n`
 }
