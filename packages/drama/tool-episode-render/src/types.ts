@@ -60,6 +60,26 @@ export interface DeliveryAudio {
   readonly bgm_gain?: number
 }
 
+/** Editable-draft typography in editor UI units, independent of ASS pixel settings. */
+export interface DeliveryDraftStyle {
+  /** Optional AI-mark size; animation still omits the mark. */
+  readonly watermark?: {
+    /** Finite editor font size greater than zero and at most 100. */
+    readonly font_size_ui?: number
+  }
+  /** Optional body-subtitle overrides; omitted fields retain draft defaults. */
+  readonly subtitle?: {
+    /** Requested font name, not evidence that editor resources or rights are available. */
+    readonly font_family?: string
+    /** Finite editor font size greater than zero and at most 100. */
+    readonly font_size_ui?: number
+    /** Finite black-border width from 0 through 100 editor units. */
+    readonly border_width_ui?: number
+    /** Finite editor-relative vertical position from -1 through 1. */
+    readonly transform_y?: number
+  }
+}
+
 /** Validated delivery snapshot stored in timeline JSON. */
 export interface TimelineDelivery {
   /** Explicit medium, omitted for legacy projects that have not selected one. */
@@ -74,6 +94,8 @@ export interface TimelineDelivery {
   readonly subtitle?: DeliverySubtitle
   /** Optional project mix section captured by prepare. */
   readonly audio?: DeliveryAudio
+  /** Optional complete draft-style section captured by prepare, with no ASS effect. */
+  readonly draft_style?: DeliveryDraftStyle
 }
 
 /** Resolved medium-specific treatment and delivery geometry. */

@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/guard/argument-loop/README.md
+/:
+  en: c7b951fa7e44739f
+  zh: 23d5054ef2aa58f4
+/deepseek-ai-dsh-argument-loop:
+  en: 4431cbe988026923
+  zh: 55db5c735f2fa4c8
+/deepseek-ai-dsh-argument-loop/summary:
+  en: f819bd5425cdba84
+  zh: 3d09f78d8820b759
+/deepseek-ai-dsh-argument-loop/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 205937b190ceb620
+/deepseek-ai-dsh-argument-loop/use-this-package:
+  en: eadcf98f7e592f61
+  zh: cc37601cc0d04e37
+/deepseek-ai-dsh-argument-loop/use-this-package/when-to-choose-it:
+  en: 60674aefd5e74a46
+  zh: 659a3e31a4a53b61
+/deepseek-ai-dsh-argument-loop/use-this-package/minimal-configuration:
+  en: 3fce43130f9eeaa2
+  zh: b700cc423ea4da64
+/deepseek-ai-dsh-argument-loop/use-this-package/after-a-stop:
+  en: 1d35ad9da4f6138d
+  zh: 884d7c733e5dd890
+/deepseek-ai-dsh-argument-loop/understand-the-implementation:
+  en: 4dc400c48e7966df
+  zh: 4798d29333cf38b3
+/deepseek-ai-dsh-argument-loop/further-exploration:
+  en: 44a59733e3ef6107
+  zh: e110b94c9ca8c019
+/deepseek-ai-dsh-argument-loop/model-experience:
+  en: a70c98c087493ffc
+  zh: c9335ff368b5d684
+/deepseek-ai-dsh-argument-loop/model-experience/kv-cache-effect:
+  en: 495ca383399d64d9
+  zh: 4176417828aa4a43
+/deepseek-ai-dsh-argument-loop/known-limitations-and-deferred-work:
+  en: d57d552a14be5849
+  zh: b5c8d77cb3545fca
+/deepseek-ai-dsh-argument-loop/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

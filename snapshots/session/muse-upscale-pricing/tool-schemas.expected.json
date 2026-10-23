@@ -126,6 +126,45 @@
                   },
                   "max_effective_chars_per_shot": {
                     "type": "integer"
+                  },
+                  "draft_style": {
+                    "type": "object",
+                    "description": "Editable Jianying typography in editor UI units, not formal-render pixels. Replaces the whole draft-style section; {} restores draft defaults after prepare.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "watermark": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "font_size_ui": {
+                            "type": "number",
+                            "description": "Editor font size, greater than 0 and at most 100. Animation omits the watermark."
+                          }
+                        }
+                      },
+                      "subtitle": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "font_family": {
+                            "type": "string",
+                            "description": "Requested trimmed font name, 1–128 characters, no controls. Missing or unsupported editor resources require a warning and system-font fallback; no font download or license approval."
+                          },
+                          "font_size_ui": {
+                            "type": "number",
+                            "description": "Editor font size, greater than 0 and at most 100."
+                          },
+                          "border_width_ui": {
+                            "type": "number",
+                            "description": "Black border from 0 through 100 editor units, not the raw serialized width."
+                          },
+                          "transform_y": {
+                            "type": "number",
+                            "description": "Editor-relative vertical position from -1 through 1."
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               },
