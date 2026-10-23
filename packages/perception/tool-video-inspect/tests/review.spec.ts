@@ -406,6 +406,26 @@ it('publishes all observations, reuses unchanged reports, and refuses changed re
   expect(h.review().frames.every(frame => frame.observation !== undefined)).toBe(true)
 })
 
+it('reuses saved frames after a later extraction in the same batch fails', async () => {
+  const h = await fixture(), media = Media.runMedia
+  let extractions = 0
+  vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+    if (args[1].includes('image2pipe') && ++extractions === 2) throw Error('Synthetic second-frame extraction failure')
+    return media(...args)
+  })
+  await h.run(h.call('scan'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+  expect(h.review().frames.filter(frame => frame.image !== undefined)).toHaveLength(1)
+  expect(h.review().frames.every(frame => !frame.exposed)).toBe(true)
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, h.config).await()
+  expect(h.review().frames.filter(frame => frame.image !== undefined)).toHaveLength(1)
+  await h.run(h.call('next'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(extractions).toBe(3)
+  expect(h.review().frames.filter(frame => frame.exposed)).toHaveLength(2)
+})
+
 it('publishes revised observations separately and retains the previous report', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)

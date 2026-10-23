@@ -259,7 +259,10 @@ export function applyCompleteReview(ctx: Context, config: Config,
           if (!Number.isFinite(time) || time < 0 || time >= review.duration || !output.bytes.length) throw Error('Frame extraction did not return a source timestamp and image')
           const image = await ctx.attachments.saveImage({ data: output.bytes, mediaType: config.frameFormat === 'png' ? 'image/png' : 'image/jpeg',
             name: `video-${review.id}-${frame.id}.${config.frameFormat}` })
-          updated.set(frame.id, { ...frame, image, decoded_time: time })
+          const extracted = { ...frame, image, decoded_time: time }
+          updated.set(frame.id, extracted)
+          review = { ...review, frames: review.frames.map(existing => existing.id === frame.id ? extracted : existing) }
+          saveReview(ctx, session, review)
         }
         if ((await ctx.fs.stat(target, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: source changed during extraction')
         review = { ...review, frames: review.frames.map(frame => updated.get(frame.id) ?? frame) }
