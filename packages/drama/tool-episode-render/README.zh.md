@@ -185,6 +185,8 @@ kind: "package-reference"
 
 结果中的 `subtitle_overlay` 以 SHA-256 绑定计划、原 SRT、新 `resolved_srt` 和全部所选视频，并给出完整 `decision_report` 路径。未显式提供 `output` 时，文件放在全新 `editing/subtitle-overlays/epNN-<unique>/` 目录。草稿消费方须复用该 SRT 与报告，不能另做一次过滤。`retained_embedded` 描述视频像素中已有的文字：它们不是可编辑字幕片段，也无法继承外加字幕的字号和位置。作者对白仍单独保留。技术成功不证明所有源帧均没有其他文字。
 
+发布前会重新核对原 SRT、计划与所选视频的哈希。报告发布失败时，只回滚本次新写入且内容未变的普通 SRT；已变化的字节、链接与并发写入的报告均保留。回滚失败会同时报告两项错误。
+
 ### 交付样式
 
 | 元素 | 取值 |

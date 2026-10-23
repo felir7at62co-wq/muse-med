@@ -56,7 +56,6 @@ async function requireUnlinkedOutput(file: string, project: string): Promise<voi
     } catch (error) {
       if (!(error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
     }
-    if (current === dirname(current)) break
   }
 }
 
@@ -86,21 +85,21 @@ export async function resolveSubtitleOverlay(input: {
   const decisions = parseSubtitlePlan(JSON.parse(planBytes.toString('utf8').replace(/^\ufeff/u, '')))
   const cues = parseSrtDocument(original.toString('utf8'), input.subtitleSrt)
   const paths = episodePaths(input.project, input.episode)
-  const sources = new Map<number, { shot: number; path: string; sha256: string }>()
+  const sourceClips = new Map<number, { clip: Timeline['clips'][number]; source: { shot: number; path: string; sha256: string } }>()
   for (const clip of input.timeline.clips) {
     const video = resolve(paths.videoDir, shotFileName(clip.shot))
-    sources.set(clip.shot, { shot: clip.shot, path: video, sha256: await fileSha256(video) })
+    sourceClips.set(clip.shot, { clip, source: { shot: clip.shot, path: video, sha256: await fileSha256(video) } })
   }
+  const sources = [...sourceClips.values()].map(entry => entry.source)
   const retained = new Set<number>()
   const retainedEmbedded: SubtitleOverlayReport['retained_embedded'][number][] = []
   const warnings: string[] = []
   const findings = []
   for (const [index, decision] of decisions.entries()) {
-    const clip = input.timeline.clips.find(candidate => candidate.shot === decision.shot)
-    if (!clip) throw new Error(`字幕决定的 shot=${String(decision.shot)} 不在时间线内。`)
+    const entry = sourceClips.get(decision.shot)
+    if (!entry) throw new Error(`字幕决定的 shot=${String(decision.shot)} 不在时间线内。`)
+    const { clip, source } = entry
     if (micros(decision.end_seconds) > clip.durationUs) throw new Error(`shot=${String(decision.shot)} 的字幕决定越过片段末尾。`)
-    const source = sources.get(clip.shot)
-    if (source === undefined) throw new Error(`字幕决定缺少所选源视频：shot=${String(clip.shot)}。`)
     if (source.sha256 !== decision.source_sha256) throw new Error(`shot=${String(clip.shot)} 字幕决定的源视频 SHA-256 已变化，请重新预览该片段。`)
     const start = clip.startUs + micros(decision.start_seconds), end = clip.startUs + micros(decision.end_seconds)
     const matched: number[] = []
@@ -147,13 +146,13 @@ export async function resolveSubtitleOverlay(input: {
   const report: SubtitleOverlayReport = {
     episode: input.episode, plan_path: input.planPath, plan_sha256: digest(planBytes), original_srt: input.subtitleSrt,
     original_srt_sha256: digest(original), resolved_srt: resolvedSrt, resolved_srt_sha256: digest(resolvedText),
-    decision_report: decisionReport, sources: [...sources.values()], retained_cue_indexes: [...retained].sort((a, b) => a - b),
+    decision_report: decisionReport, sources, retained_cue_indexes: [...retained].sort((a, b) => a - b),
     timeline_clips: input.timeline.clips.map(clip => ({ shot: clip.shot, start_us: clip.startUs, duration_us: clip.durationUs })),
     retained_embedded: retainedEmbedded,
     original_cue_count: cues.length, overlay_cue_count: overlay.length, evidence_kind: 'caller_declared',
     retained_text_editable: false, retained_text_style_adjustable: false,
   }
-  for (const source of sources.values()) if (await fileSha256(source.path) !== source.sha256) throw new Error('解析期间源视频变化，未发布字幕决定。')
+  for (const source of sources) if (await fileSha256(source.path) !== source.sha256) throw new Error('解析期间源视频变化，未发布字幕决定。')
   if (digest(await readFile(input.subtitleSrt)) !== report.original_srt_sha256
     || digest(await readFile(input.planPath)) !== report.plan_sha256) throw new Error('解析期间字幕或计划变化，未发布字幕决定。')
   await writeFile(resolvedSrt, resolvedText, { encoding: 'utf8', flag: 'wx' })
