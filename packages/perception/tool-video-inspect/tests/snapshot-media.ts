@@ -16,9 +16,14 @@ class SnapshotMedia extends SubprocessRuntime {
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     spec.signal?.throwIfAborted()
     const probing = spec.argv[0] === 'ffprobe'
-    const time = Number(spec.argv[spec.argv.indexOf('-ss') + 1])
-    const bytes = probing ? Buffer.from(JSON.stringify({ format: { duration: '4' },
-      streams: [{ codec_type: 'video', codec_name: 'h264', width: 1, height: 1 }] })) : PNG
+    const selectedIndex = spec.argv.join(' ').match(/select='eq\(n,(\d+)\)'/)
+    const time = Number(spec.argv[spec.argv.indexOf('-ss') + 1]) + (selectedIndex === null ? 0 : Number(selectedIndex[1]) / 10)
+    const scanning = spec.argv.some(value => value.includes('gte(scene,0)'))
+    const thumbnails = spec.argv.includes('rawvideo')
+    const bytes = scanning ? Buffer.from('frame:0 pts:0 pts_time:0\nlavfi.scene_score=0\nframe:20 pts:20 pts_time:2\nlavfi.scene_score=0.9\nframe:39 pts:39 pts_time:3.9\nlavfi.scene_score=0\n')
+      : thumbnails ? Buffer.concat(Array.from({ length: 16 }, (_, i) => Buffer.alloc(48 * 32 * 3, i < 8 ? 0 : 255)))
+        : probing ? Buffer.from(JSON.stringify({ format: { duration: '4' },
+          streams: [{ codec_type: 'video', codec_name: 'h264', width: 1, height: 1 }] })) : PNG
     const diagnostic = probing ? '' : `[showinfo] pts_time:${time}`
     return { stdin: undefined, stdout: Readable.from([bytes]), stderr: undefined, control: undefined,
       collected: { stderr: { readFrom: () => ({ text: diagnostic, nextOffset: diagnostic.length, lossy: false }) } },

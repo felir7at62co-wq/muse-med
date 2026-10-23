@@ -1,0 +1,127 @@
+{
+  "id": "{{id:1}}",
+  "path": "{{cwd}}/fixture.mp4",
+  "episode": "第1集",
+  "source_version": "fixture-video-version",
+  "duration": 4,
+  "scanned_until": 4,
+  "scan_complete": true,
+  "frames": [
+    {
+      "id": "F00001",
+      "time": 0,
+      "reasons": [
+        "opening",
+        "appearance_or_continuity"
+      ],
+      "exposed": true,
+      "image": {
+        "attachmentId": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "mediaType": "image/png",
+        "width": 1,
+        "height": 1,
+        "bytes": 69,
+        "name": "video-{{id:1}}-F00001.png"
+      },
+      "decoded_time": 0,
+      "observation": {
+        "visible": "画面是合成的单色背景，没有人物、动作或道具。",
+        "change": "对照相邻画面的颜色变化。",
+        "uncertainty": ""
+      }
+    },
+    {
+      "id": "F00002",
+      "time": 1.88,
+      "reasons": [
+        "before_cut"
+      ],
+      "exposed": true,
+      "image": {
+        "attachmentId": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "mediaType": "image/png",
+        "width": 1,
+        "height": 1,
+        "bytes": 69,
+        "name": "video-{{id:1}}-F00002.png"
+      },
+      "decoded_time": 1.88,
+      "observation": {
+        "visible": "画面是合成的单色背景，没有人物、动作或道具。",
+        "change": "对照相邻画面的颜色变化。",
+        "uncertainty": ""
+      }
+    },
+    {
+      "id": "F00003",
+      "time": 2,
+      "reasons": [
+        "cut",
+        "appearance_or_continuity"
+      ],
+      "exposed": true,
+      "image": {
+        "attachmentId": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "mediaType": "image/png",
+        "width": 1,
+        "height": 1,
+        "bytes": 69,
+        "name": "video-{{id:1}}-F00003.png"
+      },
+      "decoded_time": 2,
+      "observation": {
+        "visible": "画面是合成的单色背景，没有人物、动作或道具。",
+        "change": "对照相邻画面的颜色变化。",
+        "uncertainty": ""
+      },
+      "decode": {
+        "start_seconds": 0,
+        "frame_index": 20
+      }
+    },
+    {
+      "id": "F00004",
+      "time": 2.12,
+      "reasons": [
+        "after_cut"
+      ],
+      "exposed": true,
+      "image": {
+        "attachmentId": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "mediaType": "image/png",
+        "width": 1,
+        "height": 1,
+        "bytes": 69,
+        "name": "video-{{id:1}}-F00004.png"
+      },
+      "decoded_time": 2.12,
+      "observation": {
+        "visible": "画面是合成的单色背景，没有人物、动作或道具。",
+        "change": "对照相邻画面的颜色变化。",
+        "uncertainty": ""
+      }
+    },
+    {
+      "id": "F00005",
+      "time": 3.899999,
+      "reasons": [
+        "closing"
+      ],
+      "exposed": true,
+      "image": {
+        "attachmentId": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "mediaType": "image/png",
+        "width": 1,
+        "height": 1,
+        "bytes": 69,
+        "name": "video-{{id:1}}-F00005.png"
+      },
+      "decoded_time": 3.899999,
+      "observation": {
+        "visible": "画面是合成的单色背景，没有人物、动作或道具。",
+        "change": "对照相邻画面的颜色变化。",
+        "uncertainty": ""
+      }
+    }
+  ]
+}

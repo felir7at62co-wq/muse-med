@@ -22297,6 +22297,339 @@
       }
     },
     {
+      "key": "event:video/review",
+      "kind": "event",
+      "event": "video/review",
+      "surface": false,
+      "digest": "a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 21,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 22,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              2,
+              18
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "frame_count",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "frames",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 17,
+                "optional": false
+              },
+              {
+                "name": "path",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "scan_complete",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "scanned_until",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "array",
+            "element": 5
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "decode",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "decoded_time",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "exposed",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "image",
+                "type": 9,
+                "optional": true
+              },
+              {
+                "name": "observation",
+                "type": 15,
+                "optional": true
+              },
+              {
+                "name": "reasons",
+                "type": 16,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "frame_index",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "start_seconds",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "attachmentId",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "bytes",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "height",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "mediaType",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "width",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "image/jpeg"
+          },
+          {
+            "kind": "literal",
+            "value": "image/png"
+          },
+          {
+            "kind": "literal",
+            "value": "image/webp"
+          },
+          {
+            "kind": "literal",
+            "value": "image/gif"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "change",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "uncertainty",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "visible",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 8
+          },
+          {
+            "kind": "literal",
+            "value": "update"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 19,
+                "optional": false
+              },
+              {
+                "name": "review",
+                "type": 20,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "start"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "duration",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "episode",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "frames",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "path",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "scan_complete",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "scanned_until",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "source_version",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "video/review"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:web/deepseek-search-llm-request",
       "kind": "event",
       "event": "web/deepseek-search-llm-request",
@@ -23039,6 +23372,11 @@
       ]
     },
     {
+      "digest": "1d77201e9587ac01c08665e7378e5a6a762bd9194b8f8d2c10e0ef7d669a3c6c",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "1d8798b1a5e8c545ee4dcd2b4e75c0b4c9ffd985e4744c6d1a1aab992f859721",
       "names": [],
       "sources": []
@@ -23124,6 +23462,15 @@
       "names": [],
       "sources": [
         "packages/plan/plan-mode/src/index.ts:52"
+      ]
+    },
+    {
+      "digest": "20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6",
+      "names": [
+        "packages/perception/tool-video-inspect/src/review-state.ts#ReviewFrame"
+      ],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:28"
       ]
     },
     {
@@ -23701,6 +24048,13 @@
       "sources": []
     },
     {
+      "digest": "49b2bb7bf7a7c6d42a416694b1a99f3ea14e2c955a2d086c9d54094798bb47aa",
+      "names": [],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:40"
+      ]
+    },
+    {
       "digest": "49dab019d00e8c26f27ad2ccff7b604d69e323ae4d17e0d2a7b6b8a830b1ade2",
       "names": [],
       "sources": []
@@ -23774,6 +24128,7 @@
         "packages/llm/llm/src/brand.ts#ProviderRequestId",
         "packages/llm/llm/src/brand.ts#ReasoningEffortId",
         "packages/llm/llm/src/brand.ts#ToolCallId",
+        "packages/perception/tool-video-inspect/src/review-state.ts#VideoReviewId",
         "packages/schedule/schedule/src/types.ts#ScheduleId",
         "packages/session/session-title/src/index.ts#SessionTitleProviderId",
         "packages/session/session-title/src/types.ts#SessionTitleProviderId",
@@ -23800,6 +24155,7 @@
         "packages/llm/llm/src/brand.ts:31",
         "packages/llm/llm/src/brand.ts:43",
         "packages/llm/llm/src/brand.ts:67",
+        "packages/perception/tool-video-inspect/src/review-state.ts:6",
         "packages/schedule/schedule/src/types.ts:14",
         "packages/session/session-title/src/index.ts:42",
         "packages/session/session-title/src/types.ts:17",
@@ -24117,6 +24473,11 @@
       ]
     },
     {
+      "digest": "6022451d897c7050f60b564f801210136c9fa4d320a03b6d520d1cf8b3876e41",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "6085488d223aeffdef51d7ae17655fc26ab22ee13cbed82a50e62e2b6fb5b918",
       "names": [],
       "sources": []
@@ -24303,6 +24664,18 @@
     },
     {
       "digest": "6d1ee1ef84890b8b38f77a5e448b88b37f7b885c6042850152a533b6aa2a9d86",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "6d4e2467080fd9fae84199d45d78947e3ccddf0c442b07c8aa19a374af52abd6",
+      "names": [],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:37"
+      ]
+    },
+    {
+      "digest": "6dbf9afad857e3b68e1faad947bc515a919577840a47d37787e5dfbd2d6c69f9",
       "names": [],
       "sources": []
     },
@@ -24910,6 +25283,15 @@
       "sources": []
     },
     {
+      "digest": "96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa",
+      "names": [
+        "packages/perception/tool-video-inspect/src/review-state.ts#VideoReview"
+      ],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:30"
+      ]
+    },
+    {
       "digest": "96bfb916a727cd4445a594df264c523fc039749a31bfed924b8cc7bb308a5bb0",
       "names": [],
       "sources": []
@@ -25014,6 +25396,11 @@
       "sources": [
         "packages/session/session-title-llm/src/index.ts:34"
       ]
+    },
+    {
+      "digest": "9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "9d80129e13edfb6feb03ed327e6085c6ef60b97ad074244b2f5fd4667424a6a4",
@@ -25143,6 +25530,11 @@
       "sources": [
         "packages/experimental/agent-team/src/types.ts:234"
       ]
+    },
+    {
+      "digest": "a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "a581684b4d28e4899c707409755549a40c908b2d77f5a13fa5bd802f20ef9605",
@@ -25355,6 +25747,11 @@
       "sources": [
         "packages/attachment/attachment/src/types.ts:11"
       ]
+    },
+    {
+      "digest": "b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "b158f3ff6923714807c0d73882f0b05dc87f8fa85c9e90814852d48bbc866081",
@@ -25706,6 +26103,11 @@
       ]
     },
     {
+      "digest": "c66c561db80e334d620372be95d2d893fe5931645317d6c961e001ae124faac4",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262",
       "names": [],
       "sources": []
@@ -25796,6 +26198,11 @@
       "sources": []
     },
     {
+      "digest": "d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "d28765f87d6b6ab408e0b2f3e7e297791b004b806d8e302c49903ebae815feb2",
       "names": [],
       "sources": []
@@ -25819,6 +26226,11 @@
     },
     {
       "digest": "d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "d66b91173d6a2e07169445a9026862fbfe480c28ca93becfefbdb5a016cb190c",
       "names": [],
       "sources": []
     },

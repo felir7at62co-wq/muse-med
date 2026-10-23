@@ -22,6 +22,12 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
+Muse 启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`observe`、`status` 和 `metadata`，模型不能指定取样数量或局部范围。`scan` 分块扫描整集：切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。遇到图像预算拒绝后，后续批次自动降为一张，现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
+
+`next` 将首批未记录画面作为真实图片返回。每张图片的具名附件须进入成功的图像模型请求，并由 `observe` 记录具体可见内容、变化和疑点，才算完成。有疑点的记录会补入一轮邻近画面，仍无法确认的内容保留为未知，不猜测。全部完成后在 `.muse/video-observations` 写出带版本的完整 JSON 报告，并返回 `observation_report`，供上下文压缩后的写稿阶段检索早期观察。状态响应最多列一批；`total`、`recorded`、`pending` 和 `frames_not_shown` 对应完整清单。增量 `video/review` 会话事件让进度在重载或上下文压缩后恢复；源文件变化后须重扫。在所属会话仍有未完成的整集扫描或逐图观察时，拒绝 `screenplay_export_docx` 和 `present`，中间稿仍可保存。其他会话和仅查元数据的调用不继承该限制。该要求不批准创作质量，也不证明模型认真理解了图片；普通 shell／文件访问不属于这些交付工具检查的范围。
+
+未启用 `requireCompleteReview` 时，下文的有界抽帧和概览接口保持原有行为。完整观察另需 `sessionProjections` 和 `llm` 服务。操作见 [Muse 迁移指南](../../../docs/upgrade-guide/v0.2.1-alpha.1/muse-video-observation/guide.zh.md)。
+
 挂载函数插件，并提供 `tools`、`fs`、`subprocess`、`attachments` 和 `sandboxPolicy`。将 `ffmpegPath`、`ffprobePath` 配置为与文件系统同执行环境的程序。抽帧要求当前准确模型明确声明图片输入；`metadata` 不需要图片输入。两种操作都不会自行调用模型或语音供应商。
 
 ```json

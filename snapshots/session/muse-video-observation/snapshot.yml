@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-video-observation
+profile: headless
+composition: muse-video-observation
+recording: authored
+header:
+  class: muse-video-observation
+  pin: true
+workspace:
+  setup: muse-video-observation
+  final: true
+writerOutput: true

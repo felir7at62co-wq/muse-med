@@ -4637,11 +4637,27 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:28`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:29`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Require complete-episode detection and observations before final delivery. */
+  requireCompleteReview: boolean
+  /** Maximum images per mandatory observation batch. */
+  reviewBatchFrames: number
+  /** Thumbnail rate for cumulative appearance changes. */
+  reviewAnalysisFps: number
+  /** Normalized RGB difference against the last retained thumbnail. */
+  reviewChangeThreshold: number
+  /** Maximum seconds between continuity observations. */
+  reviewCheckpointSeconds: number
+  /** Source seconds per bounded scan operation. */
+  reviewChunkSeconds: number
+  /** Complete-episode candidate limit; overflow fails rather than truncating. */
+  reviewMaxFrames: number
+  /** Maximum decoded cut-score metadata bytes per scan chunk. */
+  reviewMaxScanBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
