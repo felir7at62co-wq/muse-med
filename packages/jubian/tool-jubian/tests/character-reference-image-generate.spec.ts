@@ -57,15 +57,16 @@ function stubClient(events: string[], options: StubOptions = {}) {
   const client = new JubianClient({
     credential: async () => 'token',
     fetch: async (url: string | URL | Request, init?: RequestInit) => {
+      const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
       const method = String(init?.method)
       const body = typeof init?.body === 'string'
         ? JSON.parse(init.body) as Record<string, unknown>
         : undefined
       calls.push({ method, ...(body === undefined ? {} : { body }) })
       if (method === 'GET') {
-        const catalogue = String(url).includes('getSelectList')
+        const catalogue = address.includes('getSelectList')
         events.push(catalogue ? 'catalogue' : 'readback')
-        const data = catalogue ? CATALOGUE : String(url).includes('getGeneratedImageByAssetId')
+        const data = catalogue ? CATALOGUE : address.includes('getGeneratedImageByAssetId')
           ? options.generatedImage
           : { id: PROVIDER_ASSET_ID, hsAssetStatus: options.assetStatus ?? null }
         return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
