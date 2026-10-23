@@ -8,8 +8,12 @@
     "src"
   ],
   "references": [
-    { "path": "../../core/session" },
-    { "path": "../../session-query/session-query" },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
     {
       "path": "../../../vendor/cosmokit"
     },
@@ -39,6 +43,12 @@
     },
     {
       "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

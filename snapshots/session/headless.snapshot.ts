@@ -540,6 +540,14 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await cp(join(sourceRoot, 'references'), join(skillRoot, 'references'), { recursive: true })
     return { expectedRoot: await prepareSubtitleOverlayExpectedWorkspace(cwd, scenarioDir) }
   },
+  async 'muse-video-observation'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('video observation requires its owner directory')
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+    await writeFile(join(cwd, 'episode.md'), '# 第1集\n▲合成画面从黑色切换为白色。\n')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-video-observation')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    return { expectedRoot }
+  },
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
   },
@@ -1522,6 +1530,27 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-video-observation') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false])
+              expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
+              expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(5)
+              expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
+              const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')
+              if (started?.type !== 'video/review' || started.data.kind !== 'start') throw Error('Missing video observation start')
+              const template = await readFile(join(scenario.dir, 'report.expected.json'), 'utf8')
+              const expected = JSON.parse(template.replaceAll('{{id:1}}', started.data.review.id)) as { path: string }
+              expected.path = await realpath(join(cwd, 'fixture.mp4'))
+              const finalText = results[6]?.content.find(block => block.type === 'text')
+              if (finalText?.type !== 'text') throw Error('Missing completed observation report')
+              const report = JSON.parse(finalText.text) as { observation_report: string }
+              const saved = await readFile(report.observation_report, 'utf8')
+              expect(JSON.parse(saved)).toEqual(expected)
+              const expectedReport = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(report.observation_report))
+              await mkdir(dirname(expectedReport), { recursive: true })
+              await writeFile(expectedReport, saved)
             }
             if (scenario.name === 'muse-shot-director-format') {
               const events = parseSessionLog(actualLogs[0]!.content)

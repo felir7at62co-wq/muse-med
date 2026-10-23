@@ -31,7 +31,8 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
     "zod": "^4.4.3",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "@deepseek-ai/dsh-brand": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -43,7 +44,8 @@
     "@deepseek-ai/dsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
-    "@deepseek-ai/dsh-session-query": "workspace:*"
+    "@deepseek-ai/dsh-session-query": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -62,6 +64,9 @@
     "@deepseek-ai/dsh-session-query": "workspace:*",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-ptc-runtime-node": "workspace:*",
-    "@deepseek-ai/dsh-sandbox-local": "workspace:*"
+    "@deepseek-ai/dsh-sandbox-local": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-tool-present": "workspace:*",
+    "@deepseek-ai/dsh-compaction-image-offload": "workspace:*"
   }
 }

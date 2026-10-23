@@ -15,6 +15,7 @@ import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { installVideoEvidence } from './evidence.ts'
 import { applyContactSheets } from './contact.ts'
 import { applyVideoOcr } from './ocr.ts'
+import { applyCompleteReview } from './review.ts'
 
 export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
 
@@ -26,6 +27,22 @@ export const inject = ['tools', 'fs', 'subprocess', 'attachments', 'sandboxPolic
 
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Require complete-episode detection and observations before final delivery. */
+  requireCompleteReview: boolean
+  /** Maximum images per mandatory observation batch. */
+  reviewBatchFrames: number
+  /** Thumbnail rate for cumulative appearance changes. */
+  reviewAnalysisFps: number
+  /** Normalized RGB difference against the last retained thumbnail. */
+  reviewChangeThreshold: number
+  /** Maximum seconds between continuity observations. */
+  reviewCheckpointSeconds: number
+  /** Source seconds per bounded scan operation. */
+  reviewChunkSeconds: number
+  /** Complete-episode candidate limit; overflow fails rather than truncating. */
+  reviewMaxFrames: number
+  /** Maximum decoded cut-score metadata bytes per scan chunk. */
+  reviewMaxScanBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
@@ -130,6 +147,14 @@ export interface Config {
 
 /** Validated deployment knobs; argument defaults are resolved before media work. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
+  requireCompleteReview: Schema.boolean().default(false),
+  reviewBatchFrames: Schema.number().step(1).min(1).max(8).default(4),
+  reviewAnalysisFps: Schema.number().min(1).max(30).default(4),
+  reviewChangeThreshold: Schema.number().min(0.01).max(1).default(0.12),
+  reviewCheckpointSeconds: Schema.number().min(0.25).max(60).default(5),
+  reviewChunkSeconds: Schema.number().min(1).max(120).default(30),
+  reviewMaxFrames: Schema.number().step(1).min(2).max(10_000).default(4000),
+  reviewMaxScanBytes: Schema.number().step(1).min(1).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
   trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
   powershellPath: Schema.string().default('powershell.exe'),
@@ -289,6 +314,11 @@ export function apply(ctx: Context, config: Config): void {
     active.set(owner, completion.promise)
     try { return await operation(AbortSignal.any([owner.signal, exec.signal])) }
     finally { active.delete(owner); completion.resolve() }
+  }
+  if (config.requireCompleteReview) {
+    applyCompleteReview(ctx, config, run, imageRoute)
+    applyVideoOcr(ctx, config, { run })
+    return
   }
   applyContactSheets(ctx, config, { run, imageRoute: exec => imageRoute(ctx, exec) })
   applyVideoOcr(ctx, config, { run })
