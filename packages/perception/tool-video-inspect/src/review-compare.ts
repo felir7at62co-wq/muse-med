@@ -27,7 +27,7 @@ export function compareReviewDraft(review: VideoReview, draft: { path: string; v
     draft: { path: draft.path, version: draft.version,
       sha256: createHash('sha256').update(draft.text).digest('hex'),
       numbered_text: draft.text.split('\n').map((line, index) => `${index + 1}: ${line}`).join('\n') },
-    checks: '对照记录与正文，检查人物进出、位置变化、道具操作、无对白反应是否遗漏或被压进括注；'
+    checks: '对照记录与正文，检查独立画面段落是否以▲标明，人物进出、位置变化、道具操作、无对白反应是否遗漏或被压进括注；'
       + '核对动作先后、结果和实际转场，切镜不等于换场。连续帧中的同一动作合写，不按帧数凑▲；'
       + '仅描述有画面依据的过程，不清楚处保留疑点或补看。记录由模型填写，不等于动作已核实或正文已覆盖。',
     notice: '这是可选核对材料，不要求逐项审批，不新增保存、导出或交付条件；修改后可重新compare回读当前稿。'
