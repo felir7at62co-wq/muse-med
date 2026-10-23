@@ -736,7 +736,7 @@ function ciUnitGates(): Gate[] {
 // Recorded-session adapters boot process scenarios in `lib` mode. Callers wait
 // either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
-  return pnpmScript('snapshot', 'test:snapshot', {
+  return pnpmScript('snapshot', 'test:snapshot:built', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
     needs,
   })

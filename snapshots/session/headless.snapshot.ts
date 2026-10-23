@@ -512,7 +512,7 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   const expectedRoot = join(cwd, '.snapshot-patches', 'expected-workspace')
   await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
   const report = join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json')
-  await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), cwd))
+  await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), await realpath(cwd)))
   return expectedRoot
 }
 
@@ -1086,6 +1086,20 @@ describe('headless recorded-session snapshots', () => {
       expect(await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))).toEqual(original)
     } finally {
       await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('expands subtitle overlay evidence paths through the actual workspace directory', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-overlay-workspace-alias-'))
+    try {
+      const workspace = join(directory, 'workspace'), alias = join(directory, 'alias')
+      await mkdir(workspace)
+      await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      const expectedRoot = await prepareSubtitleOverlayExpectedWorkspace(alias, join(snapshotsRoot, 'drama-subtitle-overlay'))
+      const report = JSON.parse(await readFile(join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json'), 'utf8')) as JsonObject
+      expect(report.plan_path).toBe(join(await realpath(workspace), 'subtitle-plan.json'))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
     }
   })
 

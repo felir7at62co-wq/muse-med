@@ -2347,7 +2347,7 @@
     },
     {
       "name": "lvpaopao",
-      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2363,7 +2363,8 @@
               "download_status",
               "download_series",
               "series_status",
-              "rankings"
+              "rankings",
+              "engagement"
             ]
           },
           "boardType": {
@@ -2380,7 +2381,7 @@
           },
           "query": {
             "type": "string",
-            "description": "search/download_series: title. download_series selects only one exact match; otherwise use returned candidates."
+            "description": "search/download_series/engagement: title. download_series selects only one exact match; otherwise use returned candidates."
           },
           "srcAppId": {
             "type": "string",
@@ -2400,7 +2401,7 @@
           },
           "episodeNo": {
             "type": "integer",
-            "description": "download_episode/download_status: actual episode number from the catalog."
+            "description": "engagement: omit for full-series totals or select one actual catalog episode. download_episode/download_status: actual catalog episode."
           },
           "idempotencyKey": {
             "type": "string",
@@ -3570,120 +3571,60 @@
       }
     },
     {
-      "name": "video_contact_sheet",
-      "description": "View a local video as timestamp-labelled image grids. Defaults to a nine-cell overview; use columns=3, rows=2 for six cells. Returns actual overview images, ordered cell timecodes, unviewed cut candidates and a saved manifest. Extra frames form further pages. Use video_inspect at a doubtful cell timecode for a larger frame. Overview thumbnails do not establish detailed or continuous coverage.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "file_path": {
-            "type": "string",
-            "description": "Local source video in the current Session filesystem."
-          },
-          "columns": {
-            "type": "integer",
-            "description": "Cells per row; default 3."
-          },
-          "rows": {
-            "type": "integer",
-            "description": "Rows per page; default 3."
-          },
-          "tile_width": {
-            "type": "integer",
-            "description": "Cell image width in pixels; default 320. Height preserves source aspect ratio."
-          },
-          "frame_count": {
-            "type": "integer",
-            "description": "Default one page of frames; maximum 32. Additional frames form chronological pages."
-          },
-          "start_seconds": {
-            "type": "number",
-            "description": "Inclusive source range start; default 0."
-          },
-          "end_seconds": {
-            "type": "number",
-            "description": "Exclusive range end; default source end or start + 300s. Follow next_start_seconds for remaining ranges."
-          },
-          "timestamps_seconds": {
-            "type": "array",
-            "description": "Specific source times instead of uniform sampling. Cannot combine with frame_interval_seconds or scene strategy.",
-            "items": {
-              "type": "number"
-            }
-          },
-          "frame_interval_seconds": {
-            "type": "number",
-            "description": "Positive spacing from range start. Cannot combine with frame_count, explicit times or scene strategy."
-          },
-          "strategy": {
-            "type": "string",
-            "description": "Default uniform. scene prioritizes frames on both sides of detected cuts across the selected range.",
-            "enum": [
-              "uniform",
-              "scene"
-            ]
-          },
-          "manifest_path": {
-            "type": "string",
-            "description": "New JSON manifest inside the workspace. Existing files are never replaced."
-          }
-        },
-        "required": [
-          "file_path"
-        ]
-      }
-    },
-    {
       "name": "video_inspect",
-      "description": "Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. strategy=scene_dialogue selects visual-cut sides and ASR utterance midpoints with original speech context, retaining deferred timecodes for later inspection. Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。",
       "parameters": {
         "type": "object",
         "properties": {
           "file_path": {
             "type": "string",
-            "description": "Local video path in the current Session filesystem."
+            "description": "当前集实际完整视频路径。"
+          },
+          "episode": {
+            "type": "string",
+            "description": "首次scan时标记集号；省略则使用实际视频路径。"
           },
           "method": {
             "type": "string",
-            "description": "Default sample returns frames; metadata only probes source facts without image input.",
+            "description": "默认scan；scan扫描整集并返回首批，next查看下一批，observe记录本批每张画面，status读取进度。metadata仅查询，不建立已看过记录。",
             "enum": [
-              "metadata",
-              "sample"
+              "scan",
+              "next",
+              "observe",
+              "status",
+              "metadata"
             ]
           },
-          "start_seconds": {
-            "type": "number",
-            "description": "Interval start, default 0; source timecode in seconds."
-          },
-          "end_seconds": {
-            "type": "number",
-            "description": "Exclusive interval end; default video end or start + 60 seconds, whichever is earlier. Maximum sampled interval: 120 seconds."
-          },
-          "strategy": {
-            "type": "string",
-            "description": "Default uniform. scene_dialogue detects visual cuts and, when transcript_path is supplied, samples actual ASR utterance midpoints with source times, text previews and optional speaker_id. Deferred observations remain unviewed.",
-            "enum": [
-              "uniform",
-              "scene_dialogue"
-            ]
-          },
-          "transcript_path": {
-            "type": "string",
-            "description": "Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip."
-          },
-          "frame_count": {
-            "type": "integer",
-            "description": "Uniform samples, default 6; maximum 12."
-          },
-          "timestamps_seconds": {
+          "observations": {
             "type": "array",
-            "description": "Optional explicit seek times inside the interval instead of uniform samples; maximum 12.",
+            "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
             "items": {
-              "type": "number"
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frame_id": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "string",
+                  "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                },
+                "change": {
+                  "type": "string",
+                  "description": "与邻近画面的变化；无变化也需据实说明。"
+                },
+                "uncertainty": {
+                  "type": "string",
+                  "description": "无法确定的内容；无疑点填空字符串，不猜测。"
+                }
+              },
+              "required": [
+                "frame_id",
+                "visible",
+                "change",
+                "uncertainty"
+              ]
             }
-          },
-          "manifest_path": {
-            "type": "string",
-            "description": "Optional new JSON output path inside the current workspace; default .muse/video-inspections/<unique-id>.json. An existing file is never replaced."
           }
         },
         "required": [

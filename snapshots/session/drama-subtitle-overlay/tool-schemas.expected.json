@@ -28,18 +28,19 @@
         "properties": {
           "method": {
             "type": "string",
-            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档写出 SRT；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。",
+            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。",
             "enum": [
               "prepare",
               "render",
               "verify",
               "subtitles",
+              "audio_preview",
               "subtitle_overlay"
             ]
           },
           "project": {
             "type": "string",
-            "description": "项目根目录（含 video/、audio/、editing/、exports/）；各方法必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。"
+            "description": "项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。"
           },
           "episode": {
             "type": "integer",
@@ -75,11 +76,40 @@
           },
           "bgm": {
             "type": "string",
-            "description": "本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 必填，prepare 可选用于预览。相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。"
+            "description": "本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。"
           },
           "bgm_plan": {
             "type": "string",
             "description": "prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。"
+          },
+          "mix_profile": {
+            "type": "string",
+            "description": "render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。"
+          },
+          "bgm_generation": {
+            "type": "string",
+            "description": "audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。"
+          },
+          "audio": {
+            "type": "string",
+            "description": "audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。"
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "audio_preview 必填：正文试听起点，非负秒数。"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。"
+          },
+          "intended_use": {
+            "type": "string",
+            "description": "audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。",
+            "enum": [
+              "commercial",
+              "non_commercial",
+              "unknown"
+            ]
           },
           "ending_audio": {
             "type": "string",

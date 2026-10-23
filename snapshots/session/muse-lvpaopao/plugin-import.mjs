@@ -6,6 +6,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync }
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { copyNativeResources } from '../../../third_party/plugins/muse-lvpaopao/scripts/native-resources.mjs'
 
 const packageRoot = fileURLToPath(new URL('../../../third_party/plugins/muse-lvpaopao/', import.meta.url))
 const runtimeRequire = createRequire(new URL('../../../apps/cli/package.json', import.meta.url))
@@ -39,6 +40,7 @@ function mountedPackage() {
   const layout = mkdtempSync(join(home, 'muse-lvpaopao-layout-'))
   cpSync(join(packageRoot, 'lib'), join(layout, 'lib'), { recursive: true })
   cpSync(manifestPath, join(layout, 'package.json'))
+  copyNativeResources(packageRoot, layout)
   for (const name of Object.keys(manifest.peerDependencies)) {
     const link = join(layout, 'node_modules', name)
     mkdirSync(dirname(link), { recursive: true })
