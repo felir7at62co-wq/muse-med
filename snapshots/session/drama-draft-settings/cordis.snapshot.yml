@@ -1,3 +1,21 @@
+# Keep the same platform-independent tool menu as the authored composition.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+
 - id: llm-deepseek
   disabled: true
 - insert:

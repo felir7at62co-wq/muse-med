@@ -7,7 +7,7 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { execFile } from 'node:child_process'
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
@@ -27,67 +27,90 @@ const mediaPython = process.env.DSH_TEST_MEDIA_PYTHON
 const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
 const runFile = promisify(execFile)
 
-it.runIf(Boolean(mediaPython && mediaFfmpeg))('generates separate editable tracks through the native Host tool and packaged Python', async () => {
-  if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
-  const f = await fixture()
-  try {
-    const video = join(f.root, 'video.mp4')
-    const audio = join(f.root, 'dialogue.wav')
-    const bgm = join(f.root, 'music-only.wav')
-    const subtitles = join(f.root, 'subtitles.srt')
-    const timeline = join(f.root, 'timeline.json')
-    await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
-      'color=blue:s=160x120:r=24:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
-      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video]).result
-    for (const [file, frequency] of [[audio, 440], [bgm, 220]] as const) {
+it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealistic'] as const)(
+  'generates separate editable tracks through the native Host tool and packaged Python: %s', async (medium) => {
+    if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
+    const f = await fixture()
+    try {
+      const video = join(f.root, 'video.mp4')
+      const audio = join(f.root, 'dialogue.wav')
+      const bgm = join(f.root, 'music-only.wav')
+      const subtitles = join(f.root, 'subtitles.srt')
+      const timeline = join(f.root, 'timeline.json')
       await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
-        `sine=frequency=${frequency}:duration=2`, '-ar', '48000', '-ac', '2', file]).result
+        'color=blue:s=160x120:r=24:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+        '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video]).result
+      for (const [file, frequency] of [[audio, 440], [bgm, 220]] as const) {
+        await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+          `sine=frequency=${frequency}:duration=2`, '-ar', '48000', '-ac', '2', file]).result
+      }
+      await writeFile(subtitles, '1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n')
+      await writeFile(timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
+        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24 } }))
+      const photorealistic = medium === 'photorealistic'
+      if (photorealistic) {
+        await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ project_bible: {
+          visual_medium: medium, delivery: { draft_style: { watermark: { font_size_ui: 7 },
+            subtitle: { font_family: '山海经', font_size_ui: 11, border_width_ui: 20, transform_y: -0.465625 } } },
+        } }))
+      }
+      const request = { project: f.root, episode: 95,
+        name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, timeline,
+        bgm, bgm_role: 'music_only', ...(photorealistic ? { ending_effect: video,
+          ending_audio: resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3') } : {}) }
+      await writeFile(f.input.request_file, JSON.stringify(request))
+      await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+        graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
+      const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+        callId: ToolCallId('native-draft-runtime'), signal: f.signal })
+      expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+      expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+        library: { name: 'pyJianYingDraft' } })
+      const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
+        duration: number
+        tracks: { type: string; name: string; segments: { volume: number; material_id: string }[] }[]
+        materials: { texts: { id: string; content: string }[] }
+      }
+      expect(content.duration).toBe(photorealistic ? 4000000 : 2000000)
+      expect(content.tracks.filter((track: { type: string }) => track.type === 'video')).toHaveLength(photorealistic ? 2 : 1)
+      expect(content.tracks.filter((track: { type: string }) => track.type === 'text')).toHaveLength(photorealistic ? 2 : 1)
+      expect(content.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(photorealistic ? 3 : 2)
+      expect(content.tracks.find(track => track.name === '视频轨道')?.segments[0]?.volume).toBe(0)
+      expect(content.tracks.find(track => track.name === '主音频轨道')?.segments.map(segment => segment.volume)).toEqual([1])
+      expect(content.materials.texts.some((text: { content: string }) => text.content.includes('原生草稿回归'))).toBe(true)
+      if (photorealistic) {
+        expect(content.tracks.find(track => track.name === '片尾特效')?.segments.map(segment => segment.volume)).toEqual([0])
+        expect(content.tracks.find(track => track.name === '片尾音')?.segments.map(segment => segment.volume)).toEqual([1])
+        const mark = content.tracks.find(track => track.name === 'AI内容标识')?.segments[0]?.material_id
+        const text = content.materials.texts.find(material => material.id === mark)
+        expect(text).toBeDefined()
+        const serialized = JSON.parse(text!.content) as { styles: { size: number }[] }
+        expect(serialized.styles[0]?.size).toBe(7)
+        const review = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'muse-review.json'), 'utf8')) as {
+          subtitle_font: { requested: string; status: string; resolved: string }
+        }
+        expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'fallback', resolved: '剪映系统默认字体' }))
+        expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
+      }
+      const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
+      const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+        callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
+      expect(repeated.isError).toBe(true)
+      expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
+      await writeFile(f.input.request_file, JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' }))
+      const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+        callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
+      expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
+      expect(mixed.value).toMatchObject({ success: true })
+      expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+      const mixContent = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-mix-95', 'draft_content.json'), 'utf8')) as {
+        tracks: { type: string }[]
+      }
+      expect(mixContent.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(photorealistic ? 2 : 1)
+    } finally {
+      await f.dispose()
     }
-    await writeFile(subtitles, '1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n')
-    await writeFile(timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
-      body_end: 2.032, delivery: { visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 } }))
-    const request = { project: f.root, episode: 95,
-      name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, timeline,
-      bgm, bgm_role: 'music_only' }
-    await writeFile(f.input.request_file, JSON.stringify(request))
-    await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
-      graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
-    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
-      callId: ToolCallId('native-draft-runtime'), signal: f.signal })
-    expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
-    expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
-      library: { name: 'pyJianYingDraft' } })
-    const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
-      duration: number
-      tracks: { type: string; name: string; segments: { volume: number }[] }[]
-      materials: { texts: { content: string }[] }
-    }
-    expect(content.duration).toBe(2000000)
-    expect(content.tracks.filter((track: { type: string }) => track.type === 'video')).toHaveLength(1)
-    expect(content.tracks.filter((track: { type: string }) => track.type === 'text')).toHaveLength(1)
-    expect(content.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(2)
-    expect(content.tracks.find(track => track.name === '视频轨道')?.segments.map(segment => segment.volume)).toEqual([0])
-    expect(content.tracks.find(track => track.name === '主音频轨道')?.segments.map(segment => segment.volume)).toEqual([1])
-    expect(content.materials.texts.some((text: { content: string }) => text.content.includes('原生草稿回归'))).toBe(true)
-    const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
-    const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
-      callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
-    expect(repeated.isError).toBe(true)
-    expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
-    await writeFile(f.input.request_file, JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' }))
-    const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
-      callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
-    expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
-    expect(mixed.value).toMatchObject({ success: true })
-    expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
-    const mixContent = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-mix-95', 'draft_content.json'), 'utf8')) as {
-      tracks: { type: string }[]
-    }
-    expect(mixContent.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(1)
-  } finally {
-    await f.dispose()
-  }
-}, 120000)
+  }, 120000)
 
 async function fixture(maxInputBytes = 65536) {
   const root = await mkdtemp(join(tmpdir(), 'muse-jianying-draft-'))

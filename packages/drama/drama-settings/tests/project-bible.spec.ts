@@ -32,12 +32,14 @@ it('exposes project bible reads, previews and guarded updates through the real L
     return JSON.parse(rendered.text) as { expected_revision: string; preview_fingerprint: string; status: string }
   }
   expect((await execute({ action: 'read' })).status).toBe('unconfigured')
-  const changes = { title: 'Loader project' }
+  const draft_style = { watermark: { font_size_ui: 7 }, subtitle: { font_family: '山海经', font_size_ui: 11,
+    border_width_ui: 20, transform_y: -0.465625 } }
+  const changes = { title: 'Loader project', delivery: { draft_style } }
   const preview = await execute({ action: 'preview', changes, reason: 'creation' })
   expect((await execute({ action: 'update', changes, reason: 'creation',
     expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint })).status).toBe('ready')
   expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toMatchObject({
-    project_bible: { title: 'Loader project', revision: 1 },
+    project_bible: { title: 'Loader project', revision: 1, delivery: { draft_style } },
   })
   const entry = ctx.configEditor.entries().find(row => row.options.id === 'drama-settings')
   await entry?.fiber?.dispose()
@@ -51,6 +53,59 @@ it('returns Settings defaults for an unconfigured project without creating files
     initial_budget_cents: 400000, delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6 },
   } })
   await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('replaces the entire draft-style section while unrelated updates preserve it', async () => {
+  const { ctx, home } = await bench()
+  const style = { watermark: { font_size_ui: 7 }, subtitle: { font_family: '山海经', font_size_ui: 11,
+    border_width_ui: 20, transform_y: -0.465625 } }
+  for (const [changes, expected] of [
+    [{ delivery: { draft_style: style } }, style],
+    [{ title: 'same typography' }, style],
+    [{ delivery: { draft_style: {} } }, {}],
+    [{ delivery: { draft_style: { watermark: {}, subtitle: { border_width_ui: 0, transform_y: 1 } } } },
+      { watermark: {}, subtitle: { border_width_ui: 0, transform_y: 1 } }],
+  ] as const) {
+    const preview = await previewProjectBible(ctx.settings, home, changes, 'approved editor typography')
+    await updateProjectBible(ctx.settings, home, changes, 'approved editor typography',
+      preview.expected_revision, preview.preview_fingerprint)
+    expect((await readProjectBible(ctx.settings, home)).config)
+      .toMatchObject({ project_bible: { delivery: { draft_style: expected } } })
+    expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8')))
+      .toMatchObject({ project_bible: { delivery: { draft_style: expected } } })
+  }
+})
+
+it.each([null, [], 'style', { watermark: null }, { watermark: [] }, { subtitle: null }, { subtitle: [] },
+  { watermark: { font_size_ui: 0 } }, { watermark: { font_size_ui: 101 } },
+  { subtitle: { font_size_ui: true } }, { subtitle: { font_size_ui: NaN } },
+  { subtitle: { font_size_ui: Infinity } }, { subtitle: { font_size_ui: -1 } },
+  { subtitle: { border_width_ui: -1 } }, { subtitle: { border_width_ui: 101 } },
+  { subtitle: { border_width_ui: null } }, { subtitle: { transform_y: -1.1 } },
+  { subtitle: { transform_y: 1.1 } }, { subtitle: { transform_y: '0' } },
+  { subtitle: { font_family: null } }, { subtitle: { font_family: '' } },
+  { subtitle: { font_family: ' ' } }, { subtitle: { font_family: 'a'.repeat(129) } },
+  { subtitle: { font_family: 'line\nbreak' } }, { subtitle: { font_family: 'control\u0085' } },
+].map(draft_style => ({ draft_style })))('refuses invalid draft typography without writing project data: %j', async ({ draft_style }) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { delivery: { draft_style } }, 'invalid editor typography'))
+    .rejects.toThrow('draft_style')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('validates persisted draft typography instead of hiding invalid values during read', async () => {
+  const { ctx, home } = await bench()
+  const changes = { delivery: { draft_style: { watermark: { font_size_ui: 100 },
+    subtitle: { font_family: ' 字体 ', font_size_ui: 0.01, border_width_ui: 100, transform_y: -1 } } } }
+  const preview = await previewProjectBible(ctx.settings, home, changes, 'finite UI endpoints')
+  await updateProjectBible(ctx.settings, home, changes, 'finite UI endpoints',
+    preview.expected_revision, preview.preview_fingerprint)
+  const document = JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8')) as {
+    project_bible: { delivery: { draft_style: object } }
+  }
+  document.project_bible.delivery.draft_style = { subtitle: { font_size_ui: 0 } }
+  await writeFile(join(home, 'project_config.json'), JSON.stringify(document))
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('draft_style')
 })
 
 it('previews and persists one authoritative bible with a readable derived document', async () => {
