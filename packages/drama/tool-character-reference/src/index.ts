@@ -6,6 +6,8 @@ import { MAX_PREVIEW_BYTES } from '@deepseek-ai/dsh-character-library'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-settings'
+import { createCharacterReferenceAuthority } from './authority.ts'
+import { createProjectContext } from './project-context.ts'
 import { readAuthoritativeProjectCharacter } from './project-role.ts'
 import { matchCharacterReferences } from './reference.ts'
 
@@ -58,6 +60,25 @@ const viewOutputSchema = { type: 'object', additionalProperties: false, properti
   image: { ...IMAGE_RESULT_SCHEMA, required: true },
 } } as const
 
+const projectOutputSchema = { type: 'object', additionalProperties: false, properties: {
+  status: { type: 'string', required: true, enum: ['listed', 'selected'] },
+  projects: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+    script_id: { type: 'integer', required: true },
+    title: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+  } } },
+  selected_project: { oneOf: [{ type: 'object', additionalProperties: false, properties: {
+    script_id: { type: 'integer', required: true },
+    title: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+    characters: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+      character_id: { type: 'string', required: true },
+      name: { type: 'string', required: true },
+      role_class: { oneOf: [{ type: 'string', enum: ['lead', 'important_support', 'support', 'extra'] },
+        { type: 'null' }], required: true },
+      asset_id: { oneOf: [{ type: 'integer' }, { type: 'null' }], required: true },
+    } } },
+  } }, { type: 'null' }], required: true },
+} } as const
+
 function imageRef(image: {
   readonly attachmentId: string
   readonly mediaType: ImageAttachmentRef['mediaType']
@@ -83,9 +104,38 @@ function imageRef(image: {
 /** Register bounded search and verified Agent-visible image inspection. */
 export function apply(ctx: Context): void {
   const library = ctx.characterLibrary
+  const projects = createProjectContext(ctx, ctx.settings)
+  ctx.effect(() => ctx.provide(
+    'characterReferenceAuthority',
+    createCharacterReferenceAuthority(ctx.settings, library, projects),
+  ), 'tool-character-reference: Host authority')
+  ctx.tools.register(defineTool({
+    name: 'drama_character_reference_project',
+    description: '列出当前 Session 工作区内经 Host 校验的剧变项目；唯一有效项目可由 Agent 直接选定并读取角色清单。'
+      + '工作区有多个项目时先列出并询问用户，不得自行猜测；只传剧变项目 ID，不接受本机路径。选定结果给出经圣经校验的角色 ID、名称、类型和已有项目主绑定资产 ID；资产 ID 不代表公共库使用许可。人物检索仍会重读圣经和角色身份。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['list', 'select'] },
+      script_id: { type: 'integer', description: '仅在 select 时填写 Host 列出的唯一项目 ID，或用户明确指名的多个项目之一。' },
+    },
+    output: {
+      schema: projectOutputSchema,
+      render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: async (args, exec) => {
+      const session = exec.agent?.session
+      if (session === undefined) throw new Error('Character reference project selection requires a current Agent Session.')
+      if (args.action === 'list') {
+        if (args.script_id !== undefined) throw new Error('Project listing does not accept a project ID.')
+        return { status: 'listed' as const, projects: await projects.list(session), selected_project: null }
+      }
+      if (args.script_id === undefined) throw new Error('Project selection requires a project ID.')
+      const selected = await projects.select(session, args.script_id)
+      return { status: 'selected' as const, projects: [], selected_project: selected }
+    },
+  }))
   ctx.tools.register(defineTool({
     name: 'drama_character_references',
-    description: '根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角默认可检索；配角默认跳过，只有提供剧情相关例外理由才检索。'
+    description: '根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角、配角和群演均可检索；Agent 根据出场方式、一致性需求和用户目标决定是否检索，不把剧情理由当作检索许可。'
       + '返回候选身份、原图 SHA-256 和文字匹配依据；这是检索，不代表已经看图。可按候选 ID 调用 drama_character_reference_view 实际看图，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。'
       + '本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。',
     parameters: {
@@ -93,9 +143,9 @@ export function apply(ctx: Context): void {
       role_description: { type: 'string', required: true, description: '从当前剧本提取的角色需求摘要，不可编造。' },
       role_class: { type: 'string', required: true,
         enum: ['lead', 'important_support', 'support', 'extra'],
-        description: '项目角色类型声明；Host 会与当前 Session 项目圣经中的权威值核对，不一致时拒绝。' },
+        description: '根据当前剧本声明角色类型；圣经已登记时 Host 会核对，缺省时仅用于只读初排并标明不确定性，不授予素材使用权。' },
       supporting_use_reason: { type: 'string',
-        description: '非主角使用公共参考库的剧情相关例外理由；缺失时非主角默认不检索。' },
+        description: '可选的剧本依据，用于解释本次检索；不是配角检索的通行证，也不授予素材使用权。' },
       collection: { type: 'string', enum: ['ancient', 'urban', 'all'], description: '已知人物风格范围；不确定时省略。' },
       required_era: { type: 'string', description: '剧本明确要求的年代；不得从素材状态推断。' },
       gender: { type: 'string', description: '剧本明确要求的性别；不确定时省略。' },
@@ -108,10 +158,9 @@ export function apply(ctx: Context): void {
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     execute: async (args, exec) => {
-      const projectDirectory = exec.agent?.session.header.cwd
-      if (projectDirectory === undefined || projectDirectory.trim().length === 0) {
-        throw new Error('drama_character_references requires the current Agent Session workspace.')
-      }
+      const session = exec.agent?.session
+      if (session === undefined) throw new Error('drama_character_references requires the current Agent Session.')
+      const projectDirectory = await projects.resolveCurrent(session)
       return await matchCharacterReferences(library, {
         read: async (directory, characterId, signal) => await readAuthoritativeProjectCharacter(
           ctx.settings,
@@ -212,6 +261,11 @@ export function apply(ctx: Context): void {
   }))
 }
 
+export type {
+  AuthoritativeCharacterReference,
+  CharacterReferenceAuthority,
+  CharacterReferenceAuthorityRequest,
+} from './authority.ts'
 export type {
   CharacterLibraryMatcher,
   CharacterRoleAuthority,

@@ -13,6 +13,7 @@
     "src/folders.ts",
     "src/find.ts",
     "src/image.ts",
+    "src/image-continuity.ts",
     "src/methods.ts",
     "src/upscale-price.ts",
     "src/model-settings.ts",
@@ -26,6 +27,9 @@
     "src/voice-coordination.ts",
     "src/audio-operation-lock.ts",
     "src/audio-asset-delete.ts",
+    "src/character-reference-qa-authorization.ts",
+    "src/character-reference-qa-bridge.ts",
+    "src/character-reference-private-authorize.ts",
     "src/json-file.ts",
     "src/prepared-file.ts",
     "src/prompt-risk.ts",
@@ -84,6 +88,9 @@
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../drama/tool-character-reference"
     },
     {
       "path": "../../session/session-projection"

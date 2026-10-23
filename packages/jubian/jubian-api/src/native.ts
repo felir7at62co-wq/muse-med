@@ -455,6 +455,61 @@ export function storyboardMaterials(storyboard: Record<string, unknown>):
   return { materials: parsed.map(object), serialized: typeof storyboard.storyboardMaterialList === 'string' }
 }
 
+/**
+ * Refuse conflicting saved image references before either source is normalized.
+ * A missing/empty config list is a legacy snapshot, not proof of another image
+ * version. Physical row order and server-added metadata do not select identity.
+ * @param storyboard - The provider snapshot, or a frozen native payload.
+ * @throws {JubianError} `CONTRACT_CHANGED` with source-labelled, URL-redacted differences.
+ */
+export function assertImageReferenceConsistency(storyboard: Record<string, unknown>): void {
+  const config = parseConfig(storyboard.modelConfig)
+  if (config === null || config.materialList === undefined || config.materialList === null) return
+  const baseline = storyboardObject(config.materialList)
+  if (!Array.isArray(baseline)) invalid('modelConfig.materialList is not a readable reference list')
+  const images = baseline.map(object).filter(material => material.materialType !== 'audio')
+  if (images.length === 0) return
+  const current = storyboardMaterials(storyboard).materials.filter(material => material.materialType !== 'audio')
+  const byKey = (materials: Record<string, unknown>[]): Map<string, Record<string, string | null>> => {
+    const result = new Map<string, Record<string, string | null>>()
+    for (const material of materials) {
+      const key = wireText(material.materialKey)
+      if (key === null || !key.trim() || result.has(key)) invalid('Saved image references have missing or duplicate materialKey')
+      result.set(key, {
+        materialAssetId: material.materialAssetId === undefined || material.materialAssetId === null
+          ? null : String(integer(material.materialAssetId)),
+        assetId: wireText(material.assetId),
+        materialUrl: httpUrl(material.materialUrl ?? material.imageUrl),
+      })
+    }
+    return result
+  }
+  const modelReferences = byKey(images), storyboardReferences = byKey(current)
+  const differences = [...new Set([...modelReferences.keys(), ...storyboardReferences.keys()])].sort().flatMap((key) => {
+    const model = modelReferences.get(key), saved = storyboardReferences.get(key)
+    const changedFields = model === undefined || saved === undefined ? ['materialKey']
+      : ['materialAssetId', 'assetId', 'materialUrl'].filter((field) => {
+        // Older provider rows sometimes omit only the numeric parent. The trusted
+        // identity and URL still have to agree; live parent validation remains required.
+        if (field === 'materialAssetId' && (model[field] === null || saved[field] === null)) return false
+        return model[field] !== saved[field]
+      })
+    if (changedFields.length === 0) return []
+    const safeId = (value: string | null): string | null => value === null || /^[\w.-]{1,128}$/.test(value)
+      ? value : `sha256:${stableSha256(value)}`
+    const safe = (reference: Record<string, string | null> | undefined): Record<string, unknown> | null =>
+      reference === undefined ? null : {
+        materialAssetId: reference.materialAssetId,
+        assetId: safeId(reference.assetId ?? null),
+        materialUrlSha256: reference.materialUrl === null ? null : stableSha256(reference.materialUrl),
+      }
+    return [{ materialKey: safeId(key), changedFields,
+      'modelConfig.materialList': safe(model), storyboardMaterialList: safe(saved) }]
+  })
+  if (differences.length) invalid(`IMAGE_REFERENCE_CONFLICT: ${JSON.stringify(differences)}; `
+    + 'no source was chosen; use select_assets with the intended confirmed assets, then prepare again; paid_request_sent=false')
+}
+
 /** Read material rows by prompt key; physical provider order never selects an identity. */
 function promptOrderedVideoMaterials(materials: Record<string, unknown>[], prompt: string): Record<string, unknown>[] {
   const byKey = new Map<string, Record<string, unknown>>()
@@ -494,6 +549,7 @@ function promptOrderedVideoMaterials(materials: Record<string, unknown>[], promp
  */
 export function validatedVideoMaterials(storyboard: Record<string, unknown>, assets: Record<string, unknown>[]):
 { materials: Record<string, unknown>[]; prompt: string; config: Record<string, unknown> } {
+  assertImageReferenceConsistency(storyboard)
   const { materials } = storyboardMaterials(storyboard)
   const config = parseConfig(storyboard.modelConfig)
     ?? invalid('the storyboard has no saved modelConfig to prepare from')
@@ -706,6 +762,7 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
   const expected = subjectIdentitySignature(ordered)
   if (Number(summary.count) !== expected.length) invalid()
   const { materials } = storyboardMaterials(payload)
+  assertImageReferenceConsistency(payload)
   referenceAudioUrls(materials)
   const actual = subjectIdentitySignature(materials)
   if (stableJson(actual) !== stableJson(expected)) invalid()

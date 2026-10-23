@@ -6,15 +6,17 @@
  * fakes that record operations; no TOS, provider, or paid path participates.
  */
 import { createHash } from 'node:crypto'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context, Service } from '@deepseek-ai/cordis'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentPresets, { type PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import CharacterLibrary, { CharacterLibraryObjectStore, URBAN_PREFIX } from '@deepseek-ai/dsh-character-library'
@@ -29,6 +31,7 @@ import * as CharacterReferenceTool from '@deepseek-ai/dsh-tool-character-referen
 
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Tools from '@deepseek-ai/dsh-tools'
+import { parse as parseYaml } from 'yaml'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const metadataKey = `${URBAN_PREFIX}char_urban_lead_001/metadata.json`
@@ -242,6 +245,7 @@ async function loadFixture() {
   const configPath = join(root, 'cordis.yml')
   const skillRoot = fileURLToPath(new URL('../../../packages/drama/skills/skills/', import.meta.url))
   await writeFile(join(root, 'project_config.json'), `${JSON.stringify({
+    jubian_script_id: 93001,
     project_bible: {
       schema_version: 1,
       revision: 1,
@@ -325,10 +329,104 @@ async function loadFixture() {
 }
 
 describe('character library real Loader composition', () => {
+  it('mounts the shipped authority in an isolate realm for a fresh short-drama Agent', async () => {
+    const raw = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
+    const rows = parseYaml(raw, {
+      customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+    }) as PresetDefinition['plugins']
+    const characterReference = rows.find(row => row.id === 'character-reference')
+    expect(characterReference).toMatchObject({
+      name: 'cordis:group',
+      group: true,
+      isolate: { characterReferenceAuthority: true },
+      config: [{
+        id: 'tool-character-reference',
+        name: '@deepseek-ai/dsh-tool-character-reference',
+      }],
+    })
+    if (characterReference === undefined) throw new Error('Missing shipped character-reference preset row')
+
+    const context = new Context()
+    contexts.push(context)
+    context.baseUrl = new URL('../presets/short-drama/', import.meta.url).href
+    await context.plugin(Loader)
+    context.loader.builtins.group = Group
+    context.loader.internal = {
+      version: 'v2',
+      loadCache: new Map(),
+      register() { throw new Error('Unexpected Loader hook registration') },
+      getOrCreateModuleJob() { throw new Error('Unexpected Loader module job') },
+      resolveSync() { throw new Error('Unexpected Loader resolution') },
+      load() { throw new Error('Unexpected Loader load') },
+      async import(specifier: string) {
+        if (specifier !== '@deepseek-ai/dsh-tool-character-reference') {
+          throw new Error('Unexpected Loader import: ' + specifier)
+        }
+        return CharacterReferenceTool
+      },
+    }
+    await context.plugin(LoaderFixtureStore)
+    await context.plugin(LoaderFixtureSettings)
+    await context.plugin(CharacterLibrary)
+    await context.plugin(Tools)
+    await context.plugin(LlmRuntime)
+    await context.plugin(SessionStore)
+    await context.plugin(SessionProjectionRegistry)
+    await context.plugin(SystemPrompt)
+    await context.plugin(AgentRegistry)
+    await context.plugin(AgentLoop, { agents: [] })
+    await context.plugin(AgentPresets, { default: 'short-drama' })
+    await context.agentPresets.register({ id: 'short-drama', plugins: [characterReference] })
+
+    const agent = await context.agentLoop.create(SessionId('character-reference-preset-realm'), {}, { cwd: process.cwd() })
+    await context.agentPresets.mount(agent.ctx, 'short-drama')
+    expect(context.get('characterReferenceAuthority')).toBeUndefined()
+    expect(context.agentPresets.serviceFor(agent, 'characterReferenceAuthority')).toBeDefined()
+  })
+
+
+  it('auto-resolves a unique nested project while keeping explicit selection guarded', async () => {
+    const { context, root, store } = await loadFixture()
+    const nested = join(root, 'short-drama', '示例项目甲_93001')
+    await mkdir(nested, { recursive: true })
+    await rename(join(root, 'project_config.json'), join(nested, 'project_config.json'))
+    const agent = await context.agentLoop.create(SessionId('character-reference-nested-loader'), {}, { cwd: root })
+    const execute = async (name: string, args: object, callId: string) => await context.tools.execute({
+      callId: ToolCallId(callId), name, arguments: args, agent, signal: new AbortController().signal,
+    })
+    const search = {
+      character_id: 'heroine', role_description: '现代甜宠女主，年轻，温柔，有少女感',
+      role_class: 'lead', collection: 'urban', required_era: 'modern', gender: 'female',
+      trait_terms: ['温柔', '少女感'], role_terms: ['甜宠女主'],
+    }
+    const automatic = await execute('drama_character_references', search, 'nested-unique-project')
+    expect(automatic.isError, JSON.stringify(automatic.content)).toBe(false)
+    expect(automatic.value).toMatchObject({ status: 'candidates', can_bind: false })
+    expect(store.calls).toContain(`list:${URBAN_PREFIX}`)
+    const listed = await execute('drama_character_reference_project', { action: 'list' }, 'nested-list')
+    expect(listed.value).toMatchObject({ projects: [{ script_id: 93001 }] })
+    const unique = await execute('drama_character_reference_project', {
+      action: 'select', script_id: 93001,
+    }, 'nested-unique-roster')
+    expect(unique.value).toMatchObject({ status: 'selected', selected_project: { script_id: 93001 } })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '请在剧变项目 93001 中检索女主参考。' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const selected = await execute('drama_character_reference_project', {
+      action: 'select', script_id: 93001,
+    }, 'nested-selected')
+    expect(selected.value).toMatchObject({ status: 'selected', selected_project: { script_id: 93001 } })
+    const result = await execute('drama_character_references', search, 'nested-search')
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    expect(result.value).toMatchObject({ status: 'candidates', can_bind: false })
+    expect(store.calls).toContain(`list:${URBAN_PREFIX}`)
+    expect(JSON.stringify(selected.content)).not.toContain(root)
+  })
 
   it('loads the Skill and returns bounded pending candidates without network or writes', async () => {
     const { context, store, agent } = await loadFixture()
     expect((await context.skills.list()).map(skill => skill.name)).toContain('character-reference-library')
+    expect(context.tools.get('drama_character_reference_project')).toBeDefined()
     expect(context.tools.get('drama_character_references')).toBeDefined()
     expect(context.tools.get('drama_character_reference_view')).toBeDefined()
 
@@ -344,6 +442,7 @@ describe('character library real Loader composition', () => {
     })
     expect(JSON.stringify(skill.value)).toContain('pending_review')
     expect(JSON.stringify(skill.value)).toContain('drama_character_reference_view')
+    expect(JSON.stringify(skill.value)).toContain('drama_character_reference_project')
     expect(JSON.stringify(skill.value)).not.toContain('drama_character_library_ingest_current_file')
 
     const recommendation = await context.tools.execute({
@@ -433,6 +532,7 @@ describe('character library real Loader composition', () => {
     expect(adapter.paidRequests).toBe(0)
     expect(adapter.requests[0]?.provider).toBe('scripted-mock')
     expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toContain('drama_character_references')
+    expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toContain('drama_character_reference_project')
     expect(adapter.requests[0]?.tools?.map(tool => tool.name)).toContain('drama_character_reference_view')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain(userText)
 
@@ -496,10 +596,10 @@ describe('character library real Loader composition', () => {
     expect(networkCalls).toBe(0)
   })
 
-  it('skips a non-lead role without an exception and disposes every registry contribution', async () => {
+  it('searches a non-lead without a reason and disposes every registry contribution', async () => {
     const { context, store, agent } = await loadFixture()
-    const skipped = await context.tools.execute({
-      callId: ToolCallId('skip-supporting-reference'),
+    const searched = await context.tools.execute({
+      callId: ToolCallId('search-supporting-reference'),
       name: 'drama_character_references',
       arguments: {
         character_id: 'support-01',
@@ -510,14 +610,14 @@ describe('character library real Loader composition', () => {
       agent,
       signal: new AbortController().signal,
     })
-    expect(skipped.isError, JSON.stringify(skipped.content)).not.toBe(true)
-    expect(skipped.value).toMatchObject({
+    expect(searched.isError, JSON.stringify(searched.content)).not.toBe(true)
+    expect(searched.value).toMatchObject({
       status: 'no_match',
-      uncertainty: ['supporting_role_default_skip'],
+      uncertainty: [],
       can_bind: false,
       apply_allowed: false,
     })
-    expect(store.calls).toEqual([])
+    expect(store.calls).toContain(`list:${URBAN_PREFIX}`)
 
     const entries = [...context.loader.entries()]
     const characterTool = entries.find(entry => entry.options.name === '@deepseek-ai/dsh-tool-character-reference')
@@ -528,6 +628,7 @@ describe('character library real Loader composition', () => {
     }
 
     await characterTool.fiber.dispose()
+    expect(context.tools.get('drama_character_reference_project')).toBeUndefined()
     expect(context.tools.get('drama_character_references')).toBeUndefined()
     expect(context.tools.get('drama_character_reference_view')).toBeUndefined()
     await skillProvider.fiber.dispose()

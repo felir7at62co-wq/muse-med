@@ -4185,7 +4185,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:66`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:81`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4205,6 +4205,10 @@ export interface Config extends ImageRouteConfig {
   }
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
+  /** Repository-external append-only authorization database for explicitly scoped isolated QA reference use. */
+  characterReferenceQaAuthorizationDatabasePath?: string
+  /** Owner-private root that must contain the isolated QA authorization database and SQLite sidecars. */
+  characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */
@@ -4242,6 +4246,10 @@ export interface Config extends ImageRouteConfig {
   imageBatchConcurrency?: number
   /** Maximum image requests accepted in one batch; integer 1..100, default 12. */
   imageBatchMaxItems?: number
+  /** Rows per page when resolving a character's adopted image; integer 1..1000, default 1000. */
+  imageReferencePageSize?: number
+  /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
+  imageReferencePageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */

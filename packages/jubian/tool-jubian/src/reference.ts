@@ -199,6 +199,17 @@ export async function uploadReferenceMethod(args: { image_path?: string | undefi
     throw new JubianError('INVALID_ARGUMENT',
       'image_path could not be read as a local file; check the path and file permissions; no upload was attempted')
   }
+  return await uploadReferenceBytes(bytes, deps)
+}
+
+/**
+ * Upload Host-verified image bytes without accepting a model-supplied file path.
+ * @param bytes - Exact bytes read by a trusted Host service.
+ * @param deps - Optional transport, re-encode, clock and `ffmpeg` path overrides.
+ * @returns The uploaded URL and measured image identity, or an alignment refusal.
+ */
+export async function uploadReferenceBytes(bytes: Uint8Array,
+  deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
   const image: ReferenceImage = readReferenceImage(bytes)
   const size = alignedReferenceSize(image)
   const transport = deps.fetch ?? fetch

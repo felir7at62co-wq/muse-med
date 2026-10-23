@@ -171,6 +171,20 @@ function validateGet(value: unknown, key: string, maxBytes: number, stage: Chara
   return { key, data, bytes, etag, contentType }
 }
 
+function validateMetadataHead(
+  value: unknown,
+  key: string,
+  stage: 'detail' | 'preview',
+): void {
+  if (!object(value) || value.key !== key
+    || typeof value.bytes !== 'number' || !Number.isSafeInteger(value.bytes)
+    || value.bytes < 0 || value.bytes > MAX_METADATA_BYTES
+    || (value.etag !== null && typeof value.etag !== 'string')
+    || (value.contentType !== null && typeof value.contentType !== 'string')) {
+    throw new CharacterLibraryError('CATALOG_REJECTED', stage)
+  }
+}
+
 function recordCorpus(entry: CharacterLibraryEntry): string {
   return normalized([
     entry.category,
@@ -188,6 +202,13 @@ function eraClass(value: string): 'ancient' | 'modern' | '1980s' | null {
   if (/1980|1980s|80年代|八十年代/.test(text)) return '1980s'
   if (/古装|古代|ancient|historical|wuxia|仙侠/.test(text)) return 'ancient'
   if (/现代|都市|modern|contemporary|urban/.test(text)) return 'modern'
+  return null
+}
+
+function artStyleClass(value: string): 'realistic' | 'illustration' | null {
+  const text = normalized(value)
+  if (/realistic|photo|live.action|真人|写实|摄影|实拍/u.test(text)) return 'realistic'
+  if (/anime|illustrat|cartoon|动漫|动画|插画|二次元/u.test(text)) return 'illustration'
   return null
 }
 
@@ -233,7 +254,12 @@ function scoreEntry(
       }
     }
   }
-  addTerms(request.styleTerms, 2, 'style')
+  const declaredStyle = entry.artStyle === null ? null : artStyleClass(entry.artStyle)
+  if (declaredStyle !== null && request.styleTerms.some(term => artStyleClass(term) === declaredStyle)) {
+    score += 6
+    matched.push('art_style:' + declaredStyle)
+  }
+  addTerms(request.styleTerms.filter(term => declaredStyle === null || artStyleClass(term) !== declaredStyle), 2, 'style')
   addTerms(request.traitTerms, 2, 'trait')
   addTerms(request.roleTerms, 2, 'role')
   if (request.query !== undefined) {
@@ -251,14 +277,12 @@ function scoreEntry(
 function matchUncertainties(
   candidates: readonly CharacterRecommendationCandidate[],
   requiredEra: string | undefined,
-  supportReason: string | undefined,
 ): readonly string[] {
   return [
     ...new Set([
       ...candidates.map(candidate => 'metadata_status:' + candidate.entry.metadataStatus),
       ...(requiredEra === undefined || candidates.every(candidate => candidate.entry.era.length > 0)
         ? [] : ['era_unconfirmed']),
-      ...(supportReason === undefined ? [] : ['supporting_role_exception']),
     ]),
   ]
 }
@@ -443,8 +467,8 @@ export class CharacterLibrary extends Service {
     const candidates = scored.records.map(({ candidate }) => candidate)
     const topScore = Math.max(...candidates.map(candidate => candidate.score))
     const top = candidates.filter(candidate => candidate.score === topScore)
-    const uncertainties = matchUncertainties(top, requiredEra, supportReason)
-    const roleExplanation = supportReason === undefined ? '' : ' Supporting-role exception: ' + supportReason
+    const uncertainties = matchUncertainties(top, requiredEra)
+    const roleExplanation = supportReason === undefined ? '' : ' Story context: ' + supportReason
     if (top.length > 1) {
       return {
         status: 'needs_review',
@@ -492,9 +516,9 @@ export class CharacterLibrary extends Service {
       status: 'candidates',
       candidates,
       reason: 'Ranked metadata candidates for visual selection; use still requires separate authorization.'
-        + (scored.supportReason === undefined ? '' : ' Supporting-role exception: ' + scored.supportReason),
+        + (scored.supportReason === undefined ? '' : ' Story context: ' + scored.supportReason),
       uncertainties: [
-        ...matchUncertainties(candidates, scored.requiredEra, scored.supportReason),
+        ...matchUncertainties(candidates, scored.requiredEra),
         ...(scored.records.length > MAX_MATCH_CANDIDATES ? ['candidate_limit_reached'] : []),
       ],
       applyAllowed: false,
@@ -509,13 +533,6 @@ export class CharacterLibrary extends Service {
     const supportReason = request.supportingUseReason === undefined
       ? undefined
       : boundedText(request.supportingUseReason, 300, 'recommend')
-    if (request.roleClass !== 'lead' && supportReason === undefined) {
-      return {
-        status: 'no_match',
-        reason: 'Non-lead roles skip the public reference library unless a bounded story-specific exception is supplied.',
-        uncertainties: ['supporting_role_default_skip'],
-      }
-    }
     const query = request.query === undefined ? undefined : boundedText(request.query, 200, 'recommend')
     const requiredEra = request.requiredEra === undefined
       ? undefined : boundedText(request.requiredEra, 80, 'recommend')
@@ -550,10 +567,9 @@ export class CharacterLibrary extends Service {
     if (scored.length === 0) {
       return {
         status: 'no_match',
-        reason: supportReason === undefined
-          ? 'No catalog candidate satisfied the declared requirements.'
-          : 'No catalog candidate satisfied the supporting-role exception: ' + supportReason,
-        uncertainties: supportReason === undefined ? [] : ['supporting_role_exception'],
+        reason: 'No catalog candidate satisfied the declared requirements.'
+          + (supportReason === undefined ? '' : ' Story context: ' + supportReason),
+        uncertainties: [],
       }
     }
     return { status: 'scored', records: scored, supportReason, requiredEra }
@@ -612,6 +628,11 @@ export class CharacterLibrary extends Service {
       seenKeys.add(key)
       const { record, metadataSha256 } = await this.readRecord(key, signal)
       const id = String(record.identity.catalog_asset_id)
+      const originalAssetId = String(record.identity.original_asset_id)
+      if (key !== `${prefix}${originalAssetId}/metadata.json`
+        || record.derived.metadata_key !== key) {
+        throw new CharacterLibraryError('CATALOG_REJECTED', 'browse')
+      }
       if (seenIds.has(id)) throw new CharacterLibraryError('CATALOG_REJECTED', 'browse')
       seenIds.add(id)
       records.push({ prefix, record, metadataSha256 })
@@ -622,6 +643,7 @@ export class CharacterLibrary extends Service {
   private async readRecord(
     key: string,
     signal?: AbortSignal,
+    stage: CharacterLibraryFailureStage = 'browse',
   ): Promise<{ readonly record: CharacterMetadataRecord; readonly metadataSha256: string }> {
     let response
     try {
@@ -629,17 +651,17 @@ export class CharacterLibrary extends Service {
         await this.store.get(key, MAX_METADATA_BYTES, signal),
         key,
         MAX_METADATA_BYTES,
-        'browse',
+        stage,
       )
     } catch (error) {
       if (error instanceof CharacterLibraryError) throw error
-      throw new CharacterLibraryError('LIST_FAILED', 'browse')
+      throw new CharacterLibraryError('LIST_FAILED', stage)
     }
     let json: string
     try {
       json = TEXT_DECODER.decode(response.data)
     } catch {
-      throw new CharacterLibraryError('CATALOG_REJECTED', 'browse')
+      throw new CharacterLibraryError('CATALOG_REJECTED', stage)
     }
     try {
       return {
@@ -647,7 +669,7 @@ export class CharacterLibrary extends Service {
         metadataSha256: digest(response.data),
       }
     } catch {
-      throw new CharacterLibraryError('CATALOG_REJECTED', 'browse')
+      throw new CharacterLibraryError('CATALOG_REJECTED', stage)
     }
   }
 
@@ -656,8 +678,30 @@ export class CharacterLibrary extends Service {
     stage: 'detail' | 'preview',
     signal?: AbortSignal,
   ): Promise<RecordAtPrefix> {
-    const records = await this.scan(CHARACTER_LIBRARY_PREFIXES, signal)
-    const found = records.find(item => String(item.record.identity.catalog_asset_id) === target)
+    const originalAssetId = target.slice(CATALOG_ID_PREFIX.length)
+    const records: RecordAtPrefix[] = []
+    for (const prefix of CHARACTER_LIBRARY_PREFIXES) {
+      signal?.throwIfAborted()
+      const key = `${prefix}${originalAssetId}/metadata.json`
+      assertSafeKey(key, prefix)
+      let head
+      try {
+        head = await this.store.head(key, signal)
+      } catch {
+        throw new CharacterLibraryError('LIST_FAILED', stage)
+      }
+      if (head === null) continue
+      validateMetadataHead(head, key, stage)
+      const { record, metadataSha256 } = await this.readRecord(key, signal, stage)
+      if (String(record.identity.catalog_asset_id) !== target) {
+        throw new CharacterLibraryError('CATALOG_REJECTED', stage)
+      }
+      records.push({ prefix, record, metadataSha256 })
+    }
+    if (records.length === 0) throw new CharacterLibraryError('ASSET_NOT_FOUND', stage)
+    if (records.length > 1) throw new CharacterLibraryError('CATALOG_REJECTED', stage)
+    const [found] = records
+    /* v8 ignore next -- the preceding length check guarantees one exact record. */
     if (found === undefined) throw new CharacterLibraryError('ASSET_NOT_FOUND', stage)
     return found
   }

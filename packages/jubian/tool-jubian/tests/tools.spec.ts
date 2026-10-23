@@ -19,13 +19,27 @@ interface Registered {
 }
 
 /** Mount the plugin against a stub `tools` registry and a stub credential store. */
-async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec: unknown) => string }; defaultLedger?: boolean; videoSelection?: Pick<JubianVideoSelection, 'initialize' | 'catalogue' | 'ask' | 'reconcile' | 'assertCurrent'> } = {})
+async function mount(options: {
+  config?: Partial<Config>
+  jobs?: { start: (spec: unknown) => string }
+  defaultLedger?: boolean
+  qaStore?: boolean
+  videoSelection?: Pick<JubianVideoSelection, 'initialize' | 'catalogue' | 'ask' | 'reconcile' | 'assertCurrent'>
+} = {})
   : Promise<{ registered: Registered[]; mounted: unknown[]; root: string }> {
   const registered: Registered[] = []
   const mounted: unknown[] = []
+  const disposers: Array<() => void> = []
   const ctx = Object.assign(new Context(), {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
-    effect: (callback: () => unknown) => callback(),
+    effect: (callback: () => unknown) => {
+      const result = callback()
+      if (typeof result === 'function') {
+        const dispose = (): void => { Reflect.apply(result, undefined, []) }
+        disposers.push(dispose)
+      }
+      return result
+    },
     on: () => () => {},
     get: (service: string) => service === 'jobs' ? options.jobs : service === 'jubianVideoSelection' ? options.videoSelection : undefined,
     tools: {
@@ -42,11 +56,31 @@ async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec:
     vi.stubEnv('DSH_HOME', root)
     onTestFinished(() => { vi.unstubAllEnvs() })
   }
-  apply(ctx, { ...(options.defaultLedger ? {} : { ledgerRoot: root }), workspaceSecrets: false, ...options.config })
+  await apply(ctx, { ...(options.defaultLedger ? {} : { ledgerRoot: root }), workspaceSecrets: false,
+    ...(options.qaStore ? {
+      characterReferenceQaAuthorizationDataRoot: root,
+      characterReferenceQaAuthorizationDatabasePath: join(root, 'authorization', 'qa.sqlite'),
+    } : {}),
+    ...options.config })
+  onTestFinished(() => { for (const dispose of disposers.toReversed()) dispose() })
   return { registered, mounted, root }
 }
 
 describe('tool-jubian registration', () => {
+  it.each([{ imageReferencePageSize: 0 }, { imageReferencePageSize: 1001 },
+    { imageReferencePageLimit: 0 }, { imageReferencePageLimit: 101 }])
+  ('rejects invalid adopted-image scan bounds at mount: %j', async (config) => {
+    await expect(mount({ config })).rejects.toThrow('imageReference')
+  })
+
+  it('forwards the resolved adopted-image scan bounds to video calls', async () => {
+    const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ task: null })
+    onTestFinished(() => { videoMethod.mockRestore() })
+    const { registered } = await mount({ config: { imageReferencePageSize: 2, imageReferencePageLimit: 3 } })
+    await registered.find(tool => tool.name === 'jubian_video')!.execute({ method: 'task', task_id: 9 }, {})
+    expect(videoMethod.mock.calls[0]?.[3]).toMatchObject({ imageReferenceScan: { pageSize: 2, pageLimit: 3 } })
+  })
+
   it('uses the deployment home for an omitted ledger directory and renders the registered budget output', async () => {
     const { registered, root } = await mount({ defaultLedger: true })
     const budget = registered.find(tool => tool.name === 'jubian_budget')!
@@ -133,7 +167,7 @@ describe('tool-jubian registration', () => {
   it('registers the domain tools and background watcher', async () => {
     const tools = (await mount()).registered
     expect(tools.map(tool => tool.name).sort()).toEqual(
-      ['jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_claim', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
+      ['jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize', 'jubian_claim', 'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_watch'])
   })
 
   it('states the paid and side-effecting nature in the description itself', async () => {
@@ -200,13 +234,19 @@ describe('tool-jubian registration', () => {
     })
     const batchItem = videoProperties.items!.items as { properties: Record<string, unknown> }
     expect(batchItem.properties).not.toHaveProperty('image_aspect_ratio')
+    for (const properties of [videoProperties, batchItem.properties]) {
+      const references = properties.references as { description: string }
+      expect(references.description).toContain('唯一已采用图片')
+      expect(references.description).toContain('显式 []')
+    }
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
+      .toEqual(['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_character_reference', 'upload_audio',
         'create_folder', 'move', 'rename', 'audio_list', 'audio_get', 'audio_delete_preview', 'audio_delete_apply'])
     const assetKeys = Object.keys(asset.properties as Record<string, unknown>).sort()
     expect(assetKeys).toContain('image_path')
+    expect(assetKeys).toContain('character_reference')
     expect(assetKeys).toContain('audio_path')
     // The three organization writes need their own arguments in the same schema.
     for (const key of ['folder_name', 'parent_id', 'asset_scope_type', 'root_category_type', 'material_ids',
@@ -273,6 +313,60 @@ describe('tool-jubian registration', () => {
       .rejects.toThrow(/idempotency_key/)
   })
 
+  it('blocks every representative non-managed mutation while isolated reference QA is configured', async () => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected transport'))
+    onTestFinished(() => { transport.mockRestore() })
+    const tools = (await mount({ qaStore: true })).registered
+    expect(tools.some(tool => tool.name === 'jubian_character_reference_authorize')).toBe(false)
+    const blocked: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
+      ['jubian_budget', { action: 'update', script_id: 1 }],
+      ['jubian_asset', { method: 'confirm_casting', material_id: 1, idempotency_key: 'qa-denied-confirm' }],
+      ['jubian_asset', { method: 'register', script_id: 1, asset_name: 'fixture', asset_type: 1,
+        asset_url: 'https://fixture.invalid/asset.png', idempotency_key: 'qa-denied-register' }],
+      ['jubian_asset', { method: 'upload_reference', image_path: 'fixture.png', idempotency_key: 'qa-denied-upload' }],
+      ['jubian_asset', { method: 'create_folder', folder_name: 'fixture', asset_scope_type: 1,
+        root_category_type: 1, idempotency_key: 'qa-denied-organize' }],
+      ['jubian_video', { method: 'image_generate', script_id: 1, asset_name: 'fixture', asset_type: 1,
+        prompt: 'fixture', idempotency_key: 'qa-denied-generate' }],
+      ['jubian_video', { method: 'image_generate_batch', script_id: 1, items: [], idempotency_key: 'qa-denied-batch' }],
+      ['jubian_video', { method: 'upscale', task_id: 1, idempotency_key: 'qa-denied-upscale' }],
+      ['jubian_video', { method: 'retry', task_id: 1, idempotency_key: 'qa-denied-retry' }],
+      ['jubian_storyboard', { method: 'create', body: { scriptId: 1 }, idempotency_key: 'qa-denied-storyboard' }],
+      ['jubian_model', { method: 'apply', project_dir: '/fixture', script_id: 1,
+        preview_path: '/fixture/preview.json', idempotency_key: 'qa-denied-model' }],
+      ['jubian_claim', { method: 'claim', script_id: 1, idempotency_key: 'qa-denied-claim',
+        authorization_basis: 'synthetic fixture' }],
+      ['jubian_snatch', { scope: 'ids', script_ids: [1], start_at: '2026-10-20T00:00:00.000Z',
+        end_at: '2026-10-20T00:01:00.000Z', idempotency_prefix: 'qa-denied-snatch',
+        authorization_basis: 'synthetic fixture' }],
+      ['jubian_media', { method: 'download', media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture.png',
+        media_kind: 'image', output_path: 'C:\\fixture.png' }],
+    ]
+    for (const [name, args] of blocked) {
+      const tool = tools.find(candidate => candidate.name === name)!
+      await expect(tool.execute(args, {})).rejects.toThrow('Isolated character-reference QA allows only read operations')
+    }
+    expect(transport).not.toHaveBeenCalled()
+
+    const budget = tools.find(tool => tool.name === 'jubian_budget')!
+    await expect(budget.execute({ action: 'read', script_id: 1 }, {})).resolves.toMatchObject({ source: 'unconfigured' })
+    const asset = tools.find(tool => tool.name === 'jubian_asset')!
+    await expect(asset.execute({ method: 'upload_character_reference', script_id: 1,
+      idempotency_key: 'qa-managed-upload', character_reference: {
+        authorization_id: 'fixture-authorization', authorization_version: 1,
+        character_id: 'fixture-character', catalog_asset_id: 'character:fixture:one',
+        image_sha256: 'a'.repeat(64),
+      } }, {})).rejects.toThrow('current Agent Session')
+    const video = tools.find(tool => tool.name === 'jubian_video')!
+    await expect(video.execute({ method: 'image_generate', script_id: 1, asset_name: 'fixture', asset_type: 1,
+      prompt: 'fixture', idempotency_key: 'qa-managed-generation', character_reference: {
+        authorization_id: 'fixture-authorization', authorization_version: 1,
+        character_id: 'fixture-character', catalog_asset_id: 'character:fixture:one',
+        image_sha256: 'a'.repeat(64), managed_reference_id: 'fixture-managed-reference',
+      } }, {})).rejects.toThrow('current Agent Session')
+    expect(transport).not.toHaveBeenCalled()
+  })
+
   it('refuses a paid method with no idempotency key before it touches the network', async () => {
     const tools = (await mount()).registered
     const video = tools.find(tool => tool.name === 'jubian_video')!
@@ -289,7 +383,7 @@ describe('tool-jubian registration', () => {
       tools: { register: (definition: Registered) => { registered.push(definition); return () => {} } },
       credentials: { resolve: async () => undefined },
     })
-    apply(ctx, { ledgerRoot: await mkdtemp(join(tmpdir(), 'jubian-tools-')) })
+    await apply(ctx, { ledgerRoot: await mkdtemp(join(tmpdir(), 'jubian-tools-')) })
     const catalog = registered.find(tool => tool.name === 'jubian_catalog')!
     await expect(catalog.execute({ method: 'models', task_type: 2 }, {})).rejects.toMatchObject(
       { code: 'AUTHENTICATION_REQUIRED' })

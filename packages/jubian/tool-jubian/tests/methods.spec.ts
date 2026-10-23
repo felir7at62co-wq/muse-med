@@ -70,6 +70,9 @@ function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string |
   let reads = 0
   return stubClient((request) => {
     if (request.path.includes('getSelectList')) return catalogue
+    if (request.path.includes('/aigc/asset/list?')) return { total: 2, rows: [77, 83749].map(id =>
+      ({ id, scriptId: 2708, assetName: '陆沉舟', assetType: 1, delFlag: '0' })) }
+    if (request.path.includes('/aigc/material/list?')) return { total: 0, rows: [] }
     if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
     if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
       const status = statuses[Math.min(reads, statuses.length - 1)]
@@ -471,6 +474,28 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it('reports the newest failed regeneration rather than the older active material', async () => {
+    const { client, calls } = stubClient(() => [
+      { assetId: 156575, id: 160260, assetUrl: 'https://old.example/image.png', isUsed: 1,
+        taskId: 527855, resultStatus: 'succeeded' },
+      { assetId: 156575, id: null, assetUrl: null, taskId: 619422, resultId: 1180188,
+        resultStatus: 'failed', resultMsg: '用户额度不足, 剩余额度: ＄-7.811628' },
+    ])
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 })
+    expect(result).toMatchObject({ image: null, generation: { status: 'failed',
+      task_id: 619422, error_code: 'insufficient_credits' } })
+    expect(result.guidance).toContain('不要自动新建付费任务')
+    expect(calls).toHaveLength(1)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('rejects a generated-image row attributed to a different asset', async () => {
+    const { client } = stubClient(() => [{ assetId: 156576, id: 999,
+      resultStatus: 'succeeded', assetUrl: 'https://other.example/image.png' }])
+    await expect(assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  })
+
   it('records casting confirmation under the ledger even though the verb is GET', async () => {
     const { client, calls } = stubClient(() => null)
     const result = await assetMethod(client, ledger, { method: 'confirm_casting', idempotency_key: 'k-9',
@@ -525,16 +550,15 @@ describe('jubian_video', () => {
     expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
-  it('retains serialized storage failure evidence rather than marking a batch item as definitely unsent', async () => {
+  it('refuses an unreadable batch ledger before any paid request and retains the storage error', async () => {
     const { client, calls } = imageProvider()
     const find = vi.spyOn(ledger, 'find').mockRejectedValue('storage service disconnected')
     onTestFinished(() => { find.mockRestore() })
-    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
-      items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
-    expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown',
-      generation_status: 'reconciliation_required',
-      ledger_error: 'storage service disconnected', error: 'storage service disconnected' }])
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps()))
+      .rejects.toBe('storage service disconnected')
     expect(calls.filter(call => call.method === 'POST')).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('updates an existing image parent in a default-bound batch and uses the saved estimate when catalogue prices are unavailable', async () => {
@@ -542,8 +566,10 @@ describe('jubian_video', () => {
     const { client, calls } = imageProvider([row])
     expect(await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'update-parent', parent_asset_id: 77, asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }))
-      .toMatchObject({ returned: 1, errors: 0, results: [{ asset_status: 'active' }] })
+      .toMatchObject({ returned: 1, errors: 0, results: [{ asset_status: 'unverified',
+        requested_parent_asset_id: 77, material_id: null }] })
     expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+    expect(calls.some(call => call.path.includes('getGeneratedImageByAssetId'))).toBe(false)
     expect((await ledger.find('update-parent'))?.quoted_amount).toBe('1.00')
     const task = stubClient(() => ({ rows: [], total: 0 }))
     await videoMethod(task.client, ledger, { method: 'tasks', script_id: 2708 })
@@ -569,7 +595,8 @@ describe('jubian_video', () => {
   })
   it('reports a batch item as uncertain when the ledger cannot be read for its original key', async () => {
     const { client, calls } = imageProvider()
-    const find = vi.spyOn(ledger, 'find').mockRejectedValue(new Error('ledger storage unavailable'))
+    const find = vi.spyOn(ledger, 'find').mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('ledger storage unavailable'))
     onTestFinished(() => { find.mockRestore() })
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'unreadable-key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
@@ -596,7 +623,30 @@ describe('jubian_video', () => {
       items: [{ idempotency_key: 'no-asset-id', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
     expect(result.results).toMatchObject([{ status: 'returned', outcome: 'accepted', parent_asset_id: null, asset_status: 'unverified' }])
     expect(result.results).toMatchObject([{ generation_status: 'submitted_pending', idempotency_key: 'no-asset-id' }])
+    expect((result.results as Array<{ readback_error: string; next: string }>)[0]?.readback_error)
+      .toContain('不能按 asset_name 将同名历史资产当作本次结果')
+    expect((result.results as Array<{ readback_error: string; next: string }>)[0]?.next)
+      .toContain('同名历史资产不是本次结果')
     expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
+  })
+  it('keeps a no-ID PUT tied to its requested parent without claiming an old active image', async () => {
+    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+      : request.method === 'PUT' ? null
+        : request.path.includes('getGeneratedImageByAssetId')
+          ? [{ assetId: 156575, id: 160260, resultStatus: 'succeeded', assetUrl: 'https://old.example/image.png' }]
+          : { id: 156575, hsAssetStatus: 'Active' })
+    const args = { method: 'image_generate', script_id: 2708, asset_name: '王总监', asset_type: 1,
+      prompt: '新的竖屏候选', references: [], parent_asset_id: 156575, idempotency_key: 'existing-parent-no-id' }
+    const result = await videoMethod(client, ledger, args, imageDeps())
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: null,
+      requested_parent_asset_id: 156575, asset_status: 'unverified', material_id: null, image_url: null })
+    expect(result.next).toContain('现有资产 156575')
+    expect(result.next).toContain('旧的 Active 材质不证明')
+    expect(calls.map(call => call.method)).toEqual(['GET', 'PUT'])
+    const replay = await videoMethod(client, ledger, args, imageDeps())
+    expect(replay).toMatchObject({ replayed: true, requested_parent_asset_id: 156575, asset_status: 'replayed' })
+    expect(replay.next).toContain('现有资产 156575')
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
   })
   it('polls with the deployment defaults and releases the timer after the generated image appears', async () => {
     vi.useFakeTimers()
@@ -726,7 +776,16 @@ describe('jubian_video', () => {
     expect(result).toMatchObject({ asset_status: 'unverified',
       outcome: state === 'unknown-envelope' ? 'unknown' : 'accepted' })
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
-    expect(result.next).toContain('确认')
+    expect(result).toMatchObject({ parent_asset_id: null,
+      generation_status: state === 'unknown-envelope' ? 'reconciliation_required' : 'submitted_pending' })
+    expect(result.next).toContain('同名历史资产不是本次结果')
+    expect(result.readback_error).toContain(state === 'unknown-envelope'
+      ? '不能用同名历史资产认领' : '不能按 asset_name 将同名历史资产当作本次结果')
+    const replayed = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'uncertain-response' }, imageDeps())
+    expect(replayed).toMatchObject({ replayed: true, parent_asset_id: null, asset_status: 'replayed' })
+    expect(replayed.next).toContain('不能用同名历史资产认领本次结果')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
 
   it('uses the child result and explicit project fallback to name an upscale with no parent task name', async () => {
@@ -1022,11 +1081,12 @@ describe('jubian_video', () => {
     await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
       ...batchItem('reuse-key', '甲') }, imageDeps())
     const paidCalls = calls.filter(call => call.method === 'POST').length
-    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: scriptId,
-      items: [item] }, { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } })
-    expect(result.results).toMatchObject([{ status: 'error', idempotency_key: 'reuse-key',
-      record_script_id: 2708 }])
-    expect((result.results as Array<{ error: string }>)[0]?.error).toMatch(/different write|different image request/u)
+    const original = await ledger.find('reuse-key')
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: scriptId,
+      items: [item] }, { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } }))
+      .rejects.toThrow(/different image request/u)
+    expect(original).toMatchObject({ method: 'image_generate', script_id: 2708 })
+    expect(await ledger.find('reuse-key')).toEqual(original)
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(paidCalls)
   })
 
@@ -1083,7 +1143,7 @@ describe('jubian_video', () => {
       parent_asset_id: 83749, asset_name: 'lead', asset_type: 1, prompt: 'new version',
       idempotency_key: 'regenerate-with-old-candidate' }, imageDeps({ timeoutMs: 100, pollMs: 100 }))
     expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
-      asset_status: 'timeout', material_id: null, image_url: null })
+      asset_status: 'unverified', material_id: null, image_url: null })
     expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
     expect(calls.some(call => call.path.includes('getGeneratedImageByAssetId'))).toBe(false)
   })
@@ -1205,7 +1265,7 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
       asset_name: 'lead', asset_type: 1, prompt: 'replacement', parent_asset_id: 83749,
       idempotency_key: 'replacement-no-status' }, imageDeps({ timeoutMs: 100, pollMs: 100 }))
-    expect(result).toMatchObject({ generation_status: 'submitted_pending', image_url: null, asset_status: 'timeout' })
+    expect(result).toMatchObject({ generation_status: 'submitted_pending', image_url: null, asset_status: 'unverified' })
     expect(calls.some(call => call.path.includes('getGeneratedImageByAssetId'))).toBe(false)
     expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
   })

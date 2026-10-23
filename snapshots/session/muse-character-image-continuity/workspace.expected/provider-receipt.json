@@ -1,0 +1,38 @@
+{
+  "image_generation": {
+    "method": "PUT",
+    "parent_asset_id": 11,
+    "asset_type": 1,
+    "reference_materials": [
+      {
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png",
+        "materialType": "image",
+        "sortOrder": 1
+      }
+    ]
+  },
+  "confirmation_requests": 0,
+  "storyboard_writes": 1,
+  "selected_model_references": [
+    {
+      "assetId": "asset-approved",
+      "materialAssetId": 11,
+      "fileName": "Approved actor",
+      "materialKey": "lead",
+      "materialType": "image",
+      "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png",
+      "sortOrder": 1
+    }
+  ],
+  "selected_storyboard_references": [
+    {
+      "assetId": "asset-approved",
+      "materialAssetId": 11,
+      "fileName": "Approved actor",
+      "materialKey": "lead",
+      "materialType": "image",
+      "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png",
+      "sortOrder": 1
+    }
+  ]
+}

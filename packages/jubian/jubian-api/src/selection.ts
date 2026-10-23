@@ -280,9 +280,17 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   payload.isGenerate = 0
   payload.storyboardMaterialList = materialsField.serialized
     ? JSON.stringify(orderedMaterials) : orderedMaterials
+  // Explicit selection is the one place that deliberately replaces both saved
+  // reference sources. Keep the provider's model fields and serialization form.
+  const selectedConfig = { ...config, materialList: orderedMaterials }
+  payload.modelConfig = configField.serialized ? JSON.stringify(selectedConfig) : selectedConfig
   // `is_generate` is not part of this test: the provider stores 1 on every storyboard, so requiring 0
   // would make `already_applied` unreachable and turn every call into a PUT.
-  const alreadyApplied = stableJson(before) === stableJson(after)
+  const configMaterials = config.materialList === undefined || config.materialList === null
+    ? null : parseField(config.materialList).value
+  if (configMaterials !== null && !Array.isArray(configMaterials)) invalid()
+  const alreadyApplied = stableJson(before) === stableJson(after) && Array.isArray(configMaterials)
+    && stableJson(selectionState(configMaterials.map(object), prompt)) === stableJson(after)
   return {
     operation: 'select_storyboard_assets',
     status: alreadyApplied ? 'already_applied' : 'ready',
@@ -307,6 +315,7 @@ export function verifySubjectSelection(storyboard: Record<string, unknown>, expe
 {
   state: SelectionState
   matches: boolean
+  source_matches: { storyboardMaterialList: boolean; 'modelConfig.materialList': boolean }
   is_generate: number
   verified_readback: { materialKey: string | null; materialAssetId: string | null; assetId: string | null; sortOrder: number }[]
 } {
@@ -316,7 +325,15 @@ export function verifySubjectSelection(storyboard: Record<string, unknown>, expe
     const config = object(parseField(storyboard.modelConfig).value)
     if (typeof config.prompt !== 'string') invalid()
     const state = selectionState(materials.map(object), normalizedPrompt(config.prompt))
-    return { state, matches: stableJson(state) === stableJson(expected), is_generate: Number(storyboard.isGenerate),
+    const configMaterials = config.materialList === undefined || config.materialList === null
+      ? null : parseField(config.materialList).value
+    if (configMaterials !== null && !Array.isArray(configMaterials)) invalid()
+    const configMatches = Array.isArray(configMaterials)
+      && stableJson(selectionState(configMaterials.map(object), normalizedPrompt(config.prompt))) === stableJson(expected)
+    const storyboardMatches = stableJson(state) === stableJson(expected)
+    return { state, matches: storyboardMatches && configMatches,
+      source_matches: { storyboardMaterialList: storyboardMatches, 'modelConfig.materialList': configMatches },
+      is_generate: Number(storyboard.isGenerate),
       verified_readback: promptOrderedMaterials(materials.map(object), normalizedPrompt(config.prompt)).map((item) => {
         const material = object(item)
         return { materialKey: wireText(material.materialKey), materialAssetId: wireText(material.materialAssetId),

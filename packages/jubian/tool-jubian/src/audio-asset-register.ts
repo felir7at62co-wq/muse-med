@@ -188,6 +188,9 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
       throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different audio registration request')
     }
   }
+  if (prior?.outcome === 'not_sent') {
+    throw new JubianError('CONTRACT_CHANGED', 'Audio registration cannot use an image-generation pre-dispatch recovery state')
+  }
   attempt.replayed = prior !== undefined
   attempt.outcome = prior === undefined ? 'not_submitted' : prior.outcome ?? 'unknown'
   if (prior === undefined && slot !== undefined && before.some(asset => asset.voice_slot_tag === slot)

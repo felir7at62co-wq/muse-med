@@ -185,6 +185,8 @@ Setting `DSH_JUBIAN_DEBUG_DUMP` to a file path makes `request()` append one JSON
 
 `begin()` reads every existing NDJSON file for the key and folds the matching lines into one record before it appends anything: a `begin` line opens the record, and a later `settle` line with the same key fills in `http_status`, `application_code`, `response_sha256` and `outcome`. A hit returns `{ replayed: true, record }` and the caller must not send. `outcome` is `accepted` only for an HTTP 2xx response whose application code is `0` or `200`; every other case is `unknown`. That distinction is the point: after a timeout the file shows an intent line with no settle line, which is the honest answer rather than a guess.
 
+A Host-verified image request that stopped before provider dispatch can append a `pre_dispatch_abort` record, producing `outcome: not_sent` and releasing its reservation. `resumeChecked()` consumes that exact abort once only after its actor, evidence digests, key, method, project, request body and quote match and the current authorization and budget pass again. Other unknown requests remain reserved; a transport error alone does not authorize recovery. Existing begin and settle lines remain unchanged.
+
 </details>
 
 -----

@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +14,7 @@ import type {
   CharacterRecommendationRequest,
   CharacterRoleClass,
 } from '@deepseek-ai/dsh-character-library'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   mountAgentLoopTestDependencies,
@@ -132,6 +132,7 @@ it('returns bounded pending candidates with measured image identity and no use p
   expect(JSON.stringify(result)).not.toMatch(/metadataKey|imageKey|secret\/|preview_path|metadata_path/)
 })
 
+
 it('returns tied candidates for Agent image comparison and preserves no-match', async () => {
   const tied = fake({
     status: 'candidates',
@@ -188,7 +189,7 @@ it('rejects an unbounded or unverified Host candidate result before model output
     .rejects.toThrow('verified image SHA-256')
 })
 
-it('forwards a supporting-role exception and omits absent optional filters', async () => {
+it('forwards optional story context and omits absent filters', async () => {
   const library = fake({ status: 'no_match', reason: 'Skipped.', uncertainties: [], applyAllowed: false })
   await matchCharacterReferences(library, authority('important_support'), PROJECT, {
     character_id: 'support-01',
@@ -228,14 +229,19 @@ it('rejects malformed tool input before calling the Host service', async () => {
   expect(library.matchCandidates).toHaveBeenCalledTimes(1)
 })
 
-it('fails closed on missing or conflicting authoritative project role before library access', async () => {
+it('uses an Agent role claim only for read-only lookup when project role_class is absent', async () => {
   const library = fake(candidatesResult())
   const missingRole: CharacterRoleAuthority = {
-    read: vi.fn(async () => { throw new Error('current project character has no role_class') }),
+    read: vi.fn(async () => ({ characterId: request.character_id, roleClass: null })),
   }
-  await expect(matchCharacterReferences(library, missingRole, PROJECT, request))
-    .rejects.toThrow('no role_class')
+  const result = await matchCharacterReferences(library, missingRole, PROJECT, request)
+  expect(result).toMatchObject({ status: 'candidates', can_bind: false, apply_allowed: false })
+  expect(result.uncertainty).toContain('当前项目尚未登记 role_class；本次仅按 Agent 声明做只读检索，不构成素材使用授权。')
+  expect(library.matchCandidates).toHaveBeenCalledWith(expect.objectContaining({ roleClass: request.role_class }), undefined)
+})
 
+it('fails closed on conflicting authoritative project role before library access', async () => {
+  const library = fake(candidatesResult())
   const wrongRole = authority('support')
   await expect(matchCharacterReferences(library, wrongRole, PROJECT, request))
     .rejects.toThrow('conflicts with the current project bible')
@@ -329,9 +335,11 @@ it('registers bounded search and image view in a Cordis composition', async () =
   const configPath = join(root, 'project_config.json')
   const recordSecret = 'DO_NOT_LEAK_PROJECT_CHARACTER_RECORD'
   const config = (characters?: readonly object[]): string => `${JSON.stringify({
+    jubian_script_id: 91001,
     project_bible: {
       schema_version: 1,
       revision: 1,
+      title: '示例项目甲',
       initial_budget_cents: 400_000,
       delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6 },
       ...(characters === undefined ? {} : { characters }),
@@ -354,7 +362,7 @@ it('registers bounded search and image view in a Cordis composition', async () =
     const projectAgent = await harness.create(SessionId('character-reference-current-project'), {}, { cwd: root })
     const definitions = ctx.tools.schemas()
     expect(definitions.map(value => value.name)).toEqual([
-      'drama_character_references', 'drama_character_reference_view',
+      'drama_character_reference_project', 'drama_character_references', 'drama_character_reference_view',
     ])
     const definition = ctx.tools.get('drama_character_references')
     if (!definition) throw new Error('Missing character reference tool')
@@ -410,7 +418,11 @@ it('registers bounded search and image view in a Cordis composition', async () =
     await expectRejectedBeforeLibrary('character-reference-missing-character', request, projectAgent)
 
     await writeFile(configPath, config([{ character_id: 'heroine', name: recordSecret }]))
-    await expectRejectedBeforeLibrary('character-reference-missing-role', request, projectAgent)
+    const unclassified = await run('character-reference-missing-role', request, projectAgent)
+    expect(unclassified.isError).toBe(false)
+    expect(unclassified.value).toMatchObject({ status: 'candidates', can_bind: false })
+    expect(JSON.stringify(unclassified.value)).toContain('尚未登记 role_class')
+    expect(calls).toHaveLength(1)
 
     await writeFile(configPath, config([{ character_id: 'heroine', name: recordSecret, role_class: 'lead' }]))
     await expectRejectedBeforeLibrary('character-reference-conflicting-role', {
@@ -425,7 +437,108 @@ it('registers bounded search and image view in a Cordis composition', async () =
       candidates: [{ metadata_status: 'pending_review', image_sha256: IMAGE_SHA }],
       can_bind: false, apply_allowed: false })
     expect(execution.content).toEqual([{ type: 'text', text: JSON.stringify(execution.value, null, 2) }])
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
+    expect(network).not.toHaveBeenCalled()
+
+    const workshop = join(root, 'short-drama')
+    const nested = join(workshop, '示例项目甲_91001')
+    const other = join(workshop, '示例项目乙_91002')
+    await mkdir(nested, { recursive: true })
+    await mkdir(other)
+    await writeFile(join(nested, 'project_config.json'), config([
+      { character_id: 'heroine', name: '女主角', role_class: 'lead', asset_id: 81001 },
+    ]))
+    await writeFile(join(other, 'project_config.json'), config([]).replaceAll('91001', '91002')
+      .replace('示例项目甲', '示例项目乙'))
+    // The workspace root is not a project. No child is silently selected.
+    await rm(configPath)
+    const workspaceAgent = await harness.create(SessionId('character-reference-nested-workspace'), {}, { cwd: root })
+    await expectRejectedBeforeLibrary('nested-unbound', request, workspaceAgent)
+    const projectCommand = async (id: string, action: 'list' | 'select', scriptId?: number) =>
+      await ctx.tools.execute({
+        callId: ToolCallId(id), name: 'drama_character_reference_project',
+        arguments: { action, ...(scriptId === undefined ? {} : { script_id: scriptId }) },
+        agent: workspaceAgent, signal: new AbortController().signal,
+      })
+    expect((await ctx.tools.execute({
+      callId: ToolCallId('nested-project-without-session'), name: 'drama_character_reference_project',
+      arguments: { action: 'list' }, signal: new AbortController().signal,
+    })).isError).toBe(true)
+    expect((await projectCommand('nested-project-list-with-id', 'list', 91001)).isError).toBe(true)
+    expect((await projectCommand('nested-project-select-without-id', 'select')).isError).toBe(true)
+    const listed = await projectCommand('nested-project-list', 'list')
+    expect(listed.isError).toBe(false)
+    expect(listed.value).toMatchObject({ status: 'listed', projects: [
+      { script_id: 91001, title: '示例项目甲' }, { script_id: 91002, title: '示例项目乙' },
+    ] })
+    expect(JSON.stringify(listed.content)).not.toContain(root)
+    expect((await projectCommand('nested-unconfirmed', 'select', 91001)).isError).toBe(true)
+    workspaceAgent.session.append('user/message', createUserMessage({
+      source: { kind: 'user' }, content: [{ type: 'text', text: '请在剧变项目 91001 中给角色找参考。' }],
+    }), { surfaceOp: 'append' })
+    expect((await projectCommand('nested-wrong-project', 'select', 91002)).isError).toBe(true)
+    expect((await projectCommand('nested-selected', 'select', 91001)).value).toMatchObject({
+      status: 'selected', selected_project: { script_id: 91001,
+        characters: [{ character_id: 'heroine', name: '女主角', role_class: 'lead', asset_id: 81001 }] },
+    })
+    const nestedResult = await run('nested-reference-search', request, workspaceAgent)
+    expect(nestedResult.isError, JSON.stringify(nestedResult.content)).toBe(false)
+    expect(nestedResult.value).toMatchObject({ status: 'candidates', can_bind: false })
+    workspaceAgent.session.append('user/message', createUserMessage({
+      source: { kind: 'user' }, content: [{ type: 'text', text: '现在改用剧变项目 91002。' }],
+    }), { surfaceOp: 'append' })
+    await expectRejectedBeforeLibrary('switch-before-select', request, workspaceAgent)
+    expect((await projectCommand('switch-selected', 'select', 91002)).value).toMatchObject({
+      status: 'selected', selected_project: { script_id: 91002, characters: [] },
+    })
+    await expectRejectedBeforeLibrary('old-role-not-carried-into-new-project', request, workspaceAgent)
+    workspaceAgent.session.append('user/message', createUserMessage({
+      source: { kind: 'user' }, content: [{ type: 'text', text: '回到剧变项目 91001。' }],
+    }), { surfaceOp: 'append' })
+    expect((await projectCommand('switch-back', 'select', 91001)).isError).toBe(false)
+    expect((await run('new-project-context-search', request, workspaceAgent)).isError).toBe(false)
+    await writeFile(join(nested, 'project_config.json'), config([
+      { character_id: 'heroine', name: '女主角', role_class: 'lead' },
+      { character_id: 'supporting_role', name: '示例配角', role_class: 'support', asset_id: 81001 },
+    ]))
+    const supporting_roleRequest: CharacterReferenceRequest = {
+      ...request,
+      character_id: 'supporting_role',
+      role_class: 'support',
+      role_description: '现代真人写实的中年配角',
+    }
+    await expectRejectedBeforeLibrary('same-project-wrong-role', {
+      ...supporting_roleRequest, role_class: 'lead',
+    }, workspaceAgent)
+    const supporting_role = await run('same-project-new-character', supporting_roleRequest, workspaceAgent)
+    expect(supporting_role.isError).toBe(false)
+    expect(supporting_role.value).toMatchObject({ status: 'candidates', character_id: 'supporting_role' })
+    expect(calls.at(-1)).toMatchObject({
+      roleClass: 'support', query: '现代真人写实的中年配角',
+    })
+    expect(calls.at(-1)).not.toHaveProperty('supportingUseReason')
+    await writeFile(join(nested, 'project_config.json'), config([
+      { character_id: 'heroine', name: '女主角', role_class: 'lead' },
+    ]))
+    await expectRejectedBeforeLibrary('same-project-character-removed', supporting_roleRequest, workspaceAgent)
+    await writeFile(join(nested, 'project_config.json'), config([
+      { character_id: 'heroine', name: recordSecret, role_class: 'support' },
+    ]))
+    await expectRejectedBeforeLibrary('nested-role-changed', request, workspaceAgent)
+    await writeFile(join(nested, 'project_config.json'), config([
+      { character_id: 'heroine', name: recordSecret, role_class: 'lead' },
+    ]).replace('91001', '91003'))
+    await expectRejectedBeforeLibrary('nested-binding-stale', request, workspaceAgent)
+    const outside = await mkdtemp(join(tmpdir(), 'muse-character-reference-escape-'))
+    const escapeLink = join(workshop, 'escape')
+    try {
+      await symlink(outside, escapeLink, 'junction')
+      await expectRejectedBeforeLibrary('nested-escape-link', request, workspaceAgent)
+      expect((await projectCommand('unsafe-project-list', 'list')).isError).toBe(true)
+    } finally {
+      await rm(escapeLink, { force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
     expect(network).not.toHaveBeenCalled()
     await expect(JSON.stringify({
       tool_names: definitions.map(value => value.name),

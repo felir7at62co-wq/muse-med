@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-character-image-continuity
+profile: headless
+composition: muse-character-image-continuity
+recording: authored
+header:
+  class: muse-character-image-continuity
+  pin: true
+  toolSchemasSource: muse-image-material-readback
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-continuity-fixture

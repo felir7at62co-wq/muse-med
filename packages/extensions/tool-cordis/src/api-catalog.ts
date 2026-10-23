@@ -673,6 +673,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'characterReferenceAuthority',
+    summary: 'Host-only current-project and image identity reader; use authorization is separate.',
+    description: 'Host-only current-project and image identity reader; use authorization is separate.',
+    methods: [
+      {
+        signature: 'read( session: Session, request: CharacterReferenceAuthorityRequest, signal?: AbortSignal, ): Promise<AuthoritativeCharacterReference>',
+        description: 'Re-read the current project and candidate bytes, rejecting any changed identity.',
+        parameters: [{ name: 'session', description: 'Current Agent Session whose Host-owned project binding is authoritative.' }, { name: 'request', description: 'Expected project, character, Catalog, and image identities.' }, { name: 'signal', description: 'Optional execution cancellation.' }],
+        returns: 'Verified project identity, role, image status, content type, digest, and bytes.',
+      },
+    ],
+  },
+  {
     key: 'claudeCodeMods',
     summary: 'The bridge service: loaded mods, their hooks, and the harness listeners that raise their events.',
     description: 'The bridge service: loaded mods, their hooks, and the harness listeners that raise their events. Mods join through ClaudeCodeMods.add, which defineMod calls when a mod plugin mounts. The Remote methods let a Client draw each session\'s band above the prompt and press its buttons.',
@@ -5029,6 +5042,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AuthoritativeCharacterReference',
+    declaration: 'export interface AuthoritativeCharacterReference {\n    readonly projectDirectory: string;\n    readonly scriptId: number;\n    readonly characterId: string;\n    readonly characterName: string;\n    readonly roleClass: CharacterRoleClass;\n    readonly catalogAssetId: string;\n    readonly imageSha256: string;\n    readonly metadataStatus: CharacterLibraryPreview[\'metadataStatus\'];\n    readonly contentType: CharacterLibraryPreview[\'contentType\'];\n    readonly data: Uint8Array;\n}',
+  },
+  {
     name: 'AuthorizationEntry',
     declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n}',
   },
@@ -5207,6 +5224,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CharacterRecommendationResult',
     declaration: 'export type CharacterRecommendationResult = {\n    readonly status: \'recommended\';\n    readonly candidate: CharacterRecommendationCandidate;\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n} | {\n    readonly status: \'needs_review\';\n    readonly candidates: readonly CharacterRecommendationCandidate[];\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n} | {\n    readonly status: \'no_match\';\n    readonly reason: string;\n    readonly uncertainties: readonly string[];\n    readonly applyAllowed: false;\n};',
+  },
+  {
+    name: 'CharacterReferenceAuthorityRequest',
+    declaration: 'export interface CharacterReferenceAuthorityRequest {\n    readonly scriptId: number;\n    readonly characterId: string;\n    readonly catalogAssetId: string;\n    readonly expectedSha256: string;\n}',
   },
   {
     name: 'CharacterRoleClass',

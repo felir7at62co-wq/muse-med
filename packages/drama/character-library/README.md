@@ -34,14 +34,14 @@ The service fixes the logical source to `muse-character-reference-qa` and reads 
 - `assets/reference/characters/stylized/ancient/ancient/`
 - `assets/reference/characters/stylized/urban/urban/`
 
-`browse()` lists bounded metadata pages and returns catalog projections. `detail()` resolves one catalog identity without reading image bytes. `preview()` asks the catalog loader to read and verify one bounded image in memory, then fully decodes structurally valid JPEG, PNG or WebP data with fixed pixel and time limits. It rejects a changed metadata object, catalog identity, image key or caller-supplied original-image SHA-256. No method returns a public URL or changes catalog approval.
+`browse()` lists bounded metadata pages and returns catalog projections. `detail()` and `preview()` resolve a validated catalog ID through at most one canonical metadata key under each reviewed prefix instead of listing the catalog; the metadata catalog ID, original asset ID and key must match that location. `detail()` does not read image bytes. `preview()` asks the catalog loader to read and verify one bounded image in memory, then fully decodes structurally valid JPEG, PNG or WebP data with fixed pixel and time limits. It rejects a changed metadata object, catalog identity, image key or caller-supplied original-image SHA-256. No method returns a public URL or changes catalog approval.
 
 
 
 <a id="recommendation-policy"></a>
 ## Recommendation policy
 
-`recommend()` receives structured role requirements and returns exactly one of `recommended`, `needs_review` or `no_match`. A lead role may search normally. `important_support`, `support` and `extra` roles skip the library unless the Host supplies a bounded, non-empty `supportingUseReason`; that exception is included in the explanation and uncertainties rather than stored in catalog metadata.
+`recommend()` receives structured role requirements and returns exactly one of `recommended`, `needs_review` or `no_match`. All role classes may search; the Agent decides from the screenplay when a reference is useful. Optional bounded `supportingUseReason` appears only in the explanation, never in catalog metadata, and grants no use permission.
 
 Declared era conflicts reject a candidate. Equal top scores produce `needs_review`; catalog IDs never break a semantic tie. This is an internal review state, not a request for the user to choose from a candidate list. Consumers should report that the result needs review and must not treat it as permission to apply an asset.
 

@@ -34,14 +34,14 @@ kind: "package-reference"
 - `assets/reference/characters/stylized/ancient/ancient/`
 - `assets/reference/characters/stylized/urban/urban/`
 
-`browse()` 有界列举 metadata 页面并返回目录投影。`detail()` 解析一个目录身份，不读取图片字节。`preview()` 通过目录加载器在内存中有界读取并核验一张图片，然后在固定像素和时间限制内完整解码结构有效的 JPEG、PNG 或 WebP 数据。Metadata 对象、目录身份、图片 key 或调用方给定的原图 SHA-256 发生变化时，预览会拒绝。任何方法都不会返回公开 URL 或改变目录审批状态。
+`browse()` 有界列举 metadata 页面并返回目录投影。`detail()` 和 `preview()` 使用经过校验的目录 ID，在两个已审查前缀下各检查至多一个规范 metadata key，不会为精确查询列举整个目录；metadata 中的目录 ID、原始素材 ID 和 key 必须与该位置一致。`detail()` 不读取图片字节。`preview()` 通过目录加载器在内存中有界读取并核验一张图片，然后在固定像素和时间限制内完整解码结构有效的 JPEG、PNG 或 WebP 数据。Metadata 对象、目录身份、图片 key 或调用方给定的原图 SHA-256 发生变化时，预览会拒绝。任何方法都不会返回公开 URL 或改变目录审批状态。
 
 
 
 <a id="recommendation-policy"></a>
 ## 推荐策略
 
-`recommend()` 接收结构化角色需求，只返回 `recommended`、`needs_review` 或 `no_match` 之一。主角可以正常检索；`important_support`、`support` 和 `extra` 默认跳过人物库，只有 Host 提供有界且非空的 `supportingUseReason` 时才允许例外检索。该例外只写入解释和不确定项，不写入目录 metadata。
+`recommend()` 接收结构化角色需求，只返回 `recommended`、`needs_review` 或 `no_match` 之一。所有角色类型都可检索；Agent 根据剧本判断是否需要参考图。可选且有界的 `supportingUseReason` 仅写入解释，不进入目录 metadata，也不授予素材使用权限。
 
 年代声明冲突时拒绝候选。最高分并列时返回 `needs_review`，不使用目录 ID 打破语义平局。这是内部复核状态，不是要求用户从候选列表中选择。消费方应只报告结果需要复核，不能将它解释为素材可应用。
 

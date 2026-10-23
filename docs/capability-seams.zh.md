@@ -14,11 +14,12 @@ flowchart LR
   pkg_tool_character_reference["tool-character-reference"]
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
+  svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
+  pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
-  pkg_tool_jubian["tool-jubian"]
   svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
@@ -438,6 +439,7 @@ flowchart LR
   pkg_terminal --> svc_terminals
   pkg_terminal_bash --> svc_terminals
   pkg_token_meter --> svc_tokenMeter
+  pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
   pkg_tool_jubian --> svc_jubianVideoSelection
@@ -479,6 +481,7 @@ flowchart LR
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
   svc_characterLibrary --> pkg_tool_character_reference
   svc_characterLibraryObjectStore --> pkg_character_library
+  svc_characterReferenceAuthority --> pkg_tool_jubian
   svc_clientModules --> pkg_client_hmr
   svc_compaction --> pkg_compaction_basic
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_mcp
@@ -616,6 +619,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | 校验历史 metadata 与有界图片，供人物参考检索使用；推荐结果不授予发布、绑定或生成权限。 |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 通过 Host 管理的凭据，列出固定历史前缀下的对象、读取 metadata，并获取有界图片字节。 |
+| `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 为托管参考图使用重新读取当前项目、登记角色和 Catalog 图片摘要；不授予图片使用权。 |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | 在配置根目录内列出和编辑已有笔记，使用文件系统版本检查；浏览器通过 Typert Remote 接收笔记内容。 |
 | `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 记录用户选择的视频规格，追加上下文，并按会话选择校验新的生成提交。 |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | 读取账号可访问的图像生成路由，不暴露凭据，也不提交付费任务。 |
