@@ -86,7 +86,7 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   const installed = join(nodeModules, 'muse-hongguo-download')
   expect(await realpath(installed)).not.toBe(await realpath(original))
   expect(await readFile(join(installed, 'index.js'), 'utf8')).toBe(await readFile(join(original, 'index.js'), 'utf8'))
-  expect(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write'))
+  expect(await realpath(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write')))
     .toBe(await realpath(join(dependency, 'index.js')))
   expect(await importPlugin(installed)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
   const nativeInstalled = join(nodeModules, 'muse-lvpaopao')
