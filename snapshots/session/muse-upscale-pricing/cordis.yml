@@ -1,3 +1,9 @@
+# This scenario exercises native business tools, not a platform shell.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
 - id: llm-deepseek
   disabled: true
 - id: agent-instructions

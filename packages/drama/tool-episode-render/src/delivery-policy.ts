@@ -5,8 +5,8 @@
 
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { DEFAULT_DELIVERY, ENDING_SECONDS } from './delivery.ts'
-import type { DeliveryPolicy, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
+import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
+import type { DeliveryAudio, DeliveryPolicy, DeliverySubtitle, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
 
 /** Reject malformed explicit metadata instead of treating it as missing. */
 function object(value: unknown, path: string): Record<string, unknown> {
@@ -32,6 +32,47 @@ function positive(value: unknown, path: string): number {
   return value
 }
 
+/** Validate a finite numeric override before passing it to ASS or ffmpeg. */
+function bounded(value: unknown, path: string, minimum: number, maximum: number, exclusiveMinimum = false): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)
+    || (exclusiveMinimum ? value <= minimum : value < minimum) || value > maximum) {
+    throw new Error(`${path} 必须是${exclusiveMinimum ? '大于' : '不小于'} ${String(minimum)} 且不大于 ${String(maximum)} 的有限数值。`)
+  }
+  return value
+}
+
+/** Parse only explicitly selected subtitle fields, preserving an explicit empty section. */
+function subtitle(value: unknown, path: string, height: number): DeliverySubtitle {
+  const row = object(value, path)
+  if (Object.hasOwn(row, 'font_family') && (typeof row.font_family !== 'string' || !FONT_FAMILY_PATTERN.test(row.font_family))) {
+    throw new Error(`${path}.font_family 必须是非空 ASS 字体名，不能包含逗号或换行；字体须已安装或在 fontsDir 中提供。`)
+  }
+  return {
+    ...(Object.hasOwn(row, 'font_family') ? { font_family: row.font_family as string } : {}),
+    ...(Object.hasOwn(row, 'font_size_px')
+      ? { font_size_px: bounded(row.font_size_px, `${path}.font_size_px`, 0, Number.MAX_SAFE_INTEGER, true) } : {}),
+    ...(Object.hasOwn(row, 'margin_bottom_px')
+      ? { margin_bottom_px: bounded(row.margin_bottom_px, `${path}.margin_bottom_px`, 0, height) } : {}),
+  }
+}
+
+/** Parse explicit linear gains without treating zero as an omitted value. */
+function audio(value: unknown, path: string): DeliveryAudio {
+  const row = object(value, path)
+  return {
+    ...(Object.hasOwn(row, 'master_gain') ? { master_gain: bounded(row.master_gain, `${path}.master_gain`, 0, 8) } : {}),
+    ...(Object.hasOwn(row, 'bgm_gain') ? { bgm_gain: bounded(row.bgm_gain, `${path}.bgm_gain`, 0, 8) } : {}),
+  }
+}
+
+/** Reject a positive output size that rounds to zero in the actual ASS representation. */
+function assertRepresentableSubtitle(delivery: TimelineDelivery, path: string): void {
+  if (delivery.subtitle?.font_size_px !== undefined && subtitleRenderStyle(delivery).font_size_design <= 0) {
+    throw new Error(`${path}.subtitle.font_size_px 在 ${String(delivery.width)}×${String(delivery.height)} 输出画幅下`
+      + '换算后为 0 ASS 设计单位，无法表达正字号；请使用换算后可保留为正数的字号（ASS 字号精度为 0.001 设计单位）。')
+  }
+}
+
 /**
  * Parse a complete timeline delivery snapshot.
  * @param value - The delivery JSON value; absence is handled by the caller.
@@ -45,10 +86,14 @@ export function parseTimelineDelivery(value: unknown, path: string): TimelineDel
   const fps = positive(row.fps, `${path}.fps`)
   if (width % 2 !== 0 || height % 2 !== 0) throw new Error(`${path} 的 width 和 height 必须是偶数（H.264 yuv420p）。`)
   if (fps > 240) throw new Error(`${path}.fps 不得超过 240。`)
-  return {
+  const delivery: TimelineDelivery = {
     ...(Object.hasOwn(row, 'visual_medium') ? { visual_medium: medium(row.visual_medium, `${path}.visual_medium`) } : {}),
     width, height, fps,
+    ...(Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
+    ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
   }
+  assertRepresentableSubtitle(delivery, path)
+  return delivery
 }
 
 /**
@@ -74,6 +119,8 @@ export async function readProjectDelivery(project: string): Promise<TimelineDeli
     ...(Object.hasOwn(geometry, 'width') ? { width: geometry.width } : {}),
     ...(Object.hasOwn(geometry, 'height') ? { height: geometry.height } : {}),
     ...(Object.hasOwn(geometry, 'fps') ? { fps: geometry.fps } : {}),
+    ...(Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
+    ...(Object.hasOwn(geometry, 'audio') ? { audio: geometry.audio } : {}),
     ...(Object.hasOwn(bible, 'visual_medium') ? { visual_medium: bible.visual_medium } : {}),
   }, `${path}.project_bible.delivery`)
 }
@@ -99,7 +146,10 @@ export function deliveryPolicyFor(delivery: TimelineDelivery = DEFAULT_DELIVERY)
  * Resolve a timeline snapshot against the current project's explicit medium.
  * @param project - Absolute project root.
  * @param snapshot - Delivery metadata read from the timeline, if present.
- * @returns Snapshot geometry and explicit medium treatment, or legacy geometry when absent.
+ * Subtitle and audio sections inherit independently: a saved section (even `{}`)
+ * wins over the current project section; only a missing section inherits it.
+ * Omitted fields inside the selected section retain deployment/legacy defaults.
+ * @returns Snapshot geometry and selected sections, or legacy geometry when absent.
  * @throws {Error} When project and snapshot explicitly select different media.
  */
 export async function resolveDeliveryPolicy(project: string, snapshot?: TimelineDelivery): Promise<DeliveryPolicy> {
@@ -109,10 +159,19 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
     throw new Error('时间线 delivery.visual_medium 与 project_bible.visual_medium 冲突；请重跑 prepare，禁止沿用旧时间线。')
   }
   const visualMedium = snapshot?.visual_medium ?? current.visual_medium
-  return deliveryPolicyFor({
+  const delivery: TimelineDelivery = {
     ...(snapshot ?? DEFAULT_DELIVERY),
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
-  })
+    ...(snapshot?.subtitle !== undefined || current.subtitle === undefined ? {} : { subtitle: current.subtitle }),
+    ...(snapshot?.audio !== undefined || current.audio === undefined ? {} : { audio: current.audio }),
+  }
+  // A legacy timeline may retain different geometry from the current project.
+  // Validate the inherited margin against the frame that will actually be rendered.
+  if (delivery.subtitle?.margin_bottom_px !== undefined) {
+    bounded(delivery.subtitle.margin_bottom_px, 'delivery.subtitle.margin_bottom_px', 0, delivery.height)
+  }
+  assertRepresentableSubtitle(delivery, 'delivery')
+  return deliveryPolicyFor(delivery)
 }
 
 /**

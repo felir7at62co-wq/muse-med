@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { stageSourceMusePlugins } from './source-plugin-layout.mjs'
 
 const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpClient,
   { createMuseAccountMcpServer }, { createMuseKbReader }, CharacterLibrary, CharacterLibraryTos] = await Promise.all([
@@ -55,9 +56,7 @@ export async function apply(ctx, config) {
           linked.add(name)
         }
       }
-      for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download']) {
-        await symlink(fileURLToPath(new URL(`../../../third_party/plugins/${plugin}/`, import.meta.url)), join(anchor, 'node_modules', plugin), process.platform === 'win32' ? 'junction' : 'dir')
-      }
+      await stageSourceMusePlugins(fileURLToPath(new URL('../../../third_party/plugins/', import.meta.url)), join(anchor, 'node_modules'))
       await writeFile(join(anchor, 'package.json'), '{"name":"snapshot-editing-resolution","version":"0.0.0","type":"module"}\n')
       productBaseUrl = pathToFileURL(join(anchor, 'package.json')).href
       productPresetDirectory = join(anchor, presetId)

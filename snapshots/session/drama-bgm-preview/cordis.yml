@@ -1,4 +1,9 @@
 # Exercise drama_bgm input validation through the shipped Loader entry path.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
 - insert:
     - id: tool-bgm-compose
       name: '@deepseek-ai/dsh-tool-bgm-compose'

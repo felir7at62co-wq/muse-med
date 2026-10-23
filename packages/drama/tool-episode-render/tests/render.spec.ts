@@ -189,7 +189,9 @@ describe('renderEpisode', () => {
     expect(report.ok).toBe(true)
     expect(report.expected_duration_seconds).toBe(114.733332)
     expect(report.tail_frame.path).toBe('')
-    expect(report.warnings).toEqual([])
+    expect(report.warnings).toEqual([
+      expect.stringContaining('未提供 bgm_plan'), expect.stringContaining('SRT 不携带字体样式'),
+    ])
     const commands = channel.calls.flatMap(call => call.args).join(' ')
     expect(commands).not.toContain('ending_audio')
     expect(commands).not.toContain('ending_effect')
@@ -381,7 +383,7 @@ describe('renderEpisode', () => {
     const second = await render(prepared, renderChannel(prepared))
     expect(second.reused_shots).toEqual([1, 2])
     expect(second.encoded_shots).toEqual([])
-    expect(second.summary).toEqual({ shots: 2, encoded: 0, reused: 2, checks: 5, failed_checks: 0, warnings: 0 })
+    expect(second.summary).toEqual({ shots: 2, encoded: 0, reused: 2, checks: 5, failed_checks: 0, warnings: 2 })
 
     const forced = await render(prepared, renderChannel(prepared), true)
     expect(forced.encoded_shots).toEqual([1, 2])
@@ -501,8 +503,11 @@ describe('renderEpisode', () => {
     const report = await render(prepared, renderChannel(prepared, { imageHashes: ['wrong', 'tail'] }))
     expect(report.ok).toBe(true)
     expect(report.tail_frame.from_sequential_decode).toBe(true)
-    expect(report.warnings[0]).toContain('已改用顺序解码的最后一帧')
-    expect(report.summary.warnings).toBe(1)
+    expect(report.warnings).toEqual([
+      expect.stringContaining('未提供 bgm_plan'), expect.stringContaining('SRT 不携带字体样式'),
+      expect.stringContaining('已改用顺序解码的最后一帧'),
+    ])
+    expect(report.summary.warnings).toBe(3)
   })
 
   it('fails loud when the episode master is missing', async () => {

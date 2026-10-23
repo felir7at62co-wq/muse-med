@@ -1,0 +1,163 @@
+[
+  {
+    "command": "project-delivery-fixture-ffprobe",
+    "args": [
+      "-v",
+      "error",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "{{cwd}}/source.mp4"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffmpeg",
+    "args": [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      "{{cwd}}/source.mp4",
+      "-filter_complex",
+      "[0:a]atrim=0:5.000000,asetpts=N/SR/TB,adelay=delays=0:all=1[a0];[a0]amix=inputs=1:duration=longest:normalize=0[a]",
+      "-map",
+      "[a]",
+      "-c:a",
+      "pcm_s16le",
+      "-ar",
+      "48000",
+      "{{cwd}}/audio/01.wav"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffmpeg",
+    "args": [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      "{{cwd}}/video/01/shot_001.mp4",
+      "-t",
+      "5.000000",
+      "-vf",
+      "scale=480:854:force_original_aspect_ratio=increase,crop=480:854,tpad=stop_mode=clone:stop_duration=0.041666667,fps=24,format=yuv420p",
+      "-an",
+      "-r",
+      "24",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-b:v",
+      "24M",
+      "-maxrate",
+      "30M",
+      "-bufsize",
+      "48M",
+      "-g",
+      "48",
+      "-profile:v",
+      "high",
+      "-level",
+      "5.1",
+      "{{cwd}}/exports/.render_cache/01/shot_001.mp4"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffmpeg",
+    "args": [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      "{{cwd}}/exports/.render_cache/01/concat.txt",
+      "-c",
+      "copy",
+      "{{cwd}}/exports/.render_cache/01/base.mp4"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffmpeg",
+    "args": [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      "{{cwd}}/exports/.render_cache/01/base.mp4",
+      "-t",
+      "5.000000",
+      "-vf",
+      "scale=960:1708:flags=lanczos,ass='{{cwd}}/exports/.render_cache/01/display.ass':fontsdir='',scale=480:854:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.041666667,fps=24,setpts=N/(24*TB)",
+      "-an",
+      "-r",
+      "24",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-b:v",
+      "24M",
+      "-maxrate",
+      "30M",
+      "-bufsize",
+      "48M",
+      "-g",
+      "48",
+      "-profile:v",
+      "high",
+      "-level",
+      "5.1",
+      "{{cwd}}/exports/.render_cache/01/subtitled.mp4"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffmpeg",
+    "args": [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      "{{cwd}}/exports/.render_cache/01/subtitled.mp4",
+      "-i",
+      "{{cwd}}/audio/01.wav",
+      "-stream_loop",
+      "-1",
+      "-i",
+      "{{cwd}}/approved-bgm.wav",
+      "-filter_complex",
+      "[1:a]apad,atrim=0:5.000000,volume=1[a0];[2:a]atrim=0:5.000000,volume=0.1[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=0:5.000000,alimiter=limit=0.95:level=false[a]",
+      "-map",
+      "0:v:0",
+      "-map",
+      "[a]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ar",
+      "48000",
+      "-movflags",
+      "+faststart",
+      "{{cwd}}/exports/.drama-render-{{staging}}/output.mp4"
+    ]
+  },
+  {
+    "command": "project-delivery-fixture-ffprobe",
+    "args": [
+      "-v",
+      "error",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "{{cwd}}/exports/candidate.mp4"
+    ]
+  }
+]

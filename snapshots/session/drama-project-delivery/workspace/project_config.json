@@ -1,0 +1,19 @@
+{
+  "project_bible": {
+    "visual_medium": "animation_3d",
+    "delivery": {
+      "width": 480,
+      "height": 854,
+      "fps": 24,
+      "subtitle": {
+        "font_family": "Project font",
+        "font_size_px": 30,
+        "margin_bottom_px": 18
+      },
+      "audio": {
+        "master_gain": 1,
+        "bgm_gain": 0.1
+      }
+    }
+  }
+}

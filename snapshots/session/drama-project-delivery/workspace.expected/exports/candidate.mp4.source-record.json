@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "episode": "01",
+  "rendered_at": "2000-01-01T00:00:00.000Z",
+  "output": {
+    "path": "{{cwd}}/exports/candidate.mp4",
+    "sha256": "780784b65df4e48d2c778bc78078e3dee856cb394225ae3f253958482133b9b0",
+    "size_bytes": 5000000,
+    "duration_seconds": 5
+  },
+  "inputs": [
+    "901c2e6bf6153e2e8723afaaec7d91f3a14dbe8a38a69209d3c8bbb7f63b0e44",
+    "780784b65df4e48d2c778bc78078e3dee856cb394225ae3f253958482133b9b0",
+    "780784b65df4e48d2c778bc78078e3dee856cb394225ae3f253958482133b9b0",
+    "780784b65df4e48d2c778bc78078e3dee856cb394225ae3f253958482133b9b0"
+  ],
+  "encoder": "libx264",
+  "checks": [
+    {
+      "id": "duration",
+      "ok": true,
+      "severity": "failure"
+    },
+    {
+      "id": "video_stream",
+      "ok": true,
+      "severity": "failure"
+    },
+    {
+      "id": "frame_rate",
+      "ok": true,
+      "severity": "failure"
+    },
+    {
+      "id": "audio_stream",
+      "ok": true,
+      "severity": "failure"
+    },
+    {
+      "id": "bitrate_floor",
+      "ok": true,
+      "severity": "failure"
+    }
+  ]
+}

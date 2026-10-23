@@ -8,6 +8,10 @@ import shutil
 import sys
 import tempfile
 
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
 
 def generate_request(request, drafts_dir):
     """Stage only the explicitly selected episode; retain media referenced by its draft."""
@@ -72,7 +76,8 @@ def generate_request(request, drafts_dir):
                             ('ending_effect', '06_ending/ending_effect.mp4')]:
         if field in paths:
             retain(paths[field], relative + paths[field].suffix if field == 'bgm' else relative)
-    result = generate_draft(str(root), str(stage), name_prefix=prefix, seq=seq, project=str(project))
+    result = generate_draft(str(root), str(stage), name_prefix=prefix, seq=seq, project=str(project),
+                            bgm_role=request.get('bgm_role'))
     return {**result, 'materials_dir': str(stage),
             'library': {'name': 'pyJianYingDraft', 'version': importlib.metadata.version('pyJianYingDraft')},
             'editor_open_verified': False}

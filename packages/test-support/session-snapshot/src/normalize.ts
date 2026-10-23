@@ -43,7 +43,7 @@ const EMBEDDED_EVENT_TIME_RE = /^(  "time": )\d+(?=,\r?$)/gm
 const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
 const EVENT_READ_TARGET_REGION_RE
   = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
-const PATH_TEXT_BOUNDARY_RE = /[\s<>'"`()\[\]{},;:!?=]/
+const PATH_TEXT_BOUNDARY_RE = /[\s<>'"`()\[\]{},;:：!?=]/
 const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
@@ -91,7 +91,7 @@ function canonicalizeJsonCwdPaths(value: string): string {
   return value.replace(/"(?:[^"\\]|\\.)*"/g, (literal) => {
     let decoded: unknown
     try { decoded = JSON.parse(literal) } catch { return literal }
-    if (typeof decoded !== 'string' || !decoded.startsWith(CWD + '\\') && !decoded.startsWith(CWD + '/')) {
+    if (typeof decoded !== 'string' || !decoded.includes(CWD + '\\') && !decoded.includes(CWD + '/')) {
       return literal
     }
     const canonical = decoded.replace(CWD_ROOTED_PATH_RE, path => path.replaceAll('\\', '/'))
@@ -128,7 +128,8 @@ export interface SessionSnapshotComparisonOptions extends Omit<NormalizeOptions,
 
 /** Return every known spelling of the generated cwd, most specific first. */
 function cwdSpellings(ctx: NormalizeContext): string[] {
-  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []])]
+  const nestedJsonCwd = JSON.stringify(JSON.stringify(ctx.cwd).slice(1, -1)).slice(1, -1)
+  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? [], nestedJsonCwd])]
     .filter(spelling => spelling.length > 0)
   const macAliases = spellings
     .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))
@@ -300,7 +301,8 @@ export function tokenizeSessionFixtureCwd(rawLog: string): string {
   if (basename === undefined || basename.length === 0) {
     throw new Error('acp-snapshot: cannot tokenize a cwd without a basename')
   }
-  const ctx: NormalizeContext = { sessionIds: [], cwd }
+  const ctx: NormalizeContext = { sessionIds: [], cwd,
+    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)] }
   return lines.map((line) => {
     if (line.trim().length === 0) return line
     return JSON.stringify(tokenizeFixtureValue(JSON.parse(line), ctx, basename))

@@ -165,9 +165,14 @@ describe('tool-jubian registration', () => {
     expect(properties.delivery_resolution!.description).toContain('不是内容不可用判定，也不构成付费义务')
     expect(properties.delivery_resolution!.description).not.toContain('必须先转高清才能使用')
     expect(video.description).toContain('SD2.5 默认使用原片，不自动提交或等待高清')
+    expect(video.description).toContain('仿真人剧默认使用原片，不自动转高清')
     expect(video.description).toContain('任何模型都不能仅因 needs_upscale=true 自动付费')
     expect(video.description).toContain('仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）')
     expect(video.description).toContain('普通导出尺寸与真实源分辨率须分别如实报告')
+    expect(video.description).toContain('1080p 是高清目标档位，不承诺精确 1080×1920')
+    expect(video.description).toContain('实际宽高以输出文件探测为准')
+    expect(video.description).toContain('费用报告分列提交估算、账本占账与任务行 real_cost')
+    expect(video.description).toContain('ASR 等未返回费用时保持未知，不填零')
   })
 
   it('gives every tool a method enum and the fields that method needs', async () => {
