@@ -31,7 +31,7 @@ vi.mock('node:fs/promises', async (original) => {
       await actual.writeFile(args[1], 'concurrent publication', { flag: 'wx' })
       throw Object.assign(new Error('publication already exists'), { code: 'EEXIST' })
     }
-    return await actual.link(...args)
+    await actual.link(...args)
   } }
 })
 

@@ -26,7 +26,10 @@ vi.mock('node:fs/promises', async (original) => {
       return directory
     },
     writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
-      if (String(args[0]) !== faults.report || !faults.mode) return await actual.writeFile(...args)
+      if (args[0] !== faults.report || !faults.mode) {
+        await actual.writeFile(...args)
+        return
+      }
       faults.rollback = true
       if (faults.mode === 'changed-output') await actual.writeFile(faults.output, 'concurrent subtitle')
       if (faults.mode === 'linked-output') {
