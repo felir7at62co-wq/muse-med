@@ -13,6 +13,8 @@ description: Use when 3D 动画或仿真人短剧需要可编辑草稿、实际�
 
 生成剪映草稿统一调用 `jianying_draft`，将 `drama_draft_dir` 成功结果的 `path` 原样作为 `drafts_dir`，无需 PowerShell 或用户另装 Python。先用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，再传其绝对路径为 `request_file`。此工具沿用打包的 `GuanYixuan/pyJianYingDraft`，只处理请求指定的一集，返回保存后读回一致的草稿路径、保留素材目录与库版本。`editor_open_verified=false` 表示尚未在本机剪映打开验证；不能因已有草稿是密文就断言新草稿无法打开，也不能宣称库会自动解决所有版本的加密格式。工具失败时按实际错误调查，不把 PowerShell 启动失败外推成所有进程均不可用。当前实例缺少此工具时，核查 Muse 版本与安装状态。
 
+历史会话续做或 Muse 更新后恢复草稿制作时，重新读取本技能，以当前原生工具为准。历史记录中成功过的 `DraftGenerator`、`sys.path`、`.desktop-build` 和绝对开发目录不是当前生成入口；即使仍能启动，也可能绕过现版音轨处理与保存校验。原生工具报错时核查当前错误和打包资源，不静默改用旧脚本或另装依赖。此为 Agent 操作指导，不新增用户审批；不会自动修改已生成草稿，需要修复时另存唯一名称的候选，保留原稿。
+
 保留已有草稿；名称冲突时为新候选选择唯一 `name_prefix`，不得删除或覆盖旧草稿。
 
 草稿对白与纯配乐可读取 `project_config.json.project_bible.delivery.audio: {master_gain?, bgm_gain?}`，prepare 写入时间线后以快照为准。快照存在 `audio` 节（包括 `{}`）时整节优先，不从项目补缺字段；缺字段保留 SDK 原默认 1，缺整个节才读取项目。增益为 0–8 有限线性数值，零静音；没有显式配置的旧请求仍为 1/1。与正式成片匹配时显式指定两项，不假定正式渲染的部署默认也适用于草稿。独立对白成功导入后源视频静音，避免叠播；失败时保留原声及待核提示。片尾音增益和字幕 SDK 样式不随项目音频字段改变。

@@ -112,6 +112,65 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
     }
   }, 120000)
 
+it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source clips silent with their concatenated dialogue track', async () => {
+  if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
+  const f = await fixture()
+  try {
+    const videos: string[] = []
+    for (let index = 0; index < 5; index++) {
+      const video = join(f.root, `part-${index + 1}.mp4`)
+      await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
+        'color=blue:s=160x120:r=24:d=0.5', '-f', 'lavfi', '-i',
+        `sine=frequency=${440 + index * 110}:duration=0.5`, '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-shortest', video]).result
+      videos.push(video)
+    }
+    const audio = join(f.root, 'concatenated-dialogue.wav')
+    await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y',
+      ...videos.flatMap(video => ['-i', video]), '-filter_complex',
+      `${videos.map((_video, index) => `[${index}:a]`).join('')}concat=n=5:v=0:a=1[dialogue]`,
+      '-map', '[dialogue]', '-ar', '48000', '-ac', '2', audio]).result
+    const subtitles = join(f.root, 'subtitles.srt')
+    const timeline = join(f.root, 'timeline.json')
+    await writeFile(subtitles, '1\n00:00:00,000 --> 00:00:02,500\n合成五段原声回归\n')
+    await writeFile(timeline, JSON.stringify({
+      clips: videos.map((_video, index) => ({ shot: index + 1, start_us: index * 500000, duration_us: 500000 })),
+      body_end: 2.5, delivery: { visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 },
+    }))
+    await writeFile(f.input.request_file, JSON.stringify({ project: f.root, episode: 95,
+      name_prefix: 'native-five-source-', audio, videos, subtitle_srt: subtitles, timeline }))
+    const inputs = [...videos, audio, subtitles, timeline, f.input.request_file]
+    const sourceBytes = await Promise.all(inputs.map(file => readFile(file)))
+    await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+      graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
+    expect(f.ctx.tools.get('jianying_draft')).toBeDefined()
+    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('native-five-source-draft'), signal: f.signal })
+    expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+    expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+      library: { name: 'pyJianYingDraft' } })
+    const savedPath = join(f.input.drafts_dir, 'native-five-source-95', 'draft_content.json')
+    const saved = await readFile(savedPath)
+    const content = JSON.parse(saved.toString('utf8')) as {
+      tracks: { type: string; name: string; segments: { volume: number }[] }[]
+    }
+    const videoTracks = content.tracks.filter(track => track.type === 'video')
+    const audioTracks = content.tracks.filter(track => track.type === 'audio')
+    expect(videoTracks).toHaveLength(1)
+    expect(videoTracks[0]?.segments.map(segment => segment.volume)).toEqual([0, 0, 0, 0, 0])
+    expect(audioTracks).toHaveLength(1)
+    expect(audioTracks[0]).toMatchObject({ name: '主音频轨道', segments: [{ volume: 1 }] })
+    expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(sourceBytes)
+    const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('native-five-source-no-overwrite'), signal: f.signal })
+    expect(repeated.isError).toBe(true)
+    expect(await readFile(savedPath)).toEqual(saved)
+    expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(sourceBytes)
+  } finally {
+    await f.dispose()
+  }
+}, 120000)
+
 async function fixture(maxInputBytes = 65536) {
   const root = await mkdtemp(join(tmpdir(), 'muse-jianying-draft-'))
   const ctx = new Context()
