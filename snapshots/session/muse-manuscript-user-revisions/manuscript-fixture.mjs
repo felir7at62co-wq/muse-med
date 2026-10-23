@@ -51,6 +51,11 @@ export async function apply(ctx) {
     const advisory = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-manuscript'
       && event.data.content.some(block => block.type === 'text' && block.text.includes('采用稿或来源出现新版本')))
     assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')
+    const advisoryText = advisory[0].data.content.find(block => block.type === 'text').text
+    const structure = JSON.parse(advisoryText.slice(advisoryText.indexOf('\n') + 1)).structure
+    assert.equal(structure.episode_heading_count, 2)
+    assert.equal(structure.unique_episode_label_count, 1)
+    assert.equal(structure.duplicate_episode_labels.length, 1, 'Repeated episode labels remain visible without blocking delivery')
     const shell = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_correct')
     assert.equal(shell?.data.name, 'bash')
     assert.ok(advisory.at(-1).seq > shell.seq, 'Shell writes use the same actual-file reconciliation')
@@ -76,7 +81,7 @@ export async function apply(ctx) {
     const probe = { realSession: true, comparisonLoggedFromTool: true, systemMessageCount: 1,
       revertedCandidateRejected: false, revertedDeliveryRejected: false, correctedCandidateAccepted: true,
       correctedDeliveryAccepted: true, userReturnedFilePreserved: true, privateLedgerVerified: true,
-      restartVerifiedByThisScenario: false, shellWriteReconciled: true }
+      restartVerifiedByThisScenario: false, shellWriteReconciled: true, duplicateHeadingAdvisoryVisible: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.

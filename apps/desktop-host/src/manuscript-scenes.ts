@@ -115,3 +115,29 @@ export function manuscriptEpisodeCounts(scenes: readonly ManuscriptScene[]) {
   for (const scene of scenes) grouped.set(scene.episode, [...grouped.get(scene.episode) ?? [], scene.prefix + scene.text])
   return [...grouped].map(([episode, texts]) => ({ episode, ...measureManuscriptLength(texts.join('\n')) }))
 }
+
+/**
+ * Count actual headings without hiding repeated labels inside aggregated episode totals.
+ * @param documents - Adopted files in reading order.
+ * @returns Actual heading counts and all locations of repeated literal episode labels or numbered scenes.
+ */
+export function manuscriptStructure(documents: readonly { path: string; text: string }[]) {
+  type Location = { path: string; line: number; quote: string }
+  const episodes = new Map<string, Location[]>(), scenes = new Map<string, Location[]>()
+  for (const document of documents) {
+    for (const [index, raw] of document.text.split('\n').entries()) {
+      const line = raw.replace(/^\s*#{1,6}\s*/u, '').trim()
+      const episode = /^第\s*([\d一二三四五六七八九十百零〇]+)\s*集(?:\s|$|[：:])/u.exec(line)
+      const scene = /^(\d+)\s*[-—－]\s*(\d+)(?:\s|[.、])/u.exec(line)
+      const key = episode?.[1] ?? (scene ? `${scene[1]}-${scene[2]}` : undefined)
+      if (!key) continue
+      const map = episode ? episodes : scenes
+      map.set(key, [...map.get(key) ?? [], { path: document.path, line: index + 1, quote: raw }])
+    }
+  }
+  const count = (map: Map<string, Location[]>) => [...map.values()].reduce((total, locations) => total + locations.length, 0)
+  const duplicates = (map: Map<string, Location[]>) => [...map].filter(([, locations]) => locations.length > 1)
+    .map(([label, locations]) => ({ label, locations }))
+  return { episode_heading_count: count(episodes), unique_episode_label_count: episodes.size,
+    scene_heading_count: count(scenes), duplicate_episode_labels: duplicates(episodes), duplicate_scene_labels: duplicates(scenes) }
+}

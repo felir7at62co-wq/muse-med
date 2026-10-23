@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { Config } from '../src/manuscript-revisions.ts'
 import { ManuscriptWork } from '../src/manuscript-work.ts'
-import { manuscriptRepetitions, manuscriptScenes } from '../src/manuscript-scenes.ts'
+import { manuscriptRepetitions, manuscriptScenes, manuscriptStructure } from '../src/manuscript-scenes.ts'
 
 const roots: string[] = [], signal = new AbortController().signal
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -147,4 +147,14 @@ it('sends actual changed passages without copying both complete manuscripts back
   expect(notice).not.toContain('第199行')
   expect(notice).not.toContain('第201行')
   expect(notice?.length).toBeLessThan(2000)
+})
+
+it('distinguishes actual episode headings from unique labels during a partial scene move', () => {
+  const text = '第7集\n7-1 家 日 内\n甲：走吧。\n第8集\n8-1 家 日 内\n甲：箱子放下。\n第8集\n8-1 家 日 内\n乙：进来。'
+  const structure = manuscriptStructure([{ path: 'current.md', text }])
+  expect(structure.episode_heading_count).toBe(3)
+  expect(structure.unique_episode_label_count).toBe(2)
+  expect(structure.duplicate_episode_labels[0]?.label).toBe('8')
+  expect(structure.duplicate_episode_labels[0]?.locations.map(entry => entry.line)).toEqual([4, 7])
+  expect(structure.duplicate_scene_labels[0]?.locations).toHaveLength(2)
 })

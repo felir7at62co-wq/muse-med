@@ -6,7 +6,7 @@ import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
 import { diffManuscript } from './manuscript-diff.ts'
-import { manuscriptEpisodeCounts, manuscriptRepetitions, manuscriptScenes, manuscriptTextHash } from './manuscript-scenes.ts'
+import { manuscriptEpisodeCounts, manuscriptRepetitions, manuscriptScenes, manuscriptStructure, manuscriptTextHash } from './manuscript-scenes.ts'
 import type { Config } from './manuscript-revisions.ts'
 
 const document = z.strictObject({ path: z.string(), sha256: z.string(), text: z.string() })
@@ -146,6 +146,7 @@ export class ManuscriptWork {
       files: data.current.map(({ path, sha256 }) => ({ path, sha256 })),
       sources: data.sources.map(({ path, sha256 }) => ({ path, sha256 })), changes: data.changes, source_changes: data.sourceChanges,
       episodes: manuscriptEpisodeCounts(data.scenes),
+      structure: manuscriptStructure(data.current),
       scenes: data.scenes.map(({ text: _text, ...scene }) => scene),
       literal_repetitions: manuscriptRepetitions(data.scenes, this.config.repeatMinCharacters, this.config.maxRepeatFindings),
       event_notes: data.active, repeated_advance_events: repeatedEvents, invalidated_event_notes: data.invalidated,

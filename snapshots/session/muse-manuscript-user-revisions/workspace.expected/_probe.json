@@ -9,5 +9,6 @@
   "userReturnedFilePreserved": true,
   "privateLedgerVerified": true,
   "restartVerifiedByThisScenario": false,
-  "shellWriteReconciled": true
+  "shellWriteReconciled": true,
+  "duplicateHeadingAdvisoryVisible": true
 }
