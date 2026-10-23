@@ -22,10 +22,11 @@ The `guard/` packages surface repeated tool calls, end calls that exceed declare
 <a id="packages"></a>
 ## Packages
 
-Four small plugins cover the four patterns; each README below explains when to keep, tune, or remove it.
+Five small plugins cover these patterns; each README below explains when to keep, tune, or remove it.
 
 | Package | What it provides |
 |---|---|
+| [`argument-loop/`](argument-loop/README.md) | Stops repeated JSON members in a streamed tool response without automatic retry or tool replay; Muse selects the threshold explicitly |
 | [`repeat-tool-reminder/`](repeat-tool-reminder/README.md) | Reminds the model when it repeats the same tool call, so it changes approach or finishes |
 | [`timeout-policy/`](timeout-policy/README.md) | Times out tool calls that declare a limit, so the model gets a clear error instead of waiting forever |
 | [`composition-guard/`](composition-guard/README.md) | Reports a session whose tools a live composition reload withdrew, so the person knows to restart the host |

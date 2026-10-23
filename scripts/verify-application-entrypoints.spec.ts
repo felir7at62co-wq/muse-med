@@ -47,6 +47,18 @@ describe('application entrypoints', () => {
     ])
   })
 
+  it('classifies only the guard fixture, not sibling executables or a public package bin', () => {
+    const root = fixture()
+    write(root, 'packages/guard/argument-loop/tests/fixtures/driver.ts', '#!/usr/bin/env node\n')
+    expect(applicationEntrypointViolations(root)).toEqual([])
+    write(root, 'packages/guard/argument-loop/tests/fixtures/other.ts', '#!/usr/bin/env node\n')
+    write(root, 'packages/guard/argument-loop/package.json', JSON.stringify({ bin: { guard: 'tests/fixtures/driver.ts' } }))
+    expect(applicationEntrypointViolations(root)).toEqual([
+      'packages/guard/argument-loop/package.json: package bin bypasses the dsh launcher; applications use apps/cli profiles',
+      'packages/guard/argument-loop/tests/fixtures/other.ts: executable source has no application/build/test classification',
+    ])
+  })
+
   it('rejects an executable at an application package root', () => {
     const root = fixture()
     write(root, 'apps/example/rogue.mjs', '#!/usr/bin/env node\n')

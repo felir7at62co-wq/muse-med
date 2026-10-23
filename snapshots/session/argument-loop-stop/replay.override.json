@@ -1,0 +1,474 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Useful partial work is retained for diagnosis."
+        }
+      },
+      {
+        "type": "block-start",
+        "index": 1,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": "{\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "synthetic-looping-tasks",
+        "name": "tasks",
+        "argumentsDelta": ",\"page_num\":1"
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "max-tokens"
+        }
+      }
+    ]
+  }
+]
