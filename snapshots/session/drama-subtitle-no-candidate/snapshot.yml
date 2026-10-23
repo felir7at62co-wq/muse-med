@@ -1,0 +1,13 @@
+version: 1
+scenario: drama-subtitle-no-candidate
+profile: headless
+composition: drama-subtitle-no-candidate
+recording: authored
+header:
+  class: drama-subtitle-no-candidate
+  pin: true
+  systemPromptSource: drama-subtitle-timing
+  toolSchemasSource: drama-subtitle-timing
+writerOutput: true
+workspace:
+  final: true

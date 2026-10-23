@@ -1,0 +1,27 @@
+# Keep the actual subtitle tool and the existing synthetic FFprobe facts.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: tool-episode-render
+      name: '../../../packages/drama/tool-episode-render/src/index.ts'
+      config:
+        ffprobePath: subtitle-timing-fixture-ffprobe
+    - id: subtitle-probe-fixture
+      name: '../drama-subtitle-timing/probe-fixture.mjs'
+    - id: subtitle-no-candidate-fixture
+      name: './report-fixture.mjs'
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: true
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: true
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true
