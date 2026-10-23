@@ -20,6 +20,7 @@ export function buildRenderPreview(input: {
   const delivery = { ...input.delivery }
   delete delivery.subtitle
   delete delivery.audio
+  delete delivery.draft_style
   return {
     delivery,
     subtitle: { path: input.subtitle, font_family: settings.subtitleFontFamily, ...subtitleRenderStyle(input.delivery) },

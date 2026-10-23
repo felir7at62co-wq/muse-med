@@ -119,7 +119,7 @@ kind: "package-reference"
 
 ### 项目字幕与音频设置
 
-将已认可的设置保存在 `project_config.json` 的 `project_bible.delivery` 下，不是根级 `delivery`。以下只是局部示例，不是替换整个项目文件。先读取再精确增量编辑，保留版本、revision、history、预算与远端绑定；当前 `drama_project.changes.delivery` 只接受画幅字段，不接受这些字幕/音频字段：
+将已认可的设置保存在 `project_config.json` 的 `project_bible.delivery` 下，不是根级 `delivery`。以下只是局部示例，不是替换整个项目文件。先读取再精确增量编辑，保留版本、revision、history、预算与远端绑定；`drama_project.changes.delivery` 接受画幅和下文独立草稿样式节，不接受这些正式渲染字幕/音频字段：
 
 ```json
 {"project_bible":{"visual_medium":"animation_3d","delivery":{"width":480,"height":854,"fps":24,"subtitle":{"font_size_px":30,"margin_bottom_px":18},"audio":{"master_gain":1,"bgm_gain":0.1}}}}
@@ -130,6 +130,13 @@ kind: "package-reference"
 字幕/音频各节整体选择：时间线显式节（包括 `{}`）优先于当前项目节；所选节缺少的字段使用部署或旧默认，不从另一节补字段。时间线缺少某节时可以继承当前项目节。修改项目后重跑 `prepare` 才采用新设置，并输出新候选，不覆盖已认可文件。未显式设置这两节的旧调用方保留原时间线、ASS 和混音默认值。须检查实际输出，单独一份 SRT 不记录已认可外观。
 
 可编辑草稿以相同的节优先级读取显式音频设置。未显式指定增益时 SDK 默认仍为 1/1，与正式渲染的部署默认相互独立；需要两条路径一致时显式设置两项增益。草稿排版使用独立编辑器单位，不受这些正式字幕字段改变。设置不会安装或复制字体。
+
+<a id="project-draft-style"></a>
+### 项目草稿样式
+
+通过 `drama_project.changes.delivery.draft_style` 设置可编辑剪映排版，例如 `{"watermark":{"font_size_ui":7},"subtitle":{"font_family":"山海经","font_size_ui":11,"border_width_ui":20,"transform_y":-0.465625}}`。字号使用大于零且不超过 100 的编辑器 UI 单位；黑描边使用 0–100 的 UI 单位，纵坐标为 -1–1。字体名去除首尾空白后须为 1–128 字符且不含控制字符。保存请求不证明编辑器资源可用或已获使用许可，也不会安装或下载字体。
+
+`prepare` 将该可选节保存在 `timeline.delivery.draft_style`；已保存的整节（包括 `{}`）优先于当前项目值。所选节缺少的字段沿用草稿默认，不从另一节补字段。修改项目后重跑 `prepare` 才采用新值。此节不改变正式成片 ASS 或混音设置，动画仍不增加水印或片尾。草稿导出器负责字体解析并报告回退；检查候选和其 review，不把请求字族当作已验证外观。
 
 ### 带标记交付前置：两份片尾素材
 
