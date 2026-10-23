@@ -740,7 +740,7 @@ interface ToolArgsMap {
       image_resolution?: string;
       /** 本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。 */
       image_platform_id?: string;
-      /** 本项有序参考图 HTTPS URL。 */
+      /** 本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。 */
       references?: string[];
       /** 可选：重生成的父资产 ID；省略则新建。 */
       parent_asset_id?: number;
@@ -757,7 +757,7 @@ interface ToolArgsMap {
     image_platform_id?: string;
     /** image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。 */
     image_aspect_ratio?: "16:9" | "9:16";
-    /** image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。 */
+    /** image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。 */
     references?: string[];
     /** image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。 */
     parent_asset_id?: number;
