@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import Tools from '../../../core/tools/src/index.ts'
 import SystemPrompt from '../../../core/system-prompt/src/index.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -564,4 +565,142 @@ it('reports absent Settings defaults after the owning row unloads', async () => 
   const entry = ctx.configEditor.entries().find(row => row.options.id === 'drama-settings')
   await entry?.fiber?.dispose()
   await expect(readProjectBible(ctx.settings, home)).rejects.toThrow('Drama settings are unavailable')
+})
+
+const bgmFeedback = {
+  feedback_id: 'user-feedback-1', track_id: 'catalogue-track-1', source_sha256: 'a'.repeat(64),
+  decision: 'reject', context_tags: ['轻喜剧对白', '轻柔配器'], reason: '用户认为此段压过对白',
+  recorded_at: '2026-10-22T14:30:00+08:00', episode: 24, user_quote: '这段不要用这个音乐',
+}
+
+it('saves explicit BGM feedback through the loaded tool and rereads only the owning project', async () => {
+  const { ctx, home } = await bench()
+  const project = join(home, 'project'), other = join(home, 'other')
+  await mkdir(project)
+  await mkdir(other)
+  const legacy = { jubian_script_id: 2708, delivery: { max_effective_chars_per_shot: 18 }, custom: { keep: true } }
+  await writeFile(join(project, 'project_config.json'), JSON.stringify(legacy))
+  const changes = { bgm_feedback: [bgmFeedback], completed_tasks: [{ task_id: 'finished-1', kind: 'video' }],
+    characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '已认可声线' } }] }
+  const preview = await previewProjectBible(ctx.settings, project, changes, '记录用户配乐反馈')
+  expect(preview.affected_stages).toEqual(['draft', 'export', 'asset_prompts', 'shots_and_matches', 'video_tasks'])
+  const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bgm-feedback'),
+    arguments: { action: 'update', project_dir: project, changes, reason: '记录用户配乐反馈',
+      expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint },
+    signal: new AbortController().signal })
+  expect(outcome.isError).toBe(false)
+  const reread = await readProjectBible(ctx.settings, project)
+  expect(reread.config).toMatchObject({ ...legacy, project_bible: {
+    bgm_feedback: [bgmFeedback], completed_tasks: changes.completed_tasks, characters: changes.characters,
+  } })
+  expect(JSON.parse(await readFile(join(project, 'project_config.json'), 'utf8'))).toEqual(reread.config)
+  expect(await readFile(join(project, 'project-bible.md'), 'utf8')).toContain('配乐用户反馈')
+  expect(await readFile(join(project, 'project-bible.md'), 'utf8')).toContain(bgmFeedback.user_quote)
+  expect((await readProjectBible(ctx.settings, other)).config).toEqual({})
+  await expect(readFile(join(other, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('appends a later explicit change of mind without rewriting feedback or unrelated project data', async () => {
+  const { ctx, home } = await bench()
+  const first = { title: 'Project', bgm_feedback: [bgmFeedback], package_bindings: [{ package_id: 'ep24-1', storyboard_id: 7 }],
+    completed_tasks: [{ task_id: 'finished-1', kind: 'video' }], characters: [{ character_id: 'lead', name: '苏晚' }] }
+  const preview = await previewProjectBible(ctx.settings, home, first, '记录拒绝')
+  await updateProjectBible(ctx.settings, home, first, '记录拒绝', preview.expected_revision, preview.preview_fingerprint)
+  const accepted = { ...bgmFeedback, feedback_id: 'user-feedback-2', decision: 'accept',
+    recorded_at: '2026-10-22T07:00:00Z', reason: '用户在试听新对白混音后改为认可', user_quote: '现在这版可以了' }
+  const changes = { bgm_feedback: [accepted] }
+  const next = await previewProjectBible(ctx.settings, home, changes, '用户明确改口')
+  expect(next.affected_stages).toEqual(['draft', 'export'])
+  await updateProjectBible(ctx.settings, home, changes, '用户明确改口', next.expected_revision, next.preview_fingerprint)
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: {
+    title: first.title, bgm_feedback: [bgmFeedback, accepted], package_bindings: first.package_bindings,
+    completed_tasks: first.completed_tasks, characters: first.characters,
+    history: [{ revision: 1 }, { revision: 2, reason: '用户明确改口', changed_fields: ['bgm_feedback'], affected_stages: ['draft', 'export'] }],
+  } })
+  const retained = await previewProjectBible(ctx.settings, home, { bgm_feedback: [accepted] }, '重读后重传同一记录')
+  expect(retained.changed_fields).toEqual([])
+  expect(retained.proposed).toMatchObject({ project_bible: { bgm_feedback: [bgmFeedback, accepted] } })
+  for (const omitted of [{}, { bgm_feedback: [] }]) {
+    expect((await previewProjectBible(ctx.settings, home, omitted, '保留反馈')).proposed)
+      .toMatchObject({ project_bible: { bgm_feedback: [bgmFeedback, accepted] } })
+  }
+  await expect(previewProjectBible(ctx.settings, home, { bgm_feedback: [{ ...bgmFeedback, decision: 'accept' }] }, '覆盖原记录'))
+    .rejects.toThrow('already bound; preserve its original record')
+})
+
+it('keeps older configs without BGM feedback valid and preserves them during a later unrelated update', async () => {
+  const { ctx, home } = await bench()
+  const first = { title: 'Legacy', completed_tasks: [{ task_id: 'finished-1', kind: 'video' }] }
+  const preview = await previewProjectBible(ctx.settings, home, first, '旧项目')
+  await updateProjectBible(ctx.settings, home, first, '旧项目', preview.expected_revision, preview.preview_fingerprint)
+  expect((await readProjectBible(ctx.settings, home)).config.project_bible).not.toHaveProperty('bgm_feedback')
+  const edit = await previewProjectBible(ctx.settings, home, { title: 'Legacy updated' }, '改标题')
+  expect(edit.proposed.project_bible).not.toHaveProperty('bgm_feedback')
+})
+
+it('rejects stale or altered BGM feedback previews without changing either durable output', async () => {
+  const { ctx, home } = await bench()
+  const changes = { bgm_feedback: [bgmFeedback] }
+  const first = await previewProjectBible(ctx.settings, home, changes, '用户反馈')
+  await expect(updateProjectBible(ctx.settings, home, { bgm_feedback: [{ ...bgmFeedback, reason: '另一个理由' }] },
+    '用户反馈', first.expected_revision, first.preview_fingerprint)).rejects.toThrow('Preview changed')
+  await updateProjectBible(ctx.settings, home, changes, '用户反馈', first.expected_revision, first.preview_fingerprint)
+  const json = await readFile(join(home, 'project_config.json'), 'utf8')
+  const markdown = await readFile(join(home, 'project-bible.md'), 'utf8')
+  const next = { bgm_feedback: [{ ...bgmFeedback, feedback_id: 'user-feedback-2', decision: 'accept' }] }
+  await expect(updateProjectBible(ctx.settings, home, next, '用户改口', first.expected_revision, first.preview_fingerprint))
+    .rejects.toThrow('revision changed')
+  expect(await readFile(join(home, 'project_config.json'), 'utf8')).toBe(json)
+  expect(await readFile(join(home, 'project-bible.md'), 'utf8')).toBe(markdown)
+})
+
+it.each([
+  [{ track_id: 'track-only', source_sha256: undefined }],
+  [{ track_id: undefined, source_sha256: 'b'.repeat(64) }],
+  [{ track_id: undefined, source_sha256: `sha256:${'B'.repeat(64)}` }],
+  [{ track_id: undefined, source_sha256: `SHA256:${'a'.repeat(64)}` }],
+  [{ context_tags: Array.from({ length: 33 }, (_, index) => `scene-${index}`) }],
+  [{ user_quote: undefined, episode: undefined }],
+])('preserves known track identities and explicit context tags without manufacturing fields: %j', async (patch) => {
+  const { ctx, home } = await bench()
+  const row: Record<string, JsonValue> = {}
+  for (const [key, value] of Object.entries({ ...bgmFeedback, ...patch })) if (value !== undefined) row[key] = value
+  const preview = await previewProjectBible(ctx.settings, home, { bgm_feedback: [row] }, '用户反馈')
+  await updateProjectBible(ctx.settings, home, { bgm_feedback: [row] }, '用户反馈', preview.expected_revision, preview.preview_fingerprint)
+  expect((await readProjectBible(ctx.settings, home)).config.project_bible).toHaveProperty('bgm_feedback', [row])
+})
+
+it.each<[Record<string, JsonValue>, string]>([
+  [{ feedback_id: '' }, 'feedback_id'], [{ feedback_id: ' ' }, 'feedback_id'],
+  [{ track_id: '', source_sha256: 'a'.repeat(64) }, 'track_id'],
+  [{ source_sha256: 'wrong' }, 'source_sha256'], [{ source_sha256: null }, 'source_sha256'],
+  [{ decision: 'maybe' }, 'decision'], [{ decision: null }, 'decision'],
+  [{ context_tags: [] }, 'context_tags'], [{ context_tags: [' '] }, 'context_tags'],
+  [{ context_tags: [1] }, 'context_tags'], [{ context_tags: '轻喜剧' }, 'context_tags'],
+  [{ reason: '' }, 'reason'], [{ recorded_at: '2026-10-22T14:30:00' }, 'recorded_at'],
+  [{ recorded_at: '2026-02-30T14:30:00+08:00' }, 'recorded_at'],
+  [{ recorded_at: '2026-10-22' }, 'recorded_at'], [{ recorded_at: '2026-10-22T24:30:00Z' }, 'recorded_at'],
+  [{ episode: 0 }, 'episode'], [{ episode: 1.5 }, 'episode'], [{ episode: Number.MAX_SAFE_INTEGER + 1 }, 'episode'],
+  [{ user_quote: ' ' }, 'user_quote'],
+])('refuses invalid explicit BGM feedback on input and durable read: %j', async (patch, message) => {
+  const { ctx, home } = await bench()
+  const bgm_feedback = [{ ...bgmFeedback, ...patch }]
+  await expect(previewProjectBible(ctx.settings, home, { bgm_feedback }, '用户反馈')).rejects.toThrow(message)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  const content = JSON.stringify({ project_bible: { schema_version: 1, revision: 1, initial_budget_cents: 400000,
+    delivery: { width: 480, height: 854, fps: 30, min_bitrate_mbps: 4.6 }, bgm_feedback } })
+  await writeFile(join(home, 'project_config.json'), content)
+  await expect(readProjectBible(ctx.settings, home)).rejects.toThrow(message)
+  expect(await readFile(join(home, 'project_config.json'), 'utf8')).toBe(content)
+})
+
+it.each<{ bgm_feedback: JsonValue }>([
+  { bgm_feedback: null }, { bgm_feedback: {} }, { bgm_feedback: [null] },
+  { bgm_feedback: [{ feedback_id: 'missing-identity', decision: 'reject', context_tags: ['轻喜剧'],
+    reason: '用户明确拒绝', recorded_at: '2026-10-22T07:00:00Z' }] },
+  { bgm_feedback: [bgmFeedback, bgmFeedback] },
+])('rejects malformed BGM feedback arrays, missing identity and duplicate IDs: %j', async ({ bgm_feedback }) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { bgm_feedback }, '用户反馈')).rejects.toThrow('bgm_feedback')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })

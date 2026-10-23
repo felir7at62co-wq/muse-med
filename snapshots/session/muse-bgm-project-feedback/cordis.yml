@@ -1,0 +1,23 @@
+# Read project-scoped feedback through the real matching and composition tools.
+- insert:
+    - id: perception-bgm
+      name: '@deepseek-ai/dsh-perception-bgm'
+      config:
+        indexPath: !!js process.cwd() + '/index.json'
+    - id: tool-bgm-compose
+      name: '@deepseek-ai/dsh-tool-bgm-compose'
+      config:
+        ffmpegPath: must-not-run-ffmpeg
+        ffprobePath: must-not-run-ffprobe
+
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
+
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false

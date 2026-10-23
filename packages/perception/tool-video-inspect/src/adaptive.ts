@@ -1,12 +1,28 @@
 /** Scene and utterance observations with explicit deferred coverage. */
 import Schema from '@deepseek-ai/schemastery'
 
+/** Original ASR segment context for a candidate frame; no character identity is inferred. */
+export interface UtteranceContext {
+  /** Original ASR segment start, in source seconds. */
+  start: number
+  /** Original ASR segment end, in source seconds. */
+  end: number
+  /** Original ASR text, truncated only for the bounded preview. */
+  text: string
+  /** Whether the preview omits the end of the original segment. */
+  text_truncated: boolean
+  /** Recognition-task acoustic group, when supplied by the transcript. */
+  speaker_id?: string
+}
+
 /** One requested observation and the source events that selected it. */
 export interface ObservationPoint {
   /** Requested source timecode in seconds. */
   time: number
   /** Detected cuts, utterance midpoints, or uniform coverage checkpoints. */
   reasons: string[]
+  /** ASR segments for a selected frame; deferred points omit previews. No visible speech is established. */
+  utterances?: UtteranceContext[]
 }
 
 /** Bounded observation selection; deferred points have not been viewed. */
@@ -19,11 +35,32 @@ export interface AdaptivePlan {
   deferred: ObservationPoint[]
 }
 
+const observationSchema = { type: 'object', additionalProperties: false, properties: {
+  time: { type: 'number', required: true }, reasons: { type: 'array', items: { type: 'string' }, required: true },
+  utterances: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+    start: { type: 'number', required: true }, end: { type: 'number', required: true },
+    text: { type: 'string', required: true }, text_truncated: { type: 'boolean', required: true }, speaker_id: { type: 'string' },
+  } } },
+} } as const
+
+/** Shared model-visible candidate and deferred-observation fields. */
+export const ADAPTIVE_PLAN_SCHEMA = { type: 'object', additionalProperties: false, properties: {
+  strategy: { type: 'string', const: 'scene_dialogue', required: true },
+  selected: { type: 'array', items: observationSchema, required: true },
+  deferred: { type: 'array', items: observationSchema, required: true },
+} } as const
+
+/** Sampling limitations and continuation hints, without declaring story transitions or speaker identity. */
+export const SAMPLING_ADVICE = 'Cuts indicate visual changes, not confirmed story scene transitions. Check location, time and flashback markers; silent intervals and gradual fades may hide transitions. '
+  + 'For transition questions, video_inspect strategy=scene_dialogue or video_contact_sheet strategy=scene can locate cut candidates. '
+  + 'Deferred observations remain unviewed; inspect relevant timecodes and follow next_start_seconds for remaining intervals.'
+
 const segments: Schema<{ start: number; end: number; text: string; speaker_id?: string }[]> = Schema.array(Schema.object({
   start: Schema.number().min(0).required(), end: Schema.number().min(0).required(),
   text: Schema.string().required(), speaker_id: Schema.string().min(1),
 }))
 const transcriptSchema = Schema.union([segments, Schema.object({ segments: segments.required() })])
+const previewCharacters = new Intl.Segmenter('und', { granularity: 'grapheme' })
 
 /**
  * Read scene-filter metadata emitted to stdout by FFmpeg.
@@ -56,15 +93,16 @@ export function adaptivePlan(input: {
   uniform: readonly number[]
   cuts: readonly number[]
   transcript?: unknown
-}, limits: { maxFrames: number; maxPlanPoints: number; scenePaddingSeconds: number }): AdaptivePlan {
+}, limits: { maxFrames: number; maxPlanPoints: number; scenePaddingSeconds: number; utterancePreviewCharacters: number }): AdaptivePlan {
   const points = new Map<number, { point: ObservationPoint; priority: number }>()
-  const add = (time: number, reason: string, priority: number): void => {
+  const add = (time: number, reason: string, priority: number, utterance?: UtteranceContext): void => {
     if (time < input.start || time >= input.end) return
     const previous = points.get(time)
     if (previous !== undefined) {
       if (!previous.point.reasons.includes(reason)) previous.point.reasons.push(reason)
       previous.priority = Math.min(previous.priority, priority)
-    } else points.set(time, { point: { time, reasons: [reason] }, priority })
+      if (utterance !== undefined) (previous.point.utterances ??= []).push(utterance)
+    } else points.set(time, { point: { time, reasons: [reason], ...utterance === undefined ? {} : { utterances: [utterance] } }, priority })
   }
   for (const time of input.uniform) add(time, 'uniform_checkpoint', 2)
   for (const time of input.cuts) {
@@ -75,13 +113,19 @@ export function adaptivePlan(input: {
     const parsed = transcriptSchema(input.transcript)
     const utterances = Array.isArray(parsed) ? parsed : parsed.segments
     let previousSpeaker: string | undefined
+    let contextCount = 0
     for (const row of utterances) {
       if (row.end < row.start || row.end > input.duration) throw Error('Transcript timecodes exceed the verified video source')
       const changed = row.speaker_id !== undefined && row.speaker_id !== previousSpeaker
       if (row.speaker_id !== undefined) previousSpeaker = row.speaker_id
       if (row.start >= input.end || row.end < input.start) continue
       const midpoint = (Math.max(row.start, input.start) + Math.min(row.end, input.end)) / 2
-      add(midpoint, changed ? 'speaker_change_utterance' : 'utterance_midpoint', 1)
+      if (++contextCount > limits.maxPlanPoints) throw Error('Adaptive observation plan exceeds its point budget; inspect a shorter interval')
+      const text = Array.from(previewCharacters.segment(row.text), part => part.segment).slice(0, limits.utterancePreviewCharacters).join('')
+      add(midpoint, changed ? 'speaker_change_utterance' : 'utterance_midpoint', 1, {
+        start: row.start, end: row.end, text, text_truncated: text !== row.text,
+        ...row.speaker_id === undefined ? {} : { speaker_id: row.speaker_id },
+      })
     }
   }
   if (points.size > limits.maxPlanPoints) throw Error('Adaptive observation plan exceeds its point budget; inspect a shorter interval')
@@ -103,5 +147,6 @@ export function adaptivePlan(input: {
     selected.add(value)
   }
   const chronological = (values: typeof ordered): ObservationPoint[] => values.map(value => value.point).sort((a, b) => a.time - b.time)
-  return { strategy: 'scene_dialogue', selected: chronological([...selected]), deferred: chronological(ordered.filter(value => !selected.has(value))) }
+  return { strategy: 'scene_dialogue', selected: chronological([...selected]),
+    deferred: chronological(ordered.filter(value => !selected.has(value))).map(({ time, reasons }) => ({ time, reasons })) }
 }

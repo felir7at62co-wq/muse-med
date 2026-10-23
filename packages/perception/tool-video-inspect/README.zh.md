@@ -22,6 +22,12 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
+Muse 启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`observe`、`status` 和 `metadata`，模型不能指定取样数量或局部范围。`scan` 分块扫描整集：切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。分析滤镜在输出元数据或 RGB 字节前按分段时间限制筛选，保留边界帧以衔接切镜，排除解码预读的后续帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。遇到图像预算拒绝后，后续批次自动降为一张，现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
+
+`next` 将首批未记录画面作为真实图片返回。每张图片抽取完成后，先保存附件引用再处理下一张；后续抽取失败时复用已保存的图片。每张图片的具名附件须进入成功的图像模型请求，并由 `observe` 记录具体可见内容、变化和疑点，才算完成。有疑点的记录会补入一轮邻近画面，仍无法确认的内容保留为未知，不猜测。全部完成后在 `.muse/video-observations` 写出带版本的完整 JSON 报告，并返回 `observation_report`，供上下文压缩后的写稿阶段检索早期观察。状态响应最多列一批；`total`、`recorded`、`pending` 和 `frames_not_shown` 对应完整清单。增量 `video/review` 会话事件让进度在重载或上下文压缩后恢复；源文件变化后须重扫。在所属会话仍有未完成的整集扫描或逐图观察时，拒绝 `screenplay_export_docx` 和 `present`，中间稿仍可保存。其他会话和仅查元数据的调用不继承该限制。该要求不批准创作质量，也不证明模型认真理解了图片；普通 shell／文件访问不属于这些交付工具检查的范围。
+
+未启用 `requireCompleteReview` 时，下文的有界抽帧和概览接口保持原有行为。完整观察另需 `sessionProjections` 和 `llm` 服务。操作见 [Muse 迁移指南](../../../docs/upgrade-guide/v0.2.1-alpha.1/muse-video-observation/guide.zh.md)。
+
 挂载函数插件，并提供 `tools`、`fs`、`subprocess`、`attachments` 和 `sandboxPolicy`。将 `ffmpegPath`、`ffprobePath` 配置为与文件系统同执行环境的程序。抽帧要求当前准确模型明确声明图片输入；`metadata` 不需要图片输入。两种操作都不会自行调用模型或语音供应商。
 
 ```json
@@ -40,15 +46,15 @@ kind: "package-reference"
 
 `scan_status` 区分 `complete`、`partial` 和 `failed`。只有该次调用的全部计划采样都处理成功时才可能返回 `text_status=no_text_detected`，但抽样 OCR 仍不能证明视频绝对没有字幕。`next_start_seconds`、未扫描范围和失败时间点会明确暴露覆盖缺口。指定的 Windows 语言缺失、解码失败或超时保持 `indeterminate`；本工具没有 ASR 回退能力，也不能授权或计费云端请求。部署可配置语言、采样间隔边界、范围/帧数/批次限制、图片与 JSON 字节限制、超时和文字重复判定阈值。识别进程失败会停止后续批次，不重复启动不可用的引擎。运行时不会安装识别引擎、模型或语言包。包默认 `ocrEngine=windows-native` 使用 Windows 已安装的识别器；`ocrEngine=rapidocr` 使用 `ocrPythonPath` 和固定的 CPU 模型，可在 Windows、macOS、Linux 运行，线程由 `ocrCpuThreads` 配置（默认 2）。Muse 桌面端从内置解释器启用 RapidOCR；其中英文模型接受 `auto`、`zh-Hans-CN`、`en-US`，`zh-Hant-TW` 明确失败，不静默换引擎。运行环境或模型缺失也明确失败。只有另有明确覆盖本素材、用途和扣费的授权时，调用方才可沿现有 ASR 计费与收据流程继续；OCR 失败不会授权新的付费调用，也不能把 ASR 来源写成 OCR。
 
-`strategy=scene_dialogue` 在实际 FFmpeg 镜头切换的前后选帧；`transcript_path` 指向同一完整视频的 `audio_transcribe` JSON 时，也取发声片段中点。说话人编号用于区分识别任务中的声音，不能直接当作人物姓名。调用方必须使用相同完整视频的转写，时间范围校验本身不能确认这种关联。`sampling_plan.selected` 解释本次返回的观察点，`sampling_plan.deferred` 列出未查看的时间点；后续通过 `timestamps_seconds` 分批复看，并在行动或人物归属不明处缩小区间。切镜检测可能漏掉渐变转场。
+`strategy=scene_dialogue` 在实际 FFmpeg 镜头切换的前后选帧；`transcript_path` 指向同一完整视频的 `audio_transcribe` JSON 时，也取发声片段中点。说话人编号用于区分识别任务中的声音，不能直接当作人物姓名。调用方必须使用相同完整视频的转写，时间范围校验本身不能确认这种关联。`sampling_plan.selected` 解释本次返回的观察点，`sampling_plan.deferred` 列出未查看的时间点。选中的发声观察点保留原始 ASR 的 `start`、`end`、可选 `speaker_id`、受限 `text` 预览及 `text_truncated`；选中时间重合的片段分别保留；待查看点只返回时间与原因，完整语音文本仍在原始 ASR JSON，帮助按发声时段核对画面，不推断人物姓名或声线一致性；后续通过 `timestamps_seconds` 分批复看，并在行动或人物归属不明处缩小区间。切镜检测可能漏掉渐变转场。
 
-部署可配置 `sceneThreshold`（默认 0.25）、`scenePaddingSeconds`（0.12）、`maxPlanPoints`（1000）和 `maxTranscriptBytes`（2097152）。候选点超过预算时拒绝调用并提示缩短区间，不隐藏事件。没有转写也能按镜头切换抽帧；读取或抽帧期间转写发生变更时停止发布。
+部署可配置 `sceneThreshold`（默认 0.25）、`scenePaddingSeconds`（0.12）、`maxPlanPoints`（1000）、`maxTranscriptBytes`（2097152）和 `utterancePreviewCharacters`（80 个可见 Unicode 字符）。候选点超过预算时拒绝调用并提示缩短区间，不隐藏事件。没有转写也能按镜头切换抽帧；读取或抽帧期间转写发生变更时停止发布。
 
 创作部署可启用 `trustedEvidence`（默认 false）。真实 `metadata` 调用随后返回 `window_plan`，将实际探测的完整时长划分为连续窗口，每窗不超过 `min(60, maxRangeSeconds)`。可信抽帧要求先成功探测同一当前视频的元数据。计划窗口仍未查看，只有后续成功抽帧调用返回真实画面后才有采样依据；可用窄区间复看冲突、起因、结果、集尾和疑点。切镜与 ASR 时间码只提供候选时刻，不识别故事含义。
 
 <a id="execution-and-storage"></a>
 
-`video_contact_sheet` 返回带时间标签的视频概览图，默认3列3行九宫格，`columns: 3, rows: 2` 为六宫格。按从左到右、从上到下的源时间顺序排列；`frame_count` 可跨多页，`timestamps_seconds` 指定具体时刻，或用 `frame_interval_seconds` 按间隔取帧且不同时指定帧数。`strategy: scene` 优先查看检测到的切点两侧。清单保留原始抽帧引用；疑点先对当前来源成功调用 `video_inspect method=metadata`，再于包含该时刻的有界区间抽帧查看大图。本次仅返回概览页图像，宫格不会签发受信任的视频检查凭据。
+`video_contact_sheet` 返回带时间标签的视频概览图，默认3列3行九宫格，`columns: 3, rows: 2` 为六宫格。按从左到右、从上到下的源时间顺序排列；`frame_count` 可跨多页，`timestamps_seconds` 指定具体时刻，或用 `frame_interval_seconds` 按间隔取帧且不同时指定帧数。`strategy: scene` 优先查看检测到的切点两侧，在结果和清单中保留 `sampling_plan.selected` 与全部尚未查看的 `sampling_plan.deferred` 候选。清单保留原始抽帧引用；疑点先对当前来源成功调用 `video_inspect method=metadata`，再于包含该时刻的有界区间抽帧查看大图。本次仅返回概览页图像，宫格不会签发受信任的视频检查凭据。
 
 概览配置为 `contactColumns`、`contactRows`（默认均为3）、`contactTileWidth`（320像素）、`maxContactFrames`（32帧）、`maxContactRangeSeconds`（300秒）、`maxContactPixels`（每页16,000,000像素）和 `maxContactBytes`（全部页合计8MiB）。单格保持源比例，标签使用实际解码时间。还须满足图片存储的尺寸限制。超大布局、冲突的采样参数、源文件变化和已有清单均报错，不静默丢帧；长视频按 `next_start_seconds` 继续查看。人物或动作的细节验收不能只用缩略图。
 ## 执行与存储
@@ -62,7 +68,7 @@ kind: "package-reference"
 画面先进入规范化附件存储，再作为图片块返回。清单在当前工作区创建，不覆盖已有文件，之后回读核对。源文件版本发生变化时中止发布。原视频保持不变；结果不包含远程媒体链接或账号凭证。清单与附件各有唯一的存储所有者，因此不发布 invariant 配套模块。
 
 
-自适应抽帧在输出切镜元数据前按所选来源时间区间裁定解码帧，并按返回帧数预算划分区间，在每个时段内优先选择切镜、再选择发声片段。开头密集切镜不会占满整次概览；其余观察点仍保留为待复看，概览不代表连续观看。
+自适应抽帧在输出切镜元数据前按所选来源时间区间裁定解码帧，并按返回帧数预算划分区间，在每个时段内优先选择切镜、再选择发声片段。开头密集切镜不会占满整次概览；其余观察点仍保留为待复看，概览不代表连续观看。切镜只说明画面变化，须结合地点、时间和闪回标记判断是否换场；无对白段也可能转场，渐变可能不触发切镜检测。其余源时间区间沿 `next_start_seconds` 继续查看。
 
 仅供 Host 使用的 `resolveTrustedVideoEvidence` 导出函数将导入清单与当前注册的真实执行记录匹配。它要求规范工具输出未变、各层外部执行成功、工具结果已提交，以及后续完成且支持图片的 AgentLoop 请求在供应商投影后保留全部返回图片。凭据绑定视频路径与文件系统版本、探测时长、元数据计划、实际采样区间、请求时刻、解码时间戳、附件、清单原字节摘要、投影后模型输入摘要与 Session 事件引用。`verified_readback` 仅说明清单回读一致；模型自填 JSON 不能签发凭据。单份凭据不表示全部计划窗口已抽帧。
 

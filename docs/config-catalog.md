@@ -3965,11 +3965,11 @@ export interface Config {
   readonly terminationGraceMs?: number
   /** Collected output cap for each process stream. */
   readonly outputMaxBytes?: number
-  /** Distinct tracks every episode must use. */
+  /** Suggested distinct tracks per episode with music. */
   readonly minTracksPerEpisode?: number
   /** Episodes one track may appear in across a batch. */
   readonly maxEpisodesPerTrack?: number
-  /** Tracks every episode must use that no other episode in the batch uses. */
+  /** Suggested tracks not reused by other batch episodes. */
   readonly freshTracksPerEpisode?: number
   /** Seconds a cut may sit away from a package boundary. */
   readonly boundaryToleranceSeconds?: number
@@ -4016,7 +4016,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:73`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:76`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4635,11 +4635,27 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:28`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:29`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Require complete-episode detection and observations before final delivery. */
+  requireCompleteReview: boolean
+  /** Maximum images per mandatory observation batch. */
+  reviewBatchFrames: number
+  /** Thumbnail rate for cumulative appearance changes. */
+  reviewAnalysisFps: number
+  /** Normalized RGB difference against the last retained thumbnail. */
+  reviewChangeThreshold: number
+  /** Maximum seconds between continuity observations. */
+  reviewCheckpointSeconds: number
+  /** Source seconds per bounded scan operation. */
+  reviewChunkSeconds: number
+  /** Complete-episode candidate limit; overflow fails rather than truncating. */
+  reviewMaxFrames: number
+  /** Maximum decoded cut-score metadata bytes per scan chunk. */
+  reviewMaxScanBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
@@ -4682,6 +4698,8 @@ export interface Config {
   maxPlanPoints: number
   /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
   maxTranscriptBytes: number
+  /** Largest original ASR text preview per candidate utterance, in Unicode grapheme clusters. */
+  utterancePreviewCharacters: number
   /** Default grid columns for overview pages. */
   contactColumns: number
   /** Default grid rows for overview pages. */

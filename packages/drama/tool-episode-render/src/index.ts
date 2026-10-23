@@ -18,6 +18,7 @@
  */
 
 import { resolve } from 'node:path'
+import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -37,6 +38,8 @@ import { renderEpisode } from './render.ts'
 import type { BgmPlanReport, DramaRenderMethod, DramaRenderReport, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
 import { registerDramaVideo } from './video.ts'
+import { resolveSubtitleOverlay } from './subtitle-plan.ts'
+import { readTimeline } from './timeline.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -119,12 +122,26 @@ interface DramaRenderArguments {
   timeline?: string
   /** Path of the subtitle to install, burn, or check. */
   subtitleSrt?: string
+  /** Optional explicit decisions for dialogue already burned into source pictures. */
+  subtitlePlan?: string
   /** Last body shot this render delivers; required by `render`. */
   lastShot?: number
   /** BGM bed; required by `render`. */
   bgm?: string
   /** Optional episode/segments music plan to report, not a listening verdict. */
   bgmPlan?: string
+  /** Composer receipt for exact-bed gain evidence in audio_preview. */
+  bgmGeneration?: string
+  /** Explicit project-owned audio profile. */
+  mixProfile?: string
+  /** Original sound for an audio audition; defaults to the episode master. */
+  audio?: string
+  /** Audio audition offset on the body timeline. */
+  startSeconds?: number
+  /** Audio audition duration, at most 60 seconds. */
+  durationSeconds?: number
+  /** Explicit intended use for an audio preview's advisory music license report. */
+  intendedUse?: 'commercial' | 'non_commercial' | 'unknown'
   /** Ending sound; required only for photorealistic or legacy marked delivery. */
   endingAudio?: string
   /** Ending effect video; required only for photorealistic or legacy marked delivery. */
@@ -155,6 +172,8 @@ interface PrepareCall extends CallBase {
   readonly bgm?: string
   /** Optional plan selected for the later render preview. */
   readonly bgmPlan?: string
+  /** Optional absolute authored subtitle-overlay plan. */
+  readonly subtitlePlan?: string
 }
 
 /** A resolved `subtitles` call: the manifest, the declared lines, and the SRT to write. */
@@ -179,12 +198,16 @@ interface RenderCall extends CallBase {
   readonly timelinePath: string
   /** Absolute path of the subtitle to burn. */
   readonly subtitleSrt: string
+  /** Optional absolute authored subtitle-overlay plan. */
+  readonly subtitlePlan?: string
   /** The last body shot this render delivers. */
   readonly lastShot: number
   /** Absolute path of the BGM bed. */
-  readonly bgm: string
+  readonly bgm?: string
   /** Optional absolute path of the declared BGM plan. */
   readonly bgmPlan?: string
+  /** Explicit project-owned audio profile. */
+  readonly mixProfile?: string
   /** Absolute path of the ending sound. */
   readonly endingAudio?: string
   /** Absolute path of the ending effect video. */
@@ -208,7 +231,28 @@ interface VerifyCall extends CallBase {
 }
 
 /** One call with every path it needs already resolved. */
-type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall
+interface AudioPreviewCall extends CallBase {
+  readonly method: 'audio_preview'
+  readonly timelinePath: string
+  readonly audio: string
+  readonly bgm?: string
+  readonly bgmPlan?: string
+  readonly bgmGeneration?: string
+  readonly intendedUse?: 'commercial' | 'non_commercial' | 'unknown'
+  readonly profilePath: string
+  readonly startSeconds: number
+  readonly durationSeconds: number
+}
+
+interface SubtitleOverlayCall extends CallBase {
+  readonly method: 'subtitle_overlay'
+  readonly timelinePath: string
+  readonly subtitleSrt: string
+  readonly subtitlePlan: string
+  readonly outputSrt?: string
+}
+
+type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall | AudioPreviewCall | SubtitleOverlayCall
 
 /**
  * Resolve one call's configuration into the settings every method takes.
@@ -251,6 +295,9 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
   const project = resolve(args.project)
   const episode = episodeNumberOf(args.episode)
   const paths = episodePaths(project, episode)
+  if (args.subtitlePlan !== undefined && (args.method === 'verify' || args.method === 'subtitles')) {
+    throw new Error('subtitle_plan 仅用于 prepare、render 或 subtitle_overlay；verify 请传实际 resolved-overlay.srt。')
+  }
   if (args.method === 'prepare') {
     return {
       method: 'prepare',
@@ -262,6 +309,7 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '本集 SRT 字幕的路径，prepare 会把它装到 editing/<集>.srt 供烧录。')),
       ...(args.bgm === undefined ? {} : { bgm: resolve(project, args.bgm) }),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
+      ...(args.subtitlePlan === undefined ? {} : { subtitlePlan: resolve(project, args.subtitlePlan) }),
     }
   }
   if (args.method === 'subtitles') {
@@ -280,28 +328,55 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       subtitleSrt: resolve(project, args.subtitleSrt ?? paths.subtitle),
     }
   }
+  if (args.method === 'audio_preview') {
+    return {
+      method: 'audio_preview', project, episode,
+      timelinePath: resolve(project, required(args.timeline, 'audio_preview', 'timeline', '正文时间线 JSON。')),
+      audio: resolve(project, args.audio ?? paths.masterAudio),
+      ...(args.bgm === undefined ? {} : { bgm: resolve(project, args.bgm) }),
+      ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
+      ...(args.bgmGeneration === undefined ? {} : { bgmGeneration: resolve(project, args.bgmGeneration) }),
+      ...(args.intendedUse === undefined ? {} : { intendedUse: args.intendedUse }),
+      profilePath: resolve(project, required(args.mixProfile, 'audio_preview', 'mixProfile', '项目内显式音频配置 JSON。')),
+      startSeconds: required(args.startSeconds, 'audio_preview', 'startSeconds', '正文起点，秒。'),
+      durationSeconds: required(args.durationSeconds, 'audio_preview', 'durationSeconds', '试听时长，大于 0 且最多 60 秒。'),
+    }
+  }
   if (args.method === 'render') {
     const lastShot = required(args.lastShot, 'render', 'lastShot',
       '本集最后一个镜头号，例如 9；时间线里 shot <= lastShot 的镜头数必须正好等于它。')
     if (!Number.isInteger(lastShot) || lastShot < 1) {
       throw new Error(`drama_render render 的 lastShot 必须是正整数镜头号，收到 ${JSON.stringify(lastShot)}。`)
     }
+    const timelinePath = resolve(project, required(args.timeline, 'render', 'timeline',
+      '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。'))
+    const subtitleSrt = resolve(project, required(args.subtitleSrt, 'render', 'subtitleSrt',
+      '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。'))
+    const bgm = args.mixProfile === undefined
+      ? required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。') : args.bgm
     return {
       method: 'render',
       project,
       episode,
-      timelinePath: resolve(project, required(args.timeline, 'render', 'timeline',
-        '时间线 JSON 的路径，通常是 prepare 写出的 editing/<集>-timeline.json。')),
-      subtitleSrt: resolve(project, required(args.subtitleSrt, 'render', 'subtitleSrt',
-        '本集 SRT 字幕的路径，通常是 prepare 装好的 editing/<集>.srt。')),
+      timelinePath,
+      subtitleSrt,
+      ...(args.subtitlePlan === undefined ? {} : { subtitlePlan: resolve(project, args.subtitlePlan) }),
       lastShot,
-      bgm: resolve(project, required(args.bgm, 'render', 'bgm', '本集实际使用的 BGM 文件路径。')),
+      ...(bgm === undefined ? {} : { bgm: resolve(project, bgm) }),
+      ...(args.mixProfile === undefined ? {} : { mixProfile: resolve(project, args.mixProfile) }),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
       ...(args.endingAudio === undefined ? {} : { endingAudio: resolve(project, args.endingAudio) }),
       ...(args.endingEffect === undefined ? {} : { endingEffect: resolve(project, args.endingEffect) }),
       output: resolve(project, args.output ?? paths.output),
       force: args.force ?? false,
     }
+  }
+  if (args.method === 'subtitle_overlay') {
+    return { method: 'subtitle_overlay', project, episode,
+      timelinePath: resolve(project, required(args.timeline, 'subtitle_overlay', 'timeline', '需要 prepare 的时间线。')),
+      subtitleSrt: resolve(project, required(args.subtitleSrt, 'subtitle_overlay', 'subtitle_srt', '需要保留的原始 SRT。')),
+      subtitlePlan: resolve(project, required(args.subtitlePlan, 'subtitle_overlay', 'subtitle_plan', '需要明确的已有字幕决定文件。')),
+      ...(args.output === undefined ? {} : { outputSrt: resolve(project, args.output) }) }
   }
   return {
     method: 'verify',
@@ -318,13 +393,14 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
 
 /** The result of a `prepare` call that wrote nothing but its own layout. */
 async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof prepareEpisode>>,
-  settings: RenderSettings): Promise<DramaRenderReport> {
+  settings: RenderSettings, overlay?: Awaited<ReturnType<typeof resolveSubtitleOverlay>>): Promise<DramaRenderReport> {
   const sources = new Map(prepared.shots.map(shot => [shot.source.shot, shot.video]))
   const policy = deliveryPolicyFor(prepared.timeline.delivery)
-  const preview = buildRenderPreview({ settings, delivery: policy.delivery, subtitle: episodePaths(call.project, call.episode).subtitle,
+  const preview = buildRenderPreview({ settings, delivery: policy.delivery,
+    subtitle: overlay?.report.resolved_srt ?? episodePaths(call.project, call.episode).subtitle,
     master: episodePaths(call.project, call.episode).masterAudio,
     ...(call.bgm === undefined ? {} : { bgm: call.bgm }), ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }) })
-  const warnings = [...prepared.warnings, ...renderPreviewWarnings(preview)]
+  const warnings = [...prepared.warnings, ...renderPreviewWarnings(preview), ...overlay?.warnings ?? []]
   let bgmPlan: BgmPlanReport | undefined
   if (call.bgm !== undefined && call.bgmPlan !== undefined) {
     try {
@@ -344,7 +420,8 @@ async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typ
     expectedDurationSeconds: Number(
       (prepared.timeline.bodyEndSeconds + deliveryPolicyFor(prepared.timeline.delivery).endingSeconds).toFixed(6),
     ),
-    written: prepared.written,
+    written: [...prepared.written, ...overlay?.written ?? []],
+    ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
     output: '',
     encoder: '',
     gpuRequested: false,
@@ -417,14 +494,32 @@ export async function runDramaRender(
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
+  if (call.method === 'audio_preview') {
+    const preview = await previewAudio({ ...call, toolkit, settings })
+    return buildReport({ method: 'audio_preview', project: call.project, episode: call.episode,
+      timeline: preview.timeline, sources: new Map(), expectedDurationSeconds: call.durationSeconds,
+      written: preview.written, output: preview.output, encoder: '', gpuRequested: false, gpuUsed: false,
+      encoderFallbackReason: '', encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME,
+      media: NO_MEDIA, checks: [], audioMix: preview.mix, bgmPlan: preview.bgmPlan, logPath: '',
+      warnings: ['短时 RMS/采样峰值不是人工听感验收；原声可能已有音乐和音效。',
+        ...(preview.mix.music_audio && !preview.bgmPlan.path ? ['未提供配乐计划，曲目来源、使用时段与许可未知。'] : []),
+        ...(preview.mix.music_audio && preview.mix.composition_gain_status === 'not_provided'
+          ? ['未提供匹配的配乐合成收据，各源曲作曲增益未测得；不能只凭总 music_gain 推断。'] : []),
+        ...(preview.mix.mode === 'ducking' ? ['压低由原声能量触发，不是语义 VAD 或纯对白分离。'] : [])] })
+  }
   if (call.method === 'prepare') {
-    return await prepareReport(call, await prepareEpisode({
+    const prepared = await prepareEpisode({
       toolkit,
       project: call.project,
       episode: call.episode,
       shotsPath: call.shotsPath,
       subtitleSrt: call.subtitleSrt,
-    }), settings)
+    })
+    const overlay = call.subtitlePlan === undefined ? undefined : await resolveSubtitleOverlay({
+      project: call.project, episode: call.episode, timeline: prepared.timeline,
+      subtitleSrt: episodePaths(call.project, call.episode).subtitle, planPath: call.subtitlePlan,
+    })
+    return await prepareReport(call, prepared, settings, overlay)
   }
   if (call.method === 'subtitles') {
     return subtitlesReport(call, await buildEpisodeCues({
@@ -445,13 +540,28 @@ export async function runDramaRender(
       episode: call.episode,
       timelinePath: call.timelinePath,
       subtitleSrt: call.subtitleSrt,
+      ...(call.subtitlePlan === undefined ? {} : { subtitlePlan: call.subtitlePlan }),
       lastShot: call.lastShot,
-      bgm: call.bgm,
+      ...(call.bgm === undefined ? {} : { bgm: call.bgm }),
+      ...(call.mixProfile === undefined ? {} : { mixProfile: call.mixProfile }),
       ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }),
       ...(call.endingAudio === undefined ? {} : { endingAudio: call.endingAudio }),
       ...(call.endingEffect === undefined ? {} : { endingEffect: call.endingEffect }),
       output: call.output,
       force: call.force,
+    })
+  }
+  if (call.method === 'subtitle_overlay') {
+    const timeline = await readTimeline(call.timelinePath)
+    const overlay = await resolveSubtitleOverlay({ project: call.project, episode: call.episode,
+      timeline, subtitleSrt: call.subtitleSrt, planPath: call.subtitlePlan,
+      ...(call.outputSrt === undefined ? {} : { outputSrt: call.outputSrt }) })
+    return buildReport({ method: 'subtitle_overlay', project: call.project, episode: call.episode,
+      timeline, sources: new Map(overlay.report.sources.map(source => [source.shot, source.path])),
+      expectedDurationSeconds: timeline.bodyEndSeconds + deliveryPolicyFor(timeline.delivery).endingSeconds,
+      subtitleOverlay: overlay.report, written: overlay.written, warnings: overlay.warnings,
+      output: '', encoder: '', gpuRequested: false, gpuUsed: false, encoderFallbackReason: '',
+      encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: [], logPath: '',
     })
   }
   return await verifyEpisode({
@@ -468,13 +578,42 @@ export async function runDramaRender(
 /** One sentence every check field repeats. */
 const CHECK_SHAPE = 'severity=failure 表示交付不可用（ok=false），warning 只记录不阻塞。'
 
-/** Model-facing result schema: every field of the canonical report, all of them always present. */
+/** Model-facing base report and optional evidence for explicit audio profiles. */
 const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
+    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay'],
       description: '产生本结果的操作。' },
+    subtitle_overlay: { type: 'object', additionalProperties: false,
+      description: '明确决定后的实际外加字幕及绑定摘要；不证明 OCR 或人工验收，不可把保留原片字称为可编辑字幕。',
+      properties: {
+        episode: { type: 'string', required: true },
+        plan_path: { type: 'string', required: true }, plan_sha256: { type: 'string', required: true },
+        original_srt: { type: 'string', required: true }, original_srt_sha256: { type: 'string', required: true },
+        resolved_srt: { type: 'string', required: true }, resolved_srt_sha256: { type: 'string', required: true },
+        decision_report: { type: 'string', required: true },
+        sources: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+          shot: { type: 'integer', required: true }, path: { type: 'string', required: true }, sha256: { type: 'string', required: true },
+        } } },
+        timeline_clips: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+          shot: { type: 'integer', required: true }, start_us: { type: 'integer', required: true }, duration_us: { type: 'integer', required: true },
+        } } },
+        retained_cue_indexes: { type: 'array', required: true, items: { type: 'integer' } },
+        retained_embedded: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+          cue_index: { type: 'integer', required: true }, shot: { type: 'integer', required: true }, text: { type: 'string', required: true },
+          start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
+          source_sha256: { type: 'string', required: true }, editable: { type: 'boolean', required: true },
+        } } },
+        original_cue_count: { type: 'integer', required: true }, overlay_cue_count: { type: 'integer', required: true },
+        evidence_kind: { type: 'string', required: true, enum: ['caller_declared'] },
+        retained_text_editable: { type: 'boolean', required: true }, retained_text_style_adjustable: { type: 'boolean', required: true },
+      } },
+    ending_effect: { type: 'object', additionalProperties: false, properties: {
+      fit: { type: 'string', required: true, enum: ['source_once', 'stretch_to_window'] },
+      source_duration_seconds: { type: 'number', required: true }, target_duration_seconds: { type: 'number', required: true },
+      speed: { type: 'number', required: true },
+    } },
     ok: { type: 'boolean', required: true,
       description: '是否成功且没有任何 failure 级检查失败；false 时交付不可用，看 failures 里的修法。' },
     project: { type: 'string', required: true, description: '项目根目录的绝对路径。' },
@@ -552,6 +691,7 @@ const RESULT_SCHEMA = {
           fix: { type: 'string', required: true, description: '中文修法；通过时为空串。' },
         },
       } },
+    audio_mix: AUDIO_MIX_RESULT_SCHEMA,
     bgm_plan: { type: 'object', required: true, additionalProperties: false,
       description: '声明的配乐段落、音频许可事实、用途风险和同序复用提醒；不是试听或版权核验结论。未读取计划时许可与用途为 unknown。',
       properties: {
@@ -616,8 +756,13 @@ const RESULT_SCHEMA = {
   },
 } as const
 
-/** What the model reads before calling: the four methods, medium-specific delivery, and known traps. */
+/** What the model reads before calling: the methods, medium-specific delivery, and known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
+  + '源片可能已烧录文字：先用 video_ocr/video_inspect 预览并作明确决定，不能把无识别结果当作无字幕。'
+  + 'subtitle_overlay=读取 subtitle_plan 的 shot/source_sha256/镜内时间/text/retain_embedded/reason 决定，'
+  + '只对完整覆盖且同文的 cue 导出不重复叠加的新 SRT 与摘要报告；部分重叠或文字不符只提示，不自动切句。'
+  + 'prepare/render 可传同一 subtitle_plan；原始 SRT 不改写，草稿复用返回的 resolved_srt 和 decision_report。'
+  + '原片字不可编辑、无法由外加样式统一字号位置；evidence_paths 只是调用方声明，不是可信验收凭据。'
   + 'subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，'
   + '建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。'
   + '长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。'
@@ -641,9 +786,10 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。'
   + 'render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。'
   + '以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：'
-  + '片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，'
-  + '其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；'
-  + '这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。'
+  + '片尾用最后一镜的真实尾帧定格 2 秒：缺省 source_once 时 ending_effect 按自身原速只播放一次，余下是定格帧；'
+  + '时间线显式 ending_effect_fit=stretch_to_window 时，把完整源特效变速铺满这 2 秒，不循环、不补黑场。'
+  + '只有 ending_audio 的前 2 秒在正片结束处进入混音；'
+  + '这两份素材按 SHA-256 校验，只接受随包字节；source_once 拒绝长于两秒的特效。'
   + '拼接后烧录 ASS 字幕'
   + '（未配置项目样式时默认 SimHei 40，字体服从部署配置，40 为设计字号而非成片像素；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，'
   + '烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；'
@@ -673,11 +819,11 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'drama_render',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles'],
+      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay'],
         description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
-          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。' },
+          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。' },
       project: { type: 'string', required: true,
-        description: '项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
+        description: '项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
@@ -693,19 +839,34 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
           + '缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。' },
       timeline: { type: 'string',
-        description: '时间线 JSON 路径；render 与 verify 必填，相对路径以 project 为基准；'
+        description: '时间线 JSON 路径；render、verify、subtitle_overlay 必填，相对路径以 project 为基准；'
+          + '可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。'
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
           + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。' },
+      subtitle_plan: { type: 'string', description: 'prepare/render 可选、subtitle_overlay 必填的 JSON 路径。'
+        + '{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:"retain_embedded",reason,evidence_paths:[]}]}。'
+        + '时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。'
+          + '相对路径以 project 为基准。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
-      bgm: { type: 'string', description: '本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 必填，prepare 可选用于预览。相对路径以 project 为基准；'
+      bgm: { type: 'string', description: '本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。相对路径以 project 为基准；'
         + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。' },
       bgm_plan: { type: 'string', description: 'prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，'
         + '读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。'
         + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
         + '校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。' },
+      mix_profile: { type: 'string', description: 'render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。'
+        + 'mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。'
+        + 'ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。'
+        + 'no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。'
+        + '未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。' },
+      bgm_generation: { type: 'string', description: 'audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。' },
+      audio: { type: 'string', description: 'audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。' },
+      start_seconds: { type: 'number', description: 'audio_preview 必填：正文试听起点，非负秒数。' },
+      duration_seconds: { type: 'number', description: 'audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。' },
+      intended_use: { type: 'string', enum: ['commercial', 'non_commercial', 'unknown'], description: 'audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。' },
       ending_audio: { type: 'string',
         description: '片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
@@ -713,10 +874,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       ending_effect: { type: 'string',
         description: '片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
           + '（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：'
-          + '它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；'
-          + '换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。' },
+          + '缺省按自身原速只播放一次，覆盖开头 1.020 秒，其余 0.980 秒定格；时间线显式 stretch_to_window 时以 speed=0.51 铺满两秒。'
+          + '换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。' },
       output: { type: 'string',
-        description: '成片输出路径；render 省略时写 exports/<集>.mp4，verify 必填（要检查哪个文件）。相对路径以 project 为基准，绝对路径保持不变。' },
+        description: 'render 成片输出（省略写 exports/<集>.mp4），verify 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，'
+          + '配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。' },
       force: { type: 'boolean',
         description: 'render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。' },
     },
@@ -724,10 +886,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       schema: RESULT_SCHEMA,
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async ({ subtitle_srt, last_shot, ending_audio, ending_effect, bgm_plan, ...args }) => await runDramaRender({
+    execute: async ({ subtitle_srt, subtitle_plan, last_shot, ending_audio, ending_effect, bgm_plan,
+      mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation, ...args }) => await runDramaRender({
       ...args,
       ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
+      ...(subtitle_plan === undefined ? {} : { subtitlePlan: subtitle_plan }),
       ...(bgm_plan === undefined ? {} : { bgmPlan: bgm_plan }),
+      ...(mix_profile === undefined ? {} : { mixProfile: mix_profile }),
+      ...(bgm_generation === undefined ? {} : { bgmGeneration: bgm_generation }),
+      ...(start_seconds === undefined ? {} : { startSeconds: start_seconds }),
+      ...(duration_seconds === undefined ? {} : { durationSeconds: duration_seconds }),
+      ...(intended_use === undefined ? {} : { intendedUse: intended_use }),
       ...(last_shot === undefined ? {} : { lastShot: last_shot }),
       ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
       ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),

@@ -1,0 +1,34 @@
+# No shell, media probe or platform skill catalogue is needed for source-hash resolution.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: tool-episode-render
+      name: ../../../packages/drama/tool-episode-render/src/index.ts
+      config:
+        ffmpegPath: subtitle-overlay-must-not-run-ffmpeg
+        ffprobePath: subtitle-overlay-must-not-run-ffprobe
+
+
+# A controlled fixture runner keeps the platform catalogue stable; no shell tool is called.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false

@@ -1,0 +1,40 @@
+# Only the LLM is replayed; BGM tools read real scenario-local files.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+  disabled: true
+
+# Official-API request metadata is not part of the keyless replay adapter.
+- id: plugin-package-inventory-deepseek
+  disabled: true
+
+- insert:
+    - id: perception-bgm
+      name: '@deepseek-ai/dsh-perception-bgm'
+      config:
+        indexPath: !!js process.cwd() + '/index.json'
+    - id: tool-bgm-compose
+      name: '@deepseek-ai/dsh-tool-bgm-compose'
+      config:
+        ffmpegPath: must-not-run-ffmpeg
+        ffprobePath: must-not-run-ffprobe
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+              - id: deepseek-v4-pro
+
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
+
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false

@@ -73,6 +73,19 @@ export const PROJECT_BIBLE_CHANGES = {
       package_id: { type: 'string' }, result_ref: { type: 'string' },
     },
   } },
+  bgm_feedback: { type: 'array', description: 'Append explicit user feedback for this project and similar context_tags only, not a global track blacklist. Preserve prior records; a later explicit change of mind needs a new feedback_id. Never record the Agent\'s own preference as user feedback.', items: {
+    type: 'object', additionalProperties: false, properties: {
+      feedback_id: { type: 'string', required: true, description: 'Unique immutable feedback ID; replaying the identical record is idempotent.' },
+      track_id: { type: 'string', description: 'Actual catalogue track ID. Supply this or source_sha256, or both.' },
+      source_sha256: { type: 'string', description: 'Actual source SHA-256: 64 hexadecimal characters, optionally prefixed sha256:.' },
+      decision: { type: 'string', enum: ['accept', 'reject'], required: true },
+      context_tags: { type: 'array', items: { type: 'string' }, required: true, description: 'Nonempty scene/emotion/instrumentation context tags; scope the feedback to similar use, never all projects or all scenes.' },
+      reason: { type: 'string', required: true, description: 'Reason grounded in the explicit user feedback, not inferred Agent taste.' },
+      recorded_at: { type: 'string', required: true, description: 'Known time of the explicit user feedback as an ISO timestamp with Z or numeric timezone offset; do not invent a time.' },
+      episode: { type: 'integer', description: 'Optional positive episode number associated with the feedback.' },
+      user_quote: { type: 'string', description: 'Optional exact nonempty user words supporting the decision.' },
+    },
+  } },
 } as const
 
 /** One logged project-tool result, including the revision needed for its next update. */
@@ -132,6 +145,43 @@ function positive(value: JsonValue | undefined, label: string): number {
 function text(value: JsonValue | undefined, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be nonempty text.`)
   return value
+}
+
+/** Feedback keeps the supplied user timestamp; parsing must not infer the host timezone. */
+function feedbackTime(value: JsonValue | undefined): void {
+  const timestamp = text(value, 'bgm_feedback.recorded_at')
+  const date = timestamp.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(timestamp) ||
+    !Number.isFinite(Date.parse(timestamp)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
+    throw new Error('bgm_feedback.recorded_at must be a valid ISO timestamp with an explicit timezone.')
+  }
+}
+
+/** Scoped, append-only user decisions do not establish copyright permission or global preferences. */
+function validateBgmFeedback(value: JsonValue | undefined): void {
+  const ids = new Set<string>()
+  for (const row of records(value, 'bgm_feedback')) {
+    const id = text(row.feedback_id, 'bgm_feedback.feedback_id')
+    if (ids.has(id)) throw new Error('bgm_feedback must contain unique feedback_id values.')
+    ids.add(id)
+    if (row.track_id === undefined && row.source_sha256 === undefined) {
+      throw new Error('bgm_feedback requires track_id or source_sha256.')
+    }
+    if (row.track_id !== undefined) text(row.track_id, 'bgm_feedback.track_id')
+    if (row.source_sha256 !== undefined &&
+      (typeof row.source_sha256 !== 'string' || !/^(?:sha256:)?[a-f0-9]{64}$/i.test(row.source_sha256))) {
+      throw new Error('bgm_feedback.source_sha256 must contain 64 hexadecimal characters, optionally prefixed sha256:.')
+    }
+    if (row.decision !== 'accept' && row.decision !== 'reject') throw new Error('bgm_feedback.decision must be accept or reject.')
+    if (!Array.isArray(row.context_tags) || !row.context_tags.length ||
+      !row.context_tags.every(tag => typeof tag === 'string' && tag.trim())) {
+      throw new Error('bgm_feedback.context_tags must be a nonempty array of nonempty text.')
+    }
+    text(row.reason, 'bgm_feedback.reason')
+    feedbackTime(row.recorded_at)
+    if (row.episode !== undefined) positive(row.episode, 'bgm_feedback.episode')
+    if (row.user_quote !== undefined) text(row.user_quote, 'bgm_feedback.user_quote')
+  }
 }
 
 /** Reference fields are replaced or removed together for an approved remote voice asset. */
@@ -320,6 +370,7 @@ function validateBible(bible: JsonObject): void {
     text(row.kind, 'completed_tasks.kind')
     for (const key of ['package_id', 'result_ref']) if (row[key] !== undefined) text(row[key], key)
   }
+  validateBgmFeedback(bible.bgm_feedback)
   for (const row of records(bible.history, 'history')) {
     positive(row.revision, 'history.revision')
     text(row.reason, 'history.reason')
@@ -357,6 +408,7 @@ function affected(keys: string[]): string[] {
     if (key === 'video') for (const stage of ['video_tasks', 'draft', 'export']) stages.add(stage)
     if (key === 'episode_plan') for (const stage of ['episodes', 'shots_and_matches', 'video_tasks', 'draft', 'export']) stages.add(stage)
     if (key === 'delivery') for (const stage of ['shots_and_matches', 'draft', 'export']) stages.add(stage)
+    if (key === 'bgm_feedback') for (const stage of ['draft', 'export']) stages.add(stage)
   }
   return [...stages]
 }
@@ -403,6 +455,10 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
     }
     else if (key === 'package_bindings') bible[key] = append(previous[key], value, 'package_id', key)
     else if (key === 'completed_tasks') bible[key] = append(previous[key], value, 'task_id', key)
+    else if (key === 'bgm_feedback') {
+      validateBgmFeedback(value)
+      bible[key] = append(previous[key], value, 'feedback_id', key)
+    }
     else bible[key] = value
   }
   if (changes.episode_plan !== undefined && object(changes.episode_plan, 'episode_plan').mode === undefined && previous.episode_plan === undefined) {
@@ -442,7 +498,7 @@ function markdown(config: JsonObject): string {
     `预算初始记录：¥${(Number(bible.initial_budget_cents) / 100).toFixed(2)} CNY；当前项目总额度和已花/在途费用通过 drama_project read 或 jubian_budget read 从实际授权账本读取，初始记录不作为收费上限。`, '', '## 分集计划', '')
   if (bible.episode_plan !== undefined) rows.push('```json', JSON.stringify(bible.episode_plan, null, 2), '```', '')
   else rows.push('按剧情灵活确定集数、提纲和每集长度。', '')
-  for (const [title, key] of [['角色与声音', 'characters'], ['稳定视频包绑定', 'package_bindings'], ['已完成任务', 'completed_tasks'], ['版本与影响记录', 'history']] as const) {
+  for (const [title, key] of [['角色与声音', 'characters'], ['稳定视频包绑定', 'package_bindings'], ['已完成任务', 'completed_tasks'], ['配乐用户反馈', 'bgm_feedback'], ['版本与影响记录', 'history']] as const) {
     rows.push(`## ${title}`, '', '```json', JSON.stringify(bible[key] ?? [], null, 2), '```', '')
   }
   return rows.join('\n')

@@ -877,6 +877,7 @@ describe('Node 24 lane ownership', () => {
       expect(subject.find(item => item.id === id)?.needs).toEqual(id === 'built-bin-smoke' ? ['build', 'electron-install'] : ['build'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'snapshot')?.displayCommand).toBe('pnpm run test:snapshot:built')
     expect(subject.find(item => item.id === 'expected-output')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'built-bin-smoke')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({

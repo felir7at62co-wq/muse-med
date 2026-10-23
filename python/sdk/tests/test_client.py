@@ -1172,3 +1172,33 @@ def test_client_reports_missing_bundled_runtime_dependency(monkeypatch: pytest.M
 
     with pytest.raises(FileNotFoundError, match="Install deepseek-harness-runtime-bin"):
         HarnessClient(HarnessConfig(dsh_home="/explicit/home")).start()
+
+
+def test_preserves_video_observation_progress_in_public_session_events(tmp_path: Path) -> None:
+    expected_path = Path(__file__).resolve().parents[3] / "packages/sdk/client/tests/expected/video-review.json"
+    expected = json.loads(expected_path.read_text())
+    script = tmp_path / "video_review_runtime.py"
+    script.write_text("""
+import json, os, sys
+for line in sys.stdin:
+    message = json.loads(line)
+    method = message.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"serverInfo":{"name":"video-review-fixture"}}}),flush=True)
+    elif method == "session/prompt":
+        session = message["params"]["sessionId"]
+        def event(kind, data):
+            print(json.dumps({"jsonrpc":"2.0","method":"session.event","params":{"sessionId":session,"event":{"type":kind,"data":data}}}),flush=True)
+        event("agent/inbox/spliced", {"target":"next-turn","start":0,"inserted":[{"id":"accepted"}]})
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"messageId":"accepted"}}),flush=True)
+        event("video/review", json.load(open(os.environ["VIDEO_REVIEW_PAYLOAD"])))
+        event("turn/end", {"turn":1,"reason":{"kind":"completed"}})
+        print(json.dumps({"jsonrpc":"2.0","method":"session.status","params":{"sessionId":session,"status":"idle"}}),flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{}}),flush=True)
+        break
+""")
+    with DeepSeekHarness(cwd=str(tmp_path), _launch_args=(sys.executable, str(script)),
+                         env={"VIDEO_REVIEW_PAYLOAD": str(expected_path)}) as harness:
+        result = harness.run("Observe every detected frame.")
+    assert [event["data"] for event in result.events if event["type"] == "video/review"] == [expected]

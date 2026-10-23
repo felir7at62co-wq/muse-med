@@ -50,10 +50,35 @@ class SkillSuite(unittest.TestCase):
         self.assertNotIn("<DSH_HOME>/skills/", core)
         self.assertIn("python -B scripts/pipeline_state.py", core)
 
-    def test_bgm_rules_are_preserved(self):
+    def test_bgm_guidance_uses_scoped_feedback_and_advisory_music_choices(self):
         render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
-        for required in ("一集的 BGM 必须多于一首", "按正文情绪分段选曲", "valence/arousal", "仅限非商业用途"):
+        for required in ("先 `drama_project action=read`", "project_bible.bgm_feedback", "本项目相近语境",
+                         "按正文情绪分段选曲", "对白密度", "配器", "切点", "valence/arousal",
+                         "可以只用一首，也可以不额外添加 BGM", "policy_findings", "不要求提示清零",
+                         "实际可播放 A/B 试听", "集中一次请求反馈", "曲目许可与分析模型许可分别核实",
+                         "仅限非商业用途", "Agent 自己的偏好不落成用户反馈"):
             self.assertIn(required, render)
+        for obsolete in ("一集的 BGM 必须多于一首", "每集至少 2 首", "必须照 `fix` 改完再交付"):
+            self.assertNotIn(obsolete, render)
+
+    def test_project_bible_records_only_explicit_append_only_bgm_feedback(self):
+        bible = (SKILLS / "tweet-drama-project-bible/SKILL.md").read_text(encoding="utf-8")
+        for required in ("project_bible.bgm_feedback", "context_tags", "全局曲目黑名单", "明确改口",
+                         "feedback_id", "recorded_at", "时间来自该次明确用户反馈", "不伪造写入",
+                         "Agent 自己的选曲判断", "已有 ID 不能改写", "不授权重做视频"):
+            self.assertIn(required, bible)
+
+    def test_embedded_subtitles_are_reviewed_without_claiming_editability(self):
+        render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
+        draft = (SKILLS / "tweet-drama-draft-build/SKILL.md").read_text(encoding="utf-8")
+        for required in ("video_ocr", "video_inspect", "subtitle_plan", "retain_embedded", "source_sha256",
+                         "普通识别疑点只提示", "不能宣称整集字幕均可编辑"):
+            self.assertIn(required, render)
+        for required in ("resolved_srt", "subtitle_overlay_report", "不可编辑", "不自动付费去字"):
+            self.assertIn(required, draft)
+        for source in (render, draft):
+            self.assertIn("stretch_to_window", source)
+            self.assertIn("省略", source)
 
     def test_shipped_scripts_start_console_children_hidden(self):
         """A windowless parent must pass CREATE_NO_WINDOW, or Windows pops a console."""

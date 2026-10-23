@@ -18,8 +18,8 @@
   en: c5e314a4553b04d6
   zh: da9087985add2253
 /deepseek-ai-dsh-tool-audio-transcribe/understand-the-implementation:
-  en: 20889110f501caeb
-  zh: 4bbdcd4c98f7a78d
+  en: 31ef96e4ee38f536
+  zh: e6687164a6bb85a8
 /deepseek-ai-dsh-tool-audio-transcribe/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -27,11 +27,11 @@
   en: d7b8735d207d112f
   zh: 6bd43630fb9e8a9f
 /deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/what-the-model-sees:
-  en: 98590ea34b3fc9ed
-  zh: 5741718e00ec5a8a
+  en: 7476cc88770c0636
+  zh: 344d0d159e8e7817
 /deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/token-effect:
-  en: 758412f755b39453
-  zh: 14ab3cceeb23d5a5
+  en: d147e8c3db1e4c87
+  zh: b7007d659604ea95
 /deepseek-ai-dsh-tool-audio-transcribe/model-experience/the-audio-transcribe-tool/kv-cache-effect:
   en: a386cbbc3c7dc489
   zh: 28162e809672f479

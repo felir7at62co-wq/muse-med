@@ -79,6 +79,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:turn/end` | event | `0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce` | [`{ type: "turn/end" }`](#persistence-type-sha256-0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce) |
 | `event:turn/start` | event | `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8` | [`{ type: "turn/start" }`](#persistence-type-sha256-aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8) |
 | `event:user/message` | event | `c7c997c0ccfa257322588cf64eac056323ce2826d9a3f9263b97e82e83377ec9` | [`{ type: "user/message" }`](#persistence-type-sha256-c7c997c0ccfa257322588cf64eac056323ce2826d9a3f9263b97e82e83377ec9) |
+| `event:video/review` | event | `a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489` | [`{ type: "video/review" }`](#persistence-type-sha256-a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489) |
 | `event:web/deepseek-search-llm-request` | event | `cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331` | [`{ type: "web/deepseek-search-llm-request" }`](#persistence-type-sha256-cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331) |
 | `event:workspace/changes` | event | `e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72` | [`{ type: "workspace/changes" }`](#persistence-type-sha256-e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72) |
 
@@ -1276,6 +1277,30 @@ Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:309`](../packages/core/session/src/types.ts)
+
+### `video/*`
+
+<a id="videoreview--log-only"></a>
+
+#### `video/review` — log-only
+
+```ts persistence-catalog
+/** Start a source revision or incrementally commit scan, image and observation progress. */
+'video/review': {
+  kind: 'start'
+  review: VideoReview
+} | {
+  kind: 'update'
+  path: string
+  id: VideoReviewId
+  frames: ReviewFrame[]
+  frame_count: number
+  scanned_until: number
+  scan_complete: boolean
+}
+```
+
+Source: [`packages/perception/tool-video-inspect/src/review-state.ts:37`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 ### `web/*`
 
@@ -2573,6 +2598,14 @@ SHA-256: `6f9e00383836275e46c0a9915767f9bb561be5fc30aae490174908a93e99a912`
 
 `"snapshot"`
 
+<a id="persistence-type-sha256-6022451d897c7050f60b564f801210136c9fa4d320a03b6d520d1cf8b3876e41"></a>
+
+### `"start"`
+
+SHA-256: `6022451d897c7050f60b564f801210136c9fa4d320a03b6d520d1cf8b3876e41`
+
+`"start"`
+
 <a id="persistence-type-sha256-c219efbdfd53b836786202ab4532913d555798f0a8615a4e9629736e3799fb70"></a>
 
 ### `"step/end"`
@@ -2949,6 +2982,14 @@ SHA-256: `05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04`
 
 `"unknown"`
 
+<a id="persistence-type-sha256-c66c561db80e334d620372be95d2d893fe5931645317d6c961e001ae124faac4"></a>
+
+### `"update"`
+
+SHA-256: `c66c561db80e334d620372be95d2d893fe5931645317d6c961e001ae124faac4`
+
+`"update"`
+
 <a id="persistence-type-sha256-0bdaf9cb63594be4ef034b68901fffe792fe09d6d5f6bac42d7f56f6e7834fb9"></a>
 
 ### `"usage"`
@@ -2988,6 +3029,14 @@ SHA-256: `9645cf93769a6dfb227bd400bd6cb9fa7bab9140f4a851e4ae92514ade6e3114`
 SHA-256: `de25352d2dc4196309bd84b5bac6319f6d5c898ea0e82bb5ae66c5738d0d426f`
 
 `"user/message"`
+
+<a id="persistence-type-sha256-1d77201e9587ac01c08665e7378e5a6a762bd9194b8f8d2c10e0ef7d669a3c6c"></a>
+
+### `"video/review"`
+
+SHA-256: `1d77201e9587ac01c08665e7378e5a6a762bd9194b8f8d2c10e0ef7d669a3c6c`
+
+`"video/review"`
 
 <a id="persistence-type-sha256-6f611bed14b2106542480c4a230b4a83baf76dc0d8ac0cd13319a7cb8dae7675"></a>
 
@@ -4521,6 +4570,37 @@ One of:
 - `"resume"`
 - `"series"`
 
+<a id="persistence-type-sha256-20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6"></a>
+
+<a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsreviewframe"></a>
+
+<a id="persistence-type-reviewframe"></a>
+
+### `ReviewFrame`
+
+SHA-256: `20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6`
+
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:28`](../packages/perception/tool-video-inspect/src/review-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `decode` | optional | [`{ frame_index, start_seconds }`](#persistence-type-sha256-d66b91173d6a2e07169445a9026862fbfe480c28ca93becfefbdb5a016cb190c) |
+| `decoded_time` | optional | `number` |
+| `exposed` | required | `boolean` |
+| `id` | required | `string` |
+| `image` | optional | [`{ attachmentId, bytes, height, mediaType, … }`](#persistence-type-sha256-b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c) |
+| `observation` | optional | [`{ change, uncertainty, visible }`](#persistence-type-sha256-9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa) |
+| `reasons` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
+| `time` | required | `number` |
+
+<a id="persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e"></a>
+
+### `ReviewFrame[]`
+
+SHA-256: `d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e`
+
+Array of [`ReviewFrame`](#persistence-type-sha256-20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6).
+
 <a id="persistence-type-sha256-fab2bb09bc5e3b9db0685e8f5500b029af1a2b33e70bc703c1d5d0f596fbc1fd"></a>
 
 <a id="persistence-type-packagessandboxsandboxsrcindextssandboxmode"></a>
@@ -5384,6 +5464,29 @@ SHA-256: `7e8f98fc491a61209ea6c9165f11d297e557a7fd288f48dbf82282f496c6e695`
 
 Array of [`UserMessage`](#persistence-type-sha256-159bada0d9a21e488ad34f3e9f72aff3b4471e16f930c4374dbb2c9724f5d8a6).
 
+<a id="persistence-type-sha256-96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa"></a>
+
+<a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsvideoreview"></a>
+
+<a id="persistence-type-videoreview"></a>
+
+### `VideoReview`
+
+SHA-256: `96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa`
+
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:30`](../packages/perception/tool-video-inspect/src/review-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `duration` | required | `number` |
+| `episode` | required | `string` |
+| `frames` | required | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
+| `id` | required | `string` |
+| `path` | required | `string` |
+| `scan_complete` | required | `boolean` |
+| `scanned_until` | required | `number` |
+| `source_version` | required | `string` |
+
 <a id="persistence-type-sha256-c2deb7c9183735d4e0fffddf5c623f4e34daa1c8e96b111982e957dfcbbcf896"></a>
 
 <a id="persistence-type-packagesworkflowworkflowsrctypestsworkflowagentoutcome"></a>
@@ -5526,6 +5629,8 @@ Array of `number`.
 
 <a id="persistence-type-packagesllmllmsrcbrandtstoolcallid"></a>
 
+<a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsvideoreviewid"></a>
+
 <a id="persistence-type-packagesscheduleschedulesrctypestsscheduleid"></a>
 
 <a id="persistence-type-packagessessionsession-titlesrcindextssessiontitleproviderid"></a>
@@ -5562,6 +5667,8 @@ Array of `number`.
 
 <a id="persistence-type-toolcallid"></a>
 
+<a id="persistence-type-videoreviewid"></a>
+
 <a id="persistence-type-webhookdeliveryid"></a>
 
 <a id="persistence-type-webhookruleid"></a>
@@ -5574,7 +5681,7 @@ Array of `number`.
 
 SHA-256: `4cd48f3e5108bd6ebedf7301c3638839b8b2b9db8dbd493974177fbdeb91a01b`
 
-Sources: [`packages/api/session-controller/src/types.ts:398`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:18`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/jobs/jobs/src/brand.ts:19`](../packages/jobs/jobs/src/brand.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/schedule/schedule/src/types.ts:14`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:398`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:18`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/jobs/jobs/src/brand.ts:19`](../packages/jobs/jobs/src/brand.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/perception/tool-video-inspect/src/review-state.ts:6`](../packages/perception/tool-video-inspect/src/review-state.ts) · [`packages/schedule/schedule/src/types.ts:14`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts)
 
 `string`
 
@@ -5656,6 +5763,17 @@ One of:
 
 - `"fork"`
 - `"fresh"`
+
+<a id="persistence-type-sha256-6dbf9afad857e3b68e1faad947bc515a919577840a47d37787e5dfbd2d6c69f9"></a>
+
+### `union (2 variants)`
+
+SHA-256: `6dbf9afad857e3b68e1faad947bc515a919577840a47d37787e5dfbd2d6c69f9`
+
+| kind | Form property | Other required fields | Full definition |
+|---|---|---|---|
+| `start` | not declared | `review`: [`VideoReview`](#persistence-type-sha256-96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa) | [`{ kind: "start" }`](#persistence-type-sha256-6d4e2467080fd9fae84199d45d78947e3ccddf0c442b07c8aa19a374af52abd6) |
+| `update` | not declared | `frame_count`: `number`; `frames`: [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e); `id`: `string`; `path`: `string`; `scan_complete`: `boolean`; `scanned_until`: `number` | [`{ kind: "update" }`](#persistence-type-sha256-49b2bb7bf7a7c6d42a416694b1a99f3ea14e2c955a2d086c9d54094798bb47aa) |
 
 <a id="persistence-type-sha256-9947aa5938fe19a895298da412917acbf9ffb5093a73ab8baa257e6ae9e63a07"></a>
 
@@ -5847,6 +5965,21 @@ Sources: [`packages/core/session/src/types.ts:361`](../packages/core/session/src
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
+<a id="persistence-type-sha256-b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c"></a>
+
+### `{ attachmentId, bytes, height, mediaType, … }`
+
+SHA-256: `b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c`
+
+| Property | Presence | Type |
+|---|---|---|
+| `attachmentId` | required | `string` |
+| `bytes` | required | `number` |
+| `height` | required | `number` |
+| `mediaType` | required | [`ImageMediaType`](#persistence-type-sha256-2f1e6a7ebace43d727ae138ddcd352eb3813960009e5805b8c5ac84300c97716) |
+| `name` | optional | `string` |
+| `width` | required | `number` |
+
 <a id="persistence-type-sha256-1528539c63db8b23506f0209a99ce77d8ad138adfbfcee3d4769b7382d93756c"></a>
 
 ### `{ callId, files, turn }`
@@ -5905,6 +6038,18 @@ Sources: [`packages/context/session-reference/src/types.ts:18`](../packages/cont
 SHA-256: `df843efd87c78cf8de98f8e0d0216956cd568d0d0e56a22c853663e274aa1a18`
 
 Array of [`{ capturedFormatVersion?, capturedThroughSeq, compacted, inputIndex, … }`](#persistence-type-sha256-4f91f187baeabef5c7950c4780d31bbe39f3345dff591a6cf26ac7e135ac1cf4).
+
+<a id="persistence-type-sha256-9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa"></a>
+
+### `{ change, uncertainty, visible }`
+
+SHA-256: `9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa`
+
+| Property | Presence | Type |
+|---|---|---|
+| `change` | required | `string` |
+| `uncertainty` | required | `string` |
+| `visible` | required | `string` |
 
 <a id="persistence-type-sha256-0e10d7c096b47e61defe372a5fc8bd37d835199410eac44367f95c45082498bd"></a>
 
@@ -6252,6 +6397,17 @@ Sources: [`packages/llm/llm/src/types.ts:161`](../packages/llm/llm/src/types.ts)
 |---|---|---|
 | `failure` | required | [`LlmFailure`](#persistence-type-sha256-5f2117d1856a5ab43c28371faa978ebfaa48f8c7d734ea3fc94842210df83dca) |
 | `kind` | required | `"error"` |
+
+<a id="persistence-type-sha256-d66b91173d6a2e07169445a9026862fbfe480c28ca93becfefbdb5a016cb190c"></a>
+
+### `{ frame_index, start_seconds }`
+
+SHA-256: `d66b91173d6a2e07169445a9026862fbfe480c28ca93becfefbdb5a016cb190c`
+
+| Property | Presence | Type |
+|---|---|---|
+| `frame_index` | required | `number` |
+| `start_seconds` | required | `number` |
 
 <a id="persistence-type-sha256-bdaa5945b4c7dd845956b7209b33003f9863304165690e5563b77a42fbea9071"></a>
 
@@ -7303,6 +7459,19 @@ Sources: [`packages/drama/screenplay-project/src/index.ts:61`](../packages/drama
 |---|---|---|
 | `kind` | required | `"screenplay-project-read"` |
 
+<a id="persistence-type-sha256-6d4e2467080fd9fae84199d45d78947e3ccddf0c442b07c8aa19a374af52abd6"></a>
+
+### `{ kind: "start" }`
+
+SHA-256: `6d4e2467080fd9fae84199d45d78947e3ccddf0c442b07c8aa19a374af52abd6`
+
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:37`](../packages/perception/tool-video-inspect/src/review-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `kind` | required | `"start"` |
+| `review` | required | [`VideoReview`](#persistence-type-sha256-96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa) |
+
 <a id="persistence-type-sha256-1d76406cbb2ddadb0dbbb51e9d8bc6cf678fed455cf8eb512f36f7c86d37a62f"></a>
 
 ### `{ kind: "stop" }`
@@ -7650,6 +7819,24 @@ Sources: [`packages/core/tools/src/index.ts:34`](../packages/core/tools/src/inde
 | Property | Presence | Type |
 |---|---|---|
 | `kind` | required | `"tool-registry"` |
+
+<a id="persistence-type-sha256-49b2bb7bf7a7c6d42a416694b1a99f3ea14e2c955a2d086c9d54094798bb47aa"></a>
+
+### `{ kind: "update" }`
+
+SHA-256: `49b2bb7bf7a7c6d42a416694b1a99f3ea14e2c955a2d086c9d54094798bb47aa`
+
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:40`](../packages/perception/tool-video-inspect/src/review-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `frame_count` | required | `number` |
+| `frames` | required | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
+| `id` | required | `string` |
+| `kind` | required | `"update"` |
+| `path` | required | `string` |
+| `scan_complete` | required | `boolean` |
+| `scanned_until` | required | `number` |
 
 <a id="persistence-type-sha256-6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7"></a>
 
@@ -9155,6 +9342,22 @@ SHA-256: `c7c997c0ccfa257322588cf64eac056323ce2826d9a3f9263b97e82e83377ec9`
 | `surfaceOp` | required | [`SurfaceOp`](#persistence-type-sha256-335e242de1fcc17b6ca920fc420d71bec2d76e53e37955c00948b65ab77f05c5) |
 | `time` | required | `number` |
 | `type` | required | `"user/message"` |
+
+<a id="persistence-type-sha256-a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489"></a>
+
+<a id="persistence-type-eventvideoreview"></a>
+
+### `{ type: "video/review" }`
+
+SHA-256: `a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`union (2 variants)`](#persistence-type-sha256-6dbf9afad857e3b68e1faad947bc515a919577840a47d37787e5dfbd2d6c69f9) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"video/review"` |
 
 <a id="persistence-type-sha256-cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331"></a>
 

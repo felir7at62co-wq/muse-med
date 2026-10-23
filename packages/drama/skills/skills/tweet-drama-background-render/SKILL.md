@@ -26,6 +26,16 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 
 输出最终 MP4、同名 SRT、渲染日志和可编辑草稿。渲染前用 ffprobe 校验每段真实时长；渲染后检查总时长、音视频流、黑帧、静音、**首/中/尾各抽一帧真实解码**和字幕 cue 越界。**元数据不算证据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，`drama_render verify` 的 `decode_probe` 与 `render_episode.py` 的 `assert_decodes_throughout` 都会在首、中、尾各解一帧，任何一处解不出画面就判失败。编码失败时保留中间文件，只重跑失败集。
 
+## 源画面文字与字幕叠加
+
+准备整集渲染前，先对实际选用的视频用 `video_ocr` 免费本地抽样，读取 `scan_status`、覆盖区间与带源时间码的文字；疑似对白烧字用 `video_inspect` 抽帧查看大图，和已对齐 SRT 比对。OCR 失败、覆盖不足或噪声不等于无字，不自动转付费去字幕、转写或重生成；保留候选并列出需要复看的时间点，普通识别疑点只提示，不要求提示清零。
+
+明确保留已有对白字时，写项目内 `subtitle_plan`：`schema_version: 1`，`decisions` 每项包含 `shot`、当前源文件 `source_sha256`、镜头内 `start_seconds/end_seconds`、实际画面 `text`、`action: "retain_embedded"`、`reason`，可选 `evidence_paths` 指向真实 OCR 或抽帧文件。区间是镜头内时间，不是整集时间；只有整条 cue 被已确认的同文区间覆盖才跳过后加字幕，局部重叠与文字不符保留提醒，不猜词级切点。计划是调用方决定，不是 OCR 检查或人工验收凭证。
+
+沿正常 `prepare` 使用相同选源与时间线；`render` 传原 SRT 和可选 `subtitle_plan`，工具另存实际叠加的 `resolved-overlay.srt` 与 `decision-report.json`，不改原 SRT。仅需先生成草稿时，可用 `drama_render method=subtitle_overlay`，传同一 timeline、subtitle_srt、subtitle_plan；可选 `output` 指定新的导出 SRT，已有文件不覆盖。给 `jianying_draft` 的 `subtitle_srt` 必须使用结果中的 `resolved_srt`，同时传 `subtitle_overlay_report` 为对应报告路径，不能又把原来全部 SRT 叠回去。
+
+交付说明区分后加字幕与源画面烧录字：后者不能变成可编辑字幕，也不能由 ASS 或剪映字幕样式统一字号、位置与标点。保留烧字时明确列出这些镜头和局限，不能宣称整集字幕均可编辑或样式完全统一。需要全片统一样式时先展示无字素材方案与当前候选，不自动购买去字或重生成。其余后加字幕沿项目已认可样式，实际抽帧核对单行、无标点、大小与位置，而不是只验 SRT 文本。
+
 ## 视频禁用标签
 
 开工先用 `drama_video` list/inspect 查本项目标签；ban 至少给一个自由可读 labels（如“人物对调”），reason 可选，不要证据。SHA256 标记具体字节版本，同字节副本也禁用。标错用 unban；查询无标签或解除禁用不等于审核通过，不替代下面的 hashreview。禁止改用通用 FFmpeg、项目手写 render 或复制旧成片绕过禁用。
@@ -61,19 +71,32 @@ SD2.5（Seedance 2.5）默认使用通过内容审核的原片合成，不自动
 - **输出** 宽高与帧率以项目已确认值和 prepare 的 `render_preview.delivery` 为准；1440×2560 @60fps 只是旧项目缺字段时的默认，不得覆盖已认可的其他交付规格。h264，目标码率 `24M`、上限 `30M`、bufsize `48M`，现有工具检查码率下限 4.6 Mbps，交付前读取其实测结果。优先 `h264_nvenc`（`p5 -cq 19`）；探测失败自动回退 `libx264`，并把回退原因写进渲染日志。
 - **正文字幕** 未配置项目覆盖时字号 40、字间距 `-2`、白字、单行、无标点、按语义切分；ASS 用 1080×1920 设计坐标（`Alignment=2`、`MarginV=140`），成片 1440×2560。**黑描边按成片像素定，字段由目标推导，不写死数字**：以 1440px 成片宽度上的 7px 为基准，目标描边随输出宽度等比缩放；ASS 里的 `Outline` 用 `目标像素 ÷ (成片高 ÷ PlayResY)` 算，标准管线（1080×1920 → 1440×2560）写入 `5`；输出尺寸变了要按宽度缩放目标描边再推导（480px 宽时约 2.3px，字段仍为 `5`）。`buildAssHeader` 与 `write_ass` 都这样算，测试钉住推导而不是钉住数字。ASS 头必须带 `ScaledBorderAndShadow: yes`——缺这个键 libass 按未缩放的栅格像素画描边，烧录的 2 倍超采样再缩回来会让它只剩一半（写死的 `Outline 3` 在成片上实测只有 1–2px，旧文档里的「约 4px」是在不超采样的直烧链上量的）。**滤镜顺序**：`fps=60,setpts=N/(60*TB)` 必须在 `ass`/`subtitles` **之后**，字幕滤镜会把时间基准锚回源帧率，放在它前面的帧率滤镜进不了成片（实测只剩 603 帧，对照组 3008 帧），而容器时长/帧率/码率三项照样正常。**不要凭字面值调粗**：早先写死的 7 在成片上量到 8–10px，与正文笔画接近，用户已判定「字幕太粗」。正文可按上文项目配置覆盖字族、字号与底边距，其余默认不变；字体部署与许可的权威说法见下面「本地依赖与入口」；剪映草稿字幕字号相互独立，见 `tweet-drama-draft-build`，改一个不得联动另一个。
 - **仿真人及旧项目水印**：草稿与成片仅在右下角全程显示一次「内容由AI生成」，纯白无描边，不加右上提示。成片由 ASS 的 `Watermark` 事件携带，不再叠 `drawtext` 或第二条水印；草稿使用独立可编辑文本轨，不进入发声字幕 SRT。QA 放大右下角确认只有一条。3D 动画两条路径均不添加此标识。
-- **音频** 未配置项目覆盖时保留部署默认主音频增益 `1.45`、BGM 音量 `0.24`；已确认项目增益写入上述 `delivery.audio`，`alimiter=0.95` 限峰保持不变，试听时检查遮盖对白与爆音。**一集的 BGM 必须多于一首（用户硬要求）**：按正文情绪分段选曲；曲库不在本地，用 `bgm_match` 按正文情绪检索已发布的公开曲库（`catalogUrl` 指向 TOS 上的 `index.json`，返回候选、实测 valence/arousal 与曲目授权声明），**选定哪一首才用 `bgm_match download` 按 track_id 下载那一首**并校验大小与 SHA-256，落进它的下载缓存；选哪首由 agent 定夺，不得用坐标距离自动定稿（其 m-a-p/MERT-v1-95M 骨干许可仅限非商业用途，商业发行改用有商业许可的选曲渠道）。切点落在镜头包边界上；把选中的几首按节拍裁好、用 1.5 秒三角交叉淡化（淡化中心落在包边界）拼成一条 BGM 音轨（渲染器只接受一个 `--bgm` 文件），`-stream_loop -1` 后裁切到正文最后一个视频结束点，不进片尾。交付说明里逐段列出选曲与时间，并记录曲目/来源、理由、音量与过渡、试听结果。**跨集复用规则由 `drama_bgm` 以 `policy_findings` 报出，不拦截调用，但读到就必须照 `fix` 改完再交付**：每集至少 2 首不同曲目、一集内不得重复同一首、整批之内同一首最多出现在 2 集、每集至少 1 首是本批其它集没用过的、每个切点必须落在镜头包边界（容差 0.05 秒）、每段 `reason` 非空。批次 = 计划文件所在目录里所有含 `episodes` 数组的 JSON，阈值为部署配置项；返回的 `batch_episodes` 说明这次核对了哪些集。改计划前先用 `drama_bgm preview` 拿这份清单，别等 compose 才踩。
+- **音频** 优先沿用本项目已确认的混音参数，旧调用的主音频增益 `1.45`、BGM 音量 `0.24`、`alimiter=0.95` 不改为全局新默认；实际试听对白遮盖、配乐存在和爆音。选曲前先 `drama_project action=read` 读取 `project_bible.bgm_feedback`，只在本项目相近语境使用已有明确反馈，同曲后续明确改口以追加的新决定为准。按正文情绪分段选曲，综合剧情推进、对白密度、配器、节奏与切点；`bgm_match` 的实测 valence/arousal 与排序只是候选依据，距离最近不能直接当作适合剧情。可以只用一首，也可以不额外添加 BGM；保留原片对白与已有原声，不为满足曲数而强塞音乐。先检索公开曲库，再仅下载选中的实际 `track_id`，核对大小和 SHA-256。使用多首时按实际内容安排留白与过渡，优先在自然段落或镜头包边界切换，记录选曲、区间、理由、音量、过渡和试听结论。`drama_bgm preview` 的 `policy_findings` 是复核建议，不要求提示清零，也不因曲数或跨集复用提示阻止交付；先查看返回的 `batch_episodes`，再判断是否需要调整本批计划。预览参数检查不代表已经试听。
 - **仿真人及旧项目片尾 2 秒** 从**最后一镜 MP4 的真实尾部**抽最后一帧定格（固定 `-sseof -0.1`；**不要用 `-0.05`**——实测它在部分片子上不写文件却返回退出码 0，会静默产出一个空片尾），抽完必须用 `framemd5` 与「顺序解码的最后一帧」比对证明这一帧确实是真尾帧，对不上就按帧号 `select=eq(n\,N-1)` 重抽，仍对不上就停止出片；禁止用同号分镜 PNG 代替；叠加 `--ending-effect` 视频。**片尾固定 2 秒，但定格图、结尾音频、结尾特效三者并不等长**，各有各的长度：定格帧铺满整 2 秒；`assets/ending_effect.mp4` 实测 1.020 秒，按**自身原速**只播放一次，覆盖片尾开头那 1.020 秒，其余 0.980 秒是纯定格帧（不变速、不拉伸、不循环、不补黑场）；`assets/ending_audio.mp3` 全长 3.474 秒，只有**前 2 秒**延迟到正片结束处进入混音（增益 1、随整轨过 `alimiter=0.95`），后 1.474 秒既不进成片也不循环。片尾素材只能用随包这两份字节，`drama_render render` 与 `scripts/render_episode.py` 都按 SHA-256 校验：`assets/ending_effect.mp4`（904502 字节，`49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010`）、`assets/ending_audio.mp3`（83432 字节，`d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f`）；**换成别的文件直接报错，不会照常出片**。`drama_render render` 另外要求特效不长于片尾窗口：超过 2 秒同样直接报错，不做截断。
+- **片尾特效完整覆盖选项**：新建仿真人交付候选时，在 `prepare` 后的共享 timeline 显式写 `ending_effect_fit: "stretch_to_window"`，除非项目已经明确选择原速短特效。正式渲染和草稿均将完整特效源按实测时长变速覆盖 2 秒；1.020 秒源的播放速度为 0.51，音频仍原速取前 2 秒。此选项不循环、不补黑场，也不把黑尾冻结冒称仍有特效；报告源时长、目标时长与速度，预览片尾后再确定效果。省略字段按上面的 `source_once` 旧规则播放一次，保留旧调用；3D 动画仍不添加任何片尾。
 - **禁止**转场、额外音效、调色、滤镜、画面特效和花字；全片只有基础硬切与上述片尾特效。
 
 **字幕可读性建议两条路径保持一致**：建议去标点、按语义切分、单行、单条不超过 14 个有效字（空格按半个字计），文字取剧本原文。缺对齐、声文不符、样式或配乐问题只返回具体路径与原因，由 Muse 判断如何处理；不要求提示清零，也不新增批准步骤。草稿路径的 `normalize_subtitle_text` 写出独立 `.normalized.srt`；超长字幕保留原文与时间，不按字数猜切点。`drama_render subtitles` 有疑点时写 `.draft.srt` 并保留原字幕；`.review.txt` 与旧 `.blocked` 只作提醒，准备和渲染可继续。保存成功不表示已完成质量验收。**字幕外观两条路径分别配置**：成片按明确的项目正文样式或部署默认（默认字族 SimHei、ASS 字号 `40`、字间距 `-2`、描边按成片像素推导）；草稿用剪映系统默认黑体（`draft_content.json` 里不写 `font` 字段）、字号 `11`（UI）、字间距 `0`（UI）、描边 `20`（UI）。改一边不得联动另一边。
 
-BGM 授权信息交接：`match/download` 的 `intended_use` 与计划中本集的 `intended_use` 保持一致，未知用途写 `unknown`，不能默认非商业。选定后把下载结果的 `license_info`、`track_id` 原样写入每段；把 `download.sha256` 写入 `source_sha256`，本地候选使用返回的同名摘要，以便合成前核对源曲字节。缺失信息保留 `unknown`，不能补造许可证或写成已审批；`declared` 只表示来源声明完整。检查候选/下载的 `license_warnings` 及合成/渲染的 `license_records`，交付保留来源、署名和范围。风险提示不阻断不等于获得使用权；上文 MERT 许可要求仍独立适用。
+## 配乐试听与反馈
+
+计划可在本集 `episodes[]` 中明确写 `music_decision: "none"`、有依据的 `decision_reason` 和 `segments: []`，正文时长仍取当前时间线；`drama_bgm` 返回 `status: "no_added_music"`，不生成或验证 WAV，空 `output` 不能传作已存在音乐。明确 `music_decision: "music"` 时可以单曲或为对白留出无音乐区间；省略决定则保留旧的连续覆盖行为。自主决定不额外配乐不等于用户已拒绝某曲，只有明确用户反馈才写入项目反馈。
+
+先把当前项目的明确混音选择保存到项目内 JSON，并用 `mix_profile` 将同一文件传给 `drama_render audio_preview` 与正式 `render`。配置包含 `schema_version: 1`、`mode: legacy|no_bgm|ducking`、`analysis_window_ms`（10–1000），可选 `original_gain` 和 `music_gain`（0–8）；旧调用不传配置时保持旧默认。`no_bgm` 不读取 `bgm` 或 `bgm_plan`，只去掉后加配乐，不会分离或删除原片里已有的音乐。`ducking` 必须明确提供 threshold_db、ratio、attack_ms、release_ms、knee；它由原声能量驱动，不是语义 VAD 或纯对白分离，不能保证所有音效都不触发压低。
+
+例如项目明确选择沿用旧增益时，`editing/audio-mix.json` 可为 `{"schema_version":1,"mode":"legacy","analysis_window_ms":100,"original_gain":1.45,"music_gain":0.24}`；这些数值不是所有项目的新推荐。实际试听调用形如 `drama_render({method:"audio_preview",project:".",episode:1,timeline:"editing/01-timeline.json",audio:"audio/01.wav",bgm:"audio/bgm/01.wav",mix_profile:"editing/audio-mix.json",start_seconds:0,duration_seconds:8,intended_use:"unknown"})`，将集号、文件与时间窗换成当前真实素材，时长大于 0、最多 60 秒且不越正文末尾。可附 `bgm_plan` 交接许可，附 `bgm_generation` 回读该条 BGM 实际 generation.json 的源窗口响度与增益；收据 SHA-256 必须匹配完整配乐文件，缺收据就如实标为未提供，不能推算冒充。
+
+选曲或混音信心低时，先生成同一对白片段的实际可播放 A/B 试听，A 为拟交付混音，B 为无后加配乐的原声；另留纯配乐 stem 便于定位遮盖与对白叠播。只用现有本地素材，不为试听新购视频、图片或转写。给出短片路径、时间窗、差异和未确认点，集中一次请求反馈，不逐曲反复打断；普通曲数、复用和风格差异不新增批准步骤。未实际播放不能写成“试听通过”，RMS/peak 只能说明测量结果，不能代替听感。用户明确反馈后，按项目圣经技能以新 ID 追加 `bgm_feedback`；Agent 自己的偏好不落成用户反馈。
+
+`audio_preview` 返回新目录中的 `selected_mix`、`without_added_music` 和 `analysis` 路径，有后加配乐时另返回 `music_stem` 路径，不覆盖旧试听；`no_bgm` 的 `music_stem` 为空，不生成假配乐文件。分析里的固定短窗 RMS/peak 与 R128 Momentary（400ms）、Short-term（3s）分别解读，不把它们统称纯对白响度或用户已认可。正式 `render` 复用同一 `mix_profile`，有配乐时把返回的独立纯配乐 stem 交给草稿；不能把含对白的审查混音再次作为 BGM 轨。
+
+BGM 授权信息交接：`match/download` 的 `intended_use` 与计划中本集的 `intended_use` 保持一致，未知用途写 `unknown`，不能默认非商业。选定后把下载结果的 `license_info`、`track_id` 原样写入每段；把 `download.sha256` 写入 `source_sha256`，本地候选使用返回的同名摘要，以便合成前核对源曲字节。缺失信息保留 `unknown`，不能补造许可证或写成已审批；`declared` 只表示来源声明完整。检查候选/下载的 `license_warnings` 及合成/渲染的 `license_records`，交付保留来源、署名和范围。曲目许可与分析模型许可分别核实，不能将二者互相替代：m-a-p/MERT-v1-95M 标注仅限非商业用途，商业使用须另核该模型及分析链路许可；这不自动说明每首曲目都禁止商用。风险提示不阻断、可下载或用户认可效果，都不等于获得使用权。
 
 ## 本地依赖与入口
 
 本包包含维护源码和片尾这两份素材（本技能目录下的 `assets/ending_effect.mp4`、`assets/ending_audio.mp3`），不包含 BGM、字体或 FFmpeg 二进制。安装 FFmpeg/ffprobe（需字幕滤镜和所选编码器）；路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，兼容 `FFMPEG_PATH` / `FFPROBE_PATH`，否则使用 PATH。**字体只有这一处权威说法**：随包字体只存在于 muse-med Windows 产品——它捆绑 OFL 授权的 Noto Sans CJK SC，未配置项目正文覆盖时 ASS 正文 40、水印 44 及其余默认不变，Python 通过 `MUSE_FONTS_DIR` 和 `MUSE_FONT_FAMILY` 使用包内字体，正式 `drama_render` 由产品配置传入同一目录和字族；`background-render` 与 `draft-build` 的其余段落都不再另称 SimHei。非产品部署没有随包字体，字族回落为系统发现的 SimHei（正文）与 Microsoft YaHei（水印），即 `drama_render` 的默认值，或用 `DSH_FONTS_DIR` 指定已授权目录，需自行确认这两个字体可用且已获授权；选择 Noto Sans CJK SC 的理由是它可以随包再分发（OFL），SimHei 不行。脚本仅依赖 Python 标准库和相邻 `tweet-drama-core/scripts/video_bans.py`，建议 Python 3.11+，运行时用 `python -B`。
 
-单集入口 `scripts/render_episode.py` 必须显式提供 `--bgm`（该集至少两首按情绪分段合成并试听通过的音轨）；仿真人及旧项目还必须提供 `--ending-audio` 和 `--ending-effect`，指向本技能 `assets/` 下的两份素材，缺失或字节不符都明确失败。3D 动画无需片尾参数，即使传入也不读取。批量入口 `scripts/render_batch.py` 使用 `--bgm-dir` 中逐集的 `NN.mp3`，每集独立执行同一媒介策略。音轨数量、选曲情绪与使用授权由项目分段记录和试听审核核验，脚本不从已混音文件推断曲目。生成规格服从当前模型目录与分镜，脚本按时间线 `delivery` 快照输出并校验尺寸和帧率，缺少快照时保留上面的旧版默认。
+单集入口 `scripts/render_episode.py` 的旧调用仍需显式提供 `--bgm`（本集实际选择并试听的配乐音轨，不限定曲数）；无后加配乐或项目级混音使用当前 `drama_render` schema 支持的显式方案，不以静音文件假装已经选曲。仿真人及旧项目还必须提供 `--ending-audio` 和 `--ending-effect`，指向本技能 `assets/` 下的两份素材，缺失或字节不符都明确失败。3D 动画无需片尾参数，即使传入也不读取。批量入口 `scripts/render_batch.py` 使用 `--bgm-dir` 中逐集的 `NN.mp3`，每集独立执行同一媒介策略。选曲情绪与使用授权由项目分段记录和试听核验，脚本不从已混音文件推断曲目。生成规格服从当前模型目录与分镜，脚本按时间线 `delivery` 快照输出并校验尺寸和帧率，缺少快照时保留上面的旧版默认。
 
 `drama_render` 和单集、批量脚本的所有项目输入/输出相对路径均以 `project` 为基准，绝对路径保持不变。跨工具传递绝对项目根目录；相对 `project` 只在入口按调用进程的工作目录解析一次。字幕、时间线、清单、BGM、片尾、显式输出及单集 `--freeze-image` 都遵循此规则；批量 `--bgm-dir` 同样以项目为基准。项目外的随包片尾素材使用本技能实际安装位置的绝对路径，不把 `assets/` 误当 Host 工作目录。字体和 FFmpeg 部署配置不属于项目路径，不改变工作目录来适配它们。
 

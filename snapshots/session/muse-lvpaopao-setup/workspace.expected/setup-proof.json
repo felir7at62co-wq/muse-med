@@ -1,0 +1,13 @@
+{
+  "setupLaunches": 3,
+  "helperLaunches": 2,
+  "nativeMethods": [
+    "status",
+    "search",
+    "status"
+  ],
+  "ready": true,
+  "auxiliaryLoginState": false,
+  "idleMacRecovery": true,
+  "realExternalCalls": 0
+}

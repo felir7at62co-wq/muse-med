@@ -12,6 +12,17 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+it('builds the Host peers before qualifying download bundles on a clean checkout', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const commands = steps.map((step: unknown) => record(step).run)
+  const build = commands.findIndex(command => typeof command === 'string' && command.includes('pnpm run build:lib:host'))
+  const qualification = commands.findIndex(command => typeof command === 'string' && command.includes('third_party/plugins/download-pack.test.mjs'))
+  expect(build).toBeGreaterThanOrEqual(0)
+  expect(qualification).toBeGreaterThan(build)
+})
+
 it('allows ad-hoc resource sealing for unsigned PR packages without publisher signing', () => {
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps

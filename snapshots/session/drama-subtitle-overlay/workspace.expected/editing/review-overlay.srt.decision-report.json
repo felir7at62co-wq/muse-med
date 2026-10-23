@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "episode": "01",
+  "plan_path": "{{cwd}}/subtitle-plan.json",
+  "plan_sha256": "dba01ff5ba804040bdb60d96ee25b99aa787f25a921a76af81c3565a008607b2",
+  "original_srt": "{{cwd}}/original.srt",
+  "original_srt_sha256": "b91d2e3478400cfa168fe64f561a4816c9de787965b3be5791f101b71483635e",
+  "resolved_srt": "{{cwd}}/editing/review-overlay.srt",
+  "resolved_srt_sha256": "fc6cd87dd914fc280d1c4eda48b7b2e1516bfe970571ff77c04193421ab66836",
+  "decision_report": "{{cwd}}/editing/review-overlay.srt.decision-report.json",
+  "sources": [
+    {
+      "shot": 1,
+      "path": "{{cwd}}/video/01/shot_001.mp4",
+      "sha256": "8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5"
+    },
+    {
+      "shot": 2,
+      "path": "{{cwd}}/video/01/shot_002.mp4",
+      "sha256": "14ad6e103e046d598b197655f9be00ff780789867cd43cd6ee54569ca0473ed7"
+    }
+  ],
+  "retained_cue_indexes": [
+    1
+  ],
+  "timeline_clips": [
+    {
+      "shot": 1,
+      "start_us": 0,
+      "duration_us": 2000000
+    },
+    {
+      "shot": 2,
+      "start_us": 2000000,
+      "duration_us": 2000000
+    }
+  ],
+  "retained_embedded": [
+    {
+      "cue_index": 1,
+      "shot": 1,
+      "text": "原片已有对白",
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "source_sha256": "8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5",
+      "editable": false
+    }
+  ],
+  "original_cue_count": 2,
+  "overlay_cue_count": 1,
+  "evidence_kind": "caller_declared",
+  "retained_text_editable": false,
+  "retained_text_style_adjustable": false,
+  "decisions": [
+    {
+      "shot": 1,
+      "source_sha256": "8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5",
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "text": "原片已有对白",
+      "action": "retain_embedded",
+      "reason": "Synthetic fixture explicitly declares matching text in source pixels; this is not a real OCR attestation.",
+      "evidence_paths": [],
+      "global_start_seconds": 0,
+      "global_end_seconds": 1,
+      "retained_cue_indexes": [
+        1
+      ],
+      "review_cue_indexes": []
+    }
+  ],
+  "warnings": [
+    "保留的原片字幕已烧录在画面中，不可作为字幕编辑，也无法用外加字幕样式统一其字号和位置；原始 SRT 保留作对白参考。",
+    "字幕决定与 evidence_paths 由调用方声明，不是 Host 签发的 OCR 或人工验收凭据；抽帧漏检、噪声及内容准确度仍需预览。"
+  ]
+}

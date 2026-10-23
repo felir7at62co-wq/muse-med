@@ -4,7 +4,7 @@
 
 这些保留的源码快照记录 Muse 社区插件依赖。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除保留的上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
 
-[owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
+[owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
 源码清单中 desktop: false 的条目仅保留用于显式兼容工作，默认构建、桌面打包与开发加载均排除。Codex 订阅包含在产品构建中；不会仅因订阅插件而选择可选 Codex CLI peer。--only dsh-codex-subscription 可单独构建其经过审核的产物。
 

@@ -26,6 +26,14 @@ function timeline(): Timeline {
 }
 
 describe('parseTimelineDocument', () => {
+  it.each(['source_once', 'stretch_to_window'] as const)('round-trips explicit ending effect fit %s', (fit) => {
+    const parsed = parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }], ending_effect_fit: fit }, 'timeline.json')
+    expect(parsed.endingEffectFit).toBe(fit)
+    expect(JSON.parse(formatTimelineDocument(parsed))).toMatchObject({ ending_effect_fit: fit })
+  })
+  it.each([null, '', 'loop', 1])('rejects invalid ending effect fit %j', (value) => {
+    expect(() => parseTimelineDocument({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }], ending_effect_fit: value }, 'timeline.json')).toThrow('ending_effect_fit')
+  })
   it('reads clips and derives the body end from the furthest clip end', () => {
     const parsed = parseTimelineDocument({
       clips: [

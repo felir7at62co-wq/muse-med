@@ -138,6 +138,7 @@ describe('desktop development project', () => {
     ['muse-douyin-download', 'owned-downloads.json'],
     ['muse-reverse-tools', 'owned-downloads.json'],
     ['muse-fanqie-download', 'owned-downloads.json'],
+    ['muse-lvpaopao', 'owned-downloads.json'],
   ])('manages %s without modifying the linked workspace packages', async (pluginName, pinFile) => {
     const root = temporaryRoot()
     const cli = join(root, 'apps', 'cli')

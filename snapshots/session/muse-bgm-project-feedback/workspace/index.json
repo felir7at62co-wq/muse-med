@@ -1,0 +1,22 @@
+[
+  {
+    "path": "music/fixture-rejected.wav",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bytes": 96044,
+    "modified_ms": 0,
+    "valence": 5,
+    "arousal": 5,
+    "moods": [
+      "tense"
+    ],
+    "license_info": {
+      "status": "declared",
+      "license": "CC0-1.0",
+      "commercial_use": true,
+      "source": "synthetic keyless test fixture declaration",
+      "attribution": "synthetic fixture author",
+      "scope": "test fixture only"
+    },
+    "license_warnings": []
+  }
+]

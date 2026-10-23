@@ -1,0 +1,10 @@
+{
+  "realSession": true,
+  "realToolResult": true,
+  "sourceLettersAndNumbers": 30000,
+  "candidateLettersAndNumbers": 80000,
+  "excessAdvisoryOnly": true,
+  "manuscriptBytesUnchanged": true,
+  "revisionLedgerWritten": false,
+  "networkAccessAllowed": false
+}

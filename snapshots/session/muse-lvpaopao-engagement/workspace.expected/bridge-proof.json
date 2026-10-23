@@ -1,0 +1,29 @@
+{
+  "sshLaunches": 1,
+  "nativeMethods": [
+    "status",
+    "search",
+    "episodes",
+    "detail",
+    "episodes",
+    "engagement",
+    "engagement",
+    "engagement"
+  ],
+  "status": "waiting-target",
+  "inventedSearchTitle": "离线纸灯",
+  "actualEpisodeNumbers": [
+    1,
+    3
+  ],
+  "partial": true,
+  "engagementStatus": "engagement-partial",
+  "totals": {
+    "likes": 0,
+    "comments": null,
+    "recommendations": 9,
+    "shares": 12
+  },
+  "nativeDownloadCalls": 0,
+  "realExternalCalls": 0
+}

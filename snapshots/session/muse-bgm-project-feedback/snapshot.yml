@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-bgm-project-feedback
+profile: headless
+composition: muse-bgm-project-feedback
+recording: authored
+header:
+  class: muse-bgm-project-feedback
+  pin: true
+workspace:
+  setup: muse-bgm-project-feedback
+writerOutput: true
