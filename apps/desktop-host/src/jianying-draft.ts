@@ -3,6 +3,7 @@ import { access, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
@@ -97,8 +98,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
 
 /** Loader identity for Desktop's library-backed draft builder. */
 export const name = 'desktop-jianying-draft'
-/** The tool registry and managed process owner. */
-export const inject = ['tools', 'subprocess']
+/** The tool registry, managed process owner and current tool guidance. */
+export const inject = ['tools', 'subprocess', 'systemPrompt']
 
 /**
  * Register direct draft generation without PowerShell or an external Python installation.
@@ -106,6 +107,13 @@ export const inject = ['tools', 'subprocess']
  * @param config - Runtime location and process limits.
  */
 export function apply(ctx: Context, config: Config): void {
+  ctx.systemPrompt.section({ name: 'tool:jianying_draft',
+    order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), interpolate: false,
+    text: `## 剪映草稿：当前原生入口
+
+当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。用 drama_draft_dir 取得根目录，write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
+
+独立对白成功导入后才静音正文源视频，保留独立对白；导入失败时保留源视频原声并说明未完成分轨，不删除对白或把所有音轨静音。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。` })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'jianying_draft',
     description: '使用随 Muse 打包的 pyJianYingDraft 生成一集可编辑剪映草稿，不经过 PowerShell。先读 tweet-drama-draft-build 技能并用 drama_draft_dir 取得根目录；write 一个 JSON 请求文件，包含 project、episode、name_prefix、audio、按镜头顺序的 videos 路径数组、subtitle_srt、timeline，可选 bgm、bgm_role、ending_audio、ending_effect，所有文件用绝对路径。主音轨是未混 BGM 的完整对白；独立 bgm 应为纯音乐并声明 bgm_role=music_only，dialogue_music_mix 审查混音不会再导入独立 BGM 轨，未知用途只提示、不会宣称已证明无对白。字幕已按实际语音校时，timeline 沿用成片时间线。只处理指定集，不覆盖已有草稿；字幕、配乐和轨道质量疑点返回 warnings 与 review_path 软提示，由你查看实际轨道决定，不要求提示清零。返回保存后读回一致的草稿路径和库版本，editor_open_verified=false 表示尚未在用户剪映里打开验收。',
