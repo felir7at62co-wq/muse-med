@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from './coverage-partitions.ts'
 import {
   benchmarkNpmResolution,
   buildRegistryIndex,
@@ -20,10 +21,28 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 
 const roots: string[] = []
+const npmSmokeCaseBudget = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 30_000
+// Real npm startup, lock-file writes and process exit share the lane with other workers.
+// Reserve half the case for bounded process-tree termination and registry cleanup.
+const npmSmokeDeadline = Math.floor(npmSmokeCaseBudget / 2)
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
-})
+}, npmSmokeCaseBudget)
+
+function expectNpmClosed(firstCall: number): void {
+  const spawn = vi.mocked(childProcesses.spawn)
+  const calls = spawn.mock.calls.slice(firstCall)
+  expect(calls, 'one npm child belongs to this resolution').toHaveLength(1)
+  expect(calls[0]?.[0]).toBe(process.platform === 'win32' ? 'npm.cmd' : 'npm')
+  const spawned = spawn.mock.results[firstCall]
+  if (spawned?.type !== 'return') throw new Error('The real npm child was not spawned')
+  const child = spawned.value
+  expect(child.exitCode, 'npm child exited normally').toBe(0)
+  expect(child.signalCode, 'npm child was not terminated by a signal').toBeNull()
+  expect(child.stdout?.readableEnded, 'npm stdout reached EOF').toBe(true)
+  expect(child.stderr?.readableEnded, 'npm stderr reached EOF').toBe(true)
+}
 
 function writeJson(root: string, path: string, value: unknown): void {
   const absolute = join(root, path)
@@ -96,13 +115,15 @@ describe('npm resolution benchmark', () => {
     })
   })
 
-  it('runs npm against the local registry without requesting an archive', async () => {
+  it('runs npm against the local registry without requesting an archive', { timeout: npmSmokeCaseBudget }, async () => {
     const index: RegistryIndex = new Map([[
       '@deepseek-ai/dsh',
       new Map([['0.1.0', { name: '@deepseek-ai/dsh', version: '0.1.0' }]]),
     ]])
-    const result = await benchmarkNpmResolution(index, '0.1.0', 10_000)
+    const firstCall = vi.mocked(childProcesses.spawn).mock.calls.length
+    const result = await benchmarkNpmResolution(index, '0.1.0', npmSmokeDeadline)
 
+    expectNpmClosed(firstCall)
     expect(result.durationMs).toBeGreaterThan(0)
     expect(result.registryRequests).toBeGreaterThan(0)
     expect(result.archiveRequests).toBe(0)
@@ -167,7 +188,7 @@ describe('npm resolution benchmark', () => {
     }
   })
 
-  it('returns npm placement for two aliased package versions without requesting archives', async () => {
+  it('returns npm placement for two aliased package versions without requesting archives', { timeout: npmSmokeCaseBudget }, async () => {
     const index: RegistryIndex = new Map([[
       '@deepseek-ai/dsh',
       new Map([
@@ -176,11 +197,13 @@ describe('npm resolution benchmark', () => {
       ]),
     ]])
 
+    const firstCall = vi.mocked(childProcesses.spawn).mock.calls.length
     const result = await resolveNpmPackageLock(index, {
       '@deepseek-ai/dsh': '0.2.0',
       'dsh-previous': 'npm:@deepseek-ai/dsh@0.1.0',
-    }, 10_000)
+    }, npmSmokeDeadline)
 
+    expectNpmClosed(firstCall)
     expect(result.archiveRequests).toBe(0)
     expect(result.packageLock.packages['node_modules/@deepseek-ai/dsh']?.version).toBe('0.2.0')
     expect(result.packageLock.packages['node_modules/dsh-previous']).toMatchObject({
@@ -189,7 +212,7 @@ describe('npm resolution benchmark', () => {
     })
   })
 
-  it('isolates peer resolution from inherited npm configuration', async () => {
+  it('isolates peer resolution from inherited npm configuration', { timeout: npmSmokeCaseBudget }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-hostile-npm-config-'))
     roots.push(root)
     const userConfig = join(root, 'user.npmrc')
@@ -215,8 +238,10 @@ describe('npm resolution benchmark', () => {
         }]])],
       ])
 
-      const result = await resolveNpmPackageLock(index, { '@deepseek-ai/dsh': '0.1.0' }, 10_000)
+      const firstCall = vi.mocked(childProcesses.spawn).mock.calls.length
+      const result = await resolveNpmPackageLock(index, { '@deepseek-ai/dsh': '0.1.0' }, npmSmokeDeadline)
 
+      expectNpmClosed(firstCall)
       expect(result.archiveRequests).toBe(0)
       expect(result.packageLock.packages['node_modules/@deepseek-ai/dsh-peer']?.version).toBe('1.0.0')
     } finally {
