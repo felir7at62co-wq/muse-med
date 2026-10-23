@@ -970,7 +970,7 @@ def _duration_us(segment: dict) -> int:
 
 def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues,
                           ending=None, expect_bgm=False, body_tail_holds=None) -> None:
-    """交付前校验一份草稿：对不上就拒绝交付并列出全部失败项。
+    """汇总草稿轨道待核项；生成流程将它们返回为提示并保留候选。
 
     正文镜头和主音频保持原时间线；3D 动画不添加 2 秒片尾定格或 AI 标识。
     仿真人与未声明媒介的旧项目另含 2 秒定格及独立 AI 标识，字幕仅计实际发声。
@@ -1068,6 +1068,10 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
             continue
         shot = _media_shot_number(path)
         clip = clips.get(shot)
+        if (audio_segments and video_materials.get(segment.get("material_id"), {}).get("type") == "video"
+                and segment.get("volume") != 0):
+            failures.append(f"镜头 {shot} 的源视频音量为 {segment.get('volume', '未声明')}，可能重复对白；"
+                            "保留独立对白轨并将该源视频静音。")
         if clip is None:
             failures.append(f"镜头 {shot} 用的是默认时长 {duration / 1e6:.3f} 秒，时间线里没有这个镜头。")
         elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US or start != clip["start_us"]:
@@ -1172,7 +1176,7 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
             failures.append(f"字幕 {text!r} 是两行；交付字幕必须单行。")
 
     if failures:
-        raise DraftInputError("草稿未通过交付前校验，拒绝交付：\n  - " + "\n  - ".join(failures))
+        raise DraftInputError("草稿轨道存在待核项：\n  - " + "\n  - ".join(failures))
 
 
 def main_with_args(args, results=None):

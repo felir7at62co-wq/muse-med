@@ -425,6 +425,157 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual([segment['volume'] for segment in self.segments(content, 'video')], [0, 0])
         self.assertEqual([segment['volume'] for segment in self.segments(content, 'audio')], [1.0])
 
+    def test_delivery_checks_report_each_unmuted_or_unverified_body_source_volume(self):
+        root = self.body_only_root()
+        for shot in (1, 2):
+            shutil.copy2(self.video_with_audio, root / f'02_media/25/p{shot}.mp4')
+        content = self.generate_content(root)
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips())
+        cues = self.module.normalize_srt(root / '03_subtitle/25.srt')
+        self.module.verify_draft_delivery(content, self.clips(), 4_000_000, cues, plan)
+        for index in range(2):
+            for volume in (1, 0.5, None):
+                with self.subTest(shot=index + 1, volume=volume):
+                    bad = json.loads(json.dumps(content))
+                    segment = self.segments(bad, 'video')[index]
+                    if volume is None:
+                        segment.pop('volume')
+                    else:
+                        segment['volume'] = volume
+                    with self.assertRaises(self.module.DraftInputError) as captured:
+                        self.module.verify_draft_delivery(bad, self.clips(), 4_000_000, cues, plan)
+                    self.assertIn('源视频音量', str(captured.exception))
+                    self.assertRegex(str(captured.exception), rf'镜头\s*{index + 1}')
+        photo_only = json.loads(json.dumps(content))
+        for material in photo_only['materials']['videos']:
+            material['type'] = 'photo'
+        for segment in self.segments(photo_only, 'video'):
+            segment['volume'] = 1
+        self.module.verify_draft_delivery(photo_only, self.clips(), 4_000_000, cues, plan)
+
+    def test_delivery_checks_do_not_report_source_volume_without_independent_main_audio(self):
+        root = self.body_only_root()
+        for shot in (1, 2):
+            shutil.copy2(self.video_with_audio, root / f'02_media/25/p{shot}.mp4')
+        content = self.generate_content(root)
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips())
+        cues = self.module.normalize_srt(root / '03_subtitle/25.srt')
+        for audio_duration in (None, 4_000_000):
+            for volume in (1, 0.5, None):
+                with self.subTest(audio_duration=audio_duration, volume=volume):
+                    bad = json.loads(json.dumps(content))
+                    bad['tracks'] = [track for track in bad['tracks'] if track.get('name') != '主音频轨道']
+                    for segment in self.segments(bad, 'video'):
+                        if volume is None:
+                            segment.pop('volume')
+                        else:
+                            segment['volume'] = volume
+                    with self.assertRaisesRegex(self.module.DraftInputError, '主音频轨没有任何片段') as captured:
+                        self.module.verify_draft_delivery(bad, self.clips(), audio_duration, cues, plan)
+                    self.assertNotIn('源视频音量', str(captured.exception))
+
+    def test_unmuted_body_sources_keep_the_saved_draft_with_review_warnings(self):
+        root = self.body_only_root()
+        for shot in (1, 2):
+            shutil.copy2(self.video_with_audio, root / f'02_media/25/p{shot}.mp4')
+        original_add = self.module.draft.ScriptFile.add_segment
+
+        def unmute_body_source(script, segment, track=None):
+            if isinstance(segment, self.module.draft.VideoSegment):
+                segment.volume = 1
+            return original_add(script, segment, track)
+
+        with patch.object(self.module.draft.ScriptFile, 'add_segment', unmute_body_source):
+            result = self.generation_result(root)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['drafts_created'], 1)
+        draft_path = Path(result['drafts'][0]['path'])
+        self.assertTrue(draft_path.is_dir())
+        content = json.loads((draft_path / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual([segment['volume'] for segment in self.segments(content, 'video')], [1, 1])
+        main = next(track for track in content['tracks'] if track.get('name') == '主音频轨道')['segments']
+        self.assertEqual(len(main), 1)
+        self.assertEqual(main[0]['volume'], 1.0)
+        self.assertEqual(main[0]['target_timerange'], {'start': 0, 'duration': 4_000_000})
+        review = json.loads((draft_path / 'muse-review.json').read_text(encoding='utf-8'))
+        for warnings in (review['warnings'], result['warnings']):
+            for shot in (1, 2):
+                with self.subTest(shot=shot, warnings=warnings):
+                    self.assertTrue(any(f'镜头 {shot}' in warning and '源视频音量' in warning for warning in warnings), warnings)
+            self.assertFalse(any('拒绝交付' in warning for warning in warnings), warnings)
+
+    def test_direct_request_keeps_six_aac_sources_muted_with_one_independent_dialogue_track(self):
+        root = Path(tempfile.mkdtemp(prefix='draft-single-dialogue-'))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        inputs = root / 'inputs'
+        inputs.mkdir()
+        audio = inputs / '01.wav'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-stream_loop', '2', '-i', str(self.audio),
+                        '-map', '0:a:0', '-t', '12', '-c:a', 'pcm_s16le', str(audio)],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        videos = []
+        for shot in range(1, 7):
+            path = inputs / f'shot_{shot:03d}.mp4'
+            shutil.copy2(self.video_with_audio, path)
+            probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                                    '-show_entries', 'stream=codec_name', '-of', 'json', str(path)],
+                                   check=True, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+            self.assertEqual(json.loads(probe.stdout)['streams'], [{'codec_name': 'aac'}])
+            videos.append(path)
+        timeline = {'clips': [{'shot': shot, 'start_us': (shot - 1) * 2_000_000, 'duration_us': 2_000_000}
+                              for shot in range(1, 7)], 'body_end': 12,
+                    'delivery': {'visual_medium': 'animation_3d', 'width': 480, 'height': 854, 'fps': 24}}
+        timeline_path = inputs / '01.timeline.json'
+        timeline_path.write_text(json.dumps(timeline), encoding='utf-8')
+        srt = inputs / '01.srt'
+        srt.write_text('1\n00:00:00,000 --> 00:00:12,000\n合成对白。\n', encoding='utf-8')
+        sources = [audio, timeline_path, srt, *videos]
+        source_hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+        drafts = root / 'editor'
+        drafts.mkdir()
+        request = {'project': str(root), 'episode': 1, 'name_prefix': '单路对白-', 'audio': str(audio),
+                   'videos': [str(path) for path in videos], 'subtitle_srt': str(srt), 'timeline': str(timeline_path)}
+        with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]), patch.dict(os.environ), \
+                patch.dict(sys.modules, {'jianying_draft': self.module}):
+            spec = importlib.util.spec_from_file_location('draft_single_dialogue_request', SCRIPT.with_name('generate_draft_request.py'))
+            request_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(request_module)
+            result = request_module.generate_request(request, str(drafts))
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['drafts_created'], 1)
+        self.assertEqual(result['library']['name'], 'pyJianYingDraft')
+        self.assertFalse(result['editor_open_verified'])
+        draft_path = Path(result['drafts'][0]['path'])
+        self.assertEqual(draft_path, drafts / '单路对白-01')
+        content = json.loads((draft_path / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual(content['duration'], 12_000_000)
+        video = self.segments(content, 'video')
+        main = next(track for track in content['tracks'] if track.get('name') == '主音频轨道')['segments']
+        self.assertEqual(len(video), 6)
+        self.assertEqual([segment['volume'] for segment in video], [0] * 6)
+        self.assertTrue(all(segment['speed'] == 1.0 for segment in video))
+        self.assertEqual([segment['target_timerange'] for segment in video],
+                         [{'start': (shot - 1) * 2_000_000, 'duration': 2_000_000} for shot in range(1, 7)])
+        self.assertEqual(len(self.segments(content, 'audio')), 1)
+        self.assertEqual(len(main), 1)
+        self.assertEqual(main[0]['volume'], 1.0)
+        self.assertEqual(main[0]['target_timerange'], {'start': 0, 'duration': 12_000_000})
+        retained = Path(result['materials_dir'])
+        video_materials = {material['id']: material for material in content['materials']['videos']}
+        for shot, segment in enumerate(video, 1):
+            path = Path(video_materials[segment['material_id']]['path'])
+            self.assertTrue(path.is_absolute() and path.is_file())
+            self.assertTrue(path.is_relative_to(retained))
+            self.assertEqual(path.name, f'shot_{shot:03d}.mp4')
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), source_hashes[videos[shot - 1]])
+        audio_materials = {material['id']: material for material in content['materials']['audios']}
+        retained_audio = Path(audio_materials[main[0]['material_id']]['path'])
+        self.assertTrue(retained_audio.is_absolute() and retained_audio.is_file())
+        self.assertTrue(retained_audio.is_relative_to(retained))
+        self.assertEqual(hashlib.sha256(retained_audio.read_bytes()).hexdigest(), source_hashes[audio])
+        self.assertEqual({path: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}, source_hashes)
+        self.assertFalse(any('源视频音量' in warning for warning in result['warnings']))
+
     def test_failed_main_audio_import_keeps_embedded_video_audio_and_the_reviewable_draft(self):
         original_add = self.module.draft.ScriptFile.add_segment
         def fail_main_audio(script, segment, track=None):
