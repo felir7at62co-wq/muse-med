@@ -271,6 +271,57 @@ describe('drama_render subtitles', () => {
     ].join('\n'))
   })
 
+  it.each([false, true])('does not publish an empty candidate when all alignment is unverified (existing: %s)', async (existing) => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, {
+      shots: ALIGNMENT.shots.map(({ shot, cues }) => ({ shot, cues })),
+    })
+    const candidate = `${subtitle}.draft.srt`
+    const oldSubtitle = '1\n00:00:00,000 --> 00:00:01,000\n保留原字幕\n'
+    const oldCandidate = '1\n00:00:00,100 --> 00:00:01,100\n保留候选\n'
+    if (existing) {
+      await mkdir(dirname(subtitle), { recursive: true })
+      await writeFile(subtitle, oldSubtitle)
+      await writeFile(candidate, oldCandidate)
+      await writeFile(`${candidate}.review.txt`, '原候选说明\n')
+      await writeFile(`${subtitle}.blocked`, '原待核标记\n')
+    }
+    const report = await runDramaRender({ method: 'subtitles', project, episode: 2,
+      shots, lines: plan, alignment: aligned, subtitleSrt: subtitle },
+    settingsWith(stubChannel([cueProbes(project)]).channel))
+
+    expect(report.ok).toBe(true)
+    expect(report.written).toEqual([`${subtitle}.review.txt`])
+    expect(report.warnings.join('\n')).toContain('未生成字幕候选')
+    expect(report.warnings.join('\n')).not.toContain('候选已写入')
+    expect(await readFile(`${subtitle}.review.txt`, 'utf8')).toContain('未生成字幕候选')
+    if (existing) {
+      expect(await readFile(subtitle, 'utf8')).toBe(oldSubtitle)
+      expect(await readFile(candidate, 'utf8')).toBe(oldCandidate)
+      expect(await readFile(`${candidate}.review.txt`, 'utf8')).toBe('原候选说明\n')
+      expect(await readFile(`${subtitle}.blocked`, 'utf8')).toBe('原待核标记\n')
+    } else {
+      for (const path of [subtitle, candidate, `${candidate}.review.txt`]) {
+        await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' })
+      }
+    }
+  })
+
+  it('retains an explicit all-no-lines result instead of reporting missing alignment', async () => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject({ shots: [
+      { shot: 1, lines: [] }, { shot: 2, lines: [] },
+    ] }, { shots: [
+      { shot: 1, strategy: 'no_lines', cues: [] }, { shot: 2, strategy: 'no_lines', cues: [] },
+    ] })
+    const report = await runDramaRender({ method: 'subtitles', project, episode: 2,
+      shots, lines: plan, alignment: aligned, subtitleSrt: subtitle },
+    settingsWith(stubChannel([cueProbes(project)]).channel))
+    expect(report.ok).toBe(true)
+    expect(report.written).toEqual([subtitle, `${subtitle}.review.txt`])
+    expect(await readFile(subtitle, 'utf8')).toBe('\n')
+    expect(report.warnings.join('\n')).not.toContain('未生成字幕候选')
+    await expect(readFile(`${subtitle}.draft.srt`)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('preserves user subtitles, writes a reviewable candidate and clears observations after successful alignment', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, { shots: [ALIGNMENT.shots[0]] })
     const oldSrt = '1\n00:00:00,000 --> 00:00:01,000\n旧字幕\n'
@@ -309,6 +360,7 @@ describe('drama_render subtitles', () => {
     expect(report.warnings.join('\n')).toContain('对齐文档里没有这一镜的时间')
     expect(report.warnings.join('\n')).toContain('重跑一次语音识别')
     expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
+    expect(await readFile(`${subtitle}.draft.srt`, 'utf8')).toContain('第一句')
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -405,7 +457,7 @@ describe('drama_render subtitles', () => {
 
     expect(report.ok).toBe(true)
     expect(report.warnings.join('\n')).toContain(defect)
-    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
+    expect(report.written).toEqual([`${subtitle}.review.txt`])
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
