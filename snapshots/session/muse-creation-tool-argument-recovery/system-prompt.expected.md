@@ -85,7 +85,7 @@ interface ToolArgsMap {
     /** start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。 */
     purpose?: "subtitles" | "screenplay";
   } & Record<string, JsonValue>;
-  /** 在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。** */
+  /** 在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。选曲报告保留来源、许可、署名与范围；unknown 不表示可商用，declared 也不表示已核验授权。**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。选曲前传 project 读取 project_config.json/project_bible.bgm_feedback，并传当前剧情的 context_tags。只有反馈的全部场景标签命中才暂不推荐已否决曲目；其他场景仍展示历史供你判断，不是全局黑名单。用户明确改口应通过 drama_project 追加新反馈，不能把 Agent 的偏好写成用户意见。被暂不推荐的曲目仍在 withheld_candidates 中可审查；保留原情绪距离，不臆造语义相似度。根据对白密度、情绪、配器、切点与许可判断，一首或无后加配乐都是正常交付；低信心时集中一次试听反馈，不为凑数硬配乐。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**分析模型许可与曲目使用许可分别判断；match/download 不运行该分析模型，曲目授权也不能代替模型使用许可。 */
   bgm_match: {
     /** match=按坐标排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。 */
     method: "match" | "index" | "inspect" | "download";
@@ -103,6 +103,10 @@ interface ToolArgsMap {
     arousal?: number;
     /** match 可选：返回候选数，默认 5，上限 20。 */
     limit?: number;
+    /** match 推荐提供：项目目录（相对当前工作目录或绝对路径）。每次只读最新 project_bible.bgm_feedback；不使用其他项目或全局偏好。 */
+    project?: string;
+    /** match 可选：当前场景显式标签，例如堂屋、家庭冲突。复用项目反馈的相同标签；不是自动文本语义匹配。未提供时只展示反馈，不自动排除。 */
+    context_tags?: string[];
   } & Record<string, JsonValue>;
   /** Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say "goal"; not for single-turn work. */
   create_goal: {
@@ -136,7 +140,7 @@ interface ToolArgsMap {
     /** dispose 可选但 status=ignored 时必填且非空：写清为什么这个资产不需要（例如是别的剧的备选、失败遗留、废弃版本）。 */
     note?: string;
   } & Record<string, JsonValue>;
-  /** 短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。preview=安全预检：验证时间线、来源和完整连续覆盖，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。**跨集复用规则以 policy_findings 返回，不拦截调用；读到了就必须照 fix 改完再交付**：每集至少 2 首不同曲目（R1）、一集内不得重复同一首（R2）、整批之内同一首最多出现在 2 集（R3）、每集至少 1 首是本批其它集没用过的（R4）、每个切点必须落在镜头包边界上（R5，容差 0.05 秒）。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。 */
+  /** 短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。 */
   drama_bgm: {
     /** preview=预检且不发布；compose=合成并无覆盖发布；verify=核验已有 WAV。 */
     method: "preview" | "compose" | "verify";
@@ -146,16 +150,16 @@ interface ToolArgsMap {
     episode: number;
     /** 项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json；相对路径以 project 为基准。 */
     timeline: string;
-    /** 项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。段落必须连续完整覆盖正文，跨集复用规则见 policy_findings（每集至少 2 首、集内不重复、单曲最多 2 集、至少 1 首全新、切点在镜头包边界）。 */
+    /** 项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。music_decision=music 可单曲或留白；none 配合 decision_reason 和 segments=[] 表示不加配乐；省略决定须连续覆盖。policy_findings 仅为可审查建议。 */
     plan: string;
     /** 项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。 */
     output?: string;
   } & Record<string, JsonValue>;
-  /** 短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕并写出独立候选，由你判断下一步，提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（默认 SimHei 40，字体服从部署配置；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（增益 1.45）+ BGM（增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。 */
+  /** 短剧整集渲染编排（剧变流水线）。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕并写出独立候选，由你判断下一步，提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。project_bible.delivery 可显式配置 subtitle.{font_family,font_size_px,margin_bottom_px}（字号和底距为成片像素）与 audio.{master_gain,bgm_gain}（0..8 线性增益，0 为静音）；prepare 同时快照已配 section。render 按 section 优先用时间线，再用项目显式 section，最后沿用部署/旧样式默认；已快照的 section 不逐字段继承后改项目，更新须重跑 prepare。prepare/render 的 render_preview 明示最终规格、字幕设计字号与名义输出像素、实际 BGM 路径及增益；请与已认可审查版核对，SRT 不携带审查片的字体样式。prepare 可附 bgm/bgm_plan 预览选曲，未附只提示，不阻塞。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：ending_effect 按自身原速只播放一次，覆盖片尾开头它自己的时长，其余时间是纯定格帧（不变速、不拉伸、不补黑场），只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节，换成别的文件或送上长于 2 秒的特效都会直接报错。拼接后烧录 ASS 字幕（未配置项目样式时默认 SimHei 40，字体服从部署配置，40 为设计字号而非成片像素；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（默认增益 1.45）+ BGM（默认增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，项目显式增益不改变此混音算法，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。 */
   drama_render: {
-    /** prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）。 */
-    method: "prepare" | "render" | "verify" | "subtitles";
-    /** 项目根目录（含 video/、audio/、editing/、exports/）；四个方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。 */
+    /** prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析。 */
+    method: "prepare" | "render" | "verify" | "subtitles" | "audio_preview";
+    /** 项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。 */
     project: string;
     /** 集号（正整数，如 2）；写入时补成两位，如 02。 */
     episode: number;
@@ -171,10 +175,22 @@ interface ToolArgsMap {
     subtitle_srt?: string;
     /** 本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。 */
     last_shot?: number;
-    /** 本集实际使用的 BGM 文件路径；render 必填，相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束。 */
+    /** 本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。 */
     bgm?: string;
-    /** render 可选：现有 episodes/segments 配乐计划 JSON；相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。 */
+    /** prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。 */
     bgm_plan?: string;
+    /** render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。 */
+    mix_profile?: string;
+    /** audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。 */
+    bgm_generation?: string;
+    /** audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。 */
+    audio?: string;
+    /** audio_preview 必填：正文试听起点，非负秒数。 */
+    start_seconds?: number;
+    /** audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。 */
+    duration_seconds?: number;
+    /** audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。 */
+    intended_use?: "commercial" | "non_commercial" | "unknown";
     /** 片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。 */
     ending_audio?: string;
     /** 片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：它按自身原速只播放一次，覆盖片尾开头 1.020 秒，其余 0.980 秒是定格帧；换成别的文件、或长于片尾 2 秒窗口的素材，render 直接报错，不做截断。 */
@@ -664,7 +680,7 @@ interface ToolArgsMap {
     /** 本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。 */
     estimate_basis?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
+  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_video: {
     /** task=单个任务（含 cost 观测）；tasks=项目任务分页；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
     method: "task" | "tasks" | "subtasks" | "unresolved" | "image_generate" | "image_generate_batch" | "upscale" | "retry";
@@ -1834,6 +1850,14 @@ interface ToolOutputMap {
   };
   drama_bgm: {
     method: "preview" | "compose" | "verify";
+    /** 计划明确声明的配乐决定；省略为旧连续计划。 */
+    music_decision?: "music" | "none";
+    /** 明确配乐决定的理由。 */
+    decision_reason?: string;
+    /** 不加配乐：未生成、未验证任何 WAV。 */
+    status?: "no_added_music";
+    /** preview 是 JSON 计划检查，实际试听使用 drama_render.audio_preview。 */
+    preview_notice?: string;
     /** 计划声明的发行用途；未声明为 unknown。 */
     intended_use: "commercial" | "non_commercial" | "unknown";
     /** 选定曲目的音频许可声明与用途风险；三种方法都保留，verify 不核验源曲或法律授权。 */
@@ -1905,13 +1929,13 @@ interface ToolOutputMap {
     repeated_sequence_episodes: string[];
     /** 本批参与跨集复用核对的集号（来自计划同目录的全部计划文件）。 */
     batch_episodes: string[];
-    /** 本计划违反的批次选曲规则，每条含规则号、现状与改法；合规时为空。不拦截调用。 */
+    /** 选曲与切点建议，每条含规则号、现状和建议；允许保留合适曲目或无配乐，不拦截调用。 */
     policy_findings: {
       /** 规则号：R1 每集曲目数、R2 集内重复、R3 单曲集数、R4 全新曲目、R5 切点。 */
       rule: string;
       /** 这条规则现在违反成什么样。 */
       detail: string;
-      /** 该改什么：换哪几首、切点移到哪。 */
+      /** 可考虑的调整，不是交付门禁。 */
       fix: string;
     }[];
     media: {
@@ -1925,7 +1949,7 @@ interface ToolOutputMap {
   };
   drama_render: {
     /** 产生本结果的操作。 */
-    method: "prepare" | "render" | "verify" | "subtitles";
+    method: "prepare" | "render" | "verify" | "subtitles" | "audio_preview";
     /** 是否成功且没有任何 failure 级检查失败；false 时交付不可用，看 failures 里的修法。 */
     ok: boolean;
     /** 项目根目录的绝对路径。 */
@@ -2012,6 +2036,50 @@ interface ToolOutputMap {
       /** 中文修法；通过时为空串。 */
       fix: string;
     })[];
+    audio_mix?: {
+      schema_version: 1;
+      profile_path: string;
+      mode: "legacy" | "no_bgm" | "ducking";
+      detector: "source_audio_rms_not_speech_vad" | "none";
+      original_audio: string;
+      music_audio: string;
+      music_stem: string;
+      composition_gain_status: "provided" | "not_provided";
+      composition?: {
+        path: string;
+        bed_sha256: string;
+        segments: {
+          track: string;
+          source: string;
+          start_seconds: number;
+          end_seconds: number;
+          source_mean_db: number;
+          applied_gain_db: number;
+        }[];
+      };
+      parameters: {
+        schema_version: 1;
+        mode: "legacy" | "no_bgm" | "ducking";
+        original_gain: number;
+        music_gain: number;
+        analysis_window_ms: number;
+        ducking?: {
+          threshold_db: number;
+          ratio: number;
+          attack_ms: number;
+          release_ms: number;
+          knee: number;
+        };
+      };
+      preview?: {
+        start_seconds: number;
+        duration_seconds: number;
+        selected_mix: string;
+        without_added_music: string;
+        music_stem: string;
+        analysis: string;
+      };
+    };
     /** 声明的配乐段落、音频许可事实、用途风险和同序复用提醒；不是试听或版权核验结论。未读取计划时许可与用途为 unknown。 */
     bgm_plan: {
       path: string;
@@ -2055,6 +2123,35 @@ interface ToolOutputMap {
           scope: string;
         };
       })[];
+    };
+    /** prepare/render 的最终交付规格、字幕设计值与名义输出像素、实际音轨路径及增益；非字形实测、试听或验收结论。其它方法为 null。 */
+    render_preview: null | {
+      delivery: {
+        visual_medium?: "animation_3d" | "photorealistic";
+        width: number;
+        height: number;
+        fps: number;
+      };
+      subtitle: {
+        path: string;
+        font_family: string;
+        design_width: number;
+        design_height: number;
+        font_size_design: number;
+        spacing_design: number;
+        outline_design: number;
+        margin_bottom_design: number;
+        font_size_output_px: number;
+        outline_output_px: number;
+        margin_bottom_output_px: number;
+      };
+      audio: {
+        master_path: string;
+        bgm_path: string;
+        bgm_plan_path: string;
+        master_gain: number;
+        bgm_gain: number;
+      };
     };
     /** 本次未测量的 QA 项；ok=true 只表示已执行检查通过，不代表内容、字幕或配乐全部通过。 */
     not_checked: string[];

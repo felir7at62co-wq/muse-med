@@ -8,6 +8,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
 import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, runContext,
@@ -46,6 +47,24 @@ async function loadRenderer(ctx: Context, root: string): Promise<void> {
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+}
+
+/** Invoke the Loader-owned tool with public arguments and validate both schemas. */
+async function invoke(tool: ToolDefinition, args: Record<string, unknown>) {
+  expect(validateJsonSchemaValue(tool.parameters, args, '')).toEqual([])
+  const result = await tool.execute(args, runContext())
+  expect(validateJsonSchemaValue(tool.output.schema, result, '')).toEqual([])
+  return result
+}
+
+/** Write one small 480p project whose media commands stay on the injected channel. */
+async function writePreviewInputs(root: string): Promise<void> {
+  await writePlaceholder(join(root, 'source.mp4'), 'selected source')
+  await writePlaceholder(join(root, 'approved-bgm.wav'), 'selected pure music bed')
+  await writePlaceholder(join(root, 'project_config.json'), JSON.stringify({ project_bible: {
+    visual_medium: 'animation_3d', delivery: { width: 480, height: 854, fps: 24 } } }))
+  await writePlaceholder(join(root, 'shots.json'), JSON.stringify({ shots: [{ shot: 1, video: 'source.mp4' }] }))
+  await writePlaceholder(join(root, 'source.srt'), '1\n00:00:01,000 --> 00:00:02,000\n原文\n')
 }
 
 it('loads the renderer, accepts public arguments, and removes its tool on disposal', async () => {
@@ -165,29 +184,26 @@ it('reads and writes mixed project-relative and absolute paths through all four 
     await loadRenderer(ctx, root)
     const tool = ctx.tools.get('drama_render')
     if (tool === undefined) throw new Error('missing drama_render')
-    const invoke = async (args: Record<string, unknown>) => {
-      expect(validateJsonSchemaValue(tool.parameters, args, '')).toEqual([])
-      const result = await tool.execute(args, runContext())
-      expect(validateJsonSchemaValue(tool.output.schema, result, '')).toEqual([])
-      return result
-    }
-    await invoke({ method: 'subtitles', project, episode: 1, shots, lines, alignment, subtitle_srt: subtitle })
+    await invoke(tool, { method: 'subtitles', project, episode: 1, shots, lines, alignment, subtitle_srt: subtitle })
     const subtitleText = await readFile(join(project, subtitle), 'utf8')
     expect(subtitleText).toContain('00:00:01,000 --> 00:00:02,000\n原文台词')
     const sourceBlock = `${join(project, subtitle)}.blocked`
     await writeFile(sourceBlock, 'subtitle alignment pending\n', 'utf8')
-    const preparedWithWarning = await invoke({ method: 'prepare', project, episode: 1, shots,
+    const preparedWithWarning = await invoke(tool, { method: 'prepare', project, episode: 1, shots,
       subtitle_srt: join(project, subtitle) })
     expect(JSON.stringify(preparedWithWarning)).toContain('字幕对齐待核')
     await rm(sourceBlock)
-    await invoke({ method: 'prepare', project, episode: 1, shots, subtitle_srt: join(project, subtitle) })
+    const preparedPlan = await invoke(tool, { method: 'prepare', project, episode: 1, shots,
+      subtitle_srt: join(project, subtitle), bgm, bgm_plan: plan })
+    expect(preparedPlan).toMatchObject({ ok: true, bgm_plan: { path: join(project, plan), segments: [{ track: '已选曲目' }] },
+      render_preview: { audio: { bgm_path: join(project, bgm), bgm_plan_path: join(project, plan) } } })
     expect(await readFile(join(project, 'video', '01', 'shot_001.mp4'), 'utf8')).toBe('selected provider video')
     expect(await readFile(join(project, 'editing', '01.srt'), 'utf8')).toBe(subtitleText)
     const timeline = join('editing', '01-timeline.json')
     expect(JSON.parse(await readFile(join(project, timeline), 'utf8'))).toMatchObject({ body_end: 5 })
     const deliveryBlock = `${join(project, 'editing', '01.srt')}.blocked`
     await writeFile(deliveryBlock, 'subtitle alignment pending\n', 'utf8')
-    const rendered = await invoke({ method: 'render', project, episode: 1, timeline,
+    const rendered = await invoke(tool, { method: 'render', project, episode: 1, timeline,
       subtitle_srt: join('editing', '01.srt'), last_shot: 1, bgm, bgm_plan: plan,
       ending_audio: endingAudio, ending_effect: endingEffect, output })
     expect(JSON.stringify(rendered)).toContain('字幕对齐待核')
@@ -196,12 +212,181 @@ it('reads and writes mixed project-relative and absolute paths through all four 
     expect(await readFile(outputPath, 'utf8')).toBe('media')
     expect(JSON.parse(await readFile(`${outputPath}.source-record.json`, 'utf8')))
       .toMatchObject({ output: { path: outputPath } })
-    const verified = await invoke({ method: 'verify', project, episode: 1, output,
+    const verified = await invoke(tool, { method: 'verify', project, episode: 1, output,
       timeline: join(project, timeline), subtitle_srt: join('editing', '01.srt') })
     expect(verified).toMatchObject({ ok: true, output: outputPath, written: [] })
     expect(stub.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
       .toEqual(expect.arrayContaining([video, endingEffect, outputPath]))
     expect(process.cwd()).toBe(cwd)
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it('exposes the selected 480p render inputs through Loader prepare, render and the written log', async () => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const video = join(root, 'source.mp4')
+  const output = join(root, 'exports', 'candidate.mp4')
+  const bgm = join(root, 'approved-bgm.wav')
+  const stub = stubChannel([
+    probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
+    placeholderHandler(),
+  ])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stub.channel }))
+  try {
+    await writePreviewInputs(root)
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing drama_render')
+    const prepared = await invoke(tool, { method: 'prepare', project: root, episode: 23, shots: 'shots.json',
+      subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' })
+    expect(prepared).toMatchObject({ ok: true, render_preview: {
+      delivery: { width: 480, height: 854, fps: 24 },
+      subtitle: { path: join(root, 'editing', '23.srt'), font_size_design: 40, font_size_output_px: 17.773 },
+      audio: { bgm_path: bgm, bgm_plan_path: '', master_gain: 1.45, bgm_gain: 0.24 } } })
+    const rendered = await invoke(tool, { method: 'render', project: root, episode: 23, timeline: 'editing/23-timeline.json',
+      subtitle_srt: 'editing/23.srt', last_shot: 1, bgm: 'approved-bgm.wav', output })
+    expect(rendered).toMatchObject({ ok: true, bgm_plan: { path: '', segments: [] }, render_preview: {
+      delivery: { width: 480, height: 854, fps: 24 }, audio: { bgm_path: bgm, bgm_plan_path: '' } } })
+    const log = await readFile(join(root, 'exports', '.render_cache', '23', 'render.log'), 'utf8')
+    expect(log).toContain('render_preview=')
+    expect(log).toContain('"font_size_output_px":17.773')
+    expect(log).toContain(JSON.stringify(bgm))
+    const mux = stub.calls.find(call => call.args.includes('-stream_loop'))
+    expect(mux?.args).toContain(bgm)
+    expect(mux?.args.join(' ')).toContain('[2:a]atrim=0:5.000000,volume=0.24[a1]')
+    expect(await readFile(output, 'utf8')).toBe('media')
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux and log', async () => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const video = join(root, 'source.mp4')
+  const output = join(root, 'exports', 'configured.mp4')
+  const stub = stubChannel([
+    probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
+    placeholderHandler(),
+  ])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stub.channel }))
+  const subtitle = { font_family: 'Project font', font_size_px: 30, margin_bottom_px: 18 }
+  const audio = { master_gain: 1, bgm_gain: 0 }
+  try {
+    await writePreviewInputs(root)
+    const config = { project_bible: { visual_medium: 'animation_3d',
+      delivery: { width: 480, height: 854, fps: 24, subtitle, audio } } }
+    await writeFile(join(root, 'project_config.json'), JSON.stringify(config))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing drama_render')
+    const prepared = await invoke(tool, { method: 'prepare', project: root, episode: 23, shots: 'shots.json',
+      subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' })
+    expect(prepared).toMatchObject({ render_preview: { subtitle: { font_family: 'Project font', font_size_output_px: 30 },
+      audio: { master_gain: 1, bgm_gain: 0 } } })
+    expect(JSON.parse(await readFile(join(root, 'editing', '23-timeline.json'), 'utf8')))
+      .toMatchObject({ delivery: { subtitle, audio } })
+    // Later project changes cannot silently restyle or remix the prepared episode.
+    config.project_bible.delivery.subtitle = { font_family: 'Later font', font_size_px: 50, margin_bottom_px: 50 }
+    config.project_bible.delivery.audio = { master_gain: 2, bgm_gain: 1 }
+    await writeFile(join(root, 'project_config.json'), JSON.stringify(config))
+    const rendered = await invoke(tool, { method: 'render', project: root, episode: 23, timeline: 'editing/23-timeline.json',
+      subtitle_srt: 'editing/23.srt', last_shot: 1, bgm: 'approved-bgm.wav', output })
+    expect(rendered).toMatchObject({ render_preview: { subtitle: { font_family: 'Project font', font_size_output_px: 30 },
+      audio: { master_gain: 1, bgm_gain: 0 } } })
+    const cache = join(root, 'exports', '.render_cache', '23')
+    const ass = await readFile(join(cache, 'display.ass'), 'utf8')
+    expect(ass).toContain('Style: Default,Project font,67.518,')
+    expect(ass).toContain('0,2,40,40,41,1')
+    const mux = stub.calls.find(call => call.args.includes('-stream_loop'))
+    expect(mux?.args.join(' ')).toContain('[1:a]apad,atrim=0:5.000000,volume=1[a0]')
+    expect(mux?.args.join(' ')).toContain('[2:a]atrim=0:5.000000,volume=0[a1]')
+    const log = await readFile(join(cache, 'render.log'), 'utf8')
+    expect(log).toContain('"font_family":"Project font"')
+    expect(log).toContain('"master_gain":1,"bgm_gain":0')
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it.each([null, { font_size_px: 0.0001 }])('rejects explicit invalid project style %j before Loader prepare starts media or writes products', async (subtitle) => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const stub = stubChannel([])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stub.channel }))
+  try {
+    await writePreviewInputs(root)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ project_bible: {
+      delivery: { width: 480, height: 854, fps: 24, subtitle } } }))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing drama_render')
+    await expect(invoke(tool, { method: 'prepare', project: root, episode: 1, shots: 'shots.json',
+      subtitle_srt: 'source.srt' })).rejects.toThrow('.subtitle')
+    expect(stub.calls).toEqual([])
+    await expect(readFile(join(root, 'editing', '01-timeline.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it.each([
+  { label: 'missing', contents: undefined, error: 'BGM 计划不可读' },
+  { label: 'malformed', contents: '{', error: 'BGM 计划不可读' },
+  { label: 'stale duration', contents: JSON.stringify({ episodes: [{ episode: '23', body_duration_seconds: 6,
+    segments: [{ track: 'chosen', source: 'approved-bgm.wav', start_seconds: 0, end_seconds: 5 }] }] }),
+  error: 'BGM 计划正文时长与当前时间线不一致' },
+])('keeps Loader prepare files when the optional plan is $label while render still rejects it', async ({ contents, error }) => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const video = join(root, 'source.mp4')
+  const plan = join(root, 'optional-plan.json')
+  const stub = stubChannel([probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 } } }),
+    placeholderHandler()])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stub.channel }))
+  try {
+    await writePreviewInputs(root)
+    if (contents !== undefined) await writeFile(plan, contents)
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing drama_render')
+    const prepared = await invoke(tool, { method: 'prepare', project: root, episode: 23, shots: 'shots.json',
+      subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav', bgm_plan: 'optional-plan.json' })
+    expect(prepared).toMatchObject({ ok: true, bgm_plan: { path: '', segments: [] },
+      render_preview: { audio: { bgm_path: join(root, 'approved-bgm.wav'), bgm_plan_path: plan } } })
+    expect(prepared).toHaveProperty('not_checked', expect.arrayContaining(['bgm_plan', 'bgm_license_info']))
+    expect(prepared).toHaveProperty('warnings', expect.arrayContaining([
+      expect.stringContaining('prepare 已完成'), expect.stringContaining(error),
+    ]))
+    const files = ['video/23/shot_001.mp4', 'audio/23.wav', 'editing/23.srt',
+      'editing/23-timeline.json', 'editing/23-sources.json'].map(path => join(root, path))
+    const before = await Promise.all(files.map(path => readFile(path)))
+    expect(before[0]?.toString()).toBe('selected source')
+    expect(before[1]?.toString()).toBe('media')
+    expect(before[2]?.toString()).toBe(await readFile(join(root, 'source.srt'), 'utf8'))
+    expect(JSON.parse(before[3]?.toString() ?? '')).toMatchObject({ body_end: 5, delivery: { width: 480, height: 854, fps: 24 } })
+    expect(JSON.parse(before[4]?.toString() ?? '')).toMatchObject({ shots: [{ shot: 1, video }] })
+    const commands = stub.calls.length
+    await expect(invoke(tool, { method: 'render', project: root, episode: 23, timeline: 'editing/23-timeline.json',
+      subtitle_srt: 'editing/23.srt', last_shot: 1, bgm: 'approved-bgm.wav', bgm_plan: 'optional-plan.json' })).rejects.toThrow(error)
+    expect(stub.calls).toHaveLength(commands)
+    expect(await Promise.all(files.map(path => readFile(path)))).toEqual(before)
   } finally {
     mediaFactory.mockRestore()
     await ctx.fiber.dispose()

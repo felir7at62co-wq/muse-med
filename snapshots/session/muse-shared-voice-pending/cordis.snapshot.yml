@@ -1,3 +1,9 @@
+# This shell-free replay pins an unused runner so its skill catalog is platform-independent.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
 - id: llm-deepseek
   disabled: true
 - id: agent-instructions

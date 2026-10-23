@@ -26,6 +26,7 @@ import { fileSha256, readCacheIdentity } from './cache.ts'
 import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord } from './source-record.ts'
 import {
   audioMixFilter,
+  deliveryRenderSettings,
   deliveryScaleFilter,
   ENDING_AUDIO_ASSET,
   ENDING_EFFECT_ASSET,
@@ -45,6 +46,7 @@ import {
 } from './ending.ts'
 import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
+import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
@@ -136,6 +138,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const subtitleWarnings = await subtitleReviewWarnings(input.subtitleSrt)
   const timeline = await readTimeline(input.timelinePath)
   const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  const effectiveSettings = deliveryRenderSettings(settings, policy.delivery)
   assertBodyOnlyAnimation(timeline, policy)
   const endingAssets = policy.endingSeconds === 0 ? undefined : requiredEndingPaths(input)
   const clips = selectBodyClips(timeline, input.lastShot)
@@ -146,7 +149,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const expectedDurationSeconds = Number(totalSeconds.toFixed(6))
 
   const profile = input.mixProfile === undefined ? undefined
-    : await loadAudioMixProfile(input.project, input.mixProfile, settings)
+    : await loadAudioMixProfile(input.project, input.mixProfile, effectiveSettings)
   const bgm = profile?.mode === 'no_bgm' ? undefined : input.bgm
   if (bgm === undefined && profile?.mode !== 'no_bgm') {
     throw new Error('drama_render render 需要 bgm；无新增配乐请显式使用 no_bgm 音频配置。')
@@ -170,6 +173,11 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   const bgmPlan = await readBgmPlan(bgm === undefined ? undefined : input.bgmPlan,
     input.episode, bodyEndSeconds, bgm ?? '', input.project)
+  const preview = buildRenderPreview({ settings: effectiveSettings, delivery: profile === undefined ? policy.delivery
+    : { ...policy.delivery, audio: { master_gain: profile.original_gain, bgm_gain: profile.music_gain } },
+  subtitle: input.subtitleSrt, master: paths.masterAudio, ...(bgm === undefined ? {} : { bgm }),
+  ...(bgm === undefined || input.bgmPlan === undefined ? {} : { bgmPlan: input.bgmPlan }) })
+  const previewWarnings = renderPreviewWarnings(preview, profile?.mode !== 'no_bgm')
   // Every input is judged before the first media command runs, so a substituted
   // ending asset or an over-long effect costs nothing but the message.
   if (endingAssets !== undefined) {
@@ -186,8 +194,10 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     `episode=${input.episode}`,
     `project=${input.project}`,
     `bgm_plan=${JSON.stringify(bgmPlan)}`,
+    `render_preview=${JSON.stringify(preview)}`,
     `delivery=${JSON.stringify(policy.delivery)} add_watermark=${String(policy.addWatermark)}`,
     ...policy.warnings.map(warning => `warning=${warning}`),
+    ...previewWarnings.map(warning => `warning=${warning}`),
     `encoder=${choice.encoder} gpu_requested=${String(settings.preferNvenc)} gpu_used=${String(gpuUsed)}`,
     `encoder_fallback_reason=${choice.fallbackReason === '' ? '(none)' : choice.fallbackReason}`,
     `body_end_seconds=${bodyEndSeconds.toFixed(6)} ending_seconds=${policy.endingSeconds.toFixed(3)} `
@@ -281,8 +291,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
         bodyEndSeconds,
         totalSeconds,
         endingSeconds: policy.endingSeconds,
-        masterVolume: settings.masterVolume,
-        bgmVolume: settings.bgmVolume,
+        masterVolume: effectiveSettings.masterVolume,
+        bgmVolume: effectiveSettings.bgmVolume,
         ...(profile === undefined ? {} : { profile, musicStem: Boolean(musicStem), endingInput: bgm === undefined ? 2 : 3 }),
       }),
       '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy',
@@ -342,6 +352,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const reportInput: ReportInput = {
     method: 'render',
     bgmPlan,
+    renderPreview: preview,
     project: input.project,
     episode: input.episode,
     timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
@@ -359,7 +370,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     tailFrame,
     media,
     checks,
-    warnings: [...subtitleWarnings, ...policy.warnings, ...(tailFrame.fromSequentialDecode
+    warnings: [...subtitleWarnings, ...policy.warnings, ...previewWarnings, ...(tailFrame.fromSequentialDecode
       ? ['sseof 抽到的帧不是真实尾帧，已改用顺序解码的最后一帧作为片尾定格（见 tail_frame 字段）。']
       : [])],
     logPath: paths.renderLog,

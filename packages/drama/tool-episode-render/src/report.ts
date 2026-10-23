@@ -19,6 +19,7 @@ import type {
   RenderCheck,
   RenderClipReport,
   RenderSummary,
+  RenderPreview,
   TailFrameEvidence,
   TailFrameReport,
   Timeline,
@@ -55,6 +56,8 @@ export interface ReportInput {
   readonly bgmPlan?: BgmPlanReport
   /** Explicit profile evidence; omitted for legacy callers. */
   readonly audioMix?: AudioMixReport
+  /** Effective inputs for prepare/render; absent for methods that do not choose render inputs. */
+  readonly renderPreview?: RenderPreview
   /** Absolute project root. */
   readonly project: string
   /** Two-digit episode number. */
@@ -183,6 +186,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [],
       intended_use: 'unknown', license_records: [] },
     ...(input.audioMix === undefined ? {} : { audio_mix: input.audioMix }),
+    render_preview: input.renderPreview ?? null,
     failures,
     warnings,
     log_path: input.logPath,

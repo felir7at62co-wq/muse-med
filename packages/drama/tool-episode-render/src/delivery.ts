@@ -1,13 +1,14 @@
 /**
  * Delivery defaults, rate control, subtitle style, ending effect, and audio mix.
  * Geometry is supplied by the validated timeline snapshot. Deployment-selected
- * binaries, gains, font directory and font families remain plugin Config fields.
+ * binaries and font directory remain plugin Config fields. Explicit project
+ * subtitle and gain sections override deployment defaults without changing the mix.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/delivery
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec, RenderSettings, ResolvedAudioMixProfile, TimelineDelivery } from './types.ts'
+import type { AudioMixSpec, RenderSettings, ResolvedAudioMixProfile, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -107,6 +108,22 @@ export const SUBTITLE_FONT_SIZE = 40
 /** Lower subtitle safe area on the fixed short-edge ASS canvas. */
 export const SUBTITLE_MARGIN_V = 140
 
+/** ASS font names must contain visible text and cannot inject fields or lines. */
+export const FONT_FAMILY_PATTERN = /^(?=[^,\r\n]*\S)[^,\r\n]+$/u
+
+/**
+ * Resolve project overrides over deployment font and mix defaults.
+ * @param settings - Validated deployment settings.
+ * @param delivery - Validated effective delivery snapshot.
+ * @returns Settings used by both ASS/mix commands and their reported preview.
+ */
+export function deliveryRenderSettings(settings: RenderSettings, delivery: TimelineDelivery): RenderSettings {
+  return { ...settings,
+    subtitleFontFamily: delivery.subtitle?.font_family ?? settings.subtitleFontFamily,
+    masterVolume: delivery.audio?.master_gain ?? settings.masterVolume,
+    bgmVolume: delivery.audio?.bgm_gain ?? settings.bgmVolume }
+}
+
 /**
  * Derive the ASS `Outline` value that renders at a target width.
  *
@@ -132,6 +149,26 @@ export function assOutline(targetPx: number, playResY: number, outputHeight: num
 }
 
 /**
+ * Resolve the same subtitle design values used by the ASS writer and render preview.
+ * @param delivery - Validated output geometry.
+ * @returns Design units and nominal output-pixel equivalents, not measured glyph bounds.
+ */
+export function subtitleRenderStyle(delivery: TimelineDelivery): SubtitleRenderStyle {
+  const canvas = assCanvas(delivery)
+  const scale = delivery.height / canvas.height
+  const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX * delivery.width / DELIVERY_WIDTH, canvas.height, delivery.height)
+  const fontSize = delivery.subtitle?.font_size_px === undefined ? SUBTITLE_FONT_SIZE
+    : Number((delivery.subtitle.font_size_px / scale).toFixed(3))
+  const margin = delivery.subtitle?.margin_bottom_px === undefined
+    ? Math.round(canvas.height * SUBTITLE_MARGIN_V / PLAY_RES_HEIGHT)
+    : Math.round(delivery.subtitle.margin_bottom_px / scale)
+  const pixels = (value: number): number => Number((value * scale).toFixed(3))
+  return { design_width: canvas.width, design_height: canvas.height,
+    font_size_design: fontSize, spacing_design: -2, outline_design: outline, margin_bottom_design: margin,
+    font_size_output_px: pixels(fontSize), outline_output_px: pixels(outline), margin_bottom_output_px: pixels(margin) }
+}
+
+/**
  * Compose the ASS styles and event format with deployment-selected fonts.
  *
  * `ScaledBorderAndShadow: yes` is what makes the style line's `Outline` a width
@@ -147,24 +184,20 @@ export function buildAssHeader(
   delivery: TimelineDelivery = DEFAULT_DELIVERY,
   addWatermark = true,
 ): string {
-  const canvas = assCanvas(delivery)
-  // Keep the black edge proportional to the delivered width. A fixed 7px edge
-  // overwhelms 480p review masters even though it is appropriate at 1440p.
-  const targetOutline = SUBTITLE_OUTLINE_TARGET_PX * delivery.width / DELIVERY_WIDTH
-  const outline = assOutline(targetOutline, canvas.height, delivery.height)
+  const style = subtitleRenderStyle(delivery)
   const watermarkStyle = addWatermark
     ? `Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1\n`
     : ''
   return `[Script Info]
 ScriptType: v4.00+
-PlayResX: ${String(canvas.width)}
-PlayResY: ${String(canvas.height)}
+PlayResX: ${String(style.design_width)}
+PlayResY: ${String(style.design_height)}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,${settings.subtitleFontFamily},${String(SUBTITLE_FONT_SIZE)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,${String(outline)},0,2,40,40,${String(Math.round(canvas.height * SUBTITLE_MARGIN_V / PLAY_RES_HEIGHT))},1
+Style: Default,${delivery.subtitle?.font_family ?? settings.subtitleFontFamily},${String(style.font_size_design)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,${String(style.spacing_design)},0,1,${String(style.outline_design)},0,2,40,40,${String(style.margin_bottom_design)},1
 ${watermarkStyle}
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text

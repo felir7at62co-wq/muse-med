@@ -20,6 +20,42 @@ const animation = { width: 1920, height: 1080, fps: 30, visual_medium: 'animatio
 const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
 
 describe('delivery metadata', () => {
+  it('round trips only explicit project subtitle and audio fields into the timeline', async () => {
+    const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18 },
+      audio: { master_gain: 1, bgm_gain: 0 } }
+    const selected = await readProjectDelivery(await project({ visual_medium: 'animation_3d', delivery }))
+    expect(selected).toEqual(delivery)
+    const text = formatTimelineDocument({ ...appendClips([1_000_000]), delivery: selected })
+    expect(parseTimelineDocument(JSON.parse(text), 't.json').delivery).toEqual(delivery)
+    expect(await readProjectDelivery(await project({ delivery: { subtitle: {}, audio: {} } })))
+      .toEqual({ ...DEFAULT_DELIVERY, subtitle: {}, audio: {} })
+  })
+  it.each([
+    { subtitle: null }, { subtitle: [] }, { subtitle: 'large' }, { audio: null }, { audio: [] },
+    { subtitle: { font_family: null } }, { subtitle: { font_family: ' ' } },
+    { subtitle: { font_family: 'font,injected' } }, { subtitle: { font_family: 'font\nStyle: forged' } },
+    { subtitle: { font_size_px: null } }, { subtitle: { font_size_px: '30' } },
+    { subtitle: { font_size_px: 0 } }, { subtitle: { font_size_px: -1 } },
+    { subtitle: { font_size_px: Infinity } }, { subtitle: { font_size_px: NaN } },
+    { subtitle: { margin_bottom_px: null } }, { subtitle: { margin_bottom_px: -1 } },
+    { subtitle: { margin_bottom_px: 1081 } }, { subtitle: { margin_bottom_px: Infinity } },
+    { audio: { master_gain: null } }, { audio: { master_gain: '1' } }, { audio: { master_gain: -1 } },
+    { audio: { master_gain: 8.1 } }, { audio: { bgm_gain: Infinity } }, { audio: { bgm_gain: null } },
+  ])('rejects malformed explicit style or gain values %j', (sections) => {
+    expect(() => parseTimelineDelivery({ ...animation, ...sections }, 'timeline.delivery')).toThrow('timeline.delivery')
+  })
+  it('does not add new fields or change old timeline bytes when no override is configured', async () => {
+    const delivery = await readProjectDelivery(await project({ delivery: { width: 480, height: 854, fps: 24 } }))
+    expect(formatTimelineDocument({ ...appendClips([1_000_000]), delivery })).toBe(
+      '{\n  "clips": [\n    {\n      "shot": 1,\n      "start_us": 0,\n      "duration_us": 1000000\n    }\n  ],\n'
+      + '  "body_end": 1,\n  "delivery": {\n    "width": 480,\n    "height": 854,\n    "fps": 24\n  }\n}\n')
+  })
+  it('rejects only sizes that become zero at the actual ASS precision, not a subjective minimum pixel size', () => {
+    expect(() => parseTimelineDelivery({ width: 480, height: 854, fps: 24,
+      subtitle: { font_size_px: 0.0001 } }, 'timeline.delivery')).toThrow('换算后为 0 ASS 设计单位')
+    expect(parseTimelineDelivery({ width: 480, height: 2, fps: 24,
+      subtitle: { font_size_px: 0.0001 } }, 'timeline.delivery').subtitle?.font_size_px).toBe(0.0001)
+  })
   it('retains explicit medium and geometry through timeline JSON round trips', () => {
     const timeline = { ...appendClips([1_000_000]), delivery: animation }
     expect(parseTimelineDocument(JSON.parse(formatTimelineDocument(timeline)), 't.json')).toEqual({ ...timeline, declaredBodyEndSeconds: 1 })
@@ -91,6 +127,29 @@ describe('delivery metadata', () => {
 })
 
 describe('medium delivery resolution', () => {
+  it('inherits missing sections independently without merging fields into a saved section', async () => {
+    const path = await project({ visual_medium: 'animation_3d', delivery: {
+      subtitle: { font_family: 'Changed font', font_size_px: 80 }, audio: { master_gain: 0, bgm_gain: 0.5 } } })
+    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: { font_size_px: 30 } })).delivery)
+      .toEqual({ ...animation, subtitle: { font_size_px: 30 }, audio: { master_gain: 0, bgm_gain: 0.5 } })
+    expect((await resolveDeliveryPolicy(path, { ...animation, audio: {} })).delivery)
+      .toEqual({ ...animation, audio: {}, subtitle: { font_family: 'Changed font', font_size_px: 80 } })
+    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: {}, audio: {} })).delivery)
+      .toEqual({ ...animation, subtitle: {}, audio: {} })
+  })
+  it('validates current explicit sections even when a saved section takes precedence', async () => {
+    const path = await project({ delivery: { audio: null } })
+    await expect(resolveDeliveryPolicy(path, { ...animation, audio: { master_gain: 1 } })).rejects.toThrow('.audio')
+  })
+  it('checks inherited output margins against the saved frame, not only the newer project frame', async () => {
+    const path = await project({ delivery: { height: 2560, subtitle: { margin_bottom_px: 1500 } } })
+    await expect(resolveDeliveryPolicy(path, animation)).rejects.toThrow('margin_bottom_px')
+  })
+  it('validates the precision of a project font size against the saved output geometry before rendering', async () => {
+    const path = await project({ delivery: { width: 480, height: 2, fps: 24, subtitle: { font_size_px: 0.0001 } } })
+    expect((await readProjectDelivery(path)).subtitle?.font_size_px).toBe(0.0001)
+    await expect(resolveDeliveryPolicy(path, { width: 480, height: 854, fps: 24 })).rejects.toThrow('换算后为 0 ASS 设计单位')
+  })
   it('warns and preserves legacy treatment when neither document selects a medium', async () => {
     const policy = await resolveDeliveryPolicy(await project({ style: '3D动画', aspect_ratio: '16:9' }))
     expect(policy).toMatchObject({ endingSeconds: 2, addWatermark: true, delivery: DEFAULT_DELIVERY })

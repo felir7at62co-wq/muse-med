@@ -161,17 +161,24 @@ async function render(
 }
 
 describe('renderEpisode', () => {
-  it('renders an explicit no_bgm profile without reading music or a music plan and refuses output replacement', async () => {
+  it.each([1, undefined])('renders no_bgm with profile gain %s and project fallback without opening music or replacing output', async (originalGain) => {
     const prepared = await preparedProject()
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { audio: { master_gain: 0.7, bgm_gain: 0.1 } } },
+    }))
     await rm(prepared.bgm)
     const profile = join(prepared.project, 'audio', 'no-music.json')
     await writePlaceholder(profile, JSON.stringify({ schema_version: 1, mode: 'no_bgm',
-      original_gain: 1, analysis_window_ms: 100 }))
+      ...(originalGain === undefined ? {} : { original_gain: originalGain }), analysis_window_ms: 100 }))
     const channel = renderChannel(prepared)
     const report = await render(prepared, channel, false, join(prepared.project, 'missing-plan.json'), { mixProfile: profile })
     expect(report.audio_mix).toMatchObject({ mode: 'no_bgm', original_audio: prepared.paths.masterAudio,
       music_audio: '', music_stem: '', detector: 'none' })
     expect(report.bgm_plan.path).toBe('')
+    expect(report.render_preview?.audio).toMatchObject({ master_gain: originalGain ?? 0.7, bgm_gain: 0,
+      bgm_path: '', bgm_plan_path: '' })
+    expect(report.warnings.join('\n')).not.toContain('尚未提供 BGM')
+    expect(report.warnings.join('\n')).not.toContain('未提供 bgm_plan')
     expect(channel.calls.some(call => call.args.includes(prepared.bgm))).toBe(false)
     const final = channel.calls.find(call => call.args.includes('-filter_complex') && call.args.includes('aac'))
     expect(final?.args[final.args.indexOf('-filter_complex') + 1]).not.toContain('sidechaincompress')
@@ -209,7 +216,9 @@ describe('renderEpisode', () => {
     expect(report.ok).toBe(true)
     expect(report.expected_duration_seconds).toBe(114.733332)
     expect(report.tail_frame.path).toBe('')
-    expect(report.warnings).toEqual([])
+    expect(report.warnings).toEqual([
+      expect.stringContaining('未提供 bgm_plan'), expect.stringContaining('SRT 不携带字体样式'),
+    ])
     const commands = channel.calls.flatMap(call => call.args).join(' ')
     expect(commands).not.toContain('ending_audio')
     expect(commands).not.toContain('ending_effect')
@@ -401,7 +410,7 @@ describe('renderEpisode', () => {
     const second = await render(prepared, renderChannel(prepared))
     expect(second.reused_shots).toEqual([1, 2])
     expect(second.encoded_shots).toEqual([])
-    expect(second.summary).toEqual({ shots: 2, encoded: 0, reused: 2, checks: 5, failed_checks: 0, warnings: 0 })
+    expect(second.summary).toEqual({ shots: 2, encoded: 0, reused: 2, checks: 5, failed_checks: 0, warnings: 2 })
 
     const forced = await render(prepared, renderChannel(prepared), true)
     expect(forced.encoded_shots).toEqual([1, 2])
@@ -521,8 +530,11 @@ describe('renderEpisode', () => {
     const report = await render(prepared, renderChannel(prepared, { imageHashes: ['wrong', 'tail'] }))
     expect(report.ok).toBe(true)
     expect(report.tail_frame.from_sequential_decode).toBe(true)
-    expect(report.warnings[0]).toContain('已改用顺序解码的最后一帧')
-    expect(report.summary.warnings).toBe(1)
+    expect(report.warnings).toEqual([
+      expect.stringContaining('未提供 bgm_plan'), expect.stringContaining('SRT 不携带字体样式'),
+      expect.stringContaining('已改用顺序解码的最后一帧'),
+    ])
+    expect(report.summary.warnings).toBe(3)
   })
 
   it('fails loud when the episode master is missing', async () => {

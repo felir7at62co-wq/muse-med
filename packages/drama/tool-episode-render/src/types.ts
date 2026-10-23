@@ -27,6 +27,24 @@ export interface TimelineClip {
 /** Explicit project medium; free-text style never selects delivery behavior. */
 export type VisualMedium = 'animation_3d' | 'photorealistic'
 
+/** Explicit project subtitle overrides; omitted fields retain deployment or legacy styling. */
+export interface DeliverySubtitle {
+  /** ASS-safe font family; selecting it does not install the font. */
+  readonly font_family?: string
+  /** Nominal font size in final output pixels, not measured glyph bounds. */
+  readonly font_size_px?: number
+  /** Bottom margin in final output pixels, converted to integer ASS margin units. */
+  readonly margin_bottom_px?: number
+}
+
+/** Explicit linear gains applied by the existing delivery mix, including zero for mute. */
+export interface DeliveryAudio {
+  /** Dialogue master gain, from 0 through 8. */
+  readonly master_gain?: number
+  /** Pure music bed gain, from 0 through 8. */
+  readonly bgm_gain?: number
+}
+
 /** Validated delivery snapshot stored in timeline JSON. */
 export interface TimelineDelivery {
   /** Explicit medium, omitted for legacy projects that have not selected one. */
@@ -37,6 +55,10 @@ export interface TimelineDelivery {
   readonly height: number
   /** Delivered frames per second. */
   readonly fps: number
+  /** Optional project subtitle section captured by prepare; never inferred from an SRT. */
+  readonly subtitle?: DeliverySubtitle
+  /** Optional project mix section captured by prepare. */
+  readonly audio?: DeliveryAudio
 }
 
 /** Resolved medium-specific treatment and delivery geometry. */
@@ -278,6 +300,54 @@ export interface RenderSummary {
   readonly warnings: number
 }
 
+/** Subtitle design values and their nominal scale at the delivered size, not measured glyph bounds. */
+export interface SubtitleRenderStyle {
+  /** ASS design canvas width. */
+  readonly design_width: number
+  /** ASS design canvas height. */
+  readonly design_height: number
+  /** Font size in ASS design units. */
+  readonly font_size_design: number
+  /** Character spacing in ASS design units. */
+  readonly spacing_design: number
+  /** Outline in ASS design units. */
+  readonly outline_design: number
+  /** Bottom margin in ASS design units. */
+  readonly margin_bottom_design: number
+  /** Nominal font size scaled to output pixels; not an actual glyph measurement. */
+  readonly font_size_output_px: number
+  /** Nominal outline scaled to output pixels. */
+  readonly outline_output_px: number
+  /** Bottom margin scaled to output pixels. */
+  readonly margin_bottom_output_px: number
+}
+
+/** Resolved inputs for preparing or performing a render; not a listening or visual approval. */
+export interface RenderPreview {
+  /** Effective timeline geometry and optional medium. */
+  readonly delivery: Pick<TimelineDelivery, 'width' | 'height' | 'fps' | 'visual_medium'>
+  /** Selected subtitle file, font and scaled design values. */
+  readonly subtitle: SubtitleRenderStyle & {
+    /** Selected SRT file. */
+    readonly path: string
+    /** Project-selected ASS font family, otherwise the deployment font. */
+    readonly font_family: string
+  }
+  /** Explicit input paths and gains; an absent prepare input is an empty string. */
+  readonly audio: {
+    /** Prepared source-dialogue master. */
+    readonly master_path: string
+    /** Explicitly selected music bed, or empty when not selected during prepare. */
+    readonly bgm_path: string
+    /** Explicit segment-plan file, or empty when omitted. */
+    readonly bgm_plan_path: string
+    /** Gain applied to the dialogue master. */
+    readonly master_gain: number
+    /** Gain applied to the selected music bed. */
+    readonly bgm_gain: number
+  }
+}
+
 /**
  * The canonical value every `drama_render` method returns.
  *
@@ -329,6 +399,8 @@ export interface DramaRenderReport {
   readonly bgm_plan: BgmPlanReport
   /** Explicit audio-profile evidence; omitted for unchanged legacy calls. */
   readonly audio_mix?: AudioMixReport
+  /** Effective prepare/render inputs; null when this method does not prepare or encode media. */
+  readonly render_preview: RenderPreview | null
   /** One Chinese line per failure-severity check that failed. */
   readonly failures: string[]
   /** One Chinese line per warning-severity check that failed, plus every non-blocking observation. */
