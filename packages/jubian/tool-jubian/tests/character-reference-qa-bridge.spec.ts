@@ -502,7 +502,8 @@ describe('character-reference isolated QA bridge', () => {
     const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }))
     const authority = { read: async () => authoritative() }
     for (const ownerIdentity of [undefined, async () => 'someone-else']) {
-      const bridge = createCharacterReferenceQaBridge({ store, authority, upload, ownerIdentity })
+      const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+        ...(ownerIdentity === undefined ? {} : { ownerIdentity }) })
       await expect(bridge.upload(session, request())).rejects.toThrow('another Muse account')
     }
     const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
