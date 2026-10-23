@@ -71,6 +71,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'list_mcp_resource_templates',
   'list_mcp_resources',
   'manuscript_revision',
+  'manuscript_work',
   'muse_production',
   'mcp__muse-account__muse_account_status',
   'mcp__muse-account__muse_kb_ingest_script',

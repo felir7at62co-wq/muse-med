@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { Context } from '@deepseek-ai/cordis'
-import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
@@ -18,6 +18,9 @@ import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tes
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import { Config, ManuscriptRevisions } from '../src/manuscript-revisions.ts'
 import { readManuscript } from '../src/manuscript-document.ts'
+import { LocalFileSystem } from '../../../packages/fs/fs-local/src/index.ts'
+import * as FsPolicy from '../../../packages/fs/fs-observation-policy/src/index.ts'
+import * as ToolFs from '../../../packages/fs/tool-fs/src/index.ts'
 
 const roots: string[] = [], contexts: Context[] = []
 const signal = new AbortController().signal
@@ -197,9 +200,27 @@ it('does not double-count canonical aliases or infer a source from the returned-
 
 it('bounds the number of requested files and validates an explicitly supplied tolerance', async () => {
   const f = await fixture()
-  const limited = new ManuscriptRevisions({ ...f.config, maxDocuments: 1 })
+  const limited = new ManuscriptRevisions(Config({ maxDocuments: 1 }))
   await expect(limited.request({ action: 'measure', source_paths: ['baseline.md'],
     candidate_paths: ['returned.md'] }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_DOCUMENT_LIMIT')
   await expect(f.revisions.request({ action: 'measure', source_paths: ['baseline.md'],
     candidate_paths: ['returned.md'], max_growth_percent: -1 }, f.agent, signal)).rejects.toThrow()
+})
+
+it('makes a real scene read usable by the ordinary guarded edit tool without another full-file read', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(FsPolicy)
+  await f.ctx.plugin(ToolFs)
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  let serial = 0
+  const call = (name: string, args: object) => f.ctx.tools.execute({ signal,
+    callId: ToolCallId(`scene-observation-${++serial}`), name, arguments: args, agent: f.agent })
+  expect((await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })).isError).toBe(true)
+  expect((await call('manuscript_work', { action: 'bind', task_key: '返稿', mode: 'edit',
+    source_paths: ['baseline.md'], candidate_paths: ['returned.md'] })).isError).toBe(false)
+  expect((await call('manuscript_work', { action: 'scene', scene_id: 'file-1/1:body' })).isError).toBe(false)
+  const result = await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })
+  expect(result.isError).toBe(false)
+  expect(await readFile(join(f.root, 'returned.md'), 'utf8')).toContain('乙：先听我说。')
 })
