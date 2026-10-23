@@ -41,8 +41,10 @@ const PNG = (() => {
 const IMAGE_SHA = createHash('sha256').update(PNG).digest('hex')
 const MATERIAL_URI = 'https://example.invalid/host-managed-reference.png'
 const dirs: string[] = []
+const stores: CharacterReferenceQaAuthorizationStore[] = []
 
 afterEach(async () => {
+  for (const store of stores.splice(0)) store.close()
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
@@ -97,15 +99,17 @@ function request(): CharacterReferenceQaUploadRequest {
   }
 }
 
-async function opened(): Promise<CharacterReferenceQaAuthorizationStore> {
+async function opened(value = grant()): Promise<CharacterReferenceQaAuthorizationStore> {
   const dir = await mkdtemp(join(tmpdir(), 'character-reference-qa-bridge-'))
   dirs.push(dir)
   const store = await openCharacterReferenceQaAuthorizationStore({
     dataRoot: dir,
     databasePath: join(dir, 'authorization.sqlite'),
+    environment: value.environment,
   })
   if (store === undefined) throw new Error('absolute QA authorization path unexpectedly disabled the store')
-  store.appendGrant(grant())
+  stores.push(store)
+  store.appendGrant(value)
   return store
 }
 
@@ -250,6 +254,9 @@ describe('character-reference isolated QA bridge', () => {
     await afterInterruptedLedgerHandoff.reconcileRecorded('accepted', acceptedReceipt)
     expect(store.inspect(binding()).generationRecovery.state).toBe('settled')
     await expect(afterInterruptedLedgerHandoff.reconcileRecorded('accepted', acceptedReceipt)).resolves.toBeUndefined()
+    for (const outcome of ['accepted', 'unknown'] as const) {
+      await expect(afterInterruptedLedgerHandoff.reconcileRecorded(outcome, {})).rejects.toThrow('recovery evidence conflicts')
+    }
     expect(store.listGenerationRecoveryEvents(binding()).map(event => event.type)).toEqual([
       'recovery_authorized', 'recovery_claim', 'recovery_settle',
     ])
@@ -421,6 +428,9 @@ describe('character-reference isolated QA bridge', () => {
 
     const repeatedReplay = await bridge.prepareGeneration(session, generation)
     await repeatedReplay.reconcileRecorded('accepted', receipt)
+    for (const outcome of ['accepted', 'unknown'] as const) {
+      await expect(repeatedReplay.reconcileRecorded(outcome, { different: true })).rejects.toThrow('terminal evidence conflicts')
+    }
     expect(store.listEvents(binding()).filter(event => event.type === 'generation_settle')).toHaveLength(1)
     store.close()
   })
@@ -453,4 +463,132 @@ describe('character-reference isolated QA bridge', () => {
     expect(store.listEvents(binding()).filter(event => event.type === 'generation_unknown')).toHaveLength(1)
     store.close()
   })
+  it('rejects misaligned bytes, invalid clocks and non-preserving upload receipts without resending', async () => {
+    for (const receipt of [
+      { materialUrl: 'http://insecure.invalid/a', reencoded: false, sha256: `sha256:${IMAGE_SHA}` },
+      { materialUrl: MATERIAL_URI, reencoded: true, sha256: `sha256:${IMAGE_SHA}` },
+      { materialUrl: MATERIAL_URI, reencoded: false, sha256: 'changed' },
+      { materialUrl: MATERIAL_URI, reencoded: false, sha256: 7 },
+      { materialUrl: null, reencoded: false, sha256: `sha256:${IMAGE_SHA}` },
+    ]) {
+      const store = await opened()
+      const upload = vi.fn(async () => receipt)
+      const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() }, upload })
+      await expect(bridge.upload(session, request())).rejects.toThrow('preserve')
+      expect(store.inspect(binding()).upload.state).toBe('unknown')
+      await expect(bridge.upload(session, request())).rejects.toThrow('reconciled')
+      expect(upload).toHaveBeenCalledTimes(1)
+      store.close()
+    }
+    const store = await opened()
+    const data = PNG.slice()
+    new DataView(data.buffer).setUint32(16, 1023)
+    const upload = vi.fn()
+    const unaligned = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative({ data }) }, upload })
+    await expect(unaligned.upload(session, request())).rejects.toThrow('aligned image dimensions')
+    const invalidClock = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative() }, upload, now: () => new Date(NaN) })
+    await expect(invalidClock.upload(session, request())).rejects.toThrow('valid clock')
+    expect(upload).not.toHaveBeenCalled()
+    expect(store.inspect(binding()).upload.state).toBe('not_started')
+    store.close()
+  })
+
+  it('replays settled uploads and refuses a revoked project-private owner before dispatch', async () => {
+    const value = { ...grant(), environment: 'project_private' as const,
+      scope: 'one_project_private_upload_and_generation' as const, actorId: JSON.stringify(['owner', 'session']) }
+    const store = await opened(value)
+    const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }))
+    const authority = { read: async () => authoritative() }
+    for (const ownerIdentity of [undefined, async () => 'someone-else']) {
+      const bridge = createCharacterReferenceQaBridge({ store, authority, upload, ownerIdentity })
+      await expect(bridge.upload(session, request())).rejects.toThrow('another Muse account')
+    }
+    const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+      ownerIdentity: async () => value.actorId })
+    const first = await bridge.upload(session, request())
+    expect(await bridge.upload(session, request())).toEqual(first)
+    expect(upload).toHaveBeenCalledTimes(1)
+    store.appendRevocation(binding(), 'owner', 'removed', '2026-10-20T12:00:30.000Z')
+    await expect(bridge.upload(session, request())).rejects.toThrow('revoked')
+    store.close()
+  })
+
+  it('preserves the original upload error when recording the unknown outcome also fails', async () => {
+    const store = await opened()
+    const bridge = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative() },
+      upload: async () => { store.close(); throw new Error('provider transport failed') } })
+    await expect(bridge.upload(session, request())).rejects.toThrow('provider transport failed')
+  })
+
+  it('requires a claim once, prevents repeated terminal evidence and rejects stale replay identities', async () => {
+    const store = await opened()
+    const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() },
+      upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }) })
+    const uploaded = await bridge.upload(session, request())
+    const generation = { ...request(), idempotencyKey: 'generation-fixed', managedReferenceId: uploaded.managed_reference_id }
+    await expect(bridge.prepareGeneration(session, { ...generation, managedReferenceId: 'other-reference' }))
+      .rejects.toThrow('no longer matches')
+    const prepared = await bridge.prepareGeneration(session, generation)
+    await expect(prepared.reconcileRecorded('accepted', {})).rejects.toThrow('fixed generation claim')
+    expect(() => prepared.settleUnknown()).toThrow('not claimed')
+    await prepared.beforeReserve()
+    await expect(prepared.beforeReserve()).rejects.toThrow('already claimed')
+    const other = await bridge.prepareGeneration(session, { ...generation, idempotencyKey: 'another-key' })
+    await expect(other.reconcileRecorded('unknown', {})).rejects.toThrow('fixed generation claim')
+    prepared.settleUnknown()
+    expect(() => prepared.settleAccepted({})).toThrow('terminal evidence')
+    const replay = await bridge.prepareGeneration(session, generation)
+    await expect(replay.reconcileRecorded('unknown', {})).resolves.toBeUndefined()
+    store.close()
+  })
+
+  it('requires trusted recovery evidence and permits an unknown recovery replay only for the same receipt', async () => {
+    const store = await opened()
+    const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() },
+      upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }) })
+    const uploaded = await bridge.upload(session, request())
+    const generation = { ...request(), idempotencyKey: 'generation-fixed', managedReferenceId: uploaded.managed_reference_id }
+    const initial = await bridge.prepareGeneration(session, generation)
+    await initial.beforeReserve()
+    initial.settleUnknown()
+    const proof = { binding: binding(), idempotencyKey: generation.idempotencyKey,
+      managedReferenceId: generation.managedReferenceId, recordId: 'record', requestSha256: 'sha256:body',
+      actor: grant().actorId, guardEvidenceSha256: 'a'.repeat(64), reconciliationEvidenceSha256: 'b'.repeat(64),
+      occurredAt: '2026-10-20T12:05:00.000Z', reason: 'Trusted proof before dispatch' }
+    const root = await mkdtemp(join(tmpdir(), 'bridge-ledger-evidence-'))
+    dirs.push(root)
+    const ledger = new JubianLedger({ root })
+    for (const patch of [{ guardEvidenceSha256: 'invalid' }, { reconciliationEvidenceSha256: 'invalid' },
+      { reason: ' ' }, { occurredAt: 'invalid' }]) {
+      await expect(authorizeCharacterReferenceQaPreDispatchRecovery(ledger, store, { ...proof, ...patch }))
+        .rejects.toThrow('evidence is malformed')
+    }
+    for (const patch of [{ actor: 'other' }, { idempotencyKey: 'other' }, { managedReferenceId: 'other' }]) {
+      await expect(authorizeCharacterReferenceQaPreDispatchRecovery(ledger, store, { ...proof, ...patch }))
+        .rejects.toThrow('current Host evidence')
+    }
+    const began = await ledger.begin({ idempotencyKey: proof.idempotencyKey, method: 'image_generate',
+      scriptId: PROJECT_ID, requestSha256: proof.requestSha256 })
+    proof.recordId = began.record.record_id
+    await ledger.settle(proof.idempotencyKey, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
+    await authorizeCharacterReferenceQaPreDispatchRecovery(ledger, store, proof)
+    const authorized = await bridge.prepareGeneration(session, generation)
+    await expect(authorized.reconcileRecorded('accepted', {})).rejects.toThrow('not claimed')
+    await authorized.beforeReserve()
+    await expect(authorizeCharacterReferenceQaPreDispatchRecovery(ledger, store, proof)).rejects.toThrow('did not reach an authorized state')
+    const receipt = { error: 'connection lost' }
+    await authorized.reconcileRecorded('unknown', receipt)
+    const replay = await bridge.prepareGeneration(session, generation)
+    await expect(replay.reconcileRecorded('unknown', receipt)).resolves.toBeUndefined()
+    for (const outcome of ['accepted', 'unknown'] as const) {
+      await expect(replay.reconcileRecorded(outcome, {})).rejects.toThrow('unknown recovery evidence')
+    }
+    store.appendRevocation(binding(), 'reviewer', 'withdrawn', proof.occurredAt)
+    await expect(authorizeCharacterReferenceQaPreDispatchRecovery(ledger, store, proof)).rejects.toThrow('revoked')
+    store.close()
+  })
+
 })

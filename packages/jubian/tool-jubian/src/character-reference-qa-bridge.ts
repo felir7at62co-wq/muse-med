@@ -135,7 +135,7 @@ export async function authorizeCharacterReferenceQaPreDispatchRecovery(
     || recorded.response_sha256 !== null) {
     throw new Error('Character-reference QA pre-dispatch recovery differs from the recorded project request.')
   }
-  const ledgerRecord = await ledger.preDispatchAbort({
+  await ledger.preDispatchAbort({
     recordId: request.recordId,
     idempotencyKey: request.idempotencyKey,
     method: 'image_generate',
@@ -154,10 +154,10 @@ export async function authorizeCharacterReferenceQaPreDispatchRecovery(
     request.occurredAt,
     request.reason,
   )
-  if (ledgerRecord.outcome !== 'not_sent' || qa.state !== 'authorized') {
+  if (qa.state !== 'authorized') {
     throw new Error('Character-reference QA pre-dispatch recovery did not reach an authorized state.')
   }
-  return { ledgerOutcome: ledgerRecord.outcome, qaState: qa.state }
+  return { ledgerOutcome: 'not_sent', qaState: qa.state }
 }
 
 /** Dependencies for the isolated QA bridge. */
@@ -386,9 +386,6 @@ export function createCharacterReferenceQaBridge(options: CharacterReferenceQaBr
       if (state.generation.idempotencyKey !== request.idempotencyKey
         || state.generation.managedReferenceId !== managed.managedReferenceId) {
         throw new Error('Character-reference QA ledger replay conflicts with the fixed generation claim.')
-      }
-      if (state.generation.state === 'not_started') {
-        throw new Error('Character-reference QA ledger replay has no matching generation claim.')
       }
       const digest = receiptSha256(receipt)
       const recordOutcome = (): void => {
