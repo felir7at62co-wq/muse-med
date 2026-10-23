@@ -36,7 +36,7 @@ import { ASSET_CATEGORY_TYPES } from './naming.ts'
 import type { AssetCategory, Naming } from './naming.ts'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
-import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
+import { bodyHash, estimatedCostReservation, need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
@@ -1325,6 +1325,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       // Read from the task row by the body below; the quote thunk passes it to the
       // budget gate, which cannot ask for a project the caller never states.
       let projectId: number | undefined
+      let estimate: ReturnType<typeof estimatedCostReservation>
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
@@ -1349,9 +1350,14 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           }, selected, args.erase_mode)
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
-        () => ({ scriptId: projectId as number }))
+        () => {
+          estimate = estimatedCostReservation(args)
+          return { ...estimate, scriptId: projectId as number }
+        })
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
-        next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。' }
+        next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
+          + (!result.replayed && estimate !== undefined
+            ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '') }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

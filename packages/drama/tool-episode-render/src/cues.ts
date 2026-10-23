@@ -9,6 +9,8 @@
  * A shot whose alignment speaks while the plan declares no line for it is
  * reported rather than silently dropped, because that is how a delivery loses a
  * line. Missing alignment is returned for Muse to review without inventing timing.
+ * An incomplete attempt with no usable cues writes only its review, preserving
+ * existing subtitles and candidates rather than publishing an empty replacement.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/cues
  */
@@ -216,13 +218,24 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   warnings.push(...textWarnings)
   const draft = failures.length > 0 || textWarnings.length > 0
   const target = draft ? `${input.subtitleSrt}.draft.srt` : input.subtitleSrt
-  if (draft) warnings.push(`字幕存在待核项，候选已写入 ${target}，没有覆盖原字幕；由 Muse 核听并选择后续使用的版本。`)
   const observations = [...failures.map(item => `${item.detail} ${item.fix}`), ...textWarnings]
-  await writeFileAtomic(target, formatSrtDocument(cues), { mode: 0o600, dirMode: 0o700 })
+  const emptyCandidate = draft && cues.length === 0
+  const written = [review]
+  if (emptyCandidate) {
+    const notice = '未生成字幕候选：本次没有可用的字幕条目；原字幕、已有候选及其说明均保留，'
+      + '请核对本次对齐诊断后再选择后续使用的版本。'
+    warnings.push(notice)
+    observations.unshift(notice)
+  } else {
+    if (draft) warnings.push(`字幕存在待核项，候选已写入 ${target}，没有覆盖原字幕；由 Muse 核听并选择后续使用的版本。`)
+    await writeFileAtomic(target, formatSrtDocument(cues), { mode: 0o600, dirMode: 0o700 })
+    written.unshift(target)
+  }
   await writeFileAtomic(review, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
-  if (draft) await writeFileAtomic(`${target}.review.txt`, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
-  else await rm(subtitleBlockPath(input.subtitleSrt), { force: true })
-  const written = [target, review, ...(draft ? [`${target}.review.txt`] : [])]
+  if (draft && !emptyCandidate) {
+    await writeFileAtomic(`${target}.review.txt`, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
+    written.push(`${target}.review.txt`)
+  } else if (!draft) await rm(subtitleBlockPath(input.subtitleSrt), { force: true })
   return {
     shots,
     timeline,

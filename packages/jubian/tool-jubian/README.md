@@ -403,6 +403,8 @@ An intent line without a settle line is the unknown state a timeout leaves behin
 
 Cost reports separate submission estimates, ledger accounting and provider task-row `real_cost` observations. Ledger `settled` and `reserved` amounts use the submitted quote or estimate, not an official provider invoice. Unreported costs, including ASR fees, remain unknown rather than zero; known task-row totals do not establish an episode's complete official charge.
 
+`erase_subtitle` also accepts the existing `estimated_cost_cny` and `estimate_basis` fields: a positive caller-calculated CNY reservation supported by current pricing or comparable actual cost. Both fields are required when supplying an estimate. The estimate stays inside the ledger budget check; it is not sent to the provider, does not raise the project cap and is not a provider quote or actual billed cost. Replaying the same key sends no new request. Without an explicit estimate, the existing trusted authorization estimate can still apply; without either, an unquoted request remains refused. This does not infer a free operation from a zero catalogue price or calculate a per-minute charge without the provider's billing rules.
+
 <a id="errors"></a>
 ### Errors
 
