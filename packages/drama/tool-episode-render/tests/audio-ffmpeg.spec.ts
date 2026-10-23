@@ -234,7 +234,7 @@ it.skipIf(!hasFfmpeg).each([0, undefined])('keeps no_bgm auditions aligned with 
   const second = await previewAudio(args)
   expect(first.output).not.toBe(second.output)
   expect(first.mix).toMatchObject({ mode: 'no_bgm', music_audio: '', music_stem: '', detector: 'none',
-    original_gain: originalGain ?? 0.7 })
+    parameters: { original_gain: originalGain ?? 0.7 } })
   expect(first.bgmPlan.path).toBe('')
   expect(await fileSha256(first.output)).toBe(await fileSha256(first.mix.preview!.without_added_music))
   expect(await fileSha256(first.output)).toBe(await fileSha256(second.output))
