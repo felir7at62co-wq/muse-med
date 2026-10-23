@@ -895,6 +895,7 @@ flowchart TD
   pkg_workspace_changes --> pkg_session
   pkg_workspace_changes --> pkg_subprocess
   pkg_workspace_changes --> pkg_tools
+  pkg_drama_settings --> pkg_atomic_write
   pkg_drama_settings --> pkg_tools
   pkg_tool_audio_transcribe --> pkg_llm
   pkg_tool_audio_transcribe --> pkg_tools
@@ -1749,7 +1750,7 @@ flowchart TD
 | [`file-reference-local`](../packages/context/file-reference-local) | `context` | [`agent`](../packages/core/agent), [`file-reference`](../packages/context/file-reference), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-present`](../packages/deliverables/tool-present) | `deliverables` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`workspace-changes`](../packages/deliverables/workspace-changes) | `deliverables` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
-| [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`tools`](../packages/core/tools) |
+| [`drama-settings`](../packages/drama/drama-settings) | `drama` | [`atomic-write`](../packages/util/atomic-write), [`tools`](../packages/core/tools) |
 | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe) | `drama` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
