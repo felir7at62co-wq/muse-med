@@ -44,7 +44,8 @@ it('does not label a selected bed as absent just because its optional plan is mi
 it('reports the project style and zero-capable gains used by the actual ASS and mix', () => {
   const settings = resolveSettings({ subtitleFontFamily: 'Deployment font', watermarkFontFamily: 'Unchanged watermark' })
   const delivery = { width: 480, height: 854, fps: 24, subtitle: {
-    font_family: 'Project font', font_size_px: 30, margin_bottom_px: 18 }, audio: { master_gain: 1, bgm_gain: 0 } }
+    font_family: 'Project font', font_size_px: 30, margin_bottom_px: 18 }, audio: { master_gain: 1, bgm_gain: 0 },
+  draft_style: { watermark: { font_size_ui: 7 }, subtitle: { font_size_ui: 11 } } }
   const preview = buildRenderPreview({ settings, delivery, subtitle: '23.srt', master: '23.wav' })
   expect(preview.delivery).toEqual({ width: 480, height: 854, fps: 24 })
   expect(preview.subtitle).toMatchObject({ font_family: 'Project font', font_size_design: 67.518,

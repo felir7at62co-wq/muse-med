@@ -282,10 +282,12 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
     Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stub.channel }))
   const subtitle = { font_family: 'Project font', font_size_px: 30, margin_bottom_px: 18 }
   const audio = { master_gain: 1, bgm_gain: 0 }
+  const draft_style = { watermark: { font_size_ui: 7 }, subtitle: { font_family: '山海经', font_size_ui: 11,
+    border_width_ui: 20, transform_y: -0.465625 } }
   try {
     await writePreviewInputs(root)
     const config = { project_bible: { visual_medium: 'animation_3d',
-      delivery: { width: 480, height: 854, fps: 24, subtitle, audio } } }
+      delivery: { width: 480, height: 854, fps: 24, subtitle, audio, draft_style } } }
     await writeFile(join(root, 'project_config.json'), JSON.stringify(config))
     await loadRenderer(ctx, root)
     const tool = ctx.tools.get('drama_render')
@@ -295,7 +297,7 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
     expect(prepared).toMatchObject({ render_preview: { subtitle: { font_family: 'Project font', font_size_output_px: 30 },
       audio: { master_gain: 1, bgm_gain: 0 } } })
     expect(JSON.parse(await readFile(join(root, 'editing', '23-timeline.json'), 'utf8')))
-      .toMatchObject({ delivery: { subtitle, audio } })
+      .toMatchObject({ delivery: { subtitle, audio, draft_style } })
     // Later project changes cannot silently restyle or remix the prepared episode.
     config.project_bible.delivery.subtitle = { font_family: 'Later font', font_size_px: 50, margin_bottom_px: 50 }
     config.project_bible.delivery.audio = { master_gain: 2, bgm_gain: 1 }

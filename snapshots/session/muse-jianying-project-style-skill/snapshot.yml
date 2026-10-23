@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-jianying-project-style-skill
+profile: headless
+composition: muse-drama-pipeline-skill
+recording: authored
+writerOutput: true
+header:
+  class: muse-jianying-project-style-skill
+  pin: true
+workspace:
+  setup: muse-jianying-project-style-skill
