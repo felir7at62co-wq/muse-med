@@ -10,6 +10,9 @@ import { JubianToken } from '../src/token.ts'
 import { JubianBudgets } from '../src/budget.ts'
 import * as Methods from '../src/methods.ts'
 import { JubianVideoSelection } from '../src/video-session.ts'
+import * as ReferenceBridge from '../src/character-reference-qa-bridge.ts'
+import * as ReferenceStore from '../src/character-reference-qa-authorization.ts'
+import * as Find from '../src/find.ts'
 
 interface Registered {
   name: string
@@ -24,24 +27,25 @@ async function mount(options: {
   jobs?: { start: (spec: unknown) => string }
   defaultLedger?: boolean
   qaStore?: boolean
+  services?: Readonly<Record<string, unknown>>
   videoSelection?: Pick<JubianVideoSelection, 'initialize' | 'catalogue' | 'ask' | 'reconcile' | 'assertCurrent'>
 } = {})
   : Promise<{ registered: Registered[]; mounted: unknown[]; root: string }> {
   const registered: Registered[] = []
   const mounted: unknown[] = []
-  const disposers: Array<() => void> = []
+  const disposers: Array<() => unknown> = []
   const ctx = Object.assign(new Context(), {
     plugin: (plugin: unknown) => { mounted.push(plugin) },
     effect: (callback: () => unknown) => {
       const result = callback()
       if (typeof result === 'function') {
-        const dispose = (): void => { Reflect.apply(result, undefined, []) }
+        const dispose = (): unknown => Reflect.apply(result, undefined, [])
         disposers.push(dispose)
       }
       return result
     },
     on: () => () => {},
-    get: (service: string) => service === 'jobs' ? options.jobs : service === 'jubianVideoSelection' ? options.videoSelection : undefined,
+    get: (service: string) => service === 'jobs' ? options.jobs : service === 'jubianVideoSelection' ? options.videoSelection : options.services?.[service],
     tools: {
       register: (definition: Registered) => {
         registered.push(definition)
@@ -51,7 +55,10 @@ async function mount(options: {
     credentials: { resolve: async () => ({ value: 'eyJhbGci.payload.sig', source: 'file' }) },
   })
   const root = await mkdtemp(join(tmpdir(), 'jubian-tools-'))
-  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  onTestFinished(async () => {
+    for (const dispose of disposers.toReversed()) await dispose()
+    await rm(root, { recursive: true, force: true })
+  })
   if (options.defaultLedger) {
     vi.stubEnv('DSH_HOME', root)
     onTestFinished(() => { vi.unstubAllEnvs() })
@@ -62,9 +69,149 @@ async function mount(options: {
       characterReferenceQaAuthorizationDatabasePath: join(root, 'authorization', 'qa.sqlite'),
     } : {}),
     ...options.config })
-  onTestFinished(() => { for (const dispose of disposers.toReversed()) dispose() })
   return { registered, mounted, root }
 }
+
+const managedInput = {
+  method: 'image_generate', script_id: 1, asset_name: 'Fixture Character', asset_type: 1, prompt: 'fixture portrait',
+  idempotency_key: 'routing-fixture', character_reference: {
+    authorization_id: 'routing-authorization', authorization_version: 1,
+    character_id: 'routing-character', catalog_asset_id: 'character:fixture:routing',
+    image_sha256: 'a'.repeat(64), managed_reference_id: 'routing-managed-upload',
+  },
+}
+
+it.each([null, [], true, { method: 1 }, { method: 'upload_character_reference', character_reference: null },
+  { method: 'upload_character_reference', character_reference: [] }])
+('refuses malformed isolated-QA argument bags before dispatch: %j', async (args) => {
+  const method = vi.spyOn(Methods, 'assetMethod').mockResolvedValue({ unused: true })
+  onTestFinished(() => { method.mockRestore() })
+  const asset = (await mount({ qaStore: true })).registered.find(tool => tool.name === 'jubian_asset')!
+  await expect(asset.execute(args, {})).rejects.toThrow('Isolated character-reference QA allows only read operations')
+  expect(method).not.toHaveBeenCalled()
+})
+
+it('allows isolated-QA catalogue and project discovery without opening a write route', async () => {
+  const catalogue = vi.spyOn(Methods, 'catalogMethod').mockResolvedValue({ models: [] })
+  const find = vi.spyOn(Find, 'findMethod').mockResolvedValue({ matches: [] })
+  onTestFinished(() => { catalogue.mockRestore(); find.mockRestore() })
+  const { registered } = await mount({ qaStore: true })
+  expect(await registered.find(tool => tool.name === 'jubian_catalog')!.execute({ method: 'models' }, {}))
+    .toEqual({ models: [] })
+  expect(await registered.find(tool => tool.name === 'jubian_find')!.execute({ scope: 'mine' }, {}))
+    .toEqual({ matches: [] })
+})
+
+it.each([true, false])('forwards the private-owner question with cancellation=%s when the user declines', async (withSignal) => {
+  const signal = withSignal ? new AbortController().signal : undefined
+  const ask = vi.fn(async (_request: { readonly signal?: AbortSignal }) => ({ answers: [] }))
+  const { registered } = await mount({ defaultLedger: true, services: {
+    characterReferenceAuthority: { read: async () => ({
+      projectDirectory: '/synthetic/project', scriptId: 1, characterId: 'char_fixture',
+      characterName: 'Fixture Character', roleClass: 'important_support', catalogAssetId: 'character:fixture:routing',
+      imageSha256: 'a'.repeat(64), metadataStatus: 'pending_review', contentType: 'image/png',
+      data: Uint8Array.of(137, 80, 78, 71),
+    }) },
+    userQuestions: { ask }, museAccount: {
+      status: async () => ({ state: 'signed-in', username: 'FixtureOwner', verified: true }),
+    },
+  } })
+  await expect(registered.find(tool => tool.name === 'jubian_character_reference_authorize')!.execute({
+    script_id: 1, character_id: 'char_fixture', catalog_asset_id: 'character:fixture:routing', image_sha256: 'a'.repeat(64),
+  }, { agent: { ctx: {}, session: { id: 'declined-private-owner' } }, ...(signal === undefined ? {} : { signal }) }))
+    .rejects.toThrow('did not explicitly authorize')
+  expect(ask.mock.calls[0]?.[0].signal).toBe(signal)
+})
+
+it.each([true, false])('passes managed generation through the exact routing checks with isolated QA=%s', async (qaStore) => {
+  const assetMethod = vi.spyOn(Methods, 'assetMethod').mockResolvedValue({ asset: null })
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ task: null })
+  const prepareGeneration = vi.fn<ReferenceBridge.CharacterReferenceQaBridge['prepareGeneration']>()
+    .mockRejectedValue(new Error('fixture managed identity inspected'))
+  const bridge = vi.spyOn(ReferenceBridge, 'createCharacterReferenceQaBridge').mockReturnValue({
+    upload: async () => { throw new Error('unused upload') }, prepareGeneration,
+  })
+  onTestFinished(() => { assetMethod.mockRestore(); videoMethod.mockRestore(); bridge.mockRestore() })
+  const authority = { read: async () => { throw new Error('unused authority') } }
+  const { registered } = await mount({ qaStore, defaultLedger: !qaStore, services: { characterReferenceAuthority: authority } })
+  const asset = registered.find(tool => tool.name === 'jubian_asset')!
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  await asset.execute({ method: 'get', asset_id: 1 }, {})
+  await video.execute({ method: 'task', task_id: 2 }, {})
+  expect(assetMethod).toHaveBeenCalledOnce()
+  expect(videoMethod).toHaveBeenCalledOnce()
+  const agent = { ctx: {}, session: { id: 'routing-session' } }
+  await expect(video.execute(managedInput, { agent })).rejects.toThrow('fixture managed identity inspected')
+  expect(prepareGeneration).toHaveBeenCalledWith(agent.session, {
+    authorizationId: 'routing-authorization', authorizationVersion: 1, scriptId: 1,
+    characterId: 'routing-character', catalogAssetId: 'character:fixture:routing',
+    imageSha256: 'a'.repeat(64), idempotencyKey: 'routing-fixture', managedReferenceId: 'routing-managed-upload',
+  }, undefined)
+  expect(bridge.mock.calls[0]?.[0]).toMatchObject({ authority })
+  const prepared: ReferenceBridge.CharacterReferenceQaGenerationPreparation = {
+    authorizationEnvironment: qaStore ? 'isolated_qa' : 'project_private',
+    authorizationId: 'routing-authorization', authorizationVersion: 1, scriptId: 1,
+    characterId: 'routing-character', characterName: 'Fixture Character', roleClass: 'important_support',
+    catalogAssetId: 'character:fixture:routing', imageSha256: 'a'.repeat(64),
+    managedReferenceId: 'routing-managed-upload', materialUri: 'https://fixture.invalid/private-reference.png',
+    beforeReserve: async () => {}, settleAccepted: () => {}, settleUnknown: () => {}, reconcileRecorded: async () => {},
+  }
+  prepareGeneration.mockResolvedValueOnce(prepared)
+  expect(await video.execute(managedInput, { agent })).toEqual({ task: null })
+  expect(videoMethod.mock.calls.at(-1)?.[3]?.characterReferenceGeneration).toBe(prepared)
+  expect(typeof bridge.mock.calls.at(-1)?.[0].ownerIdentity).toBe(qaStore ? 'undefined' : 'function')
+})
+
+it('rejects managed references on a different method and absent authority before provider work', async () => {
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ unused: true })
+  onTestFinished(() => { videoMethod.mockRestore() })
+  const { registered } = await mount()
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  await expect(video.execute({ ...managedInput, method: 'task', task_id: 1 }, {}))
+    .rejects.toThrow('supported only by image_generate')
+  await expect(video.execute(managedInput, { agent: { ctx: {}, session: { id: 'missing-authority' } } }))
+    .rejects.toThrow('not configured in this Host')
+  expect(videoMethod).not.toHaveBeenCalled()
+})
+
+it.each(['no-agent', 'no-question-ui', 'no-account', 'unverified-account'] as const)
+('refuses project-private authorization with %s without contacting the provider', async (scenario) => {
+  const services: Record<string, unknown> = {
+    characterReferenceAuthority: { read: async () => { throw new Error('unexpected authority read') } },
+    ...(scenario === 'no-question-ui' ? {} : { userQuestions: { ask: async () => ({ answers: [] }) } }),
+    ...(scenario !== 'unverified-account' ? {} : { museAccount: {
+      status: async () => ({ state: 'signed-in', username: 'FixtureOwner', verified: false }),
+    } }),
+  }
+  const { registered } = await mount({ defaultLedger: true, services })
+  const authorize = registered.find(tool => tool.name === 'jubian_character_reference_authorize')!
+  const exec = scenario === 'no-agent' ? {} : { agent: { ctx: {}, session: { id: 'private-routing' } } }
+  await expect(authorize.execute({ script_id: 1, character_id: 'char_fixture',
+    catalog_asset_id: 'character:fixture:routing', image_sha256: 'a'.repeat(64) }, exec))
+    .rejects.toThrow(scenario === 'no-agent' ? 'live Muse Agent' : scenario === 'no-question-ui'
+      ? 'live user-question UI' : scenario === 'no-account' ? 'signed-in Muse account' : 'verified, signed-in Muse account')
+})
+
+it.each(['unavailable', 'denied'] as const)('disposes %s private-ledger initialization without hiding the error', async (failure) => {
+  const open = ReferenceStore.openCharacterReferenceQaAuthorizationStore
+  const initialization = vi.spyOn(ReferenceStore, 'openCharacterReferenceQaAuthorizationStore').mockImplementation(async (options) => {
+    if (options.environment === ReferenceStore.CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT) {
+      if (failure === 'unavailable') return undefined
+      throw new Error('fixture database denied')
+    }
+    return await open(options)
+  })
+  onTestFinished(() => { initialization.mockRestore() })
+  const { registered } = await mount({ defaultLedger: true, services: {
+    characterReferenceAuthority: { read: async () => { throw new Error('unused authority') } },
+    userQuestions: { ask: async () => ({ answers: [] }) },
+  } })
+  const authorize = registered.find(tool => tool.name === 'jubian_character_reference_authorize')!
+  await expect(authorize.execute({ script_id: 1, character_id: 'char_fixture',
+    catalog_asset_id: 'character:fixture:routing', image_sha256: 'a'.repeat(64) },
+  { agent: { ctx: {}, session: { id: 'private-db-failure' } } }))
+    .rejects.toThrow(failure === 'unavailable' ? 'ledger is unavailable' : 'fixture database denied')
+})
 
 describe('tool-jubian registration', () => {
   it.each([{ imageReferencePageSize: 0 }, { imageReferencePageSize: 1001 },

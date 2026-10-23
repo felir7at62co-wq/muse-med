@@ -8,6 +8,32 @@ import { acceptedWriteResponse, bodyHash, requireArguments, writeUnderLedger } f
 const temporary: string[] = []
 afterEach(async () => { await Promise.all(temporary.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
+it.each(['already-aborted', 'aborted-during-preparation'] as const)
+('refuses an image recovery without Host evidence when %s', async (scenario) => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-recovery-race-'))
+  temporary.push(root)
+  const ledger = new JubianLedger({ root, defaultLimitCents: () => 1000 })
+  const payload = { name: 'same' }, key = 'recovery-race'
+  const abort = async () => {
+    const { record } = await ledger.begin({ idempotencyKey: key, method: 'image_generate', scriptId: 2708,
+      requestSha256: bodyHash(payload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+    await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
+    await ledger.preDispatchAbort({ recordId: record.record_id, idempotencyKey: key, method: 'image_generate',
+      requestSha256: bodyHash(payload), actor: 'fixture-owner', guardEvidenceSha256: 'a'.repeat(64),
+      reconciliationEvidenceSha256: 'b'.repeat(64) })
+  }
+  if (scenario === 'already-aborted') await abort()
+  const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 200 },
+    response_sha256: null, data: null }))
+  await expect(writeUnderLedger(ledger, key, 'image_generate', async () => {
+    if (scenario === 'aborted-during-preparation') await abort()
+    return payload
+  }, send, () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' })))
+    .rejects.toThrow(scenario === 'already-aborted' ? 'matching Host recovery evidence' : 'Recovery state changed')
+  expect(send).not.toHaveBeenCalled()
+  expect(await ledger.find(key)).toMatchObject({ outcome: 'not_sent' })
+})
+
 it('requires one storyboard-create body while accepting inline or file-backed requests', () => {
   expect(() => { requireArguments('jubian_storyboard', { method: 'create' }) }).toThrow('body or body_path')
   expect(() => { requireArguments('jubian_storyboard', { method: 'create', body: {} }) }).not.toThrow()
