@@ -43,6 +43,8 @@ export interface Config {
   reviewMaxFrames: number
   /** Maximum decoded cut-score metadata bytes per scan chunk. */
   reviewMaxScanBytes: number
+  /** Maximum UTF-8 bytes in a complete observation-to-draft comparison, including its draft input. */
+  reviewCompareMaxBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
@@ -155,6 +157,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   reviewChunkSeconds: Schema.number().min(1).max(120).default(30),
   reviewMaxFrames: Schema.number().step(1).min(2).max(10_000).default(4000),
   reviewMaxScanBytes: Schema.number().step(1).min(1).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
+  reviewCompareMaxBytes: Schema.number().step(1).min(1).max(16 * 1024 * 1024).default(256 * 1024),
   trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
   powershellPath: Schema.string().default('powershell.exe'),

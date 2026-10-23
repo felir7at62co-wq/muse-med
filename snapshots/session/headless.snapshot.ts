@@ -1552,7 +1552,7 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false])
+              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false])
               expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
               expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(5)
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
@@ -1566,6 +1566,15 @@ describe('headless recorded-session snapshots', () => {
               const report = JSON.parse(finalText.text) as { observation_report: string }
               const saved = await readFile(report.observation_report, 'utf8')
               expect(JSON.parse(saved)).toEqual(expected)
+              const comparisonText = results[7]?.content.find(block => block.type === 'text')
+              if (comparisonText?.type !== 'text') throw Error('Missing saved-draft comparison')
+              const { comparison } = JSON.parse(comparisonText.text) as { comparison: {
+                advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string }
+              } }
+              expect(comparison.advisory).toBe(true)
+              expect(comparison.semantic_assessment).toBe('not_performed')
+              expect(comparison.observations).toHaveLength(5)
+              expect(comparison.draft.numbered_text).toContain('2: ▲合成画面从黑色切换为白色。')
               const expectedReport = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(report.observation_report))
               await mkdir(dirname(expectedReport), { recursive: true })
               await writeFile(expectedReport, saved)

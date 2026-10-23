@@ -24,6 +24,8 @@ import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { scanReviewFrames, appearanceCandidates } from '../src/review-scan.ts'
 import { reviewsOf, installReviewState, reviewImage, VideoReviewId } from '../src/review-state.ts'
 import { applyCompleteReview } from '../src/review.ts'
+import { compareReviewDraft } from '../src/review-compare.ts'
+import { z } from 'zod'
 
 type Plan = { name: string; args: object } | (() => { name: string; args: object }) | 'fail' | 'offload' | 'offload-throw' | undefined
 class Model extends LlmAdapter {
@@ -124,6 +126,96 @@ it('refuses unseen frame claims, caller-selected frame budgets, and failed image
   expect(h.results().at(-1)?.isError).toBe(true)
   expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
 }, 30_000)
+
+it('compares recorded observations with the actual draft without completing pending images or requiring comparison for delivery', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review())
+  const observed: string[] = []
+  h.ctx.on('fs/observed', (target, _observation, actor) => { if (actor !== undefined) observed.push(target.displayPath) })
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  const result = h.results().at(-1)!
+  expect(result.isError).toBe(false)
+  const block = result.content.find(block => block.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing comparison')
+  const { comparison } = z.object({ comparison: z.object({ advisory: z.boolean(), semantic_assessment: z.string(),
+    observation_scope: z.string(), observations: z.array(z.unknown()), checks: z.string(),
+    draft: z.object({ path: z.string(), sha256: z.string(), numbered_text: z.string() }) }) }).parse(JSON.parse(block.text))
+  expect(comparison).toMatchObject({ advisory: true, semantic_assessment: 'not_performed',
+    observation_scope: 'recorded_frames_only', draft: { path: h.manuscript } })
+  expect(comparison.observations).toHaveLength(2)
+  expect(comparison.draft.numbered_text).toContain('2: ▲红色背景切换为蓝色背景。')
+  expect(comparison.checks).toContain('无对白反应')
+  expect(comparison.checks).toContain('切镜不等于换场')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(observed).toContain(h.manuscript)
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(0)
+  await appendFile(h.manuscript, '甲（低声）：等一下。\n')
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('等一下')
+  expect(JSON.stringify(h.results().at(-1))).not.toContain(comparison.draft.sha256)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+}, 30_000)
+
+it('bounds the entire UTF-8 comparison and leaves delivery and observations unchanged after comparison failure', async () => {
+  const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const before = JSON.stringify(h.review())
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(await readFile(h.manuscript, 'utf8')).toBe('# 第80集\n▲红色背景切换为蓝色背景。\n')
+  await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+}, 30_000)
+
+it('requires a saved bounded regular draft and preserves observations for invalid comparison inputs', async () => {
+  const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review())
+  await h.run(h.call('compare'), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_DRAFT')
+  for (const draft_path of [h.root, join(h.root, 'missing.md')]) {
+    await h.run(h.call('compare', { draft_path }), undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  }
+  await writeFile(h.manuscript, '甲'.repeat(181))
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it.each(['draft', 'video'] as const)('rejects comparison if the %s changes during the draft read', async (changed) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), readBytes = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  const observed: string[] = []
+  h.ctx.on('fs/observed', (target, _observation, actor) => { if (actor !== undefined) observed.push(target.displayPath) })
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
+    const bytes = await readBytes(...args)
+    if (args[0].displayPath === h.manuscript) await appendFile(changed === 'draft' ? h.manuscript : h.input, 'revision')
+    return bytes
+  })
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_CHANGED')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(observed).not.toContain(h.manuscript)
+}, 30_000)
+
+it('orders context frames by source time and retains uncertainty without inventing correspondence', () => {
+  const frame = (id: string, time: number, uncertainty: string) => ({ id, time, reasons: ['uncertainty_context'], exposed: true,
+    observation: { visible: '男子在门边抬起手臂，女子背向他。', change: '手臂位置发生变化。', uncertainty } })
+  const result = compareReviewDraft({ id: VideoReviewId('review'), path: 'video.mp4', episode: '第1集', source_version: 'v1',
+    duration: 3, scan_complete: true, scanned_until: 3,
+    frames: [frame('F00001', 2, '是否碰到手臂不清楚'), frame('F00002', 1, '')] },
+  { path: 'draft.md', version: 'v2', text: '甲（抬手）：等一下。' })
+  expect(result.observations.map(frame => frame.frame_id)).toEqual(['F00002', 'F00001'])
+  expect(result.observations[1]?.uncertainty).toBe('是否碰到手臂不清楚')
+  expect(result).not.toHaveProperty('coverage_passed')
+})
 
 it('retains cumulative within-shot appearance changes rather than comparing only adjacent frames', () => {
   const config = Video.Config({ reviewAnalysisFps: 4, reviewChangeThreshold: 0.12, reviewCheckpointSeconds: 20 })
