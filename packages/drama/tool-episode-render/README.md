@@ -178,6 +178,8 @@ Inspect source text with the existing offline [video inspection tools](../../per
 
 The result's `subtitle_overlay` binds the plan, original SRT, new `resolved_srt` and all selected videos by SHA-256, and names the full `decision_report`. Without explicit `output`, files use a new `editing/subtitle-overlays/epNN-<unique>/` directory. A draft consumer must reuse that resolved SRT and report rather than filtering again. `retained_embedded` entries describe text already in video pixels: they are not editable subtitle clips and cannot inherit external font size or position. The authored transcript remains separately available. Technical success does not certify that every source frame is free of other text.
 
+Before publication, the resolver rechecks the original SRT, plan and selected video hashes. If report publication fails, rollback removes only its newly written, unchanged regular SRT; changed bytes, links and concurrent report files remain. A failed rollback reports both errors.
+
 ### Delivery style
 
 | Element | Value |
