@@ -419,18 +419,12 @@ function imageNext(readback: ImageReadback, assetId: number | null, requestedPar
         + '不要自动换 key 重投。同一个 key 不会再次发送。'
     case 'timeout':
       return '请求已受理并记入本地账本（outcome=accepted），供应商实际扣费仍待核对；不要换 key 重投。'
-        + (requestedParentId !== undefined
-          ? `只读查询现有资产 ${requestedParentId} 的 generated_image，新任务/材质必须与旧图区分。`
-          : assetId === null
-            ? '回执没有资产 ID；只能依据原请求的精确任务/资产身份只读对账，不能用同名历史资产冒充。'
-            : `只读查询新资产 ${assetId} 的 get/generated_image，核对本次任务和候选图。`)
+        + `只读查询新资产 ${assetId} 的 get/generated_image，核对本次任务和候选图。`
     case 'replayed':
       if (requestedParentId !== undefined) return `本次是重放，没有发送请求。原请求针对现有资产 ${requestedParentId}；`
         + '只读查询该资产的 generated_image，核对本次新增任务与材质，不能把旧图当作本次结果。'
-      return assetId === null
-        ? '本次是重放，没有发送请求；原回执没有资产 ID。只能依据原请求的精确任务/资产身份只读对账，'
-          + '不能用同名历史资产认领本次结果，也不要换 key 重投。'
-        : '本次是重放：没有发送任何请求。用 jubian_asset get 回读原资产 ID，不要换 key 重投。'
+      return '本次是重放，没有发送请求；原回执没有资产 ID。只能依据原请求的精确任务/资产身份只读对账，'
+        + '不能用同名历史资产认领本次结果，也不要换 key 重投。'
     case 'unverified':
       if (requestedParentId !== undefined) return `受理请求针对现有资产 ${requestedParentId}，`
         + '但尚未核实本次新任务和新材质。只读查询该资产的 generated_image；旧的 Active 材质不证明重生成功。'
@@ -479,16 +473,15 @@ function managedCharacterReferenceNext(readback: ImageReadback, assetId: number 
  * acceptance would hand the caller an asset that reads back empty. A new parent
  * may have no Hosting status until casting is confirmed, even while its image
  * material is Active. In that case only one active, unselected material belonging
- * to the accepted parent qualifies. Regeneration still waits for its parent state;
- * it cannot reuse this path to return an old unselected candidate.
+ * to the accepted parent qualifies. Existing parents remain unverified: an old
+ * Active state or unselected candidate cannot identify the new generation.
  * @param client - Jubian transport.
- * @param assetId - The asset id the accepted response carried, or null when it carried none.
- * @param newAsset - Whether this request created a parent rather than regenerating one.
+ * @param assetId - The new parent identity carried by the accepted response.
  * @param options - Readback budget, poll interval, clock and sleep.
  * @returns The readback outcome; a timed-out readback is reported, never thrown, because the
  *   paid write was already accepted and the ledger already records it.
  */
-async function awaitGeneratedImage(client: JubianClient, assetId: number, newAsset: boolean,
+async function awaitGeneratedImage(client: JubianClient, assetId: number,
   options: ImageMethodOptions): Promise<ImageReadback> {
   const now = options.now ?? ((): number => Date.now())
   const sleep = options.sleep
@@ -513,7 +506,7 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number, newAss
         if (!(error instanceof JubianError) || error.code !== 'CONTRACT_CHANGED') throw error
         lastError = error.message
       }
-    } else if (observed === null && newAsset) {
+    } else if (observed === null) {
       try {
         const data = (await client.request({ method: 'GET',
           path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data
@@ -563,11 +556,10 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number, newAss
 }
 
 /** Preserve the accepted asset ID without mistaking an existing parent's old material for a new image. */
-async function readbackAcceptedImage(client: JubianClient, assetId: number | null, newAsset: boolean,
+async function readbackAcceptedImage(client: JubianClient, assetId: number | null,
   options: ImageMethodOptions, requestedParentId?: number): Promise<ImageReadback> {
-  if (!newAsset) {
-    const target = requestedParentId ?? assetId
-    return unread('unverified', `重生请求针对现有资产 ${target ?? '未提供'}；其旧的 Active 状态和旧材质不能证明本次出图。`
+  if (requestedParentId !== undefined) {
+    return unread('unverified', `重生请求针对现有资产 ${requestedParentId}；其旧的 Active 状态和旧材质不能证明本次出图。`
       + '只读查询该资产的 generated_image，核对本次新增任务及材质；不要换 key 重投。')
   }
   if (assetId === null) {
@@ -575,7 +567,7 @@ async function readbackAcceptedImage(client: JubianClient, assetId: number | nul
       + '不能按 asset_name 将同名历史资产当作本次结果。保留原幂等键与响应摘要，只读核对精确身份；'
       + '无法核实时停止，不要再次提交生图。')
   }
-  try { return await awaitGeneratedImage(client, assetId, newAsset, options) }
+  try { return await awaitGeneratedImage(client, assetId, options) }
   catch (error) {
     return unread('unverified', `计费请求已受理，资产 ID 为 ${assetId}，但回读失败：`
       + `${error instanceof Error ? error.message : String(error)}。不要换 key 重投。`)
@@ -1059,8 +1051,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             || result['replayed'] !== false) continue
           const assetId = typeof result['parent_asset_id'] === 'number' ? result['parent_asset_id'] : null
           const requestedParentId = (prepared[index] as (typeof prepared)[number]).item.parent_asset_id
-          const newAsset = requestedParentId === undefined
-          const readback = await readbackAcceptedImage(client, assetId, newAsset, deps.image ?? {}, requestedParentId)
+          const readback = await readbackAcceptedImage(client, assetId, deps.image ?? {}, requestedParentId)
           results[index] = { ...result, asset_status: readback.status,
             generation_status: imageGenerationStatus('accepted', false, readback.status),
             material_id: readback.material_id,
@@ -1196,14 +1187,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         ? unread('replayed', '这个 idempotency_key 已有记录：本次没有发送请求，也没有回读资产。'
           + (args.parent_asset_id !== undefined
             ? `原请求针对现有资产 ${args.parent_asset_id}；只读核对该资产新增任务和材质，不能用旧图冒充。`
-            : assetId === null
-              ? '原回执没有资产 ID；不能把同名历史资产认作本次结果，只能只读核对原请求的精确身份。'
-              : `用 jubian_asset get/generated_image 回读原资产 ID ${assetId}。`))
+            : '原回执没有资产 ID；不能把同名历史资产认作本次结果，只能只读核对原请求的精确身份。'))
         : result.outcome === 'accepted'
           ? deps.deferImageReadback
             ? unread('unverified', '批次已受理，正在逐项回读资产状态。')
-            : await readbackAcceptedImage(client, assetId, args.parent_asset_id === undefined,
-              deps.image ?? {}, args.parent_asset_id)
+            : await readbackAcceptedImage(client, assetId, deps.image ?? {}, args.parent_asset_id)
           : unread('unverified', '受理结果不是 accepted，无法确认资产是否真的创建；'
             + '仅凭原请求的精确身份只读对账，不能用同名历史资产认领，也不要换 key 重投。')
       return { replayed: result.replayed, outcome: result.outcome,

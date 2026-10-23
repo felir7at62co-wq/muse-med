@@ -48,21 +48,27 @@ const baseArgs = {
 interface StubOptions {
   readonly applicationCode?: number
   readonly throwOnWrite?: boolean
+  readonly assetStatus?: string | null
+  readonly generatedImage?: unknown
 }
 
 function stubClient(events: string[], options: StubOptions = {}) {
   const calls: Array<{ method: string; body?: Record<string, unknown> }> = []
   const client = new JubianClient({
     credential: async () => 'token',
-    fetch: async (_url: string | URL | Request, init?: RequestInit) => {
+    fetch: async (url: string | URL | Request, init?: RequestInit) => {
       const method = String(init?.method)
       const body = typeof init?.body === 'string'
         ? JSON.parse(init.body) as Record<string, unknown>
         : undefined
       calls.push({ method, ...(body === undefined ? {} : { body }) })
       if (method === 'GET') {
-        events.push('catalogue')
-        return new Response(JSON.stringify({ code: 200, data: CATALOGUE }), { status: 200 })
+        const catalogue = String(url).includes('getSelectList')
+        events.push(catalogue ? 'catalogue' : 'readback')
+        const data = catalogue ? CATALOGUE : String(url).includes('getGeneratedImageByAssetId')
+          ? options.generatedImage
+          : { id: PROVIDER_ASSET_ID, hsAssetStatus: options.assetStatus ?? null }
+        return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
       }
       events.push('provider-write')
       if (options.throwOnWrite) throw new Error('synthetic transport interruption')
@@ -116,6 +122,43 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 describe('managed character-reference image generation', () => {
+  it.each([
+    { status: 'active', assetStatus: 'Active', next: '生成图已就绪' },
+    { status: 'generated', assetStatus: null, next: '生成图已就绪' },
+    { status: 'failed', assetStatus: 'Failed', next: '一次性授权不允许重投' },
+    { status: 'timeout', assetStatus: 'Pending', next: '只读查询新资产' },
+  ])('reports managed $status readback without promoting the candidate', async ({ status, assetStatus, next }) => {
+    const events: string[] = []
+    const { client, calls } = stubClient(events, { assetStatus, generatedImage: [{
+      id: 701, assetId: PROVIDER_ASSET_ID, hsAssetStatus: 'Active', isUsed: 0,
+      assetUrl: 'https://fixture.invalid/new-candidate.png',
+    }] })
+    const managed = preparation(events)
+    const result = await videoMethod(client, ledger, baseArgs, { characterReferenceGeneration: managed.value,
+      image: { activeTimeoutMs: 0, now: () => 0 } })
+    expect(result).toMatchObject({ asset_status: status, character_reference: { publish_allowed: false, formal_bind_allowed: false } })
+    expect(result.next).toContain(next)
+    expect(result.next).toContain('不得 confirm_casting')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(managed.settleAccepted).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { resultMsg: '最多输入2张图', expected: '最多2张参考图' },
+    { resultMsg: 'request was rejected by the safety system', expected: '内容审核拒绝' },
+    { resultMsg: '用户额度不足', expected: '供应商额度不足' },
+    { resultMsg: 'other failure', expected: '供应商报告生成失败' },
+  ])('retains a taskless provider failure as a managed failure: $resultMsg', async ({ resultMsg, expected }) => {
+    const events: string[] = []
+    const { client } = stubClient(events, { generatedImage: [{
+      assetId: PROVIDER_ASSET_ID, resultStatus: 'failed', resultMsg,
+    }] })
+    const result = await videoMethod(client, ledger, baseArgs, { characterReferenceGeneration: preparation(events).value,
+      image: { activeTimeoutMs: 0, now: () => 0 } })
+    expect(result).toMatchObject({ asset_status: 'failed' })
+    expect(result.readback_error).toContain('任务未提供')
+    expect(result.readback_error).toContain(expected)
+  })
   it('honors cancellation during managed authorization before reserving or dispatching', async () => {
     const events: string[] = []
     const { calls, client } = stubClient(events)

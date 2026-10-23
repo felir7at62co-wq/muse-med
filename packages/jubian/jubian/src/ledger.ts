@@ -422,11 +422,7 @@ export class JubianLedger {
         reconciliation_evidence_sha256: input.reconciliationEvidenceSha256, aborted_at: now.toISOString() }
       await mkdir(this.root, { recursive: true })
       await appendFile(this.fileFor(now), `${JSON.stringify(event)}\n`, 'utf8')
-      const folded = fold([...lines, event])
-      if (folded === undefined || folded.outcome !== 'not_sent') {
-        throw new Error('Jubian ledger: pre-dispatch abort did not fold to not_sent')
-      }
-      return folded
+      return { ...record, outcome: 'not_sent' }
     })
   }
 
@@ -473,11 +469,8 @@ export class JubianLedger {
         reconciliation_evidence_sha256: abort.reconciliationEvidenceSha256, resumed_at: now.toISOString() }
       await mkdir(this.root, { recursive: true })
       await appendFile(this.fileFor(now), `${JSON.stringify(event)}\n`, 'utf8')
-      const folded = foldState([...lines, event])
-      if (folded.record === undefined || !folded.resumed || folded.record.outcome !== null) {
-        throw new Error('Jubian ledger: resume event did not reopen the intent')
-      }
-      return folded.record
+      return { ...record, quote_observed_at: event.quote_observed_at,
+        http_status: null, application_code: null, response_sha256: null, outcome: null }
     })
   }
 

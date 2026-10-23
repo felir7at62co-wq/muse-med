@@ -531,6 +531,14 @@ describe('jubian_asset reads and the side-effecting GET', () => {
 })
 
 describe('jubian_video', () => {
+  it('keeps unversioned generated-image rows behind positive task IDs without inventing one', async () => {
+    const { client } = stubClient(() => [
+      { id: 1, assetId: 2708, taskId: 0, assetUrl: 'https://fixture.invalid/legacy.png' },
+      { id: 2, assetId: 2708, taskId: 'invalid', assetUrl: 'https://fixture.invalid/other.png' },
+    ])
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 2708 }))
+      .toMatchObject({ image: { material_id: 1, url: 'https://fixture.invalid/legacy.png' } })
+  })
   it('marks a batch item as not submitted when authorization refuses it before the ledger intent', async () => {
     const { client, calls } = imageProvider()
     await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
@@ -593,10 +601,11 @@ describe('jubian_video', () => {
       .toMatchObject({ outcome: 'accepted' })
     expect(calls.at(-1)?.path).toContain('/retry/42')
   })
-  it('reports a batch item as uncertain when the ledger cannot be read for its original key', async () => {
+  it.each([new Error('ledger storage unavailable'), 'ledger storage unavailable'])
+  ('reports a batch item as uncertain when its ledger rejects with %s', async (failure) => {
     const { client, calls } = imageProvider()
     const find = vi.spyOn(ledger, 'find').mockResolvedValueOnce(undefined)
-      .mockRejectedValue(new Error('ledger storage unavailable'))
+      .mockRejectedValue(failure)
     onTestFinished(() => { find.mockRestore() })
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'unreadable-key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())

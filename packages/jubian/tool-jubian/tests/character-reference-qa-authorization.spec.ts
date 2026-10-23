@@ -1,8 +1,8 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CHARACTER_REFERENCE_QA_SCHEMA_VERSION,
   CHARACTER_REFERENCE_QA_ENVIRONMENT,
@@ -29,8 +29,10 @@ const ACTOR_ID = 'fixture-operator'
 const REVIEWER_ID = 'fixture-reviewer'
 const SOURCE_DECLARATION = 'Synthetic test fixture authorized for one isolated QA generation only.'
 const dirs: string[] = []
+const stores: CharacterReferenceQaAuthorizationStore[] = []
 
 afterEach(async () => {
+  for (const store of stores.splice(0)) store.close()
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
@@ -78,6 +80,7 @@ async function opened(): Promise<{ store: CharacterReferenceQaAuthorizationStore
   const path = join(dir, 'database', 'authorization.sqlite')
   const store = await openCharacterReferenceQaAuthorizationStore({ dataRoot: dir, databasePath: path })
   if (store === undefined) throw new Error('test path unexpectedly disabled the QA authorization store')
+  stores.push(store)
   return { store, path, root: dir }
 }
 
@@ -657,4 +660,184 @@ describe('character-reference isolated QA authorization store', () => {
     second.close()
     store.close()
   })
+  it('rejects invalid grant and binding identities, duplicate revocation and closed stores', async () => {
+    const { store } = await opened()
+    for (const patch of [{ authorizationVersion: 0 }, { projectId: 0 }, { environment: 'other' },
+      { actorId: 'contains\u0000control' }, { createdAt: 'invalid' }]) {
+      expect(() => store.appendGrant({ ...grant(), ...patch })).toThrow()
+    }
+    store.appendGrant(grant())
+    for (const patch of [{ authorizationVersion: 0 }, { projectId: 0 }]) {
+      expect(() => store.inspect({ ...binding(), ...patch })).toThrow()
+    }
+    expect(() => store.claimManagedUpload(binding(), 'a'.repeat(201), CREATED_AT)).toThrow('too long')
+    expect(() => store.requireManagedReference(binding())).toThrow('has not settled')
+    store.appendRevocation(binding(), ACTOR_ID, 'withdrawn', CREATED_AT)
+    expect(() => store.appendRevocation(binding(), ACTOR_ID, 'withdrawn', CREATED_AT)).toThrow('already revoked')
+    expect(() => store.requireManagedReference(binding())).toThrow('revoked')
+    store.close()
+    store.close()
+    expect(() => store.inspect(binding())).toThrow('closed')
+  })
+
+  it('keeps private grants bound to one account and blocks renewal while an earlier attempt is unresolved', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'private-reference-grants-'))
+    dirs.push(root)
+    const store = await openCharacterReferenceQaAuthorizationStore({ dataRoot: root,
+      databasePath: join(root, 'private.sqlite'), environment: 'project_private' })
+    if (store === undefined) throw new Error('private store unavailable')
+    stores.push(store)
+    const value = grant({ environment: 'project_private', scope: 'one_project_private_upload_and_generation',
+      actorId: JSON.stringify(['account', 'session']) })
+    expect(() => store.appendGrant(grant())).toThrow('environment differs')
+    for (const actorId of ['not-json', '{}', '[]', '[1,"session"]', '["","session"]', '["account",1]', '["account",""]']) {
+      expect(() => store.appendGrant({ ...value, actorId })).toThrow('verified account and Session')
+    }
+    store.appendGrant(value)
+    expect(() => store.appendGrant({ ...value, authorizationVersion: 2, actorId: JSON.stringify(['other-account', 'session']) }))
+      .toThrow('another Muse account')
+    const current = binding(value)
+    const claim = store.claimManagedUpload(current, 'upload', CREATED_AT)
+    expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+    store.markManagedUploadUnknown(current, 'upload', claim.managedReferenceId, null, CREATED_AT)
+    expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+    store.appendGrant({ ...value, authorizationVersion: 2, characterId: 'another-character' })
+    store.close()
+  })
+
+  it('does not overwrite failed or terminal upload and generation evidence', async () => {
+    const { store } = await opened()
+    store.appendGrant(grant())
+    const current = binding()
+    expect(() => store.markManagedUploadUnknown(current, 'upload', 'missing', null, CREATED_AT)).toThrow('not been claimed')
+    const id = settleUpload(store)
+    expect(() => store.markManagedUploadUnknown(current, 'upload-fixed', id, null, CREATED_AT)).toThrow('terminal event')
+    expect(() => store.claimGeneration(current, 'generation', 'other', CREATED_AT)).toThrow('authorized upload')
+    expect(() => authorizeRecovery(store, id)).toThrow('requires an unknown')
+    store.claimGeneration(current, 'generation-fixed', id, CREATED_AT)
+    store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)
+    expect(() => store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)).toThrow('terminal event')
+    store.close()
+  })
+
+  it('refuses foreign application IDs, unsupported schemas and extra or missing tables without rewriting them', async () => {
+    for (const setup of [
+      'PRAGMA application_id = 7',
+      'CREATE TABLE unrelated (id INTEGER)',
+      'PRAGMA application_id = 1146310977; PRAGMA user_version = 9',
+      'PRAGMA application_id = 1146310977; PRAGMA user_version = 2; CREATE TABLE unexpected (id INTEGER)',
+      'PRAGMA application_id = 1146310977; PRAGMA user_version = 2',
+    ]) {
+      const root = await mkdtemp(join(tmpdir(), 'foreign-reference-db-'))
+      dirs.push(root)
+      const path = join(root, 'authorization.sqlite')
+      const db = new DatabaseSync(path)
+      db.exec(setup)
+      db.close()
+      await chmod(path, 0o600)
+      await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toMatchObject({ code: 'foreign-database' })
+    }
+    const { store, root, path } = await opened()
+    store.close()
+    const db = new DatabaseSync(path)
+    db.exec('CREATE TABLE unexpected (id INTEGER)')
+    db.close()
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('unexpected: unexpected; missing: none')
+  })
+
+  it('refuses non-file and symlink entries and insecure SQLite sidecars', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'reference-db-path-'))
+    dirs.push(root)
+    const path = join(root, 'authorization.sqlite')
+    await mkdir(path, { mode: 0o700 })
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
+    await rm(path, { recursive: true })
+    if (process.platform !== 'win32') {
+      await symlink(join(root, 'elsewhere'), path)
+      await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
+      await rm(path)
+      await writeFile(path + '-wal', '', { mode: 0o644 })
+      await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('accessible beyond its owner')
+    }
+    const fileRoot = join(root, 'not-a-directory')
+    await writeFile(fileRoot, 'blocked')
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: fileRoot, databasePath: join(fileRoot, 'db.sqlite') }))
+      .rejects.toMatchObject({ code: 'invalid-config', cause: expect.objectContaining({ code: 'EEXIST' }) })
+  })
+
+  it('refuses malformed durable rows and inconsistent managed-reference evidence', async () => {
+    const original = await opened()
+    original.store.appendGrant(grant())
+    const id = establishUnknownGeneration(original.store)
+    authorizeRecovery(original.store, id)
+    original.store.close()
+    const db = new DatabaseSync(':memory:')
+    db.prepare('ATTACH DATABASE ? AS original').run(original.path)
+    for (const table of ['character_reference_qa_authorizations', 'character_reference_qa_events',
+      'character_reference_qa_generation_recovery_events']) {
+      db.exec(`CREATE TABLE ${table} AS SELECT * FROM original.${table}`)
+    }
+    const store = new CharacterReferenceQaAuthorizationStore(db)
+    stores.push(store)
+    const cases = [
+      ["UPDATE character_reference_qa_authorizations SET role_class = 'invalid'", () => store.inspect(binding()), 'role class'],
+      ["UPDATE character_reference_qa_authorizations SET actor_id = x'00'", () => store.inspect(binding()), 'actor_id'],
+      ["UPDATE character_reference_qa_authorizations SET project_id = 'invalid'", () => store.inspect(binding()), 'project_id'],
+      ["UPDATE character_reference_qa_events SET note = x'00'", () => store.inspect(binding()), 'note'],
+      ["UPDATE character_reference_qa_events SET event_type = 'invalid'", () => store.inspect(binding()), 'event_type'],
+      ["UPDATE character_reference_qa_generation_recovery_events SET event_type = 'invalid'", () => store.inspect(binding()), 'event_type'],
+      ["UPDATE character_reference_qa_authorizations SET environment = 'project_private'", () => store.inspect(binding()), 'another Host authorization environment'],
+      ["UPDATE character_reference_qa_events SET material_uri = NULL WHERE event_type = 'upload_settle'", () => store.requireManagedReference(binding()), 'missing from append-only evidence'],
+      ["UPDATE character_reference_qa_events SET managed_reference_id = 'other' WHERE event_type = 'generation_claim'", () => store.claimGeneration(binding(), 'generation-fixed', id, CREATED_AT), 'fixed claim'],
+      ["UPDATE character_reference_qa_generation_recovery_events SET idempotency_key = 'other'", () => store.claimGeneration(binding(), 'generation-fixed', id, CREATED_AT), 'recovery key'],
+      ["UPDATE character_reference_qa_generation_recovery_events SET managed_reference_id = 'other'", () => store.claimGeneration(binding(), 'generation-fixed', id, CREATED_AT), 'recovery managed reference'],
+    ] as const
+    for (const [sql, read, message] of cases) {
+      db.exec(sql)
+      expect(read, sql).toThrow(message)
+      for (const table of ['character_reference_qa_authorizations', 'character_reference_qa_events', 'character_reference_qa_generation_recovery_events']) {
+        db.exec(`DELETE FROM ${table}; INSERT INTO ${table} SELECT * FROM original.${table}`)
+      }
+    }
+    store.close()
+  })
+
+  it('rejects duplicate grants and retains the original transaction failure if rollback also fails', async () => {
+    const { store } = await opened()
+    store.appendGrant(grant())
+    expect(() => store.appendGrant(grant())).toThrow('new immutable grant')
+    const exec = DatabaseSync.prototype.exec
+    const spy = vi.spyOn(DatabaseSync.prototype, 'exec').mockImplementation(function (this: DatabaseSync, sql) {
+      if (sql === 'ROLLBACK') throw new Error('rollback unavailable')
+      return exec.call(this, sql)
+    })
+    try { expect(() => store.appendGrant(grant())).toThrow('new immutable grant') }
+    finally { spy.mockRestore(); store.close() }
+  })
+
+  it('renews a private grant only after every earlier upload and generation has settled', async () => {
+    for (const state of ['not_started', 'claimed', 'unknown', 'settled'] as const) {
+      const root = await mkdtemp(join(tmpdir(), 'reference-private-renewal-'))
+      dirs.push(root)
+      const store = await openCharacterReferenceQaAuthorizationStore({ dataRoot: root,
+        databasePath: join(root, 'authorization.sqlite'), environment: 'project_private' })
+      if (store === undefined) throw new Error('private store unavailable')
+      stores.push(store)
+      const value = grant({ environment: 'project_private', scope: 'one_project_private_upload_and_generation',
+        actorId: JSON.stringify(['account', 'session']), roleClass: 'lead' })
+      store.appendGrant(value)
+      const current = binding(value)
+      const id = settleUpload(store, current)
+      if (state !== 'not_started') store.claimGeneration(current, 'generation-fixed', id, CREATED_AT)
+      if (state === 'unknown') store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)
+      if (state === 'settled') store.settleGeneration(current, 'generation-fixed', id, GENERATION_RECEIPT_SHA, CREATED_AT)
+      if (state === 'claimed' || state === 'unknown') {
+        expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+      } else {
+        expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).not.toThrow()
+      }
+      store.close()
+    }
+  })
+
 })

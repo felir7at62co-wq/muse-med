@@ -509,7 +509,7 @@ export class CharacterReferenceQaAuthorizationStore {
         }
         return {
           action: 'reconcile',
-          state: requireStarted(current.upload.state),
+          state: current.upload.state as CharacterReferenceQaClaimDecision['state'],
           idempotencyKey,
           managedReferenceId: required(current.upload.managedReferenceId, 'managed reference id'),
         }
@@ -757,7 +757,7 @@ export class CharacterReferenceQaAuthorizationStore {
         }
         return {
           action: 'reconcile',
-          state: requireStarted(current.generation.state),
+          state: current.generation.state as CharacterReferenceQaClaimDecision['state'],
           idempotencyKey,
           managedReferenceId,
           reference,
@@ -911,8 +911,9 @@ export class CharacterReferenceQaAuthorizationStore {
     assertIdempotencyKey(input.idempotencyKey)
     assertText(input.managedReferenceId, 'managed reference id')
     assertTimestamp(input.occurredAt, 'generation terminal timestamp')
-    if (input.receiptSha256 !== null) assertSha256(input.receiptSha256, 'generation receipt SHA-256')
-    else if (input.type === 'generation_settle') invalidGrant('generation receipt SHA-256 is required on settlement')
+    if (input.type === 'generation_settle' || input.receiptSha256 !== null) {
+      assertSha256(input.receiptSha256, 'generation receipt SHA-256')
+    }
     this.transaction(() => {
       const grant = this.requireMatchingGrant(input.binding)
       const current = snapshot(
@@ -1638,11 +1639,6 @@ function assertRecoveryClaim(
   if (state.managedReferenceId !== managedReferenceId) {
     throw failure('binding-mismatch', 'generation recovery managed reference does not match its authorization')
   }
-}
-
-function requireStarted(state: CharacterReferenceQaOperationState): Exclude<CharacterReferenceQaOperationState, 'not_started'> {
-  if (state === 'not_started') throw failure('invalid-transition', 'operation has not started')
-  return state
 }
 
 function required(value: string | null, label: string): string {

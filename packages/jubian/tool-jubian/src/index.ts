@@ -414,38 +414,38 @@ const QA_READ_METHODS = {
   jubian_video: new Set(['task', 'tasks', 'subtasks', 'unresolved']),
 } as const
 
-function methodArgument(args: unknown): string | undefined {
-  if (args === null || typeof args !== 'object' || Array.isArray(args)) return undefined
-  const method = (args as Record<string, unknown>)['method']
+function methodArgument(args: Record<string, unknown>): string | undefined {
+  const method = args['method']
   return typeof method === 'string' ? method : undefined
 }
 
-function hasManagedCharacterReference(args: unknown): boolean {
-  if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
-  const reference = (args as Record<string, unknown>)['character_reference']
+function hasManagedCharacterReference(args: Record<string, unknown>): boolean {
+  const reference = args['character_reference']
   return reference !== null && typeof reference === 'object' && !Array.isArray(reference)
 }
 
 /**
  * Restrict a Host with the isolated QA authorization store to the exact reference workflow.
  * @param tool - Registered Jubian tool name.
- * @param args - Validated model-supplied tool arguments.
+ * @param args - Model-supplied tool arguments before method dispatch.
  */
 function assertCharacterReferenceQaOperation(tool: string, args: unknown): void {
-  const method = methodArgument(args)
   if (tool === 'jubian_catalog' || tool === 'jubian_find') return
+  const denied = 'Isolated character-reference QA allows only read operations and the exact Host-managed reference upload and generation.'
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new Error(denied)
+  const input = args as Record<string, unknown>
+  const method = methodArgument(input)
   if (tool === 'jubian_budget' && method === undefined
-    && args !== null && typeof args === 'object' && !Array.isArray(args)
-    && (args as Record<string, unknown>)['action'] === 'read') return
+    && input['action'] === 'read') return
   if (tool === 'jubian_asset' && method !== undefined) {
     if (QA_READ_METHODS.jubian_asset.has(method)) return
-    if (method === 'upload_character_reference' && hasManagedCharacterReference(args)) return
+    if (method === 'upload_character_reference' && hasManagedCharacterReference(input)) return
   }
   if (tool === 'jubian_video' && method !== undefined) {
     if (QA_READ_METHODS.jubian_video.has(method)) return
-    if (method === 'image_generate' && hasManagedCharacterReference(args)) return
+    if (method === 'image_generate' && hasManagedCharacterReference(input)) return
   }
-  throw new Error('Isolated character-reference QA allows only read operations and the exact Host-managed reference upload and generation.')
+  throw new Error(denied)
 }
 
 function characterReferenceUploadRequest(args: MethodArgs): CharacterReferenceQaUploadRequest {
@@ -462,10 +462,11 @@ function characterReferenceUploadRequest(args: MethodArgs): CharacterReferenceQa
 }
 
 function characterReferenceGenerationRequest(args: MethodArgs): CharacterReferenceQaGenerationRequest {
+  const reference = need(args.character_reference, 'character_reference')
   const upload = characterReferenceUploadRequest(args)
   return {
     ...upload,
-    managedReferenceId: need(args.character_reference?.managed_reference_id,
+    managedReferenceId: need(reference.managed_reference_id,
       'character_reference.managed_reference_id'),
   }
 }
