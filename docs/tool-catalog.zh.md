@@ -5061,7 +5061,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           },
           "references": {
             "type": "array",
-            "description": "本项有序参考图 HTTPS URL。",
+            "description": "本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。",
             "items": {
               "type": "string"
             }
@@ -5112,7 +5112,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     },
     "references": {
       "type": "array",
-      "description": "image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。",
+      "description": "image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。",
       "items": {
         "type": "string"
       }

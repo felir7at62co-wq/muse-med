@@ -47,6 +47,20 @@ async function mount(options: { config?: Partial<Config>; jobs?: { start: (spec:
 }
 
 describe('tool-jubian registration', () => {
+  it.each([{ imageReferencePageSize: 0 }, { imageReferencePageSize: 1001 },
+    { imageReferencePageLimit: 0 }, { imageReferencePageLimit: 101 }])
+  ('rejects invalid adopted-image scan bounds at mount: %j', async (config) => {
+    await expect(mount({ config })).rejects.toThrow('imageReference')
+  })
+
+  it('forwards the resolved adopted-image scan bounds to video calls', async () => {
+    const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ task: null })
+    onTestFinished(() => { videoMethod.mockRestore() })
+    const { registered } = await mount({ config: { imageReferencePageSize: 2, imageReferencePageLimit: 3 } })
+    await registered.find(tool => tool.name === 'jubian_video')!.execute({ method: 'task', task_id: 9 }, {})
+    expect(videoMethod.mock.calls[0]?.[3]).toMatchObject({ imageReferenceScan: { pageSize: 2, pageLimit: 3 } })
+  })
+
   it('uses the deployment home for an omitted ledger directory and renders the registered budget output', async () => {
     const { registered, root } = await mount({ defaultLedger: true })
     const budget = registered.find(tool => tool.name === 'jubian_budget')!
@@ -200,6 +214,11 @@ describe('tool-jubian registration', () => {
     })
     const batchItem = videoProperties.items!.items as { properties: Record<string, unknown> }
     expect(batchItem.properties).not.toHaveProperty('image_aspect_ratio')
+    for (const properties of [videoProperties, batchItem.properties]) {
+      const references = properties.references as { description: string }
+      expect(references.description).toContain('唯一已采用图片')
+      expect(references.description).toContain('显式 []')
+    }
 
     const asset = byName.get('jubian_asset')!
     expect((asset.properties as Record<string, { enum?: string[] }>).method!.enum)

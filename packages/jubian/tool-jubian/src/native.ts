@@ -26,7 +26,7 @@ import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
-  buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
+  assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
   responseRecords, stableJson, stableSha256, submissionSemantics, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
@@ -248,6 +248,7 @@ async function storyboardSnapshot(client: JubianClient, storyboardId: number): P
 async function loadLiveInputs(client: JubianClient, storyboardId: number):
 Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[] }> {
   const storyboard = await preflightRead('storyboard_read', () => storyboardSnapshot(client, storyboardId))
+  assertImageReferenceConsistency(storyboard)
   const scriptId = positiveInteger(storyboard.scriptId)
   const { materials } = storyboardMaterials(storyboard)
   let rows: Record<string, unknown>[] | undefined
@@ -336,7 +337,8 @@ Promise<NativeVideoPreview> {
   let inputs: Awaited<ReturnType<typeof loadLiveInputs>>
   try { inputs = await loadLiveInputs(client, storyboardId) }
   catch (error) {
-    if (!(error instanceof JubianError) || error.detail?.includes('stage=')) throw error
+    if (!(error instanceof JubianError) || error.detail?.includes('stage=')
+      || error.detail?.startsWith('IMAGE_REFERENCE_CONFLICT:')) throw error
     throw new JubianError(error.code, 'prepare_video stage=subject_validation; paid_request_sent=false; '
       + 'check subject identity, project, active status and official image URL')
   }
@@ -344,7 +346,8 @@ Promise<NativeVideoPreview> {
   const models = await preflightRead('model_catalogue_read', () => videoCatalogue(client))
   try { return buildNativeVideoPreview({ storyboard, assets, models, createdAt }) }
   catch (error) {
-    if (!(error instanceof JubianError) || error.code === 'INVALID_ARGUMENT') throw error
+    if (!(error instanceof JubianError) || error.code === 'INVALID_ARGUMENT'
+      || error.detail?.startsWith('IMAGE_REFERENCE_CONFLICT:')) throw error
     throw new JubianError(error.code, 'prepare_video stage=preview_validation; paid_request_sent=false; '
       + 'check official materials and the saved ratio, model and duration')
   }
@@ -562,7 +565,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   // billing-safe signal is `newRelated` above — a selection-only save must not create a task.
   const verification = verifySubjectSelection(verified, plan.after)
   if (!verification.matches) throw new JubianError('CONTRACT_CHANGED',
-    `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
+    `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; referenceSources=${JSON.stringify(verification.source_matches)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
   if (newRelated.length === 0) await clearReselection(ledger, scriptId, storyboardId, (typeof verified.modelConfig === 'string'
     ? JSON.parse(verified.modelConfig) as Record<string, unknown> : object(verified.modelConfig)).prompt)
   return { ...result, operation: plan.operation, scriptId, storyboardId,

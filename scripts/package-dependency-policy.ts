@@ -75,7 +75,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   ],
   '@deepseek-ai/dsh-jubian-api': [
     'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
-    'alignedReferenceSize', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
+    'alignedReferenceSize', 'assertImageReferenceConsistency', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'encodeVoiceSlot', 'extractAppScriptUrl',
     'extractTosUploadConfig', 'findFolder', 'findFolderById', 'imageCandidates', 'isRelatedTaskCandidate',

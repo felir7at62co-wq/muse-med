@@ -32,7 +32,7 @@ export { buildSubjectSelection, selectionState, trustedSubjectId, trustedSubject
   verifySubjectSelection } from './selection.ts'
 export type { SelectionState, SubjectSelectionInput, SubjectSelectionPlan,
   SubjectSelectionRequest } from './selection.ts'
-export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, buildNativeVideoPreview,
+export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, assertImageReferenceConsistency, buildNativeVideoPreview,
   childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates, isRelatedTaskCandidate,
   matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
   normalizedPrompt, readBackIdentity,

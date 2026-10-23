@@ -97,6 +97,8 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 | `imageActivePollMs` | `3000` | 上面这次回读的轮询间隔 |
 | `imageBatchConcurrency` | `3` | 一批同时执行的图片请求上限；整数 1..8 |
 | `imageBatchMaxItems` | `12` | 一批图片请求的项数上限；整数 1..100 |
+| `imageReferencePageSize` | `1000` | 已采用角色图库存每页行数；整数 1..1000 |
+| `imageReferencePageLimit` | `100` | 每次完整已采用角色图库存最多页数；整数 1..100 |
 | `videoBatchConcurrency` | `3` | 整包预检后同时发送的分镜 PUT 上限；整数 1..8 |
 | `videoBatchMaxItems` | `100` | 一批不同分镜 preview 的项数上限；整数 1..100 |
 | `promptRiskReview` | 无 | 字面命中提示：`terms` 必填且为不重复的非空词语；`contextChars` 默认 24，范围 0..200；`maxMatches` 默认 100，范围 1..1000 |
@@ -107,6 +109,12 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 `nameSeparator` 或 `seriesLabel` 为空白会让挂载失败：用它们组合出来的名字无法再切回各段。
 
 新建父资产可能不提供 `hsAssetStatus`，但其生成材质已为 Active。回读只接受属于该新父资产的唯一 Active HTTPS 材质，不替代确认出演。替换已有父资产时若缺状态仍保持 pending，旧材质不能满足这条回读规则。
+
+角色重生成提供 `parent_asset_id` 且省略 `references` 时，从当前项目完整库存继承该父资产唯一已采用的 Active 图。显式参考（包括 `[]`）保留其含义；新父资产、场景和道具不会被猜配人脸参考。`identity_reference` 报告来源资产、材质和 URL，或说明未建立身份参考。批量在任何付费请求前解析全部参考，首次写入共用一份库存快照。歧义或不完整库存不能当作可用参考。继承参考不确认出演，也不证明视觉相似度。
+
+图片重放仍受请求哈希保护。原请求后已采用图片改变时，省略参考的重放可能返回 `CONTRACT_CHANGED`，但不重复付费请求。沿原 key 与记录的来源对账，不换 key 重试。匹配的重放将原参考来源报告为未知，不把当前图片归到历史请求。新建换装或状态父资产时，agent 须从素材记录显式提供已认可的人脸参考。
+
+原生视频准备及首次提交在规范引用前比较卡片保存的图片列表。`IMAGE_REFERENCE_CONFLICT` 指出来源不一致，不代选来源，也不发送付费请求。用已有 `select_assets` 明确选择目标正式资产，回读两份列表一致后重新准备。这是身份一致性检查，不是审美评分或新增逐集审批要求。
 
 一个账户目录可能把同一个 modelId 按平台列成多行，各自单价不同；`image_generate` 不会替你挑其中一行，所以目录里有多行 `gpt-image-2` 而没有锁定行时，请求体构造阶段就会失败，并列出每个候选行的 `platformId`、`standardId`、单价与单位。
 

@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "a5ff6250a0c87ca458237ae548f09c7b556770ecdcab222994a32ce0e12545cf",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 1,
+    "orderedAssets": [
+      {
+        "assetId": "asset-approved",
+        "materialAssetId": 11,
+        "materialKey": "lead",
+        "materialName": "Approved actor",
+        "imageUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "isGenerate": 1,
+    "storyboardName": "Character continuity",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":4,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"backupModelList\":[],\"prompt\":\"@[Approved actor](lead)\",\"materialList\":[{\"assetId\":\"asset-approved\",\"materialAssetId\":11,\"fileName\":\"Approved actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-approved",
+        "materialAssetId": 11,
+        "fileName": "Approved actor",
+        "materialKey": "lead",
+        "materialType": "image",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。"
+}

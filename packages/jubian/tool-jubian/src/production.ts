@@ -36,15 +36,15 @@ function url(value: unknown): string | null {
  * @param kind - Provider inventory being read.
  * @param pageSize - Configured page size.
  * @param pageLimit - Maximum pages to acquire.
- * @param signal - Cancellation checked before every page.
+ * @param signal - Optional cancellation checked before every page.
  * @returns Original validated inventory rows.
  */
 export async function productionRows(client: JubianClient, scriptId: number, kind: 'asset' | 'material' | 'storyboard' | 'episode',
-  pageSize: number, pageLimit: number, signal: AbortSignal): Promise<Row[]> {
+  pageSize: number, pageLimit: number, signal?: AbortSignal): Promise<Row[]> {
   const result: Row[] = [], seen = new Set<number>()
   let total: number | null = null
   for (let page = 1; page <= pageLimit; page++) {
-    signal.throwIfAborted()
+    signal?.throwIfAborted()
     const { data } = await client.request({ method: 'GET',
       path: `/aigc/${kind}/list?scriptId=${scriptId}&pageNum=${page}&pageSize=${pageSize}` })
     const payload = object(data)

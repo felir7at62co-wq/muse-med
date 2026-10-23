@@ -40,6 +40,7 @@ import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } f
 import type { ClaimArgs, ClaimWatchArgs, ClaimWatchConfig } from './claim.ts'
 import { seriesBudgetLimit } from './budget-settings.ts'
 import { JubianImageRoutes, pinnedImageSelection } from './image.ts'
+import { resolveImageReferenceScanOptions } from './image-continuity.ts'
 import type { ImageRouteConfig } from './image.ts'
 import { ASSET_CATEGORIES, resolveNaming } from './naming.ts'
 import type { Naming } from './naming.ts'
@@ -116,6 +117,10 @@ export interface Config extends ImageRouteConfig {
   imageBatchConcurrency?: number
   /** Maximum image requests accepted in one batch; integer 1..100, default 12. */
   imageBatchMaxItems?: number
+  /** Rows per page when resolving a character's adopted image; integer 1..1000, default 1000. */
+  imageReferencePageSize?: number
+  /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
+  imageReferencePageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
@@ -198,7 +203,7 @@ const ARGS = {
     image_model_id: { type: 'string', description: '本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。' },
     image_resolution: { type: 'string', description: '本项可选的目录分辨率，如 1K、2K、4K。' },
     image_platform_id: { type: 'string', description: '本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。' },
-    references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL。' },
+    references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
     parent_asset_id: { type: 'number', description: '可选：重生成的父资产 ID；省略则新建。' },
   } }, description: 'image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。' },
   image_style: { type: 'string', enum: ['live_action', 'anime'],
@@ -210,7 +215,7 @@ const ARGS = {
   image_aspect_ratio: { type: 'string', enum: ['16:9', '9:16'],
     description: 'image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。' },
   references: { type: 'array', items: { type: 'string' },
-    description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。' },
+    description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
   parent_asset_id: { type: 'number', description: 'image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。' },
   asset_url: { type: 'string',
     description: 'register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。'
@@ -401,6 +406,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const watchConfig = resolveWatchConfig(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
+  const imageReferenceScan = resolveImageReferenceScanOptions(config)
   const videoBatch = resolveVideoBatchOptions(config)
   const storyboardBatch = resolveStoryboardBatchOptions(config)
   const deletionTaskScan = resolveDeletionTaskScanOptions(config)
@@ -911,7 +917,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       idempotency_key: ARGS.idempotency_key,
     },
     output: VIDEO_OUTPUT,
-    execute: guarded('jubian_video', args => videoMethod(client, ledger, args, { image: image(), imageBatch, naming })),
+    execute: (args, exec) => guarded('jubian_video', args => videoMethod(client, ledger, args,
+      { image: image(), imageBatch, imageReferenceScan, signal: exec.signal, naming }))(args),
   }))
 
   ctx.tools.register(defineTool({

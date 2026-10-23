@@ -34,6 +34,35 @@ const oneSubject = () => ({ storyboard: { ...STORYBOARD, modelConfig: { prompt: 
   selections: [SELECTIONS[0]!], subjectRows: [ROWS[0]!], parentAssets: [PARENTS[0]!] })
 
 describe('subject selection planning', () => {
+  it('saves both reference sources and repairs a conflicting config before reporting already_applied', () => {
+    const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
+      subjectRows: ROWS, parentAssets: PARENTS })
+    const references = first.payload.storyboardMaterialList as Record<string, unknown>[]
+    expect((JSON.parse(String(first.payload.modelConfig)) as Record<string, unknown>).materialList).toEqual(references)
+    const stale = { ...first.payload, modelConfig: JSON.stringify({ prompt: PROMPT,
+      materialList: [{ ...references[0], assetId: 'different' }, references[1]] }) }
+    expect(verifySubjectSelection(stale, first.after).matches).toBe(false)
+    const repaired = buildSubjectSelection({ storyboard: stale, selections: SELECTIONS,
+      subjectRows: ROWS, parentAssets: PARENTS })
+    expect(repaired.status).toBe('ready')
+    expect(verifySubjectSelection(repaired.payload, repaired.after).matches).toBe(true)
+    expect(buildSubjectSelection({ storyboard: repaired.payload, selections: SELECTIONS,
+      subjectRows: ROWS, parentAssets: PARENTS }).status).toBe('already_applied')
+  })
+
+  it('requires both planned reference sources on explicit selection readback', () => {
+    const first = buildSubjectSelection(oneSubject())
+    expect(verifySubjectSelection({ ...first.payload, modelConfig: { prompt: '@[陆沉舟](lead)' } }, first.after).matches)
+      .toBe(false)
+  })
+
+  it('rejects malformed config reference lists in planning and verification', () => {
+    const first = buildSubjectSelection(oneSubject())
+    const storyboard = { ...first.payload, modelConfig: { prompt: '@[陆沉舟](lead)', materialList: {} } }
+    expect(() => buildSubjectSelection({ ...oneSubject(), storyboard })).toThrow()
+    expect(() => verifySubjectSelection(storyboard, first.after)).toThrow()
+  })
+
   it('preserves uploaded audio while replacing the ordered character image selections', () => {
     const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://x/voice.wav',
       fileName: '陆沉舟声线', sortOrder: 1 }
@@ -110,7 +139,7 @@ describe('subject selection planning', () => {
   it('reports an already saved selection as a no-op instead of a second write', () => {
     const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })
-    const saved = { ...STORYBOARD, storyboardMaterialList: first.payload.storyboardMaterialList }
+    const saved = { ...first.payload, isGenerate: 1 }
     const second = buildSubjectSelection({ storyboard: saved, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })
     expect(second.status).toBe('already_applied')
@@ -120,7 +149,7 @@ describe('subject selection planning', () => {
   it('verifies saved keyed fields independently of physical provider order', () => {
     const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })
-    const saved = { ...STORYBOARD, storyboardMaterialList: plan.payload.storyboardMaterialList }
+    const saved = { ...plan.payload, isGenerate: 1 }
     expect(verifySubjectSelection(saved, plan.after)).toMatchObject({ matches: true, is_generate: 1 })
     const reversed = { ...saved, storyboardMaterialList: [...plan.payload.storyboardMaterialList as unknown[]].reverse() }
     expect(verifySubjectSelection(reversed, plan.after).matches).toBe(true)
@@ -278,9 +307,9 @@ describe('selection readback normalization', () => {
       ...m, id: i + 100, createTime: '2026-09-29', providerLabel: 'saved',
       assetName: m.fileName, materialAssetId: String(m.materialAssetId), sortOrder: String(m.sortOrder),
     }))
-    expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(true)
+    expect(verifySubjectSelection({ ...plan.payload, storyboardMaterialList: saved }, plan.after).matches).toBe(true)
     saved[0]!.materialUrl = 'https://example.test/wrong.jpg'
-    expect(verifySubjectSelection({ ...STORYBOARD, storyboardMaterialList: saved }, plan.after).matches).toBe(false)
+    expect(verifySubjectSelection({ ...plan.payload, storyboardMaterialList: saved }, plan.after).matches).toBe(false)
   })
 
   it('rejects readback fields that no longer contain the planned material list or prompt', () => {
@@ -304,7 +333,7 @@ describe('keyed selection readback and audio protection', () => {
   it('accepts physical readback reorder and avoids a second selection write', () => {
     const first = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
       subjectRows: ROWS, parentAssets: PARENTS })
-    const saved = { ...STORYBOARD,
+    const saved = { ...first.payload,
       storyboardMaterialList: [...first.payload.storyboardMaterialList as Record<string, unknown>[]].reverse() }
     expect(verifySubjectSelection(saved, first.after).matches).toBe(true)
     expect(buildSubjectSelection({ storyboard: saved, selections: SELECTIONS,

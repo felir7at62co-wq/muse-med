@@ -97,6 +97,8 @@ If a package exceeds a known model limit, the model uses `jubian_video_model dur
 | `imageActivePollMs` | `3000` | Delay between the readback polls above |
 | `imageBatchConcurrency` | `3` | Maximum simultaneous image requests in one batch; integer 1..8 |
 | `imageBatchMaxItems` | `12` | Maximum requests in one image batch; integer 1..100 |
+| `imageReferencePageSize` | `1000` | Rows per adopted-character-image inventory page; integer 1..1000 |
+| `imageReferencePageLimit` | `100` | Maximum pages per complete adopted-character-image inventory; integer 1..100 |
 | `videoBatchConcurrency` | `3` | Maximum simultaneous storyboard PUTs after batch preflight; integer 1..8 |
 | `videoBatchMaxItems` | `100` | Maximum distinct storyboard previews in one batch; integer 1..100 |
 | `promptRiskReview` | none | Advisory exact-term review: required distinct nonempty `terms`, optional `contextChars` (default 24, range 0..200) and `maxMatches` (default 100, range 1..1000) |
@@ -107,6 +109,12 @@ If a package exceeds a known model limit, the model uses `jubian_video_model dur
 A blank `nameSeparator` or `seriesLabel` fails the mount: a name composed with either could not be split back into its segments.
 
 A newly created parent may omit `hsAssetStatus` while its generated material is already Active. Readback accepts exactly one Active HTTPS material belonging to that new parent; it does not confirm casting. Replacements with missing parent status remain pending, so an old material cannot satisfy this fallback.
+
+Character regeneration with `parent_asset_id` and omitted `references` inherits that parent's unique adopted Active image from a complete current-project inventory. Explicit references, including `[]`, retain their meaning; new parents, scenes and props do not acquire a guessed face reference. `identity_reference` reports the source asset, material and URL, or explains that no identity reference was established. Batches resolve all references before any paid request and keep one inventory snapshot for their fresh writes. An ambiguous or incomplete inventory is not a usable reference. Reference inheritance neither confirms casting nor proves visual likeness.
+
+The request hash still guards image replays. If the adopted image changes after the original request, an omitted-reference replay can report `CONTRACT_CHANGED` without repeating a paid request. Reconcile the original key and recorded source; do not switch keys to retry. A replay that matches reports an unknown original reference source rather than attributing the current picture to the historical request. New costume/state parents need explicit approved-face references from the agent's source record.
+
+Native video preparation and fresh submission compare the card's saved image lists before normalization. `IMAGE_REFERENCE_CONFLICT` identifies inconsistent sources without selecting one or sending a paid request. Use the existing `select_assets` with the intended confirmed assets, verify that both saved lists agree, then prepare again. This is an identity-consistency check, not an aesthetic score or a new per-episode approval requirement.
 
 An account catalogue can list one model id once per platform at different prices; `image_generate` never picks one of those rows for you, so a catalogue with several `gpt-image-2` rows and no pinned row fails while the request body is compiled and lists every candidate with its `platformId`, `standardId`, unit price and unit.
 
