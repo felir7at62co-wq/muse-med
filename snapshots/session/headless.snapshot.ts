@@ -488,7 +488,35 @@ function modelFromSession(log: string): { provider: string; model: string } {
   throw new Error('headless snapshot session has no request model')
 }
 
-async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<void> {
+interface PreparedWorkspace {
+  readonly expectedRoot?: string
+}
+
+function expandSubtitleOverlayExpectedReport(text: string, cwd: string): string {
+  const report = JSON.parse(text) as JsonObject
+  const expand = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.startsWith('{{cwd}}/')) {
+      throw new Error('subtitle-overlay expected paths must start with {{cwd}}/')
+    }
+    return join(cwd, ...value.slice('{{cwd}}/'.length).split('/'))
+  }
+  for (const field of ['plan_path', 'original_srt', 'resolved_srt', 'decision_report']) {
+    report[field] = expand(report[field])
+  }
+  if (!Array.isArray(report.sources)) throw new Error('subtitle-overlay expected sources must be an array')
+  report.sources = report.sources.map((source: JsonObject) => ({ ...source, path: expand(source.path) }))
+  return `${JSON.stringify(report, null, 2)}\n`
+}
+
+async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const report = join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json')
+  await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), await realpath(cwd)))
+  return expectedRoot
+}
+
+async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
     for (const entry of await readdir(source)) {
@@ -496,13 +524,30 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
     }
   }
   const setup = scenario.manifest.workspace?.setup
-  if (setup === undefined) return
+  if (setup === undefined) return {}
   const prepare = workspaceSetups[setup]
   if (prepare === undefined) throw new Error(`${scenario.name}: unknown workspace setup ${setup}`)
-  await prepare(cwd)
+  return await prepare(cwd, scenario.dir) ?? {}
 }
 
-const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'drama-subtitle-overlay'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
+    const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
+    const sourceRoot = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build')
+    await mkdir(skillRoot, { recursive: true })
+    await copyFile(join(sourceRoot, 'SKILL.md'), join(skillRoot, 'SKILL.md'))
+    await cp(join(sourceRoot, 'references'), join(skillRoot, 'references'), { recursive: true })
+    return { expectedRoot: await prepareSubtitleOverlayExpectedWorkspace(cwd, scenarioDir) }
+  },
+  async 'muse-video-observation'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('video observation requires its owner directory')
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+    await writeFile(join(cwd, 'episode.md'), '# 第1集\n▲合成画面从黑色切换为白色。\n')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-video-observation')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    return { expectedRoot }
+  },
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
   },
@@ -611,6 +656,15 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
           : { reason: 'response', operation: 'query', http_status: 200, provider_code: '45000006' },
         recovery: { capability: flash ? 'no_query' : 'none', next_action: 'inspect_receipt', automatic_resubmit: false },
       }, null, 2) + '\n')
+    }
+  },
+  async 'muse-bgm-project-feedback'(cwd) {
+    for (const name of ['tweet-drama-project-bible', 'tweet-drama-background-render']) {
+      const source = join(repoRoot, 'packages/drama/skills/skills', name)
+      const target = join(cwd, '.dsh/skills', name)
+      await mkdir(target, { recursive: true })
+      await copyFile(join(source, 'SKILL.md'), join(target, 'SKILL.md'))
+      if (existsSync(join(source, 'references'))) await cp(join(source, 'references'), join(target, 'references'), { recursive: true })
     }
   },
   async 'muse-drama-pipeline-skill'(cwd) {
@@ -988,6 +1042,67 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('subtitle overlay workspace expected expands only declared path fields', async () => {
+    const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
+    const report = JSON.parse(template) as JsonObject
+    report.reason = '{{cwd}}/this-is-business-text'
+    report.text = 'Keep the literal {{cwd}} token in ordinary text'
+    const cwd = join(tmpdir(), 'declared-overlay-fixture-root')
+    const expanded = JSON.parse(expandSubtitleOverlayExpectedReport(JSON.stringify(report), cwd)) as JsonObject
+    expect(expanded.plan_path).toBe(join(cwd, 'subtitle-plan.json'))
+    expect(expanded.original_srt).toBe(join(cwd, 'original.srt'))
+    expect(expanded.resolved_srt).toBe(join(cwd, 'editing', 'review-overlay.srt'))
+    expect(expanded.decision_report).toBe(join(cwd, 'editing', 'review-overlay.srt.decision-report.json'))
+    expect(expanded.sources).toEqual([
+      { shot: 1, path: join(cwd, 'video', '01', 'shot_001.mp4'),
+        sha256: '8a084d4e322d0a3217d1e953d27a6a9e7ffb8aca374e69f84f9c46e3234c6ab5' },
+      { shot: 2, path: join(cwd, 'video', '01', 'shot_002.mp4'),
+        sha256: '14ad6e103e046d598b197655f9be00ff780789867cd43cd6ee54569ca0473ed7' },
+    ])
+    expect(expanded.reason).toBe(report.reason)
+    expect(expanded.text).toBe(report.text)
+    expect(() => expandSubtitleOverlayExpectedReport(JSON.stringify({ ...report, plan_path: '/unowned/path' }), cwd))
+      .toThrow('expected paths must start with {{cwd}}/')
+  })
+
+  it('subtitle overlay workspace expected preserves the source oracle and detects changed business fields and extra files', async () => {
+    const ownerDir = join(snapshotsRoot, 'drama-subtitle-overlay')
+    const original = await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-overlay-oracle-'))
+    try {
+      const expectedRoot = await prepareSubtitleOverlayExpectedWorkspace(cwd, ownerDir)
+      const expected = await captureExpectedWorkspaceSnapshot(expectedRoot)
+      const actualRoot = join(cwd, 'actual')
+      await cp(expectedRoot, actualRoot, { recursive: true, verbatimSymlinks: true })
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).toEqual(expected)
+      await writeFile(join(actualRoot, 'unexpected.txt'), 'This extra user-visible file must fail comparison.\n')
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      await rm(join(actualRoot, 'unexpected.txt'))
+      const reportPath = join(actualRoot, 'editing', 'review-overlay.srt.decision-report.json')
+      const report = JSON.parse(await readFile(reportPath, 'utf8')) as { decisions: JsonObject[] }
+      report.decisions[0]!.reason = 'Changed business evidence must not be normalized away.'
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      expect(await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))).toEqual(original)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('expands subtitle overlay evidence paths through the actual workspace directory', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-overlay-workspace-alias-'))
+    try {
+      const workspace = join(directory, 'workspace'), alias = join(directory, 'alias')
+      await mkdir(workspace)
+      await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      const expectedRoot = await prepareSubtitleOverlayExpectedWorkspace(alias, join(snapshotsRoot, 'drama-subtitle-overlay'))
+      const report = JSON.parse(await readFile(join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json'), 'utf8')) as JsonObject
+      expect(report.plan_path).toBe(join(await realpath(workspace), 'subtitle-plan.json'))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('seeds resumed ASR receipts with a canonical workspace through a directory alias', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-asr-workspace-alias-'))
     try {
@@ -1350,6 +1465,8 @@ describe('headless recorded-session snapshots', () => {
       let actualLogs: SessionLog[] = []
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
+      let expectedWorkspaceRoot: string | undefined
+      let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
@@ -1409,7 +1526,7 @@ describe('headless recorded-session snapshots', () => {
               await mkdir(profileDir, { recursive: true })
               await copyFile(join(scenario.dir, 'profile.patch.yml'), join(profileDir, 'cordis.patch.yml'))
             }
-            await seedWorkspace(scenario, cwd)
+            expectedWorkspaceRoot = (await seedWorkspace(scenario, cwd)).expectedRoot
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
             })
@@ -1427,6 +1544,27 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-video-observation') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false])
+              expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
+              expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(5)
+              expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
+              const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')
+              if (started?.type !== 'video/review' || started.data.kind !== 'start') throw Error('Missing video observation start')
+              const template = await readFile(join(scenario.dir, 'report.expected.json'), 'utf8')
+              const expected = JSON.parse(template.replaceAll('{{id:1}}', started.data.review.id)) as { path: string }
+              expected.path = await realpath(join(cwd, 'fixture.mp4'))
+              const finalText = results[6]?.content.find(block => block.type === 'text')
+              if (finalText?.type !== 'text') throw Error('Missing completed observation report')
+              const report = JSON.parse(finalText.text) as { observation_report: string }
+              const saved = await readFile(report.observation_report, 'utf8')
+              expect(JSON.parse(saved)).toEqual(expected)
+              const expectedReport = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(report.observation_report))
+              await mkdir(dirname(expectedReport), { recursive: true })
+              await writeFile(expectedReport, saved)
             }
             if (scenario.name === 'muse-shot-director-format') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -1654,6 +1792,48 @@ describe('headless recorded-session snapshots', () => {
               expect(pending).not.toHaveProperty('lease_id')
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
+            if (scenario.name === 'muse-bgm-project-feedback') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'bgm_match', 'drama_bgm'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-project-bible' })
+              expect(JSON.parse(calls[1]!.arguments)).toEqual({ name: 'tweet-drama-background-render' })
+              expect(JSON.parse(calls[2]!.arguments)).toEqual({ method: 'match', project: '.',
+                context_tags: ['family-conflict', 'dense-dialogue'], valence: 5, arousal: 5, limit: 5, intended_use: 'non_commercial' })
+              expect(JSON.parse(calls[3]!.arguments)).toEqual({ method: 'compose', project: '.', episode: 24,
+                timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              const bibleBlock = results[0]?.content.find(block => block.type === 'text')
+              const renderBlock = results[1]?.content.find(block => block.type === 'text')
+              if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
+              for (const text of ['project_bible.bgm_feedback', '先 `drama_project action=read`', '时间来自该次明确用户反馈']) {
+                expect(bibleBlock.text).toContain(text)
+              }
+              for (const text of ['可以只用一首，也可以不额外添加 BGM', '实际可播放 A/B 试听', '集中一次请求反馈', 'audio_preview']) {
+                expect(renderBlock.text).toContain(text)
+              }
+              const matchBlock = results[2]?.content.find(block => block.type === 'text')
+              const composeBlock = results[3]?.content.find(block => block.type === 'text')
+              if (matchBlock?.type !== 'text' || composeBlock?.type !== 'text') throw new Error('Missing real BGM feedback tool results')
+              const matched: unknown = JSON.parse(matchBlock.text)
+              expect(matched).toMatchObject({ evaluated_tracks: 1, candidates: [], withheld_count: 1, music_optional: true,
+                project_preferences: { status: 'ready', feedback_count: 1, context_tags: ['family-conflict', 'dense-dialogue'] },
+                withheld_candidates: [{ source_sha256: `sha256:${'a'.repeat(64)}`, valence: 5, arousal: 5, distance: 0,
+                  project_preference: { decision: 'reject', feedback_id: 'explicit-user-24-1',
+                    reason: 'The user rejected the instrumentation under this dense family dialogue.',
+                    recorded_at: '2026-10-22T06:00:00Z', history_count: 1, history_truncated: false,
+                    history: [{ feedback_id: 'explicit-user-24-1', applicable: true }] } }],
+                recommendation: 'No unrejected candidate in this scene; deliver without added BGM or ask once for an explicit user change.' })
+              const composed: unknown = JSON.parse(composeBlock.text)
+              expect(composed).toMatchObject({ method: 'compose', episode: '24', music_decision: 'none', status: 'no_added_music',
+                decision_reason: 'Respect explicit user feedback in this dialogue scene; preserve the original audio.',
+                segments: [], output: '', report: '', license_records: [], policy_findings: [], media: { size_bytes: 0, sha256: '' } })
+              expect(existsSync(join(cwd, 'audio'))).toBe(false)
+              expect(existsSync(join(cwd, 'music'))).toBe(false)
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
             if (scenario.name === 'muse-voice-periods') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
@@ -1738,6 +1918,9 @@ describe('headless recorded-session snapshots', () => {
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
             })
+            if (expectedWorkspaceRoot !== undefined) {
+              preparedExpectedWorkspace = await captureExpectedWorkspaceSnapshot(expectedWorkspaceRoot)
+            }
           },
         })
       } finally {
@@ -1799,7 +1982,8 @@ describe('headless recorded-session snapshots', () => {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)
       }
       if (scenario.manifest.workspace?.final === true) {
-        const expectedWorkspace = await captureExpectedWorkspaceSnapshot(join(scenario.dir, 'workspace.expected'))
+        const expectedWorkspace = preparedExpectedWorkspace
+          ?? await captureExpectedWorkspaceSnapshot(join(scenario.dir, 'workspace.expected'))
         expect(finalWorkspace, `${scenario.name}: complete final workspace`).toEqual(expectedWorkspace)
       } else {
         expect(finalWorkspace, `${scenario.name}: a changed workspace requires workspace.final`).toEqual(initialWorkspace)

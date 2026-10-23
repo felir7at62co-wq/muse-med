@@ -102,6 +102,23 @@ function settings(channel: ProcessChannel): DramaBgmSettings {
 }
 
 describe('runDramaBgm', () => {
+  it.each(['preview', 'compose', 'verify'] as const)('returns an explicit no-music decision for %s without creating or verifying audio', async (method) => {
+    const files = await fixture()
+    await writeFile(files.plan, JSON.stringify({ episodes: [{
+      episode: '05', intended_use: 'commercial', body_duration_seconds: 58.508,
+      music_decision: 'none', decision_reason: '本集只保留对白与现场声', segments: [],
+    }] }))
+    await rm(join(files.project, 'music'), { recursive: true })
+    const run = vi.fn<ProcessChannel['run']>(async () => { throw new Error('No music must not call FFmpeg') })
+    const report = await runDramaBgm({ method, project: files.project, episode: 5,
+      timeline: files.timeline, plan: files.plan }, settings({ run }))
+    expect(report).toMatchObject({ method, music_decision: 'none', decision_reason: '本集只保留对白与现场声',
+      status: 'no_added_music', output: '', report: '', segments: [], license_records: [], policy_findings: [],
+      media: { codec: '', sha256: '', duration_seconds: 0, size_bytes: 0 } })
+    expect(run).not.toHaveBeenCalled()
+    await expect(stat(join(files.project, 'audio'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it.each(['missing', 'empty', 'directory'] as const)('rejects a %s source before any media process or publication', async (kind) => {
     const files = await fixture(), source = join(files.project, 'music', 'light.mp3')
     await rm(source)
@@ -285,7 +302,7 @@ describe('runDramaBgm', () => {
     const report = await runDramaBgm({
       method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
     }, settings(processChannel()))
-    expect(report.policy_findings.map(finding => finding.rule)).toEqual(['R1', 'R2', 'R5'])
+    expect(report.policy_findings.map(finding => finding.rule)).toEqual(['R2', 'R5'])
     expect(report.policy_findings.every(finding => finding.fix !== '')).toBe(true)
     expect(report.batch_episodes).toEqual(['05'])
     // The call still produced the bed: the rules guide the agent, they do not stop it.

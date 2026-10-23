@@ -3,14 +3,14 @@
  *
  * The result keeps the pipeline's own snake_case spellings, because it is read
  * next to `body_end`, `body_end_seconds`, and the delivery specification it
- * reports on. Every field is always present: a method that did not measure
- * something reports the empty value, so a caller never has to branch on which
- * keys exist.
+ * reports on. Base fields are always present, with empty values for measurements
+ * not made; an explicit audio profile adds optional `audio_mix` evidence.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/report
  */
 
 import type {
+  AudioMixReport,
   BgmPlanReport,
   DramaRenderMethod,
   DramaRenderReport,
@@ -23,6 +23,8 @@ import type {
   TailFrameEvidence,
   TailFrameReport,
   Timeline,
+  SubtitleOverlayReport,
+  EndingEffectTiming,
 } from './types.ts'
 
 /** The tail-frame record for a method that built no ending. */
@@ -50,10 +52,16 @@ export const NO_MEDIA: MediaFacts = {
 
 /** Everything one method's report is built from. */
 export interface ReportInput {
+  /** Optional explicit subtitle-overlay resolution. */
+  readonly subtitleOverlay?: SubtitleOverlayReport
+  /** Optional timing for an explicitly selected ending effect fit. */
+  readonly endingEffect?: EndingEffectTiming
   /** The operation that produced the result. */
   readonly method: DramaRenderMethod
   /** Optional declared BGM plan validated by render. */
   readonly bgmPlan?: BgmPlanReport
+  /** Explicit profile evidence; omitted for legacy callers. */
+  readonly audioMix?: AudioMixReport
   /** Effective inputs for prepare/render; absent for methods that do not choose render inputs. */
   readonly renderPreview?: RenderPreview
   /** Absolute project root. */
@@ -157,6 +165,11 @@ export function buildReport(input: ReportInput): DramaRenderReport {
   }
   return {
     method: input.method,
+    ...(input.subtitleOverlay === undefined ? {} : { subtitle_overlay: input.subtitleOverlay }),
+    ...(input.endingEffect === undefined ? {} : { ending_effect: {
+      fit: input.endingEffect.fit, source_duration_seconds: input.endingEffect.sourceDurationSeconds,
+      target_duration_seconds: input.endingEffect.targetDurationSeconds, speed: input.endingEffect.speed,
+    } }),
     ok: failures.length === 0,
     project: input.project,
     episode: input.episode,
@@ -183,6 +196,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     ].filter(id => !input.checks.some(check => check.id === id)),
     bgm_plan: input.bgmPlan ?? { path: '', bed_sha256: '', segments: [], repeated_sequence_episodes: [],
       intended_use: 'unknown', license_records: [] },
+    ...(input.audioMix === undefined ? {} : { audio_mix: input.audioMix }),
     render_preview: input.renderPreview ?? null,
     failures,
     warnings,

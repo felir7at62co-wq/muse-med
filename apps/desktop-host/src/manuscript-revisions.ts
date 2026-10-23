@@ -1,5 +1,6 @@
 /** Muse manuscript baselines and advisory returned-draft comparisons. */
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -7,9 +8,12 @@ import { z } from 'zod'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { diffManuscript, validateManuscriptCandidate, type ManuscriptDiff } from './manuscript-diff.ts'
 import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
+import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
+import { ManuscriptWork } from './manuscript-work.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -32,6 +36,8 @@ export interface Config {
   maxDocuments: number
   maxLedgerBytes: number
   lockWaitMs: number
+  repeatMinCharacters: number
+  maxRepeatFindings: number
 }
 
 /** Deployment-controlled budgets; no comparison silently truncates manuscripts. */
@@ -43,6 +49,8 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxDocuments: Schema.number().step(1).min(1).default(64),
   maxLedgerBytes: Schema.number().step(1).min(1).default(32 * 1024 * 1024),
   lockWaitMs: Schema.number().step(1).min(1).default(5000),
+  repeatMinCharacters: Schema.number().step(1).min(1).default(12),
+  maxRepeatFindings: Schema.number().step(1).min(1).default(40),
 })
 
 const documentSchema = z.strictObject({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/u), text: z.string() })
@@ -55,15 +63,17 @@ type Ledger = z.infer<typeof ledgerSchema>
 type Review = z.infer<typeof reviewSchema>
 
 const argumentsSchema = z.strictObject({
-  action: z.enum(['compare', 'status', 'review', 'authorize']),
+  action: z.enum(['compare', 'status', 'review', 'authorize', 'measure']),
   baseline_path: z.string().min(1).optional(), revised_path: z.string().min(1).optional(),
+  source_paths: z.array(z.string().min(1)).min(1).optional(),
   candidate_paths: z.array(z.string().min(1)).min(1).optional(),
+  max_growth_percent: z.number().min(0).optional(),
   change_id: z.string().optional(), authorization_quote: z.string().optional(),
 })
 
-function context(text: string) {
+function context(text: string, summary = '用户返稿修改与保留范围') {
   return createUserMessage({ source: { kind: 'muse-manuscript', form: 'notice',
-    summary: '用户返稿修改与保留范围' },
+    summary },
   content: [{ type: 'text', text }] })
 }
 
@@ -195,6 +205,34 @@ export class ManuscriptRevisions {
   async request(raw: unknown, agent: Agent, signal: AbortSignal): Promise<string> {
     const args = argumentsSchema.parse(raw), cwd = agent.session.header.cwd
     if (cwd === undefined) throw Error('MANUSCRIPT_WORKSPACE: 此工具需要工作区。')
+    if (args.action === 'measure') {
+      if (!args.source_paths?.length || !args.candidate_paths?.length) {
+        throw Error('measure 需要 source_paths 和 candidate_paths，明确本轮对应范围；不会用返稿基线代替原作。')
+      }
+      if (args.source_paths.length + args.candidate_paths.length > this.config.maxDocuments) {
+        throw Error('MANUSCRIPT_DOCUMENT_LIMIT: 本次篇幅统计文件过多，请按实际对应范围分批统计。')
+      }
+      const collect = async (paths: readonly string[]) => {
+        const documents = await Promise.all(paths.map(path => readManuscript(path, cwd, this.config, signal)))
+        if (new Set(documents.map(document => document.path)).size !== documents.length) {
+          throw Error('MANUSCRIPT_DUPLICATE_PATH: 同一组统计文件包含重复路径，未重复计数。')
+        }
+        const totals: ManuscriptLength = { nonWhitespaceCharacters: 0, lettersAndNumbers: 0 }
+        const files = documents.map(({ path, sha256, text }) => {
+          const counts = measureManuscriptLength(text)
+          totals.nonWhitespaceCharacters += counts.nonWhitespaceCharacters
+          totals.lettersAndNumbers += counts.lettersAndNumbers
+          return { path, sha256, ...counts }
+        })
+        return { files, totals }
+      }
+      const [source, candidate] = await Promise.all([collect(args.source_paths), collect(args.candidate_paths)])
+      return JSON.stringify({ state: 'measured', advisory: true,
+        source_files: source.files, candidate_files: candidate.files,
+        ...compareManuscriptLengths(source.totals, candidate.totals, args.max_growth_percent),
+        comparison_scope: 'full_extracted_text_including_labels', body_growth_assessment: 'not_performed',
+        notice: '按所提供文件的完整提取文本统计，标题、场次、人物标签均计入。lettersAndNumbers按Unicode文字和数字计数，不计空白、标点和符号；不是精准净正文字数或Word字数。仅比较本轮相同覆盖范围和口径；原始ASR通常只有对白，不能与含动作、场景的成稿总量冒称对应正文篇幅。未提供max_growth_percent时不假设增长容差。参考区间不是修字配额，格式与人物标签增加也会影响倍率；不为满足数字删掉必要情节、补复述或插入无关内容。结果仅提示，不拦截保存、导出或交付。' })
+    }
     return this.transact(cwd, signal, async (ledger) => {
       if (args.action === 'compare') {
         if (!args.revised_path) throw Error('compare 需要 revised_path；不得用旧稿代替返稿。')
@@ -253,29 +291,91 @@ export class ManuscriptRevisions {
  */
 export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
+  const work = new ManuscriptWork(config)
+  const workReadFailures = new WeakMap<Agent, string>()
+  ctx.tools.register(defineTool({
+    name: 'manuscript_work',
+    description: '文稿版本与场景工具。bind登记本轮明确采用稿和来源（输出可尚未创建），保留历史而不猜最新稿。scene返回完整当前场及前后场；propose_scene对照整场修改，返回普通edit参数，尚未写稿。audit回读实际文件与各集篇幅，列出正文/钩子、相邻及非相邻集的字面重复原句；不能据此声称剧情全通过。event可记录有原句依据的事件与场末状态，属于模型笔记。保存后自动提示新版本，包括shell写稿；提示型，不要求审批、固定技能或审校流程。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['bind', 'scene', 'propose_scene', 'audit', 'event'] },
+      task_key: { type: 'string', description: 'bind：本任务稳定名称；不同任务重新bind，不按文件修改时间挑稿。' },
+      mode: { type: 'string', enum: ['adapt', 'transcribe', 'edit'], description: 'bind：换梗/改编adapt，忠实视频转写transcribe，已有稿修改edit；不会把换梗要求套给转写。' },
+      source_paths: { type: 'array', items: { type: 'string' }, description: 'bind：实际来源文本或Word路径，不覆盖源文件。' },
+      candidate_paths: { type: 'array', items: { type: 'string' }, description: 'bind：本轮采用的正文文件，按集排列，可登记尚未创建的文件。历史稿不混入；切换返稿时显式重新bind。' },
+      scene_id: { type: 'string', description: 'scene/propose_scene：audit返回的真实场景ID。' },
+      expected_sha256: { type: 'string', description: 'propose_scene：刚读取的完整场景sha256，防止用旧场景作修改建议。' },
+      replacement: { type: 'string', description: 'propose_scene：完整新场景，连同场次及原需保留的内容。不是统一塞在钩子前的补字块。' },
+      source_ranges: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+        path: { type: 'string', required: true }, start_line: { type: 'integer', required: true },
+        end_line: { type: 'integer', required: true },
+      } }, description: 'scene/propose_scene：可选来源对应行范围（从1开始），与整场、前后场一起回读实际原文；由模型选择，不假称自动对齐。' },
+      event: { type: 'object', additionalProperties: false, properties: {
+        event_id: { type: 'string', required: true }, scene_id: { type: 'string', required: true },
+        quote: { type: 'string', required: true }, source_quote: { type: 'string', required: true },
+        source_path: { type: 'string', required: true },
+        purpose: { type: 'string', required: true, enum: ['advance', 'recap', 'flashback'] },
+        end_state: { type: 'string', required: true },
+      }, description: 'event：事件ID跨集一致；当前稿与来源的实际原句、用途、场末人物/道具状态。工具只核对引文存在，不把模型笔记当独立核实。' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    async execute(args, exec) {
+      const agent = exec.agent, cwd = agent?.session.header.cwd
+      if (!agent || !cwd) throw Error('manuscript_work需要有工作区的Session。')
+      const result = await work.request(args, cwd, agent.id, exec.signal)
+      const fs = ctx.get('fs')
+      if (fs && (args.action === 'scene' || args.action === 'propose_scene')) {
+        const { current } = z.object({ current: z.object({ path: z.string(), file_sha256: z.string() }) }).parse(JSON.parse(result))
+        const target = await fs.resolve(current.path, { signal: exec.signal })
+        const info = await fs.stat(target, exec.signal)
+        if (!info || info.type !== 'file') throw Error('MANUSCRIPT_SCENE_STALE: 场景文件已变，请重新读取。')
+        const bytes = await fs.readBytes(target, exec.signal, config.maxFileBytes)
+        if (createHash('sha256').update(bytes).digest('hex') !== current.file_sha256) {
+          throw Error('MANUSCRIPT_SCENE_STALE: 场景读取后文件已变，请重新读取，不记为已观察版本。')
+        }
+        ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
+      }
+      return result
+    },
+    presentCall: () => ({ card: 'generic', title: 'Manuscript scenes and versions', kind: 'read' }),
+  }))
   ctx.tools.register(defineTool({
     name: 'manuscript_revision',
-    description: '对照上一稿与最新返稿，返回实际增删改、原句和版本，支持Word/Markdown/文本。compare建立对照，status读取差异，review可选对照候选稿；没有基线时如实说明。仅提供提示，不拦截保存、导出或交付。',
+    description: '支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。',
     parameters: {
-      action: { type: 'string', required: true, enum: ['compare', 'status', 'review'] },
+      action: { type: 'string', required: true, enum: ['compare', 'status', 'review', 'measure'] },
       baseline_path: { type: 'string', description: '实际上一稿路径；同路径返稿已有交付快照时可省略。' },
       revised_path: { type: 'string', description: '用户最新返稿的真实本地路径。' },
-      candidate_paths: { type: 'array', items: { type: 'string' }, description: '完整精修正文，按交付顺序。' },
+      source_paths: { type: 'array', items: { type: 'string' }, description: 'measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。' },
+      candidate_paths: { type: 'array', items: { type: 'string' }, description: '完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。' },
+      max_growth_percent: { type: 'number', description: '仅measure：本轮明确对照的增长百分比上限。参考区间不是修字配额，不为凑数字删必要情节或添复述；以用户篇幅要求和实际统计口径为准。未提供则标明未设置，不推断目标。' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     async execute(args, exec) {
       if (!exec.agent) throw Error('manuscript_revision requires an agent Session')
       const result = await revisions.request(args, exec.agent, exec.signal)
-      if (args.action !== 'review') exec.deferContext(context(result))
+      if (args.action === 'compare' || args.action === 'status') exec.deferContext(context(result))
       return result
     },
     presentCall: () => ({ card: 'generic', title: 'Manuscript revisions', kind: 'read' }),
   }))
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next()
-    if (decision.kind !== 'enter' || !messages.some(message => message.source.kind === 'user')) return decision
+    if (decision.kind !== 'enter') return decision
     const cwd = agent.session.header.cwd
     if (!cwd) return decision
+    let workNotice: string | undefined
+    try {
+      workNotice = await work.refresh(cwd, agent.id, signal, messages.some(message => message.source.kind === 'user'))
+      workReadFailures.delete(agent)
+    }
+    catch (error) {
+      signal.throwIfAborted()
+      const failure = `采用稿回读未完成：${error instanceof Error ? error.message : String(error)}。不代表剧情检查通过；本提示不阻止继续。`
+      if (workReadFailures.get(agent) !== failure) workNotice = failure
+      workReadFailures.set(agent, failure)
+    }
+    const entered = workNotice ? { ...decision, messages: [...decision.messages, context(workNotice, '采用稿实际版本与场景核对')] } : decision
+    if (!messages.some(message => message.source.kind === 'user')) return entered
     let text: string | undefined
     try { text = await revisions.refresh(cwd, agent.id, signal) }
     catch (error) {
@@ -285,7 +385,7 @@ export function apply(ctx: Context, config: Config): void {
     const refinement = messages.some(message => message.source.kind === 'user' && message.content.some(block => block.type === 'text'
       && /精修|润色|改稿|改过|用户修改|refin(?:e|ement)|polish/iu.test(block.text)))
     const notice = text ?? (refinement ? '本轮涉及文稿精修。若用户自行改过或重新上传文稿，先用 manuscript_revision.compare 关联实际上一稿与最新返稿，查看并保留用户增删改；不要从旧稿恢复。没有基线应说明无法逐处识别，向用户索取上一稿或以最新返稿为准，不声称已完成对比。' : undefined)
-    return notice === undefined ? decision : { ...decision, messages: [...decision.messages, context(notice)] }
+    return notice === undefined ? entered : { ...entered, messages: [...entered.messages, context(notice)] }
   })
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()

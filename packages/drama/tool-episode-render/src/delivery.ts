@@ -8,7 +8,7 @@
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
-import type { AudioMixSpec, RenderSettings, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
+import type { AudioMixSpec, EndingEffectTiming, RenderSettings, ResolvedAudioMixProfile, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
 export const DELIVERY_WIDTH = 1440
@@ -254,7 +254,7 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * The filter graph that turns the frozen tail frame and the ending effect into
  * the ending clip.
  *
- * The effect keeps its own timeline — nothing retimes it — so it covers the
+ * By default the effect keeps its own timeline, so it covers the
  * opening of the ending for as long as it lasts, 1.020 seconds for the shipped
  * asset, and the rest of the window is the freeze frame. What makes that
  * remainder the freeze is the black pad: a black effect frame screens over the
@@ -262,19 +262,28 @@ export const ENCODER_PROBE_SOURCE = 'color=black:s=256x256:d=0.1'
  * {@link ENDING_SECONDS} even though the effect is shorter. The effect's frames
  * are interpolated to 120 fps and averaged back to 60 before the pad, and the
  * result is screen-blended over the freeze at {@link EFFECT_BLEND_OPACITY}.
+ * Explicit stretch_to_window timing instead retimes the complete source across
+ * the ending window, without repeating it or padding its tail with black.
  * @param delivery - Output geometry and frame rate.
+ * @param timing - Optional measured source and selected ending-fit timing.
  * @returns The filter graph, whose only output pad is `[v]`.
  */
-export function endingEffectFilter(delivery: TimelineDelivery = DEFAULT_DELIVERY): string {
+export function endingEffectFilter(
+  delivery: TimelineDelivery = DEFAULT_DELIVERY,
+  timing?: EndingEffectTiming,
+): string {
   const canvas = assCanvas(delivery)
   const effectWidth = Math.round(canvas.width / 2)
   const effectHeight = Math.round(canvas.height / 2)
+  const stretch = timing?.fit === 'stretch_to_window'
+  const timestamps = stretch ? `setpts=(PTS-STARTPTS)/${String(timing.speed)},` : 'setpts=PTS-STARTPTS,'
+  const pad = stretch ? '' : `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
   return `[0:v]${deliveryScaleFilter('gbrp', delivery)}[base];`
-    + '[1:v]setpts=PTS-STARTPTS,'
+    + `[1:v]${timestamps}`
     + `scale=${String(effectWidth)}:${String(effectHeight)}:force_original_aspect_ratio=increase,`
     + `crop=${String(effectWidth)}:${String(effectHeight)},minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,`
     + "tmix=frames=2:weights='1 1',"
-    + `tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}:color=black,`
+    + pad
     + `trim=0:${ENDING_SECONDS.toFixed(3)},`
     + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},fps=${String(delivery.fps)},`
     + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
@@ -323,6 +332,7 @@ export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: 
  * @returns The filter graph, whose only output pad is `[a]`.
  */
 export function audioMixFilter(spec: AudioMixSpec): string {
+  if (spec.profile !== undefined) return profiledAudioMixFilter(spec, spec.profile)
   const total = spec.totalSeconds.toFixed(6)
   const body = spec.bodyEndSeconds.toFixed(6)
   const delayMs = Math.round(spec.bodyEndSeconds * 1000)
@@ -334,6 +344,44 @@ export function audioMixFilter(spec: AudioMixSpec): string {
     + `[2:a]atrim=0:${body},volume=${String(spec.bgmVolume)}[a1];`
     + ending
     + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`
+}
+
+/** Compile the same explicit profile for final delivery and bounded audio auditions. */
+function profiledAudioMixFilter(spec: AudioMixSpec, profile: ResolvedAudioMixProfile): string {
+  const original = spec.originalInput ?? 1
+  const total = spec.totalSeconds.toFixed(6)
+  const body = spec.bodyEndSeconds.toFixed(6)
+  const start = (spec.startSeconds ?? 0).toFixed(6)
+  const parts = [`[${String(original)}:a]atrim=start=${start}:duration=${total},`
+    + `asetpts=PTS-STARTPTS,apad,atrim=0:${total},volume=${String(profile.original_gain)}`
+    + (profile.mode === 'ducking' ? ',asplit=2[a0][sc]' : '[a0]')]
+  const labels = ['[a0]']
+  if (profile.mode !== 'no_bgm') {
+    parts.push(`[${String(original + 1)}:a]atrim=start=${start}:duration=${body},`
+      + `asetpts=PTS-STARTPTS,volume=${String(profile.music_gain)}[music]`)
+    if (profile.mode === 'ducking') {
+      const duck = profile.ducking
+      if (duck === undefined) throw new Error('ducking 音频配置缺少显式压缩参数。')
+      const threshold = Math.pow(10, duck.threshold_db / 20).toFixed(9)
+      parts.push('[music][sc]sidechaincompress='
+        + `threshold=${threshold}:ratio=${String(duck.ratio)}:attack=${String(duck.attack_ms)}`
+        + `:release=${String(duck.release_ms)}:knee=${String(duck.knee)}:makeup=1:detection=rms:link=maximum[ducked]`)
+    }
+    const music = profile.mode === 'ducking' ? 'ducked' : 'music'
+    if (spec.musicStem) parts.push(`[${music}]asplit=2[a1][musicstem]`)
+    labels.push(spec.musicStem ? '[a1]' : `[${music}]`)
+  }
+  if (spec.endingSeconds > 0) {
+    const input = spec.endingInput ?? original + (profile.mode === 'no_bgm' ? 1 : 2)
+    const delay = String(Math.round(spec.bodyEndSeconds * 1000))
+    parts.push(`[${String(input)}:a]atrim=0:${spec.endingSeconds.toFixed(6)},`
+      + `adelay=${delay}|${delay},volume=1[a2]`)
+    labels.push('[a2]')
+  }
+  parts.push(labels.join('')
+    + (labels.length === 1 ? 'anull,' : `amix=inputs=${String(labels.length)}:duration=longest:normalize=0,`)
+    + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`)
+  return parts.join(';')
 }
 
 /** One ASS timestamp: `H:MM:SS.cc` with two fractional digits. */

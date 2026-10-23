@@ -94,6 +94,31 @@ async function fixture(options: { duration?: number; range?: number; ptc?: boole
   return { root, ctx, agent, handle, adapter, plugin, input, method, program, run, manifest, resolve, errors, driver }
 }
 
+it.each([false, true])('recovers logged ASR candidate context after plugin disposal with PTC=%s', async (ptc) => {
+  const h = await fixture({ ptc })
+  const transcript = join(h.root, 'original-transcript.json')
+  await writeFile(transcript, JSON.stringify([
+    { start: 0, end: 1, text: '别走。', speaker_id: 'job-a:0' },
+    { start: 2, end: 3, text: '我会回来。', speaker_id: 'job-a:1' },
+  ]))
+  const metadata = h.method('metadata'), sample = h.method('sample', { strategy: 'scene_dialogue', transcript_path: transcript })
+  await h.run(ptc ? [{ name: 'run_code', args: { description: 'Inspect original utterance candidates.',
+    code: `await tools.video_inspect(${JSON.stringify(metadata.args)});await tools.video_inspect(${JSON.stringify(sample.args)});` } }, undefined]
+    : [metadata, sample, undefined])
+  expect(h.errors).toEqual([])
+  const manifest = await h.manifest()
+  expect(manifest.sampling_plan?.selected[0]?.utterances).toEqual([
+    { start: 2, end: 3, text: '我会回来。', text_truncated: false, speaker_id: 'job-a:1' },
+  ])
+  expect(manifest.sampling_plan?.deferred[0]).toEqual({ time: 0.5, reasons: ['speaker_change_utterance'] })
+  expect(JSON.stringify(manifest.sampling_plan)).not.toContain('别走。')
+  expect(JSON.stringify(h.agent.session.snapshotEvents().filter(event => event.type === 'tool/result'
+    || event.type === 'tool/ptc-dispatch'))).toContain('job-a:1')
+  const receipt = await h.resolve(manifest)
+  await h.plugin.dispose()
+  expect(await h.resolve(manifest, receipt)).toEqual(receipt)
+}, 30_000)
+
 it('shows a contact sheet to the next actual model request without issuing detail approval', async () => {
   const h = await fixture({ ptc: true })
   await h.run([{ name: 'run_code', args: { description: 'View a six-cell overview.',

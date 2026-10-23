@@ -9,7 +9,22 @@
 import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
 
 /** The operation one `drama_render` call runs. */
-export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles'
+export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview' | 'subtitle_overlay'
+
+/** How the effect source occupies the existing ending window. */
+export type EndingEffectFit = 'source_once' | 'stretch_to_window'
+
+/** Measured effect timing passed to the ending encoder. */
+export interface EndingEffectTiming {
+  /** Explicit source playback treatment. */
+  readonly fit: EndingEffectFit
+  /** Measured source duration. */
+  readonly sourceDurationSeconds: number
+  /** Actual effect coverage, at most the existing ending window. */
+  readonly targetDurationSeconds: number
+  /** Source seconds consumed per output second. */
+  readonly speed: number
+}
 
 /** How much one render check's failure matters. */
 export type CheckSeverity = 'failure' | 'warning'
@@ -75,6 +90,8 @@ export interface DeliveryPolicy {
 
 /** One episode timeline: the clips plus the body end they imply. */
 export interface Timeline {
+  /** Explicit effect treatment; omitted timelines retain source-once playback. */
+  readonly endingEffectFit?: EndingEffectFit
   /** Project delivery settings captured when this timeline was prepared. */
   readonly delivery?: TimelineDelivery
   /** Original body_end when the source JSON declares it; checked for animation endings. */
@@ -107,6 +124,72 @@ export interface SubtitleCue {
   readonly endSeconds: number
   /** The cue's text with its line breaks removed. */
   readonly text: string
+}
+
+/** An authored instruction to retain existing picture text instead of overlaying a whole cue. */
+export interface EmbeddedSubtitleDecision {
+  /** Shot number on this timeline. */
+  readonly shot: number
+  /** SHA-256 of the actual selected shot video. */
+  readonly source_sha256: string
+  /** Inclusive start relative to the shot, seconds. */
+  readonly start_seconds: number
+  /** Exclusive end relative to the shot, seconds. */
+  readonly end_seconds: number
+  /** Dialogue expected in the picture. */
+  readonly text: string
+  /** Keep the existing picture text, without an additional overlay. */
+  readonly action: 'retain_embedded'
+  /** The caller's rationale, not an independently issued inspection receipt. */
+  readonly reason: string
+  /** Caller-declared OCR/frame evidence references, not trusted Host attestations. */
+  readonly evidence_paths: readonly string[]
+}
+
+/** Compact result binding a resolved subtitle overlay to its source files. */
+export interface SubtitleOverlayReport {
+  /** Two-digit episode number. */
+  readonly episode: string
+  /** Authored plan path. */
+  readonly plan_path: string
+  /** Actual plan SHA-256. */
+  readonly plan_sha256: string
+  /** Unmodified authored SRT. */
+  readonly original_srt: string
+  /** Actual original SRT SHA-256. */
+  readonly original_srt_sha256: string
+  /** New SRT containing only external overlays. */
+  readonly resolved_srt: string
+  /** Actual resolved SRT SHA-256. */
+  readonly resolved_srt_sha256: string
+  /** Full decision report JSON. */
+  readonly decision_report: string
+  /** Selected videos checked against authored source digests. */
+  readonly sources: { readonly shot: number; readonly path: string; readonly sha256: string }[]
+  /** Ordered selected clip geometry used for local-to-episode time mapping. */
+  readonly timeline_clips: { readonly shot: number; readonly start_us: number; readonly duration_us: number }[]
+  /** Authored cue indexes whose matching text is retained in the video pixels. */
+  readonly retained_cue_indexes: number[]
+  /** Whole authored cues retained in the original video pixels, on the episode clock. */
+  readonly retained_embedded: {
+    readonly cue_index: number
+    readonly shot: number
+    readonly text: string
+    readonly start_seconds: number
+    readonly end_seconds: number
+    readonly source_sha256: string
+    readonly editable: false
+  }[]
+  /** Original cue count. */
+  readonly original_cue_count: number
+  /** Cue count in the resolved external overlay. */
+  readonly overlay_cue_count: number
+  /** Authored references do not certify OCR accuracy or inspection. */
+  readonly evidence_kind: 'caller_declared'
+  /** Retained text is burned in, not editable subtitle content. */
+  readonly retained_text_editable: false
+  /** External styles cannot change existing picture text. */
+  readonly retained_text_style_adjustable: false
 }
 
 /** One stream of an ffprobe report, narrowed to the fields this package reads. */
@@ -353,10 +436,19 @@ export interface RenderPreview {
  *
  * The field spellings are the pipeline's own snake_case, because the result is
  * read next to `body_end`, `shot_00N.mp4`, and the delivery numbers it reports.
- * Every field is always present: a method that did not measure something reports
- * the empty value, so a caller never has to branch on which keys exist.
+ * Base fields are always present, with empty values for measurements not made.
+ * Explicit audio profiles add optional `audio_mix` evidence.
  */
 export interface DramaRenderReport {
+  /** Explicit subtitle-overlay decisions; omitted for legacy calls. */
+  readonly subtitle_overlay?: SubtitleOverlayReport
+  /** Measured timing for an explicitly selected effect fit. */
+  readonly ending_effect?: {
+    readonly fit: EndingEffectFit
+    readonly source_duration_seconds: number
+    readonly target_duration_seconds: number
+    readonly speed: number
+  }
   /** The operation that produced this result. */
   readonly method: DramaRenderMethod
   /** Whether the operation completed and every failure-severity check passed. */
@@ -397,6 +489,8 @@ export interface DramaRenderReport {
   readonly not_checked: string[]
   /** Optional music-plan evidence; empty values when no plan was checked. */
   readonly bgm_plan: BgmPlanReport
+  /** Explicit audio-profile evidence; omitted for unchanged legacy calls. */
+  readonly audio_mix?: AudioMixReport
   /** Effective prepare/render inputs; null when this method does not prepare or encode media. */
   readonly render_preview: RenderPreview | null
   /** One Chinese line per failure-severity check that failed. */
@@ -479,4 +573,102 @@ export interface AudioMixSpec {
   readonly masterVolume: number
   /** Gain applied to the BGM bed. */
   readonly bgmVolume: number
+  /** Explicit project profile; omission preserves the legacy filter. */
+  readonly profile?: ResolvedAudioMixProfile
+  /** Original-audio input index; render uses 1 and audio previews use 0. */
+  readonly originalInput?: number
+  /** Ending-audio input index when an ending exists. */
+  readonly endingInput?: number
+  /** Expose an independent, already-gained music output pad named musicstem. */
+  readonly musicStem?: boolean
+  /** Shared timeline offset for a bounded audio preview. */
+  readonly startSeconds?: number
+}
+
+/** Explicit, versioned choices for added music; original sound is not speech-separated. */
+export interface AudioMixProfile {
+  /** Profile format version. */
+  readonly schema_version: 1
+  /** Legacy gains, no added music, or original-audio-driven ducking. */
+  readonly mode: 'legacy' | 'no_bgm' | 'ducking'
+  /** Gain of the retained original audio. */
+  readonly original_gain?: number
+  /** Gain of the added music. */
+  readonly music_gain?: number
+  /** Duration of each measurement frame, in milliseconds. */
+  readonly analysis_window_ms: number
+  /** Required explicit compressor parameters in ducking mode. */
+  readonly ducking?: {
+    readonly threshold_db: number
+    readonly ratio: number
+    readonly attack_ms: number
+    readonly release_ms: number
+    readonly knee: number
+  }
+}
+
+/** Project profile after deployment gains have been captured once. */
+export interface ResolvedAudioMixProfile extends AudioMixProfile {
+  /** Absolute, real project-owned profile path. */
+  readonly path: string
+  /** Resolved original-audio gain. */
+  readonly original_gain: number
+  /** Resolved added-music gain. */
+  readonly music_gain: number
+}
+
+/** Paths and explicit parameters of one audio mix or bounded audition. */
+export interface AudioMixReport {
+  /** Report version. */
+  readonly schema_version: 1
+  /** Real project-owned profile path. */
+  readonly profile_path: string
+  /** Selected added-music behavior. */
+  readonly mode: AudioMixProfile['mode']
+  /** Effective parameters, excluding the profile path. */
+  readonly parameters: AudioMixProfile & { readonly original_gain: number; readonly music_gain: number }
+  /** Original-audio energy is not semantic voice activity detection. */
+  readonly detector: 'source_audio_rms_not_speech_vad' | 'none'
+  /** Original sound, which can already contain effects or music. */
+  readonly original_audio: string
+  /** Added-music input; empty in no_bgm mode. */
+  readonly music_audio: string
+  /** Music-only output; never contains the original audio. */
+  readonly music_stem: string
+  /** Whether a composer receipt supplied source-window gains for this exact bed. */
+  readonly composition_gain_status: 'provided' | 'not_provided'
+  /** Verified composer receipt and its per-source gains. */
+  readonly composition?: {
+    readonly path: string
+    readonly bed_sha256: string
+    readonly segments: {
+      readonly track: string
+      readonly source: string
+      readonly start_seconds: number
+      readonly end_seconds: number
+      readonly source_mean_db: number
+      readonly applied_gain_db: number
+    }[]
+  }
+  /** Bounded, aligned audio comparison and measurement paths. */
+  readonly preview?: {
+    readonly start_seconds: number
+    readonly duration_seconds: number
+    readonly selected_mix: string
+    readonly without_added_music: string
+    readonly music_stem: string
+    readonly analysis: string
+  }
+}
+
+/** One fixed-duration audio frame measured by FFmpeg astats. */
+export interface AudioWindow {
+  /** Offset relative to the start of the audition. */
+  readonly time_seconds: number
+  /** RMS level in dBFS; null denotes digital silence. */
+  readonly rms_dbfs: number | null
+  /** Sample peak in dBFS; null denotes digital silence. */
+  readonly peak_dbfs: number | null
+  /** Both RMS and peak are negative infinity. */
+  readonly silent: boolean
 }

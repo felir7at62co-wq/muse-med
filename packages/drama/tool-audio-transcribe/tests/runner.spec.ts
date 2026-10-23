@@ -43,6 +43,68 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
 })
 
 it.each([
+  { ids: [undefined, undefined], status: 'not_provided', labelled: 0, groups: 0 },
+  { ids: ['0', undefined], status: 'partial', labelled: 1, groups: 1 },
+  { ids: ['0', '0'], status: 'available', labelled: 2, groups: 1 },
+  { ids: ['0', '1'], status: 'available', labelled: 2, groups: 2 },
+] as const)('reports $status speaker coverage without changing timed transcripts or querying cached output', async ({ ids, status, labelled, groups }) => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media, 'screenplay')
+  const segments = ids.map((id, index) => ({ start: index, end: index + 1, text: `原句${index + 1}`,
+    ...(id === undefined ? {} : { speaker_id: id }) }))
+  fixture.setJob({ id: first.job_id, status: 'complete', purpose: 'screenplay', segments })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+  expect(done.speaker_summary).toMatchObject({ status, total_segments: 2, labelled_segments: labelled,
+    unlabelled_segments: 2 - labelled, observed_groups: groups })
+  expect(done.speaker_summary?.note).toContain('分组数不代表人数')
+  expect(done.speaker_summary?.note).toContain('不构成音色试听或跨集身份确认')
+  if (status === 'not_provided') expect(done.speaker_summary?.note).toContain('未提供说话人分组')
+  else expect(done.speaker_summary?.note).toContain('output_json')
+  const before = await Promise.all([done.output_json!, done.output_txt!, done.output_srt!].map(file => readFile(file, 'utf8')))
+  expect(JSON.parse(before[0]!)).toEqual(segments)
+  expect(before[1]).toBe('[00:00:00.000 --> 00:00:01.000] 原句1\n[00:00:01.000 --> 00:00:02.000] 原句2\n')
+  expect(before[2]).toBe('1\n00:00:00,000 --> 00:00:01,000\n原句1\n\n2\n00:00:01,000 --> 00:00:02,000\n原句2\n')
+  const cached = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+  expect(cached.speaker_summary).toEqual(done.speaker_summary)
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+  expect(await Promise.all([done.output_json!, done.output_txt!, done.output_srt!].map(file => readFile(file, 'utf8')))).toEqual(before)
+})
+
+it('reports an invalid cached speaker label without altering the original receipt or resubmitting audio', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '原句' }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+  const receipt = await readFile(first.receipt, 'utf8')
+  const invalid = JSON.stringify([{ start: 0, end: 1, text: '原句', speaker_id: 1 }])
+  await writeFile(done.output_json!, invalid)
+  await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)).rejects.toThrow('invalid speaker label')
+  expect(await readFile(first.receipt, 'utf8')).toBe(receipt)
+  expect(await readFile(done.output_json!, 'utf8')).toBe(invalid)
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+})
+
+it.each([{}, [], [null], ['not a segment'], [{}], [{ text: 7 }]].map(rows => ({ rows })))(
+  'reports malformed cached speech segments without changing the receipt or resubmitting (%j)', async ({ rows }) => {
+    const fixture = await setup()
+    const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+    const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+    fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '原句' }] })
+    const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+    const receipt = await readFile(first.receipt, 'utf8')
+    const invalid = JSON.stringify(rows)
+    await writeFile(done.output_json!, invalid)
+    await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false))
+      .rejects.toThrow('Published transcription JSON')
+    expect(await readFile(first.receipt, 'utf8')).toBe(receipt)
+    expect(await readFile(done.output_json!, 'utf8')).toBe(invalid)
+    expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+  },
+)
+
+it.each([
   ['non-object', null, 'Invalid transcription receipt'],
   ['source digest', { sourceSha256: 'invalid' }, 'Invalid source digest'],
   ['purpose', { purpose: 'other' }, 'Invalid transcription purpose'],
@@ -156,8 +218,10 @@ it('merges word timestamps onto the source clock and scopes speaker identities t
   const segments = JSON.parse(await readFile(done.output_json!, 'utf8')) as NonNullable<MuseAsrJob['segments']>
   expect(segments.map(row => row.words?.[0]?.start)).toEqual([1, 11, 21])
   expect(segments.map(row => row.speaker_id)).toEqual([...states.keys()].map(id => `${id}:0`))
+  expect(done.speaker_summary).toMatchObject({ status: 'available', total_segments: 3, labelled_segments: 3,
+    unlabelled_segments: 0, observed_groups: 3 })
   expect(await readFile(done.output_srt!, 'utf8')).toContain('00:00:21,000 --> 00:00:22,000')
-  expect((await finishAudioTranscription(fixture.project, first.receipt, account)).status).toBe('complete')
+  expect((await finishAudioTranscription(fixture.project, first.receipt, account)).speaker_summary).toEqual(done.speaker_summary)
   expect(submits).toBe(3)
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as { sourceSha256: string }
   expect(receipt.sourceSha256).toMatch(/^[a-f0-9]{64}$/)

@@ -57,8 +57,8 @@ describe('registration', () => {
     const tool = mount()
     const output = tool.output.schema as { properties: Record<string, unknown> }
     expect(Object.keys(output.properties).sort()).toEqual([
-      'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'episode', 'intended_use', 'license_records',
-      'media', 'method', 'output', 'plan', 'policy_findings', 'project', 'repeated_sequence_episodes', 'report', 'segments', 'timeline',
+      'batch_episodes', 'body_duration_seconds', 'crossfade_seconds', 'decision_reason', 'episode', 'intended_use', 'license_records',
+      'media', 'method', 'music_decision', 'output', 'plan', 'policy_findings', 'preview_notice', 'project', 'repeated_sequence_episodes', 'report', 'segments', 'status', 'timeline',
     ])
     expect(validateJsonSchemaValue(tool.parameters, {
       method: 'compose', project: 'D:/project', episode: 5,
@@ -74,7 +74,7 @@ describe('Config', () => {
     expect(Config({})).toEqual({
       ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 300_000,
       terminationGraceMs: 5_000, outputMaxBytes: 1_048_576,
-      minTracksPerEpisode: 2, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 1,
+      minTracksPerEpisode: 1, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 0,
       boundaryToleranceSeconds: 0.05,
     })
   })

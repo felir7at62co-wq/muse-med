@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-lvpaopao-engagement
+profile: headless
+composition: muse-lvpaopao-engagement
+recording: authored
+header:
+  class: muse-lvpaopao-engagement
+  pin: true
+writerOutput: true
+workspace:
+  final: true

@@ -63,6 +63,12 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 describe('DeepSeekHarness', () => {
+  it('preserves complete-video observation progress in public Session events', async () => {
+    const expected: unknown = JSON.parse(await readFile(new URL('./expected/video-review.json', import.meta.url), 'utf8'))
+    const result = await harnessWith({ FAKE_VIDEO_REVIEW: JSON.stringify(expected) }).run('Observe every detected frame.')
+    expect(result.events.filter(event => event.type === 'video/review').map(event => event.data)).toEqual([expected])
+  })
+
   it('ignores notifications that precede the submitted message receipt', async () => {
     const notifications = [
       { method: 'session.status', params: { sessionId: 'owned', status: 'running' } },

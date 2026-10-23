@@ -60,7 +60,7 @@ kind: "package-reference"
 
 `prepare` 在探测前、复制前及复制后检查选定源字节。`render` 在媒体工作开始前检查当前准备源，使用编码缓存前检查其实际字节，并在持有清单写锁、发布暂存成片前复查本次实际消费的源哈希。中途禁用会保留旧成片。`verify` 从不删除文件：`video_bans` 报告直接禁用的输出，或对当前选源提示“当前选片含禁用素材，已有输出需复核”。没有不可变的输出来源记录时，`output_source_mapping` 保留在 `not_checked` 中，不宣称旧成片确实包含哪些版本。
 
-### 四个渲染方法
+### 渲染与音频试听方法
 
 | 方法 | 读取 | 写入 | 用途 |
 |---|---|---|---|
@@ -68,28 +68,46 @@ kind: "package-reference"
 | `prepare` | 成片清单与字幕 | `video/<集>/shot_00N.mp4`、`audio/<集>.wav`、`editing/<集>-timeline.json`、`editing/<集>.srt` | 构建渲染器要读的全部输入，不编码画面 |
 | `render` | 时间线、已准备的镜头、整集原声、字幕、BGM，以及该媒介所需的片尾素材 | 成片 MP4 与 `exports/.render_cache/<集>/render.log` | 出片并回报实测参数 |
 | `verify` | 成片、它的时间线与字幕 | 无 | 事后检查成片，或复查更早会话留下的成片 |
+| `audio_preview` | 项目内原声、时间线、显式混音配置及可选音乐元数据 | `audio/previews/` 下新建的对齐 WAV 试听、音乐 stem 与分析 JSON | 编码画面前比较新增配乐与保留原声 |
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| `method` | 总是 | `subtitles`、`prepare`、`render` 或 `verify` |
+| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify`、`audio_preview` 或 `subtitle_overlay` |
 | `project` | 总是 | 项目根目录（含 `video/`、`audio/`、`editing/`、`exports/`） |
 | `episode` | 总是 | 集号；所有路径都补成两位 |
 | `shots` | `subtitles`、`prepare` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
 | `lines` | `subtitles` | 逐镜台词计划：`{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`；每一项就是一条字幕，已按交付长度切好 |
 | `alignment` | `subtitles` | 识别时间：`{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，镜内相对。只取时间，文本必须与剧本台词一致 |
-| `timeline` | `render`、`verify` | 时间线 JSON，通常是 `prepare` 写出的那个 |
+| `timeline` | `render`、`verify`、`audio_preview` | 时间线 JSON，通常是 `prepare` 写出的那个 |
 | `subtitle_srt` | `prepare`、`render`、`verify`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT；`subtitles` 省略时写 `editing/<集>.srt` |
 | `last_shot` | `render` | 本次交付覆盖到的最后一个镜头号；时间线里 `shot <= last_shot` 的镜头数必须正好等于它 |
-| `bgm` | `render`；`prepare` 可选预览 | 循环铺到正片结束的纯 BGM 音轨，不是对白加音乐的审查混音 |
-| `bgm_plan` | 可选，`prepare` / `render` | 现有 `episodes[].segments[]` 计划；返回声明的曲目来源、时间、理由、音轨哈希与同序复用集号，不代表试听通过。`prepare` 同时提供 `bgm` 时读取计划 |
+| `bgm` | 启用音乐的 `render`、`audio_preview` | BGM，循环铺到正片结束；显式 `no_bgm` 配置忽略且不打开它 |
+| `bgm_plan` | 可选，`render`、`audio_preview` | 现有 `episodes[].segments[]` 计划；返回声明的曲目来源、时间、理由、音轨哈希与同序复用集号，不代表试听通过 |
+| `mix_profile` | `audio_preview` 必填，`render` 可选 | 项目内带版本的音频配置；省略时保留旧渲染行为 |
+| `audio` | 可选，`audio_preview` | 项目内原声音频；默认 `audio/<集>.wav` |
+| `start_seconds`、`duration_seconds` | `audio_preview` | 非负正文起点与大于零、最多 60 秒且不越过正文终点的试听时长 |
+| `bgm_generation` | 可选，`audio_preview` | 项目内配乐合成收据；媒体 SHA-256 必须匹配 BGM 才返回各源曲增益 |
+| `intended_use` | 可选，`audio_preview` | `commercial`、`non_commercial` 或 `unknown`；覆盖计划中的声明用途，用于建议性许可风险提示 |
 | `ending_audio` | 带标记 `render` | 片尾音；只接受随包 `tweet-drama-background-render/assets/ending_audio.mp3`。成片只取它的前 2 秒，延迟到正片结束处 |
-| `ending_effect` | 带标记 `render` | 片尾特效；只接受随包 `tweet-drama-background-render/assets/ending_effect.mp4`。按自身原速只播放一次，覆盖 2 秒片尾的开头 |
-| `output` | `verify`（`render` 可选） | 成片文件；`render` 省略时写 `exports/<集>.mp4` |
+| `ending_effect` | 带标记 `render` | 随包 `tweet-drama-background-render/assets/ending_effect.mp4`；默认 `source_once` 按原速播放，时间线显式 `stretch_to_window` 时把完整源特效适配 2 秒片尾 |
+| `output` | `verify`（`render`、`subtitle_overlay` 可选） | 成片或项目内全新外加字幕 SRT；显式字幕导出使用 `<output>.decision-report.json`，两文件均不覆盖 |
 | `force` | 可选 | `render` 忽略逐镜缓存、全部重编 |
 
 所有项目输入与输出的相对路径都以 `project` 为基准，包括清单、字幕计划、对齐文档、字幕、BGM、片尾文件和显式输出。绝对路径保持不变。跨工具传递绝对 `project`；相对项目根目录只在入口按进程工作目录解析一次。项目外的片尾素材使用其安装位置的绝对路径。二进制与字体的部署配置保持不变。
 
-工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。通用必填参数在读文件前检查；片尾参数仅在异步解析明确媒介、选定带标记交付后才要求提供。让渲染无法进行的一切——缺输入、命令失败、片尾素材不是随包字节、特效长于片尾窗口、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
+工具调用使用上表的 snake_case 参数名；注册的执行入口将其映射为渲染器内部的 camelCase 参数。通用必填参数在读文件前检查；片尾参数仅在异步解析明确媒介、选定带标记交付后才要求提供。让渲染无法进行的一切——缺输入、命令失败、片尾素材不是随包字节、`source_once` 特效长于片尾窗口、尾帧无法证明——都会抛错并给中文修法。成片自身的属性不抛错：它们作为检查项返回，所以一次调用既报清全部缺陷，也照常交回实测值。
+
+音频路径允许使用项目根目录的路径别名；输入及已有输出父目录解析后仍须位于真实项目目录内。试听与渲染时显式音频配置的增益优先于项目增益，项目增益优先于部署默认值；渲染预览显示相同的实际增益。
+
+### 显式音频配置与试听
+
+显式传入 `mix_profile`，选择项目内 JSON 文件。`schema_version` 为 `1`；`mode` 为 `legacy`、`no_bgm` 或 `ducking`；`analysis_window_ms` 为 10–1000。可选 `original_gain` 与 `music_gain` 接受 0–8，省略时记录现有部署增益。`ducking` 模式要求在同名对象中显式给出 `threshold_db`（−60–0）、`ratio`（1–20）、`attack_ms`（0.01–2000）、`release_ms`（0.01–9000）与 `knee`（1–8）。未传配置时沿用原固定增益渲染，不增加报告字段。
+
+`no_bgm` 不要求或打开 `bgm`、`bgm_plan` 或合成收据。它保留源内声音，包括已有音乐和音效，不做语音分离或移除内嵌音乐。`ducking` 用原声 RMS 能量驱动侧链，不是语义语音活动检测。Attack 与 release 平滑调整新增音乐增益，原声只进入混音一次。显式配置渲染要求项目内新输出路径；启用音乐时另发布已应用增益的纯音乐 `<output-name>.music-stem.wav`，不替换已有输出。
+
+`audio_preview` 必须提供配置、时间线与明确试听区间。它先用正式渲染的同一滤镜构造器从正文零点处理，再裁切输出，因此保留试听起点之前的侧链历史。裁切使用四舍五入的 48 kHz 样本边界并重建输出时间戳，避免 AAC 剪接处的重叠时间戳拉长 A/B 窗口。新试听目录包含 `selected_mix.wav`、`without_added_music.wav`、可选 `music_stem.wav` 与 `analysis.json`；多次调用使用不同目录。配置与试听路径解析链接后仍必须属于项目。音乐 stem 不混入原声。
+
+分析明确区分 dBFS 帧 RMS/采样峰值与 EBU R128 的 momentary（400 毫秒）、short-term（3 秒）LUFS 响度。响度每 100 毫秒观察一次，相对试听起点计时；未满窗口返回 null 和明确预热标记。这些测量不代表听感验收。可选 `bgm_plan` 保留曲名、时段、声明许可与用途风险；缺失元数据保持未知。哈希匹配的 `bgm_generation` 另提供每源曲实测平均值和作曲增益，与最终 `music_gain` 区分。
 
 ### 明确媒介与交付快照
 
@@ -122,7 +140,7 @@ kind: "package-reference"
 | 片尾特效 | `tweet-drama-background-render/assets/ending_effect.mp4` | 904,502 | `49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010` |
 | 片尾音 | `tweet-drama-background-render/assets/ending_audio.mp3` | 83,432 | `d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f` |
 
-带标记交付的片尾严格为 2 秒（`ENDING_SECONDS = 2`）；片尾音只取前两秒，延迟至正片结束。特效按自身原速播放一次；长于窗口时直接报错，不截断。该模式必须提供两个片尾参数。
+带标记交付的片尾严格为 2 秒（`ENDING_SECONDS = 2`）；片尾音只取前两秒，延迟至正片结束。时间线省略 `ending_effect_fit` 时保持 `source_once`：特效按自身原速播放一次，长于窗口时失败。显式 `stretch_to_window` 将完整源特效适配两秒窗口，不循环、不补黑场。随包特效长 1.020 秒，实测 speed 为 0.51；显式策略会返回 `ending_effect` 的源时长、目标覆盖时长和速度。两种策略均不改变正文终点、片尾音或随包字节校验，仍须提供两个片尾参数。
 
 ### subtitles 做什么
 
@@ -150,6 +168,18 @@ kind: "package-reference"
 
 `bgm_plan` 还保留每集可选的 `intended_use`、每段的 `track_id` 与 `license_info`，并返回规范化逐曲 `license_records`。[许可信息库](../bgm-license-info/README.zh.md)定义未知字段与用途风险提示。风险只作建议并进入渲染报告，不认证使用权或替代模型许可要求。计划中的 `source_sha256` 声明保留，但不逐曲重新计算哈希。不读取计划的方法（包括 `verify`）返回 unknown 用途和空许可记录，并在 `not_checked` 中列出 `bgm_license_info`。
 
+### 原片已有文字与外加字幕导出
+
+字幕导出允许项目根目录及其上层的路径别名，包括 macOS 系统目录别名。项目内部输出路径上的链接仍会被拒绝，已有输出文件不会被替换。
+
+编写 `subtitle_plan` 前，使用现有离线[视频检查工具](../../perception/tool-video-inspect/README.zh.md)查看源片文字。JSON 使用 `schema_version: 1` 与 `decisions`，条目含 `shot`、实际 `source_sha256`、镜内 `start_seconds`/`end_seconds`、`text`、`action: "retain_embedded"`、`reason` 及可选 `evidence_paths`。这些引用仍是调用方声明，不是 Host 签发的 OCR 或验收凭据。OCR 缺失或不确定时应预览，不代表授权付费去字或重新生成。
+
+`subtitle_overlay` 需要准备后的 `video/<集>/shot_00N.mp4`，并计算时间线全部选源的哈希。只有决定完整覆盖 cue 且去标点规范化后的文字匹配时，才省略该条外加字幕。部分重叠、文字不符或没有观察对象时保留整条 cue 并给复核建议，不拆句、不编造时码。源哈希不匹配或镜内区间无效时，作为陈旧输入报错。原 SRT 保持不变。`prepare`、`render` 接受同一可选计划；渲染只烧录解析后的外加 cue。
+
+结果中的 `subtitle_overlay` 以 SHA-256 绑定计划、原 SRT、新 `resolved_srt` 和全部所选视频，并给出完整 `decision_report` 路径。未显式提供 `output` 时，文件放在全新 `editing/subtitle-overlays/epNN-<unique>/` 目录。草稿消费方须复用该 SRT 与报告，不能另做一次过滤。`retained_embedded` 描述视频像素中已有的文字：它们不是可编辑字幕片段，也无法继承外加字幕的字号和位置。作者对白仍单独保留。技术成功不证明所有源帧均没有其他文字。
+
+发布前会重新核对原 SRT、计划与所选视频的哈希。报告发布失败时，只回滚本次新写入且内容未变的普通 SRT；已变化的字节、链接与并发写入的报告均保留。回滚失败会同时报告两项错误。
+
 ### 交付样式
 
 | 元素 | 取值 |
@@ -157,7 +187,7 @@ kind: "package-reference"
 | 画面 | 快照宽高与帧率，旧版默认 1440x2560@60，H.264 high@5.1，`yuv420p` |
 | 码率控制 | 目标 24M、上限 30M、缓冲 48M、GOP 2 秒 |
 | 总码率下限 | 成片整体 4.6 Mbps |
-| 片尾 | 3D 动画无片尾；带标记交付用最后一镜的真实尾帧定格 2.000 秒。随包特效按自身原速只播放一次，覆盖开头 1.020 秒，以 0.90 不透明度叠在定格帧上；剩下 0.980 秒是纯定格帧 |
+| 片尾 | 3D 动画无片尾；带标记交付用最后一镜的真实尾帧定格 2.000 秒。默认 `source_once` 将特效以 0.90 不透明度叠在开头 1.020 秒；时间线显式 `stretch_to_window` 时，完整运动覆盖两秒 |
 | 字幕 | 未覆盖项目设置时：配置字族、1080px 宽 ASS 画布上的字号 40、画布高度 140/1920 的底边距。项目只覆盖正文的字族、字号和边距。字距 -2、按宽度缩放的黑描边、底部居中、带标记交付唯一的 `内容由AI生成` 水印及 `ScaledBorderAndShadow: yes` 保持不变；烧录链以快照帧率的 `fps` 和 `setpts` 结尾 |
 | 音频 | 项目或部署的实际增益（默认原声 1.45、BGM 0.24）铺到正片结束；带标记交付保留片尾音前 2 秒延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
 | 容器 | AAC 192k / 48kHz，`+faststart` |
@@ -216,9 +246,11 @@ kind: "package-reference"
 | [`src/delivery-policy.ts`](src/delivery-policy.ts) | 校验项目/时间线元数据、拒绝媒介冲突、处理旧项目提醒与媒介策略 |
 | [`src/delivery.ts`](src/delivery.ts) | 交付默认值与样式：画面几何、编码器参数、ASS 头与时间码、随包片尾素材、片尾滤镜、混音图 |
 | [`src/ffmpeg.ts`](src/ffmpeg.ts) | 进程通道、ffmpeg 与 ffprobe 包装，以及共享媒体测量 |
+| [`src/audio.ts`](src/audio.ts) | 显式音频配置、项目内试听、合成收据与短窗电平/响度测量 |
 | [`src/paths.ts`](src/paths.ts) | 一集的渲染输入与产物路径，以及把「缓存未命中」与「路径坏了」区分开的存在性检查 |
 | [`src/timeline.ts`](src/timeline.ts) | 分集时间线的读取、校验、选取、铺排与序列化 |
 | [`src/subtitles.ts`](src/subtitles.ts) | SRT 解析与写出，以及交付烧录用的 ASS 文档 |
+| [`src/subtitle-plan.ts`](src/subtitle-plan.ts) | 绑定源视频的已有文字决定与独立外加字幕导出 |
 | [`src/speech.ts`](src/speech.ts) | 读对齐文档并把台词落到整集时钟上，不做识别 |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、对齐文档与写出的 SRT |
 | [`src/encoder.ts`](src/encoder.ts) | NVENC 探测，以及带原因记录的 CPU 回退 |
@@ -226,7 +258,7 @@ kind: "package-reference"
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`：成片清单、探测、复制出的布局与整集原声滤镜图 |
 | [`src/render.ts`](src/render.ts) | `render`：编码流水线、拼接、烧录、混音与渲染日志 |
 | [`src/verify.ts`](src/verify.ts) | `render` 共用的交付判定，以及 `verify` 的抽帧解码、黑帧、静音与字幕越界检查 |
-| [`src/report.ts`](src/report.ts) | canonical 结果：四个方法填同一套字段，没测到的留空值 |
+| [`src/report.ts`](src/report.ts) | 共用基础结果，没测到的留空值，显式配置可增加音频证据 |
 | [`src/types.ts`](src/types.ts) | 只有类型：时间线、成片来源、实测事实与模型可见结果 |
 | — | 不发布运行时不变式伴随包：本包在调用之间不保留状态，每个答案都是它所读文件与所启进程的函数。 |
 
@@ -256,7 +288,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-渲染结果每镜一行 `clips`，最多十三项检查（包括可选禁用检查）。`drama_video` 增加固定 schema；`list` 结果随记录版本数逐行增长，其他方法只返回选定决定。九镜一集的渲染无论编码花多久都只返回九行 clip；通过的交付让 `failures` 为空、每个 `fix` 为空串。
+渲染结果每镜一行 `clips`，最多十三项检查（包括可选禁用检查）。`drama_video` 增加固定 schema；`list` 结果随记录版本数逐行增长，其他方法只返回选定决定。九镜一集的渲染无论编码花多久都只返回九行 clip；通过的交付让 `failures` 为空、每个 `fix` 为空串。显式音频配置增加 `audio_mix`；逐帧测量保存在其分析文件里，不展开到工具结果中。
 
 #### KV Cache 影响
 
@@ -269,14 +301,15 @@ kind: "package-reference"
 这些限制界定了本包是什么、不是什么。它们是当前约束，不是任务清单。
 
 - **ffmpeg 与 ffprobe 是外部依赖**——本包启动 `ffmpegPath` 与 `ffprobePath` 指向的任何东西。缺少 `libass`、`minterpolate` 或 `screen` 混合模式的构建会在需要它的那条命令上失败，而报告里只有那条命令的 stderr。
-- **交付元数据不开放任意滤镜**——画幅、媒介及可选字幕/音频设置经过校验并写入快照；码率控制、描边、水印、随包片尾哈希及限幅器保持固定。字体可用性、实测字形边界与听感平衡仍须检查输出。插件 `Config` 只包含可执行文件、增益、编码器偏好和默认字体。
-- **缓存与日志写入不是事务**——渲染失败可能留下中间文件，由下一次运行覆盖。最终 MP4 在同目录暂存，禁用检查后以 rename 发布；发布前失败会保留旧成片。
+- **交付元数据不开放任意滤镜**——项目宽高/帧率与明确媒介经过校验并写入快照；码率控制、字幕描边、水印、随包片尾哈希及限幅器保持固定。插件 `Config` 只包含可执行文件、增益、编码器偏好和字体。
+- **缓存与日志写入不是事务**——渲染失败可能留下中间文件，由下一次运行覆盖。旧版最终 MP4 在同目录暂存，禁用检查后以 rename 发布；显式音频配置的 MP4/音乐 stem 无覆盖发布。发布前失败会保留旧成片。
 - **禁用不是全局媒体过滤器**——不拦截通用 FFmpeg 工具和任意外部转码。准备后的副本按实际 SHA256 检查；正式渲染以当前源哈希关联编码缓存。缺失或过期的映射不能证明任意转码文件的原始版本。
 - **需要片尾的带标记渲染每次重建片尾**——尾帧会重新抽取并重新证明，片尾片段会重新编码，即使缓存里两者都在。证明正是重点，而缓存里的片尾可能早于一次重剪。
 - **`prepare` 是复制而不是链接**——每个源成片都会复制进项目，九镜一集需要为审核过的成片留出双份空间。硬链接会在源文件被改写时立刻失效。
 - **一次调用只处理一集**——`last_shot` 把一次渲染限定在它交付的正片镜头上，但一次调用从不渲染多集，也没有任何方法读取 `pipeline_state.json`。
-- **混音不做电平表**——`normalize=0` 的 `amix` 精确保留运营给的增益，`alimiter=0.95` 是唯一的天花板。比被替换的 master 更响的素材仍可能在限幅器之前就削顶，而 `verify` 的静音检查发现不了。
+- **试听不等于自动母带处理或语音分离**——短窗 dBFS/LUFS 测量需要 `audio_preview`；旧渲染与 `verify` 不增加这些测量。原声驱动压低可能响应音效和内嵌音乐，任何测量都不能认证配乐审美或移除源内音乐。
 - **字幕只检查不修正**——`verify` 报出越过 `body_end` 的 cue；没有任何东西去钳制它，因为一句字幕该在哪里结束是字幕作者的决定。
+- **烧录字仍是画面内容**——明确外加字幕决定不会去字、令文字可编辑、统一样式或证明连续 OCR 覆盖；不确定决定只给复核建议，不阻断整集。
 - **`subtitles` 信任识别给出的时间**——对齐文档决定每一句什么时候说；本包只核对它覆盖了每条声明台词、且文本就是剧本原文，判断不了识别本身有多准，所以 `speech_alignment` 一直留在 `not_checked`。对齐文档由调用方产出。
 
 <a id="dev-note"></a>

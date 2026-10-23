@@ -34,11 +34,15 @@ export interface BgmEpisodePlan {
   readonly episode: string
   /** Declared distribution use; omission remains unknown. */
   readonly intended_use?: BgmUsage
+  /** Explicit music choice; omission retains contiguous legacy plans. */
+  readonly music_decision?: 'music' | 'none'
+  /** Required explanation when an explicit music choice is supplied. */
+  readonly decision_reason?: string
   /** Body duration excluding the ending. */
   readonly body_duration_seconds: number
   /** Crossfade duration centered on each adjacent segment boundary. */
   readonly crossfade_seconds?: number
-  /** Ordered, contiguous story intervals. */
+  /** Ordered story intervals; explicit music plans may leave silent gaps. */
   readonly segments: BgmPlanSegment[]
 }
 
@@ -185,6 +189,14 @@ export interface BgmMediaReport {
 
 /** Canonical report returned by every composer operation. */
 export interface DramaBgmReport {
+  /** Explicit plan choice, when declared. */
+  readonly music_decision?: 'music' | 'none'
+  /** Explanation copied from an explicit plan choice. */
+  readonly decision_reason?: string
+  /** No WAV is generated or verified for a no-music choice. */
+  readonly status?: 'no_added_music'
+  /** Preview analyzes a plan, not an audible final mix. */
+  readonly preview_notice?: string
   /** Declared use of the selected episode. */
   readonly intended_use: BgmUsage
   /** License declarations and use risks, including for verify without source analysis. */

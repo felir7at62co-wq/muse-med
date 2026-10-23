@@ -1,0 +1,18 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-video-media
+      name: '../../../packages/perception/tool-video-inspect/tests/snapshot-media.ts'
+    - id: tool-video-inspect
+      name: '@deepseek-ai/dsh-tool-video-inspect'
+      config:
+        requireCompleteReview: true
+        reviewBatchFrames: 2
+
+- insert:
+    - id: present
+      name: '@deepseek-ai/dsh-tool-present'

@@ -33,6 +33,8 @@ kind: "package-bundle"
 
 候选、下载结果和已发布曲目都包含 `license_info`（`status`、`license`、`commercial_use`、`source`、`attribution`、`scope`）及 `license_warnings`。这些字段传递提供的权利声明，不表示授权已核验。缺失字段保持 `unknown`；允许商业使用的声明缺少许可、来源或范围时，商业权限降为 unknown。`match` 和 `download` 可选 `intended_use` 为 `commercial`、`non_commercial` 或 `unknown`（默认），只影响风险提示，不授予权限，也不阻断工具调用。非商业声明用于商业用途时返回风险提示。下载摘要只标识音频字节，不证明使用权。不支持的审批状态或非法字段类型会使声明校验失败；风险提示按本次用途重新计算，不直接采用已存提示。
 
+选曲前向 `match` 传入绝对 `project` 和明确的剧情 `context_tags`。每次调用都会重新读取 `project_config.json` 中经用户确认的 `project_bible.bgm_feedback`；它通过 `drama_project` 的预览／版本校验流程保存。稳定曲目 ID 或内容摘要不受文件重命名影响。只有反馈的全部标签都出现在当前场景中，否决才生效；其他语境反馈仍可见，不是全局黑名单。后追加的适用用户决策可明确推翻先前否决，但不抹除历史。匹配保留原情绪距离，将适用的否决移入可审查的 `withheld_candidates`，不禁止下载。接受反馈仅作标注，不凭空赋予情绪分数。全部候选被否决时，无后加配乐是正常建议。旧项目缺少反馈不影响匹配；非法反馈明确报错，不悄悄丢弃。省略 `project` 保持旧结果结构，不读取项目偏好。
+
 | 配置 | 解析方式 |
 |---|---|
 | `pythonExecutable` | 已存在的绝对可执行路径；未配置则用 `DSH_PERCEPTION_PYTHON`；路径不可用只阻止分析 |
@@ -104,7 +106,7 @@ manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声�
 
 #### Token 影响
 
-挂载增加一个固定工具 schema。match 最多返回 20 个候选；index 失败列表随失败文件数增长。Python 分析不调用语言模型。
+挂载增加一个固定工具 schema。match 最多返回 20 个推荐候选和 20 个暂不推荐候选，每个候选最多附八条近期身份匹配反馈摘要；文本及历史展示预算有明确的截断标记，`history_count` 和 `config_path` 指向未改动的完整历史。匹配使用完整记录，不使用展示摘要。index 失败列表随失败文件数增长。Python 分析不调用语言模型。
 
 #### KV Cache 影响
 
@@ -118,6 +120,7 @@ manifest 包含 `lib/index.js`、`lib/config.js`、`lib/worker.js`、类型声�
 - worker 直接拥有本地子进程；接入 subprocess 服务仍属于独立生命周期工作。强制终止可能绕过 Python 临时目录清理。
 - 即使复用已下载缓存，公开曲库也必须可访问。缓存不自动淘汰；不接收也不需要上传凭证。
 - 同一索引的并发写入未协调。一次仅允许一个建库写入者；当前 JSON 损坏或不可读的索引被视为空；非法权利声明会使匹配失败。
+- 场景标签是显式匹配，不是语义 embedding：agent 先读项目反馈，再将相似剧情映射为对应标签。偏好记录必须来自真实用户反馈，不是 agent 自己的审美。情绪距离更小或曲目曾被接受，都不证明适合剧情、权利清晰或对白可听清；应使用渲染工具提供的有乐／无后加配乐试听对照。不加载新的 CLAP 或特征提取模型。
 - 工作区检查要求本包保持 private 并省略 `publishConfig`。桌面打包器必须解析 workspace 依赖范围并包含运行时依赖闭包；本包禁止公开发布到 npm。
 
 <a id="dev-note"></a>

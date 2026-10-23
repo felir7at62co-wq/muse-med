@@ -47,6 +47,15 @@ export interface AudioRunResult extends Omit<MuseAsrMetadata, 'error_code'> {
   readonly output_txt?: string
   readonly output_json?: string
   readonly output_srt?: string
+  /** Observed labels in the published JSON; groups are not character identities or listening evidence. */
+  readonly speaker_summary?: {
+    readonly status: 'available' | 'partial' | 'not_provided'
+    readonly total_segments: number
+    readonly labelled_segments: number
+    readonly unlabelled_segments: number
+    readonly observed_groups: number
+    readonly note: string
+  }
 }
 
 /** Bounded native polling and media verification for original task readback. */
@@ -288,6 +297,32 @@ function paths(project: string, receipt: Receipt): { txt: string; json: string; 
   return { txt: join(project, 'transcript', 'raw', stem + '.txt'), json: join(project, 'transcript', 'raw', stem + '.json'), srt: join(project, 'transcript', 'raw', stem + '.srt') }
 }
 
+async function withSpeakerSummary(result: AudioRunResult, signal?: AbortSignal): Promise<AudioRunResult> {
+  if (result.status !== 'complete' || result.output_json === undefined) return result
+  const rows: unknown = JSON.parse(await readFile(result.output_json, { encoding: 'utf8', signal }))
+  signal?.throwIfAborted()
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error('Published transcription JSON must contain speech segments')
+  const segments: readonly unknown[] = rows
+  const groups = new Set<string>()
+  let labelled = 0
+  for (const row of segments) {
+    if (typeof row !== 'object' || row === null || !('text' in row) || typeof row.text !== 'string') {
+      throw new Error('Published transcription JSON contains an invalid speech segment')
+    }
+    if (!('speaker_id' in row) || row.speaker_id === undefined) continue
+    if (typeof row.speaker_id !== 'string' || !row.speaker_id.trim()) throw new Error('Published transcription JSON contains an invalid speaker label')
+    labelled++
+    groups.add(row.speaker_id)
+  }
+  return { ...result, speaker_summary: {
+    status: labelled === 0 ? 'not_provided' : labelled === rows.length ? 'available' : 'partial',
+    total_segments: rows.length, labelled_segments: labelled, unlabelled_segments: rows.length - labelled,
+    observed_groups: groups.size,
+    note: (labelled === 0 ? '本结果未提供说话人分组；原句与时间码见 output_json。' : '说话人分组见 output_json，TXT/SRT 不含分组。')
+      + '按时间码结合画面核对角色；分组数不代表人数，缺失或单组不代表只有一人，也不构成音色试听或跨集身份确认。',
+  } }
+}
+
 async function publish(
   project: string, receipt: Receipt, segments: NonNullable<MuseAsrJob['segments']>, signal?: AbortSignal,
 ): Promise<{ txt: string; json: string; srt: string }> {
@@ -425,7 +460,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
  * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
  * @param options - Optional bounded read-only polling and verified legacy audio-duration probe.
- * @returns Current status, original-receipt polling parameters, and completed output paths after owned work settles.
+ * @returns Current status, original-receipt polling parameters, and completed paths with observed speaker-label coverage.
  */
 export async function finishAudioTranscription(
   projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
@@ -443,7 +478,7 @@ export async function finishAudioTranscription(
       result = await finishReceipt(projectPath, receiptPath, account, signal, false, options.probe)
     }
     signal?.throwIfAborted()
-    return portableResult(result)
+    return portableResult(await withSpeakerSummary(result, signal))
   }
   catch (error) {
     signal?.throwIfAborted()

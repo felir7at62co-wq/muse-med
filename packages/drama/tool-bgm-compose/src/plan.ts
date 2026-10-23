@@ -16,11 +16,11 @@ const EPSILON_SECONDS = 0.001
 
 /** Limits one batch of episode plans is held to. */
 export interface BgmBatchPolicy {
-  /** Distinct tracks each episode must use. */
+  /** Suggested distinct tracks per episode with music. */
   readonly minTracksPerEpisode: number
   /** Episodes one track may appear in across the whole batch. */
   readonly maxEpisodesPerTrack: number
-  /** Tracks each episode must use that no other episode in the batch uses. */
+  /** Suggested tracks not reused by other batch episodes. */
   readonly freshTracksPerEpisode: number
   /** Seconds a cut may sit away from a package boundary. */
   readonly boundaryToleranceSeconds: number
@@ -28,9 +28,9 @@ export interface BgmBatchPolicy {
 
 /** The policy the short-drama pipeline runs with. */
 export const DEFAULT_BGM_BATCH_POLICY: BgmBatchPolicy = {
-  minTracksPerEpisode: 2,
+  minTracksPerEpisode: 1,
   maxEpisodesPerTrack: 2,
-  freshTracksPerEpisode: 1,
+  freshTracksPerEpisode: 0,
   boundaryToleranceSeconds: 0.05,
 }
 
@@ -38,6 +38,8 @@ export const DEFAULT_BGM_BATCH_POLICY: BgmBatchPolicy = {
 export interface BgmBatchRow {
   /** Episode number, conventionally two digits. */
   readonly episode: string
+  /** Explicit no-music plans do not receive selection recommendations. */
+  readonly music_decision?: 'music' | 'none'
   /** The episode's ordered segments. */
   readonly segments: readonly Pick<BgmPlanSegment, 'track' | 'source' | 'start_seconds' | 'end_seconds'>[]
 }
@@ -82,6 +84,7 @@ export function trackIdentity(project: string, source: string): string {
  * @returns One finding per rule the plan breaks, in rule order; empty when it breaks none.
  */
 export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): BgmPolicyFinding[] {
+  if (selected.music_decision === 'none') return []
   const limits = context.limits ?? DEFAULT_BGM_BATCH_POLICY
   const episode = selected.episode
   const findings: BgmPolicyFinding[] = []
@@ -89,14 +92,14 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
   const distinct = [...new Set(tracks)]
   if (distinct.length < limits.minTracksPerEpisode) {
     findings.push({ rule: 'R1',
-      detail: `第 ${episode} 集只用了 ${String(distinct.length)} 首曲子，用户要求每集至少 ${String(limits.minTracksPerEpisode)} 首。`,
-      fix: '按正文情绪把这一集再分成至少 2 段，各用一首不同曲子，然后重跑 preview。' })
+      detail: `第 ${episode} 集用了 ${String(distinct.length)} 首曲子，低于配置建议的 ${String(limits.minTracksPerEpisode)} 首。`,
+      fix: '结合剧情和用户偏好考虑是否需要更多曲目；单曲或明确无配乐也可接受，不必为了数量换曲。' })
   }
   if (distinct.length !== tracks.length) {
     const repeated = tracks.filter((track, index) => tracks.indexOf(track) !== index)
     findings.push({ rule: 'R2',
       detail: `第 ${episode} 集在 ${String(tracks.length)} 段里重复使用了同一首曲子：${[...new Set(repeated)].join('、')}。`,
-      fix: '把重复段落中的后几段换成别的曲子；同一集内每段一首不同的曲子。' })
+      fix: '检查重复是否符合剧情与用户偏好；需要变化时再替换，不强制每段换曲。' })
   }
   const users = new Map<string, Set<string>>()
   const members = new Map<string, BgmBatchRow>()
@@ -117,14 +120,14 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
       findings.push({ rule: 'R3',
         detail: `曲目 ${id} 出现在 ${String(episodes.length)} 集（${episodes.join('、')}），`
           + `超过整批上限 ${String(limits.maxEpisodesPerTrack)} 集。`,
-        fix: `从 ${episodes.slice(limits.maxEpisodesPerTrack).join('、')} 里换掉这首，另选一首情绪接近、本批还没用满的曲子。` })
+        fix: `复核 ${episodes.slice(limits.maxEpisodesPerTrack).join('、')} 的剧情与偏好；可保留合适的复用，或试听其它曲目。` })
     }
   }
   const fresh = selectedTracks.filter(([, trackUsers]) => trackUsers.size === 1)
   if (fresh.length < limits.freshTracksPerEpisode) {
     findings.push({ rule: 'R4',
-      detail: `第 ${episode} 集没有任何一首是本批其它集没用的，用户要求每集至少 ${String(limits.freshTracksPerEpisode)} 首全新曲目。`,
-      fix: '为本集换入一首本批其它集都没用过的曲子（可用 bgm_match 按这一段正文的情绪取候选）。' })
+      detail: `第 ${episode} 集有 ${String(fresh.length)} 首本批未复用曲目，低于配置建议的 ${String(limits.freshTracksPerEpisode)} 首。`,
+      fix: '需要新鲜感时可用 bgm_match 获取其它候选；已认可曲目可以继续使用。' })
   }
   if (context.boundaries.length === 0) {
     findings.push({ rule: 'R5',
@@ -140,7 +143,7 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
       findings.push({ rule: 'R5',
         detail: `第 ${episode} 集的切点 ${segment.start_seconds.toFixed(3)}s 不在任何镜头包边界上`
           + `（最近的是 ${nearest.toFixed(3)}s）。`,
-        fix: '把切点移到某个镜头包的起点；段的时间必须与时间线的包边界对齐。' })
+        fix: '考虑把切点移到镜头包起点；需要段内音乐变化时可保留当前切点并记录理由。' })
     }
   }
   return findings.sort((left, right) => left.rule.localeCompare(right.rule))
@@ -156,18 +159,17 @@ export function segmentInputDurations(
   segments: readonly Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'>[],
   crossfadeSeconds: number,
 ): number[] {
-  return segments.map((segment, index) => sourceDuration(segment, index, segments.length, crossfadeSeconds))
+  return segments.map((segment, index) => sourceDuration(segment, segments[index - 1], segments[index + 1], crossfadeSeconds))
 }
 
-/** Source duration includes the adjacent half-overlaps for its position in the ordered plan. */
+/** Consume overlap audio only when the neighboring story interval touches. */
 function sourceDuration(segment: Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'>,
-  index: number, count: number, crossfadeSeconds: number): number {
-  const half = crossfadeSeconds / 2
-  return Number((
-    segment.end_seconds - segment.start_seconds
-    + (index === 0 ? half : crossfadeSeconds)
-    - (index === count - 1 ? half : 0)
-  ).toFixed(6))
+  previous: Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'> | undefined,
+  next: Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'> | undefined, crossfadeSeconds: number): number {
+  const before = previous !== undefined && Math.abs(previous.end_seconds - segment.start_seconds) <= EPSILON_SECONDS
+  const after = next !== undefined && Math.abs(segment.end_seconds - next.start_seconds) <= EPSILON_SECONDS
+  return Number((segment.end_seconds - segment.start_seconds
+    + (before ? crossfadeSeconds / 2 : 0) + (after ? crossfadeSeconds / 2 : 0)).toFixed(6))
 }
 
 /**
@@ -182,6 +184,13 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
     || Math.abs(input.body_duration_seconds - bodyDurationSeconds) > EPSILON_SECONDS) {
     throw new Error('BGM 计划正文时长与当前时间线不一致。')
   }
+  if (input.music_decision !== undefined && !input.decision_reason?.trim()) {
+    throw new Error('明确的配乐决定必须记录 decision_reason。')
+  }
+  if (input.music_decision === 'none') {
+    if (input.segments.length !== 0) throw new Error('不加配乐的计划必须使用空 segments。')
+    return { bodyDurationSeconds, crossfadeSeconds: 0, segments: [] }
+  }
   const crossfadeSeconds = input.crossfade_seconds ?? DEFAULT_CROSSFADE_SECONDS
   if (!Number.isFinite(crossfadeSeconds) || crossfadeSeconds <= 0) throw new Error('BGM 交叉淡化时长必须大于零。')
   if (!Array.isArray(input.segments) || input.segments.length === 0) throw new Error('BGM 计划没有段落。')
@@ -191,7 +200,9 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
     if (!segment.reason.trim()) throw new Error('BGM 段落必须记录选曲理由。')
     if (!Number.isFinite(segment.start_seconds) || !Number.isFinite(segment.end_seconds)
       || segment.end_seconds <= segment.start_seconds
-      || Math.abs(segment.start_seconds - expectedStart) > EPSILON_SECONDS) {
+      || (input.music_decision === 'music'
+        ? segment.start_seconds < expectedStart - EPSILON_SECONDS || segment.end_seconds > bodyDurationSeconds + EPSILON_SECONDS
+        : Math.abs(segment.start_seconds - expectedStart) > EPSILON_SECONDS)) {
       throw new Error('BGM 段落必须按顺序连续覆盖正文。')
     }
     if (segment.source_start_seconds !== undefined
@@ -200,12 +211,16 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
     }
     expectedStart = segment.end_seconds
   }
-  if (Math.abs(expectedStart - bodyDurationSeconds) > EPSILON_SECONDS) {
+  if (input.music_decision !== 'music' && Math.abs(expectedStart - bodyDurationSeconds) > EPSILON_SECONDS) {
     throw new Error('BGM 段落必须按顺序连续覆盖正文。')
   }
   const segments = input.segments.map((segment, index) => ({ ...segment,
-    inputDurationSeconds: sourceDuration(segment, index, input.segments.length, crossfadeSeconds) }))
-  if (segments.some((segment) => {
+    inputDurationSeconds: sourceDuration(segment, input.segments[index - 1], input.segments[index + 1], crossfadeSeconds) }))
+  if (segments.some((segment, index) => {
+    const previous = segments[index - 1], next = segments[index + 1]
+    const adjacent = previous !== undefined && Math.abs(previous.end_seconds - segment.start_seconds) <= EPSILON_SECONDS
+      || next !== undefined && Math.abs(segment.end_seconds - next.start_seconds) <= EPSILON_SECONDS
+    if (input.music_decision === 'music' && !adjacent) return false
     return segment.inputDurationSeconds <= crossfadeSeconds
       || segment.end_seconds - segment.start_seconds < crossfadeSeconds
   })) {
@@ -235,6 +250,7 @@ export function appliedGain(meanDb: number): number {
  * @param gainsDb - Dense per-source gains in decibels, with one item per contribution.
  * @param bodyDurationSeconds - Exact output duration.
  * @param crossfadeSeconds - Adjacent overlap duration.
+ * @param intervals - Optional explicit story intervals, including silent gaps.
  * @returns An FFmpeg filter-complex graph ending at `[bgmout]`.
  */
 export function buildMixFilter(
@@ -243,15 +259,44 @@ export function buildMixFilter(
   gainsDb: readonly number[],
   bodyDurationSeconds: number,
   crossfadeSeconds: number,
+  intervals?: readonly Pick<BgmPlanSegment, 'start_seconds' | 'end_seconds'>[],
 ): string {
   if (inputDurations.length === 0 || sourceStarts.length !== inputDurations.length
-    || gainsDb.length !== inputDurations.length) throw new Error('BGM 混音参数数量不一致。')
+    || gainsDb.length !== inputDurations.length
+    || (intervals !== undefined && intervals.length !== inputDurations.length)) throw new Error('BGM 混音参数数量不一致。')
   const starts = sourceStarts.map(start => start.toFixed(6))
   const gains = gainsDb.map(gain => gain.toFixed(1))
   const filters = inputDurations.map((duration, index) => {
     return `[${index}:a]atrim=start=${starts[index]}:duration=${duration.toFixed(6)},`
       + `asetpts=PTS-STARTPTS,volume=${gains[index]}dB[s${index}]`
   })
+  const groups: { first: number; last: number; start: number; end: number }[] = []
+  for (const [index, interval] of (intervals ?? []).entries()) {
+    const last = groups.at(-1)
+    if (last !== undefined && Math.abs(interval.start_seconds - last.end) <= EPSILON_SECONDS) {
+      last.last = index
+      last.end = interval.end_seconds
+    } else groups.push({ first: index, last: index, start: interval.start_seconds, end: interval.end_seconds })
+  }
+  if (groups.length > 1 || groups.some(group => group.start > EPSILON_SECONDS
+    || Math.abs(group.end - bodyDurationSeconds) > EPSILON_SECONDS)) {
+    for (const [groupIndex, group] of groups.entries()) {
+      let current = `s${group.first}`
+      for (let index = group.first + 1; index <= group.last; index += 1) {
+        const next = `x${index}`
+        filters.push(`[${current}][s${index}]acrossfade=d=${crossfadeSeconds.toFixed(6)}:c1=tri:c2=tri[${next}]`)
+        current = next
+      }
+      const start = group.start
+      const duration = group.end - start
+      filters.push(`[${current}]atrim=0:${duration.toFixed(6)},afade=t=in:st=0:d=1.5,`
+        + `afade=t=out:st=${Math.max(0, duration - 2.5).toFixed(6)}:d=2.5,`
+        + `adelay=delays=${(start * 1000).toFixed(6)}:all=1[g${groupIndex}]`)
+    }
+    filters.push(groups.map((_, index) => `[g${index}]`).join('')
+      + `amix=inputs=${groups.length}:normalize=0,apad,atrim=0:${bodyDurationSeconds.toFixed(6)}[bgmout]`)
+    return filters.join(';')
+  }
   let current = 's0'
   for (let index = 1; index < inputDurations.length; index += 1) {
     const next = `x${index}`

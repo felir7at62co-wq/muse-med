@@ -434,6 +434,65 @@
                     "kind"
                   ]
                 }
+              },
+              "bgm_feedback": {
+                "type": "array",
+                "description": "Append explicit user feedback for this project and similar context_tags only, not a global track blacklist. Preserve prior records; a later explicit change of mind needs a new feedback_id. Never record the Agent's own preference as user feedback.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "feedback_id": {
+                      "type": "string",
+                      "description": "Unique immutable feedback ID; replaying the identical record is idempotent."
+                    },
+                    "track_id": {
+                      "type": "string",
+                      "description": "Actual catalogue track ID. Supply this or source_sha256, or both."
+                    },
+                    "source_sha256": {
+                      "type": "string",
+                      "description": "Actual source SHA-256: 64 hexadecimal characters, optionally prefixed sha256:."
+                    },
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "accept",
+                        "reject"
+                      ]
+                    },
+                    "context_tags": {
+                      "type": "array",
+                      "description": "Nonempty scene/emotion/instrumentation context tags; scope the feedback to similar use, never all projects or all scenes.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Reason grounded in the explicit user feedback, not inferred Agent taste."
+                    },
+                    "recorded_at": {
+                      "type": "string",
+                      "description": "Known time of the explicit user feedback as an ISO timestamp with Z or numeric timezone offset; do not invent a time."
+                    },
+                    "episode": {
+                      "type": "integer",
+                      "description": "Optional positive episode number associated with the feedback."
+                    },
+                    "user_quote": {
+                      "type": "string",
+                      "description": "Optional exact nonempty user words supporting the decision."
+                    }
+                  },
+                  "required": [
+                    "feedback_id",
+                    "decision",
+                    "context_tags",
+                    "reason",
+                    "recorded_at"
+                  ]
+                }
               }
             }
           },

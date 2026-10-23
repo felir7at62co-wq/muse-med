@@ -1,9 +1,9 @@
 /** The external-process edge: the spawn channel, the two ffmpeg wrappers, and ffprobe parsing. */
 
-import { readdir } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   captureFfmpeg,
   createFileCaptureChannel,
@@ -20,6 +20,16 @@ import {
 } from '../src/ffmpeg.ts'
 import type { ProcessChannel } from '../src/types.ts'
 import { probeHandler, probeJson, stubChannel, type StubHandler } from './harness.ts'
+
+const captureDirectories = vi.hoisted(() => [] as string[])
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, mkdtemp: async (...args: Parameters<typeof actual.mkdtemp>) => {
+    const directory = await actual.mkdtemp(...args)
+    captureDirectories.push(directory)
+    return directory
+  } }
+})
 
 /** Build a toolkit over a stub channel. */
 function toolkit(handlers: readonly StubHandler[]) {
@@ -119,11 +129,12 @@ describe('createFileCaptureChannel', () => {
   })
 
   it('removes its temporary directory after success and failure', async () => {
-    const before = new Set((await readdir(tmpdir())).filter(name => name.startsWith('dsh-drama-render-')))
+    const before = captureDirectories.length
     await createFileCaptureChannel().run(node, ['-e', 'process.exit(0)'])
     await createFileCaptureChannel().run(node, ['-e', 'process.exit(4)'])
-    const after = (await readdir(tmpdir())).filter(name => name.startsWith('dsh-drama-render-'))
-    expect(after.filter(name => !before.has(name))).toEqual([])
+    const owned = captureDirectories.slice(before)
+    expect(owned).toHaveLength(2)
+    for (const directory of owned) await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 

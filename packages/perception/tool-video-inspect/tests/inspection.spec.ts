@@ -16,7 +16,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import * as VideoInspect from '../src/index.ts'
 import { runMedia, parseVideoMetadata } from '../src/media.ts'
 import * as Media from '../src/media.ts'
-import { contactTimecode } from '../src/contact.ts'
+import { contactTimecode, type VideoContactSheet } from '../src/contact.ts'
 import { showinfoTimestamps, splitMjpeg } from '../src/ocr.ts'
 
 vi.mock('node:os', async (importOriginal) => {
@@ -555,6 +555,7 @@ it('defaults to nine cells and selects explicit detail times without sending ext
     { cell: 1, index: 1, requested_seconds: 0.5, timestamp_seconds: 0.5, image: { width: 64, height: 48 } },
     { cell: 2, index: 2, requested_seconds: 2.5, timestamp_seconds: 2.5, image: { width: 64, height: 48 } },
   ] }] })
+  expect(manifest).not.toHaveProperty('sampling_plan')
 }, 30_000)
 
 it('refuses text-only image work before filesystem reads and rejects oversize or conflicting grids', async () => {
@@ -582,6 +583,25 @@ it('supports interval and scene sampling and bounds the complete page output', a
   const overflow = await limited.sheet({})
   expect(overflow.isError).toBe(true)
   expect(JSON.stringify(overflow.content)).toContain('maxContactBytes')
+}, 30_000)
+
+it('retains unviewed cut sides in scene overviews and returns transition and continuation advice', async () => {
+  const h = await setup({ sceneThreshold: 0.01 })
+  const result = await h.sheet({ strategy: 'scene', frame_count: 1, end_seconds: 3, manifest_path: 'qa/scene-overview.json' })
+  expect(result.isError).toBe(false)
+  const manifest = JSON.parse(await readFile(join(h.root, 'qa/scene-overview.json'), 'utf8')) as VideoContactSheet
+  expect(manifest.sampling_plan?.selected).toHaveLength(1)
+  expect(manifest.sampling_plan?.deferred).toEqual(expect.arrayContaining([
+    expect.objectContaining({ reasons: ['after_scene_cut'] }),
+  ]))
+  expect(manifest.next_start_seconds).toBe(3)
+  expect(result.value).toMatchObject({ sampling_plan: manifest.sampling_plan })
+  const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+  expect(text).toContain('not confirmed story scene transitions')
+  expect(text).toContain('silent intervals and gradual fades')
+  expect(text).toContain('video_inspect strategy=scene_dialogue or video_contact_sheet strategy=scene')
+  expect(text).toContain('next_start_seconds')
+  expect(text).toContain('"deferred"')
 }, 30_000)
 
 it('presents overview source locations and refuses an unresolved image route without filesystem work', async () => {
@@ -879,12 +899,21 @@ it('uses actual cut detection and ASR timing to sample a clip while persisting a
   expect(saved.frames).toHaveLength(2)
   expect(saved.sampling_plan?.selected.map(point => point.reasons)).toEqual([['before_scene_cut'], ['after_scene_cut']])
   expect(saved.sampling_plan?.deferred.map(point => point.time)).toEqual([0.5, 1, 2.5, 3])
+  expect(saved.sampling_plan?.deferred[0]).not.toHaveProperty('utterances')
   expect(saved.transcript_source?.path).toBe(transcript)
   expect(saved.frames[0]!.timestamp_seconds).toBeLessThan(2)
   expect(saved.frames[1]!.timestamp_seconds).toBeGreaterThanOrEqual(2)
+  expect(JSON.stringify(result.content)).toContain('do not identify characters or verify timbre')
   const followup = await h.call({ start_seconds: 0, end_seconds: 2, timestamps_seconds: [0.5, 1] })
   expect(followup.isError).toBe(false)
   expect(followup.content.filter(block => block.type === 'image')).toHaveLength(2)
+  const detailed = await h.call({ strategy: 'scene_dialogue', transcript_path: transcript, end_seconds: 1, frame_count: 2,
+    manifest_path: 'qa/utterance.json' })
+  expect(detailed.isError).toBe(false)
+  const utterance = JSON.parse(await readFile(join(h.root, 'qa/utterance.json'), 'utf8')) as VideoInspect.VideoInspection
+  expect(utterance.sampling_plan?.selected.find(point => point.time === 0.5)?.utterances).toEqual([
+    { start: 0, end: 1, text: '红画面说话', text_truncated: false, speaker_id: 'job-a:0' },
+  ])
 }, 30_000)
 
 it('rejects incompatible adaptive inputs, missing transcripts and source mutation during extraction', async () => {

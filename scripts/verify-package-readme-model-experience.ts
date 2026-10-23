@@ -238,6 +238,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
   'packages/guard/drama-gate': { kind: 'none', reason: 'The gate only intercepts tools/pre-execute and refuses a pending call; it registers no tool, prompt section, or session event, so the model reads nothing but the ordinary tool result a denied call already produces.' },
+  'packages/guard/argument-loop': { kind: 'none', reason: 'The stream guard throws a local failure without contributing model context, retry requests, or tools; the existing loop owns raw attempt and turn error records.' },
 }
 
 interface Failure {

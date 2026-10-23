@@ -253,6 +253,7 @@
 - id: tool-video-inspect
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
+    requireCompleteReview: true
     ocrEngine: rapidocr
     ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
@@ -289,3 +290,6 @@
   name: muse-fanqie-download
   config:
     pythonExecutable: !!js process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+
+- id: muse-lvpaopao
+  name: muse-lvpaopao

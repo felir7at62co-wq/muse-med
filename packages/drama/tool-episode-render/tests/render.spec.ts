@@ -1,8 +1,9 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
 import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { basename, join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runDramaRender } from '../src/index.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths } from '../src/paths.ts'
 import { renderEpisode, type RenderInput } from '../src/render.ts'
@@ -22,8 +23,20 @@ import {
 } from './harness.ts'
 
 const temporary: string[] = []
+const publication = vi.hoisted(() => ({ target: '' }))
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>()
+  return { ...actual, link: async (...args: Parameters<typeof actual.link>) => {
+    if (String(args[1]) === publication.target) {
+      await actual.writeFile(args[1], 'concurrent publication', { flag: 'wx' })
+      throw Object.assign(new Error('publication already exists'), { code: 'EEXIST' })
+    }
+    await actual.link(...args)
+  } }
+})
 
 afterEach(async () => {
+  publication.target = ''
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
 })
 
@@ -123,7 +136,14 @@ function renderChannel(prepared: Prepared, options: {
       return { stdout: `${(options.videoHashes ?? ['a', 'tail']).map((hash, index) => framemd5Line(index, hash)).join('\n')}\n` }
     },
     call => (call.command === 'ffmpeg'
-      ? { after: async () => { await writePlaceholder(call.args[call.args.length - 1] ?? '', 'media') } }
+      ? { after: async () => {
+        if (call.args.includes('[musicstem]')) {
+          const output = call.args.find(arg => basename(arg) === 'output.mp4')
+          if (output === undefined) throw new Error('music-stem mux requires its staged video output')
+          await writePlaceholder(output, 'muxed media')
+        }
+        await writePlaceholder(call.args[call.args.length - 1] ?? '', 'media')
+      } }
       : undefined),
   ]
   return stubChannel(handlers)
@@ -136,7 +156,7 @@ function toolkit(channel: ReturnType<typeof stubChannel>) {
 
 /** Run one full render, with any input the case substitutes. */
 async function render(
-  prepared: Prepared,
+  prepared: Omit<Prepared, 'bgm'> & { readonly bgm?: string },
   channel: ReturnType<typeof stubChannel>,
   force = false,
   bgmPlan?: string,
@@ -150,7 +170,7 @@ async function render(
     timelinePath: prepared.timeline,
     subtitleSrt: prepared.subtitle,
     lastShot: 2,
-    bgm: prepared.bgm,
+    ...(prepared.bgm === undefined ? {} : { bgm: prepared.bgm }),
     ...(bgmPlan === undefined ? {} : { bgmPlan }),
     endingAudio: prepared.endingAudio,
     endingEffect: prepared.endingEffect,
@@ -161,6 +181,73 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it.each([1, undefined])('renders no_bgm with profile gain %s and project fallback without opening music or replacing output', async (originalGain) => {
+    const prepared = await preparedProject()
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { audio: { master_gain: 0.7, bgm_gain: 0.1 } } },
+    }))
+    await rm(prepared.bgm)
+    const profile = join(prepared.project, 'audio', 'no-music.json')
+    await writePlaceholder(profile, JSON.stringify({ schema_version: 1, mode: 'no_bgm',
+      ...(originalGain === undefined ? {} : { original_gain: originalGain }), analysis_window_ms: 100 }))
+    const channel = renderChannel(prepared)
+    const subtitlePlan = join(prepared.project, 'subtitle-plan.json')
+    await writePlaceholder(subtitlePlan, JSON.stringify({ schema_version: 1, decisions: [] }))
+    const report = await runDramaRender({ method: 'render', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan, lastShot: 2,
+      mixProfile: profile, bgmPlan: join(prepared.project, 'missing-plan.json'),
+      endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output },
+    { ...settings, channel: channel.channel })
+    expect(report.audio_mix).toMatchObject({ mode: 'no_bgm', original_audio: prepared.paths.masterAudio,
+      music_audio: '', music_stem: '', detector: 'none' })
+    expect(report.bgm_plan.path).toBe('')
+    expect(report.subtitle_overlay?.plan_path).toBe(subtitlePlan)
+    expect(report.written).toContain(report.subtitle_overlay?.resolved_srt)
+    expect(report.render_preview?.audio).toMatchObject({ master_gain: originalGain ?? 0.7, bgm_gain: 0,
+      bgm_path: '', bgm_plan_path: '' })
+    expect(report.warnings.join('\n')).not.toContain('尚未提供 BGM')
+    expect(report.warnings.join('\n')).not.toContain('未提供 bgm_plan')
+    expect(channel.calls.some(call => call.args.includes(prepared.bgm))).toBe(false)
+    const final = channel.calls.find(call => call.args.includes('-filter_complex') && call.args.includes('aac'))
+    expect(final?.args[final.args.indexOf('-filter_complex') + 1]).not.toContain('sidechaincompress')
+    const before = await readFile(prepared.output)
+    await expect(render(prepared, renderChannel(prepared), false, undefined, { mixProfile: profile }))
+      .rejects.toThrow('不会覆盖')
+    expect(await readFile(prepared.output)).toEqual(before)
+  })
+
+  it('rejects missing music unless the explicit audio profile selects no_bgm', async () => {
+    const prepared = await preparedProject()
+    const { bgm: _bgm, ...withoutMusic } = prepared
+    await expect(render(withoutMusic, renderChannel(prepared))).rejects.toThrow('需要 bgm')
+  })
+
+  it('publishes separate music stems and original-sound gains through the renderer method', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    const mixProfile = join(prepared.project, 'mix.json')
+    await writePlaceholder(mixProfile, JSON.stringify({ schema_version: 1, mode: 'legacy',
+      analysis_window_ms: 100, original_gain: 0.8, music_gain: 0.2 }))
+    const report = await runDramaRender({ method: 'render', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, mixProfile,
+      bgm: prepared.bgm, endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output },
+    { ...settings, channel: channel.channel })
+    expect(report.audio_mix).toMatchObject({ mode: 'legacy', music_audio: prepared.bgm,
+      music_stem: join(prepared.project, 'export/ep02.music-stem.wav') })
+    expect(await readFile(report.audio_mix!.music_stem, 'utf8')).toBe('media')
+    expect(await readFile(prepared.output, 'utf8')).toBe('muxed media')
+    expect(report.written).toContain(report.audio_mix!.music_stem)
+  })
+
+  it.each(['output', 'stem'])('preserves a concurrent %s publication and rolls back only its own new links', async (conflict) => {
+    const prepared = await preparedProject(), mixProfile = join(prepared.project, 'mix.json')
+    await writePlaceholder(mixProfile, JSON.stringify({ schema_version: 1, mode: 'legacy', analysis_window_ms: 100 }))
+    publication.target = conflict === 'output' ? prepared.output : join(prepared.project, 'export/ep02.music-stem.wav')
+    await expect(render(prepared, renderChannel(prepared), false, undefined, { mixProfile })).rejects.toMatchObject({ code: 'EEXIST' })
+    expect(await readFile(publication.target, 'utf8')).toBe('concurrent publication')
+    if (conflict === 'stem') await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(prepared.paths.masterAudio, 'utf8')).toBe('master')
+  })
+
   it('refuses an animation timeline marking an included ending before media commands', async () => {
     const prepared = await preparedProject()
     await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))

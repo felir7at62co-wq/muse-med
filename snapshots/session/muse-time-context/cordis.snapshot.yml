@@ -49,3 +49,16 @@
   disabled: true
 - id: tool-pwsh
   disabled: true
+
+# This owner checks tools or clock messages, not the platform-specific sandbox skill.
+# No shell call is made; the fixture runner keeps discovery identical across platforms.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'

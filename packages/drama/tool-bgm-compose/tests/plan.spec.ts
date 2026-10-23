@@ -89,11 +89,11 @@ describe('auditBgmBatch', () => {
     ],
   }
 
-  it('sorts simultaneous single-track and missing-boundary findings by rule', () => {
+  it('does not require extra tracks for a single-track episode', () => {
     const single = row('05', ['one.mp3'])
     const findings = auditBgmBatch(single, { project, batch: [], boundaries: [] })
-    expect(rules(findings)).toEqual(['R1', 'R5'])
-    expect(findings[1]?.detail).toContain('没有镜头包边界')
+    expect(rules(findings)).toEqual(['R5'])
+    expect(findings[0]?.detail).toContain('没有镜头包边界')
   })
 
   it('reports nothing for a batch that shares no track with more than one sibling', () => {
@@ -104,11 +104,12 @@ describe('auditBgmBatch', () => {
     expect(trackIdentity(project, 'light.mp3')).toBe(trackIdentity(project, join(project, 'light.mp3')))
   })
 
-  it('reports an episode that is one single track and says to split it', () => {
+  it('keeps a stricter configured track count advisory', () => {
     const single: BgmBatchRow = { episode: '05', segments: [selected.segments[0]!] }
-    const findings = auditBgmBatch(single, { project, batch: [single], boundaries })
+    const findings = auditBgmBatch(single, { project, batch: [single], boundaries,
+      limits: { minTracksPerEpisode: 2, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 0, boundaryToleranceSeconds: 0.05 } })
     expect(rules(findings)).toEqual(['R1'])
-    expect(findings[0]?.fix).toContain('至少 2 段')
+    expect(findings[0]?.fix).toContain('不必为了数量换曲')
   })
 
   it('reports a track repeated inside one episode and names it', () => {
@@ -136,9 +137,9 @@ describe('auditBgmBatch', () => {
   })
 
   it('reports an episode whose every track is already used elsewhere', () => {
-    const findings = auditBgmBatch(selected, context(
+    const findings = auditBgmBatch(selected, { ...context(
       row('06', ['light.mp3', 'romance.mp3', 'conflict.mp3', 'other-a.mp3']),
-    ))
+    ), limits: { minTracksPerEpisode: 1, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 1, boundaryToleranceSeconds: 0.05 } })
     expect(rules(findings)).toEqual(['R4'])
     expect(findings[0]?.fix).toContain('bgm_match')
   })
@@ -150,13 +151,90 @@ describe('auditBgmBatch', () => {
     }
     const findings = auditBgmBatch(moved, { project, batch: [moved], boundaries })
     expect(rules(findings)).toEqual(['R5'])
-    expect(findings[0]?.fix).toContain('镜头包的起点')
+    expect(findings[0]?.fix).toContain('可保留当前切点并记录理由')
   })
 
   it('reports that the cuts cannot be checked at all instead of passing silently', () => {
     const findings = auditBgmBatch(selected, { project, batch: [selected], boundaries: [] })
     expect(rules(findings)).toEqual(['R5'])
     expect(findings[0]?.detail).toContain('无法核对')
+  })
+
+  it('retains other advisory findings when the timeline has no package boundaries', () => {
+    const single = row('05', ['one.mp3'])
+    const findings = auditBgmBatch(single, { project, batch: [], boundaries: [],
+      limits: { minTracksPerEpisode: 2, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 2, boundaryToleranceSeconds: 0.05 } })
+    expect(rules(findings)).toEqual(['R1', 'R4', 'R5'])
+    expect(findings[0]?.fix).toContain('不必为了数量换曲')
+    expect(findings[2]?.detail).toContain('没有镜头包边界')
+  })
+})
+
+describe('explicit music decisions', () => {
+  it('accepts no added music without enforcing reuse recommendations', () => {
+    const noMusic = { ...episode, music_decision: 'none' as const, decision_reason: '只保留对白与现场声', segments: [] }
+    expect(validateEpisodePlan(noMusic, 58.508)).toEqual({ bodyDurationSeconds: 58.508, crossfadeSeconds: 0, segments: [] })
+    expect(auditBgmBatch(noMusic, { project: resolve('project'), batch: [], boundaries: [] })).toEqual([])
+  })
+
+  it.each(['music', 'none'] as const)('requires a reason for %s', (decision) => {
+    expect(() => validateEpisodePlan({ ...episode, music_decision: decision, decision_reason: ' ' }, 58.508))
+      .toThrow('decision_reason')
+  })
+
+  it('rejects tracks attached to a no-music decision', () => {
+    expect(() => validateEpisodePlan({ ...episode, music_decision: 'none', decision_reason: '现场声' }, 58.508)).toThrow('空 segments')
+  })
+
+  it('allows leading, internal, and trailing gaps only for explicit music', () => {
+    const segments = [
+      { track: 'one', source: 'one.wav', start_seconds: 2, end_seconds: 6, reason: '场景一' },
+      { track: 'two', source: 'two.wav', start_seconds: 10, end_seconds: 14, reason: '场景二' },
+      { track: 'three', source: 'three.wav', start_seconds: 14, end_seconds: 18, reason: '承接' },
+    ]
+    const input = { episode: '01', body_duration_seconds: 20, music_decision: 'music' as const, decision_reason: '对白密集段留白', segments }
+    const plan = validateEpisodePlan(input, 20)
+    expect(plan.segments.map(segment => segment.inputDurationSeconds)).toEqual([4, 4.75, 4.75])
+    const graph = buildMixFilter(plan.segments.map(segment => segment.inputDurationSeconds), [0, 0, 0], [0, 0, 0], 20, 1.5, segments)
+    expect(graph.match(/acrossfade=/g)).toHaveLength(1)
+    expect(graph).toContain('adelay=delays=2000.000000:all=1')
+    expect(graph).toContain('adelay=delays=10000.000000:all=1')
+    expect(graph).toContain('amix=inputs=2:normalize=0,apad,atrim=0:20.000000')
+    expect(() => validateEpisodePlan({ episode: input.episode, body_duration_seconds: 20, segments }, 20)).toThrow('连续覆盖')
+    expect(() => validateEpisodePlan({ ...input, segments: [segments[1]!, segments[0]!] }, 20)).toThrow('连续覆盖')
+    expect(() => validateEpisodePlan({ ...input, segments: [{ ...segments[0]!, end_seconds: 21 }] }, 20)).toThrow('连续覆盖')
+  })
+
+  it('retains the legacy graph exactly for explicit contiguous music', () => {
+    const durations = segmentInputDurations(episode.segments, 1.5)
+    expect(buildMixFilter(durations, [0, 0, 0], [1, 2, 3], 58.508, 1.5, episode.segments))
+      .toBe(buildMixFilter(durations, [0, 0, 0], [1, 2, 3], 58.508, 1.5))
+  })
+
+  it('accepts an isolated one-second cue without applying an unused crossfade duration', () => {
+    const segments = [{ track: 'cue', source: 'cue.wav', start_seconds: 2, end_seconds: 3, reason: '独立短配乐' }]
+    const plan = validateEpisodePlan({ episode: '01', body_duration_seconds: 8,
+      music_decision: 'music', decision_reason: '仅在短情绪点加乐，其余留白', segments }, 8)
+    expect(plan.crossfadeSeconds).toBe(1.5)
+    expect(plan.segments[0]?.inputDurationSeconds).toBe(1)
+    const graph = buildMixFilter([1], [0], [0], 8, plan.crossfadeSeconds, segments)
+    expect(graph).not.toContain('acrossfade=')
+    expect(graph).toContain('adelay=delays=2000.000000:all=1')
+    expect(graph).toContain('apad,atrim=0:8.000000')
+  })
+
+  it('still refuses an overlong crossfade between actual neighboring music cues', () => {
+    expect(() => validateEpisodePlan({ episode: '01', body_duration_seconds: 8,
+      music_decision: 'music', decision_reason: '相接曲目', segments: [
+        { track: 'short', source: 'short.wav', start_seconds: 2, end_seconds: 3, reason: '短段' },
+        { track: 'next', source: 'next.wav', start_seconds: 3, end_seconds: 6, reason: '接续' },
+      ] }, 8)).toThrow('交叉淡化不能长于最短剧情段')
+  })
+
+  it('preserves the legacy short-segment rejection when no explicit music decision is supplied', () => {
+    expect(() => validateEpisodePlan({ episode: '01', body_duration_seconds: 1,
+      segments: [{ track: 'short', source: 'short.wav', start_seconds: 0, end_seconds: 1, reason: '旧调用' }] }, 1))
+      .toThrow('交叉淡化不能长于最短剧情段')
   })
 })
 

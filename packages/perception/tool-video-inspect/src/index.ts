@@ -10,11 +10,12 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { planSamples } from './sample.ts'
-import { adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
+import { ADAPTIVE_PLAN_SCHEMA, SAMPLING_ADVICE, adaptivePlan, sceneTimecodes, type AdaptivePlan } from './adaptive.ts'
 import { probeVideo, runMedia, type VideoMetadata } from './media.ts'
 import { installVideoEvidence } from './evidence.ts'
 import { applyContactSheets } from './contact.ts'
 import { applyVideoOcr } from './ocr.ts'
+import { applyCompleteReview } from './review.ts'
 
 export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
 
@@ -26,6 +27,22 @@ export const inject = ['tools', 'fs', 'subprocess', 'attachments', 'sandboxPolic
 
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
+  /** Require complete-episode detection and observations before final delivery. */
+  requireCompleteReview: boolean
+  /** Maximum images per mandatory observation batch. */
+  reviewBatchFrames: number
+  /** Thumbnail rate for cumulative appearance changes. */
+  reviewAnalysisFps: number
+  /** Normalized RGB difference against the last retained thumbnail. */
+  reviewChangeThreshold: number
+  /** Maximum seconds between continuity observations. */
+  reviewCheckpointSeconds: number
+  /** Source seconds per bounded scan operation. */
+  reviewChunkSeconds: number
+  /** Complete-episode candidate limit; overflow fails rather than truncating. */
+  reviewMaxFrames: number
+  /** Maximum decoded cut-score metadata bytes per scan chunk. */
+  reviewMaxScanBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
@@ -68,6 +85,8 @@ export interface Config {
   maxPlanPoints: number
   /** Maximum bytes read from an ASR transcript used for adaptive sampling. */
   maxTranscriptBytes: number
+  /** Largest original ASR text preview per candidate utterance, in Unicode grapheme clusters. */
+  utterancePreviewCharacters: number
   /** Default grid columns for overview pages. */
   contactColumns: number
   /** Default grid rows for overview pages. */
@@ -128,6 +147,14 @@ export interface Config {
 
 /** Validated deployment knobs; argument defaults are resolved before media work. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
+  requireCompleteReview: Schema.boolean().default(false),
+  reviewBatchFrames: Schema.number().step(1).min(1).max(8).default(4),
+  reviewAnalysisFps: Schema.number().min(1).max(30).default(4),
+  reviewChangeThreshold: Schema.number().min(0.01).max(1).default(0.12),
+  reviewCheckpointSeconds: Schema.number().min(0.25).max(60).default(5),
+  reviewChunkSeconds: Schema.number().min(1).max(120).default(30),
+  reviewMaxFrames: Schema.number().step(1).min(2).max(10_000).default(4000),
+  reviewMaxScanBytes: Schema.number().step(1).min(1).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
   trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
   powershellPath: Schema.string().default('powershell.exe'),
@@ -148,6 +175,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   scenePaddingSeconds: Schema.number().min(0.01).max(5).default(0.12),
   maxPlanPoints: Schema.number().step(1).min(1).max(10_000).default(1000),
   maxTranscriptBytes: Schema.number().step(1).min(1).max(16 * 1024 * 1024).default(2 * 1024 * 1024),
+  utterancePreviewCharacters: Schema.number().step(1).min(1).max(2000).default(80),
   contactColumns: Schema.number().step(1).min(1).max(32).default(3),
   contactRows: Schema.number().step(1).min(1).max(32).default(3),
   contactTileWidth: Schema.number().step(1).min(160).max(1280).default(320),
@@ -207,7 +235,6 @@ export interface VideoInspection extends VideoMetadata {
 }
 
 const imageSchema = IMAGE_RESULT_SCHEMA
-const observationSchema = { type: 'object', additionalProperties: false, properties: { time: { type: 'number', required: true }, reasons: { type: 'array', items: { type: 'string' }, required: true } } } as const
 
 const outputSchema = { type: 'object', additionalProperties: false, properties: {
   path: { type: 'string', required: true }, source_version: { type: 'string', required: true },
@@ -218,7 +245,7 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
   frames: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
     requested_seconds: { type: 'number', required: true }, timestamp_seconds: { type: 'number', required: true }, image: { ...imageSchema, required: true },
   } } },
-  sampling_plan: { type: 'object', additionalProperties: false, properties: { strategy: { type: 'string', const: 'scene_dialogue', required: true }, selected: { type: 'array', items: observationSchema, required: true }, deferred: { type: 'array', items: observationSchema, required: true } } },
+  sampling_plan: ADAPTIVE_PLAN_SCHEMA,
   transcript_source: { type: 'object', additionalProperties: false, properties: { path: { type: 'string', required: true }, version: { type: 'string', required: true } } },
   manifest_path: { type: 'string', required: true }, verified_readback: { type: 'boolean', required: true }, next_start_seconds: { type: 'number' },
 } } as const
@@ -240,7 +267,9 @@ export function inspectionContent(value: VideoInspection): ContentBlock[] {
     ? 'Use audio_transcribe for spoken dialogue. Use video_ocr for visible or burned-in text.' : 'No audio track was detected; use video_ocr for visible text.'
   const content: ContentBlock[] = [{ type: 'text', text: JSON.stringify({ ...summary, frame_count: frames.length })
     + `\nVideo path: ${path}\nInspection manifest: ${manifest_path}`
-    + `\nThese are sampled frames, not continuous viewing. Audio has not been transcribed. ${audioAdvice}` }]
+    + `\nThese are sampled frames, not continuous viewing. Audio has not been transcribed. ${audioAdvice}`
+    + `\n${SAMPLING_ADVICE}`
+    + (value.transcript_source === undefined ? '' : '\nASR utterances retain source times, text previews and task-local acoustic speaker_id values; they do not identify characters or verify timbre. Compare the actual speaking interval with the image, including off-screen speech.') }]
   for (const frame of frames) {
     content.push({ type: 'text', text: `Source video ${value.path}; frame timestamp ${frame.timestamp_seconds}s (requested ${frame.requested_seconds}s).` })
     content.push({ type: 'image', attachment: frame.image })
@@ -286,13 +315,18 @@ export function apply(ctx: Context, config: Config): void {
     try { return await operation(AbortSignal.any([owner.signal, exec.signal])) }
     finally { active.delete(owner); completion.resolve() }
   }
+  if (config.requireCompleteReview) {
+    applyCompleteReview(ctx, config, run, imageRoute)
+    applyVideoOcr(ctx, config, { run })
+    return
+  }
   applyContactSheets(ctx, config, { run, imageRoute: exec => imageRoute(ctx, exec) })
   applyVideoOcr(ctx, config, { run })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'video_inspect',
     description: 'Inspect local video metadata or view timestamped sampled frames. Returns actual images and a saved inspection manifest. '
       + 'Samples do not cover every moment; inspect additional intervals or explicit timecodes for uncertain actions. '
-      + 'strategy=scene_dialogue selects detected scene-cut sides and ASR utterance midpoints, retaining deferred timecodes for later inspection. '
+      + 'strategy=scene_dialogue selects visual-cut sides and ASR utterance midpoints with original speech context, retaining deferred timecodes for later inspection. '
       + 'Use audio_transcribe for spoken dialogue and video_ocr for visible or burned-in text.',
     parameters: {
       file_path: { type: 'string', required: true, description: 'Local video path in the current Session filesystem.' },
@@ -300,7 +334,7 @@ export function apply(ctx: Context, config: Config): void {
       start_seconds: { type: 'number', description: 'Interval start, default 0; source timecode in seconds.' },
       end_seconds: { type: 'number', description: 'Exclusive interval end; default video end or start + '
         + `${Math.min(60, config.maxRangeSeconds)} seconds, whichever is earlier. Maximum sampled interval: ${config.maxRangeSeconds} seconds.` },
-      strategy: { type: 'string', enum: ['uniform', 'scene_dialogue'], description: 'Default uniform. scene_dialogue detects scene changes and, when transcript_path is supplied, samples actual ASR utterance midpoints. Deferred observations remain unviewed.' },
+      strategy: { type: 'string', enum: ['uniform', 'scene_dialogue'], description: 'Default uniform. scene_dialogue detects visual cuts and, when transcript_path is supplied, samples actual ASR utterance midpoints with source times, text previews and optional speaker_id. Deferred observations remain unviewed.' },
       transcript_path: { type: 'string', description: 'Optional actual audio_transcribe JSON array or segments wrapper for scene_dialogue; video and ASR source must describe the same complete clip.' },
       frame_count: { type: 'integer', description: `Uniform samples, default ${config.defaultFrames}; maximum ${config.maxFrames}.` },
       timestamps_seconds: { type: 'array', items: { type: 'number' },
@@ -369,7 +403,7 @@ export function apply(ctx: Context, config: Config): void {
           samplingPlan = adaptivePlan({ start, end, duration: metadata.duration_seconds, uniform: timestamps,
             cuts: sceneTimecodes(detected.bytes, start, end), ...transcript === undefined ? {} : { transcript } },
           { maxFrames: args.frame_count ?? config.defaultFrames, maxPlanPoints: config.maxPlanPoints,
-            scenePaddingSeconds: config.scenePaddingSeconds })
+            scenePaddingSeconds: config.scenePaddingSeconds, utterancePreviewCharacters: config.utterancePreviewCharacters })
           timestamps = samplingPlan.selected.map(point => point.time)
         }
         const frames: VideoFrame[] = []

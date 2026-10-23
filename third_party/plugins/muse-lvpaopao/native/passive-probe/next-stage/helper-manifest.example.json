@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "files": {
+    "config.json": null,
+    "enable-target-debug.js": null,
+    "remote_wire.py": null,
+    "native_rpc.py": null,
+    "run-native-identity.py": null,
+    "operations/__init__.py": null,
+    "operations/fixed_operations.py": null,
+    "operations/fixed-operation.js": null,
+    "../run-observation.py": null,
+    "../config.json": null,
+    "../windows-observation-attempt2.receipt.json": null,
+    "windows-launch-diagnostic.receipt.json": null,
+    "persistent_media.py": null,
+    "download_media.py": null,
+    "secure_media_receipt.py": null,
+    "post_upgrade_peer.py": null
+  }
+}

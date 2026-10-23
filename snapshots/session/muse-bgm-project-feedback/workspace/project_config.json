@@ -1,0 +1,28 @@
+{
+  "project_bible": {
+    "schema_version": 1,
+    "revision": 1,
+    "initial_budget_cents": 400000,
+    "delivery": {
+      "width": 480,
+      "height": 854,
+      "fps": 30,
+      "min_bitrate_mbps": 4.6
+    },
+    "bgm_feedback": [
+      {
+        "feedback_id": "explicit-user-24-1",
+        "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "decision": "reject",
+        "context_tags": [
+          "family-conflict",
+          "dense-dialogue"
+        ],
+        "reason": "The user rejected the instrumentation under this dense family dialogue.",
+        "recorded_at": "2026-10-22T06:00:00Z",
+        "episode": 24,
+        "user_quote": "Do not use this track under the family confrontation."
+      }
+    ]
+  }
+}

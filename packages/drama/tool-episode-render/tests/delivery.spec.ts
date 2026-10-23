@@ -164,6 +164,15 @@ describe('endingEffectFilter', () => {
     expect(effectBranch).toContain(`trim=0:${ENDING_SECONDS.toFixed(3)}`)
     expect(effectBranch).toContain(`tpad=stop_mode=add:stop_duration=${ENDING_SECONDS.toFixed(3)}`)
   })
+
+  it('retimes the complete effect only with explicit stretch timing and never pads it black', () => {
+    const filter = endingEffectFilter(undefined, { fit: 'stretch_to_window', sourceDurationSeconds: 1.02,
+      targetDurationSeconds: 2, speed: 0.51 })
+    expect(filter).toContain('[1:v]setpts=(PTS-STARTPTS)/0.51,')
+    expect(filter).not.toContain('tpad=stop_mode=add')
+    expect(filter).not.toContain('loop=')
+    expect(filter).toContain('trim=0:2.000')
+  })
 })
 
 describe('subtitleBurnFilter', () => {

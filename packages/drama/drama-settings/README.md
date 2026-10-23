@@ -50,6 +50,8 @@ There is no config. A default is the schema's own, and a deployment that wants a
 
 `project_config.json` is authoritative. Its `project_bible` stores style, explicit visual medium, aspect ratio, exact video model/platform/generation resolution, independent delivery pixels/fps/bitrate, flexible episode plans, optional character identities and approved voice descriptions, stable package-to-storyboard mappings, completed task references and revision history. Style is free text and preserves a confirmed custom answer. The top-level `jubian_script_id` and `delivery.max_effective_chars_per_shot` remain available to existing consumers. Other legacy fields survive updates. Existing project and package bindings cannot be silently replaced; completed task references append without erasing earlier records.
 
+`bgm_feedback` appends explicit user decisions scoped to this project and similar `context_tags`, not a global blacklist. Each record requires a unique immutable `feedback_id`, `track_id` or `source_sha256` (64 hex characters, optionally prefixed `sha256:`), `decision` (`accept` or `reject`), nonempty text tags, `reason` and a valid ISO `recorded_at` with an explicit timezone. Optional `episode` is a positive safe integer; `user_quote` preserves exact nonempty words. The caller supplies the known feedback time and must not record Agent taste as user feedback; storage validates fields, not authorship. A later explicit change of mind appends a new ID after the old record. Replaying the identical record is idempotent; changing its ID-bound contents fails. Omission and `[]` preserve history. Feedback changes suggest draft/export review without deleting completed work or authorizing paid regeneration.
+
 Each character may record a project-owned `role_class` of `lead`, `important_support`, `support`, or `extra`. Host workflows use it to search the public character-reference library for leads by default and require a story-specific reason for any other role; catalog metadata never decides role importance or grants use permission.
 
 `visual_medium` accepts `animation_3d` and `photorealistic` independently of free-text `style`. Animation drafts and final renders add no ending or watermark; photorealistic deliveries retain both. Missing legacy values are preserved and reported as unresolved with legacy marked delivery, never guessed from style text or aspect ratio. A medium change is revisioned and marks asset, shot, video, draft and export stages for review without deleting completed tasks. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns explicit selection and the [renderer](../tool-episode-render/README.md) owns timeline snapshots and policy enforcement.
@@ -168,7 +170,7 @@ Tool results append to the transcript and preserve its existing prefix. A direct
 
 #### Token effect
 
-Calls append data-dependent JSON. Config size grows with character profiles, stable package mappings, completed tasks and revision history; previews also include the proposed config and its Markdown projection.
+Calls append data-dependent JSON. Config size grows with character profiles, stable package mappings, completed tasks, BGM feedback and revision history; previews also include the proposed config and its Markdown projection.
 
 #### KV Cache effect
 

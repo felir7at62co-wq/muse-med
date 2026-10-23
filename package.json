@@ -64,6 +64,7 @@
     "test:approval-policy": "node --test .github/review-ownership/check-approval.test.mjs .github/review-ownership/blame-ownership.test.mjs .github/review-ownership/author-weight.test.mjs",
     "test:issue-management": "node .github/issue-management/policy.test.mjs",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
+    "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && vitest run --config vitest.snapshot.config.ts",
     "test:snapshot:record": "DSH_SNAPSHOT=record vitest run --config vitest.snapshot.config.ts --update",
     "test:snapshot:refresh": "DSH_SNAPSHOT=refresh vitest run --config vitest.snapshot.config.ts",
     "migrate:packed-session-fixtures": "tsx scripts/migrate-packed-session-fixtures.ts",

@@ -44,6 +44,21 @@ export async function apply(ctx) {
     assert.ok(delivered, 'Successful present must snapshot the actual protected candidate')
     assert.equal(delivered.sha256, hash(await readFile(delivered.path)))
     const events = owner.session.snapshotEvents()
+    for (const id of ['call_work_bind', 'call_work_scene', 'call_work_audit']) {
+      const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
+      assert.equal(result?.data.message.isError, false)
+    }
+    const advisory = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-manuscript'
+      && event.data.content.some(block => block.type === 'text' && block.text.includes('采用稿或来源出现新版本')))
+    assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')
+    const advisoryText = advisory[0].data.content.find(block => block.type === 'text').text
+    const structure = JSON.parse(advisoryText.slice(advisoryText.indexOf('\n') + 1)).structure
+    assert.equal(structure.episode_heading_count, 2)
+    assert.equal(structure.unique_episode_label_count, 1)
+    assert.equal(structure.duplicate_episode_labels.length, 1, 'Repeated episode labels remain visible without blocking delivery')
+    const shell = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_correct')
+    assert.equal(shell?.data.name, 'bash')
+    assert.ok(advisory.at(-1).seq > shell.seq, 'Shell writes use the same actual-file reconciliation')
     assert.equal(events.filter(event => event.type === 'system/message').length, 1, 'Revision context must not replace the system prompt')
     const compare = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_compare')
     assert.ok(compare)
@@ -66,13 +81,15 @@ export async function apply(ctx) {
     const probe = { realSession: true, comparisonLoggedFromTool: true, systemMessageCount: 1,
       revertedCandidateRejected: false, revertedDeliveryRejected: false, correctedCandidateAccepted: true,
       correctedDeliveryAccepted: true, userReturnedFilePreserved: true, privateLedgerVerified: true,
-      restartVerifiedByThisScenario: false }
+      restartVerifiedByThisScenario: false, shellWriteReconciled: true, duplicateHeadingAdvisoryVisible: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.
     const destination = join(process.env.DSH_HOME, '.runtime-ledgers')
     await mkdir(destination, { recursive: true, mode: 0o700 })
     await rename(ledgerDirectory, join(destination, 'manuscript-revisions'))
+    const workDirectory = join(cwd, '.muse', 'manuscript-work')
+    await rename(workDirectory, join(destination, 'manuscript-work'))
     assert.equal(hash(await readFile(join(destination, 'manuscript-revisions', 'ledger.json'))), hash(ledgerBytes))
     await rmdir(join(cwd, '.muse'))
   })
