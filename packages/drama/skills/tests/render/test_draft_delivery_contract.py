@@ -5,7 +5,6 @@ The generation tests run the real generator against real (tiny) media through th
 temporary directory.
 """
 import argparse
-import hashlib
 import errno
 import hashlib
 import importlib.util
@@ -16,7 +15,6 @@ import sys
 import tempfile
 import unittest
 import os
-import sys
 from unittest.mock import patch
 from pathlib import Path
 
