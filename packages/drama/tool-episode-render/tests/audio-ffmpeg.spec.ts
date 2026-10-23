@@ -219,10 +219,13 @@ it.skipIf(!hasFfmpeg).each(['legacy', 'ducking'] as const)('produces sample-alig
   for (const rows of Object.values(analysis.measurements)) expect(rows).toHaveLength(200)
 })
 
-it.skipIf(!hasFfmpeg)('never reads a supplied missing music or plan in no_bgm mode and creates new aligned outputs', async () => {
+it.skipIf(!hasFfmpeg).each([0, undefined])('keeps no_bgm auditions aligned with profile gain %s and project fallback without reading music', async (originalGain) => {
   const f = await fixture()
+  await writeFile(join(f.project, 'project_config.json'), JSON.stringify({
+    project_bible: { delivery: { audio: { master_gain: 0.7 } } },
+  }))
   await writeFile(f.profile.path, JSON.stringify({ schema_version: 1, mode: 'no_bgm',
-    original_gain: 1, analysis_window_ms: 100 }))
+    ...(originalGain === undefined ? {} : { original_gain: originalGain }), analysis_window_ms: 100 }))
   const args = { toolkit: f.toolkit, settings: f.settings, project: f.project, episode: '24',
     timelinePath: f.timeline, audio: f.original, profilePath: f.profile.path,
     bgm: join(f.project, 'missing-music.wav'), bgmPlan: join(f.project, 'missing-plan.json'),
@@ -230,7 +233,8 @@ it.skipIf(!hasFfmpeg)('never reads a supplied missing music or plan in no_bgm mo
   const first = await previewAudio(args)
   const second = await previewAudio(args)
   expect(first.output).not.toBe(second.output)
-  expect(first.mix).toMatchObject({ mode: 'no_bgm', music_audio: '', music_stem: '', detector: 'none' })
+  expect(first.mix).toMatchObject({ mode: 'no_bgm', music_audio: '', music_stem: '', detector: 'none',
+    parameters: { original_gain: originalGain ?? 0.7 } })
   expect(first.bgmPlan.path).toBe('')
   expect(await fileSha256(first.output)).toBe(await fileSha256(first.mix.preview!.without_added_music))
   expect(await fileSha256(first.output)).toBe(await fileSha256(second.output))
