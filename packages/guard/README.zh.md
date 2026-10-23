@@ -22,10 +22,11 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-四个小插件分别覆盖四种模式；下文每个 README 都说明何时保留、调优或移除它。
+五个小插件覆盖这些模式；下文每个 README 都说明何时保留、调优或移除它。
 
 | 包 | 提供什么 |
 |---|---|
+| [`argument-loop/`](argument-loop/README.zh.md) | 停止流式工具响应中的同名 JSON 成员重复，不自动重试或重放工具；Muse 显式选择阈值 |
 | [`repeat-tool-reminder/`](repeat-tool-reminder/README.zh.md) | 在模型重复完全相同的工具调用时提醒它，使其改变方法或结束任务 |
 | [`timeout-policy/`](timeout-policy/README.zh.md) | 为声明了限时的工具调用设置超时，让模型得到清晰错误而不是无限等待 |
 | [`composition-guard/`](composition-guard/README.zh.md) | 报告工具被一次热加载组装撤走的会话，让人知道该重启宿主 |
