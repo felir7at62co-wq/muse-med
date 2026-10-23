@@ -7,6 +7,7 @@ import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-characte
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT,
+  CHARACTER_REFERENCE_QA_ENVIRONMENT,
   CHARACTER_REFERENCE_PRIVATE_SCOPE,
   openCharacterReferenceQaAuthorizationStore,
 } from '../src/character-reference-qa-authorization.ts'
@@ -51,16 +52,17 @@ afterEach(async () => {
   for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true })
 })
 
-async function fixture() {
+async function fixture(environment: typeof CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT | typeof CHARACTER_REFERENCE_QA_ENVIRONMENT
+  = CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT) {
   const root = await mkdtemp(join(tmpdir(), 'character-private-'))
   directories.push(root)
   const store = await openCharacterReferenceQaAuthorizationStore({
     dataRoot: root,
     databasePath: join(root, 'private.sqlite'),
-    environment: CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT,
+    environment,
   })
   if (store === undefined) throw new Error('private ledger did not open')
-  const read = vi.fn(async () => reference)
+  const read = vi.fn<CharacterReferenceAuthority['read']>(async () => reference)
   const authority: CharacterReferenceAuthority = { read }
   return { store, authority, read }
 }
@@ -132,6 +134,65 @@ describe('project-private owner attestation', () => {
       authorizationId: 'same-owner-new-key', actorId: JSON.stringify(['muse-owner', 'another-session']) }) })
       .toThrow('still requires read-only reconciliation')
     store.close()
+  })
+
+  it('rejects an isolated QA ledger or missing verified owner before inspecting the image', async () => {
+    const wrong = await fixture(CHARACTER_REFERENCE_QA_ENVIRONMENT)
+    const correct = await fixture()
+    const ask = vi.fn<ProjectPrivateQuestionService['ask']>()
+    try {
+      await expect(authorizeProjectPrivateCharacterReference({ ...wrong, questions: { ask }, agent: owner,
+        ownerId, verifyOwner: async () => ownerId, request })).rejects.toThrow('isolated QA ledger')
+      await expect(authorizeProjectPrivateCharacterReference({ ...correct, questions: { ask }, agent: owner,
+        ownerId: '  ', verifyOwner: async () => ownerId, request })).rejects.toThrow('verified Muse account owner')
+      expect(wrong.read).not.toHaveBeenCalled()
+      expect(correct.read).not.toHaveBeenCalled()
+      expect(ask).not.toHaveBeenCalled()
+    } finally { wrong.store.close(); correct.store.close() }
+  })
+
+  it('does not ask for pending-image rights when the catalog no longer reports pending_review', async () => {
+    const f = await fixture()
+    f.read.mockResolvedValue({ ...reference, metadataStatus: 'approved_claim' })
+    const ask = vi.fn<ProjectPrivateQuestionService['ask']>()
+    const grant = vi.spyOn(f.store, 'appendGrant')
+    try {
+      await expect(authorizeProjectPrivateCharacterReference({ ...f, questions: { ask }, agent: owner,
+        ownerId, verifyOwner: async () => ownerId, request })).rejects.toThrow('only to a personally uploaded pending_review image')
+      expect(ask).not.toHaveBeenCalled()
+      expect(grant).not.toHaveBeenCalled()
+    } finally { f.store.close() }
+  })
+
+  it('does not grant rights after a Muse account switch while the question is displayed', async () => {
+    const f = await fixture(), grant = vi.spyOn(f.store, 'appendGrant')
+    try {
+      await expect(authorizeProjectPrivateCharacterReference({ ...f,
+        questions: { ask: async () => ({ answers: [{ id: 'character-reference-private-rights',
+          selected: ['确认：我委托生成并亲自上传此图，拥有本项目参考生图权利'] }] }) },
+        agent: owner, ownerId, verifyOwner: async () => 'another-account', request,
+      })).rejects.toThrow('Muse account changed')
+      expect(f.read).toHaveBeenCalledTimes(1)
+      expect(grant).not.toHaveBeenCalled()
+    } finally { f.store.close() }
+  })
+
+  it.each([
+    { answers: [] },
+    { answers: [{ id: 'another-question', selected: ['确认：我委托生成并亲自上传此图，拥有本项目参考生图权利'] }] },
+    { answers: [{ id: 'character-reference-private-rights', selected: [] }] },
+    { answers: [{ id: 'character-reference-private-rights',
+      selected: ['确认：我委托生成并亲自上传此图，拥有本项目参考生图权利', '取消，不授权'] }] },
+    { answers: [{ id: 'character-reference-private-rights',
+      selected: ['确认：我委托生成并亲自上传此图，拥有本项目参考生图权利'], custom: 'also allow publication' }] },
+  ])('rejects missing, ambiguous or extended owner consent: %j', async (answer) => {
+    const f = await fixture(), grant = vi.spyOn(f.store, 'appendGrant')
+    try {
+      await expect(authorizeProjectPrivateCharacterReference({ ...f,
+        questions: { ask: async () => answer }, agent: owner, ownerId, verifyOwner: async () => ownerId, request,
+      })).rejects.toThrow('did not explicitly authorize')
+      expect(grant).not.toHaveBeenCalled()
+    } finally { f.store.close() }
   })
 
   it('does not create a grant after decline, missing answer, or changed image', async () => {

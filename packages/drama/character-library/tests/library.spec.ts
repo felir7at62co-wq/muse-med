@@ -714,6 +714,22 @@ describe('recommendation policy', () => {
     expect(result.candidates[0]?.entry.safety.canBind).toBe(false)
   })
 
+  it('does not classify an unfamiliar portrait style as live action or illustration', async () => {
+    const { store, library } = setup()
+    const prefix = URBAN_PREFIX + 'pencil/'
+    store.seedJson(prefix + 'metadata.json', {
+      asset_id: 'pencil', file_name: 'portrait.jpg', category: 'character', era: 'modern',
+      style: 'pencil', gender: 'male', appearance: ['短发'], source: 'owner supplied', status: 'pending_review',
+    })
+    store.seed(prefix + 'portrait.jpg', jpeg, 'image/jpeg')
+    const result = await library.matchCandidates({ roleClass: 'support', collection: 'urban',
+      gender: 'male', styleTerms: ['真人写实'] })
+    expect(result.status).toBe('candidates')
+    if (result.status !== 'candidates') throw new Error('unexpected result')
+    expect(result.candidates[0]?.entry.artStyle).toBe('pencil')
+    expect(result.candidates[0]?.matched).toEqual(['gender'])
+  })
+
   it('returns no candidates for an empty match without reading image objects', async () => {
     const { store, library } = setup()
     const result = await library.matchCandidates({ roleClass: 'lead' })
