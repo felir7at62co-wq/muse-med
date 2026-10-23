@@ -1,0 +1,19 @@
+{
+  "budgetSource": "default",
+  "budgetLimitCents": 400000,
+  "manualAuthorizationPresent": false,
+  "reservationBeforePaidRequest": true,
+  "paidMockPosts": 1,
+  "totalProviderRequests": 5,
+  "replayHttpRequests": 0,
+  "missingEstimatePaidRequests": 0,
+  "ledgerRecords": 1,
+  "estimateAmount": "1.00",
+  "estimateUnit": "CNY",
+  "providerQuoteObserved": false,
+  "actualBilledCostObserved": false,
+  "settledCents": 100,
+  "reservedCents": 0,
+  "modelSawEveryToolResult": true,
+  "realProviderRequests": 0
+}
