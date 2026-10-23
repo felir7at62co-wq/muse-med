@@ -660,13 +660,14 @@ it.each([
   [{ track_id: undefined, source_sha256: `sha256:${'B'.repeat(64)}` }],
   [{ track_id: undefined, source_sha256: `SHA256:${'a'.repeat(64)}` }],
   [{ context_tags: Array.from({ length: 33 }, (_, index) => `scene-${index}`) }],
+  [{ user_quote: undefined, episode: undefined }],
 ])('preserves known track identities and explicit context tags without manufacturing fields: %j', async (patch) => {
   const { ctx, home } = await bench()
   const row: Record<string, JsonValue> = {}
   for (const [key, value] of Object.entries({ ...bgmFeedback, ...patch })) if (value !== undefined) row[key] = value
   const preview = await previewProjectBible(ctx.settings, home, { bgm_feedback: [row] }, '用户反馈')
   await updateProjectBible(ctx.settings, home, { bgm_feedback: [row] }, '用户反馈', preview.expected_revision, preview.preview_fingerprint)
-  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { bgm_feedback: [row] } })
+  expect((await readProjectBible(ctx.settings, home)).config.project_bible).toHaveProperty('bgm_feedback', [row])
 })
 
 it.each<[Record<string, JsonValue>, string]>([
