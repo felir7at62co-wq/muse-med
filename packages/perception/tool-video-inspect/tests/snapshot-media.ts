@@ -1,5 +1,6 @@
 /** Deterministic external media process output for the recorded Session composition. */
 import { Readable } from 'node:stream'
+import { basename } from 'node:path'
 import { SubprocessRuntime, type SubprocessHandle, type SubprocessSpawnSpec,
   type SubprocessTerminalHandle, type SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
@@ -32,7 +33,7 @@ class SnapshotMedia extends SubprocessRuntime {
   }
 }
 
-/** Test-only Loader contribution replacing media processes and one volatile source stat version. */
+/** Test-only Loader contribution replacing media processes and stat versions of immutable workspace seeds. */
 export const name = 'snapshot-video-media'
 
 /** Filesystem stat is the only nondeterministic input replaced alongside external processes. */
@@ -48,7 +49,9 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     ctx.fs.stat = async (target, signal) => {
       const info = await original(target, signal)
-      return info && target.displayPath.endsWith('fixture.mp4') ? { ...info, version: FsVersion('fixture-video-version') } : info
+      const version = basename(target.displayPath) === 'fixture.mp4' ? 'fixture-video-version'
+        : basename(target.displayPath) === 'episode.md' ? 'fixture-draft-version' : undefined
+      return info && version !== undefined ? { ...info, version: FsVersion(version) } : info
     }
     return () => { ctx.fs.stat = original }
   })

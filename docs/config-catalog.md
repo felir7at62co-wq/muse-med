@@ -4656,6 +4656,8 @@ export interface Config {
   reviewMaxFrames: number
   /** Maximum decoded cut-score metadata bytes per scan chunk. */
   reviewMaxScanBytes: number
+  /** Maximum UTF-8 bytes in a complete observation-to-draft comparison, including its draft input. */
+  reviewCompareMaxBytes: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */

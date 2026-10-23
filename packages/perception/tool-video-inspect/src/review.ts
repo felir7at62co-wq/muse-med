@@ -10,9 +10,11 @@ import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
 import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
+import { compareReviewDraft } from './review-compare.ts'
 
-const parameters = z.object({ method: z.enum(['scan', 'next', 'observe', 'status', 'metadata']).default('scan'),
+const parameters = z.object({ method: z.enum(['scan', 'next', 'observe', 'status', 'metadata', 'compare']).default('scan'),
   file_path: z.string().min(1), episode: z.string().min(1).max(100).optional(),
+  draft_path: z.string().min(1).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
     change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000) })).optional() })
 
@@ -33,10 +35,11 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
     notice: '逐张记录画面中可见的人物、位置、动作、神态或道具，以及相对前后画面的变化；不清楚的内容写入uncertainty并定点补看。'
       + '图片进入模型请求不代表语义判断正确。全部检测帧须实际呈现并留下观察记录后，才能正式导出或交付当前任务。'
       + 'frames仅列本批；其余仍保留在完整清单，不能据此声称全片已看完。'
-      + '画面变化候选不是人物身份或动作结论；正文仅采用有画面依据的有效动作，独立动作写▲，同步短动作写人物括注。',
+      + '画面变化候选不是人物身份或动作结论；人物进出、位置变化、道具操作和无对白反应按实际先后写入▲，括注只交代这句台词的表演，不重复同一动作或按帧数凑行。'
+      + '正文保存后可用compare和draft_path把全部已记录画面与当前稿一起核对动作、转场和承接；可选提示，不新增交付条件。',
   }
 }
-type ReviewResult = ReturnType<typeof taskResult> & { observation_report?: string }
+type ReviewResult = ReturnType<typeof taskResult> & { observation_report?: string; comparison?: ReturnType<typeof compareReviewDraft> }
 
 const resultSchema = z.object({ review_id: z.string(), episode: z.string(), total: z.number(), recorded: z.number(), pending: z.number(),
   complete: z.boolean(), frames: z.array(reviewFrameSchema.extend({ status: z.string() })) }).loose()
@@ -144,10 +147,12 @@ export function applyCompleteReview(ctx: Context, config: Config,
   ctx.tools.register(defineTool({ name: 'video_inspect',
     description: '查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。'
       + 'next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。'
+      + 'compare配合draft_path只读返回全部已记录动作与实际正文，供核对▲独立动作、括注、转场和承接，不自动判定覆盖或拦截交付。'
       + '所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。',
     parameters: { file_path: { type: 'string', required: true, description: '当前集实际完整视频路径。' },
       episode: { type: 'string', description: '首次scan时标记集号；省略则使用实际视频路径。' },
-      method: { type: 'string', enum: ['scan', 'next', 'observe', 'status', 'metadata'], description: '默认scan；scan扫描整集并返回首批，next查看下一批，observe记录本批每张画面，status读取进度。metadata仅查询，不建立已看过记录。' },
+      method: { type: 'string', enum: ['scan', 'next', 'observe', 'status', 'metadata', 'compare'], description: '默认scan；scan扫描整集并返回首批，next查看下一批，observe记录本批每张画面，status读取进度。compare只读对照已记录画面与当前稿；metadata仅查询，不建立已看过记录。' },
+      draft_path: { type: 'string', description: 'compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。' },
       observations: { type: 'array', description: 'observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。',
         items: { type: 'object', additionalProperties: false, properties: {
           frame_id: { type: 'string', required: true }, visible: { type: 'string', required: true, description: '具体可见人物、位置、动作、神态或道具；至少8个字符。' },
@@ -209,6 +214,26 @@ export function applyCompleteReview(ctx: Context, config: Config,
         }
         if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 先使用scan扫描当前完整视频。')
         if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan。')
+        if (args.method === 'compare') {
+          if (args.draft_path === undefined) throw Error('VIDEO_COMPARE_DRAFT: compare需要本集已保存的draft_path。')
+          const draft = await ctx.fs.resolve(args.draft_path, { cwd: policy.workspaceRoot, signal })
+          const before = await ctx.fs.stat(draft, signal)
+          if (before?.type !== 'file' || before.size === undefined || before.size > config.reviewCompareMaxBytes) {
+            throw Error('VIDEO_COMPARE_SIZE: 剧本须为配置reviewCompareMaxBytes以内的完整UTF-8文本；未返回部分核对材料。')
+          }
+          const bytes = await ctx.fs.readBytes(draft, signal, config.reviewCompareMaxBytes)
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+          const result = { ...taskResult(review, batchFrames), comparison: compareReviewDraft(review, {
+            path: draft.displayPath, version: before.version, text,
+          }) }
+          if (Buffer.byteLength(JSON.stringify(result)) > config.reviewCompareMaxBytes) {
+            throw Error('VIDEO_COMPARE_SIZE: 完整观察与正文超出reviewCompareMaxBytes；可按原观察报告分段核对或调整部署上限，未截断材料，不影响保存与交付。')
+          }
+          if ((await ctx.fs.stat(draft, signal))?.version !== before.version
+            || (await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_COMPARE_CHANGED: 视频或剧本读取期间变化，请回读当前版本。')
+          ctx.emit('fs/observed', draft, { kind: 'present', version: before.version }, exec)
+          return result
+        }
         if (args.method === 'observe') {
           if (!args.observations?.length || args.observations.length > config.reviewBatchFrames) throw Error('observe需要本批逐图记录，不能批量确认全部图片。')
           const notes = new Map(args.observations.map(note => [note.frame_id, note]))
