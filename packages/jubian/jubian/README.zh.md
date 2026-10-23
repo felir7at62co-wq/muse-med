@@ -185,6 +185,8 @@ if (!begun.replayed) {
 
 `begin()` 会为该 key 读取所有既有 NDJSON 文件，并在追加任何内容之前把匹配的行折叠成一条记录：`begin` 行开启记录，之后同 key 的 `settle` 行填入 `http_status`、`application_code`、`response_sha256` 与 `outcome`。命中时返回 `{ replayed: true, record }`，调用方不得发送。只有当 HTTP 为 2xx 且应用码为 `0` 或 `200` 时，`outcome` 才是 `accepted`；其他任何情况都是 `unknown`。这一区分正是关键：超时之后文件里会留下一条没有 settle 行的 intent 行，这是诚实的答案，而不是猜测。
 
+Host 确认图片请求在供应商发送前已停止后，可追加 `pre_dispatch_abort` 记录，得到 `outcome: not_sent` 并释放预留。`resumeChecked()` 仅能消耗这份中止证据一次：操作者、证据摘要、原 key、方法、项目、请求正文和报价必须一致，并重新通过当前授权及预算检查。其他 unknown 请求仍保持预留；仅有传输错误不能授权恢复。已有 begin 和 settle 记录保持原样。
+
 </details>
 
 -----

@@ -103,7 +103,7 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 - **镜头产物必须能按结构读取。** 在工作间的 `prompts/`、`matches/`、`episode_packages/` 中，明确的 `时长` 必须是安全正整数秒；允许省略时长供编译器估算。matched JSON 必须能解析、包含对象组成的 shots 数组，每镜 `script_duration` 或 `duration` 为正整数，给出的 `text` 为字符串。长镜头、慢台词、旁白与风格选择不拒绝。[`drama_shot`](../../drama/tool-shot-script/README.zh.md) 返回可操作的创作警告，并在编译时执行明确的分镜预算。
 - **付费分镜提交必须在它所指名的项目里有正式资产。** `jubian_storyboard` 带 `preview_path` 的 `generate` 会先要求这次调用绑定到一个具体项目——用 `project_dir`，或用某个 `project_config.json` 声明的 `script_id`——然后要求那个项目记录 `official=true` 资产：`assets_manifest.json` 中的条目，或在没有 manifest 时 `pipeline_state.json` 里已完成的 `official_assets` 阶段。门禁放不到具体项目上的调用会被拒绝，并给出两种绑定方式，而不是拿「工作间里恰好有证据的某个项目」去判定。资产生成本身刻意不受本规则约束，因为它正是「还没有任何正式资产」时运行的那一步。
 - **新建计费资产前必须先对账它所指名的项目。** 除非调用按上面的方式绑定到的那个项目下有 `_probe/asset-reconcile.json` 满足：`ran_at` 不超过 24 小时且不比时钟超前 5 分钟以上、`blocking` 与 `ignored_without_note` 都为空、`ready` 为真，否则 `jubian_video` 的 `image_generate` 与 `image_generate_batch` 都会被拒绝。门禁在整批调用开始时、任何一项提交前检查一次。不带时区的时间戳按中国标准时间读取，也就是流水线工具写出的那个时区。证据来自流水线自己的只读对账——它才是把 `assets_manifest.json` 与剧变项目里已选用的资产逐条比对的那一步：清单记录的是我们生成过什么，而不是项目里有什么，只看清单的模型会重新生成一张早就存在的图。本规则只约束这两个生图方法；`erase_subtitle`、`upscale`、`confirm_casting` 与各只读方法仍由它们各自的规则管。
-- **两条项目规则都按本次操作绑定，从不做搜索。** 上面两条规则只从调用本身解析出一个项目：注入的 `projectRoot`，其次是调用自己的 `project_dir`，再次是工作间里 `project_config.json` 声明了本次调用 `script_id` 的那个子项目。这里不会为了「让调用通过」去扫工作间——一个项目的证据不能给另一个项目的付费调用背书。
+- **两条项目规则都按本次操作绑定，不按证据选项目。** 上面两条规则只从调用本身解析出一个项目：注入的 `projectRoot`，其次是调用自己的 `project_dir`，再次是工作区根或某个工作间子项目里唯一一个声明了本次调用 `script_id` 的 `project_config.json`。没有匹配或有多个匹配都会拒绝；门禁不会选择「恰好有证据」的项目——一个项目的证据不能给另一个项目的付费调用背书。
 - **已下线的 MUSE 工具名会得到回答，而不是被无视。** 调用注册表解析不到的 `drama`、`asset`、`shot`、`project`、`timeline` 或 `delivery` 时，会被拒绝并给出替代工具名，而不是让模型读到会被理解成「部署坏了」的裸 `UNKNOWN_TOOL`。
 
 ### 源码地图
@@ -164,7 +164,7 @@ jubian_video.image_generate 会新建资产并真实计费，但先要有本项�
 
 本开发备注是维护者的工作上下文：开放问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关文档为准。
 
-本门禁读取的工作间布局（`short-drama/<项目>/` 下的 `prompts/`、`matches/`、`episode_packages/`、`assets_manifest.json`、`pipeline_state.json`）是流水线自己的约定，由工作区本地的短剧技能确立，而不是由本仓库确立。若预设改用别的根名，该行需要改的字段只有 `workshopDir`。
+本门禁支持「工作区根本身就是项目」以及 `short-drama/<项目>/` 两种布局；项目文件包括 `prompts/`、`matches/`、`episode_packages/`、`assets_manifest.json`、`pipeline_state.json`。这些布局是流水线自己的约定，由工作区本地的短剧技能确立，而不是由本仓库确立。若嵌套布局改用别的根名，该行需要改的字段只有 `workshopDir`。
 
 对账证据由工作区自己的 `_tools/asset_reconcile.py` 写出，它位于生产项目目录，不在本仓库。门禁只读它在 `_probe/asset-reconcile.json` 的 JSON，并复刻该工具 `evidence_state()` 的判定；若那个工具的字段或新鲜度窗口变了，需要跟着改的是 `src/rules.ts` 里的 `reconcileState()` 与 `RECONCILE_*` 常量。24 小时窗口刻意沿用工具自己的口径，好让 `--check` 与本门禁对「这份报告还算不算数」给出同一个答案。
 

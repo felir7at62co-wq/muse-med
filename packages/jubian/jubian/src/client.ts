@@ -272,7 +272,8 @@ export class JubianClient {
     } catch (error) { throw networkFailure(error, signal, timeout) }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      throw new JubianError(codeForHttpStatus(response.status), `HTTP ${response.status}`)
+      throw new JubianError(codeForHttpStatus(response.status), `HTTP ${response.status}`,
+        { httpStatus: response.status, applicationCode: null, responseSha256: null })
     }
     const bytes = await this.readBounded(response, signal, timeout)
     const response_sha256 = hash(bytes)
@@ -286,12 +287,14 @@ export class JubianClient {
         bytes: bytes.byteLength,
         body: parsed === undefined ? describeUnparsed(text, bytes) : redactForDump(parsed) })
     }
-    if (reading.problem !== null) throw new JubianError('CONTRACT_CHANGED', reading.problem)
+    const responseEvidence = { httpStatus: response.status, applicationCode: reading.code, responseSha256: response_sha256 }
+    if (reading.problem !== null) throw new JubianError('CONTRACT_CHANGED', reading.problem, responseEvidence)
     if (reading.code !== null) {
       const failure = failureForEnvelopeCode(reading.code)
       if (failure !== null) {
         throw new JubianError(failure, failure === 'CONTRACT_CHANGED'
-          ? `unmapped envelope code ${reading.code}, ${describeRejection(parsed)}` : undefined)
+          ? `unmapped envelope code ${reading.code}, ${describeRejection(parsed)}` : undefined,
+        responseEvidence)
       }
     }
     return { transport: { http_status: response.status, application_code: reading.code },

@@ -177,6 +177,9 @@ function summarise(records: readonly JubianLedgerRecord[], scriptId: number): {
     units: new Set<string>() }
   for (const record of records) {
     if (!SPENDING_METHODS.has(record.method)) continue
+    // Trusted pre-dispatch evidence makes this record a zero-cost historical intent.
+    // A resume reopens the same record and makes its original quote a reservation again.
+    if (record.outcome === 'not_sent') continue
     if (record.script_id === null) {
       // A charge nobody attributed cannot be counted against any project's limit.
       summary.unattributed.push(record.record_id)

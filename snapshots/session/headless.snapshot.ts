@@ -1587,7 +1587,7 @@ describe('headless recorded-session snapshots', () => {
               expect(guidance).toContain('`select_assets` 明确重选并回读两份一致')
               const approvedUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png'
               expect(JSON.parse(resultText('call_character_regenerate'))).toMatchObject({
-                outcome: 'accepted', generation_status: 'succeeded', parent_asset_id: 11, material_id: 900,
+                outcome: 'accepted', generation_status: 'submitted_pending', parent_asset_id: 11, material_id: null,
                 identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl },
               })
               const conflict = resultText('call_conflicting_prepare', true)

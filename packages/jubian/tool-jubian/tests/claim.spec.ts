@@ -226,7 +226,7 @@ it('rejects unsupported model method and scope JSON before any credential or pro
   ctx.provide('credentials', { resolve: credential })
   Object.assign(ctx, { plugin: () => undefined })
   try {
-    apply(ctx, { ledgerRoot: join(root, 'schema-ledger') })
+    await apply(ctx, { ledgerRoot: join(root, 'schema-ledger') })
     for (const [name, args] of [['jubian_claim', { method: 'delete', script_id: 11 }],
       ['jubian_snatch', { scope: 'all', start_at: '2026-09-28T12:00:00.000Z', end_at: '2026-09-28T12:00:01.000Z',
         idempotency_prefix: 'invalid', authorization_basis: 'user authorized bounded claims' }]] as const) {

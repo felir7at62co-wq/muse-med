@@ -170,6 +170,29 @@ describe('the gate intercepts real dispatch', () => {
     expect(JSON.stringify(result.content)).toContain('asset_reconcile.py')
   })
 
+  it('dispatches a paid asset creation when the workspace itself is the reconciled project', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'drama-gate-root-project-'))
+    directories.push(workspace)
+    await mkdir(join(workspace, '_probe'), { recursive: true })
+    await writeFile(join(workspace, 'project_config.json'), JSON.stringify({ jubian_script_id: 42 }))
+    await writeFile(join(workspace, '_probe', 'asset-reconcile.json'), JSON.stringify({
+      script_id: 42,
+      ran_at: new Date().toISOString(),
+      blocking: [],
+      ignored_without_note: [],
+      ready: true,
+    }))
+    const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: workspace })
+    const result = await ctx.tools.execute({
+      signal,
+      callId: ToolCallId('root-project-image-generate'),
+      name: 'jubian_video',
+      arguments: { method: 'image_generate', script_id: 42, idempotency_key: 'k' },
+    })
+    expect(result.isError).toBe(false)
+    expect(ran.get('jubian_video')).toBe(1)
+  })
+
   it('refuses a paid asset creation that names no project at all', async () => {
     const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
     const result = await ctx.tools.execute({

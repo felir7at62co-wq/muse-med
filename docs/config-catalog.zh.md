@@ -4168,7 +4168,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:67`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:81`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4188,6 +4188,10 @@ export interface Config extends ImageRouteConfig {
   }
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
+  /** Repository-external append-only authorization database for explicitly scoped isolated QA reference use. */
+  characterReferenceQaAuthorizationDatabasePath?: string
+  /** Owner-private root that must contain the isolated QA authorization database and SQLite sidecars. */
+  characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */

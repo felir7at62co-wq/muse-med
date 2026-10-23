@@ -11,7 +11,7 @@
  * thing standing between a timeout and a second charge.
  */
 import { createHash } from 'node:crypto'
-import type { JubianLedger, JubianLedgerMethod } from '@deepseek-ai/dsh-jubian'
+import type { JubianLedger, JubianLedgerBegin, JubianLedgerMethod } from '@deepseek-ai/dsh-jubian'
 import { JubianError, checkBudget } from '@deepseek-ai/dsh-jubian'
 
 /** What one ledger-guarded write produced. */
@@ -42,14 +42,20 @@ export function acceptedWriteResponse(transport: { http_status: number | null
 
 /** What one write call states about itself beyond its body. */
 export interface WriteOptions {
-  /** Synchronous caller check after budget validation and before a fresh reservation. */
-  readonly beforeReserve?: () => void
+  /** Caller check after budget validation and before a fresh reservation. */
+  readonly beforeReserve?: () => Promise<void> | void
   /** Project the charge belongs to; the budget gate refuses a paid call without it. */
   readonly scriptId?: number | undefined
   /** Authorization file to read instead of the ledger's own; tests set this. */
   readonly authorizationPath?: string | undefined
   /** Rebuild a recorded request and refuse replay when its body or project differs. */
   readonly verifyReplayBody?: boolean | undefined
+  /** Host-only proof that this exact prior image request stopped before dispatch. */
+  readonly preDispatchRecovery?: {
+    readonly actor: string
+    readonly guardEvidenceSha256: string
+    readonly reconciliationEvidenceSha256: string
+  } | undefined
 }
 
 /**
@@ -113,6 +119,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_asset.register': ['script_id', 'asset_name', 'asset_type', 'asset_url'],
   'jubian_asset.remove': ['asset_id', 'script_id'],
   'jubian_asset.upload_reference': ['image_path'],
+  'jubian_asset.upload_character_reference': ['script_id', 'character_reference'],
   'jubian_asset.upload_audio': ['audio_path'],
   'jubian_asset.audio_get': ['script_id', 'asset_id'],
   'jubian_asset.audio_list': ['script_id'],
@@ -226,7 +233,7 @@ export async function writeUnderLedger(
 ): Promise<WriteOutcome> {
   const key = requireKey(idempotencyKey)
   const existing = await ledger.find(key)
-  if (existing !== undefined) {
+  if (existing !== undefined && existing.outcome !== 'not_sent') {
     if (existing.method !== method) throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
     if (options?.verifyReplayBody) {
       if ((options.scriptId ?? null) !== existing.script_id
@@ -236,6 +243,12 @@ export async function writeUnderLedger(
     }
     return { replayed: true, outcome: existing.outcome ?? 'unknown', response_sha256: existing.response_sha256, data: null }
   }
+  if (existing?.outcome === 'not_sent'
+    && (method !== 'image_generate' || options?.verifyReplayBody !== true
+      || options.preDispatchRecovery === undefined)) {
+    throw new JubianError('CONTRACT_CHANGED',
+      'A proven pre-dispatch image abort requires matching Host recovery evidence')
+  }
   // Awaited on purpose: a body may be compiled from a provider read, and the
   // quote below observes what that read returned.
   const payload = await body()
@@ -244,26 +257,50 @@ export async function writeUnderLedger(
   // Check the current cap and persist the reservation under one ledger claim.
   const scriptId = quoted?.scriptId ?? options?.scriptId
   let budget: Awaited<ReturnType<typeof checkBudget>> | undefined
-  const begun = await ledger.beginChecked(key, async () => {
+  const prepare = async (): Promise<JubianLedgerBegin> => {
     budget = await checkBudget({ ledger, method,
       ...(scriptId === undefined ? {} : { scriptId }),
       ...(quoted === undefined ? {} : { quote: quoted }),
       ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
     if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
-    options?.beforeReserve?.()
-    return { idempotencyKey: key, method, requestSha256: bodyHash(payload),
+    const intent: JubianLedgerBegin = { idempotencyKey: key, method, requestSha256: bodyHash(payload),
       ...(scriptId === undefined ? {} : { scriptId }),
       ...(budget.chargedAmount === undefined ? {} : { quotedAmount: budget.chargedAmount }),
       ...(budget.chargedUnit === undefined ? {} : { quoteUnit: budget.chargedUnit }),
       ...(quoted?.standardId === undefined ? {} : { quoteStandardId: quoted.standardId }),
       ...(quoted?.observedAt === undefined ? {} : { quoteObservedAt: quoted.observedAt }) }
-  })
-  if (begun.replayed) {
-    if (begun.record.method !== method || begun.record.request_sha256 !== bodyHash(payload)) {
-      throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
+    if (existing?.outcome === 'not_sent'
+      && (intent.method !== existing.method
+        || intent.requestSha256 !== existing.request_sha256
+        || (intent.scriptId ?? null) !== existing.script_id
+        || (intent.quotedAmount ?? null) !== existing.quoted_amount
+        || (intent.quoteUnit ?? null) !== existing.quote_unit
+        || (intent.quoteStandardId ?? null) !== existing.quote_standard_id)) {
+      throw new JubianError('CONTRACT_CHANGED', 'Recovered image request differs from the recorded intent')
     }
-    return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
-      response_sha256: begun.record.response_sha256, data: null }
+    await options?.beforeReserve?.()
+    return intent
+  }
+  if (existing?.outcome === 'not_sent') {
+    const recovery = options?.preDispatchRecovery as NonNullable<WriteOptions['preDispatchRecovery']>
+    await ledger.resumeChecked(key, {
+      recordId: existing.record_id,
+      actor: recovery.actor,
+      guardEvidenceSha256: recovery.guardEvidenceSha256,
+      reconciliationEvidenceSha256: recovery.reconciliationEvidenceSha256,
+    }, prepare)
+  } else {
+    const begun = await ledger.beginChecked(key, prepare)
+    if (begun.replayed) {
+      if (begun.record.method !== method || begun.record.request_sha256 !== bodyHash(payload)) {
+        throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different write')
+      }
+      if (begun.record.outcome === 'not_sent') {
+        throw new JubianError('CONTRACT_CHANGED', 'Recovery state changed while the request was prepared')
+      }
+      return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
+        response_sha256: begun.record.response_sha256, data: null }
+    }
   }
   // A fresh beginChecked result has completed its authorization callback; replay skips it.
   const approved = budget as Awaited<ReturnType<typeof checkBudget>>
@@ -280,7 +317,13 @@ export async function writeUnderLedger(
       budget: budgetSummary }
   } catch (error) {
     // The provider may have applied the change; only readback can resolve this.
-    await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null,
+    // Preserve any response status and digest the client observed before it rejected
+    // the envelope. A business rejection is still unknown for side effects, but no
+    // longer masquerades as a transport failure with no HTTP response.
+    const evidence = error instanceof JubianError ? error.responseEvidence : undefined
+    await ledger.settle(key, { httpStatus: evidence?.httpStatus ?? null,
+      applicationCode: evidence?.applicationCode ?? null,
+      responseSha256: evidence?.responseSha256 ?? null,
       outcome: 'unknown' })
     throw error
   }

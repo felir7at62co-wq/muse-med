@@ -895,7 +895,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-character-reference',
     dir: 'tool-character-reference',
     source: 'packages/drama/tool-character-reference/src/index.ts',
-    requires: ['ctx.tools', 'ctx.settings', 'ctx.characterLibrary (the Host-owned read-only character library)', 'ctx.attachments and ctx.llm for image view'],
+    requires: ['ctx.tools', 'ctx.settings', 'ctx.characterLibrary (the Host-owned read-only character library)', 'current Session human message only when multiple projects need selection', 'ctx.attachments and ctx.llm for image view'],
     writes: ['tool/call', 'tool/result with image attachment on view'],
     async mount(ctx) {
       // Schema harvest only: execution is unreachable. Inject the same Host
@@ -908,9 +908,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCharacterReference)
     },
     note:
-      '`drama_character_references` returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. '
+      '`drama_character_reference_project` lists Host-verified projects; the Agent may inspect a sole valid project without another human step, while multiple projects require a current human message naming one. Selection returns a bounded, validated character roster without a local path. '
+      + '`drama_character_references` rereads the selected bible and returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. '
       + '`drama_character_reference_view` rechecks a candidate and saves its verified image as a model-visible attachment only when the model route supports images. '
-      + 'Main roles are eligible by default; supporting roles require a bounded story-specific reason. Neither tool grants approval, reuse, binding or production rights, writes TOS, or requests paid generation.',
+      + 'Main roles are eligible by default; supporting roles require a bounded story-specific reason. None of these tools grants approval, reuse, binding or production rights, writes TOS, or requests paid generation.',
   },
 ]
 

@@ -24,10 +24,13 @@ import type { PromptRiskReviewConfig } from './prompt-risk.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-character-reference'
+import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
@@ -53,7 +56,18 @@ export { JubianVideoSelection } from './video-session.ts'
 export { productionRows, readProductionLibrary, productionCard, publishProductionCard } from './production.ts'
 export type { ProductionLibraryEntry, ProductionCardInput } from './production.ts'
 export type { VideoModelOption, SessionVideoSelection } from './video-session-types.ts'
-import { requireArguments } from './write.ts'
+import { need, requireArguments, requireKey } from './write.ts'
+import {
+  CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT,
+  openCharacterReferenceQaAuthorizationStore,
+} from './character-reference-qa-authorization.ts'
+import { createCharacterReferenceQaBridge } from './character-reference-qa-bridge.ts'
+import { authorizeProjectPrivateCharacterReference } from './character-reference-private-authorize.ts'
+import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
+import type {
+  CharacterReferenceQaGenerationRequest,
+  CharacterReferenceQaUploadRequest,
+} from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 
 export { JubianToken } from './token.ts'
@@ -80,6 +94,10 @@ export interface Config extends ImageRouteConfig {
   }
   /** Directory holding the write ledger; defaults to `<DSH_HOME>/jubian/ledger`. */
   ledgerRoot?: string
+  /** Repository-external append-only authorization database for explicitly scoped isolated QA reference use. */
+  characterReferenceQaAuthorizationDatabasePath?: string
+  /** Owner-private root that must contain the isolated QA authorization database and SQLite sidecars. */
+  characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
   /** Per-call abort budget in milliseconds. */
@@ -181,7 +199,7 @@ const ARGS = {
   storyboard_id: { type: 'number', description: '分镜 ID。' },
   task_id: { type: 'number', description: 'task / subtasks 必填：视频任务 ID。' },
   asset_name: { type: 'string',
-    description: 'image_generate 必填、rename 必填：资产名。'
+    description: '普通 image_generate 与 rename 必填：资产名；Host 托管人物库参考生图可省略，以已核验角色名为准。'
       + '给了 episode 时这里只写资产自己的名字（如 `红包`），插件按规范补齐前缀与类别段；'
       + '不给 episode 时原样发送。rename 发送的就是最终的完整名称。' },
   asset_type: { type: 'number', enum: [1, 2, 3],
@@ -216,7 +234,17 @@ const ARGS = {
     description: 'image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。' },
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
-  parent_asset_id: { type: 'number', description: 'image_generate 可选：给了就是重生成（PUT），不给是新建（POST）。' },
+  character_reference: { type: 'object', additionalProperties: false,
+    description: '仅用于 Host 托管的人物库参考图：提供授权、项目角色、Catalog 与 SHA 身份；不接受路径、TOS key 或 URL。上传成功后，image_generate 还须带回 managed_reference_id。',
+    properties: {
+      authorization_id: { type: 'string', required: true },
+      authorization_version: { type: 'integer', required: true },
+      character_id: { type: 'string', required: true },
+      catalog_asset_id: { type: 'string', required: true },
+      image_sha256: { type: 'string', required: true },
+      managed_reference_id: { type: 'string', description: 'upload_character_reference 返回的 Host 私有上传关联；image_generate 必填。' },
+    } },
+  parent_asset_id: { type: 'number', description: 'image_generate 可选：仅在用户明确要求替换现有资产时提供，此时重生成（PUT）；不给则新建候选资产（POST）。旧资产的 Active 材质不能证明本次生成成功。' },
   asset_url: { type: 'string',
     description: 'register 必填：这条新资产要引用的图片 HTTPS 地址（通常是原资产的 materialUrl）。'
       + 'register 按它新建资产，不生成新图。' },
@@ -381,12 +409,90 @@ function guarded<A = MethodArgs>(
   }
 }
 
+const QA_READ_METHODS = {
+  jubian_asset: new Set(['get', 'list', 'materials', 'generated_image']),
+  jubian_video: new Set(['task', 'tasks', 'subtasks', 'unresolved']),
+} as const
+
+function methodArgument(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return undefined
+  const method = (args as Record<string, unknown>)['method']
+  return typeof method === 'string' ? method : undefined
+}
+
+function hasManagedCharacterReference(args: unknown): boolean {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
+  const reference = (args as Record<string, unknown>)['character_reference']
+  return reference !== null && typeof reference === 'object' && !Array.isArray(reference)
+}
+
+/**
+ * Restrict a Host with the isolated QA authorization store to the exact reference workflow.
+ * @param tool - Registered Jubian tool name.
+ * @param args - Validated model-supplied tool arguments.
+ */
+function assertCharacterReferenceQaOperation(tool: string, args: unknown): void {
+  const method = methodArgument(args)
+  if (tool === 'jubian_catalog' || tool === 'jubian_find') return
+  if (tool === 'jubian_budget' && method === undefined
+    && args !== null && typeof args === 'object' && !Array.isArray(args)
+    && (args as Record<string, unknown>)['action'] === 'read') return
+  if (tool === 'jubian_asset' && method !== undefined) {
+    if (QA_READ_METHODS.jubian_asset.has(method)) return
+    if (method === 'upload_character_reference' && hasManagedCharacterReference(args)) return
+  }
+  if (tool === 'jubian_video' && method !== undefined) {
+    if (QA_READ_METHODS.jubian_video.has(method)) return
+    if (method === 'image_generate' && hasManagedCharacterReference(args)) return
+  }
+  throw new Error('Isolated character-reference QA allows only read operations and the exact Host-managed reference upload and generation.')
+}
+
+function characterReferenceUploadRequest(args: MethodArgs): CharacterReferenceQaUploadRequest {
+  const reference = need(args.character_reference, 'character_reference')
+  return {
+    authorizationId: need(reference.authorization_id, 'character_reference.authorization_id'),
+    authorizationVersion: need(reference.authorization_version, 'character_reference.authorization_version'),
+    scriptId: need(args.script_id, 'script_id'),
+    characterId: need(reference.character_id, 'character_reference.character_id'),
+    catalogAssetId: need(reference.catalog_asset_id, 'character_reference.catalog_asset_id'),
+    imageSha256: need(reference.image_sha256, 'character_reference.image_sha256'),
+    idempotencyKey: requireKey(args.idempotency_key),
+  }
+}
+
+function characterReferenceGenerationRequest(args: MethodArgs): CharacterReferenceQaGenerationRequest {
+  const upload = characterReferenceUploadRequest(args)
+  return {
+    ...upload,
+    managedReferenceId: need(args.character_reference?.managed_reference_id,
+      'character_reference.managed_reference_id'),
+  }
+}
+
+interface CharacterReferencePresetRegistry {
+  serviceFor(
+    agent: { readonly ctx: Context },
+    name: 'characterReferenceAuthority',
+  ): CharacterReferenceAuthority | undefined
+}
+
+function characterReferenceAuthorityFor(
+  ctx: Context,
+  agent: { readonly ctx: Context },
+): CharacterReferenceAuthority | undefined {
+  const presets: CharacterReferencePresetRegistry | undefined = ctx.get('agentPresets')
+  return presets === undefined
+    ? ctx.get('characterReferenceAuthority')
+    : presets.serviceFor(agent, 'characterReferenceAuthority')
+}
+
 /**
  * Install the Jubian tools and their token, image-route and project-budget Remote namespaces.
  * @param ctx - Host context carrying `tools` and `credentials`.
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
-export function apply(ctx: Context, config: Config = {}): void {
+export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
   }
@@ -421,8 +527,61 @@ export function apply(ctx: Context, config: Config = {}): void {
       ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
   const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger'),
     defaultLimitCents: () => seriesBudgetLimit(ctx) })
+  const qaCharacterReferenceStore = await openCharacterReferenceQaAuthorizationStore({
+    ...(config.characterReferenceQaAuthorizationDataRoot === undefined
+      ? {} : { dataRoot: config.characterReferenceQaAuthorizationDataRoot }),
+    ...(config.characterReferenceQaAuthorizationDatabasePath === undefined
+      ? {} : { databasePath: config.characterReferenceQaAuthorizationDatabasePath }),
+  })
+  let privateCharacterReferenceStorePromise: ReturnType<typeof openCharacterReferenceQaAuthorizationStore> | undefined
+  const privateCharacterReferenceStore = async () => {
+    privateCharacterReferenceStorePromise ??= openCharacterReferenceQaAuthorizationStore({
+      dataRoot: join(home, 'jubian', 'character-reference-private'),
+      databasePath: join(home, 'jubian', 'character-reference-private', 'authorizations.sqlite'),
+      environment: CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT,
+    })
+    const store = await privateCharacterReferenceStorePromise
+    if (store === undefined) throw new Error('Project-private character-reference ledger is unavailable.')
+    return store
+  }
+  const projectPrivateOwnerIdentity = async (session: { readonly id: string }): Promise<string> => {
+    const account: MuseAccountService | undefined = ctx.get('museAccount')
+    if (account === undefined) throw new Error('Project-private reference use requires a signed-in Muse account.')
+    const status = await account.status({ verify: true })
+    if (status.state !== 'signed-in' || !status.verified || !status.username.trim()) {
+      throw new Error('Project-private reference use requires a verified, signed-in Muse account.')
+    }
+    return JSON.stringify([status.username.trim().toLocaleLowerCase('en-US'), session.id])
+  }
+  ctx.effect(() => async () => {
+    qaCharacterReferenceStore?.close()
+    if (privateCharacterReferenceStorePromise !== undefined) {
+      // Failed initialization owns no open database; successful initialization must close before disposal settles.
+      const store = await privateCharacterReferenceStorePromise.catch(() => undefined)
+      store?.close()
+    }
+  })
+  const characterReferenceBridge = async (agent: { readonly ctx: Context }) => {
+    const authority = characterReferenceAuthorityFor(ctx, agent)
+    if (authority === undefined) {
+      throw new Error('Managed character-reference use is not configured in this Host.')
+    }
+    const store = qaCharacterReferenceStore ?? await privateCharacterReferenceStore()
+    return createCharacterReferenceQaBridge({ authority, store,
+      ...(qaCharacterReferenceStore === undefined ? { ownerIdentity: projectPrivateOwnerIdentity } : {}) })
+  }
+  const registerJubianTool = (definition: ToolDefinition): (() => void) => {
+    if (qaCharacterReferenceStore === undefined) return ctx.tools.register(definition)
+    return ctx.tools.register({
+      ...definition,
+      execute: async (args, exec) => {
+        assertCharacterReferenceQaOperation(definition.name, args)
+        return await definition.execute(args, exec)
+      },
+    })
+  }
   ctx.plugin(JubianBudgets, { ledger })
-  ctx.effect(() => ctx.tools.register(defineTool({
+  ctx.effect(() => registerJubianTool(defineTool({
     name: 'jubian_budget',
     description: 'Read a project total budget, spent/reserved amounts and exact revision; save a new total only after explicit user amount authorization. When insufficient ask_user_question with id jubian-budget-<script_id>, then reuse that answer. Writes and Settings share the actual authorization, effective immediately. No provider requests or charges.',
     parameters: {
@@ -464,7 +623,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(JubianVideoSelection, { client, ledger, enabled: config.sessionVideoSelection ?? false,
     ...(config.defaultVideoModel === undefined ? {} : { defaultModel: config.defaultVideoModel }) })
   if (config.sessionVideoSelection) {
-    ctx.effect(() => ctx.tools.register(defineTool({
+    ctx.effect(() => registerJubianTool(defineTool({
       name: 'jubian_video_model',
       description: '读取或请用户选择本会话的视频模型与分辨率。选择后追加上下文，不修改项目默认值。卡片配置不一致时按会话选择同步；切换后视频包超出时长上限时，汇总本批受影响卡并用 duration_conflict 询问保留模型重新拆包或更换可容纳原包的模型，不截断对白。读取时可初始化部署默认值，已有选择优先；选择问题未获回答时不切换模型，不提交计费生成。',
       parameters: { method: { type: 'string', enum: ['read', 'choose', 'duration_conflict'], required: true },
@@ -506,7 +665,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
   })
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_catalog',
     description: '剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。',
     parameters: {
@@ -519,7 +678,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: guarded('jubian_catalog', args => catalogMethod(client, args, config.imageAllowedStandardIds)),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_find',
     description: '按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。'
       + '两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；'
@@ -571,7 +730,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: guarded<FindArgs>('jubian_find', args => findMethod(client, args)),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_claim',
     description: '剧变剧本池单本操作：inspect 只读；claim 会真实认领，必须有用户对该 ID 的明确授权与当前账号 canClaim=1。'
       + '按 viewRole 选择认领端点；写前记账。未知结果只读对账，不换 key 重投。',
@@ -587,7 +746,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: guarded<ClaimArgs>('jubian_claim', args => claimMethod(client, ledger, args, claimConfig)),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_snatch',
     description: '剧变剧本池有界后台认领。只有用户明确授权目标范围和 UTC 时间窗口才启动；'
       + '每本仅在当前账号 canClaim=1 时尝试一次。返回 job_id，用 job_output 查看；'
@@ -620,12 +779,52 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  if (qaCharacterReferenceStore === undefined) ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'jubian_character_reference_authorize',
+    description: '仅当你本人委托生成并亲自上传一张 pending_review 人物图时使用。Host 重读当前项目、角色和图片 SHA，直接向当前 Muse 用户询问来源及一次项目内参考生图权利；Agent 的回答或提示词不构成授权。批准后返回一次性授权 ID；不批准发布、正式绑定、他人或跨项目复用。随后用 jubian_asset.upload_character_reference 托管上传，生图仍受项目预算与幂等账本限制。',
+    parameters: {
+      script_id: { type: 'integer', required: true, description: '当前 Host 项目的剧变 ID。' },
+      character_id: { type: 'string', required: true, description: '当前项目登记的精确角色 ID。' },
+      catalog_asset_id: { type: 'string', required: true, description: '已检索并看图的精确 Catalog ID。' },
+      image_sha256: { type: 'string', required: true, description: '看图工具返回的完整原图 SHA-256。' },
+    },
+    output: OUTPUT,
+    execute: async (args, exec) => {
+      const agent = exec.agent
+      if (!agent) throw new Error('Project-private reference authorization requires a live Muse Agent.')
+      const authority = characterReferenceAuthorityFor(ctx, agent)
+      const questions: UserQuestionService | undefined = ctx.get('userQuestions')
+      if (authority === undefined || questions === undefined) {
+        throw new Error('Project-private authorization requires current-project authority and a live user-question UI.')
+      }
+      return await authorizeProjectPrivateCharacterReference({
+        authority,
+        store: await privateCharacterReferenceStore(),
+        questions: { ask: async request => await questions.ask({
+          questions: request.questions,
+          agent,
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+        }) },
+        agent,
+        ownerId: await projectPrivateOwnerIdentity(agent.session),
+        verifyOwner: async () => await projectPrivateOwnerIdentity(agent.session),
+        request: {
+          scriptId: args.script_id,
+          characterId: args.character_id,
+          catalogAssetId: args.catalog_asset_id,
+          imageSha256: args.image_sha256,
+        },
+        signal: exec.signal,
+      })
+    },
+  })))
+
+  registerJubianTool(defineTool({
     name: 'jubian_asset',
     description: '剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。'
       + '只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。'
       + '生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；'
-      + 'error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交；未知或等待中只续读原任务。'
+      + 'error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交，insufficient_credits 时请用户处理剧变生图通道额度；未知或等待中只续读原任务。'
       + '**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。'
       + '它同样需要 idempotency_key，且不要重试。'
       + '**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：'
@@ -636,6 +835,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       + 'move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；'
       + 'rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。'
       + '**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。'
+      + '**upload_character_reference 是受控人物库上传**：普通 Muse 用户先调用 jubian_character_reference_authorize，在界面确认本人上传与本项目生图权利；Host 再重读当前项目角色与 Catalog 原图，核对一次性授权和 SHA 后上传；'
+      + '它不接受 Agent 路径、TOS key 或 URL，返回的 managed_reference_id 只可用于同一授权的一次 image_generate；'
+      + 'pending_review 图及其衍生结果不得自动 confirm_casting、正式绑定、发布或跨项目复用。'
       + '**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，'
       + '返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，'
       + '不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；'
@@ -647,17 +849,19 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_audio',
+        enum: ['get', 'list', 'materials', 'generated_image', 'confirm_casting', 'register', 'remove', 'upload_reference', 'upload_character_reference', 'upload_audio',
           'create_folder', 'move', 'rename', 'audio_list', 'audio_get', 'audio_delete_preview', 'audio_delete_apply'],
         description: 'get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；'
           + 'generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；'
           + 'register=按指定类别登记已有图片或音频（有副作用、不生成）；'
-          + 'remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_audio=上传短 PCM WAV 声音参考（免费）；'
+          + 'remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；'
+          + 'upload_character_reference=按 Host 授权上传精确人物库原图，不回传 URL；upload_audio=上传短 PCM WAV 声音参考（免费）；'
           + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；'
           + 'audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
       page_num: ARGS.page_num, page_size: ARGS.page_size, idempotency_key: ARGS.idempotency_key,
       image_path: ARGS.image_path,
+      character_reference: ARGS.character_reference,
       audio_path: { type: 'string', description: 'upload_audio 必填：已裁剪的 PCM WAV 文件，最长15秒；默认用角色首次清晰独白的2秒样本。' },
       folder_name: ARGS.folder_name, parent_id: ARGS.parent_id,
       asset_scope_type: ARGS.asset_scope_type, root_category_type: ARGS.root_category_type,
@@ -673,10 +877,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       authorization_basis: { type: 'string', description: 'audio_delete_preview 必填：用户对该音频删除范围的授权。' },
     },
     output: OUTPUT,
-    execute: guarded('jubian_asset', args => assetMethod(client, ledger, args, { naming, audioReferenceScan, voiceCoordinator })),
+    execute: async (args, exec) => await guarded('jubian_asset', async (input) => {
+      if (input.method === 'upload_character_reference') {
+        if (!exec.agent) throw new Error('Managed character-reference upload requires the current Agent Session.')
+        const bridge = await characterReferenceBridge(exec.agent)
+        return await bridge.upload(exec.agent.session, characterReferenceUploadRequest(input), exec.signal)
+      }
+      return await assetMethod(client, ledger, input, { naming, audioReferenceScan, voiceCoordinator })
+    })(args),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_organize',
     description: '只读、免费的资产组织视图：把剧变项目按「集数 → 类别」列出'
       + '（每集用到哪些角色/场景/道具，各自的 asset_id、material_id 与状态），'
@@ -697,7 +908,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     })),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_model',
     description: '免费配置现有分镜的视频模型与分辨率。preview 只读实时目录和分镜，按明确范围写本地冻结计划，'
       + '返回每项 before/after 与 fingerprint；不 PUT、不生成。scope=storyboards 使用远端 storyboard_ids，'
@@ -733,7 +944,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     execute: guarded('jubian_model', args => modelMethod(client, ledger, args)),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_storyboard',
     description: '剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。'
       + '返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；'
@@ -854,7 +1065,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_video',
     description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读'
       + '（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，'
@@ -864,13 +1075,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       + '逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，'
       + '把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。'
       + '**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；'
-      + '给了 parent_asset_id 就是重生成（PUT），否则新建（POST）。'
-      + '它只在同一个 idempotency_key 下发送一次，并在受理后核实父资产 Active，或新父资产下唯一 Active 未采用候选图，'
-      + '再返回 material_id（confirm_casting 需要它）与 image_url；候选图须先审图再确认出演。'
+      + '使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；'
+      + 'Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。'
+      + '本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。'
+      + '仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。'
+      + '它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。'
+      + '重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。'
       + '返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；'
       + 'generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。'
-      + 'timeout 表示受理已计费但尚未核实可用图片，不要换 key 重投，稍后用 jubian_asset get/generated_image 续读；'
-      + 'failed 表示提供方判失败；unverified 表示没能确认资产，先回读 jubian_asset list。'
+      + 'timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；'
+      + 'failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。'
       + '**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。'
       + '工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。'
       + '随后按配置的并发上限逐项提交计费请求，'
@@ -908,7 +1122,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       image_spec_id: ARGS.image_spec_id, image_model_id: ARGS.image_model_id, image_resolution: ARGS.image_resolution,
       image_platform_id: ARGS.image_platform_id,
       image_aspect_ratio: ARGS.image_aspect_ratio,
-      references: ARGS.references, parent_asset_id: ARGS.parent_asset_id,
+      references: ARGS.references, character_reference: ARGS.character_reference,
+      parent_asset_id: ARGS.parent_asset_id,
       episode: ARGS.episode, asset_category: ARGS.asset_category, package_number: ARGS.package_number,
       task_name: ARGS.task_name,
       model_id: ARGS.model_id,
@@ -917,11 +1132,24 @@ export function apply(ctx: Context, config: Config = {}): void {
       idempotency_key: ARGS.idempotency_key,
     },
     output: VIDEO_OUTPUT,
-    execute: (args, exec) => guarded('jubian_video', args => videoMethod(client, ledger, args,
-      { image: image(), imageBatch, imageReferenceScan, signal: exec.signal, naming }))(args),
+    execute: async (args, exec) => await guarded('jubian_video', async (input) => {
+      if (input.character_reference !== undefined && input.method !== 'image_generate') {
+        throw new Error('Managed character references are supported only by image_generate.')
+      }
+      const characterReferenceGeneration = input.character_reference === undefined
+        ? undefined
+        : await (async () => {
+          if (!exec.agent) throw new Error('Managed character-reference generation requires the current Agent Session.')
+          const bridge = await characterReferenceBridge(exec.agent)
+          return await bridge.prepareGeneration(exec.agent.session,
+            characterReferenceGenerationRequest(input), exec.signal)
+        })()
+      return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, signal: exec.signal, naming,
+        ...(characterReferenceGeneration === undefined ? {} : { characterReferenceGeneration }) })
+    })(args),
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_watch',
     description: '只读后台观察已受理的剧变操作，立即返回 job_id；task_id 必须是本次生成/转高清/去字幕操作的任务 ID，'
       + '不是源视频任务 ID。只读同一任务及其完整子结果，严格核对身份、阶段和成功状态；旧 URL 或 hdCount 不代表本次完成。'
@@ -955,7 +1183,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerJubianTool(defineTool({
     name: 'jubian_media',
     description: '把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。'
       + '不产生费用、不需要凭证（该 CDN 是公开的）。'

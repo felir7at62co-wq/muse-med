@@ -80,6 +80,30 @@ class SkillSuite(unittest.TestCase):
             self.assertIn("stretch_to_window", source)
             self.assertIn("省略", source)
 
+    def test_character_reference_generation_distinguishes_asset_layout_and_unique_candidate_name(self):
+        skill = (SKILLS / "character-reference-library/SKILL.md").read_text(encoding="utf-8")
+        for required in (
+            "先只读核对项目内已有资产名",
+            "项目内唯一的名称",
+            "不为规避未知结果而改名重投",
+            "先区分人物设定板与成片镜头",
+            "设定板按明确的角色资产规格",
+            "不能把成片竖屏自动套给设定板",
+            "不能沿用上一项目比例",
+            "可经实时目录核价后选用角色设定板方案",
+            "若返回 `candidate_limit_reached` 且已看的前三张都不合适",
+            "至多再检索一次",
+            "不要只凭前三张就宣称全库没有合适素材",
+            "先把其现行主图作为同一人物的身份锚点",
+            "不因职业、服装和风格相符就认作同一人",
+            "若无法实际看到主图，说明身份一致性尚未核实",
+            "明显换脸即判为不合格候选",
+            "不因缺少分类就要求用户先登记",
+            "素材授权仍要求正式登记 `role_class`",
+            "依据剧本能明确判断时",
+        ):
+            self.assertIn(required, skill)
+
     def test_shipped_scripts_start_console_children_hidden(self):
         """A windowless parent must pass CREATE_NO_WINDOW, or Windows pops a console."""
         launches = 0

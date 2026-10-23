@@ -12,11 +12,12 @@ flowchart LR
   pkg_tool_character_reference["tool-character-reference"]
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
+  svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
+  pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
-  pkg_tool_jubian["tool-jubian"]
   svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
@@ -436,6 +437,7 @@ flowchart LR
   pkg_terminal --> svc_terminals
   pkg_terminal_bash --> svc_terminals
   pkg_token_meter --> svc_tokenMeter
+  pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
   pkg_tool_jubian --> svc_jubianVideoSelection
@@ -477,6 +479,7 @@ flowchart LR
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
   svc_characterLibrary --> pkg_tool_character_reference
   svc_characterLibraryObjectStore --> pkg_character_library
+  svc_characterReferenceAuthority --> pkg_tool_jubian
   svc_clientModules --> pkg_client_hmr
   svc_compaction --> pkg_compaction_basic
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_mcp
@@ -614,6 +617,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |
+| `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Re-reads the current project, registered character and Catalog image digest for managed reference use; it does not grant image rights. |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote. |
 | `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Records user-selected video specifications, appends context and checks new submissions against the conversation choice. |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |

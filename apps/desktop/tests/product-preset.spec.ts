@@ -74,9 +74,16 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
-    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-character-reference', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
       expect(rows.some(row => row.id === id), id).toBe(true)
     }
+    expect(rows.some(row => row.id === 'tool-character-reference')).toBe(false)
+    expect(rows.find(row => row.id === 'character-reference')).toMatchObject({
+      name: 'cordis:group',
+      group: true,
+      isolate: { characterReferenceAuthority: true },
+      config: [{ id: 'tool-character-reference', name: '@deepseek-ai/dsh-tool-character-reference' }],
+    })
     expect(rows.find(row => row.id === 'perception-bgm')?.config).toMatchObject({
       catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/index.json',
     })
@@ -100,7 +107,8 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
     expect(prompt).toContain('禁止改写、删减或替换整段台词')
     expect(prompt).toContain('技术性失败不构成修改台词的理由')
     expect(prompt).toContain('按项目已定画幅设计镜头')
-    expect(prompt).toContain('角色资产图固定为16:9横版、白底')
+    expect(prompt).toContain('人物角色资产图优先遵循当前项目已定画幅与交付用途')
+    expect(prompt).toContain('项目要求竖幅或单人全身图时，按该画幅安排清晰面容与完整体态')
     expect(prompt).toContain('右侧是同一角色的无面容全身三视图')
     expect(prompt).toContain('人物面部同样不写“脸红”“面部发红”')
     expect(prompt).toContain('依据实际成图和成片判断吸引力、情绪与叙事效果')
