@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -71,6 +71,15 @@ describe('project-scoped music feedback reader', () => {
     expect(musicPreferenceFor({ track_id: 'catalogue:carefree' }, read, ['hall', 'family conflict']).decision).toBe('reject')
   })
 
+  it('accepts track-only feedback without inventing an episode or user quote', async () => {
+    const project = await fixture([{ feedback_id: 'track-only', track_id: 'catalogue:quiet', decision: 'accept',
+      context_tags: ['hall'], reason: 'User approved the quieter cue.', recorded_at: '2026-10-22T10:00:00Z' }])
+    const read = await readProjectMusicFeedback(project, new AbortController().signal)
+    expect(read.records).toEqual([{ feedback_id: 'track-only', track_id: 'catalogue:quiet', decision: 'accept',
+      context_tags: ['hall'], reason: 'User approved the quieter cue.', recorded_at: '2026-10-22T10:00:00Z' }])
+    expect(musicPreferenceFor({ track_id: 'catalogue:quiet' }, read, ['hall']).decision).toBe('accept')
+  })
+
   it('reads legacy Windows BOM and the same tag counts accepted by the project writer', async () => {
     const project = await fixture()
     const tags = Array.from({ length: 33 }, (_, index) => `scene-${index}`)
@@ -98,6 +107,7 @@ describe('project-scoped music feedback reader', () => {
     { ...rejection, source_sha256: 'not-a-hash' },
     { ...rejection, source_sha256: undefined },
     { ...rejection, context_tags: [] },
+    { ...rejection, context_tags: undefined },
     { ...rejection, decision: 'agent-preferred' },
     { ...rejection, recorded_at: 'yesterday' },
     { ...rejection, recorded_at: '2026-10-22T12:00:00' },
@@ -114,6 +124,19 @@ describe('project-scoped music feedback reader', () => {
     await writeFile(join(project, 'project_config.json'), '[]')
     await expect(readProjectMusicFeedback(project, new AbortController().signal)).rejects.toThrow('must be an object')
     await expect(readProjectMusicFeedback('', new AbortController().signal)).rejects.toThrow('nonempty')
+    await expect(readProjectMusicFeedback(await fixture({}), new AbortController().signal)).rejects.toThrow('must be an array')
+  })
+
+  it.each(['directory', 'linked', 'oversized'] as const)('rejects a %s configuration instead of treating it as missing feedback', async (kind) => {
+    const project = await fixture(), config = join(project, 'project_config.json')
+    if (kind === 'directory') await mkdir(config)
+    else if (kind === 'linked') {
+      const target = join(project, 'other.json')
+      await writeFile(target, '{}')
+      await symlink(target, config, 'file')
+    } else await writeFile(config, Buffer.alloc(8 * 1024 * 1024 + 1, ' '))
+    await expect(readProjectMusicFeedback(project, new AbortController().signal))
+      .rejects.toThrow(kind === 'oversized' ? '8 MiB' : 'regular non-linked file')
   })
 
   it('honors an already cancelled match and normalizes only comparison tags', async () => {

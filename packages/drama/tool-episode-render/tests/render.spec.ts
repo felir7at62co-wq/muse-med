@@ -156,7 +156,7 @@ function toolkit(channel: ReturnType<typeof stubChannel>) {
 
 /** Run one full render, with any input the case substitutes. */
 async function render(
-  prepared: Prepared,
+  prepared: Omit<Prepared, 'bgm'> & { readonly bgm?: string },
   channel: ReturnType<typeof stubChannel>,
   force = false,
   bgmPlan?: string,
@@ -170,7 +170,7 @@ async function render(
     timelinePath: prepared.timeline,
     subtitleSrt: prepared.subtitle,
     lastShot: 2,
-    bgm: prepared.bgm,
+    ...(prepared.bgm === undefined ? {} : { bgm: prepared.bgm }),
     ...(bgmPlan === undefined ? {} : { bgmPlan }),
     endingAudio: prepared.endingAudio,
     endingEffect: prepared.endingEffect,
@@ -218,7 +218,8 @@ describe('renderEpisode', () => {
 
   it('rejects missing music unless the explicit audio profile selects no_bgm', async () => {
     const prepared = await preparedProject()
-    await expect(render(prepared, renderChannel(prepared), false, undefined, { bgm: undefined })).rejects.toThrow('需要 bgm')
+    const { bgm: _bgm, ...withoutMusic } = prepared
+    await expect(render(withoutMusic, renderChannel(prepared))).rejects.toThrow('需要 bgm')
   })
 
   it('publishes separate music stems and original-sound gains through the renderer method', async () => {

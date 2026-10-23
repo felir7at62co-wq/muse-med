@@ -79,7 +79,8 @@ it('rejects sub-sample windows, unsafe sample positions, late windows and missin
   await expect(previewAudio({ ...f.input, durationSeconds: 0.0000001 })).rejects.toThrow('48 kHz 样本')
   await expect(previewAudio({ ...f.input, startSeconds: Number.MAX_SAFE_INTEGER })).rejects.toThrow('安全整数')
   await expect(previewAudio({ ...f.input, startSeconds: 1.5 })).rejects.toThrow('超过正文')
-  await expect(previewAudio({ ...f.input, bgm: undefined })).rejects.toThrow('需要 bgm')
+  const { bgm: _bgm, ...withoutMusic } = f.input
+  await expect(previewAudio(withoutMusic)).rejects.toThrow('需要 bgm')
   expect(f.calls).toEqual([])
 })
 

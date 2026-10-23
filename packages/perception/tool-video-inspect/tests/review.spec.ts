@@ -47,7 +47,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
   for (const { ctx, root } of fixtures.splice(0)) { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
 })
-async function fixture(options: { ptc?: boolean; offload?: boolean; config?: Partial<Video.Config> } = {}) {
+async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?: number; config?: Partial<Video.Config> } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-complete-video-'))), ctx = new Context()
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
@@ -64,8 +64,9 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; config?: Par
   for (const name of ['screenplay_export_docx']) ctx.tools.register(defineTool({ name,
     description: 'Test delivery sink.', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'delivered' }))
   const input = join(root, 'episode-80.mp4'), ffmpeg = await ctx.subprocess.resolveExecutable('ffmpeg')
-  await runMedia(ctx, [ffmpeg, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=96x64:r=10:d=1.5',
-    '-f', 'lavfi', '-i', 'color=blue:s=96x64:r=10:d=1.5', '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0',
+  const cutSeconds = options.cutSeconds ?? 1.5
+  await runMedia(ctx, [ffmpeg, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', `color=red:s=96x64:r=10:d=${cutSeconds}`,
+    '-f', 'lavfi', '-i', `color=blue:s=96x64:r=10:d=${3 - cutSeconds}`, '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', input], { mode: 'danger-full-access', workspaceRoot: root }, undefined,
   { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
   const adapter = new Model(); ctx.llm.registerAdapter(['synthetic'], adapter)
@@ -81,7 +82,7 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; config?: Par
   }
   const review = () => reviewsOf(ctx, agent.session)[input]!
   const record = () => call('observe', { observations: review().frames.filter(frame => frame.image !== undefined && frame.observation === undefined)
-    .map(frame => ({ frame_id: frame.id, visible: `画面为完整的${frame.time < 1.5 ? '红色' : '蓝色'}背景，没有可见人物和道具。`,
+    .map(frame => ({ frame_id: frame.id, visible: `画面为完整的${frame.time < cutSeconds ? '红色' : '蓝色'}背景，没有可见人物和道具。`,
       change: '根据实际合成画面对照颜色变化。', uncertainty: '' })) })
   const results = () => agent.session.snapshotEvents().flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
   return { ctx, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results }
@@ -496,4 +497,33 @@ it('honors the configured JPEG encoding while preserving original frame evidence
   const image = await h.ctx.attachments.readImage(reference)
   expect([...image.data.subarray(0, 2)]).toEqual([255, 216])
   expect(frame.exposed).toBe(true)
+})
+
+it('keeps a chunk-boundary cut when the output cutoff allows decoder lookahead', async () => {
+  const h = await fixture({ cutSeconds: 2 }), media = Media.runMedia
+  vi.spyOn(Media, 'runMedia').mockImplementation(async (ctx, argv, ...rest) => {
+    if (!argv.some(argument => argument.includes('gte(scene,0)')) && !argv.includes('rawvideo')) {
+      return media(ctx, argv, ...rest)
+    }
+    // Filter evaluation can run ahead of the output -t cutoff.
+    // Delay only the output cutoff; retain real decoding and filter evaluation.
+    const delayed = [...argv], duration = delayed.indexOf('-t') + 1
+    delayed[duration] = String(Number(delayed[duration]) + 0.5)
+    return media(ctx, delayed, ...rest)
+  })
+  await h.run(h.call('scan'), undefined)
+  expect(h.results().filter(result => result.isError)).toEqual([])
+  expect(h.review()).toMatchObject({ scan_complete: true, scanned_until: 3 })
+  const cut = h.review().frames.find(frame => frame.reasons.includes('cut'))
+  expect(cut).toMatchObject({ time: 2, decode: { start_seconds: 0, frame_index: 20 } })
+  await h.run(h.record, h.call('next'), undefined)
+  const observed = h.review().frames.find(frame => frame.id === cut?.id)
+  if (observed === undefined) throw Error('Missing chunk-boundary cut')
+  expect(observed.decoded_time).toBe(2)
+  const reference = reviewImage(observed)
+  if (reference === undefined) throw Error('Expected exact chunk-boundary image')
+  const image = await h.ctx.attachments.readImage(reference)
+  const pixel = await sharp(image.data).removeAlpha().raw().toBuffer()
+  expect(pixel[2]).toBeGreaterThan(200)
+  expect(pixel[0]).toBeLessThan(30)
 })

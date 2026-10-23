@@ -20,8 +20,17 @@ class SnapshotMedia extends SubprocessRuntime {
     const time = Number(spec.argv[spec.argv.indexOf('-ss') + 1]) + (selectedIndex === null ? 0 : Number(selectedIndex[1]) / 10)
     const scanning = spec.argv.some(value => value.includes('gte(scene,0)'))
     const thumbnails = spec.argv.includes('rawvideo')
-    const bytes = scanning ? Buffer.from('frame:0 pts:0 pts_time:0\nlavfi.scene_score=0\nframe:20 pts:20 pts_time:2\nlavfi.scene_score=0.9\nframe:39 pts:39 pts_time:3.9\nlavfi.scene_score=0\n')
-      : thumbnails ? Buffer.concat(Array.from({ length: 16 }, (_, i) => Buffer.alloc(48 * 32 * 3, i < 8 ? 0 : 255)))
+    // Output cutoff can lag filter evaluation; only the analysis time predicate
+    // excludes these lookahead frames from the recorded episode evidence.
+    const filter = spec.argv[spec.argv.indexOf('-vf') + 1] ?? ''
+    const bound = /lt\(t,([\d.e+-]+)\)/.exec(filter)
+    const end = bound === null ? Infinity : Number(bound[1])
+    const metadata = [{ index: 0, time: 0, score: 0 }, { index: 20, time: 2, score: 0.9 },
+      { index: 39, time: 3.9, score: 0 }, { index: 41, time: 4.1, score: 0 }]
+    const bytes = scanning ? Buffer.from(metadata.filter(frame => frame.time < end)
+      .map(frame => `frame:${frame.index} pts:${frame.index} pts_time:${frame.time}\nlavfi.scene_score=${frame.score}\n`).join(''))
+      : thumbnails ? Buffer.concat(Array.from({ length: 20 }, (_, i) => i).filter(i => i / 4 < end)
+        .map(i => Buffer.alloc(48 * 32 * 3, i < 8 ? 0 : 255)))
         : probing ? Buffer.from(JSON.stringify({ format: { duration: '4' },
           streams: [{ codec_type: 'video', codec_name: 'h264', width: 1, height: 1 }] })) : PNG
     const diagnostic = probing ? '' : `[showinfo] pts_time:${time}`
