@@ -664,7 +664,7 @@ describe('character-reference isolated QA authorization store', () => {
     const { store } = await opened()
     for (const patch of [{ authorizationVersion: 0 }, { projectId: 0 }, { environment: 'other' },
       { actorId: 'contains\u0000control' }, { createdAt: 'invalid' }]) {
-      expect(() => store.appendGrant({ ...grant(), ...patch })).toThrow()
+      expect(() => { store.appendGrant({ ...grant(), ...patch }) }).toThrow()
     }
     store.appendGrant(grant())
     for (const patch of [{ authorizationVersion: 0 }, { projectId: 0 }]) {
@@ -673,7 +673,7 @@ describe('character-reference isolated QA authorization store', () => {
     expect(() => store.claimManagedUpload(binding(), 'a'.repeat(201), CREATED_AT)).toThrow('too long')
     expect(() => store.requireManagedReference(binding())).toThrow('has not settled')
     store.appendRevocation(binding(), ACTOR_ID, 'withdrawn', CREATED_AT)
-    expect(() => store.appendRevocation(binding(), ACTOR_ID, 'withdrawn', CREATED_AT)).toThrow('already revoked')
+    expect(() => { store.appendRevocation(binding(), ACTOR_ID, 'withdrawn', CREATED_AT) }).toThrow('already revoked')
     expect(() => store.requireManagedReference(binding())).toThrow('revoked')
     store.close()
     store.close()
@@ -689,18 +689,18 @@ describe('character-reference isolated QA authorization store', () => {
     stores.push(store)
     const value = grant({ environment: 'project_private', scope: 'one_project_private_upload_and_generation',
       actorId: JSON.stringify(['account', 'session']) })
-    expect(() => store.appendGrant(grant())).toThrow('environment differs')
+    expect(() => { store.appendGrant(grant()) }).toThrow('environment differs')
     for (const actorId of ['not-json', '{}', '[]', '[1,"session"]', '["","session"]', '["account",1]', '["account",""]']) {
-      expect(() => store.appendGrant({ ...value, actorId })).toThrow('verified account and Session')
+      expect(() => { store.appendGrant({ ...value, actorId }) }).toThrow('verified account and Session')
     }
     store.appendGrant(value)
-    expect(() => store.appendGrant({ ...value, authorizationVersion: 2, actorId: JSON.stringify(['other-account', 'session']) }))
+    expect(() => { store.appendGrant({ ...value, authorizationVersion: 2, actorId: JSON.stringify(['other-account', 'session']) }) })
       .toThrow('another Muse account')
     const current = binding(value)
     const claim = store.claimManagedUpload(current, 'upload', CREATED_AT)
-    expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+    expect(() => { store.appendGrant({ ...value, authorizationVersion: 2 }) }).toThrow('requires read-only reconciliation')
     store.markManagedUploadUnknown(current, 'upload', claim.managedReferenceId, null, CREATED_AT)
-    expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+    expect(() => { store.appendGrant({ ...value, authorizationVersion: 2 }) }).toThrow('requires read-only reconciliation')
     store.appendGrant({ ...value, authorizationVersion: 2, characterId: 'another-character' })
     store.close()
   })
@@ -709,14 +709,14 @@ describe('character-reference isolated QA authorization store', () => {
     const { store } = await opened()
     store.appendGrant(grant())
     const current = binding()
-    expect(() => store.markManagedUploadUnknown(current, 'upload', 'missing', null, CREATED_AT)).toThrow('not been claimed')
+    expect(() => { store.markManagedUploadUnknown(current, 'upload', 'missing', null, CREATED_AT) }).toThrow('not been claimed')
     const id = settleUpload(store)
-    expect(() => store.markManagedUploadUnknown(current, 'upload-fixed', id, null, CREATED_AT)).toThrow('terminal event')
+    expect(() => { store.markManagedUploadUnknown(current, 'upload-fixed', id, null, CREATED_AT) }).toThrow('terminal event')
     expect(() => store.claimGeneration(current, 'generation', 'other', CREATED_AT)).toThrow('authorized upload')
     expect(() => authorizeRecovery(store, id)).toThrow('requires an unknown')
     store.claimGeneration(current, 'generation-fixed', id, CREATED_AT)
     store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)
-    expect(() => store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)).toThrow('terminal event')
+    expect(() => { store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT) }).toThrow('terminal event')
     store.close()
   })
 
@@ -762,7 +762,7 @@ describe('character-reference isolated QA authorization store', () => {
     const fileRoot = join(root, 'not-a-directory')
     await writeFile(fileRoot, 'blocked')
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: fileRoot, databasePath: join(fileRoot, 'db.sqlite') }))
-      .rejects.toMatchObject({ code: 'invalid-config', cause: expect.objectContaining({ code: 'EEXIST' }) })
+      .rejects.toMatchObject({ code: 'invalid-config', cause: { code: 'EEXIST' } })
   })
 
   it('refuses malformed durable rows and inconsistent managed-reference evidence', async () => {
@@ -805,13 +805,13 @@ describe('character-reference isolated QA authorization store', () => {
   it('rejects duplicate grants and retains the original transaction failure if rollback also fails', async () => {
     const { store } = await opened()
     store.appendGrant(grant())
-    expect(() => store.appendGrant(grant())).toThrow('new immutable grant')
-    const exec = DatabaseSync.prototype.exec
+    expect(() => { store.appendGrant(grant()) }).toThrow('new immutable grant')
+    const exec = Object.getOwnPropertyDescriptor(DatabaseSync.prototype, 'exec')?.value as (this: DatabaseSync, sql: string) => void
     const spy = vi.spyOn(DatabaseSync.prototype, 'exec').mockImplementation(function (this: DatabaseSync, sql) {
       if (sql === 'ROLLBACK') throw new Error('rollback unavailable')
-      return exec.call(this, sql)
+      exec.call(this, sql)
     })
-    try { expect(() => store.appendGrant(grant())).toThrow('new immutable grant') }
+    try { expect(() => { store.appendGrant(grant()) }).toThrow('new immutable grant') }
     finally { spy.mockRestore(); store.close() }
   })
 
@@ -832,9 +832,9 @@ describe('character-reference isolated QA authorization store', () => {
       if (state === 'unknown') store.markGenerationUnknown(current, 'generation-fixed', id, null, CREATED_AT)
       if (state === 'settled') store.settleGeneration(current, 'generation-fixed', id, GENERATION_RECEIPT_SHA, CREATED_AT)
       if (state === 'claimed' || state === 'unknown') {
-        expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).toThrow('requires read-only reconciliation')
+        expect(() => { store.appendGrant({ ...value, authorizationVersion: 2 }) }).toThrow('requires read-only reconciliation')
       } else {
-        expect(() => store.appendGrant({ ...value, authorizationVersion: 2 })).not.toThrow()
+        expect(() => { store.appendGrant({ ...value, authorizationVersion: 2 }) }).not.toThrow()
       }
       store.close()
     }

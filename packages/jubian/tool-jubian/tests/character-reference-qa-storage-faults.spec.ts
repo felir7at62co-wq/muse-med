@@ -49,13 +49,13 @@ describe('character-reference storage faults', () => {
 
   it.each([false, true])('rolls back fresh schema creation and preserves its failure when rollback fails: %s', async (rollbackFails) => {
     const paths = await location()
-    const exec = DatabaseSync.prototype.exec
+    const exec = Object.getOwnPropertyDescriptor(DatabaseSync.prototype, 'exec')?.value as (this: DatabaseSync, sql: string) => void
     const calls: string[] = []
     vi.spyOn(DatabaseSync.prototype, 'exec').mockImplementation(function (this: DatabaseSync, sql) {
       calls.push(sql)
       if (sql.includes('CREATE TABLE IF NOT EXISTS character_reference_qa_authorizations')) throw new Error('schema write failed')
       if (rollbackFails && sql === 'ROLLBACK') throw new Error('rollback also failed')
-      return exec.call(this, sql)
+      exec.call(this, sql)
     })
     await expect(openCharacterReferenceQaAuthorizationStore(paths)).rejects.toMatchObject({ cause: { message: 'schema write failed' } })
     expect(calls).toContain('ROLLBACK')
@@ -69,13 +69,13 @@ describe('character-reference storage faults', () => {
     legacy.exec('DROP TABLE character_reference_qa_generation_recovery_events; PRAGMA user_version = 1')
     legacy.close()
     await chmod(paths.databasePath, 0o600)
-    const exec = DatabaseSync.prototype.exec
+    const exec = Object.getOwnPropertyDescriptor(DatabaseSync.prototype, 'exec')?.value as (this: DatabaseSync, sql: string) => void
     const calls: string[] = []
     vi.spyOn(DatabaseSync.prototype, 'exec').mockImplementation(function (this: DatabaseSync, sql) {
       calls.push(sql)
       if (sql.includes('CREATE TABLE IF NOT EXISTS character_reference_qa_generation_recovery_events')) throw new Error('migration write failed')
       if (rollbackFails && sql === 'ROLLBACK') throw new Error('rollback also failed')
-      return exec.call(this, sql)
+      exec.call(this, sql)
     })
     await expect(openCharacterReferenceQaAuthorizationStore(paths)).rejects.toMatchObject({ cause: { message: 'migration write failed' } })
     expect(calls).toContain('ROLLBACK')
