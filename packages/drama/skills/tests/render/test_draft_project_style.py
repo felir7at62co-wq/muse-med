@@ -251,6 +251,10 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         self.assertEqual(audio[0]['target_timerange']['start'], 4_000_000)
         self.assertGreater(effect[0]['target_timerange']['duration'], 0)
         self.assertGreater(audio[0]['target_timerange']['duration'], 0)
+        self.generator.verify_draft_delivery(content, **self.verification)
+        effect[0]['volume'] = 1
+        with self.assertRaisesRegex(self.generator.DraftInputError, '片尾覆盖视频须静音'):
+            self.generator.verify_draft_delivery(content, **self.verification)
 
     def test_style_verification_observes_changed_font_id_subtitle_size_and_watermark(self):
         font = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
