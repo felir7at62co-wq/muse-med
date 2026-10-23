@@ -36,7 +36,7 @@ import { ASSET_CATEGORY_TYPES } from './naming.ts'
 import type { AssetCategory, Naming } from './naming.ts'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
-import { need, requireKey, writeUnderLedger } from './write.ts'
+import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
@@ -49,6 +49,8 @@ import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
 import { readUpscaleQuote } from './upscale-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
+import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
+import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
@@ -271,6 +273,12 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Foreground cancellation for image-reference reads and reservation. */
+  signal?: AbortSignal
+  /** Complete project inventory bounds for omitted character regeneration references. */
+  imageReferenceScan?: ImageReferenceScanOptions
+  /** Batch-owned resolved references, retained unchanged for the fresh paid request. */
+  preparedImageReference?: ImageReferenceResolution
   /** Resolved complete task-history inspection limits before deleting storyboards. */
   deletionTaskScan?: DeletionTaskScanOptions
   /** Resolved advisory term list and result bounds for complete card prompts. */
@@ -898,16 +906,29 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       }
     }
     case 'image_generate_batch': {
+      deps.signal?.throwIfAborted()
       const limits = deps.imageBatch ?? resolveImageBatchOptions()
-      const prepared = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
+      const requests = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
+      const resolveReferences = createImageReferenceResolver(client,
+        deps.imageReferenceScan ?? resolveImageReferenceScanOptions(), deps.signal)
+      const prepared: Array<(typeof requests)[number] & { reference: ImageReferenceResolution }> = []
+      for (const request of requests) prepared.push({ ...request, reference: await resolveReferences({
+        scriptId: need(args.script_id), assetType: request.assetType,
+        ...(request.item.parent_asset_id === undefined ? {} : { parentAssetId: request.item.parent_asset_id }),
+        ...(request.item.references === undefined ? {} : { references: request.item.references }) }) })
       const catalogueRows = imageCatalogue((await client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data, deps.image?.allowedStandardIds)
-      for (const { item, assetName, assetType } of prepared) {
+      for (const { item, key, assetName, assetType, reference } of prepared) {
         const selection: ImageModelSelection = imageSelection(item, deps.image?.selection)
-        buildImageRequest({ scriptId: need(args.script_id), assetName,
+        const payload = buildImageRequest({ scriptId: need(args.script_id), assetName,
           assetType, prompt: need(item.prompt), imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
-          references: item.references ?? [],
+          references: reference.references,
           ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) }, catalogueRows, selection)
+        const existing = await ledger.find(key)
+        if (existing !== undefined && (existing.method !== 'image_generate' || existing.script_id !== args.script_id
+          || existing.request_sha256 !== bodyHash(payload))) {
+          throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different image request; image batch preflight refused every fresh item before reservation or payment. Reconcile the original key and its adopted reference before preparing another request')
+        }
       }
       const results: Record<string, unknown>[] = Array.from({ length: prepared.length }, () => ({}))
       let nextIndex = 0
@@ -922,7 +943,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           try {
             const result = await videoMethod(client, ledger, {
               ...item, method: 'image_generate', script_id: need(args.script_id),
-            }, { ...deps, imageCatalogue: catalogueRows, deferImageReadback: true })
+            }, { ...deps, imageCatalogue: catalogueRows, deferImageReadback: true,
+              preparedImageReference: current.reference })
             results[index] = { ...identity, status: 'returned', ...result }
           } catch (error) {
             let record: Awaited<ReturnType<JubianLedger['find']>>
@@ -976,9 +998,18 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'image_generate': {
       requireKey(args.idempotency_key)
+      deps.signal?.throwIfAborted()
       const selection: ImageModelSelection = imageSelection(args, deps.image?.selection)
       const { assetName, assetType } = imageIdentity(args, deps.naming ?? resolveNaming())
       const imageStyle = resolveImageStyle(need(args.prompt), args.image_style)
+      const resolveReferences = createImageReferenceResolver(client,
+        deps.imageReferenceScan ?? resolveImageReferenceScanOptions(), deps.signal)
+      let resolvedReference: Promise<ImageReferenceResolution> | undefined
+      const reference = () => resolvedReference ??= Promise.resolve(deps.preparedImageReference ?? resolveReferences({
+        scriptId: need(args.script_id), assetType,
+        ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }),
+        ...(args.references === undefined ? {} : { references: args.references }),
+      }))
       // Ordinary replays skip this catalogue read. A batch supplies its one
       // preflight catalogue so every row is validated before any paid request.
       let cached: ClientResponse | undefined
@@ -994,7 +1025,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const rows = await catalogue()
           selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
           return buildImageRequest({ scriptId: need(args.script_id), assetName,
-            assetType, prompt: need(args.prompt), imageStyle, references: args.references ?? [],
+            assetType, prompt: need(args.prompt), imageStyle, references: (await reference()).references,
             ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
             ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
         },
@@ -1004,7 +1035,14 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
           return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
             observedAt: new Date().toISOString() }
-        }, { scriptId: need(args.script_id), verifyReplayBody: true })
+        }, { scriptId: need(args.script_id), verifyReplayBody: true,
+          beforeReserve: () => deps.signal?.throwIfAborted() }).catch((error: unknown) => {
+        if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED' && /different image request/u.test(error.message)
+          && args.parent_asset_id !== undefined && assetType === 1 && args.references === undefined) {
+          throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different image request; the adopted character reference or other inputs may have changed. No repeat paid request was sent; reconcile the original key before preparing another request')
+        }
+        throw error
+      })
       const model = selectors as ImageModelSelectors
       const assetId = result.data === null || result.data === undefined || !Number.isSafeInteger(Number(result.data))
         ? null : Number(result.data)
@@ -1021,6 +1059,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         generation_status: imageGenerationStatus(result.outcome, result.replayed, readback.status),
         idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
         budget: result.budget ?? null,
+        identity_reference: result.replayed ? unknownIdentityReference() : (await reference()).identity_reference,
         parent_asset_id: assetId,
         image_style: imageStyle,
         resolution: model.resolution,

@@ -174,6 +174,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生素材按 `materialKey` 和数字父资产 ID 关联，不依赖数组位置。缺失、多余或重复 key，以及身份、URL、类型或组内顺序冲突均拒绝。主体选源回读比较各 key 对应的字段；仅改变数组物理顺序不会要求再次保存选择。
 
+`assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID 或 URL 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。这些检查保留引用身份，不判断视觉相似度。
+
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。

@@ -457,6 +457,44 @@ async function ready(promise: Promise<void>): Promise<void> {
 }
 
 describe('prepare_video', () => {
+  it('keeps an unnamed legacy card compatible with the reference preflight', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, storyboardName: null } }
+    expect(await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() }))
+      .toMatchObject({ status: 'prepared' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it('refuses a saved reference-source conflict before preview creation or any paid write', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        materialList: [{ ...MATERIALS[0], assetId: 'different' }, MATERIALS[1]] }) } }
+    const directory = await project()
+    const detail: unknown = expect.stringContaining('IMAGE_REFERENCE_CONFLICT')
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail })
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['single', 'batch'])('rechecks both live reference sources before a %s submission', async (mode) => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: structuredClone(STORYBOARD) }
+    const directory = await project()
+    const preview = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory })
+    provider.storyboard.modelConfig = JSON.stringify({ ...MODEL_CONFIG,
+      materialList: [{ ...MATERIALS[0], assetId: 'different' }, MATERIALS[1]] })
+    const item = { preview_path: String(preview.preview_path), idempotency_key: String(preview.idempotencyKey) }
+    const submit = mode === 'single'
+      ? submitVideoMethod(clientFor(provider), ledger, { ...item, project_dir: directory })
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [item] },
+        { concurrency: 2, maxItems: 10 })
+    const detail: unknown = expect.stringContaining('IMAGE_REFERENCE_CONFLICT')
+    await expect(submit).rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('returns the generation check reminder without any provider write', async () => {
     const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
     const result = await prepareVideoMethod(clientFor(provider), ledger,
@@ -1671,7 +1709,8 @@ describe('select_assets', () => {
   })
 
   it('does not PUT at all when the storyboard already holds the selection', async () => {
-    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: MATERIALS }) }, tasks: [], subtasks: {} }
     const result = await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       selections, idempotency_key: 'select-3' })
     expect(putCalls(provider)).toHaveLength(0)
@@ -1744,6 +1783,38 @@ it.each([
 
 describe('keyed binding executor regressions', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
+  it('repairs conflicting saved references through explicit selection, then prepares without another selection PUT', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG,
+        materialList: [{ ...MATERIALS[0], assetId: 'different' }, MATERIALS[1]] }) } }
+    const client = clientFor(provider)
+    const result = await selectAssetsMethod(client, ledger,
+      { storyboard_id: 916953, idempotency_key: 'repair-reference-sources', selections })
+    expect(result).toMatchObject({ status: 'applied', verification: { matches: true,
+      source_matches: { storyboardMaterialList: true, 'modelConfig.materialList': true } } })
+    expect((JSON.parse(String(provider.storyboard.modelConfig)) as Record<string, unknown>).materialList)
+      .toEqual(provider.storyboard.storyboardMaterialList)
+    expect(await selectAssetsMethod(client, ledger,
+      { storyboard_id: 916953, idempotency_key: 'repair-reference-sources', selections }))
+      .toMatchObject({ status: 'already_applied', applied: false })
+    expect(await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: await project() }))
+      .toMatchObject({ status: 'prepared' })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body!.isGenerate).toBe(0)
+  })
+
+  it('does not claim a verified selection when only the storyboard reference list survived the PUT', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, storyboardMaterialList: [] } }
+    provider.onPut = () => { provider.storyboard.modelConfig = JSON.stringify(MODEL_CONFIG) }
+    await expect(selectAssetsMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, idempotency_key: 'partial-reference-save', selections }))
+      .rejects.toThrow(/POST_PUT_VERIFY_MISMATCH.*modelConfig\.materialList.*false/)
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body!.isGenerate).toBe(0)
+    expect((await ledger.find('partial-reference-save'))?.outcome).toBe('accepted')
+  })
+
   it.each([
     { prompt: '@[陆沉舟](lead) @[音频1](lead) @[苏晚](guest)', preservedAudio: false },
     { prompt: '@[音频1](lead) @[陆沉舟](lead) @[苏晚](guest)', preservedAudio: false },

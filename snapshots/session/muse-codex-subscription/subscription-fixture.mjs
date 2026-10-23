@@ -2,10 +2,11 @@
 import assert from 'node:assert/strict'
 import { createCodexImageTool } from '../../../third_party/plugins/dsh-codex-subscription/src/codex-images.js'
 import { DshOAuthCredentialStore } from '../../../third_party/plugins/dsh-codex-subscription/src/credential-store.js'
-import { importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
 
-const { credentialRef } = await importSnapshotPackage('@deepseek-ai/dsh-credentials',
-  new URL('../../../apps/desktop-host/package.json', import.meta.url))
+const { credentialRef } = await importSnapshotModule(
+  new URL('../../../packages/credentials/credentials/src/index.ts', import.meta.url),
+  new URL('../../../packages/credentials/credentials/lib/index.js', import.meta.url))
 
 /** Isolated subscription replay contribution. */
 export const name = 'snapshot-codex-subscription'

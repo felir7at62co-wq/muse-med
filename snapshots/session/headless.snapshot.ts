@@ -1428,6 +1428,53 @@ describe('headless recorded-session snapshots', () => {
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
             }
+            if (scenario.name === 'muse-character-image-continuity') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual([
+                'skill', 'jubian_video', 'jubian_storyboard', 'jubian_storyboard', 'jubian_storyboard',
+              ])
+              const resultText = (callId: string, isError = false): string => {
+                const event = events.find(item => item.type === 'tool/result' && item.data.message.toolCallId === callId)
+                if (event?.type !== 'tool/result') throw new Error(`Missing continuity result: ${callId}`)
+                expect(event.data.message.isError).toBe(isError)
+                const block = event.data.message.content.find(item => item.type === 'text')
+                if (block?.type !== 'text') throw new Error(`Missing continuity text: ${callId}`)
+                return block.text
+              }
+              const guidance = resultText('call_continuity_skill')
+              expect(guidance).toContain('显式把已认可的人脸图 URL 放进')
+              expect(guidance).toContain('不自动确认出演或改绑后续分镜')
+              expect(guidance).toContain('`IMAGE_REFERENCE_CONFLICT`')
+              expect(guidance).toContain('`select_assets` 明确重选并回读两份一致')
+              const approvedUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png'
+              expect(JSON.parse(resultText('call_character_regenerate'))).toMatchObject({
+                outcome: 'accepted', generation_status: 'succeeded', parent_asset_id: 11, material_id: 900,
+                identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl },
+              })
+              const conflict = resultText('call_conflicting_prepare', true)
+              expect(conflict).toContain('IMAGE_REFERENCE_CONFLICT:')
+              expect(conflict).toContain('modelConfig.materialList')
+              expect(conflict).toContain('storyboardMaterialList')
+              expect(conflict).not.toContain('https://')
+              expect(JSON.parse(resultText('call_explicit_selection'))).toMatchObject({
+                status: 'applied', applied: true, paid_requests: 0,
+                verification: { matches: true, source_matches: {
+                  storyboardMaterialList: true, 'modelConfig.materialList': true,
+                } },
+              })
+              const prepared = JSON.parse(resultText('call_consistent_prepare'))
+              expect(prepared).toMatchObject({ status: 'prepared', estimatedSubmissions: 1,
+                assetSummary: { count: 1, orderedAssets: [{ materialAssetId: 11, materialKey: 'lead', imageUrl: approvedUrl }] } })
+              const receipt = JSON.parse(await readFile(join(cwd, 'provider-receipt.json'), 'utf8'))
+              expect(receipt).toEqual(JSON.parse(await readFile(join(scenario.dir, 'workspace.expected/provider-receipt.json'), 'utf8')))
+              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1 })
+              expect(receipt.selected_model_references).toEqual(receipt.selected_storyboard_references)
+              const preview = JSON.parse(await readFile(prepared.preview_path, 'utf8'))
+              expect(JSON.parse(preview.payload.modelConfig).materialList).toEqual(preview.payload.storyboardMaterialList)
+              expect(preview.payload.storyboardMaterialList).toEqual([{ ...receipt.selected_storyboard_references[0],
+                official: true, asset_status: 'confirmed' }])
+            }
             if (scenario.name === 'muse-shot-director-format') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

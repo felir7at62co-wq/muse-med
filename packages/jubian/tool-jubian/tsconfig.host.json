@@ -13,6 +13,7 @@
     "src/folders.ts",
     "src/find.ts",
     "src/image.ts",
+    "src/image-continuity.ts",
     "src/methods.ts",
     "src/upscale-price.ts",
     "src/model-settings.ts",

@@ -70,6 +70,9 @@ function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string |
   let reads = 0
   return stubClient((request) => {
     if (request.path.includes('getSelectList')) return catalogue
+    if (request.path.includes('/aigc/asset/list?')) return { total: 2, rows: [77, 83749].map(id =>
+      ({ id, scriptId: 2708, assetName: '陆沉舟', assetType: 1, delFlag: '0' })) }
+    if (request.path.includes('/aigc/material/list?')) return { total: 0, rows: [] }
     if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
     if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
       const status = statuses[Math.min(reads, statuses.length - 1)]
@@ -525,16 +528,15 @@ describe('jubian_video', () => {
     expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
-  it('retains serialized storage failure evidence rather than marking a batch item as definitely unsent', async () => {
+  it('refuses an unreadable batch ledger before any paid request and retains the storage error', async () => {
     const { client, calls } = imageProvider()
     const find = vi.spyOn(ledger, 'find').mockRejectedValue('storage service disconnected')
     onTestFinished(() => { find.mockRestore() })
-    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
-      items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
-    expect(result.results).toMatchObject([{ status: 'error', outcome: 'unknown',
-      generation_status: 'reconciliation_required',
-      ledger_error: 'storage service disconnected', error: 'storage service disconnected' }])
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'serialized-storage-error', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps()))
+      .rejects.toBe('storage service disconnected')
     expect(calls.filter(call => call.method === 'POST')).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('updates an existing image parent in a default-bound batch and uses the saved estimate when catalogue prices are unavailable', async () => {
@@ -569,7 +571,8 @@ describe('jubian_video', () => {
   })
   it('reports a batch item as uncertain when the ledger cannot be read for its original key', async () => {
     const { client, calls } = imageProvider()
-    const find = vi.spyOn(ledger, 'find').mockRejectedValue(new Error('ledger storage unavailable'))
+    const find = vi.spyOn(ledger, 'find').mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('ledger storage unavailable'))
     onTestFinished(() => { find.mockRestore() })
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'unreadable-key', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
@@ -1022,11 +1025,12 @@ describe('jubian_video', () => {
     await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
       ...batchItem('reuse-key', '甲') }, imageDeps())
     const paidCalls = calls.filter(call => call.method === 'POST').length
-    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: scriptId,
-      items: [item] }, { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } })
-    expect(result.results).toMatchObject([{ status: 'error', idempotency_key: 'reuse-key',
-      record_script_id: 2708 }])
-    expect((result.results as Array<{ error: string }>)[0]?.error).toMatch(/different write|different image request/u)
+    const original = await ledger.find('reuse-key')
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: scriptId,
+      items: [item] }, { ...imageDeps(), imageBatch: { concurrency: 1, maxItems: 3 } }))
+      .rejects.toThrow(/different image request/u)
+    expect(original).toMatchObject({ method: 'image_generate', script_id: 2708 })
+    expect(await ledger.find('reuse-key')).toEqual(original)
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(paidCalls)
   })
 
