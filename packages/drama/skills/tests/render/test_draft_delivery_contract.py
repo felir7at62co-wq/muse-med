@@ -971,6 +971,9 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 track = next(item for item in content['tracks'] if item['name'] == '片尾特效')
                 self.assertEqual(len(track['segments']), 1)
                 segment = track['segments'][0]
+                self.assertEqual(segment['volume'], 0)
+                ending_audio = next(item for item in content['tracks'] if item['name'] == '片尾音')
+                self.assertEqual([item['volume'] for item in ending_audio['segments']], [1])
                 self.assertEqual(segment['source_timerange'], {'start': 0, 'duration': 1_020_000})
                 target = 2_000_000 if fit == 'stretch_to_window' else 1_020_000
                 speed = 0.51 if fit == 'stretch_to_window' else 1.0
