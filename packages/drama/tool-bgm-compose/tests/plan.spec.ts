@@ -159,6 +159,15 @@ describe('auditBgmBatch', () => {
     expect(rules(findings)).toEqual(['R5'])
     expect(findings[0]?.detail).toContain('无法核对')
   })
+
+  it('retains other advisory findings when the timeline has no package boundaries', () => {
+    const single = row('05', ['one.mp3'])
+    const findings = auditBgmBatch(single, { project, batch: [], boundaries: [],
+      limits: { minTracksPerEpisode: 2, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 2, boundaryToleranceSeconds: 0.05 } })
+    expect(rules(findings)).toEqual(['R1', 'R4', 'R5'])
+    expect(findings[0]?.fix).toContain('不必为了数量换曲')
+    expect(findings[2]?.detail).toContain('没有镜头包边界')
+  })
 })
 
 describe('explicit music decisions', () => {

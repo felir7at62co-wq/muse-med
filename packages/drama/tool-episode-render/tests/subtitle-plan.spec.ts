@@ -54,6 +54,21 @@ describe('source-bound subtitle overlay', () => {
     const result = await resolveSubtitleOverlay(await fixture([{ ...decision, text: ' 再添半碗！' }]))
     expect(result.report.retained_embedded[0]?.text).toBe('再添半碗')
   })
+  it('orders retained cue indexes and records a duplicated declared interval only once', async () => {
+    const first = { ...decision, shot: 1, source_sha256: digest('first-picture'), text: '外加字幕' }
+    const result = await resolveSubtitleOverlay(await fixture([decision, first, decision]))
+    expect(result.report.retained_cue_indexes).toEqual([1, 2])
+    expect(result.report.retained_embedded).toHaveLength(2)
+    expect(result.cues).toEqual([])
+  })
+  it('resolves repeated shot numbers against their first timeline occurrence', async () => {
+    const input = await fixture()
+    input.timeline.clips.push({ shot: 2, startUs: 10_000_000, durationUs: 1_000_000 })
+    const result = await resolveSubtitleOverlay(input)
+    expect(result.report.retained_cue_indexes).toEqual([2])
+    expect(result.report.retained_embedded).toMatchObject([{ shot: 2, start_seconds: 6, end_seconds: 7 }])
+    expect(result.report.sources.map(source => source.shot)).toEqual([1, 2])
+  })
   it('keeps all cues when the reviewed interval contains none', async () => {
     const result = await resolveSubtitleOverlay(await fixture([{ ...decision, start_seconds: 3, end_seconds: 4 }]))
     expect(result.cues).toHaveLength(2)

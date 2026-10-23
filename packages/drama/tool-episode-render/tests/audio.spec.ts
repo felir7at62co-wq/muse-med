@@ -108,3 +108,18 @@ it('keeps original sound once and exposes only compressed music as the music ste
   expect(noMusic).not.toContain('sidechaincompress')
   expect(noMusic).toContain('[a0]anull,')
 })
+
+it('keeps legacy music unsplit and places a profiled ending after the body on its own input', () => {
+  const profile: ResolvedAudioMixProfile = { schema_version: 1, path: 'mix.json', mode: 'legacy',
+    original_gain: 0.8, music_gain: 0.2, analysis_window_ms: 100 }
+  const spec = { bodyEndSeconds: 8, totalSeconds: 10, endingSeconds: 2, masterVolume: 1, bgmVolume: 1, profile }
+  const graph = audioMixFilter(spec)
+  expect(graph).toContain('[2:a]atrim=start=0.000000:duration=8.000000')
+  expect(graph).toContain('[3:a]atrim=0:2.000000,adelay=8000|8000,volume=1[a2]')
+  expect(graph).toContain('[a0][music][a2]amix=inputs=3')
+  expect(graph).not.toContain('asplit')
+  const noMusic = audioMixFilter({ ...spec, profile: { ...profile, mode: 'no_bgm' } })
+  expect(noMusic).toContain('[2:a]atrim=0:2.000000')
+  expect(noMusic).toContain('[a0][a2]amix=inputs=2')
+  expect(() => audioMixFilter({ ...spec, profile: { ...profile, mode: 'ducking' } })).toThrow('缺少显式压缩参数')
+})

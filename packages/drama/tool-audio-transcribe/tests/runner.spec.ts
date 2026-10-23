@@ -86,6 +86,24 @@ it('reports an invalid cached speaker label without altering the original receip
   expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
 })
 
+it.each([{}, [], [null], ['not a segment'], [{}], [{ text: 7 }]].map(rows => ({ rows })))(
+  'reports malformed cached speech segments without changing the receipt or resubmitting (%j)', async ({ rows }) => {
+    const fixture = await setup()
+    const media = { probe: async () => 30, encode: async (_source: string, target: string) => { await writeFile(target, 'audio') } }
+    const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+    fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '原句' }] })
+    const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+    const receipt = await readFile(first.receipt, 'utf8')
+    const invalid = JSON.stringify(rows)
+    await writeFile(done.output_json!, invalid)
+    await expect(finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false))
+      .rejects.toThrow('Published transcription JSON')
+    expect(await readFile(first.receipt, 'utf8')).toBe(receipt)
+    expect(await readFile(done.output_json!, 'utf8')).toBe(invalid)
+    expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+  },
+)
+
 it.each([
   ['non-object', null, 'Invalid transcription receipt'],
   ['source digest', { sourceSha256: 'invalid' }, 'Invalid source digest'],
