@@ -8,5 +8,6 @@
   "correctedDeliveryAccepted": true,
   "userReturnedFilePreserved": true,
   "privateLedgerVerified": true,
-  "restartVerifiedByThisScenario": false
+  "restartVerifiedByThisScenario": false,
+  "shellWriteReconciled": true
 }
