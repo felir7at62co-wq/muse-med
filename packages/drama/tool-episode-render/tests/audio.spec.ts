@@ -1,6 +1,6 @@
 /** Explicit profiles, project ownership, and measured audio-level parsing. */
 
-import { mkdtemp, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -22,6 +22,18 @@ async function root() {
 }
 const settings = { masterVolume: 1.45, bgmVolume: 0.24 }
 const ducking = { threshold_db: -30, ratio: 8, attack_ms: 20, release_ms: 200, knee: 2 }
+
+it('accepts a project directory alias while still resolving the owned audio and new output parent', async () => {
+  const project = await root(), parent = await root()
+  const alias = join(parent, 'project')
+  await symlink(project, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  links.push(alias)
+  const input = join(alias, 'input.wav')
+  await writeFile(input, 'audio')
+  expect(await requireProjectAudioFile(alias, input)).toBe(await realpath(input))
+  expect(await requireProjectAudioFile(alias, await realpath(input))).toBe(await realpath(input))
+  await expect(requireNewAudioOutput(alias, join(alias, 'nested', 'new.wav'))).resolves.toBeUndefined()
+})
 
 it('requires versioned explicit ducking parameters and captures deployment gains', async () => {
   const project = await root()

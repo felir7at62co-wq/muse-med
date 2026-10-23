@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -25,7 +25,7 @@ describe('project-scoped music feedback reader', () => {
   it('does not create a configuration for a legacy unconfigured project', async () => {
     const project = await fixture()
     expect(await readProjectMusicFeedback(project, new AbortController().signal)).toEqual({
-      config_path: join(project, 'project_config.json'), status: 'missing_config', records: [],
+      config_path: join(await realpath(project), 'project_config.json'), status: 'missing_config', records: [],
     })
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ unrelated: true }))
     expect((await readProjectMusicFeedback(project, new AbortController().signal)).status).toBe('no_feedback')

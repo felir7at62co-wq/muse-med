@@ -67,9 +67,12 @@ export const AUDIO_MIX_RESULT_SCHEMA = {
 } as const
 
 /** Reject a lexical or real path outside one real project directory. */
-function assertOwned(project: string, candidate: string): void {
-  const relation = relative(project, candidate)
-  if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+function assertOwned(project: string, candidate: string, alias = project): void {
+  const outside = (parent: string) => {
+    const relation = relative(parent, candidate)
+    return relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)
+  }
+  if (outside(project) && outside(alias)) {
     throw new Error(`音频路径必须位于项目目录内：${candidate}`)
   }
 }
@@ -81,8 +84,8 @@ function assertOwned(project: string, candidate: string): void {
  */
 export async function requireProjectAudioFile(project: string, candidate: string): Promise<string> {
   const root = await realpath(project)
-  const file = resolve(root, candidate)
-  assertOwned(root, file)
+  const file = resolve(project, candidate)
+  assertOwned(root, file, resolve(project))
   const actual = await realpath(file)
   assertOwned(root, actual)
   const info = await stat(actual)
@@ -96,7 +99,7 @@ export async function requireProjectAudioFile(project: string, candidate: string
  */
 export async function requireNewAudioOutput(project: string, output: string): Promise<void> {
   const root = await realpath(project)
-  assertOwned(root, resolve(output))
+  assertOwned(root, resolve(output), resolve(project))
   let ancestor = dirname(output)
   while (true) {
     try {
