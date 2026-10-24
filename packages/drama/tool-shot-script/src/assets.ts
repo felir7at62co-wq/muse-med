@@ -264,7 +264,8 @@ function characterMentions(source: string, assets: readonly ManifestAsset[]): Me
 
 /** Asset inference excludes the source-scene annotation, which can describe a different insertion location. */
 function bindingText(shot: ParsedShot): string {
-  return shot.visual.split('\n').filter(line => !line.startsWith(SOURCE_SCENE_PREFIX)).join('\n')
+  return shot.visual.split('\n').filter(line => !line.startsWith(SOURCE_SCENE_PREFIX)
+    && !/^(?:场景时段|时段变化依据|时段连续性|时段呈现)[：:]/u.test(line)).join('\n')
 }
 
 /** Visual inference excludes speech and asset fields, then masks names of registered locations and props. */
@@ -286,6 +287,19 @@ function visualDirections(shot: ParsedShot, assets: readonly ManifestAsset[]): s
   return directions
 }
 
+/** Read a field label without treating a repeated inline reference as another identity.
+ * @param source - Authored field text, retained separately for reference validation.
+ * @returns The explicit plain label, or reference labels when no plain label exists.
+ */
+export function materialFieldLabel(source: string): string {
+  const labels: string[] = []
+  const plain = source.replace(/@\[([^\]]+)\]\(([^()\s]+)\)/g, (_match, label: string) => {
+    labels.push(label)
+    return ''
+  }).trim()
+  return plain || labels.join('、')
+}
+
 /** Split an on-screen list without splitting costume annotations in parentheses. */
 function declaredCharacters(source: string): string[] {
   const result: string[] = []
@@ -294,11 +308,11 @@ function declaredCharacters(source: string): string[] {
     if ('（('.includes(character)) depth++
     if ('）)'.includes(character)) depth = Math.max(0, depth - 1)
     if (depth === 0 && /[、,，;；/|｜\n]/.test(character)) {
-      if (current.trim()) result.push(current.trim())
+      if (current.trim()) result.push(materialFieldLabel(current))
       current = ''
     } else current += character
   }
-  if (current.trim()) result.push(current.trim())
+  if (current.trim()) result.push(materialFieldLabel(current))
   return result
 }
 
@@ -643,7 +657,7 @@ export function bindShot(shot: ParsedShot, assets: readonly ManifestAsset[],
     : assets.filter(asset => isType(asset, PROP_TYPES) && visual.includes(asset.name))
   const props = selectNamedAssets(propCandidates, shot, episode, issues)
 
-  let scene = shot.sceneField
+  let scene = materialFieldLabel(shot.sceneField)
   if (scene === '') {
     const fromVisual = assets.find(asset => isType(asset, SCENE_TYPES) && visual.includes(asset.name))
     scene = fromVisual?.name ?? ''

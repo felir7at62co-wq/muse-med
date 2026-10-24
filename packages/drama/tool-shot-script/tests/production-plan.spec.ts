@@ -21,6 +21,13 @@ const base: Omit<ProductionPlan, 'version' | 'operation' | 'matches' | 'packages
 }
 const requirements: ProductionRequirement[] = [1, 2, 3, 4].map(shot => ({ shot, kind: 'character', name: '苏晚', state: shot === 1 ? '红婚服' : '白中衣' }))
 
+it('shares the configured speech estimate with the shot compiler', () => {
+  const source = speakingShot(1, `苏晚：${'字'.repeat(23)}`, ['出镜人物：苏晚', '核心场景：后厨'])
+  const input = { ...base, source, source_sha256: productionHash(source) }
+  expect(buildProductionPlan(input, 8, 2).packages[0]?.duration).toBe(4)
+  expect(buildProductionPlan(input, 8, 2, 5).packages[0]?.duration).toBe(6)
+})
+
 it('selects appearances per shot while keeping one character and complete dialogue', () => {
   const plan = buildProductionPlan({ ...base, requirements }, 8, 2)
   expect(plan.matches.filter(row => row.kind === 'character').map(row => row.selected_asset_id)).toEqual([101, 102, 102, 102])
@@ -46,6 +53,17 @@ it('uses the current model ceiling and keeps overlong complete shots as warnings
   const long = buildProductionPlan({ ...base, source: longSource, model: { ...base.model, maxDurationSeconds: 15 } }, 8, 2)
   expect(long.packages.map(row => row.duration)).toEqual([21, 21, 21, 21])
   expect(long.warnings.some(row => row.code === 'shot_exceeds_package_budget')).toBe(true)
+})
+
+it('uses sequential performance budgets in automatic production packages without sending budget metadata', () => {
+  const timed = source.replaceAll('时长：6秒', [
+    '动作预算：6秒', '发声预算：3秒', '反应预算：2秒', '表演顺序：先动作后台词',
+  ].join('\n'))
+  const plan = buildProductionPlan({ ...base, source: timed, requirements }, 8, 2)
+  expect(plan.packages.map(pack => pack.duration)).toEqual([23, 23])
+  expect(plan.packages.flatMap(pack => pack.shots)).toEqual([1, 2, 3, 4])
+  expect(plan.packages.every(pack => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
+  expect(plan.source).toBe(timed)
 })
 
 it('retains missing voice requirements and separates ambiguous candidates from unavailable assets', () => {

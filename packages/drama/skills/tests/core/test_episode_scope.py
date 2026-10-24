@@ -468,7 +468,7 @@ class ConservativeActionTests(unittest.TestCase):
         for line in ("△他拿起说明书。", "▲她翻开问卷。", "动作：放下答题卡。", "画面：两人合上说明文件。"):
             with self.subTest(line=line):
                 self.assertEqual(_non_speech_kind(line), "action")
-                self.assertIsNone(_source_speech(line))
+                self.assertIsNone(_source_speech(line, set()))
 
     def test_dialogue_or_ambiguous_explanation_cannot_hide_in_action(self):
         for verb in ("说", "问", "答", "说明"):
@@ -476,7 +476,7 @@ class ConservativeActionTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNone(_non_speech_kind(line))
                 if verb != "说明":
-                    self.assertEqual(_source_speech(line), ("dialogue", "甲", "收到。"))
+                    self.assertEqual(_source_speech(line, set()), ("dialogue", "甲", "收到。"))
         for line in ("△甲一边铺纸一边说。", "△甲说明来路。", "△甲拿起说明书，说：收到。",
                      "△甲阅读说明书上的话：收到。", "△甲查看问卷并问他姓名。", "△甲放下答题卡，念出答案。"):
             with self.subTest(line=line):

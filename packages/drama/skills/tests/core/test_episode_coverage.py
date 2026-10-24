@@ -113,6 +113,133 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(record["source_sha256"], sha(SOURCE_01))
         self.assertEqual(paid_ready(self.root, ["01"])["status"], "passed")
 
+    def annotated_episode(self, annotation="抱臂在一旁看着，一脸轻松", shot_name="shots/第13集镜头脚本.md"):
+        source = f"13-1 院子 日 外\n人物：沈天赐、刘福贵（VO）\n沈天赐（{annotation}）：有多难？"
+        shot = "【镜头1】\n发声类型：dialogue\n台词：沈天赐：有多难？\n"
+        put(self.root / "episodes/13.txt", source)
+        put(self.root / shot_name, shot)
+        mapping = {"version": 1, "episode": "13", "source_sha256": sha(source), "shot_script": shot_name,
+                   "entries": [
+                       {"source_line": 1, "source_text": source.splitlines()[0], "kind": "scene", "shots": [1]},
+                       {"source_line": 2, "source_text": source.splitlines()[1], "kind": "scene", "shots": [1]},
+                       {"source_line": 3, "source_text": source.splitlines()[2], "kind": "dialogue", "shots": [1],
+                        "speaker": "沈天赐", "speech_text": "有多难？"}]}
+        put_json(self.root / "shots_and_matches/ep13-source-map.json", mapping)
+        put_json(self.root / "episodes/manifest.json", {
+            "version": 1, "expected_episode_count": 46, "work_scope": {"episode_ids": ["13"]},
+            "episodes": {"13": {"sha256": sha(source), "char_count": len(source)}}})
+
+    def test_listed_character_performance_can_be_audited_accepted_and_gated(self):
+        for annotation in ("抱臂在一旁看着，一脸轻松", "放下扁担", "跃跃欲试走上前",
+                           "痛叫一声，整担水哗啦泼洒在地", "一屁股瘫坐在地，耍赖大哭",
+                           "蹲下身扶起水桶，耐心地教导", "哭丧着脸", "捂着红肿发紫的肩膀吸气",
+                           "抹了一把汗水自言自语", "舀了一瓢水洗菜，头也不回", "正好路过，远远提醒",
+                           "擦了一把额头的汗珠，神气地扬起下巴", "不服气地辩解", "陶醉地喃喃自语",
+                           "得意忘形", "手忙脚乱地把小半块肉挂回去", "压低声音嘀咕", "慌张地取下帽子"):
+            with self.subTest(annotation=annotation):
+                self.annotated_episode(annotation)
+                result = write_pass_records(self.root, ["13"])
+                self.assertEqual(result["accept_status"], "passed", result["episodes"]["13"]["reasons"])
+                self.assertEqual(paid_ready(self.root, ["13"])["status"], "passed")
+
+    def direction_episode(self, direction, following="沈天赐：不是说两趟吗？"):
+        source = f"14-1 灶房 日 内\n人物：沈天赐、刘福贵\n{direction}\n{following}"
+        shot = "【镜头1】\n发声类型：dialogue\n台词：" + following + "\n"
+        put(self.root / "episodes/14.txt", source)
+        put(self.root / "shots/EP14-9x16.md", shot)
+        entries = [{"source_line": number, "source_text": line, "kind": kind, "shots": [1]}
+                   for number, (line, kind) in enumerate(zip(source.splitlines(), ["scene", "scene", "action", "dialogue"]), 1)]
+        entries[-1].update(speaker=following.split("：")[0], speech_text=following.split("：", 1)[1])
+        put_json(self.root / "shots_and_matches/ep14-source-map.json", {
+            "version": 1, "episode": "14", "source_sha256": sha(source),
+            "shot_script": "shots/EP14-9x16.md", "entries": entries})
+        self.manifest({"14": {"sha256": sha(source), "char_count": len(source)}}, 46)
+        manifest = json.loads((self.root / "episodes/manifest.json").read_text(encoding="utf-8"))
+        manifest["work_scope"] = {"episode_ids": ["14"]}
+        put_json(self.root / "episodes/manifest.json", manifest)
+
+    def test_direction_with_separate_following_dialogue_can_be_accepted_without_editing_source(self):
+        self.direction_episode("▲沈天赐瘫坐在灶台旁的矮凳上，两臂酸软地垂着，气喘吁吁地质问刘福贵。")
+        original = (self.root / "episodes/14.txt").read_bytes()
+        accepted = write_pass_records(self.root, ["14"], episode_only=True)
+        self.assertEqual(accepted["accept_status"], "passed", accepted["episodes"]["14"]["reasons"])
+        self.assertEqual(paid_ready(self.root, ["14"], episode_only=True)["status"], "passed")
+        self.assertEqual((self.root / "episodes/14.txt").read_bytes(), original)
+        self.assertEqual(accepted["episodes"]["14"]["speech_count"], 1)
+
+    def test_context_does_not_hide_payload_or_guess_different_speakers(self):
+        for direction, following in (
+                ("▲沈天赐低声说出秘密，再问刘福贵。", "沈天赐：不是说两趟吗？"),
+                ("▲沈天赐质问刘福贵：你骗我。", "沈天赐：不是说两趟吗？"),
+                ("▲沈天赐质问刘福贵。", "刘福贵：不是说两趟吗？"),
+                ("▲沈天赐质问刘福贵。", "沈天赐 VO：不是说两趟吗？"),
+                ("▲沈天赐（少年时期）质问刘福贵。", "沈天赐：不是说两趟吗？"),
+                ("▲沈天赐的替身质问刘福贵。", "沈天赐：不是说两趟吗？"),
+                ("▲沈天赐说刘福贵。", "沈天赐：不是说两趟吗？"),
+                ("▲沈天赐说明来路。", "沈天赐：不是说两趟吗？")):
+            with self.subTest(direction=direction, following=following):
+                self.direction_episode(direction, following)
+                self.assertNotEqual(write_pass_records(self.root, ["14"], episode_only=True)["accept_status"], "passed")
+
+    def test_matching_shot_annotations_keep_actual_speaker_and_voice_checks(self):
+        self.annotated_episode("捂着红肿发紫的肩膀吸气")
+        path = self.root / "shots/第13集镜头脚本.md"
+        for prefix, field, expected in (("沈天赐（捂着红肿发紫的肩膀吸气）", "沈天赐", "passed"),
+                                        ("沈天赐（少年时期）", "沈天赐", "failed"),
+                                        ("沈天赐（捂着肩膀吸气）", "刘福贵", "failed"),
+                                        ("刘福贵（擦汗）", "刘福贵", "failed")):
+            with self.subTest(prefix=prefix, field=field):
+                put(path, f"【镜头1】\n说话人：{field}\n发声类型：dialogue\n台词：{prefix}：有多难？\n")
+                result = audit_project(self.root)["episodes"]["13"]
+                self.assertEqual(result["status"], expected, result["reasons"])
+
+    def test_existing_ep_filename_is_valid_only_for_the_mapped_episode(self):
+        self.annotated_episode()
+        for name, expected in (("shots/EP13-9x16.md", "passed"), ("shots/EP013.md", "passed"),
+                               ("shots/EP130-9x16.md", "failed"), ("shots/EP12-9x16.md", "failed")):
+            with self.subTest(name=name):
+                old = self.root / "shots/第13集镜头脚本.md"
+                put(self.root / name, old.read_text(encoding="utf-8"))
+                path, mapping = self.mapping("13")
+                mapping["shot_script"] = name
+                put_json(path, mapping)
+                result = audit_project(self.root)["episodes"]["13"]
+                self.assertEqual(result["status"], expected, result["reasons"])
+
+    def test_identity_or_ambiguous_voice_annotation_stays_pending(self):
+        for annotation in ("少年时期", "假扮刘福贵，微笑", "画外音", "OS，哭丧着脸", "未知备注",
+                           "辩解“我没有”", "得意地念着'原文'", "喃喃「不要」", "笑着说“别吃”"):
+            with self.subTest(annotation=annotation):
+                self.annotated_episode(annotation)
+                self.assertEqual(audit_project(self.root)["episodes"]["13"]["status"], "pending")
+                self.assertEqual(write_pass_records(self.root, ["13"])["accept_status"], "blocked")
+
+    def test_annotation_does_not_hide_wrong_speaker_missing_words_or_voice(self):
+        for replacement in ("台词：刘福贵：有多难？", "台词：沈天赐：难？",
+                            "说话人：沈天赐\nOS：有多难？"):
+            with self.subTest(replacement=replacement):
+                self.annotated_episode()
+                put(self.root / "shots/第13集镜头脚本.md", "【镜头1】\n发声类型：dialogue\n" + replacement)
+                result = write_pass_records(self.root, ["13"])
+                self.assertEqual(result["episodes"]["13"]["status"], "failed")
+                self.assertEqual(result["accept_status"], "blocked")
+
+    def test_cli_accepts_annotated_ep_script_and_blocks_later_speech_changes(self):
+        self.annotated_episode(shot_name="shots/EP13-9x16.md")
+        script = Path(__file__).resolve().parents[2] / "skills/tweet-drama-core/scripts/episode_coverage.py"
+        source = (self.root / "episodes/13.txt").read_bytes()
+        for args, code in ((["accept", "13"], 0), (["gate", "13"], 0)):
+            result = subprocess.run([sys.executable, "-X", "utf8", "-B", str(script), str(self.root), *args],
+                                    capture_output=True, encoding="utf-8", timeout=30, check=False)
+            self.assertEqual(result.returncode, code, result.stderr + result.stdout)
+        self.assertEqual((self.root / "episodes/13.txt").read_bytes(), source)
+        self.assertEqual(json.loads((self.root / "episodes/manifest.json").read_text(encoding="utf-8"))["expected_episode_count"], 46)
+        put(self.root / "shots/EP13-9x16.md", "【镜头1】\n发声类型：dialogue\n台词：刘福贵：有多难？\n")
+        denied = subprocess.run([sys.executable, "-X", "utf8", "-B", str(script), str(self.root), "gate", "13"],
+                                capture_output=True, encoding="utf-8", timeout=30, check=False)
+        self.assertEqual(denied.returncode, 1, denied.stderr + denied.stdout)
+        self.assertEqual(json.loads(denied.stdout)["status"], "blocked")
+
     def test_complete_multiple_episodes_pass_in_order(self):
         self.manifest({"01": self.episode("01"), "02": self.episode("02")})
         result = write_pass_records(self.root)
@@ -131,6 +258,40 @@ class CoverageTests(unittest.TestCase):
         self.assertTrue(accepted["episodes"]["01"]["accepted"])
         self.assertEqual(paid_ready(self.root, ["01"])["status"], "passed")
         self.assertEqual(paid_ready(self.root, ["02"])["status"], "blocked")
+
+    def test_episode_only_acceptance_keeps_legacy_scope_and_real_content_checks(self):
+        self.manifest({"01": self.episode("01"), "02": self.episode("02")})
+        manifest_path = self.root / "episodes/manifest.json"
+        manifest_before = manifest_path.read_bytes()
+        self.assertEqual(write_pass_records(self.root, ["02"])["accept_status"], "blocked")
+        self.assertEqual(write_pass_records(self.root, ["02"], episode_only=True)["accept_status"], "passed")
+        self.assertEqual(paid_ready(self.root, ["02"], episode_only=True)["status"], "passed")
+        self.assertEqual(paid_ready(self.root, ["02"])["status"], "blocked")
+        self.assertEqual(paid_ready(self.root, ["03"], episode_only=True)["status"], "blocked")
+        self.assertEqual(paid_ready(self.root, ["01", "02"], episode_only=True)["status"], "blocked")
+        self.assertEqual(write_pass_records(self.root, episode_only=True)["accept_status"], "blocked")
+        self.assertEqual(manifest_path.read_bytes(), manifest_before)
+        self.assertFalse((self.root / "shots_and_matches/ep01-coverage-acceptance.json").exists())
+        put(self.root / "shots/第02集镜头脚本.md", SHOT_02.replace("第二集。", "改写了。"))
+        self.assertEqual(paid_ready(self.root, ["02"], episode_only=True)["status"], "blocked")
+        self.assertEqual(write_pass_records(self.root, ["02"], episode_only=True)["accept_status"], "blocked")
+        put(self.root / "shots/第02集镜头脚本.md", SHOT_02)
+        put(self.root / "episodes/01.txt", SOURCE_01 + "\n△新增动作。")
+        self.assertFalse(audit_project(self.root)["source_integrity"])
+        self.assertEqual(paid_ready(self.root, ["02"], episode_only=True)["status"], "blocked")
+
+    def test_episode_only_cli_does_not_allow_audit_batch_or_missing_evidence(self):
+        self.manifest({"01": self.episode("01"), "02": self.episode("02")})
+        script = Path(__file__).resolve().parents[2] / "skills/tweet-drama-core/scripts/episode_coverage.py"
+        for args, expected in ((["gate", "02", "--episode-only"], 1),
+                               (["accept", "02", "--episode-only"], 0),
+                               (["gate", "02", "--episode-only"], 0), (["gate", "02"], 1),
+                               (["audit", "--episode-only"], 2), (["accept", "--episode-only"], 2),
+                               (["gate", "01", "02", "--episode-only"], 2)):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, "-X", "utf8", "-B", str(script), str(self.root), *args],
+                                        capture_output=True, encoding="utf-8", timeout=30, check=False)
+                self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
 
     def test_splitter_default_without_episode_heading_can_pass(self):
         self.manifest({"01": self.episode("01"), "02": self.episode("02")})

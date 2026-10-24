@@ -676,6 +676,18 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build'),
       join(cwd, '.dsh/skills/tweet-drama-draft-build'), { recursive: true })
   },
+  async 'muse-prop-action-fit-skill'(cwd) {
+    for (const name of ['tweet-drama-core', 'tweet-drama-shot-asset-match', 'tweet-drama-asset-vision-check']) {
+      const target = join(cwd, '.dsh/skills', name, 'SKILL.md')
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
+    }
+  },
+  async 'muse-project-evidence-inspection'(cwd) {
+    const target = join(cwd, '.dsh/skills/tweet-drama-project-inspect/SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-inspect/SKILL.md'), target)
+  },
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
       join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })
@@ -1626,6 +1638,16 @@ describe('headless recorded-session snapshots', () => {
               expect(preview.payload.storyboardMaterialList).toEqual([{ ...receipt.selected_storyboard_references[0],
                 official: true, asset_status: 'confirmed' }])
             }
+            if (scenario.name === 'muse-shot-advisory') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result')
+              if (result?.type !== 'tool/result') throw new Error('Expected advisory shot preview')
+              const content = result.data.message.content[0]
+              if (content?.type !== 'text') throw new Error('Expected advisory shot report')
+              const report = JSON.parse(content.text) as { warnings: { code: string; shot: number }[] }
+              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'action_stages_missing', shot: 2 }))
+              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'performance_budget_missing', shot: 2 }))
+            }
             if (scenario.name === 'muse-shot-director-format') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
@@ -1708,6 +1730,8 @@ describe('headless recorded-session snapshots', () => {
               if (positive?.type !== 'text' || negative?.type !== 'text') throw new Error('Expected derived visual previews')
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
+              expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
+              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
               expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
                 .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
@@ -1785,11 +1809,11 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(preview.packages).toHaveLength(3)
               const identityPackage = preview.packages[0]
-              expect(identityPackage.material_keys).toEqual(['background', 'rain', 'snow'])
+              expect(identityPackage.material_keys).toEqual(['rain', 'snow', 'background'])
               expect(identityPackage.material_bindings).toEqual([
-                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
                 { material_key: 'rain', name: '温雨身份母版', type: '角色', official: true, asset_id: '71001', material_id: '81001', url: 'https://example.invalid/rain.png', reference_scope: 'identity' },
                 { material_key: 'snow', name: '温雪身份母版', type: '角色', official: true, asset_id: '71003', material_id: '81003', url: 'https://example.invalid/snow.png', reference_scope: 'identity' },
+                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
               ])
               expect(identityPackage.prompt).not.toContain('rain-repeat')
               expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
