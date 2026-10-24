@@ -116,7 +116,7 @@ def draft_font_choice(name: str | None) -> dict:
 
 def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
     """Resolve explicit delivery policy, body clock and a permitted already included ending."""
-    payload = json.loads(Path(timeline_path).read_text(encoding="utf-8")) if clips else {}
+    payload = json.loads(Path(timeline_path).read_text(encoding="utf-8-sig")) if clips else {}
     end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
     try:
         clock = _draft_inputs.body_clock(payload, end, TIMELINE_TOLERANCE_US, ENDING_DURATION_US)
@@ -807,7 +807,7 @@ def load_edit_timeline(timeline_path) -> dict:
     if not timeline_path or not Path(timeline_path).exists():
         return {}
     try:
-        with open(timeline_path, "r", encoding="utf-8") as handle:
+        with open(timeline_path, "r", encoding="utf-8-sig") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
         raise DraftInputError(f"时间线 {timeline_path} 读取失败: {exc}；修好这一集的时间线再重跑。") from exc
