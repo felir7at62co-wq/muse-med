@@ -4,6 +4,7 @@ import { basename, dirname, relative } from 'node:path'
 import { reviewEventCurrent } from './review-events.ts'
 import { reviewImage, type VideoReview } from './review-state.ts'
 import type { ReviewSpeech, ReviewSpeechUnavailable } from './review-speech.ts'
+import type { VideoTranscriptResolution } from './review-transcript.ts'
 
 /** Source-only selection; fixed time windows do not assert scene or action boundaries. */
 export interface VideoTimelineSelection {
@@ -52,6 +53,7 @@ export interface VideoSourceTimeline {
   }[]
   speech?: ReviewSpeech
   speech_unavailable?: ReviewSpeechUnavailable
+  transcript_resolution?: VideoTranscriptResolution
   notice: string
 }
 
@@ -65,10 +67,11 @@ function overlaps(start: number, end: number, left: number, right: number, closi
  * @param selection - Explicit time-window budget and optional source interval.
  * @param speech - Complete original saved ASR; source association remains caller supplied.
  * @param unavailable - Optional diagnostic for a saved ASR source that cannot safely be reused.
+ * @param resolution - Explicit-reference or current-task read-candidate selection, without claiming shared source identity.
  * @returns Selected time windows, original overlapping ASR rows and an identity for these exact materials.
  */
 export function buildVideoSourceTimeline(review: VideoReview, selection: VideoTimelineSelection,
-  speech?: ReviewSpeech, unavailable?: ReviewSpeechUnavailable): VideoSourceTimeline {
+  speech?: ReviewSpeech, unavailable?: ReviewSpeechUnavailable, resolution?: VideoTranscriptResolution): VideoSourceTimeline {
   const start = selection.startSeconds ?? 0, end = selection.endSeconds ?? review.duration
   if (!Number.isFinite(selection.windowSeconds) || selection.windowSeconds <= 0 || !Number.isFinite(start)
     || !Number.isFinite(end) || start < 0 || end > review.duration || start >= end) {
@@ -110,13 +113,22 @@ export function buildVideoSourceTimeline(review: VideoReview, selection: VideoTi
   const scope = { start_seconds: start, end_seconds: end, full_episode: start === 0 && end === review.duration,
     window_seconds: selection.windowSeconds }
   const materials = { source, scope, windows, ...selectedSpeech === undefined ? {} : { speech: selectedSpeech },
-    ...unavailable === undefined ? {} : { speech_unavailable: unavailable } }
+    ...unavailable === undefined ? {} : { speech_unavailable: unavailable },
+    ...resolution === undefined ? {} : { transcript_resolution: resolution } }
   const { review_id: _id, ...sourceIdentity } = source
+  const normalizedPath = (path: string) => relative(dirname(review.path), path).replaceAll('\\', '/')
+  const normalizedReference = (reference: NonNullable<VideoTranscriptResolution['reference']>) => ({
+    ...reference, path: normalizedPath(reference.path) })
   const digestMaterials = { ...materials, source: { ...sourceIdentity, path: basename(source.path) },
     ...selectedSpeech === undefined ? {} : { speech: { ...selectedSpeech,
-      source: { ...selectedSpeech.source, path: relative(dirname(review.path), selectedSpeech.source.path) } } },
-    ...unavailable === undefined ? {} : { speech_unavailable: { ...unavailable,
-      reference: { ...unavailable.reference, path: relative(dirname(review.path), unavailable.reference.path) } } } }
+      source: { ...selectedSpeech.source, path: normalizedPath(selectedSpeech.source.path) } } },
+    ...unavailable === undefined ? {} : { speech_unavailable: { reference: normalizedReference(unavailable.reference),
+      ...unavailable.current_version === undefined ? {} : { current_version: unavailable.current_version } } },
+    ...resolution === undefined ? {} : { transcript_resolution: { kind: resolution.kind,
+      ...resolution.reference === undefined ? {} : { reference: normalizedReference(resolution.reference) },
+      diagnostics: resolution.diagnostics.map(diagnostic => ({ path: normalizedPath(diagnostic.path), status: diagnostic.status,
+        ...diagnostic.reference === undefined ? {} : { reference: normalizedReference(diagnostic.reference) } }))
+        .sort((a, b) => a.path.localeCompare(b.path) || a.status.localeCompare(b.status)) } } }
   return { advisory: true, semantic_assessment: 'not_performed', ...materials,
     material_sha256: createHash('sha256').update(JSON.stringify(digestMaterials)).digest('hex'),
     notice: '按实际时间并列画面记录、动作笔记和ASR原段；时间窗不是换场或动作分界。观察与事件均由模型记录，不代表动作已经核实。'

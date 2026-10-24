@@ -4662,7 +4662,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:33`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:35`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */

@@ -17,5 +17,7 @@
   "guidanceDidNotBlockDelivery": true,
   "mixedActionDialogueCandidateVisible": true,
   "savedDraftSourceMaterialsLogged": true,
-  "cachedSourceImageReturned": true
+  "cachedSourceImageReturned": true,
+  "successfulAsrReadCandidateUsed": true,
+  "explicitTranscriptReferenceRequired": false
 }

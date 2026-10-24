@@ -45,8 +45,6 @@ export async function apply(ctx) {
       data: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgZGIGAAAOAAeCcsnOAAAAAElFTkSuQmCC', 'base64') })
     agent.session.append('video/review', { kind: 'start', review: { id: video.VideoReviewId('manuscript-source-review'),
       episode: '第1集', path, source_version: 'snapshot-manuscript-source.mp4', duration: 2, scanned_until: 2, scan_complete: true,
-      transcript_reference: { path: transcript, version: 'snapshot-manuscript-asr.json',
-        sha256: createHash('sha256').update(text).digest('hex') },
       frames: [{ id: 'F00001', time: 0, reasons: ['opening'], image, exposed: true,
         observation: { visible: '测试用单像素图像只用于核对缓存图片回灌通路。', change: '没有人物动作语义结论。', uncertainty: '' } }],
     } })
@@ -81,10 +79,17 @@ export async function apply(ctx) {
       && message.source.kind === 'muse-manuscript' && message.content.some(block => block.type === 'text'
         && block.text.startsWith('{"manuscript_video_evidence":')))
     assert.ok(sourceNotices.length >= 2, 'Actual changed manuscript versions return source materials into logged model context')
-    const firstSource = JSON.parse(sourceNotices[0].content.find(block => block.type === 'text').text).manuscript_video_evidence
+    const candidateSource = sourceNotices.find(message => JSON.parse(message.content.find(block => block.type === 'text').text)
+      .manuscript_video_evidence.receipt.path === join(cwd, 'documents', 'candidate.md'))
+    assert.ok(candidateSource, 'The source comparison must belong to the actual saved candidate, not the earlier returned document')
+    const firstSource = JSON.parse(candidateSource.content.find(block => block.type === 'text').text).manuscript_video_evidence
     assert.equal(firstSource.semantic_assessment, 'not_performed')
     assert.equal(firstSource.scenes[0].speech.segments[0].text, '我不会走。')
-    assert.ok(sourceNotices[0].content.some(block => block.type === 'image'), 'The source return carries the cached image block')
+    assert.equal(firstSource.scenes[0].transcript_resolution.kind, 'successful_read_candidate')
+    assert.equal(firstSource.scenes[0].transcript_resolution.read_receipts[0].readCallId, 'call_manuscript_asr_read')
+    assert.ok(candidateSource.content.some(block => block.type === 'image'), 'The candidate source return carries the cached image block')
+    assert.equal(sourceNotices[0].content.some(block => block.type === 'image'), false,
+      'The initial returned manuscript has no ASR read yet and must not receive unaligned automatic images')
     assert.equal(firstSource.image_delivery, 'cached_blocks_returned_not_admission_or_understanding')
     for (const id of ['call_work_bind', 'call_work_scene', 'call_work_audit']) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
@@ -154,7 +159,8 @@ export async function apply(ctx) {
       restartVerifiedByThisScenario: false, shellWriteReconciled: true, duplicateHeadingAdvisoryVisible: true,
       guidanceWriteAccepted: true, guidanceReadAttributed: true, guidanceUnsourcedCandidateVisible: true,
       guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true,
-      savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true }
+      savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true,
+      successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.

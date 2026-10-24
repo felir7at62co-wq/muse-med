@@ -3,8 +3,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { reviewsOf, reviewImage, type VideoReviewId } from './review-state.ts'
-import { reviewSpeech, type ReviewSpeechLink, type ReviewTranscriptReference } from './review-speech.ts'
+import type { ReviewTranscriptReference } from './review-speech.ts'
 import { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
+import { resolveReviewTranscript, type VideoTranscriptCandidates } from './review-transcript.ts'
 
 /** Current logged video identity and its explicitly associated saved ASR, without reading source files. */
 export interface VideoReviewSummary {
@@ -25,6 +26,8 @@ export interface VideoSourceTimelineReadOptions extends VideoTimelineSelection {
   maxFrames: number
   /** Actual selected frame identities; each must lie inside the requested interval. */
   frameIds?: readonly string[]
+  /** Host-verified current-task successful JSON reads; one same-directory ASR may be returned as an unverified candidate. */
+  transcriptCandidates?: VideoTranscriptCandidates
 }
 
 /** One version-checked source timeline and model-ready text and optional original image blocks. */
@@ -64,35 +67,8 @@ export async function readVideoSourceTimeline(ctx: Context, session: Session, re
   if ((await ctx.fs.stat(source, signal))?.version !== review.source_version) {
     throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，本次未返回旧版时间线。')
   }
-  let speech: ReviewSpeechLink = {}
-  let speechStillCurrent: (() => Promise<boolean>) | undefined
-  const reference = review.transcript_reference
-  if (reference !== undefined) {
-    let currentVersion: string | undefined
-    try {
-      const target = await ctx.fs.resolve(reference.path, { cwd: policy.workspaceRoot, signal })
-      const before = await ctx.fs.stat(target, signal)
-      currentVersion = before?.version
-      if (before?.version !== reference.version) throw Error('VIDEO_TRANSCRIPT_CHANGED: 已关联ASR的版本变化或文件缺失。')
-      if (before.type !== 'file' || before.size === undefined || before.size > options.maxTranscriptBytes) {
-        throw Error('VIDEO_TRANSCRIPT_SIZE: 已关联ASR超出本次完整读取上限。')
-      }
-      const bytes = await ctx.fs.readBytes(target, signal, options.maxTranscriptBytes)
-      const parsed = reviewSpeech({ path: target.displayPath, version: before.version,
-        text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) }, review.duration)
-      if ((await ctx.fs.stat(target, signal))?.version !== before.version || parsed.source.sha256 !== reference.sha256) {
-        throw Error('VIDEO_TRANSCRIPT_CHANGED: 已关联ASR在读取期间变化或摘要不匹配。')
-      }
-      speech = { speech: parsed }
-      speechStillCurrent = async () => (await ctx.fs.stat(target, signal))?.version === before.version
-    } catch (error) {
-      signal.throwIfAborted()
-      speech = { speech_unavailable: { reference, ...currentVersion === undefined ? {} : { current_version: currentVersion },
-        reason: (error instanceof Error ? error.message : String(error)).slice(0, 2000),
-        notice: '本次未使用不匹配或不可读的ASR；画面时间线仍可核对，未更换来源或提交新的转写。' } }
-    }
-  }
-  let timeline = buildVideoSourceTimeline(review, options, speech.speech, speech.speech_unavailable)
+  const resolved = await resolveReviewTranscript(ctx, review, source, options, policy.workspaceRoot, signal)
+  let timeline = buildVideoSourceTimeline(review, options, resolved.link.speech, resolved.link.speech_unavailable, resolved.resolution)
   const frameIds = options.frameIds ?? []
   if (frameIds.length > options.maxFrames || new Set(frameIds).size !== frameIds.length) {
     throw Error('VIDEO_TIMELINE_IMAGES: 缓存原图数量超限或frame_id重复；本次未截断选择。')
@@ -115,17 +91,21 @@ export async function readVideoSourceTimeline(ctx: Context, session: Session, re
       { type: 'image', attachment: image })
   }
   let changedSpeech: string | undefined
-  if (speechStillCurrent !== undefined) {
+  if (resolved.stillCurrent !== undefined) {
     try {
-      if (!await speechStillCurrent()) changedSpeech = 'VIDEO_TRANSCRIPT_CHANGED: ASR在读取缓存图片期间变化。'
+      if (!await resolved.stillCurrent()) changedSpeech = 'VIDEO_TRANSCRIPT_CHANGED: ASR在读取缓存图片期间变化。'
     } catch (error) {
       signal.throwIfAborted()
       changedSpeech = (error instanceof Error ? error.message : String(error)).slice(0, 2000)
     }
   }
-  if (reference !== undefined && changedSpeech !== undefined) {
-    timeline = buildVideoSourceTimeline(review, options, undefined, { reference,
-      reason: changedSpeech, notice: '本次仅返回画面材料，未使用变化后的ASR或提交新转写。' })
+  if (resolved.reference !== undefined && changedSpeech !== undefined) {
+    const resolution = resolved.resolution?.kind === 'successful_read_candidate' ? { ...resolved.resolution,
+      kind: 'unavailable' as const, diagnostics: resolved.resolution.diagnostics.map(diagnostic =>
+        diagnostic.status === 'valid' ? { ...diagnostic, status: 'unavailable' as const, reason: changedSpeech } : diagnostic) }
+      : resolved.resolution
+    timeline = buildVideoSourceTimeline(review, options, undefined, { reference: resolved.reference,
+      reason: changedSpeech, notice: '本次仅返回画面材料，未使用变化后的ASR或提交新转写。' }, resolution)
     content[0] = { type: 'text', text: JSON.stringify({ video_source_timeline: timeline }) }
   }
   const result = { timeline, content }

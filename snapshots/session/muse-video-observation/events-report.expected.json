@@ -27,7 +27,7 @@
       "observation": {
         "visible": "画面是合成的单色背景，没有人物、动作或道具。",
         "change": "对照相邻画面的颜色变化。",
-        "uncertainty": ""
+        "uncertainty": "无新增疑点"
       }
     },
     {
@@ -139,7 +139,7 @@
       "uncertainty": "",
       "start_seconds": 0,
       "end_seconds": 2,
-      "observation_digest": "4ec9293109cce0620a21de0c1836cb1c8cd44fa8cb1247a2b3b6b9af2e28b480"
+      "observation_digest": "2011a6f0ddedd258a04857378ac36fe3a55c0065112b7e5bdba73e2e3ea79fe3"
     }
   ],
   "transcript_reference": {

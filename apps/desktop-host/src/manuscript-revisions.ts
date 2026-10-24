@@ -15,7 +15,8 @@ import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscr
 import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
 import { ManuscriptWork } from './manuscript-work.ts'
 import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
-import { ManuscriptVideoEvidence } from './manuscript-video-evidence.ts'
+import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs } from './manuscript-video-evidence.ts'
+import { installManuscriptVideoReads } from './manuscript-video-reads.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -309,6 +310,7 @@ export function apply(ctx: Context, config: Config): void {
   const videoEvidence = new ManuscriptVideoEvidence(config)
   let videoSourceContext: Context | undefined
   ctx.inject(['fs', 'attachments', 'sandboxPolicy', 'sessionProjections'], (scope) => {
+    installManuscriptVideoReads(scope, (message, cwd) => manuscriptDeclaredOutputs([message], cwd).length > 0)
     scope.effect(() => {
       videoSourceContext = scope
       return () => { if (videoSourceContext === scope) videoSourceContext = undefined }

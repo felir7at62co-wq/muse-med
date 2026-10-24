@@ -8,7 +8,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import NodeRuntime from '@deepseek-ai/dsh-ptc-runtime-node'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { LlmAdapter, ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -225,10 +225,27 @@ it('keeps source timeline failures advisory and refuses stale sources, missing c
   expect(h.review().frames.at(-1)?.observation).toBeUndefined()
 }, 30_000)
 
-it('drops optional ASR that changes while cached frames are read without resubmitting transcription or changing observations', async () => {
+it('returns same-directory successful-read ASR candidates and cached images when scan omitted an explicit transcript', async () => {
+  const h = await fixture(), transcript = join(h.root, 'candidate-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 1, end: 2, text: '先放下茶杯。', speaker_id: '1' }]))
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), frame = h.review().frames.find(value => value.observation !== undefined)!
+  const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
+    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
+      transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
+        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) }] } }, new AbortController().signal)
+  expect(result.timeline.transcript_resolution).toMatchObject({ kind: 'successful_read_candidate', same_source_verified: false,
+    reference: { path: transcript }, read_receipts: [{ readCallId: 'successful-read' }] })
+  expect(result.timeline.speech?.segments[0]?.text).toBe('先放下茶杯。')
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(h.review().transcript_reference).toBeUndefined()
+}, 30_000)
+
+it.each(['explicit', 'candidate'])('drops %s ASR that changes while cached frames are read without resubmitting transcription or changing observations', async (association) => {
   const h = await fixture(), transcript = join(h.root, 'timeline-asr.json')
   await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '旧台词。', speaker_id: '1' }]))
-  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  await h.run(h.call('scan', association === 'explicit' ? { transcript_path: transcript } : {}), h.record, undefined)
   const before = JSON.stringify(h.review()), frame = h.review().frames.find(value => value.observation !== undefined)!
   const original = h.ctx.attachments.readImage.bind(h.ctx.attachments)
   vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
@@ -237,9 +254,12 @@ it('drops optional ASR that changes while cached frames are read without resubmi
     return image
   })
   const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
-    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }, new AbortController().signal)
+    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
+      transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
+        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) }] } }, new AbortController().signal)
   expect(result.timeline.speech).toBeUndefined()
   expect(result.timeline.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
+  expect(result.timeline.transcript_resolution?.kind).toBe(association === 'explicit' ? 'explicit_reference' : 'unavailable')
   expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
   expect(JSON.stringify(result)).not.toContain('旧台词')
   expect(JSON.stringify(result)).not.toContain('新台词')
@@ -743,7 +763,7 @@ it('adds bounded adjacent observations when a viewed frame remains uncertain', a
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
 }, 30_000)
 
-it.each(['无', '无。', '无疑点！', ' None. ', ' n / a； '])('retains the empty marker %s without expanding context frames', async (uncertainty) => {
+it.each(['无', '无。', '无疑点！', '无新增疑点', '没有新增疑点。', '未发现新增疑点', ' None. ', ' n / a； '])('retains the empty marker %s without expanding context frames', async (uncertainty) => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)
   const count = h.review().frames.length

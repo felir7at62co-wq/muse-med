@@ -144,5 +144,5 @@ export function pendingReview(review: VideoReview): number {
  */
 export function hasReviewUncertainty(value: string): boolean {
   const text = value.trim()
-  return text.length > 0 && !/^(?:无|无疑点|none|n\s*\/\s*a)\s*[。.!！,，;；:：]?\s*$/iu.test(text)
+  return text.length > 0 && !/^(?:无|无(?:新增)?疑点|没有新增疑点|未发现(?:新增)?疑点|none|n\s*\/\s*a)\s*[。.!！,，;；:：]?\s*$/iu.test(text)
 }

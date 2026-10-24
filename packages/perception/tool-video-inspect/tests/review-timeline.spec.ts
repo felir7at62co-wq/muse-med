@@ -4,6 +4,9 @@ import { buildVideoSourceTimeline } from '../src/review-timeline.ts'
 import { bindReviewEvents } from '../src/review-events.ts'
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId, type VideoReview } from '../src/review-state.ts'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
+import type { VideoTranscriptResolution } from '../src/review-transcript.ts'
 
 function source(): VideoReview {
   return { id: VideoReviewId('review-1'), path: 'episode.mp4', episode: '第4集', source_version: 'v1', duration: 6,
@@ -77,6 +80,23 @@ it('keeps equivalent workspace-copy digests stable without replacing actual sour
   expect(second.source.path).toBe('/second/project/episode.mp4')
   expect(second.source.review_id).toBe('other-review')
   expect(second.speech?.source.path).toBe('/second/project/asr.json')
+})
+
+it('keeps candidate receipt and diagnostic paths out of material identity while preserving actual source revisions', () => {
+  const timeline = (root: string, call: string, sha256: string) => {
+    const review = { ...source(), path: `${root}/source.mp4` }
+    const resolution: VideoTranscriptResolution = { kind: 'successful_read_candidate', same_source_verified: false,
+      reference: { path: `${root}/asr.json`, version: 'asr-v1', sha256 },
+      read_receipts: [{ path: `${root}/asr.json`, readCallId: ToolCallId(call), readResultSeq: SessionSeq(call === 'first' ? 5 : 9) }],
+      diagnostics: [{ path: `${root}/invalid.json`, status: 'unavailable', reason: `${root}/invalid.json: missing` },
+        { path: `${root}/asr.json`, status: 'valid', reference: { path: `${root}/asr.json`, version: 'asr-v1', sha256 } }] }
+    return buildVideoSourceTimeline(review, { windowSeconds: 2 }, undefined, undefined, resolution)
+  }
+  const first = timeline('/one/project', 'first', 'old-hash'), copied = timeline('/two/project', 'second', 'old-hash')
+  expect(first.material_sha256).toBe(copied.material_sha256)
+  expect(copied.transcript_resolution?.read_receipts?.[0]?.readCallId).toBe('second')
+  expect(copied.transcript_resolution?.diagnostics[0]?.reason).toBe('/two/project/invalid.json: missing')
+  expect(timeline('/two/project', 'second', 'new-hash').material_sha256).not.toBe(first.material_sha256)
 })
 
 it.each([{ windowSeconds: 0 }, { windowSeconds: Infinity }, { windowSeconds: 2, startSeconds: -1 },

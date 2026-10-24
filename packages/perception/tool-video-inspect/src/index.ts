@@ -21,7 +21,9 @@ export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type Tru
 export { videoReviewSummaries, readVideoSourceTimeline, type VideoReviewSummary,
   type VideoSourceTimelineReadOptions, type VideoSourceTimelineContent } from './review-source.ts'
 export { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
-export { VideoReviewId } from './review-state.ts'
+export { VideoReviewId, hasReviewUncertainty } from './review-state.ts'
+export type { VideoTranscriptReadReceipt, VideoTranscriptCandidates, VideoTranscriptCandidateDiagnostic,
+  VideoTranscriptResolution } from './review-transcript.ts'
 
 /** Plugin name for video observations. */
 export const name = 'tool-video-inspect'

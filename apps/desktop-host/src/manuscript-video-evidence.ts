@@ -4,11 +4,12 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import { readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
+import { hasReviewUncertainty, readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
+import { manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
 
 const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
   action: z.string().optional(), candidate_paths: z.array(z.string()).optional() })
@@ -25,6 +26,7 @@ interface MaterialCache {
 }
 const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_key: z.string(),
   source_material_sha256: z.string(),
+  source_identity_sha256: z.string().optional(),
   returned_frames: z.array(z.object({ review_id: z.string(), frame_id: z.string() })),
   scene_versions: z.array(z.object({ id: z.string(), sha256: z.string() })) })
 type Receipt = z.infer<typeof receiptSchema> & { offloaded_frames?: string[] }
@@ -179,45 +181,122 @@ export function manuscriptEpisodeNumber(value: string): string | undefined {
 
 function normalizedSpeech(value: string): string { return value.replace(/[^\p{L}\p{N}]/gu, '') }
 
-function sceneSpeech(scene: ManuscriptScene): string[] {
-  return scene.text.split('\n').flatMap((line) => {
-    if (/^\s*[▲△]/u.test(line)) return []
-    const match = /^\s*([^：:\n]+)[：:]\s*(.+)$/u.exec(line)
+function sceneSpeech(scene: ManuscriptScene) {
+  return scene.text.split('\n').flatMap((quote, offset) => {
+    if (/^\s*[▲△]/u.test(quote)) return []
+    const match = /^\s*([^：:\n]+)[：:]\s*(.+)$/u.exec(quote)
     if (!match?.[2] || /^(?:人物|地点|场景|时间)$/u.test(match[1]?.trim() ?? '')) return []
     const text = normalizedSpeech(match[2])
-    return text ? [text] : []
+    return text ? [{ line: scene.startLine + offset, quote, text }] : []
+  })
+}
+
+function sceneVisualQueries(scene: ManuscriptScene) {
+  return scene.text.split('\n').flatMap((quote, offset) => {
+    const action = /^\s*[▲△]\s*(.+)$/u.exec(quote)?.[1]
+    const parenthetical = /^\s*[^：:\n（(]+[（(]([^）)]+)[）)]\s*[：:]/u.exec(quote)?.[1]
+    const text = action ?? parenthetical
+    return text === undefined ? [] : [{ line: scene.startLine + offset, quote,
+      kind: action === undefined ? 'dialogue_parenthetical' : 'action_line', text }]
   })
 }
 
 /**
- * Locate exact ASR text candidates inside one current scene, preserving ambiguous matches.
+ * Locate actual manuscript lines against saved ASR, retaining silent spans and every literal ambiguity.
  * @param scene - Complete current scene with actual line locations.
  * @param timeline - Verified current video material and original saved ASR rows.
- * @returns Candidate time windows and source anchors; a match does not verify speaker identity or semantic alignment.
+ * @returns Candidate source windows, line anchors and literal visual queries; no semantic coverage verdict.
  */
 export function manuscriptSourceWindows(scene: ManuscriptScene, timeline: VideoSourceTimeline) {
   const speech = sceneSpeech(scene)
-  const segments = timeline.speech?.segments.filter((segment) => {
+  const anchors = speech.flatMap(line => (timeline.speech?.segments ?? []).flatMap((segment) => {
     const text = normalizedSpeech(segment.text)
-    return text.length > 0 && speech.some(line => line.includes(text) || text.includes(line))
-  }) ?? []
-  const anchors = segments.map(segment => ({ segment_id: segment.segment_id, start_seconds: segment.start_seconds,
-    end_seconds: segment.end_seconds, source_text: segment.text }))
-  const repeated = segments.filter((segment, index) => segments.some((other, otherIndex) => otherIndex !== index
-    && normalizedSpeech(other.text) === normalizedSpeech(segment.text)))
-  const start = segments.length ? Math.min(...segments.map(segment => segment.start_seconds)) - timeline.scope.window_seconds : undefined
-  const end = segments.length ? Math.max(...segments.map(segment => segment.end_seconds)) + timeline.scope.window_seconds : undefined
+    if (!text || !line.text.includes(text) && !text.includes(line.text)) return []
+    return [{ draft_line: line.line, draft_quote: line.quote, segment_id: segment.segment_id,
+      start_seconds: segment.start_seconds, end_seconds: segment.end_seconds, source_text: segment.text,
+      literal_match: text === line.text ? 'exact' : text.includes(line.text) ? 'source_contains_draft' : 'draft_contains_source',
+      matched_characters: Math.min(Array.from(text).length, Array.from(line.text).length) }]
+  }))
+  const repeated = (timeline.speech?.segments ?? []).filter(segment => anchors.some(anchor => anchor.segment_id === segment.segment_id)
+    && timeline.speech?.segments.some(other => other.segment_id !== segment.segment_id
+      && normalizedSpeech(other.text) === normalizedSpeech(segment.text)))
+  const lineCandidates = speech.map(line => ({ ...line, candidates: anchors.filter(anchor => anchor.draft_line === line.line) }))
+  const betweenLines = lineCandidates.slice(1).map((line, index) => {
+    const previous = lineCandidates[index]
+    const shared = previous?.candidates.filter(left => line.candidates.some(right => right.segment_id === left.segment_id)) ?? []
+    return { previous_line: previous?.line, current_line: line.line,
+      relation: shared.length ? 'within_same_speech' : !previous?.candidates.length || !line.candidates.length
+        ? 'not_aligned' : 'between_speech_candidates_not_an_event',
+      ambiguous_source_matches: (previous?.candidates.length ?? 0) > 1 || line.candidates.length > 1,
+      shared_segment_ids: [...new Set(shared.map(anchor => anchor.segment_id))],
+      previous_candidates: previous?.candidates ?? [], current_candidates: line.candidates }
+  })
+  const start = anchors.length ? Math.min(...anchors.map(anchor => anchor.start_seconds)) - timeline.scope.window_seconds : undefined
+  const end = anchors.length ? Math.max(...anchors.map(anchor => anchor.end_seconds)) + timeline.scope.window_seconds : undefined
   const windows = start === undefined || end === undefined ? timeline.windows
     : timeline.windows.filter(window => window.end_seconds > start && window.start_seconds < end)
-  return { basis: segments.length ? 'literal_asr_text_candidates' : 'source_order_not_aligned',
-    anchors, windows, repeated_source_text_segment_ids: repeated.map(segment => segment.segment_id),
-    notice: '字面对应仅为定位候选；保留锚之间的连续画面和前后时间窗，包含无对白段，不把ASR当画面筛选条件。短句、语气词及重复台词保留全部命中，不作精确场景对齐或角色识别。未自动判断动作遗漏、前后衔接或剧情通过。' }
+  const visualQueries = sceneVisualQueries(scene).map((query) => {
+    const own = lineCandidates.find(line => line.line === query.line)
+    const previous = lineCandidates.findLast(line => line.line < query.line)
+    const next = lineCandidates.find(line => line.line > query.line)
+    const ranges = query.kind === 'dialogue_parenthetical'
+      ? (own?.candidates ?? []).map(anchor => ({ start_seconds: anchor.start_seconds, end_seconds: anchor.end_seconds,
+        relation: 'within_speech_candidate', segment_ids: [anchor.segment_id] }))
+      : previous !== undefined && next !== undefined ? previous.candidates.flatMap(left => next.candidates.flatMap((right) => {
+        if (left.segment_id === right.segment_id) return [{ start_seconds: left.start_seconds, end_seconds: left.end_seconds,
+          relation: 'within_same_speech', segment_ids: [left.segment_id] }]
+        return left.end_seconds <= right.start_seconds ? [{ start_seconds: left.end_seconds, end_seconds: right.start_seconds,
+          relation: 'between_speech_candidates_not_an_event', segment_ids: [left.segment_id, right.segment_id] }] : []
+      })) : previous !== undefined ? previous.candidates.map(anchor => ({ start_seconds: anchor.end_seconds,
+        end_seconds: windows.at(-1)?.end_seconds ?? anchor.end_seconds, relation: 'after_speech_candidate',
+        segment_ids: [anchor.segment_id] })) : (next?.candidates ?? []).map(anchor => ({
+        start_seconds: windows[0]?.start_seconds ?? anchor.start_seconds, end_seconds: anchor.start_seconds,
+        relation: 'before_speech_candidate', segment_ids: [anchor.segment_id] }))
+    return { ...query, time_candidates: ranges,
+      temporal_alignment: ranges.length ? 'literal_speech_time_candidates' : 'not_aligned',
+      source_ambiguity_retained: ranges.length > 1 }
+  })
+  return { basis: anchors.length ? 'literal_asr_text_candidates' : 'source_order_not_aligned',
+    anchors, line_candidates: lineCandidates, between_dialogue_lines: betweenLines,
+    visual_queries: visualQueries, windows, window_seconds: timeline.scope.window_seconds,
+    image_selection_scope: visualQueries.some(query => query.time_candidates.length > 0)
+      ? 'visual_query_time_candidates' : 'scene_speech_span_candidates',
+    automatic_images: anchors.length ? 'bounded_local_candidates' : 'none_without_source_anchor',
+    repeated_source_text_segment_ids: repeated.map(segment => segment.segment_id),
+    notice: '正文行号与ASR字面对应仅为定位候选；短句、语气词及重复台词保留全部命中，不作精确场景对齐或角色识别。'
+      + '保留锚之间的连续画面和前后时间窗，包含无对白段；同一ASR原段对应两行标为within_same_speech，行间不制造动作空隙。'
+      + '▲和括注原句仅作缓存画面笔记的字面检索，不推断动作含义或规定正文写法；无ASR锚时仅列全片索引，不自动重显图片或假称局部对齐。未自动判断动作遗漏、衔接或剧情通过。' }
 }
 
-function framesFor(location: ReturnType<typeof manuscriptSourceWindows>, count: number, excluded: ReadonlySet<string>): string[] {
-  const frames = [...new Map(location.windows.flatMap(window => window.frames).filter(frame => frame.image_available
-    && frame.observation_source === 'model_authored_observation')
+function visualWords(text: string): Set<string> {
+  const letters = Array.from(normalizedSpeech(text))
+  return new Set(letters.slice(1).map((letter, index) => (letters[index] ?? '') + letter))
+}
+
+/**
+ * Select a bounded, temporally distributed subset from already observed local cache frames.
+ * @param location - Literal manuscript/ASR candidates; an unaligned episode index supplies no automatic images.
+ * @param count - Available image budget, shared by the current refresh.
+ * @param excluded - Frame ids already returned for this scene/source revision.
+ * @returns Cached frame identities; retrieval scores do not verify actions or model understanding.
+ */
+export function manuscriptEvidenceFrames(location: ReturnType<typeof manuscriptSourceWindows>, count: number,
+  excluded: ReadonlySet<string>): string[] {
+  if (!location.anchors.length || count <= 0) return []
+  const queries = location.visual_queries.map(query => ({ words: visualWords(query.text), ranges: query.time_candidates }))
+  const hasTimedQueries = queries.some(query => query.ranges.length > 0)
+  const inQueryTime = (time: number, query: typeof queries[number]) => query.ranges.some(range =>
+    time >= range.start_seconds - location.window_seconds && time <= range.end_seconds + location.window_seconds)
+  const frames = [...new Map(location.windows.flatMap(window => window.frames.map(frame => ({ ...frame, window: window.window_id })))
+    .filter(frame => frame.image_available && frame.observation_source === 'model_authored_observation'
+      && !excluded.has(frame.frame_id) && (!hasTimedQueries || queries.some(query => inQueryTime(frame.time, query))))
     .map(frame => [frame.frame_id, frame])).values()]
+  const temporalMatches = new Map(frames.map(frame => [frame.frame_id, queries.map(query => inQueryTime(frame.time, query))]))
+  const matchesByFrame = new Map(frames.map((frame) => {
+    const words = visualWords([frame.observation?.visible, frame.observation?.change].join('\n'))
+    return [frame.frame_id, queries.map((query, index) => temporalMatches.get(frame.frame_id)?.[index]
+      ? [...query.words].filter(word => words.has(word)).length : 0)] as const
+  }))
   const eventBoundaries = new Set(location.windows.flatMap(window => window.event_notes.flatMap(note =>
     [note.frame_ids[0], note.frame_ids.at(-1)].filter((id): id is string => id !== undefined))))
   const speechNeighbors = new Set(location.anchors.flatMap(anchor => [anchor.start_seconds, anchor.end_seconds]
@@ -225,20 +304,31 @@ function framesFor(location: ReturnType<typeof manuscriptSourceWindows>, count: 
       const before = frames.findLast(frame => frame.time <= time), after = frames.find(frame => frame.time >= time)
       return [before?.frame_id, after?.frame_id].filter((id): id is string => id !== undefined)
     })))
-  const priority = (frame: typeof frames[number]) => [
-    frame.observation?.uncertainty.trim() && !/^(?:无|无疑点|none|n\s*\/\s*a)[。.!！]?$/iu.test(frame.observation.uncertainty.trim()) ? 1 : 0,
-    eventBoundaries.has(frame.frame_id) ? 1 : 0,
-    speechNeighbors.has(frame.frame_id) ? 1 : 0,
-    frame.observation?.change && frame.reasons.some(reason => /cut|change/u.test(reason)) ? 1 : 0,
-  ]
-  return frames.filter(frame => !excluded.has(frame.frame_id)).sort((a, b) => {
-    const left = priority(a), right = priority(b)
-    for (let index = 0; index < left.length; index++) {
-      const difference = (right[index] ?? 0) - (left[index] ?? 0)
-      if (difference) return difference
+  const selected: typeof frames = [], coveredQueries = new Set<number>()
+  while (selected.length < count && selected.length < frames.length) {
+    const priority = (frame: typeof frames[number]) => {
+      const matches = matchesByFrame.get(frame.frame_id) ?? []
+      return [selected.some(old => old.window === frame.window) ? 0 : 1,
+        temporalMatches.get(frame.frame_id)?.filter((matched, index) => matched && !coveredQueries.has(index)).length ?? 0,
+        matches.reduce((sum, score, index) => sum + (coveredQueries.has(index) ? 0 : score), 0),
+        selected.length ? Math.min(...selected.map(old => Math.abs(old.time - frame.time))) : 0,
+        hasReviewUncertainty(frame.observation?.uncertainty ?? '') ? 1 : 0,
+        eventBoundaries.has(frame.frame_id) ? 1 : 0, speechNeighbors.has(frame.frame_id) ? 1 : 0,
+        frame.reasons.some(reason => /cut|change/u.test(reason)) ? 1 : 0]
     }
-    return a.time - b.time || a.frame_id.localeCompare(b.frame_id)
-  }).slice(0, count).map(frame => frame.frame_id)
+    const next = frames.filter(frame => !selected.some(old => old.frame_id === frame.frame_id)).sort((a, b) => {
+      const left = priority(a), right = priority(b)
+      for (let index = 0; index < left.length; index++) {
+        const difference = (right[index] ?? 0) - (left[index] ?? 0)
+        if (difference) return difference
+      }
+      return a.time - b.time || a.frame_id.localeCompare(b.frame_id)
+    })[0]
+    if (next === undefined) break
+    selected.push(next)
+    temporalMatches.get(next.frame_id)?.forEach((matched, index) => { if (matched) coveredQueries.add(index) })
+  }
+  return selected.map(frame => frame.frame_id)
 }
 
 /**
@@ -291,6 +381,7 @@ export class ManuscriptVideoEvidence {
     const outputBoundary = messages.findLastIndex(message => message.role === 'user' && message.source.kind === 'user'
       && declaredOutputs(message, cwd, cache).length > 0)
     const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache)
+    const transcriptCandidates = manuscriptVideoReadCandidates(ctx, agent.session)
     const registered = registeredPaths(outputBoundary < 0 ? messages : messages.slice(outputBoundary), cwd, cache)
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
     const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
@@ -337,16 +428,26 @@ export class ManuscriptVideoEvidence {
       }
       const scenes = manuscriptScenes(document.text)
       if (scenes.every(scene => scene.episode === 'unassigned')) continue
-      const matching = scenes.map(scene => ({ scene, sources: sources.filter((source) => {
-        const episode = manuscriptEpisodeNumber(scene.episode)
-        return episode !== undefined && episode === manuscriptEpisodeNumber(source.episode)
-          && (!sourceScope.requireCurrentSource || sourceScope.paths.has(source.path))
-      }) }))
+      const episodeLabels = new Set(scenes.map(scene => manuscriptEpisodeNumber(scene.episode)).filter(label => label !== undefined))
+      const currentSources = sources.filter(source => sourceScope.paths.has(source.path))
+      const singleCurrent = episodeLabels.size === 1 && sourceScope.paths.size === 1 && currentSources.length === 1
+        && manuscriptEpisodeNumber(currentSources[0]?.episode ?? '') === undefined
+        ? currentSources[0] : undefined
+      const matching = scenes.map(scene => ({ scene, singleCurrentCandidate: singleCurrent !== undefined
+        && manuscriptEpisodeNumber(scene.episode) !== undefined
+        && manuscriptEpisodeNumber(scene.episode) !== manuscriptEpisodeNumber(singleCurrent.episode),
+      sources: singleCurrent !== undefined && manuscriptEpisodeNumber(scene.episode) !== undefined ? [singleCurrent]
+        : sources.filter((source) => {
+          const episode = manuscriptEpisodeNumber(scene.episode)
+          return episode !== undefined && episode === manuscriptEpisodeNumber(source.episode)
+            && (!sourceScope.requireCurrentSource || sourceScope.paths.has(source.path))
+        }) }))
       const materials = await Promise.all([...new Set(matching.flatMap(entry => entry.sources.length === 1
         ? entry.sources.map(source => source.review_id) : []))].map(async (id) => {
         const material = await readVideoSourceTimeline(ctx, agent.session, id, {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
           maxBytes: this.config.videoEvidenceMaxBytes, maxTranscriptBytes: this.config.videoEvidenceMaxTranscriptBytes,
+          ...transcriptCandidates === undefined ? {} : { transcriptCandidates },
         }, signal)
         return [id, material.timeline] as const
       }))
@@ -359,12 +460,25 @@ export class ManuscriptVideoEvidence {
           },
         })) })),
         sources: materials.map(([id, timeline]) => ({ id, digest: timeline.material_sha256 })) }))
+      const sourceIdentityHash = manuscriptTextHash(JSON.stringify(matching.map(entry => ({ scene: entry.scene.id,
+        sources: entry.sources.map((source) => {
+          const timeline = timelines.get(source.review_id)
+          const reference = timeline?.speech?.source ?? timeline?.speech_unavailable?.reference ?? source.transcript_reference
+          return { review_id: source.review_id, path: identityPath(source.path), source_version: source.source_version,
+            observation_state: timeline?.source.scan_complete && timeline.windows.every(window => window.frames
+              .every(frame => frame.exposed && frame.observation_source === 'model_authored_observation')) ? 'complete' : 'pending',
+            speech_available: timeline?.speech !== undefined,
+            ...reference === undefined ? {} : { transcript: { path: identityPath(reference.path),
+              version: reference.version, sha256: reference.sha256 } } }
+        }) }))))
       const evidenceKey = manuscriptTextHash(JSON.stringify({
-        path: identityPath(document.path), sha256: document.sha256, sourceMaterialHash,
+        path: identityPath(document.path), sha256: document.sha256, sourceIdentityHash,
       }))
       const previousReceipt = prior.findLast(entry => entry.path === document.path && entry.evidence_key === evidenceKey)
         ?? prior.findLast(entry => entry.path === document.path)
-      const carried = previousReceipt?.source_material_sha256 === sourceMaterialHash ? previousReceipt : undefined
+      const carried = previousReceipt?.source_identity_sha256 === sourceIdentityHash
+        || previousReceipt?.source_identity_sha256 === undefined && previousReceipt?.source_material_sha256 === sourceMaterialHash
+        ? previousReceipt : undefined
       const deliveredScenes = carried?.scene_versions
         .filter(old => scenes.some(scene => scene.id === old.id && scene.sha256 === old.sha256)) ?? []
       const locations = matching.map((entry) => {
@@ -396,10 +510,11 @@ export class ManuscriptVideoEvidence {
         const allowance = imageCapable
           ? Math.min(remainingFrames, Math.max(1, Math.floor(this.config.videoEvidenceMaxFrames / (selected.length * paths.length)))) : 0
         const alreadyReturned = new Set(returnedFrames.filter(frame => frame.review_id === source.review_id).map(frame => frame.frame_id))
-        const frameIds = framesFor(location, allowance, alreadyReturned)
+        const frameIds = manuscriptEvidenceFrames(location, allowance, alreadyReturned)
         const selectedMaterial = frameIds.length ? await readVideoSourceTimeline(ctx, agent.session, source.review_id, {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
           maxBytes: this.config.videoEvidenceMaxBytes, maxTranscriptBytes: this.config.videoEvidenceMaxTranscriptBytes,
+          ...transcriptCandidates === undefined ? {} : { transcriptCandidates },
           frameIds,
         }, signal) : undefined
         if (selectedMaterial && selectedMaterial.timeline.material_sha256 !== timeline.material_sha256) {
@@ -411,9 +526,14 @@ export class ManuscriptVideoEvidence {
         returnedFrames.push(...frameIds.map(frame_id => ({ review_id: source.review_id, frame_id })))
         const availableFrames = location.windows.flatMap(window => window.frames).filter(frame => frame.image_available)
         reports.push({ manuscript, source_alignment: location.basis, anchors: location.anchors,
-          source_association: sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
+          source_association: entry.singleCurrentCandidate ? 'single_current_task_video_candidate'
+            : sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
           source: timeline.source, source_material_sha256: timeline.material_sha256,
           repeated_source_text_segment_ids: location.repeated_source_text_segment_ids,
+          line_candidates: location.line_candidates, between_dialogue_lines: location.between_dialogue_lines,
+          visual_queries: location.visual_queries, automatic_images: location.automatic_images,
+          image_selection_scope: location.image_selection_scope,
+          transcript_resolution: timeline.transcript_resolution,
           selected_windows: location.windows, speech: timeline.speech, speech_unavailable: timeline.speech_unavailable,
           images: { returned_frame_ids: frameIds, returned: frameIds.length,
             available_in_selected_windows: availableFrames.length,
@@ -422,12 +542,12 @@ export class ManuscriptVideoEvidence {
           notice: location.notice })
       }
       const receipt: Receipt = { path: document.path, sha256: document.sha256, evidence_key: evidenceKey,
-        source_material_sha256: sourceMaterialHash, returned_frames: returnedFrames,
+        source_material_sha256: sourceMaterialHash, source_identity_sha256: sourceIdentityHash, returned_frames: returnedFrames,
         scene_versions: [...deliveredScenes.filter(old => !selected.some(entry => entry.scene.id === old.id)),
           ...selected.map(entry => ({ id: entry.scene.id, sha256: entry.scene.sha256 }))] }
       const remainingImages = locations.filter(entry => entry.location !== undefined && entry.sources[0] !== undefined
-        && framesFor(entry.location, 1, new Set(returnedFrames.filter(frame => frame.review_id === entry.sources[0]?.review_id)
-          .map(frame => frame.frame_id))).length > 0)
+        && manuscriptEvidenceFrames(entry.location, 1, new Set(returnedFrames
+          .filter(frame => frame.review_id === entry.sources[0]?.review_id).map(frame => frame.frame_id))).length > 0)
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
         output_association: declarations.get(document.path) ?? { basis: registered.explicitlyBound
           ? 'explicit_manuscript_work_binding' : 'successful_tool_path' },

@@ -58,6 +58,7 @@
     "@deepseek-ai/dsh-schedule": "workspace:*",
     "@deepseek-ai/dsh-screenplay-project": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-skill": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
