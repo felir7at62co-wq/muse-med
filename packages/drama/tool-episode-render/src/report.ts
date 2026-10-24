@@ -25,7 +25,9 @@ import type {
   Timeline,
   SubtitleOverlayReport,
   EndingEffectTiming,
+  SubtitleLayoutSummary,
 } from './types.ts'
+import type { SubtitleLayoutReport } from './subtitle-layout.ts'
 
 /** The tail-frame record for a method that built no ending. */
 export const NO_TAIL_FRAME: TailFrameEvidence = {
@@ -52,6 +54,8 @@ export const NO_MEDIA: MediaFacts = {
 
 /** Everything one method's report is built from. */
 export interface ReportInput {
+  /** Optional real-glyph observations; absent when unified visual styling is not active. */
+  readonly subtitleLayout?: SubtitleLayoutReport
   /** Optional explicit subtitle-overlay resolution. */
   readonly subtitleOverlay?: SubtitleOverlayReport
   /** Optional timing for an explicitly selected ending effect fit. */
@@ -100,6 +104,19 @@ export interface ReportInput {
   readonly warnings: readonly string[]
   /** Absolute path of the render log, or an empty string. */
   readonly logPath: string
+}
+
+/** Summarize real-glyph evidence without returning full process output to the model. */
+function subtitleLayoutSummary(report: SubtitleLayoutReport, written: readonly string[]): SubtitleLayoutSummary {
+  return { schema_version: 1, status: report.status, report_path: report.report_path ?? '',
+    distinct_texts: report.entries.length,
+    measured_texts: report.entries.filter(entry => entry.status === 'measured').length,
+    overwidth_cue_indexes: report.entries.filter(entry => entry.fits_available_width === false)
+      .flatMap(entry => entry.cues.map(cue => cue.index)),
+    uncertain_cue_indexes: report.entries.filter(entry => entry.fits_available_width === null)
+      .flatMap(entry => entry.cues.map(cue => cue.index)),
+    preview_paths: report.entries.map(entry => entry.files.delivery_preview).filter(path => written.includes(path)),
+    stderr_paths: report.entries.map(entry => entry.files.stderr).filter(path => written.includes(path)) }
 }
 
 /** Map one extracted tail frame to the shape the model reads. */
@@ -165,6 +182,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
   }
   return {
     method: input.method,
+    ...(input.subtitleLayout === undefined ? {} : { subtitle_layout: subtitleLayoutSummary(input.subtitleLayout, input.written) }),
     ...(input.subtitleOverlay === undefined ? {} : { subtitle_overlay: input.subtitleOverlay }),
     ...(input.endingEffect === undefined ? {} : { ending_effect: {
       fit: input.endingEffect.fit, source_duration_seconds: input.endingEffect.sourceDurationSeconds,

@@ -42,6 +42,17 @@ export const PROJECT_BIBLE_CHANGES = {
   delivery: { type: 'object', additionalProperties: false, description: 'Delivery target; omitted numeric fields inherit the current project or Settings.', properties: {
     width: { type: 'integer' }, height: { type: 'integer' }, fps: { type: 'integer' },
     min_bitrate_mbps: { type: 'number' }, max_effective_chars_per_shot: { type: 'integer' },
+    subtitle_visual: { type: 'object', additionalProperties: false,
+      description: 'Optional shared reference-raster subtitle intent. Replaces this whole section; {} restores legacy per-engine styling. Approve real MP4/editor previews, not these nominal numbers.', properties: {
+        schema_version: { type: 'integer', enum: [1] },
+        reference_width: { type: 'number', description: 'Reference picture width, positive and at most 16384.' },
+        reference_height: { type: 'number', description: 'Reference height; typography scales by actual height / reference height.' },
+        font_size_px: { type: 'number', description: 'Nominal reference-pixel size, not measured glyph height or editor UI size.' },
+        outline_px: { type: 'number', description: 'Black outline in reference pixels, from 0 through 100.' },
+        center_y_ratio: { type: 'number', description: 'Text-box centre from the top, from 0 through 1; calibrate with real previews.' },
+        max_width_ratio: { type: 'number', description: 'Actual picture width available for a single line, greater than 0 and at most 1; measure glyph width.' },
+        font_family: { type: 'string', description: 'Optional requested local family, no comma or controls. A request does not prove both engines resolve the same font; never download missing fonts.' },
+      } },
     draft_style: { type: 'object', additionalProperties: false, description: 'Editable Jianying typography in editor UI units, not formal-render pixels. Replaces the whole draft-style section; {} restores draft defaults after prepare.', properties: {
       watermark: { type: 'object', additionalProperties: false, properties: {
         font_size_ui: { type: 'number', description: 'Editor font size, greater than 0 and at most 100. Animation omits the watermark.' },
@@ -325,6 +336,25 @@ function validateDraftStyle(value: JsonValue): void {
   }
 }
 
+/** Validate one complete visual intent, or an explicit empty reset, without resolving fonts. */
+function validateSubtitleVisual(value: JsonValue): void {
+  const row = object(value, 'delivery.subtitle_visual')
+  if (Object.keys(row).length === 0) return
+  if (row.schema_version !== 1) throw new Error('delivery.subtitle_visual.schema_version must be 1.')
+  for (const [key, maximum, allowZero] of [
+    ['reference_width', 16384, false], ['reference_height', 16384, false], ['font_size_px', 16384, false],
+    ['outline_px', 100, true], ['center_y_ratio', 1, true], ['max_width_ratio', 1, false],
+  ] as const) {
+    const number = row[key]
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > maximum
+      || (!allowZero && number === 0)) throw new Error(`delivery.subtitle_visual.${key} is outside its finite visual range.`)
+  }
+  if (row.font_family !== undefined && (typeof row.font_family !== 'string' || !row.font_family.trim()
+    || row.font_family.trim().length > 128 || /[,\p{Cc}]/u.test(row.font_family))) {
+    throw new Error('delivery.subtitle_visual.font_family requires 1–128 trimmed characters without commas or controls.')
+  }
+}
+
 /** Validate owned numeric, selector and record fields at the durable/model JSON boundary. */
 function validateBible(bible: JsonObject): void {
   if (bible.schema_version !== 1) throw new Error('Unsupported project_bible.schema_version; expected 1.')
@@ -338,6 +368,7 @@ function validateBible(bible: JsonObject): void {
   }
   const delivery = object(bible.delivery, 'delivery')
   if (delivery.draft_style !== undefined) validateDraftStyle(delivery.draft_style)
+  if (delivery.subtitle_visual !== undefined) validateSubtitleVisual(delivery.subtitle_visual)
   for (const key of ['width', 'height', 'fps', 'max_effective_chars_per_shot']) {
     if (delivery[key] !== undefined) positive(delivery[key], `delivery.${key}`)
   }

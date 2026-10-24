@@ -23,15 +23,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
-import { FONT_FAMILY_PATTERN } from './delivery.ts'
-import { deliveryPolicyFor } from './delivery-policy.ts'
+import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
+import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { readBgmPlan } from './bgm.ts'
 import { BGM_LICENSE_RECORD_TOOL_SCHEMA, LICENSE_INFO_TOOL_SCHEMA } from '@deepseek-ai/dsh-bgm-license-info'
 import { createMediaToolkit } from './ffmpeg.ts'
 import { buildEpisodeCues } from './cues.ts'
 import type { BuiltCues } from './cues.ts'
 import { episodeNumberOf, episodePaths } from './paths.ts'
-import { prepareEpisode } from './prepare.ts'
+import { parseShotManifest, prepareEpisode, readJsonDocument } from './prepare.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { renderEpisode } from './render.ts'
@@ -40,6 +40,9 @@ import { verifyEpisode } from './verify.ts'
 import { registerDramaVideo } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
 import { readTimeline } from './timeline.ts'
+import { reviewSpeechCoverage, type SpeechCoverageReport } from './speech-coverage.ts'
+import { measureSubtitleLayout } from './subtitle-layout.ts'
+import { readSubtitleCues } from './subtitles.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -124,6 +127,10 @@ interface DramaRenderArguments {
   subtitleSrt?: string
   /** Optional explicit decisions for dialogue already burned into source pictures. */
   subtitlePlan?: string
+  /** Existing cloud-receipt mapping for the read-only speech comparison. */
+  speechTranscripts?: string
+  /** Optional source-bound caller listening statements. */
+  speechDecisions?: string
   /** Last body shot this render delivers; required by `render`. */
   lastShot?: number
   /** BGM bed; required by `render`. */
@@ -252,7 +259,24 @@ interface SubtitleOverlayCall extends CallBase {
   readonly outputSrt?: string
 }
 
+interface SpeechCoverageCall extends CallBase {
+  readonly method: 'speech_coverage'
+  readonly shotsPath: string
+  readonly timelinePath: string
+  readonly subtitleSrt: string
+  readonly transcriptsPath: string
+  readonly decisionsPath?: string
+}
+
+/** A standalone glyph probe reads the current visual profile without rendering an episode. */
+interface SubtitleLayoutCall extends CallBase {
+  readonly method: 'subtitle_layout'
+  readonly timelinePath: string
+  readonly subtitleSrt: string
+}
+
 type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall | AudioPreviewCall | SubtitleOverlayCall
+  | SpeechCoverageCall | SubtitleLayoutCall
 
 /**
  * Resolve one call's configuration into the settings every method takes.
@@ -295,8 +319,26 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
   const project = resolve(args.project)
   const episode = episodeNumberOf(args.episode)
   const paths = episodePaths(project, episode)
-  if (args.subtitlePlan !== undefined && (args.method === 'verify' || args.method === 'subtitles')) {
+  if (args.method !== 'speech_coverage' && (args.speechTranscripts !== undefined || args.speechDecisions !== undefined)) {
+    throw new Error('speech_transcripts/speech_decisions 仅用于 speech_coverage；先对最终完整显示的 SRT 执行独立声文核查。')
+  }
+  if (args.method === 'speech_coverage') {
+    if (args.subtitlePlan !== undefined) throw new Error('speech_coverage 需要最终完整显示的 SRT，不接受删减外加字幕的 subtitle_plan。')
+    return { method: 'speech_coverage', project, episode,
+      shotsPath: resolve(project, required(args.shots, 'speech_coverage', 'shots', '需要声明实际画面源及可选独立 audio 的成片清单。')),
+      timelinePath: resolve(project, required(args.timeline, 'speech_coverage', 'timeline', '需要当前镜头起点和时长。')),
+      subtitleSrt: resolve(project, required(args.subtitleSrt, 'speech_coverage', 'subtitle_srt', '需要最终完整显示的 SRT，不是删减后的 overlay。')),
+      transcriptsPath: resolve(project, required(args.speechTranscripts, 'speech_coverage', 'speech_transcripts',
+        '需要现有云转写映射 {"shots":[{"shot":1,"receipt":"transcript/jobs/clip-v1.json"}]}。')),
+      ...(args.speechDecisions === undefined ? {} : { decisionsPath: resolve(project, args.speechDecisions) }) }
+  }
+  if (args.subtitlePlan !== undefined && (args.method === 'verify' || args.method === 'subtitles' || args.method === 'subtitle_layout')) {
     throw new Error('subtitle_plan 仅用于 prepare、render 或 subtitle_overlay；verify 请传实际 resolved-overlay.srt。')
+  }
+  if (args.method === 'subtitle_layout') {
+    return { method: 'subtitle_layout', project, episode,
+      timelinePath: resolve(project, required(args.timeline, 'subtitle_layout', 'timeline', '需要已准备的项目交付样式和分辨率。')),
+      subtitleSrt: resolve(project, required(args.subtitleSrt, 'subtitle_layout', 'subtitle_srt', '需要原始待检查的 SRT，不猜字幕文字。')) }
   }
   if (args.method === 'prepare') {
     return {
@@ -494,6 +536,38 @@ export async function runDramaRender(
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
+  if (call.method === 'subtitle_layout') {
+    const timeline = await readTimeline(call.timelinePath)
+    const policy = await resolveDeliveryPolicy(call.project, timeline.delivery)
+    const cues = await readSubtitleCues(call.subtitleSrt)
+    const layout = await measureSubtitleLayout({ toolkit, settings: deliveryRenderSettings(settings, policy.delivery),
+      delivery: policy.delivery, cues, directory: episodePaths(call.project, call.episode).cacheDir })
+    return buildReport({ method: 'subtitle_layout', project: call.project, episode: call.episode, timeline,
+      sources: new Map(), expectedDurationSeconds: timeline.bodyEndSeconds + policy.endingSeconds,
+      subtitleLayout: layout.report, written: layout.written, output: '', encoder: '', gpuRequested: false, gpuUsed: false,
+      encoderFallbackReason: '', encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA,
+      checks: [], logPath: '', warnings: [...policy.warnings, ...layout.warnings,
+        ...(layout.report.status === 'not_requested' ? ['当前交付未启用 subtitle_visual，未生成字形探针；旧样式不变。'] : []),
+        '字形探针只测白字与描边估量，不代表剪映外观、字幕同步或人工视觉验收通过。'] })
+  }
+  if (call.method === 'speech_coverage') {
+    const timeline = await readTimeline(call.timelinePath)
+    const rows = parseShotManifest(await readJsonDocument(call.shotsPath, '成片清单'), call.shotsPath)
+    const sources = new Map(rows.map(row => [row.shot, resolve(call.project, row.audio)]))
+    const coverage = await reviewSpeechCoverage({ project: call.project, timeline, sources,
+      subtitleSrt: call.subtitleSrt, transcriptsPath: call.transcriptsPath,
+      ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }) })
+    return { ...buildReport({ method: 'speech_coverage', project: call.project, episode: call.episode, timeline,
+      sources: new Map(rows.map(row => [row.shot, resolve(call.project, row.video)])),
+      expectedDurationSeconds: timeline.bodyEndSeconds, written: [], output: '', encoder: '',
+      gpuRequested: false, gpuUsed: false, encoderFallbackReason: '', encodedShots: [], reusedShots: [],
+      tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: [{ id: 'subtitle_speech_candidates', severity: 'warning',
+        ok: coverage.evidence_complete && coverage.findings.length === 0,
+        detail: `${String(coverage.words.length)} 个识别词；${String(coverage.findings.length)} 项声文或词边界待核；同源证据完整=${String(coverage.evidence_complete)}。`,
+        fix: '逐项核听引用的实际声音与最终完整显示 SRT，保留具体 reason；识别候选不等于真实发声，不能自动补字或猜时码。' }],
+      warnings: [...coverage.warnings, '本次仅比较词级转写候选与最终完整显示 SRT；未执行听感或画面烧字验收，核听声明也不是 Host 声学证明。'],
+      logPath: '' }), speech_coverage: coverage }
+  }
   if (call.method === 'audio_preview') {
     const preview = await previewAudio({ ...call, toolkit, settings })
     return buildReport({ method: 'audio_preview', project: call.project, episode: call.episode,
@@ -583,8 +657,60 @@ const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay'],
-      description: '产生本结果的操作。' },
+    method: {
+      type: 'string', required: true,
+      enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout'],
+      description: '产生本结果的操作。',
+    },
+    subtitle_layout: { type: 'object', additionalProperties: false,
+      description: '显式 subtitle_visual 的真实 libass 字形摘要；逐文本像素、PNG、字体选择与完整错误日志在 report_path，非剪映或人工验收。',
+      properties: {
+        schema_version: { type: 'integer', required: true, enum: [1] },
+        status: { type: 'string', required: true, enum: ['not_requested', 'measured', 'partial', 'not_measured'] },
+        report_path: { type: 'string', required: true },
+        distinct_texts: { type: 'integer', required: true }, measured_texts: { type: 'integer', required: true },
+        overwidth_cue_indexes: { type: 'array', required: true, items: { type: 'integer' } },
+        uncertain_cue_indexes: { type: 'array', required: true, items: { type: 'integer' } },
+        preview_paths: { type: 'array', required: true, items: { type: 'string' } },
+        stderr_paths: { type: 'array', required: true, items: { type: 'string' } },
+      } },
+    speech_coverage: { type: 'object', additionalProperties: false, properties: {
+      schema_version: { type: 'integer', required: true, enum: [1] },
+      assessment: { type: 'string', required: true, enum: ['asr_candidate_comparison'] },
+      listening_verified: { type: 'boolean', required: true, enum: [false] },
+      subtitle_path: { type: 'string', required: true }, subtitle_sha256: { type: 'string', required: true },
+      evidence_sha256: { type: 'string', required: true }, evidence_complete: { type: 'boolean', required: true },
+      sources: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        shot: { type: 'integer', required: true }, clip_index: { type: 'integer', required: true },
+        path: { type: 'string', required: true }, sha256: { type: 'string', required: true },
+        receipt_path: { type: 'string', required: true }, receipt_sha256: { type: 'string', required: true },
+        transcript_path: { type: 'string', required: true }, transcript_sha256: { type: 'string', required: true },
+      } } },
+      words: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        id: { type: 'string', required: true }, shot: { type: 'integer', required: true },
+        clip_index: { type: 'integer', required: true }, word_index: { type: 'integer', required: true },
+        text: { type: 'string', required: true }, source_start_seconds: { type: 'number', required: true },
+        source_end_seconds: { type: 'number', required: true }, start_seconds: { type: 'number', required: true },
+        end_seconds: { type: 'number', required: true },
+      } } },
+      matches: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        word_id: { type: 'string', required: true }, cue_index: { type: 'integer', required: true },
+        text: { type: 'string', required: true }, precision: { type: 'string', required: true, enum: ['word'] },
+      } } },
+      findings: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+        id: { type: 'string', required: true }, text: { type: 'string', required: true },
+        kind: { type: 'string', required: true, enum: ['recognized_without_subtitle', 'subtitle_without_recognition', 'timing_mismatch'] },
+        start_seconds: { type: 'number', required: true }, end_seconds: { type: 'number', required: true },
+        word_ids: { type: 'array', required: true, items: { type: 'string' } },
+        cue_indexes: { type: 'array', required: true, items: { type: 'integer' } },
+        review: { type: 'object', additionalProperties: false, properties: {
+          decision: { type: 'string', required: true, enum: ['keep', 'adjust_subtitle', 'asr_error', 'unresolved'] },
+          reason: { type: 'string', required: true }, observed_text: { type: 'string', required: true },
+          reviewed_start_seconds: { type: 'number', required: true }, reviewed_end_seconds: { type: 'number', required: true },
+        } },
+      } } },
+      warnings: { type: 'array', required: true, items: { type: 'string' } },
+    } },
     subtitle_overlay: { type: 'object', additionalProperties: false,
       description: '明确决定后的实际外加字幕及绑定摘要；不证明 OCR 或人工验收，不可把保留原片字称为可编辑字幕。',
       properties: {
@@ -725,6 +851,7 @@ const RESULT_SCHEMA = {
           outline_design: { type: 'number', required: true }, margin_bottom_design: { type: 'number', required: true },
           font_size_output_px: { type: 'number', required: true }, outline_output_px: { type: 'number', required: true },
           margin_bottom_output_px: { type: 'number', required: true },
+          center_y_output_px: { type: 'number' }, max_width_output_px: { type: 'number' },
         } },
         audio: { type: 'object', required: true, additionalProperties: false, properties: {
           master_path: { type: 'string', required: true }, bgm_path: { type: 'string', required: true },
@@ -758,6 +885,13 @@ const RESULT_SCHEMA = {
 
 /** What the model reads before calling: the methods, medium-specific delivery, and known traps. */
 const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
+  + 'subtitle_layout=按 timeline 与 subtitle_srt 预览已启用的 subtitle_visual：逐种文本用实际字体、libass 和正式烧录链测白字宽高，'
+  + '返回 PNG、完整字体/错误日志路径及超宽 cue；黑描边另作估量。render 在显式启用时也执行同一检查。'
+  + '无显式配置不改变旧字幕；不按字数猜宽、不自动缩字或拆时码，超宽与探针失败均只提醒，不要求用户审批。'
+  + 'speech_coverage=只读双向比较现有同源词级转写与最终完整显示的 SRT（含保留原片烧字对应文字），'
+  + '需要 shots、timeline、subtitle_srt、speech_transcripts；speech_decisions 可记录本次证据绑定的逐项核听理由。'
+  + '包含单字、尾音和剧本外识别内容；不跨时间借词、不重复使用字符、多字词保留整词时间，不猜字级时间。'
+  + '结果是 ASR 待核候选，不是已证实真声或听感通过；不得自动补词、猜时码或把未识别认定为静音。'
   + '源片可能已烧录文字：先用 video_ocr/video_inspect 预览并作明确决定，不能把无识别结果当作无字幕。'
   + 'subtitle_overlay=读取 subtitle_plan 的 shot/source_sha256/镜内时间/text/retain_embedded/reason 决定，'
   + '只对完整覆盖且同文的 cue 导出不重复叠加的新 SRT 与摘要报告；部分重叠或文字不符只提示，不自动切句。'
@@ -807,6 +941,18 @@ const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
   + '只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；'
   + '成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。'
 
+/** Copy immutable review collections into the tool's mutable JSON output types without changing the internal report. */
+function toolSpeechCoverage(report: SpeechCoverageReport) {
+  return { ...report,
+    sources: report.sources.map(source => ({ ...source })),
+    words: report.words.map(word => ({ ...word })),
+    matches: report.matches.map(match => ({ ...match })),
+    findings: report.findings.map(finding => ({ ...finding,
+      word_ids: [...finding.word_ids], cue_indexes: [...finding.cue_indexes],
+      ...(finding.review === undefined ? {} : { review: { ...finding.review } }) })),
+    warnings: [...report.warnings] }
+}
+
 /**
  * Register the `drama_render` tool.
  * @param ctx - Host context carrying the tool registry.
@@ -819,15 +965,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'drama_render',
     description: DESCRIPTION,
     parameters: {
-      method: { type: 'string', required: true, enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay'],
+      method: {
+        type: 'string', required: true,
+        enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout'],
         description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
-          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定（不编码、不做识别）。' },
+          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；'
+          + 'subtitle_overlay=导出已有烧录字的外加字幕决定；speech_coverage=现有词级转写与最终完整显示 SRT 的只读双向比较（不编码、不做识别）；'
+          + 'subtitle_layout=显式统一样式的真实字形探针与PNG，不渲染整集。',
+      },
       project: { type: 'string', required: true,
         description: '项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
-          + 'prepare 与 subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。video 缺音轨时必须给 audio。' },
+          + 'prepare、subtitles 与 speech_coverage 必填。相对路径以 project 为基准，绝对路径保持不变。'
+          + 'video 缺音轨时必须给 audio；speech_coverage 按实际 audio（缺省 video）绑定转写来源。' },
       lines: { type: 'string',
         description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
           + '相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，'
@@ -839,12 +991,19 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
           + '缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。' },
       timeline: { type: 'string',
-        description: '时间线 JSON 路径；render、verify、subtitle_overlay 必填，相对路径以 project 为基准；'
+        description: '时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout 必填，相对路径以 project 为基准；'
           + '可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。'
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
-          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。相对路径以 project 为基准，绝对路径保持不变。' },
+          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。'
+          + 'speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；'
+          + 'subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。' },
+      speech_transcripts: { type: 'string', description: 'speech_coverage 必填：项目内现有映射 {shots:[{shot,receipt}]}，'
+        + 'receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。' },
+      speech_decisions: { type: 'string', description: 'speech_coverage 可选：项目内核听声明 JSON，'
+        + '{schema_version:1,evidence_sha256,decisions:[{item_id,decision,reason,observed_text,reviewed_start_seconds,reviewed_end_seconds}]}。'
+        + 'decision=keep|adjust_subtitle|asr_error|unresolved；需本次逐项 id、非空理由及覆盖该项的核听区间；不是 Host 声学证明。' },
       subtitle_plan: { type: 'string', description: 'prepare/render 可选、subtitle_overlay 必填的 JSON 路径。'
         + '{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:"retain_embedded",reason,evidence_paths:[]}]}。'
         + '时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。'
@@ -887,19 +1046,25 @@ export function apply(ctx: Context, config: Config = {}): void {
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     execute: async ({ subtitle_srt, subtitle_plan, last_shot, ending_audio, ending_effect, bgm_plan,
-      mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation, ...args }) => await runDramaRender({
-      ...args,
-      ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
-      ...(subtitle_plan === undefined ? {} : { subtitlePlan: subtitle_plan }),
-      ...(bgm_plan === undefined ? {} : { bgmPlan: bgm_plan }),
-      ...(mix_profile === undefined ? {} : { mixProfile: mix_profile }),
-      ...(bgm_generation === undefined ? {} : { bgmGeneration: bgm_generation }),
-      ...(start_seconds === undefined ? {} : { startSeconds: start_seconds }),
-      ...(duration_seconds === undefined ? {} : { durationSeconds: duration_seconds }),
-      ...(intended_use === undefined ? {} : { intendedUse: intended_use }),
-      ...(last_shot === undefined ? {} : { lastShot: last_shot }),
-      ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
-      ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
-    }, settings),
+      mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation,
+      speech_transcripts, speech_decisions, ...args }) => {
+      const { speech_coverage: coverage, ...report } = await runDramaRender({
+        ...args,
+        ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
+        ...(subtitle_plan === undefined ? {} : { subtitlePlan: subtitle_plan }),
+        ...(speech_transcripts === undefined ? {} : { speechTranscripts: speech_transcripts }),
+        ...(speech_decisions === undefined ? {} : { speechDecisions: speech_decisions }),
+        ...(bgm_plan === undefined ? {} : { bgmPlan: bgm_plan }),
+        ...(mix_profile === undefined ? {} : { mixProfile: mix_profile }),
+        ...(bgm_generation === undefined ? {} : { bgmGeneration: bgm_generation }),
+        ...(start_seconds === undefined ? {} : { startSeconds: start_seconds }),
+        ...(duration_seconds === undefined ? {} : { durationSeconds: duration_seconds }),
+        ...(intended_use === undefined ? {} : { intendedUse: intended_use }),
+        ...(last_shot === undefined ? {} : { lastShot: last_shot }),
+        ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
+        ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
+      }, settings)
+      return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
+    },
   }))
 }

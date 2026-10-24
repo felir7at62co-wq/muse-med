@@ -1,0 +1,10 @@
+{
+  "shots": [
+    {
+      "shot": 1,
+      "video": "{{cwd}}/source.mp4",
+      "audio": "{{cwd}}/source.mp4",
+      "sha256": "2a3d11ecce3947261bb39fac4f0dc8a648a0d47ff96674e6cf7a686b6c4c3607"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+version: 1
+scenario: drama-subtitle-visual-review
+profile: headless
+composition: drama-subtitle-visual-review
+recording: authored
+writerOutput: true
+header:
+  class: drama-subtitle-visual-review
+  pin: true
+  systemPromptSource: drama-subtitle-timing
+  toolSchemasSource: drama-subtitle-timing
+workspace:
+  setup: drama-subtitle-visual-review
+  final: true

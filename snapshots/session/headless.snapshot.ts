@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
+import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -531,6 +532,20 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 }
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const path = join(expectedRoot, 'editing/01-sources.json')
+    const document = JSON.parse(await readFile(path, 'utf8')) as { shots: { video: string; audio: string }[] }
+    const actualCwd = await realpath(cwd)
+    for (const shot of document.shots) {
+      shot.video = join(actualCwd, 'source.mp4')
+      shot.audio = join(actualCwd, 'source.mp4')
+    }
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`)
+    return { expectedRoot }
+  },
   async 'drama-subtitle-overlay'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
     const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
@@ -1471,6 +1486,7 @@ describe('headless recorded-session snapshots', () => {
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
+      let visualSpeechHash: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
@@ -1537,6 +1553,15 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'drama-subtitle-visual-review') {
+              const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
+              visualSpeechHash = expectedHash
+              visualSpeechRecords(actualLogs[0]!.content, expectedHash, true)
+              const tampered = visualSpeechRecords(actualLogs[0]!.content, '0'.repeat(64), false)
+                .map(row => JSON.stringify(row)).join('\n')
+              expect(() => visualSpeechRecords(tampered, expectedHash, true))
+                .toThrow('Speech evidence digest differs from independently derived inputs')
+            }
             if (retainedToolInput !== undefined) {
               verifyToolResultWriterParity(primaryFixture, actualLogs[0]!.content)
             }
@@ -2027,13 +2052,17 @@ describe('headless recorded-session snapshots', () => {
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
-        const expectedRecords = scenario.name === 'session-reference-spill' && index === 0
+        let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
           ? sessionReferenceSpillExpected(
             actualRecords,
             expectedSnapshots[index] as string,
             sessionHeaderVersion(expected[index] as string, 'session-reference-spill fixture'),
           )
           : records(expectedSnapshots[index] as string)
+        if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
+          if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
+          expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
+        }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
       await verifyHeaders(scenario, actualLogs, actualContext)

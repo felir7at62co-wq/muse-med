@@ -69,17 +69,22 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 | `render` | The timeline, prepared shots, master, subtitle, BGM, and medium-required ending assets | The delivered MP4 and `exports/.render_cache/<集>/render.log` | Producing the delivery and returning its measured parameters |
 | `verify` | The delivered file, its timeline, and its subtitle | Nothing | Checking a delivery after the fact, or re-checking one from an earlier session |
 | `audio_preview` | Project-owned original sound, timeline, explicit mix profile and optional music metadata | New aligned WAV auditions, music stem and analysis JSON under `audio/previews/` | Comparing added music against retained original sound before rendering picture |
+| `subtitle_overlay` | Prepared sources, timeline, original SRT and explicit retained-text decisions | New overlay SRT and source-bound decision report | Avoiding duplicate overlays without changing burned-in text |
+| `subtitle_layout` | Timeline and final SRT with an explicit shared visual style | New layout report, natural-width probes and delivery-sized PNGs | Measuring actual libass typography without changing cues |
+| `speech_coverage` | Sources, timeline, complete displayed SRT and existing same-source word transcripts | Nothing | Reviewing speech-to-subtitle coverage in both directions |
 
 | Parameter | Required | Meaning |
 |---|---|---|
-| `method` | always | `subtitles`, `prepare`, `render`, `verify`, or `audio_preview` |
+| `method` | always | `subtitles`, `prepare`, `render`, `verify`, `audio_preview`, `subtitle_overlay`, `subtitle_layout`, or `speech_coverage` |
 | `project` | always | Project root holding `video/`, `audio/`, `editing/`, and `exports/` |
 | `episode` | always | Episode number; padded to two digits on every path |
-| `shots` | `subtitles`, `prepare` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
+| `shots` | `subtitles`, `prepare`, `speech_coverage` | Shot-sources manifest: `{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"optional"}]}` |
 | `lines` | `subtitles` | Per-shot line plan: `{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`; each entry is one cue, already split to delivery length |
 | `alignment` | `subtitles` | Recognition timings: `{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"recognized","start":0.0,"end":0.8}]}]}`, clip-relative. Only the times are used; the text must match the script's lines |
-| `timeline` | `render`, `verify`, `audio_preview` | Timeline JSON, normally the one `prepare` wrote |
-| `subtitle_srt` | `prepare`, `render`, `verify` (`subtitles` optional) | The SRT to write, install, burn, or check; `subtitles` defaults to `editing/<集>.srt` |
+| `timeline` | `render`, `verify`, `audio_preview`, `subtitle_overlay`, `subtitle_layout`, `speech_coverage` | Timeline JSON, normally the one `prepare` wrote |
+| `subtitle_srt` | `prepare`, `render`, `verify`, `subtitle_overlay`, `subtitle_layout`, `speech_coverage` (`subtitles` optional) | The SRT to write, install, burn, or check; coverage needs the complete displayed SRT, not the reduced overlay; `subtitles` defaults to `editing/<集>.srt` |
+| `speech_transcripts` | `speech_coverage` | Project-owned existing `{shots:[{shot,receipt}]}` mapping to source-bound word-level transcript receipts |
+| `speech_decisions` | optional, `speech_coverage` | Project-owned listening declarations bound to this review's complete evidence hash; not a Host-issued listening certificate |
 | `last_shot` | `render` | Last body shot this delivery covers; the timeline must hold exactly that many clips up to it |
 | `bgm` | music-enabled `render`, `audio_preview` | The BGM bed, looped to the body end; ignored and unopened by an explicit `no_bgm` profile |
 | `bgm_plan` | optional, `render`, `audio_preview` | Existing `episodes[].segments[]` plan; reports declared track sources, times, reasons, bed hash and same-sequence episodes without claiming listening approval |
@@ -138,6 +143,21 @@ Set editable Jianying typography through `drama_project.changes.delivery.draft_s
 
 `prepare` preserves this optional section in `timeline.delivery.draft_style`; the whole saved section, including `{}`, wins over current project values. Omitted fields in the selected section retain draft defaults, not fields from the other section. Run `prepare` again to adopt project changes. This section does not change formal-render ASS or mix settings, and animation still omits the watermark and ending. The draft exporter owns font resolution and reports any fallback; inspect the candidate and its review rather than treating the requested family as verified appearance.
 
+<a id="subtitle-visual"></a>
+### Shared subtitle visual intent and real-width previews
+
+An explicit `delivery.subtitle_visual` selects a complete versioned reference-canvas style: `schema_version: 1`, positive `reference_width/reference_height/font_size_px`, nonnegative `outline_px`, top-origin `center_y_ratio` from 0 through 1, and `max_width_ratio` greater than 0 through 1; `font_family` is optional. Prepare captures the whole section; a saved `{}` restores legacy styling, while a missing section may inherit the project. Formal rendering scales nominal typography by reference height, centres white text with a black outline, and disables automatic line wrapping. No section changes existing callers' defaults.
+
+Editable drafts keep their separately selected `draft_style.subtitle` UI size, border and font. An explicit `transform_y` retains independently calibrated editor positioning; only an omitted position maps the shared centre. The shared section supplies single-line policy and intended width, not a pixel-to-UI typography coefficient. Unconfigured editor fields retain legacy defaults with review advice. Requested font names do not establish the fonts actually selected by either engine, and the stored width does not prevent clipping when editor wrapping is disabled.
+
+Call `subtitle_layout` with `timeline` and the final `subtitle_srt` to measure distinct texts through the actual libass burn chain. Reports separate three-times-wide natural-ink probes from real delivery-sized previews; returned `subtitle_layout.preview_paths` name the latter. Black-outline allowance is an estimate, not a measured stroke. Overwidth and unavailable measurements produce advice without rewriting text, shrinking individual cues or blocking the episode. Split long lines only at actual word-time boundaries and compare short and long cues in both MP4 and the reopened editable draft; nominal values and successful saves do not certify visual acceptance.
+
+### Actual words and final subtitle coverage
+
+Call `speech_coverage` with `shots`, `timeline`, final displayed `subtitle_srt`, and `speech_transcripts` to compare every existing same-source timed word, including one- or two-character and script-extraneous speech. The read-only report distinguishes recognized words without subtitles, subtitles without corresponding recognition, and time mismatches. Source bytes, transcript receipts and raw results must match; the operation does not call a provider, infer words from a waveform, or certify ASR accuracy.
+
+Optional `speech_decisions` binds caller-declared listening decisions to the complete evidence hash. A changed source, transcript, timeline, subtitle or mapping invalidates that binding. Listen before adding, adjusting or explicitly retaining an omission, and use the same final displayed SRT for MP4 and draft checks. Retained source-embedded text belongs in this full SRT even when the overlay-only SRT omits it. Findings remain advice; `listening_verified: false` never becomes a Host-issued human acceptance claim.
+
 ### Marked delivery prerequisites: the two ending files
 
 Marked `render` requires both shipped ending assets and validates their bytes before media commands. Missing or substituted files block only that delivery mode; the diagnostic identifies an incomplete installation when the correctly hashed sibling proves the asset directory arrived.
@@ -195,7 +215,7 @@ Before publication, the resolver rechecks the original SRT, plan and selected vi
 | Rate control | 24M target, 30M peak, 48M buffer, two-second GOP |
 | Overall bitrate floor | 4.6 Mbps over the delivered file |
 | Endings | None for 3D animation. Marked delivery: 2.000 seconds frozen from the last body shot's real tail frame. Default `source_once` screen-blends the effect at 0.90 over the opening 1.020 seconds; explicit timeline `stretch_to_window` fits its complete motion across both seconds |
-| Subtitles | Without project overrides: configured font family, size 40 on the 1080px-wide ASS canvas and a 140/1920-height bottom margin. Project settings override only the body family, size and margin. Spacing -2, width-scaled black outline, bottom-centred alignment, the single marked-delivery `内容由AI生成` watermark and `ScaledBorderAndShadow: yes` remain unchanged. The burn chain ends on `fps` and `setpts` at the snapshot rate |
+| Subtitles | Legacy styling uses the configured family, size 40 on a 1080px-wide ASS canvas, a 140/1920-height bottom margin, spacing -2 and width-scaled black outline; `subtitle` overrides its body family, size and margin. Explicit `subtitle_visual` instead selects reference-height-scaled size and outline, zero spacing, centred positioning and no wrapping. Both retain the single marked-delivery `内容由AI生成` watermark and `ScaledBorderAndShadow: yes`; the burn chain ends on `fps` and `setpts` at the snapshot rate |
 | Audio | Effective project or deployment gains (defaults: episode master 1.45, BGM 0.24) to the body end; marked delivery retains the ending sound's first 2 seconds delayed to the body end, `amix` normalised off and `alimiter=0.95` |
 | Container | AAC 192k at 48 kHz, `+faststart` |
 
@@ -260,6 +280,9 @@ The package is built on four commitments:
 | [`src/subtitle-plan.ts`](src/subtitle-plan.ts) | Source-bound existing-text decisions and separate overlay exports |
 | [`src/speech.ts`](src/speech.ts) | Alignment parsing and line placement on the episode clock, with no recognition |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`: the line plan, the per-shot detection, and the written SRT |
+| [`src/subtitle-visual.ts`](src/subtitle-visual.ts) | Shared visual-target validation, selection and ASS mapping |
+| [`src/subtitle-layout.ts`](src/subtitle-layout.ts) | Real libass glyph probes and delivery-sized previews |
+| [`src/speech-coverage.ts`](src/speech-coverage.ts) | Same-source word-level coverage and evidence-bound listening declarations |
 | [`src/encoder.ts`](src/encoder.ts) | The NVENC probe and the CPU fallback with its recorded reason |
 | [`src/ending.ts`](src/ending.ts) | Tail-frame extraction with its framemd5 proof, the shipped ending assets, and the ending clip |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`: the shot-sources manifest, the probes, the copied layout, and the master audio graph |
@@ -308,7 +331,7 @@ Append-only. The tool registration carries a stable name, description, and schem
 These limits define what this package is and what it is not. They are current constraints, not a task backlog.
 
 - **ffmpeg and ffprobe are external** — the package starts whatever `ffmpegPath` and `ffprobePath` name. A build without `libass`, `minterpolate`, or the `screen` blend mode fails at the command that needs it, and only that command's stderr is reported.
-- **Delivery metadata does not expose arbitrary filters** — project-bible geometry and explicit medium are validated and snapshotted; rate control, subtitle outline, watermark, shipped ending hashes and limiter remain fixed. Only binaries, gains, encoder preference and fonts are plugin `Config` fields.
+- **Delivery metadata does not expose arbitrary filters** — project-bible geometry, explicit medium and shared subtitle targets are validated and snapshotted; rate control, legacy subtitle outline, watermark, shipped ending hashes and limiter remain fixed. Only binaries, gains, encoder preference and fonts are plugin `Config` fields.
 - **Cache and log writes are not transactional** — failed renders can leave intermediate files for the next run to overwrite. Legacy final MP4 publication uses a staged sibling and rename after ban checks; explicit audio profiles publish MP4/music stems without replacement. Failures before publication retain the old delivery.
 - **Bans are not a global media filter** — generic FFmpeg tools and arbitrary external transcodes are not intercepted. Prepared copies are checked by their actual SHA256; official rendering associates encoded caches with the currently hashed source. Missing or stale mappings never establish an arbitrary transcode's original version.
 - **A required ending is rebuilt on every marked render** — the tail frame is re-extracted and re-proved, and the ending clip is re-encoded, even when the cache holds both. The proof is the point, and a cached ending could predate a re-cut.

@@ -123,13 +123,26 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
         policy = _delivery_policy.resolve_delivery(payload, project)
         audio = _draft_inputs.audio_gains(payload, project)
         effect_fit = _delivery_policy.ending_effect_fit(payload)
-        style = _draft_inputs.draft_style(payload, project)
+        visual = _draft_inputs.subtitle_visual(payload, project)
+        style = _draft_inputs.draft_style(payload, project,
+                                         center_y_ratio=None if visual is None else visual['center_y_ratio'])
+        visual_mapping = None if visual is None else _draft_inputs.draft_subtitle_visual(visual, style['subtitle'])
+        if visual_mapping is not None:
+            style = {**style, 'subtitle': visual_mapping['subtitle']}
         _delivery_policy.reject_animation_ending({**payload, "body_end": clock["body_end_us"] / 1e6}, end, policy)
     except ValueError as error:
         raise DraftInputError(str(error)) from error
     body_end, included = clock["body_end_us"], clock["included"]
     font = draft_font_choice(style['subtitle']['font_family'])
     style_warnings = []
+    if visual_mapping is not None:
+        style_warnings.extend([
+            f"字幕视觉适配沿用 delivery.draft_style.subtitle 的剪映 UI 字号 "
+            f"{style['subtitle']['font_size_ui']:g}、描边 {style['subtitle']['border_width_ui']:g} 与字族选择；"
+            "未配置字段保留旧默认。参考像素不是实测墨高，与成片等大、实际位置及字族等价尚未确认，请查看剪映预览。",
+            "字幕保持单行及原文时间；line_max_width 只写入行宽意图，不保证不会左右裁切。"
+            "请实际预览，超宽时依据真实字词时间选择语义切点，不自动缩小或按字数均分。",
+        ])
     if (policy['add_watermark'] and len(WATERMARK_TEXT) * 44 * policy['height'] / 1920
             * style['watermark']['font_size_ui'] / WATERMARK_FONT_SIZE > policy['width'] * 0.8):
         style_warnings.append(
@@ -150,6 +163,8 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
             "duration_us": body_end + policy["ending_duration_us"], "last_shot": last_shot,
             "canvas": {key: policy[key] for key in ("width", "height")}, "policy": policy,
             "audio": audio, "draft_style": style, "subtitle_font": font,
+            **({'subtitle_visual': visual, 'subtitle_visual_adapter': visual_mapping['adapter']}
+               if visual_mapping is not None else {}),
             "warnings": [*clock["warnings"], *font['warnings'], *style_warnings], "ending_effect_fit": effect_fit}
 
 
@@ -1194,6 +1209,12 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
                             f"{SUBTITLE_LETTER_SPACING * 0.05}。")
         if material.get("line_spacing") != 0.02:
             failures.append(f"字幕行间距 {material.get('line_spacing')!r} != 0.02（基线）。")
+        if subtitle_style.get('auto_wrapping') is False:
+            if material.get('type') != 'text':
+                failures.append('统一视觉字幕应关闭编辑器自动换行，保留本条文字与时间。')
+            if material.get('line_max_width') != subtitle_style['max_line_width']:
+                failures.append(f"字幕最大行宽 {material.get('line_max_width')!r} != "
+                                f"{subtitle_style['max_line_width']}（画布宽度比例）。")
         if abs(float(stroke.get("width", 0)) - subtitle_style['border_width_ui'] / 100 * 0.2) > 1e-6:
             failures.append(f"字幕描边 {stroke.get('width')!r} != "
                             f"{subtitle_style['border_width_ui'] / 100 * 0.2}。")
@@ -1639,10 +1660,11 @@ def main_with_args(args, results=None):
                             letter_spacing=SUBTITLE_LETTER_SPACING,
                             color=(1.0, 1.0, 1.0),
                             align=1,
-                            auto_wrapping=True,
+                            auto_wrapping=subtitle_style.get('auto_wrapping', True),
+                            max_line_width=subtitle_style.get('max_line_width', 0.82),
                         )
                         
-                        # Keep the verified relative subtitle position on the 2K canvas.
+                        # Editor positions use centre-origin normalized coordinates, not ASS pixels.
                         clip_settings = ClipSettings(transform_y=subtitle_style['transform_y'])
                         style_reference = TextSegment(
                             "字幕样式",
@@ -1838,6 +1860,9 @@ def main_with_args(args, results=None):
         review_path.write_text(json.dumps({
             'status': 'needs_review', 'warnings': review_warnings,
             'draft_style': ending_plan['draft_style'], 'subtitle_font': ending_plan['subtitle_font'],
+            **({'subtitle_visual': ending_plan['subtitle_visual'],
+                'subtitle_visual_adapter': ending_plan['subtitle_visual_adapter']}
+               if 'subtitle_visual' in ending_plan else {}),
             'next': '草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。'
         }, ensure_ascii=False, indent=2), encoding='utf-8')
         result.update(success=True, id=saved_content.get("id", ""), error="",
