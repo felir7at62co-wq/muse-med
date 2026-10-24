@@ -8,6 +8,7 @@ import subprocess
 import hashlib
 import math
 import importlib.util
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tweet-drama-core' / 'scripts'))
@@ -210,6 +211,77 @@ def decoded_frame_hashes(source: Path, duration_us: int | None = None) -> list[s
             if line and not line.startswith("#")]
 
 
+def selected_project_frames(source: Path, selected_us: int, fps: int) -> dict:
+    """Verify actual selected PTS cadence before treating source frames as project frames."""
+    executable = (os.environ.get('DSH_FFPROBE_PATH') or os.environ.get('FFPROBE_PATH')
+                  or os.environ.get('FFPROBE_BINARY') or shutil.which('ffprobe') or 'ffprobe')
+    try:
+        result = subprocess.run([executable, '-v', 'error', '-select_streams', 'v:0',
+                                 '-show_frames',
+                                 '-show_entries', 'stream=time_base,avg_frame_rate:frame=best_effort_timestamp',
+                                 '-of', 'json', str(source)], capture_output=True, text=True, encoding='utf-8',
+                                errors='replace', timeout=draft_decode_timeout_seconds(), creationflags=NO_WINDOW,
+                                env={key: value for key, value in os.environ.items()
+                                     if not re.search('KEY|SECRET|TOKEN|PASSWORD', key, re.IGNORECASE)})
+        if result.returncode or result.stderr.strip():
+            detail = ' '.join(result.stderr.split())[-400:]
+            return {'status': 'unsupported', 'reason': f'ffprobe 实际时间戳未确认（exit={result.returncode}）：{detail}'}
+        payload = json.loads(result.stdout)
+        stream = payload['streams'][0]
+        tick = Fraction(stream['time_base'])
+        if tick <= 0 or tick > Fraction(1, fps) or Fraction(stream['avg_frame_rate']) != fps:
+            return {'status': 'unsupported', 'reason': '源帧率与项目 fps 不同或不可确认'}
+        times = [int(frame['best_effort_timestamp']) * tick for frame in payload['frames']]
+        times = [time for time in times if time < Fraction(selected_us, 1_000_000)]
+        if len(times) < 2 or times[0] != 0 or any(right <= left for left, right in zip(times, times[1:])) or any(
+                time / tick not in {math.floor(Fraction(index, fps) / tick), math.ceil(Fraction(index, fps) / tick)}
+                for index, time in enumerate(times)):
+            return {'status': 'unsupported', 'reason': '实际 PTS 未证实从零开始的同 fps CFR（可能为 VFR）'}
+        return {'status': 'verified_same_fps_cfr', 'times': times}
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, IndexError, TypeError, ZeroDivisionError) as error:
+        return {'status': 'unsupported', 'reason': f'实际 PTS 不可确认（{type(error).__name__}）'}
+
+
+def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_extensions) -> tuple[dict, dict]:
+    """Enable one episode-wide frame plan only when every source has verified project-frame coverage."""
+    clock = _draft_inputs.project_frame_clock(plan['body_clips'], plan['policy']['fps'],
+                                              plan['body_end_us'], plan['policy']['ending_duration_us'])
+    materials = {}
+    if clock['status'] == 'unsupported':
+        return materials, clock
+    for source in media_files:
+        shot = _media_shot_number(source)
+        clip = plan['body_clips'].get(shot)
+        if clip is None:
+            return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 不在正文时间线中'}
+        if source.suffix.lower() not in video_extensions:
+            return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 不是本次支持的 PTS 视频输入'}
+        try:
+            material = draft.VideoMaterial(str(source))
+        except Exception as error:
+            return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 素材时长不可读取（{type(error).__name__}）'}
+        materials[source] = material
+        row = clock['clips'][shot]
+        wanted = row['end_frame'] - row['start_frame']
+        selected_us = clip['duration_us']
+        selected_us = min(selected_us, int(material.duration))
+        if clip['duration_us'] - selected_us > TIMELINE_TOLERANCE_US:
+            return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 的原始正文缺口超过容差'}
+        probe = selected_project_frames(source, selected_us, clock['fps'])
+        if probe['status'] != 'verified_same_fps_cfr':
+            return materials, {'status': 'unsupported', 'reason': f"镜头 {shot}：{probe['reason']}"}
+        available = len(probe['times'])
+        used = min(wanted, available)
+        row['original_source_window_us'] = selected_us
+        if used < available:
+            selected_us = min(selected_us, math.floor(probe['times'][used] * 1_000_000))
+        video_end_us = _draft_inputs.frame_time_us(row['start_frame'] + used, clock['fps'])
+        row.update(source_window_us=selected_us, source_frame_count=available, video_frames=used,
+                   video_duration_us=video_end_us - row['start_us'], hold_frames=wanted - used)
+    clock['status'] = 'verified_same_fps_cfr'
+    return materials, clock
+
+
 def extract_draft_tail(source: Path, duration_us: int, target: Path) -> str:
     """Extract and verify the last decoded frame of the source interval used in the draft."""
     expected = decoded_frame_hashes(source, duration_us)
@@ -273,13 +345,18 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                                         speed=material.duration / ENDING_DURATION_US)
         else:
             ending = draft.AudioSegment(material, timerange) if kind == "audio" else draft.VideoSegment(material, timerange)
+            if kind == 'video' and 'frame_clock' in plan:
+                fps = plan['frame_clock']['fps']
+                end_frame = min(plan['frame_clock']['total_frames'],
+                                _draft_inputs.project_frame_index(timerange.end, fps))
+                ending.duration = _draft_inputs.frame_time_us(end_frame, fps) - timerange.start
         if kind == "video":
             ending.volume = 0
             ending.set_mix_mode(draft.MixModeType.滤色)
             effect_evidence = {"fit": plan.get("ending_effect_fit", "source_once"),
                                "source": str(local), "source_sha256": hashlib.sha256(local.read_bytes()).hexdigest(),
                                "source_duration_us": material.duration,
-                               "target_start_us": timerange.start, "target_duration_us": timerange.duration,
+                               "target_start_us": ending.start, "target_duration_us": ending.duration,
                                "speed": material.duration / ENDING_DURATION_US
                                if plan.get("ending_effect_fit") == "stretch_to_window" else 1.0}
         script.add_segment(ending, track)
@@ -290,6 +367,9 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                 "image": str(image), "image_sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
                 "body_end_us": plan["body_end_us"], "duration_us": plan["duration_us"],
                 "already_included": plan["included"]}
+    if 'frame_clock' in plan:
+        evidence['original_body_end_us'] = plan['frame_clock']['original_body_end_us']
+        evidence['frame_clock'] = plan['frame_clock']
     if effect_evidence is not None:
         evidence["ending_effect"] = effect_evidence
     (draft_path / "ending-evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
@@ -1017,7 +1097,8 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
                           ending=None, expect_bgm=False, body_tail_holds=None) -> None:
     """汇总草稿轨道待核项；生成流程将它们返回为提示并保留候选。
 
-    正文镜头和主音频保持原时间线；3D 动画不添加 2 秒片尾定格或 AI 标识。
+    主音频和字幕保持原时钟；已验证的同 fps CFR 正文镜头按共享项目帧边界适配，其他输入保留原微秒路径。
+    3D 动画不添加 2 秒片尾定格或 AI 标识。
     仿真人与未声明媒介的旧项目另含 2 秒定格及独立 AI 标识，字幕仅计实际发声。
 
     Args:
@@ -1046,6 +1127,9 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     video_total = sum(_duration_us(segment) for segment in video_segments)
     audio_total = sum(_duration_us(segment) for segment in audio_segments)
     body_end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
+    frame_clock = (ending or {}).get('frame_clock')
+    if frame_clock is not None:
+        body_end = frame_clock['body_end_us']
     include_ending = ending is None or ending["policy"]["ending_duration_us"] > 0
     add_watermark = ending is None or ending["policy"]["add_watermark"]
     total_duration = body_end + (ENDING_DURATION_US if include_ending else 0)
@@ -1054,6 +1138,22 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         if track.get('type') == 'video' and track.get('name') == '片尾特效':
             if any(segment.get('volume') != 0 for segment in track.get('segments', [])):
                 failures.append('片尾覆盖视频须静音；保留独立片尾音，避免效果自带音频叠播。')
+        if frame_clock is not None and track.get('name') in ('片尾音', '片尾特效'):
+            for segment in track.get('segments', []):
+                span = segment.get('target_timerange') or {}
+                start, duration = span.get('start', 0), span.get('duration', 0)
+                if start != body_end or duration <= 0 or start + duration > frame_clock['duration_us']:
+                    failures.append('片尾音或特效必须使用共同正文终点，且不得超出项目尾窗。')
+                if track.get('name') == '片尾特效':
+                    source_us = (segment.get('source_timerange') or {}).get('duration', 0)
+                    fit = (ending or {}).get('ending_effect_fit', 'source_once')
+                    target = (ENDING_DURATION_US if fit == 'stretch_to_window' else
+                              _draft_inputs.frame_time_us(min(frame_clock['total_frames'],
+                                  _draft_inputs.project_frame_index(body_end + source_us, frame_clock['fps'])),
+                                  frame_clock['fps']) - body_end)
+                    speed = source_us / ENDING_DURATION_US if fit == 'stretch_to_window' else 1.0
+                    if duration != target or segment.get('speed') != speed:
+                        failures.append('片尾特效的项目帧窗或显式适配速度不一致。')
     if ending is not None:
         total_duration = ending["duration_us"]
     if not audio_segments:
@@ -1077,6 +1177,16 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     elif abs(video_total - total_duration) > TIMELINE_TOLERANCE_US:
         failures.append(f"视频总时长 {video_total / 1e6:.3f} 秒 != 交付要求 "
                         f"{total_duration / 1e6:.3f} 秒。")
+    if frame_clock is not None:
+        ordered_video = sorted(video_segments, key=lambda item: item['target_timerange']['start'])
+        cursor = 0
+        for segment in ordered_video:
+            span = segment['target_timerange']
+            if span['start'] != cursor:
+                failures.append('项目帧时间线出现空隙或重叠，不能用总时长求和代替连续覆盖。')
+            cursor = span['start'] + span['duration']
+        if cursor != total_duration or video_total != total_duration or content.get('duration') != total_duration:
+            failures.append('项目帧时间线、草稿总终点与标识终点必须完全一致。')
     if clips:
         expected_freezes = 1 if include_ending else 0
         expected_holds = len(body_tail_holds or [])
@@ -1102,14 +1212,20 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
         start = int((segment.get("target_timerange") or {}).get("start", 0))
         hold = holds.get(segment.get("material_id"))
         if hold is not None:
-            clip = clips.get(hold["shot"])
+            frame_clip = frame_clock['clips'].get(hold['shot']) if frame_clock is not None else None
+            clip = frame_clip if frame_clip is not None else clips.get(hold["shot"])
+            source_target_us = frame_clip['video_duration_us'] if frame_clip is not None else hold['selected_duration_us']
             sources = [item for item in video_segments if video_paths.get(item.get("material_id")) == hold["source"]
                        and (item.get("target_timerange") or {}).get("start") == (clip or {}).get("start_us")
-                       and _duration_us(item) == hold["selected_duration_us"]]
+                       and _duration_us(item) == source_target_us
+                       and (frame_clip is None or (item.get('source_timerange') or {}).get('duration') == hold['selected_duration_us'])]
+            bounded = (0 < duration <= TIMELINE_TOLERANCE_US if frame_clip is None else
+                       0 < duration == frame_clip['duration_us'] - source_target_us
+                       and frame_clip['original_duration_us'] - frame_clip['source_window_us'] <= TIMELINE_TOLERANCE_US)
             if (clip is None or path != Path(hold["image"])
                     or video_materials.get(segment.get("material_id"), {}).get("type") != "photo" or start != hold["start_us"]
-                    or duration != hold["duration_us"] or not 0 < duration <= TIMELINE_TOLERANCE_US
-                    or start != clip["start_us"] + hold["selected_duration_us"]
+                    or duration != hold["duration_us"] or not bounded
+                    or start != clip["start_us"] + source_target_us
                     or start + duration != clip["start_us"] + clip["duration_us"]
                     or segment.get("speed") != 1.0 or segment.get("volume") != 0 or len(sources) != 1):
                 failures.append(f"镜头 {hold['shot']} 的正文末帧补齐与本次来源和时间线不一致。")
@@ -1120,14 +1236,19 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
                 failures.append("末帧定格必须恰好 2 秒并从正文结束开始。")
             continue
         shot = _media_shot_number(path)
-        clip = clips.get(shot)
+        frame_clip = frame_clock['clips'].get(shot) if frame_clock is not None else None
+        clip = frame_clip if frame_clip is not None else clips.get(shot)
         if (audio_segments and video_materials.get(segment.get("material_id"), {}).get("type") == "video"
                 and segment.get("volume") != 0):
             failures.append(f"镜头 {shot} 的源视频音量为 {segment.get('volume', '未声明')}，可能重复对白；"
                             "保留独立对白轨并将该源视频静音。")
         if clip is None:
             failures.append(f"镜头 {shot} 用的是默认时长 {duration / 1e6:.3f} 秒，时间线里没有这个镜头。")
-        elif abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US or start != clip["start_us"]:
+        elif (frame_clip is not None and (duration != frame_clip['video_duration_us'] or start != clip['start_us']
+                or (segment.get('source_timerange') or {}).get('duration') != frame_clip['source_window_us']
+                or segment.get('speed') != 1.0)):
+            failures.append(f'镜头 {shot} 的项目帧窗口或原始源时窗不一致。')
+        elif frame_clip is None and (abs(duration - clip["duration_us"]) > TIMELINE_TOLERANCE_US or start != clip["start_us"]):
             failures.append(f"镜头 {shot} 的时间范围与正文时间线不一致。")
     if include_ending and len(freeze_segments) != 1:
         failures.append("主轨必须包含恰好一个可编辑末帧定格图片片段。")
@@ -1565,11 +1686,30 @@ def main_with_args(args, results=None):
                 last_source = None
                 last_duration = None
 
+                project_materials, project_clock = prepare_project_frame_clock(ending_plan, media_files, video_extensions)
+                if (project_clock['status'] == 'verified_same_fps_cfr' and audio_duration is not None
+                        and audio_duration > project_clock['duration_us']):
+                    project_clock = {'status': 'unsupported', 'reason': '原主音轨超出量化后的项目终点'}
+                if project_clock['status'] == 'verified_same_fps_cfr':
+                    ending_plan['frame_clock'] = project_clock
+                    ending_plan['body_end_us'] = project_clock['body_end_us']
+                    ending_plan['duration_us'] = project_clock['duration_us']
+                    if project_clock['delta_us'] or any(
+                            row['start_us'] != row['original_start_us'] or row['duration_us'] != row['original_duration_us']
+                            for row in project_clock['clips'].values()):
+                        warn(f"剪映按 {project_clock['fps']}fps 共用绝对帧边界：正文原时钟 "
+                             f"{project_clock['original_body_end_us'] / 1e6:.6f} 秒 → "
+                             f"{project_clock['body_end_us'] / 1e6:.6f} 秒（差 {project_clock['delta_us']} 微秒）；"
+                             '源文件、音频及字幕时钟未改，打开、重开及导出仍须核对。')
+                else:
+                    warn(f"未应用剪映项目帧级适配：{project_clock['reason']}；保留原微秒时间线与既有尾差处理，"
+                         '编辑器重开后的帧数和标识覆盖尚未确认。')
+
                 for idx, media_file in enumerate(media_files, start=1):
                     try:
                         logger.info(f"[{draft_name}] Processing media {idx}: {str(media_file)}")
 
-                        media_material = draft.VideoMaterial(str(media_file))
+                        media_material = project_materials.get(media_file) or draft.VideoMaterial(str(media_file))
 
                         shot = _media_shot_number(media_file)
                         clip = body_clips.get(shot)
@@ -1585,7 +1725,15 @@ def main_with_args(args, results=None):
                             if media_file.suffix.lower() in video_extensions:
                                 duration = min(duration, int(media_material.duration))
 
+                        frame_clip = (ending_plan.get('frame_clock') or {}).get('clips', {}).get(shot)
+                        if frame_clip is not None:
+                            start_time = frame_clip['start_us']
+                            duration = frame_clip['source_window_us']
+
                         video_segment = draft.VideoSegment(media_material, Timerange(start_time, duration))
+                        if frame_clip is not None:
+                            # SDK constructor validates the source; its public setter changes only the target.
+                            video_segment.duration = frame_clip['video_duration_us']
                         if main_audio_added:
                             video_segment.volume = 0
                         script.add_segment(video_segment, video_track)
@@ -1594,11 +1742,12 @@ def main_with_args(args, results=None):
 
                         if shot == ending_plan["last_shot"]:
                             last_source, last_duration = media_file, duration
-                        gap = int(clip["duration_us"]) - duration
-                        if 0 < gap <= TIMELINE_TOLERANCE_US:
+                        gap = (frame_clip['duration_us'] - frame_clip['video_duration_us'] if frame_clip is not None
+                               else int(clip["duration_us"]) - duration)
+                        if gap > 0 and (frame_clip is not None or gap <= TIMELINE_TOLERANCE_US):
                             try:
                                 body_tail_holds.append(append_body_tail_hold(script, video_track, media_file,
-                                    duration, draft_path, shot, start_time + duration, gap))
+                                    duration, draft_path, shot, start_time + video_segment.duration, gap))
                             except Exception as error:
                                 warn(f"镜头 {shot} 的 {gap / 1e6:.6f} 秒正文尾差未补齐：{error}；保留已有视频待核。")
                         elif gap > TIMELINE_TOLERANCE_US:
@@ -1614,9 +1763,11 @@ def main_with_args(args, results=None):
                 logger.info(f"[{draft_name}] Failed to add media: {e}")
 
             logger.info(f"[{draft_name}] Added {media_added_count} out of {len(media_files)} media files to timeline")
-            if body_tail_holds:
+            if body_tail_holds or 'frame_clock' in ending_plan:
                 (draft_path / 'body-tail-evidence.json').write_text(
-                    json.dumps({'holds': body_tail_holds}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+                    json.dumps({'holds': body_tail_holds,
+                                **({'frame_clock': ending_plan['frame_clock']} if 'frame_clock' in ending_plan else {})},
+                               ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
             try:
                 if last_source is None or last_duration is None:
                     raise DraftInputError("最后一个正文镜头未成功加入，不能生成定格。")

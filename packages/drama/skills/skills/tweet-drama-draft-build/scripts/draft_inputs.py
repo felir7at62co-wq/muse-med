@@ -2,6 +2,7 @@
 
 import json
 import math
+from fractions import Fraction
 from pathlib import Path
 
 
@@ -178,6 +179,38 @@ def body_clock(timeline: dict, clip_end_us: int, tolerance_us: int, ending_us: i
     else:
         raise ValueError('时间线 body_end 与镜头末尾不符；只有已包含的 2 秒定格可位于正文之后。')
     return {'body_end_us': body_end_us, 'included': included, 'warnings': warnings}
+
+
+def frame_time_us(frame: int, fps: int) -> int:
+    """Serialize one absolute project-frame boundary once, including fractional microseconds."""
+    return round(Fraction(frame * 1_000_000, fps))
+
+
+def project_frame_index(time_us: int, fps: int) -> int:
+    """Choose the first serialized frame boundary at or after an integer-microsecond time."""
+    nearest = round(Fraction(time_us * fps, 1_000_000))
+    if frame_time_us(nearest, fps) == time_us:
+        return nearest
+    return (time_us * fps + 999_999) // 1_000_000
+
+
+def project_frame_clock(clips: dict, fps: int, body_end_us: int, ending_us: int) -> dict:
+    """Plan shared absolute target boundaries; source selection and audio keep their original clocks."""
+    projected = {}
+    for shot, clip in clips.items():
+        start = project_frame_index(clip['start_us'], fps)
+        end = project_frame_index(clip['start_us'] + clip['duration_us'], fps)
+        if end <= start:
+            return {'status': 'unsupported', 'reason': f'镜头 {shot} 在项目帧网格中不足一帧'}
+        projected[shot] = {'original_start_us': clip['start_us'], 'original_duration_us': clip['duration_us'],
+                           'start_frame': start, 'end_frame': end, 'start_us': frame_time_us(start, fps),
+                           'duration_us': frame_time_us(end, fps) - frame_time_us(start, fps)}
+    body_frame = project_frame_index(body_end_us, fps)
+    total_frames = body_frame + ending_us * fps // 1_000_000
+    return {'status': 'planned', 'fps': fps, 'original_body_end_us': body_end_us,
+            'body_end_frame': body_frame, 'body_end_us': frame_time_us(body_frame, fps),
+            'total_frames': total_frames, 'duration_us': frame_time_us(total_frames, fps),
+            'delta_us': frame_time_us(body_frame, fps) - body_end_us, 'clips': projected}
 
 
 def bgm_import(role: str | None) -> dict:
