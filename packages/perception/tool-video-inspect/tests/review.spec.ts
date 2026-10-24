@@ -763,6 +763,31 @@ it('adds bounded adjacent observations when a viewed frame remains uncertain', a
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
 }, 30_000)
 
+it.each([false, true])('records omitted uncertainty as an empty string without context expansion in ptc=%s', async (ptc) => {
+  const h = await fixture({ ptc })
+  const route = (call: { name: string; args: object }) => ptc ? { name: 'run_code', args: {
+    description: 'Record an observed frame without an uncertainty concern.', code: `await tools.video_inspect(${JSON.stringify(call.args)});`,
+  } } : call
+  await h.run(route(h.call('scan')), undefined)
+  const count = h.review().frames.length, frame = h.review().frames[0]!
+  await h.run(route(h.call('observe', { observations: [{ frame_id: frame.id,
+    visible: '画面是合成红色背景，没有可见人物或道具。', change: '初始画面。' }] })), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().frames).toHaveLength(count)
+  expect(h.review().frames[0]?.observation).toEqual({ visible: '画面是合成红色背景，没有可见人物或道具。',
+    change: '初始画面。', uncertainty: '' })
+}, 30_000)
+
+it.each([null, 42])('rejects a non-string uncertainty value %j without recording or expanding frames', async (uncertainty) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = JSON.stringify(h.review())
+  await h.run(h.call('observe', { observations: [{ frame_id: h.review().frames[0]!.id,
+    visible: '画面是合成红色背景，没有可见人物或道具。', change: '初始画面。', uncertainty }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
 it.each(['无', '无。', '无疑点！', '无新增疑点', '没有新增疑点。', '未发现新增疑点', ' None. ', ' n / a； '])('retains the empty marker %s without expanding context frames', async (uncertainty) => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)

@@ -84,7 +84,17 @@ export async function apply(ctx) {
     assert.ok(candidateSource, 'The source comparison must belong to the actual saved candidate, not the earlier returned document')
     const firstSource = JSON.parse(candidateSource.content.find(block => block.type === 'text').text).manuscript_video_evidence
     assert.equal(firstSource.semantic_assessment, 'not_performed')
-    assert.equal(firstSource.scenes[0].speech.segments[0].text, '我不会走。')
+    const sourcePackets = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
+      .map(block => JSON.parse(block.text).manuscript_source_packet)
+    const sourceSpeech = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_speech":'))
+      .flatMap(block => JSON.parse(block.text).manuscript_source_speech.original_asr_remaining)
+    const originalRows = [...sourcePackets.flatMap(packet => packet.original_asr_first_occurrences), ...sourceSpeech]
+    assert.ok(originalRows.some(row => row.text === '我不会走。'))
+    assert.equal(new Set(originalRows.map(row => row.segment_id)).size, originalRows.length)
+    assert.ok(sourcePackets.every(packet => packet.document_sha256 === firstSource.receipt.sha256))
+    assert.ok(sourcePackets.every(packet => packet.scene_sha256 === firstSource.scenes[0].manuscript.current.sha256))
+    assert.ok(candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME '))
+      .every(block => block.text.startsWith(`VIDEO_FRAME ${firstSource.scenes[0].source.review_id}/`)))
     assert.equal(firstSource.scenes[0].transcript_resolution.kind, 'successful_read_candidate')
     assert.equal(firstSource.scenes[0].transcript_resolution.read_receipts[0].readCallId, 'call_manuscript_asr_read')
     assert.ok(candidateSource.content.some(block => block.type === 'image'), 'The candidate source return carries the cached image block')

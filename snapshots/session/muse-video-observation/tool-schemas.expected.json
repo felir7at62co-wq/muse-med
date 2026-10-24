@@ -617,14 +617,13 @@
                 },
                 "uncertainty": {
                   "type": "string",
-                  "description": "无法确定的内容；无疑点填空字符串，不猜测。"
+                  "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
                 }
               },
               "required": [
                 "frame_id",
                 "visible",
-                "change",
-                "uncertainty"
+                "change"
               ]
             }
           }

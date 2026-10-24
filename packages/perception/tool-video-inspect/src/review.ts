@@ -25,7 +25,7 @@ const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observ
   timeline_start_seconds: z.number().nonnegative().optional(), timeline_end_seconds: z.number().positive().optional(),
   frame_ids: z.array(z.string().min(1)).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
-    change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000) })).optional() })
+    change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000).default('') })).optional() })
 
 function taskResult(review: VideoReview, limit: number, batch = false) {
   const pending = review.frames.filter(frame => frame.observation === undefined)
@@ -217,7 +217,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
         items: { type: 'object', additionalProperties: false, properties: {
           frame_id: { type: 'string', required: true }, visible: { type: 'string', required: true, description: '具体可见人物、位置、动作、神态或道具；至少8个字符。' },
           change: { type: 'string', required: true, description: '与邻近画面的变化；无变化也需据实说明。' },
-          uncertainty: { type: 'string', required: true, description: '无法确定的内容；无疑点填空字符串，不猜测。' },
+          uncertainty: { type: 'string', description: '需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。' },
         } } },
     }, output: { schema: { type: 'string' }, render: (_args, value) => content(value),
       presentationMeta: (_args, serialized) => {

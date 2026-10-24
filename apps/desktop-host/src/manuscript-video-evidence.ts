@@ -3,13 +3,15 @@ import { realpath, stat } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import { hasReviewUncertainty, readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
+import type { ContentBlock, ImageBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
+import { readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
 import { manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
+import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptVideoPacketContent, planManuscriptVideoPackets,
+  type ManuscriptPacketPlan } from './manuscript-video-packets.ts'
 
 const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
   action: z.string().optional(), candidate_paths: z.array(z.string()).optional() })
@@ -25,6 +27,7 @@ interface MaterialCache {
   calls: Map<string, { block: ToolCallBlock; args: CallArguments | undefined }>
 }
 const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_key: z.string(),
+  presentation_version: z.string().optional(),
   source_material_sha256: z.string(),
   source_identity_sha256: z.string().optional(),
   returned_frames: z.array(z.object({ review_id: z.string(), frame_id: z.string() })),
@@ -265,70 +268,20 @@ export function manuscriptSourceWindows(scene: ManuscriptScene, timeline: VideoS
     repeated_source_text_segment_ids: repeated.map(segment => segment.segment_id),
     notice: '正文行号与ASR字面对应仅为定位候选；短句、语气词及重复台词保留全部命中，不作精确场景对齐或角色识别。'
       + '保留锚之间的连续画面和前后时间窗，包含无对白段；同一ASR原段对应两行标为within_same_speech，行间不制造动作空隙。'
-      + '▲和括注原句仅作缓存画面笔记的字面检索，不推断动作含义或规定正文写法；无ASR锚时仅列全片索引，不自动重显图片或假称局部对齐。未自动判断动作遗漏、衔接或剧情通过。' }
-}
-
-function visualWords(text: string): Set<string> {
-  const letters = Array.from(normalizedSpeech(text))
-  return new Set(letters.slice(1).map((letter, index) => (letters[index] ?? '') + letter))
+      + '▲和括注原句对应时间候选，不把旧看图笔记当事实；无ASR锚时仅列全片索引，不自动重显图片或假称局部对齐。未自动判断动作遗漏、衔接或剧情通过。' }
 }
 
 /**
- * Select a bounded, temporally distributed subset from already observed local cache frames.
- * @param location - Literal manuscript/ASR candidates; an unaligned episode index supplies no automatic images.
- * @param count - Available image budget, shared by the current refresh.
- * @param excluded - Frame ids already returned for this scene/source revision.
- * @returns Cached frame identities; retrieval scores do not verify actions or model understanding.
+ * Return the bounded temporal packet identities selected for one saved scene.
+ * @param scene - Exact saved scene supplying its identity and current lines.
+ * @param location - Literal manuscript/ASR time candidates; unaligned scenes provide no automatic images.
+ * @param count - Available shared image allowance.
+ * @param excluded - Identities already returned from this review revision.
+ * @returns Cached frame ids; selection does not verify actions or model understanding.
  */
-export function manuscriptEvidenceFrames(location: ReturnType<typeof manuscriptSourceWindows>, count: number,
+export function manuscriptEvidenceFrames(scene: ManuscriptScene, location: ReturnType<typeof manuscriptSourceWindows>, count: number,
   excluded: ReadonlySet<string>): string[] {
-  if (!location.anchors.length || count <= 0) return []
-  const queries = location.visual_queries.map(query => ({ words: visualWords(query.text), ranges: query.time_candidates }))
-  const hasTimedQueries = queries.some(query => query.ranges.length > 0)
-  const inQueryTime = (time: number, query: typeof queries[number]) => query.ranges.some(range =>
-    time >= range.start_seconds - location.window_seconds && time <= range.end_seconds + location.window_seconds)
-  const frames = [...new Map(location.windows.flatMap(window => window.frames.map(frame => ({ ...frame, window: window.window_id })))
-    .filter(frame => frame.image_available && frame.observation_source === 'model_authored_observation'
-      && !excluded.has(frame.frame_id) && (!hasTimedQueries || queries.some(query => inQueryTime(frame.time, query))))
-    .map(frame => [frame.frame_id, frame])).values()]
-  const temporalMatches = new Map(frames.map(frame => [frame.frame_id, queries.map(query => inQueryTime(frame.time, query))]))
-  const matchesByFrame = new Map(frames.map((frame) => {
-    const words = visualWords([frame.observation?.visible, frame.observation?.change].join('\n'))
-    return [frame.frame_id, queries.map((query, index) => temporalMatches.get(frame.frame_id)?.[index]
-      ? [...query.words].filter(word => words.has(word)).length : 0)] as const
-  }))
-  const eventBoundaries = new Set(location.windows.flatMap(window => window.event_notes.flatMap(note =>
-    [note.frame_ids[0], note.frame_ids.at(-1)].filter((id): id is string => id !== undefined))))
-  const speechNeighbors = new Set(location.anchors.flatMap(anchor => [anchor.start_seconds, anchor.end_seconds]
-    .flatMap((time) => {
-      const before = frames.findLast(frame => frame.time <= time), after = frames.find(frame => frame.time >= time)
-      return [before?.frame_id, after?.frame_id].filter((id): id is string => id !== undefined)
-    })))
-  const selected: typeof frames = [], coveredQueries = new Set<number>()
-  while (selected.length < count && selected.length < frames.length) {
-    const priority = (frame: typeof frames[number]) => {
-      const matches = matchesByFrame.get(frame.frame_id) ?? []
-      return [selected.some(old => old.window === frame.window) ? 0 : 1,
-        temporalMatches.get(frame.frame_id)?.filter((matched, index) => matched && !coveredQueries.has(index)).length ?? 0,
-        matches.reduce((sum, score, index) => sum + (coveredQueries.has(index) ? 0 : score), 0),
-        selected.length ? Math.min(...selected.map(old => Math.abs(old.time - frame.time))) : 0,
-        hasReviewUncertainty(frame.observation?.uncertainty ?? '') ? 1 : 0,
-        eventBoundaries.has(frame.frame_id) ? 1 : 0, speechNeighbors.has(frame.frame_id) ? 1 : 0,
-        frame.reasons.some(reason => /cut|change/u.test(reason)) ? 1 : 0]
-    }
-    const next = frames.filter(frame => !selected.some(old => old.frame_id === frame.frame_id)).sort((a, b) => {
-      const left = priority(a), right = priority(b)
-      for (let index = 0; index < left.length; index++) {
-        const difference = (right[index] ?? 0) - (left[index] ?? 0)
-        if (difference) return difference
-      }
-      return a.time - b.time || a.frame_id.localeCompare(b.frame_id)
-    })[0]
-    if (next === undefined) break
-    selected.push(next)
-    temporalMatches.get(next.frame_id)?.forEach((matched, index) => { if (matched) coveredQueries.add(index) })
-  }
-  return selected.map(frame => frame.frame_id)
+  return planManuscriptVideoPackets(scene, location, count, excluded).selected.flatMap(packet => packet.images.map(frame => frame.frame_id))
 }
 
 /**
@@ -473,11 +426,13 @@ export class ManuscriptVideoEvidence {
         }) }))))
       const evidenceKey = manuscriptTextHash(JSON.stringify({
         path: identityPath(document.path), sha256: document.sha256, sourceIdentityHash,
+        presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
       }))
       const previousReceipt = prior.findLast(entry => entry.path === document.path && entry.evidence_key === evidenceKey)
         ?? prior.findLast(entry => entry.path === document.path)
-      const carried = previousReceipt?.source_identity_sha256 === sourceIdentityHash
-        || previousReceipt?.source_identity_sha256 === undefined && previousReceipt?.source_material_sha256 === sourceMaterialHash
+      const carried = previousReceipt?.presentation_version === MANUSCRIPT_VIDEO_PRESENTATION
+        && (previousReceipt.source_identity_sha256 === sourceIdentityHash
+          || previousReceipt.source_identity_sha256 === undefined && previousReceipt.source_material_sha256 === sourceMaterialHash)
         ? previousReceipt : undefined
       const deliveredScenes = carried?.scene_versions
         .filter(old => scenes.some(scene => scene.id === old.id && scene.sha256 === old.sha256)) ?? []
@@ -493,7 +448,12 @@ export class ManuscriptVideoEvidence {
       const carriedFrames = carried?.returned_frames.filter(frame => !invalidatedFrames.has(`${frame.review_id}/${frame.frame_id}`)) ?? []
       const selected = changed.slice(0, this.config.videoEvidenceMaxScenes)
       if (!selected.length) continue
-      const reports = [], images: ContentBlock[] = []
+      const reports = []
+      const packetSources = new Map<string, {
+        timeline: VideoSourceTimeline
+        plans: ManuscriptPacketPlan[]
+        images: Map<string, ImageBlock>
+      }>()
       const returnedFrames = [...carriedFrames]
       for (const entry of selected) {
         const index = scenes.indexOf(entry.scene)
@@ -510,7 +470,8 @@ export class ManuscriptVideoEvidence {
         const allowance = imageCapable
           ? Math.min(remainingFrames, Math.max(1, Math.floor(this.config.videoEvidenceMaxFrames / (selected.length * paths.length)))) : 0
         const alreadyReturned = new Set(returnedFrames.filter(frame => frame.review_id === source.review_id).map(frame => frame.frame_id))
-        const frameIds = manuscriptEvidenceFrames(location, allowance, alreadyReturned)
+        const plan = planManuscriptVideoPackets(entry.scene, location, allowance, alreadyReturned)
+        const frameIds = plan.selected.flatMap(packet => packet.images.map(frame => frame.frame_id))
         const selectedMaterial = frameIds.length ? await readVideoSourceTimeline(ctx, agent.session, source.review_id, {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
           maxBytes: this.config.videoEvidenceMaxBytes, maxTranscriptBytes: this.config.videoEvidenceMaxTranscriptBytes,
@@ -520,35 +481,47 @@ export class ManuscriptVideoEvidence {
         if (selectedMaterial && selectedMaterial.timeline.material_sha256 !== timeline.material_sha256) {
           throw Error('MANUSCRIPT_VIDEO_SOURCE_CHANGED: 来源在局部证据读取期间变化，未将材料标记为已核对。')
         }
-        if (selectedMaterial) images.push(...selectedMaterial.content.filter(block => block.type !== 'text'
-          || block.text.startsWith('VIDEO_FRAME ')))
+        const packetSource = packetSources.get(source.review_id) ?? { timeline, plans: [], images: new Map<string, ImageBlock>() }
+        packetSource.plans.push(plan)
+        packetSources.set(source.review_id, packetSource)
+        if (selectedMaterial) {
+          let frameId: string | undefined
+          for (const block of selectedMaterial.content) {
+            if (block.type === 'text') {
+              const label = /^VIDEO_FRAME (\S+)/u.exec(block.text)?.[1], prefix = `${source.review_id}/`
+              frameId = label?.startsWith(prefix) ? label.slice(prefix.length) : undefined
+            } else if (block.type === 'image' && frameId !== undefined) packetSource.images.set(frameId, block)
+          }
+        }
         remainingFrames -= frameIds.length
-        returnedFrames.push(...frameIds.map(frame_id => ({ review_id: source.review_id, frame_id })))
+        const actualFrames = frameIds.filter(id => packetSource.images.has(id))
+        returnedFrames.push(...actualFrames.map(frame_id => ({ review_id: source.review_id, frame_id })))
         const availableFrames = location.windows.flatMap(window => window.frames).filter(frame => frame.image_available)
-        reports.push({ manuscript, source_alignment: location.basis, anchors: location.anchors,
+        reports.push({ manuscript, source_alignment: location.basis,
           source_association: entry.singleCurrentCandidate ? 'single_current_task_video_candidate'
             : sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
           source: timeline.source, source_material_sha256: timeline.material_sha256,
-          repeated_source_text_segment_ids: location.repeated_source_text_segment_ids,
-          line_candidates: location.line_candidates, between_dialogue_lines: location.between_dialogue_lines,
-          visual_queries: location.visual_queries, automatic_images: location.automatic_images,
+          source_packet_review_id: source.review_id, automatic_images: location.automatic_images,
           image_selection_scope: location.image_selection_scope,
           transcript_resolution: timeline.transcript_resolution,
-          selected_windows: location.windows, speech: timeline.speech, speech_unavailable: timeline.speech_unavailable,
-          images: { returned_frame_ids: frameIds, returned: frameIds.length,
+          speech_unavailable: timeline.speech_unavailable,
+          images: { returned_frame_ids: actualFrames, returned: actualFrames.length,
+            requested_frame_ids: frameIds, unavailable_frame_ids: frameIds.filter(id => !packetSource.images.has(id)),
             available_in_selected_windows: availableFrames.length,
             not_returned_from_selected_windows: availableFrames
               .filter(frame => !alreadyReturned.has(frame.frame_id) && !frameIds.includes(frame.frame_id)).length },
           notice: location.notice })
       }
       const receipt: Receipt = { path: document.path, sha256: document.sha256, evidence_key: evidenceKey,
+        presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
         source_material_sha256: sourceMaterialHash, source_identity_sha256: sourceIdentityHash, returned_frames: returnedFrames,
         scene_versions: [...deliveredScenes.filter(old => !selected.some(entry => entry.scene.id === old.id)),
           ...selected.map(entry => ({ id: entry.scene.id, sha256: entry.scene.sha256 }))] }
       const remainingImages = locations.filter(entry => entry.location !== undefined && entry.sources[0] !== undefined
-        && manuscriptEvidenceFrames(entry.location, 1, new Set(returnedFrames
+        && manuscriptEvidenceFrames(entry.scene, entry.location, 1, new Set(returnedFrames
           .filter(frame => frame.review_id === entry.sources[0]?.review_id).map(frame => frame.frame_id))).length > 0)
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
+        presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
         output_association: declarations.get(document.path) ?? { basis: registered.explicitlyBound
           ? 'explicit_manuscript_work_binding' : 'successful_tool_path' },
         image_delivery: 'cached_blocks_returned_not_admission_or_understanding',
@@ -558,12 +531,19 @@ export class ManuscriptVideoEvidence {
         remaining_image_scenes: remainingImages.length,
         scope: 'saved_draft_changed_scenes_with_source_candidates', scenes: reports,
         notice: '这是保存后回读的当前稿、前后场和来源定位候选；模型观察不是独立事实，图片与ASR原段供当前Muse判断。未返回场景和原图不算已核对；未返回原图只是范围说明，不要求消成零或重跑整集，可选revisit读取其他缓存图。没有审批、动作行配额或交付限制。' } })
-      if (Buffer.byteLength(text) > this.config.videoEvidenceMaxBytes) {
+      const sourceContent = (includeIndexes: boolean) => [...packetSources.values()].flatMap(packetSource =>
+        manuscriptVideoPacketContent({ ...packetSource, documentSha256: document.sha256,
+          indexRows: includeIndexes ? packetSource.timeline.windows.reduce((total, window) => total + window.frames.length, 0) : 0 }))
+      let content: ContentBlock[] = [{ type: 'text', text }, ...sourceContent(true)]
+      if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
+        content = [{ type: 'text', text }, ...sourceContent(false)]
+      }
+      if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
         throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
       }
       const current = await readManuscript(path, cwd, this.config, signal)
       if (current.sha256 !== document.sha256) throw Error('MANUSCRIPT_VIDEO_DRAFT_CHANGED: 文稿在局部证据读取期间变化，请以新版本为准。')
-      output.push({ type: 'text', text }, ...images)
+      output.push(...content)
     }
     return output
   }
