@@ -10,5 +10,10 @@
   "privateLedgerVerified": true,
   "restartVerifiedByThisScenario": false,
   "shellWriteReconciled": true,
-  "duplicateHeadingAdvisoryVisible": true
+  "duplicateHeadingAdvisoryVisible": true,
+  "guidanceWriteAccepted": true,
+  "guidanceReadAttributed": true,
+  "guidanceUnsourcedCandidateVisible": true,
+  "guidanceDidNotBlockDelivery": true,
+  "mixedActionDialogueCandidateVisible": true
 }

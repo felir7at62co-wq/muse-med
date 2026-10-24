@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
-import { diffManuscript } from './manuscript-diff.ts'
+import { diffManuscript, manuscriptParagraphs } from './manuscript-diff.ts'
+import { manuscriptScreenplayCandidates } from './manuscript-advisories.ts'
 import { manuscriptEpisodeCounts, manuscriptRepetitions, manuscriptScenes, manuscriptStructure, manuscriptTextHash } from './manuscript-scenes.ts'
 import type { Config } from './manuscript-revisions.ts'
 
@@ -138,7 +139,7 @@ export class ManuscriptWork {
     return { current, sources, fingerprint, changes, sourceChanges, missing, scenes, active, invalidated }
   }
 
-  private report(state: WorkState, data: Awaited<ReturnType<ManuscriptWork['reconcile']>>) {
+  private report(state: WorkState, data: Awaited<ReturnType<ManuscriptWork['reconcile']>>, changedLines?: ReadonlyMap<string, ReadonlySet<number>>) {
     const repeatedEvents = data.active.filter((entry, i, all) => entry.purpose === 'advance'
       && all.findIndex(prior => prior.event_id === entry.event_id && prior.purpose === 'advance') < i)
     return { task_key: state.task_key, mode: state.mode, advisory: true, semantic_assessment: 'not_performed',
@@ -149,6 +150,8 @@ export class ManuscriptWork {
       structure: manuscriptStructure(data.current),
       scenes: data.scenes.map(({ text: _text, ...scene }) => scene),
       literal_repetitions: manuscriptRepetitions(data.scenes, this.config.repeatMinCharacters, this.config.maxRepeatFindings),
+      screenplay_candidates: manuscriptScreenplayCandidates(data.scenes,
+        this.config.actionRepeatMinCharacters, this.config.maxRepeatFindings, changedLines),
       event_notes: data.active, repeated_advance_events: repeatedEvents, invalidated_event_notes: data.invalidated,
       scenes_without_event_notes: data.scenes.filter(scene => !data.active.some(entry => entry.scene_id === scene.id))
         .map(scene => scene.id),
@@ -217,7 +220,9 @@ export class ManuscriptWork {
       const context = { task_key: state.task_key, mode: state.mode, current: scene,
         previous: data.scenes[index - 1] ?? null, next: data.scenes[index + 1] ?? null,
         source_files: sources, source_excerpts: excerpts, source_alignment: excerpts.length ? 'model_selected_ranges' : 'not_selected',
-        event_notes: data.active, notice }
+        event_notes: data.active,
+        screenplay_candidates: manuscriptScreenplayCandidates([scene],
+          this.config.actionRepeatMinCharacters, this.config.maxRepeatFindings), notice }
       if (args.action === 'scene') return JSON.stringify(context)
       if (args.expected_sha256 !== scene.sha256) throw Error('MANUSCRIPT_SCENE_STALE: 场景已变，读取当前全文后再提出修改。')
       if (args.replacement === undefined || !args.replacement.trim()) throw Error('MANUSCRIPT_REPLACEMENT: 提供完整替换场景，不按钩子位置追加补字。')
@@ -253,8 +258,26 @@ export class ManuscriptWork {
           event_notes_available: data.active.length, missing_files: data.missing,
           notice: '需要时用scene回读整场与前后场，audit读取全剧疑点和事件笔记；没有自动语义审校结论。',
         }) : undefined
-      const { scenes, event_notes: _notes, ...summary } = this.report(state, data)
+      const changedLines = new Map<string, Set<number>>()
+      for (const document of data.current) {
+        const touched = new Set<number>(), previous = state.current.find(entry => entry.path === document.path)
+        const changes = data.changes.find(entry => entry.path === document.path)?.changes ?? []
+        const paragraphs = new Set(changes.flatMap(change => change.after.length
+          ? change.after.map((_line, index) => change.afterStart + index)
+          : [change.afterStart - 1, change.afterStart]))
+        let paragraph = 0
+        for (const [index, line] of document.text.split('\n').entries()) {
+          if (manuscriptParagraphs(line).length) paragraph++
+          if (previous === undefined || paragraphs.has(paragraph)) touched.add(index + 1)
+        }
+        changedLines.set(document.path, touched)
+      }
+      const { scenes, event_notes: _notes, screenplay_candidates: candidates, ...summary } = this.report(state, data, changedLines)
       const result = JSON.stringify({ ...summary, scene_count: scenes.length,
+        screenplay_candidate_summary: { scope: candidates.scope, dialogue_runs: candidates.dialogue_runs.total,
+          action_overlaps: candidates.action_overlaps.total, mixed_action_dialogue_lines: candidates.mixed_action_dialogue_lines.total },
+        ...candidates.dialogue_runs.total + candidates.action_overlaps.total + candidates.mixed_action_dialogue_lines.total > 0
+          ? { screenplay_candidates: candidates } : {},
         event_note_count: data.active.length, detail: 'audit可读完整场景目录和事件笔记；此处只返回实际改动，不回灌前后全文。' })
       save({ ...state, current: data.current, sources: data.sources, events: data.active, notified: data.fingerprint })
       return '已登记的采用稿或来源出现新版本，以下来自磁盘真实回读，不判断是谁修改，也不要求重跑全套流程。\n' + result

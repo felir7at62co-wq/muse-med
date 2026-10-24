@@ -13,6 +13,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { reviewEventSchema, type ReviewEvent } from './review-events.ts'
+import type { ReviewTranscriptReference } from './review-speech.ts'
 
 const imageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
   bytes: z.number(), width: z.number(), height: z.number(), name: z.string().optional() })
@@ -22,7 +24,9 @@ export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), re
   image: imageSchema.optional(), decoded_time: z.number().optional(), exposed: z.boolean().default(false),
   observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string() }).optional() })
 const reviewSchema = z.object({ id: z.string().transform(VideoReviewId), episode: z.string(), path: z.string(), source_version: z.string(),
-  duration: z.number(), scanned_until: z.number(), scan_complete: z.boolean(), frames: z.array(reviewFrameSchema) })
+  duration: z.number(), scanned_until: z.number(), scan_complete: z.boolean(), frames: z.array(reviewFrameSchema),
+  event_groups: z.array(reviewEventSchema).optional(),
+  transcript_reference: z.object({ path: z.string(), version: z.string(), sha256: z.string() }).optional() })
 
 /** One detected frame and its actual image-input and observation progress. */
 export type ReviewFrame = z.infer<typeof reviewFrameSchema>
@@ -45,6 +49,8 @@ declare module '@deepseek-ai/dsh-session/types' {
       frame_count: number
       scanned_until: number
       scan_complete: boolean
+      event_groups?: ReviewEvent[]
+      transcript_reference?: ReviewTranscriptReference
     }
   }
 }
@@ -73,7 +79,9 @@ export function installReviewState(ctx: Context): void {
         if (frame === undefined || frame.id !== id) throw Error('Video review update is missing a frame')
         return frame
       })
-      return { ...state, [update.path]: { ...old, frames, scanned_until: update.scanned_until, scan_complete: update.scan_complete } }
+      return { ...state, [update.path]: { ...old, frames, scanned_until: update.scanned_until, scan_complete: update.scan_complete,
+        ...update.event_groups === undefined ? {} : { event_groups: update.event_groups },
+        ...update.transcript_reference === undefined ? {} : { transcript_reference: update.transcript_reference } } }
     },
   })
 }
@@ -101,9 +109,12 @@ export function saveReview(ctx: Context, session: Session, review: VideoReview):
   if (old === undefined || old.id !== review.id) { session.append('video/review', { kind: 'start', review }); return }
   const frames = review.frames.filter((frame, index) => JSON.stringify(old.frames[index]) !== JSON.stringify(frame))
   if (!frames.length && old.frames.length === review.frames.length && old.scanned_until === review.scanned_until
-    && old.scan_complete === review.scan_complete) return
+    && old.scan_complete === review.scan_complete && JSON.stringify(old.event_groups) === JSON.stringify(review.event_groups)
+    && JSON.stringify(old.transcript_reference) === JSON.stringify(review.transcript_reference)) return
   session.append('video/review', { kind: 'update', path: review.path, id: review.id, frames,
-    frame_count: review.frames.length, scanned_until: review.scanned_until, scan_complete: review.scan_complete })
+    frame_count: review.frames.length, scanned_until: review.scanned_until, scan_complete: review.scan_complete,
+    ...review.event_groups === undefined ? {} : { event_groups: review.event_groups },
+    ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference } })
 }
 
 /**
@@ -124,4 +135,14 @@ export function reviewImage(frame: ReviewFrame): ImageAttachmentRef | undefined 
  */
 export function pendingReview(review: VideoReview): number {
   return review.frames.filter(frame => frame.observation === undefined).length + (review.scan_complete ? 0 : 1)
+}
+
+/**
+ * Distinguish recorded uncertainty from conventional empty markers without changing the saved note.
+ * @param value - Original model-authored uncertainty text.
+ * @returns Whether the note contains a concern requiring adjacent context, rather than an exact empty marker.
+ */
+export function hasReviewUncertainty(value: string): boolean {
+  const text = value.trim()
+  return text.length > 0 && !/^(?:无|无疑点|none|n\s*\/\s*a)\s*[。.!！,，;；:：]?\s*$/iu.test(text)
 }

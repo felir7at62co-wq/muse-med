@@ -22301,7 +22301,7 @@
       "kind": "event",
       "event": "video/review",
       "surface": false,
-      "digest": "a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489",
+      "digest": "3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43",
       "schema": {
         "root": 0,
         "nodes": [
@@ -22315,22 +22315,22 @@
               },
               {
                 "name": "ignorable",
-                "type": 21,
+                "type": 24,
                 "optional": true
               },
               {
                 "name": "seq",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "time",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "type",
-                "type": 22,
+                "type": 25,
                 "optional": false
               }
             ],
@@ -22340,46 +22340,81 @@
             "kind": "union",
             "types": [
               2,
-              18
+              22
             ]
           },
           {
             "kind": "object",
             "properties": [
               {
-                "name": "frame_count",
+                "name": "kind",
                 "type": 3,
                 "optional": false
               },
               {
-                "name": "frames",
+                "name": "review",
                 "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "start"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "duration",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "episode",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "event_groups",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "frames",
+                "type": 10,
                 "optional": false
               },
               {
                 "name": "id",
-                "type": 8,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 17,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "path",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "scan_complete",
-                "type": 7,
+                "type": 13,
                 "optional": false
               },
               {
                 "name": "scanned_until",
-                "type": 3,
+                "type": 5,
                 "optional": false
+              },
+              {
+                "name": "source_version",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "transcript_reference",
+                "type": 21,
+                "optional": true
               }
             ],
             "indices": []
@@ -22389,50 +22424,123 @@
             "type": "number"
           },
           {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
             "kind": "array",
-            "element": 5
+            "element": 8
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "action",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "actor",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "after",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "before",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "end_seconds",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "event_id",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "frame_ids",
+                "type": 9,
+                "optional": false
+              },
+              {
+                "name": "object",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "observation_digest",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "start_seconds",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "uncertainty",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 6
+          },
+          {
+            "kind": "array",
+            "element": 11
           },
           {
             "kind": "object",
             "properties": [
               {
                 "name": "decode",
-                "type": 6,
+                "type": 12,
                 "optional": true
               },
               {
                 "name": "decoded_time",
-                "type": 3,
+                "type": 5,
                 "optional": true
               },
               {
                 "name": "exposed",
-                "type": 7,
+                "type": 13,
                 "optional": false
               },
               {
                 "name": "id",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "image",
-                "type": 9,
+                "type": 14,
                 "optional": true
               },
               {
                 "name": "observation",
-                "type": 15,
+                "type": 20,
                 "optional": true
               },
               {
                 "name": "reasons",
-                "type": 16,
+                "type": 9,
                 "optional": false
               },
               {
                 "name": "time",
-                "type": 3,
+                "type": 5,
                 "optional": false
               }
             ],
@@ -22443,12 +22551,12 @@
             "properties": [
               {
                 "name": "frame_index",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "start_seconds",
-                "type": 3,
+                "type": 5,
                 "optional": false
               }
             ],
@@ -22459,40 +22567,36 @@
             "type": "boolean"
           },
           {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
             "kind": "object",
             "properties": [
               {
                 "name": "attachmentId",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "bytes",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "height",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "mediaType",
-                "type": 10,
+                "type": 15,
                 "optional": false
               },
               {
                 "name": "name",
-                "type": 8,
+                "type": 6,
                 "optional": true
               },
               {
                 "name": "width",
-                "type": 3,
+                "type": 5,
                 "optional": false
               }
             ],
@@ -22501,10 +22605,10 @@
           {
             "kind": "union",
             "types": [
-              11,
-              12,
-              13,
-              14
+              16,
+              17,
+              18,
+              19
             ]
           },
           {
@@ -22528,95 +22632,97 @@
             "properties": [
               {
                 "name": "change",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "uncertainty",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "visible",
-                "type": 8,
+                "type": 6,
                 "optional": false
               }
             ],
             "indices": []
           },
           {
-            "kind": "array",
-            "element": 8
-          },
-          {
-            "kind": "literal",
-            "value": "update"
-          },
-          {
             "kind": "object",
             "properties": [
               {
-                "name": "kind",
-                "type": 19,
+                "name": "path",
+                "type": 6,
                 "optional": false
               },
               {
-                "name": "review",
-                "type": 20,
+                "name": "sha256",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "version",
+                "type": 6,
                 "optional": false
               }
             ],
             "indices": []
           },
           {
-            "kind": "literal",
-            "value": "start"
-          },
-          {
             "kind": "object",
             "properties": [
               {
-                "name": "duration",
-                "type": 3,
-                "optional": false
+                "name": "event_groups",
+                "type": 7,
+                "optional": true
               },
               {
-                "name": "episode",
-                "type": 8,
+                "name": "frame_count",
+                "type": 5,
                 "optional": false
               },
               {
                 "name": "frames",
-                "type": 4,
+                "type": 10,
                 "optional": false
               },
               {
                 "name": "id",
-                "type": 8,
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 23,
                 "optional": false
               },
               {
                 "name": "path",
-                "type": 8,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "scan_complete",
-                "type": 7,
+                "type": 13,
                 "optional": false
               },
               {
                 "name": "scanned_until",
-                "type": 3,
+                "type": 5,
                 "optional": false
               },
               {
-                "name": "source_version",
-                "type": 8,
-                "optional": false
+                "name": "transcript_reference",
+                "type": 21,
+                "optional": true
               }
             ],
             "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "update"
           },
           {
             "kind": "literal",
@@ -23470,7 +23576,7 @@
         "packages/perception/tool-video-inspect/src/review-state.ts#ReviewFrame"
       ],
       "sources": [
-        "packages/perception/tool-video-inspect/src/review-state.ts:28"
+        "packages/perception/tool-video-inspect/src/review-state.ts:32"
       ]
     },
     {
@@ -23837,6 +23943,11 @@
       ]
     },
     {
+      "digest": "3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604",
       "names": [],
       "sources": []
@@ -24046,13 +24157,6 @@
       "digest": "4991dfc415c9efebc36fa6969e1798c7d2e42396cc1e6e0ac7d7c89c5c5c4aea",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "49b2bb7bf7a7c6d42a416694b1a99f3ea14e2c955a2d086c9d54094798bb47aa",
-      "names": [],
-      "sources": [
-        "packages/perception/tool-video-inspect/src/review-state.ts:40"
-      ]
     },
     {
       "digest": "49dab019d00e8c26f27ad2ccff7b604d69e323ae4d17e0d2a7b6b8a830b1ade2",
@@ -24668,16 +24772,13 @@
       "sources": []
     },
     {
-      "digest": "6d4e2467080fd9fae84199d45d78947e3ccddf0c442b07c8aa19a374af52abd6",
-      "names": [],
+      "digest": "6d7896b689fa2b1292987bbd13e7beb178b0676ffe115a50d569064e2e274ace",
+      "names": [
+        "packages/perception/tool-video-inspect/src/review-state.ts#VideoReview"
+      ],
       "sources": [
-        "packages/perception/tool-video-inspect/src/review-state.ts:37"
+        "packages/perception/tool-video-inspect/src/review-state.ts:34"
       ]
-    },
-    {
-      "digest": "6dbf9afad857e3b68e1faad947bc515a919577840a47d37787e5dfbd2d6c69f9",
-      "names": [],
-      "sources": []
     },
     {
       "digest": "6e52dd55a1d48954ed5464ec46fe34d9eb65f709baabc9561e7a279910b0c406",
@@ -24745,6 +24846,13 @@
       "sources": []
     },
     {
+      "digest": "7146653f97ec75e2f8b1d25f63332caf91c42761a1f67706800fe0fbea270fc8",
+      "names": [],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:44"
+      ]
+    },
+    {
       "digest": "7180844e1066230c5e891f1b9ccd942423b0fe48aac6ded7eef2a285b288a732",
       "names": [],
       "sources": []
@@ -24799,6 +24907,22 @@
       "digest": "76632533f67879dcb346fcae640540dbc89b2472b0bce88c59f7e48fc5c0e668",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "768041843a78ed3d071a122dda4c6d680990bf2c054e1dd8e5ce980164b6fc5f",
+      "names": [],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-state.ts:41"
+      ]
+    },
+    {
+      "digest": "76c16732f0fdf1feba15d52dce1e945286db5a553765a7688f914b2cba3fec9f",
+      "names": [
+        "packages/perception/tool-video-inspect/src/review-events.ts#ReviewEvent"
+      ],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-events.ts:21"
+      ]
     },
     {
       "digest": "78a9be340090b735a39980e7222ce730c972fbcf1de7c9e0aef2125884b7caee",
@@ -25283,15 +25407,6 @@
       "sources": []
     },
     {
-      "digest": "96932fe3f4c4cba52b27e67088bbda3173e8e5a978ae9166fd03dbfcc0152efa",
-      "names": [
-        "packages/perception/tool-video-inspect/src/review-state.ts#VideoReview"
-      ],
-      "sources": [
-        "packages/perception/tool-video-inspect/src/review-state.ts:30"
-      ]
-    },
-    {
       "digest": "96bfb916a727cd4445a594df264c523fc039749a31bfed924b8cc7bb308a5bb0",
       "names": [],
       "sources": []
@@ -25530,11 +25645,6 @@
       "sources": [
         "packages/experimental/agent-team/src/types.ts:234"
       ]
-    },
-    {
-      "digest": "a51ea1c0eeabeaf78e7339560ea6bd1b776373db63e4831e7eceb73f1e66d489",
-      "names": [],
-      "sources": []
     },
     {
       "digest": "a581684b4d28e4899c707409755549a40c908b2d77f5a13fa5bd802f20ef9605",
@@ -26179,6 +26289,11 @@
       ]
     },
     {
+      "digest": "cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331",
       "names": [],
       "sources": []
@@ -26322,6 +26437,11 @@
     },
     {
       "digest": "deaae5cd30987d4f49398e8f9d994c125907e7f928300745fb1dbf15f145d0e7",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "df5d379d71aa3ea665e0459c1b208e699d2d3c7bafd0922a847c48a668460e1b",
       "names": [],
       "sources": []
     },
@@ -26491,6 +26611,15 @@
       "names": [],
       "sources": [
         "packages/core/session/src/types.ts:196"
+      ]
+    },
+    {
+      "digest": "eac7cba484f1152ed8d32305e3a4cb080bfacca292dfdb5aaae125398d958642",
+      "names": [
+        "packages/perception/tool-video-inspect/src/review-speech.ts#ReviewTranscriptReference"
+      ],
+      "sources": [
+        "packages/perception/tool-video-inspect/src/review-speech.ts:27"
       ]
     },
     {

@@ -90,6 +90,12 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?:
   return { ctx, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results }
 }
 
+function reportPath(h: Awaited<ReturnType<typeof fixture>>): string {
+  const block = h.results().at(-1)!.content.find(block => block.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing report')
+  return z.object({ observation_report: z.string() }).parse(JSON.parse(block.text)).observation_report
+}
+
 it('finds cuts across the full episode, requires every image and observation, and preserves progress after reload', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)
@@ -218,6 +224,375 @@ it('orders context frames by source time and retains uncertainty without inventi
   expect(result).not.toHaveProperty('coverage_passed')
 })
 
+it('records optional event groups and saved speech, resumes them, and compares current evidence without changing observation completion', async () => {
+  const h = await fixture()
+  const transcript = join(h.root, 'episode-asr.json')
+  const segments = [{ start: 0, end: 0.8, text: '等一下，', speaker_id: '1' },
+    { start: 0.9, end: 1.2, text: '先别走。', speaker_id: '1' },
+    { start: 1.3, end: 2, text: '啊？', speaker_id: '2' }]
+  await writeFile(transcript, JSON.stringify(segments))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  expect(JSON.stringify(h.results())).toContain('continuous_speech_candidates')
+  const count = h.review().frames.filter(frame => frame.observation !== undefined).length
+  const event = { event_id: 'E1', frame_ids: [h.review().frames[0]!.id, h.review().frames[1]!.id],
+    actor: '', action: '背景色发生变化', object: '', before: '合成背景', after: '合成背景', uncertainty: '纯合成画面，无人物动作' }
+  await h.run(h.call('events', { event_groups: [event], transcript_path: transcript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().event_groups).toHaveLength(1)
+  expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(count)
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, h.config).await()
+  expect(h.review().event_groups?.[0]?.event_id).toBe('E1')
+  const observed: string[] = []
+  h.ctx.on('fs/observed', (target, _observation, actor) => { if (actor !== undefined) observed.push(target.displayPath) })
+  await h.run(h.call('compare', { draft_path: h.manuscript, transcript_path: transcript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const text = JSON.stringify(h.results().at(-1))
+  expect(text).toContain('speaker_identity_unverified')
+  expect(text).toContain('literal_draft_candidates')
+  expect(text).toContain('ungrouped_recorded_frame_ids')
+  expect(text).toContain('asr.json')
+  expect(observed).toEqual(expect.arrayContaining([h.manuscript, transcript]))
+  await h.run(h.call('observe', { observations: [{ frame_id: event.frame_ids[0],
+    visible: '画面是完整红色背景，没有可见人物。', change: '重新核对过的观察。', uncertainty: '' }] }), undefined)
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('evidence_current\\\":false')
+  await h.run(h.call('events', { event_groups: [] }), undefined)
+  expect(h.review().event_groups).toEqual([])
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+}, 30_000)
+
+it('rejects invalid or oversized event notes before committing optional event state', async () => {
+  const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review())
+  await h.run(h.call('events'), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_EVENT_INPUT')
+  const event = { event_id: 'E1', frame_ids: [h.review().frames[0]!.id],
+    actor: '', action: '背景颜色没有变化', object: '', before: '', after: '', uncertainty: '' }
+  await h.run(h.call('events', { event_groups: [event] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+  await h.run(h.call('events', { event_groups: [{ ...event, frame_ids: ['missing'] }] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_EVENT_FRAME')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('publishes event reports under distinct content filenames without replacing the completed frame-only report', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const before = reportPath(h), contents = await readFile(before, 'utf8')
+  await h.run(h.call('events', { event_groups: [{ event_id: 'E1', frame_ids: [h.review().frames[0]!.id],
+    actor: '', action: '呈现红色背景', object: '', before: '', after: '红色背景', uncertainty: '' }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const after = reportPath(h)
+  expect(after).not.toBe(before)
+  expect(await readFile(before, 'utf8')).toBe(contents)
+  expect(await readFile(after, 'utf8')).toContain('"event_groups"')
+  await h.run(h.call('status'), undefined)
+  expect(reportPath(h)).toBe(after)
+}, 30_000)
+
+it('keeps transcript-linked report digests stable across workspace roots while distinguishing relative ASR locations', async () => {
+  const digest = (path: string) => /([a-f0-9]{64})\.json$/.exec(path)?.[1]
+  const first = await fixture(), second = await fixture()
+  const source = JSON.stringify([{ start: 0, end: 1, text: '同一份原始转写。' }])
+  for (const h of [first, second]) {
+    const transcript = join(h.root, 'episode-asr.json')
+    await writeFile(transcript, source)
+    const stat = h.ctx.fs.stat.bind(h.ctx.fs)
+    vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      const value = await stat(...args)
+      return args[0].displayPath.endsWith('-asr.json') && value !== undefined ? { ...value, version: FsVersion('asr-v1') } : value
+    })
+    await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+    while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  }
+  const firstPath = reportPath(first), secondPath = reportPath(second)
+  expect(digest(firstPath)).toMatch(/^[a-f0-9]{64}$/)
+  expect(digest(firstPath)).toBe(digest(secondPath))
+  const before = await readFile(firstPath, 'utf8')
+  expect(before).toContain(join(first.root, 'episode-asr.json'))
+  expect(await readFile(secondPath, 'utf8')).toContain(join(second.root, 'episode-asr.json'))
+  const different = join(first.root, 'alternate-asr.json')
+  await writeFile(different, source)
+  await first.run(first.call('status', { transcript_path: different }), undefined)
+  expect(first.results().at(-1)?.isError).toBe(false)
+  expect(digest(reportPath(first))).not.toBe(digest(firstPath))
+  expect(await readFile(firstPath, 'utf8')).toBe(before)
+}, 30_000)
+
+it('uses the complete serialized UTF-8 byte length at an exact comparison limit', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  await writeFile(h.manuscript, '# 第80集\n▲红色背景。\n甲：等一下。\n')
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  const block = h.results().at(-1)!.content.find(block => block.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing comparison')
+  const bytes = Buffer.byteLength(block.text)
+  expect(bytes).toBeGreaterThan(block.text.length)
+  const limited = (reviewCompareMaxBytes: number) => Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2,
+    reviewChunkSeconds: 2, reviewCompareMaxBytes })
+  await h.plugin.dispose()
+  const exact = h.ctx.plugin(Video, limited(bytes))
+  await exact.await()
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  await exact.dispose()
+  await h.ctx.plugin(Video, limited(bytes - 1)).await()
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+}, 30_000)
+
+it('checks the completed event report wrapper before committing event notes at an exact byte limit', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const event = { event_id: 'E1', frame_ids: [h.review().frames[0]!.id],
+    actor: '', action: '呈现红色背景', object: '', before: '', after: '红色背景', uncertainty: '' }
+  await h.run(h.call('events', { event_groups: [event] }), undefined)
+  const block = h.results().at(-1)!.content.find(block => block.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing event result')
+  const bytes = Buffer.byteLength(block.text)
+  await h.run(h.call('events', { event_groups: [] }), undefined)
+  const before = JSON.stringify(h.review()), reportRoot = join(h.root, '.muse/video-observations')
+  const reports = await readdir(reportRoot)
+  const reportBytes = await Promise.all(reports.map(name => readFile(join(reportRoot, name), 'utf8')))
+  const limited = (reviewCompareMaxBytes: number) => Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2,
+    reviewChunkSeconds: 2, reviewCompareMaxBytes })
+  await h.plugin.dispose()
+  const short = h.ctx.plugin(Video, limited(bytes - 1))
+  await short.await()
+  await h.run(h.call('events', { event_groups: [{ ...event, event_id: 'E2' }] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(await readdir(reportRoot)).toEqual(reports)
+  expect(await Promise.all(reports.map(name => readFile(join(reportRoot, name), 'utf8')))).toEqual(reportBytes)
+  await short.dispose()
+  await h.ctx.plugin(Video, limited(bytes)).await()
+  await h.run(h.call('events', { event_groups: [{ ...event, event_id: 'E2' }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().event_groups?.[0]?.event_id).toBe('E2')
+}, 30_000)
+
+it('rejects transcript changes and complete-result overflow without pretending partial ASR is complete', async () => {
+  const h = await fixture({ config: { reviewCompareMaxBytes: 2000 } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '等一下。', speaker_id: '1' }]))
+  const before = JSON.stringify(h.review()), readBytes = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  const read = vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
+    const bytes = await readBytes(...args)
+    if (args[0].displayPath === transcript) await appendFile(transcript, ' ')
+    return bytes
+  })
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_TRANSCRIPT_CHANGED')
+  read.mockRestore()
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '甲'.repeat(1000), speaker_id: '1' }]))
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('reuses the saved transcript safely beside events and comparison after reload without requiring the path again', async () => {
+  const h = await fixture()
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '先别走。', speaker_id: '1' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  const reference = h.review().transcript_reference
+  expect(reference).toMatchObject({ path: transcript })
+  const note = { event_id: 'E1', frame_ids: [h.review().frames[0]!.id],
+    actor: '', action: '红色背景', object: '', before: '', after: '', uncertainty: '' }
+  await h.run(h.call('events', { event_groups: [note] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('先别走')
+  expect(JSON.stringify(h.results().at(-1))).toContain('model_authored_observations')
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, h.config).await()
+  expect(h.review().transcript_reference).toEqual(reference)
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('先别走')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '全新ASR台词。', speaker_id: '1' }]))
+  await h.run(h.call('events', { event_groups: [{ ...note, action: '仍为红色背景' }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('speech_unavailable')
+  expect(JSON.stringify(h.results().at(-1))).not.toContain('全新ASR台词')
+  expect(h.review().transcript_reference).toEqual(reference)
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('speech_unavailable')
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('全新ASR台词')
+  expect(h.review().transcript_reference?.sha256).not.toBe(reference?.sha256)
+  await rm(transcript)
+  await h.run(h.call('events', { event_groups: [] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().event_groups).toEqual([])
+  expect(JSON.stringify(h.results().at(-1))).toContain('speech_unavailable')
+  const oldId = h.review().id
+  await appendFile(h.input, 'new video revision')
+  await h.run(h.call('scan'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().id).not.toBe(oldId)
+  expect(h.review().transcript_reference).toBeUndefined()
+  expect(JSON.stringify(h.results().at(-1))).not.toContain('speech_unavailable')
+}, 30_000)
+
+it('keeps implicit ASR output optional when the whole result cannot retain its complete raw segments', async () => {
+  const h = await fixture()
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '甲'.repeat(5000), speaker_id: '1' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  const reference = h.review().transcript_reference
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2, reviewChunkSeconds: 2,
+    reviewCompareMaxBytes: 7000 })).await()
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('speech_unavailable')
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  await h.run(h.call('events', { event_groups: [] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().transcript_reference).toEqual(reference)
+  await h.run(h.call('compare', { draft_path: h.manuscript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('speech_unavailable')
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+}, 30_000)
+
+it('does not persist a new explicit transcript reference or event notes when their complete output exceeds the limit', async () => {
+  const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '小心。' }]))
+  const before = JSON.stringify(h.review())
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+  await h.run(h.call('revisit', { transcript_path: transcript, frame_ids: [h.review().frames[0]!.id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+  await h.run(h.call('events', { transcript_path: transcript, event_groups: [{ event_id: 'E1',
+    frame_ids: [h.review().frames[0]!.id], actor: '', action: '红色背景', object: '', before: '', after: '', uncertainty: '' }] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_COMPARE_SIZE')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('detects a saved ASR digest mismatch even if its reported filesystem version is unchanged', async () => {
+  const h = await fixture()
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '原句。' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), undefined)
+  const reference = h.review().transcript_reference!
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '新句。' }]))
+  const stat = h.ctx.fs.stat.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const result = await stat(...args)
+    return args[0].displayPath === transcript && result !== undefined ? { ...result, version: FsVersion(reference.version) } : result
+  })
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('文件摘要变化')
+  expect(JSON.stringify(h.results().at(-1))).not.toContain('新句')
+  expect(h.review().transcript_reference).toEqual(reference)
+}, 30_000)
+
+it('puts referenced event observations beside their summary even when those frames are outside the normal status batch', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const frame = h.review().frames.at(-1)!
+  await h.run(h.call('events', { event_groups: [{ event_id: 'E1', frame_ids: [frame.id],
+    actor: '', action: '总结的蓝色背景', object: '', before: '', after: '', uncertainty: '' }] }), undefined)
+  const block = h.results().at(-1)!.content.find(block => block.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing evidence')
+  const parsed = z.object({ frames: z.array(z.object({ id: z.string() })), event_groups: z.array(z.object({
+    evidence_source: z.string(), evidence: z.array(z.object({ frame_id: z.string(), visible: z.string() })),
+  })) }).parse(JSON.parse(block.text))
+  expect(parsed.frames.some(row => row.id === frame.id)).toBe(false)
+  expect(parsed.event_groups[0]).toMatchObject({ evidence_source: 'model_authored_observations',
+    evidence: [{ frame_id: frame.id, visible: frame.observation!.visible }] })
+}, 30_000)
+
+it('revisits recorded cached images beside the original notes without decoding, resetting progress or rewriting reports', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const before = JSON.stringify(h.review()), frames = h.review().frames.slice(-2)
+  const reportRoot = join(h.root, '.muse/video-observations'), reports = await readdir(reportRoot)
+  const reportBytes = await Promise.all(reports.map(name => readFile(join(reportRoot, name), 'utf8')))
+  const media = vi.spyOn(Media, 'runMedia')
+  await h.run(h.call('revisit', { frame_ids: frames.map(frame => frame.id) }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.results().at(-1)!.content.filter(block => block.type === 'image').map(block => block.attachment.attachmentId))
+    .toEqual(frames.map(frame => frame.image!.attachmentId))
+  expect(JSON.stringify(h.results().at(-1))).toContain('重看缓存原图')
+  expect(JSON.stringify(h.results().at(-1))).toContain('revisited')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(media).not.toHaveBeenCalled()
+  expect(await readdir(reportRoot)).toEqual(reports)
+  expect(await Promise.all(reports.map(name => readFile(join(reportRoot, name), 'utf8')))).toEqual(reportBytes)
+  await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+}, 30_000)
+
+it('allows an explicit ASR association during revisit without changing frames or writing a replacement observation report', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
+  const before = JSON.stringify(h.review().frames), transcript = join(h.root, 'episode-asr.json')
+  const reportRoot = join(h.root, '.muse/video-observations'), reports = await readdir(reportRoot)
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '回看这句。' }]))
+  const frame_ids = [h.review().frames[0]!.id]
+  await h.run(h.call('revisit', { frame_ids, transcript_path: transcript }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().transcript_reference?.path).toBe(transcript)
+  expect(JSON.stringify(h.results().at(-1))).toContain('回看这句')
+  expect(JSON.stringify(h.review().frames)).toBe(before)
+  expect(await readdir(reportRoot)).toEqual(reports)
+  await h.run(h.call('revisit', { frame_ids }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('回看这句')
+  expect(await readdir(reportRoot)).toEqual(reports)
+}, 30_000)
+
+it('rejects invalid revisit selections and missing image caches without decoding or altering observations', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), id = h.review().frames[0]!.id
+  const media = vi.spyOn(Media, 'runMedia')
+  for (const frame_ids of [[], [id, id], [id, 'F00002', 'F00003'], ['missing'], ['F00003']]) {
+    await h.run(h.call('revisit', { frame_ids }), undefined)
+    expect(h.results().at(-1)?.isError).toBe(true)
+  }
+  vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValue(new Error('cached image unavailable'))
+  await h.run(h.call('revisit', { frame_ids: [id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
+  expect(JSON.stringify(h.review())).toBe(before)
+  expect(media).not.toHaveBeenCalled()
+}, 30_000)
+
+it('rejects a video revision change during cached-image revisit without replacing its recorded notes', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), readImage = h.ctx.attachments.readImage.bind(h.ctx.attachments)
+  vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
+    const result = await readImage(...args)
+    await appendFile(h.input, 'changed during revisit')
+    return result
+  })
+  await h.run(h.call('revisit', { frame_ids: [h.review().frames[0]!.id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
 it('retains cumulative within-shot appearance changes rather than comparing only adjacent frames', () => {
   const config = Video.Config({ reviewAnalysisFps: 4, reviewChangeThreshold: 0.12, reviewCheckpointSeconds: 20 })
   const size = 48 * 32 * 3
@@ -284,6 +659,17 @@ it('adds bounded adjacent observations when a viewed frame remains uncertain', a
   expect(h.review().frames.some(frame => frame.reasons.includes('uncertainty_context') && !frame.exposed)).toBe(true)
   await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
+}, 30_000)
+
+it.each(['无', '无。', '无疑点！', ' None. ', ' n / a； '])('retains the empty marker %s without expanding context frames', async (uncertainty) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const count = h.review().frames.length
+  await h.run(h.call('observe', { observations: [{ frame_id: h.review().frames[0]!.id,
+    visible: '画面是红色背景，没有可见人物或道具。', change: '初始画面。', uncertainty }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().frames).toHaveLength(count)
+  expect(h.review().frames[0]?.observation?.uncertainty).toBe(uncertainty.trim())
 }, 30_000)
 
 it.each(['status', 'next', 'observe'])('requires an episode scan before %s', async (method) => {
@@ -540,6 +926,26 @@ it.each(['offload', 'offload-throw'] as const)('reduces transport batches after 
   expect(h.review().frames.filter(frame => frame.exposed).length).toBeLessThan(2)
   await h.run(h.call('next'), undefined)
   expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(1)
+  expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
+})
+
+it.each(['offload', 'offload-throw'] as const)('keeps transport batches after %s only removes previously viewed image history', async (failure) => {
+  const h = await fixture({ offload: true })
+  await h.run(h.call('scan'), h.record, h.call('next'), failure, undefined)
+  expect(h.agent.session.snapshotEvents().some(event => event.type === 'image/offload')).toBe(true)
+  expect(h.review().frames.filter(frame => frame.exposed)).toHaveLength(4)
+  expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(2)
+  await h.run(h.call('next'), undefined)
+  expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(2)
+  expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(2)
+})
+
+it('shrinks a partially oversized new batch to its retained pending count rather than always to one', async () => {
+  const h = await fixture({ offload: true, config: { reviewBatchFrames: 3 } })
+  await h.run(h.call('scan'), 'offload', undefined)
+  expect(h.review().frames.filter(frame => frame.exposed)).toHaveLength(2)
+  await h.run(h.call('next'), undefined)
+  expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(2)
   expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
 })
 

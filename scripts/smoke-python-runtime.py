@@ -1757,6 +1757,32 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
                           if str(event.get("type")).startswith("feedback/")]
         if feedback_types != ["feedback/record", "feedback/record", "feedback/message-put", "feedback/message-put", "feedback/message-delete"]:
             raise AssertionError(f"advanced snapshot did not exercise all feedback mutations: {feedback_types}")
+        video_events = [event for event in result.events if event.get("type") == "video/review"]
+        if (len(video_events) != 2 or "event_groups" in video_events[0]["data"]["review"]
+                or "transcript_reference" in video_events[0]["data"]["review"]):
+            raise AssertionError(f"advanced snapshot did not preserve the legacy review start: {video_events}")
+        groups = video_events[1]["data"].get("event_groups")
+        if not isinstance(groups, list) or len(groups) != 1:
+            raise AssertionError(f"advanced snapshot lost optional visual events: {video_events}")
+        expected_event = {
+            "event_id": "door-opening", "frame_ids": ["sdk-frame-1", "sdk-frame-2"], "actor": "woman",
+            "action": "opens the door", "object": "door", "before": "closed", "after": "open", "uncertainty": "",
+            "start_seconds": 1, "end_seconds": 2,
+        }
+        if {key: groups[0].get(key) for key in expected_event} != expected_event:
+            raise AssertionError(f"advanced snapshot changed a visual event payload: {groups}")
+        if re.fullmatch(r"[a-f0-9]{64}", str(groups[0].get("observation_digest"))) is None:
+            raise AssertionError(f"advanced snapshot lost the observation revision: {groups}")
+        transcript = video_events[1]["data"].get("transcript_reference")
+        if transcript != {
+            "path": str(root / "sdk-transcript.json"), "version": "fixture-transcript-version",
+            "sha256": "a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff",
+        }:
+            raise AssertionError(f"advanced snapshot changed the transcript reference: {transcript}")
+        notified_video = [notice.payload["event"] for notice in result.notifications
+                          if notice.method == "session.event" and notice.payload.get("event", {}).get("type") == "video/review"]
+        if notified_video != video_events:
+            raise AssertionError("advanced snapshot notifications changed visual event payloads")
         methods = [notification.method for notification in result.notifications]
         if methods.count("subagent.started") != 2 or methods.count("subagent.finished") != 2:
             raise AssertionError(f"advanced snapshot emitted unexpected subagent lifecycle: {methods}")

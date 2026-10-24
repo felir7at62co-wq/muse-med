@@ -14,6 +14,7 @@ import { diffManuscript, validateManuscriptCandidate, type ManuscriptDiff } from
 import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
 import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
 import { ManuscriptWork } from './manuscript-work.ts'
+import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -37,6 +38,7 @@ export interface Config {
   maxLedgerBytes: number
   lockWaitMs: number
   repeatMinCharacters: number
+  actionRepeatMinCharacters: number
   maxRepeatFindings: number
 }
 
@@ -50,6 +52,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxLedgerBytes: Schema.number().step(1).min(1).default(32 * 1024 * 1024),
   lockWaitMs: Schema.number().step(1).min(1).default(5000),
   repeatMinCharacters: Schema.number().step(1).min(1).default(12),
+  actionRepeatMinCharacters: Schema.number().step(1).min(1).default(4),
   maxRepeatFindings: Schema.number().step(1).min(1).default(40),
 })
 
@@ -293,9 +296,10 @@ export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
   const work = new ManuscriptWork(config)
   const workReadFailures = new WeakMap<Agent, string>()
+  const guidanceNotices = new WeakMap<Agent, string>()
   ctx.tools.register(defineTool({
     name: 'manuscript_work',
-    description: '文稿版本与场景工具。bind登记本轮明确采用稿和来源（输出可尚未创建），保留历史而不猜最新稿。scene返回完整当前场及前后场；propose_scene对照整场修改，返回普通edit参数，尚未写稿。audit回读实际文件与各集篇幅，列出正文/钩子、相邻及非相邻集的字面重复原句；不能据此声称剧情全通过。event可记录有原句依据的事件与场末状态，属于模型笔记。保存后自动提示新版本，包括shell写稿；提示型，不要求审批、固定技能或审校流程。',
+    description: '文稿版本与场景工具。bind登记本轮明确采用稿和来源（输出可尚未创建），保留历史而不猜最新稿。scene返回完整当前场及前后场；propose_scene对照整场修改，返回普通edit参数，尚未写稿。audit回读实际文件与各集篇幅，列出正文/钩子、全剧的字面重复，以及连续同人同声源对白和相邻动作重叠候选；不能据此声称剧情全通过。event可记录有原句依据的事件与场末状态，属于模型笔记。保存后自动提示新版本，包括shell写稿；提示型，不要求审批、固定技能或审校流程。',
     parameters: {
       action: { type: 'string', required: true, enum: ['bind', 'scene', 'propose_scene', 'audit', 'event'] },
       task_key: { type: 'string', description: 'bind：本任务稳定名称；不同任务重新bind，不按文件修改时间挑稿。' },
@@ -386,6 +390,27 @@ export function apply(ctx: Context, config: Config): void {
       && /精修|润色|改稿|改过|用户修改|refin(?:e|ement)|polish/iu.test(block.text)))
     const notice = text ?? (refinement ? '本轮涉及文稿精修。若用户自行改过或重新上传文稿，先用 manuscript_revision.compare 关联实际上一稿与最新返稿，查看并保留用户增删改；不要从旧稿恢复。没有基线应说明无法逐处识别，向用户索取上一稿或以最新返稿为准，不声称已完成对比。' : undefined)
     return notice === undefined ? entered : { ...entered, messages: [...entered.messages, context(notice)] }
+  })
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (!exec.agent || !['write', 'edit', 'read'].includes(exec.name) || result.isError || decision.kind !== 'accept' || 'value' in decision) return decision
+    const path = z.object({ path: z.string() }).safeParse(result.value)
+    if (!path.success || !isManuscriptGuidancePath(path.data.path)) return decision
+    const mutation = z.object({ path: z.string(), before: z.string().nullable(), after: z.string() }).safeParse(result.value)
+    const read = z.object({ path: z.string(),
+      lines: z.array(z.object({ number: z.number().int(), text: z.string() })) }).safeParse(result.value)
+    if (exec.name === 'read' ? !read.success
+      : !mutation.success || mutation.data.before === mutation.data.after) return decision
+    const users = exec.agent.session.deriveMessages().flatMap(message => message.role === 'user' && message.source.kind === 'user'
+      ? message.content.flatMap(block => block.type === 'text' ? [{ message_id: message.id, text: block.text }] : []) : [])
+    const advisory = exec.name === 'read' && read.success ? manuscriptReadGuidanceCandidates(read.data, users, config.maxRepeatFindings)
+      : mutation.success ? manuscriptGuidanceCandidates(mutation.data, users, config.maxRepeatFindings) : undefined
+    if (!advisory) return decision
+    const fingerprint = createHash('sha256').update(JSON.stringify(advisory)).digest('hex')
+    if (guidanceNotices.get(exec.agent) === fingerprint) return decision
+    guidanceNotices.set(exec.agent, fingerprint)
+    return { ...decision, content: [...decision.content ?? result.content,
+      { type: 'text', text: JSON.stringify({ manuscript_guidance: advisory }) }] }
   })
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()

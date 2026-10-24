@@ -1626,8 +1626,90 @@
       }
     },
     {
-      "type": "turn/end",
+      "type": "video/review",
       "seq": 70,
+      "time": 0,
+      "data": {
+        "kind": "start",
+        "review": {
+          "id": "sdk-review-1",
+          "episode": "SDK",
+          "path": "{{cwd}}/sdk-video.mp4",
+          "source_version": "fixture-source-version",
+          "duration": 3,
+          "scanned_until": 3,
+          "scan_complete": true,
+          "frames": [
+            {
+              "id": "sdk-frame-1",
+              "time": 1,
+              "reasons": [
+                "fixture"
+              ],
+              "exposed": false,
+              "observation": {
+                "visible": "The woman stands at the closed door.",
+                "change": "The door is closed.",
+                "uncertainty": ""
+              }
+            },
+            {
+              "id": "sdk-frame-2",
+              "time": 2,
+              "reasons": [
+                "fixture"
+              ],
+              "exposed": false,
+              "observation": {
+                "visible": "The woman holds the open door.",
+                "change": "The door is open.",
+                "uncertainty": ""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "video/review",
+      "seq": 71,
+      "time": 0,
+      "data": {
+        "kind": "update",
+        "path": "{{cwd}}/sdk-video.mp4",
+        "id": "sdk-review-1",
+        "frames": [],
+        "frame_count": 2,
+        "scanned_until": 3,
+        "scan_complete": true,
+        "event_groups": [
+          {
+            "event_id": "door-opening",
+            "frame_ids": [
+              "sdk-frame-1",
+              "sdk-frame-2"
+            ],
+            "actor": "woman",
+            "action": "opens the door",
+            "object": "door",
+            "before": "closed",
+            "after": "open",
+            "uncertainty": "",
+            "start_seconds": 1,
+            "end_seconds": 2,
+            "observation_digest": "d129d7207ff35f0e7dd67d36232854a25ff8fa3b157256d87820218efb0a799e"
+          }
+        ],
+        "transcript_reference": {
+          "path": "{{cwd}}/sdk-transcript.json",
+          "version": "fixture-transcript-version",
+          "sha256": "a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff"
+        }
+      }
+    },
+    {
+      "type": "turn/end",
+      "seq": 72,
       "time": 0,
       "data": {
         "turn": 1,
@@ -4730,8 +4812,102 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
-          "type": "turn/end",
+          "type": "video/review",
           "seq": 70,
+          "time": 0,
+          "data": {
+            "kind": "start",
+            "review": {
+              "id": "sdk-review-1",
+              "episode": "SDK",
+              "path": "{{cwd}}/sdk-video.mp4",
+              "source_version": "fixture-source-version",
+              "duration": 3,
+              "scanned_until": 3,
+              "scan_complete": true,
+              "frames": [
+                {
+                  "id": "sdk-frame-1",
+                  "time": 1,
+                  "reasons": [
+                    "fixture"
+                  ],
+                  "exposed": false,
+                  "observation": {
+                    "visible": "The woman stands at the closed door.",
+                    "change": "The door is closed.",
+                    "uncertainty": ""
+                  }
+                },
+                {
+                  "id": "sdk-frame-2",
+                  "time": 2,
+                  "reasons": [
+                    "fixture"
+                  ],
+                  "exposed": false,
+                  "observation": {
+                    "visible": "The woman holds the open door.",
+                    "change": "The door is open.",
+                    "uncertainty": ""
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "video/review",
+          "seq": 71,
+          "time": 0,
+          "data": {
+            "kind": "update",
+            "path": "{{cwd}}/sdk-video.mp4",
+            "id": "sdk-review-1",
+            "frames": [],
+            "frame_count": 2,
+            "scanned_until": 3,
+            "scan_complete": true,
+            "event_groups": [
+              {
+                "event_id": "door-opening",
+                "frame_ids": [
+                  "sdk-frame-1",
+                  "sdk-frame-2"
+                ],
+                "actor": "woman",
+                "action": "opens the door",
+                "object": "door",
+                "before": "closed",
+                "after": "open",
+                "uncertainty": "",
+                "start_seconds": 1,
+                "end_seconds": 2,
+                "observation_digest": "d129d7207ff35f0e7dd67d36232854a25ff8fa3b157256d87820218efb0a799e"
+              }
+            ],
+            "transcript_reference": {
+              "path": "{{cwd}}/sdk-transcript.json",
+              "version": "fixture-transcript-version",
+              "sha256": "a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "turn/end",
+          "seq": 72,
           "time": 0,
           "data": {
             "turn": 1,

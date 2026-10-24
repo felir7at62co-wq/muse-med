@@ -59,7 +59,8 @@ export function apply(ctx: Context): void {
     ctx.fs.stat = async (target, signal) => {
       const info = await original(target, signal)
       const version = basename(target.displayPath) === 'fixture.mp4' ? 'fixture-video-version'
-        : basename(target.displayPath) === 'episode.md' ? 'fixture-draft-version' : undefined
+        : basename(target.displayPath) === 'episode.md' ? 'fixture-draft-version'
+          : basename(target.displayPath) === 'transcript.json' ? 'fixture-transcript-version' : undefined
       return info && version !== undefined ? { ...info, version: FsVersion(version) } : info
     }
     return () => { ctx.fs.stat = original }

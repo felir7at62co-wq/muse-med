@@ -544,6 +544,10 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     if (scenarioDir === undefined) throw new Error('video observation requires its owner directory')
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
     await writeFile(join(cwd, 'episode.md'), '# 第1集\n▲合成画面从黑色切换为白色。\n')
+    await writeFile(join(cwd, 'transcript.json'), JSON.stringify([
+      { start: 0, end: 1, text: '合成画面', speaker_id: 1 },
+      { start: 1, end: 3, text: '从黑色切换为白色。', speaker_id: 1 },
+    ]) + '\n')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-video-observation')
     await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
     return { expectedRoot }
@@ -1552,9 +1556,9 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false])
+              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false, false, false])
               expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
-              expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(5)
+              expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(7)
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
               const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')
               if (started?.type !== 'video/review' || started.data.kind !== 'start') throw Error('Missing video observation start')
@@ -1566,15 +1570,49 @@ describe('headless recorded-session snapshots', () => {
               const report = JSON.parse(finalText.text) as { observation_report: string }
               const saved = await readFile(report.observation_report, 'utf8')
               expect(JSON.parse(saved)).toEqual(expected)
-              const comparisonText = results[7]?.content.find(block => block.type === 'text')
+              const comparisonText = results[8]?.content.find(block => block.type === 'text')
               if (comparisonText?.type !== 'text') throw Error('Missing saved-draft comparison')
               const { comparison } = JSON.parse(comparisonText.text) as { comparison: {
-                advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string }
+                advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string };
+                event_groups: { evidence_current: boolean; speech_segment_ids: string[];
+                  evidence: { frame_id: string; visible: string }[] }[];
+                speech: { segments: object[]; continuous_speech_candidates: object[] }
               } }
               expect(comparison.advisory).toBe(true)
               expect(comparison.semantic_assessment).toBe('not_performed')
               expect(comparison.observations).toHaveLength(5)
+              expect(comparison.event_groups).toHaveLength(1)
+              expect(comparison.event_groups[0]?.evidence_current).toBe(true)
+              expect(comparison.event_groups[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
+              expect(comparison.event_groups[0]?.evidence.map(frame => frame.frame_id)).toEqual(['F00001', 'F00003'])
+              expect(comparison.event_groups[0]?.evidence[0]?.visible).toContain('没有人物')
+              expect(comparison.speech.segments).toHaveLength(2)
+              expect(comparison.speech.continuous_speech_candidates).toHaveLength(1)
               expect(comparison.draft.numbered_text).toContain('2: ▲合成画面从黑色切换为白色。')
+              const revisitText = results[9]?.content.find(block => block.type === 'text')
+              if (revisitText?.type !== 'text') throw Error('Missing cached-frame revisit')
+              const revisit = JSON.parse(revisitText.text) as {
+                complete: boolean; pending: number; frames: { id: string; revisited: boolean; observation: object }[]
+              }
+              expect(revisit.complete).toBe(true)
+              expect(revisit.pending).toBe(0)
+              expect(revisit.frames.map(frame => frame.id)).toEqual(['F00001', 'F00003'])
+              expect(revisit.frames.every(frame => frame.revisited && frame.observation)).toBe(true)
+              const eventText = results[7]?.content.find(block => block.type === 'text')
+              if (eventText?.type !== 'text') throw Error('Missing grouped-event report')
+              const eventReport = JSON.parse(eventText.text) as { observation_report: string }
+              const eventTemplate = await readFile(join(scenario.dir, 'events-report.expected.json'), 'utf8')
+              const eventExpected = JSON.parse(eventTemplate.replaceAll('{{id:1}}', started.data.review.id)) as {
+                path: string; transcript_reference: { path: string }
+              }
+              eventExpected.path = expected.path
+              eventExpected.transcript_reference.path = await realpath(join(cwd, 'transcript.json'))
+              const eventSaved = await readFile(eventReport.observation_report, 'utf8')
+              expect(JSON.parse(eventSaved)).toEqual(eventExpected)
+              expect(eventReport.observation_report).not.toBe(report.observation_report)
+              const expectedEvents = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(eventReport.observation_report))
+              await mkdir(dirname(expectedEvents), { recursive: true })
+              await writeFile(expectedEvents, eventSaved)
               const expectedReport = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(report.observation_report))
               await mkdir(dirname(expectedReport), { recursive: true })
               await writeFile(expectedReport, saved)

@@ -670,6 +670,20 @@ async function runScenario(scenario: CorpusScenario): Promise<{
           expect(feedback.map(event => event.type)).toEqual([
             'feedback/record', 'feedback/record', 'feedback/message-put', 'feedback/message-put', 'feedback/message-delete',
           ])
+          const video = result.events.filter(event => event.type === 'video/review')
+          expect(video).toHaveLength(2)
+          expect(video[0]?.data).toMatchObject({ kind: 'start', review: { frames: expect.any(Array) } })
+          expect(video[0]?.data['review']).not.toHaveProperty('event_groups')
+          expect(video[0]?.data['review']).not.toHaveProperty('transcript_reference')
+          expect(video[1]?.data).toMatchObject({ kind: 'update', event_groups: [{
+            event_id: 'door-opening', frame_ids: ['sdk-frame-1', 'sdk-frame-2'], actor: 'woman', action: 'opens the door',
+            object: 'door', before: 'closed', after: 'open', uncertainty: '', start_seconds: 1, end_seconds: 2,
+            observation_digest: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          }], transcript_reference: { path: join(cwd, 'sdk-transcript.json'), version: 'fixture-transcript-version',
+            sha256: 'a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff' } })
+          const notified = result.notifications.filter(notification => notification.method === 'session.event'
+            && (notification.params.event as JsonObject | undefined)?.type === 'video/review')
+          expect(notified.map(notification => notification.params.event)).toEqual(video)
         }
         await waitForRootEvent(
           subscription,

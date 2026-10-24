@@ -14,7 +14,7 @@ import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
-import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import { Config, ManuscriptRevisions } from '../src/manuscript-revisions.ts'
 import { readManuscript } from '../src/manuscript-document.ts'
@@ -31,13 +31,13 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
-async function fixture() {
+async function fixture(script = [textResponse('收到。')]) {
   const root = await mkdtemp(join(tmpdir(), 'muse-manuscript-')); roots.push(root)
   const ctx = new Context(); contexts.push(ctx)
   await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
   await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  const adapter = new MockAdapter([textResponse('收到。')]); ctx.llm.registerAdapter(['mock'], adapter)
+  const adapter = new MockAdapter(script); ctx.llm.registerAdapter(['mock'], adapter)
   const agent = await ctx.agentLoop.create(SessionId('manuscript-test'), { provider: 'mock', model: 'mock' }, { cwd: root })
   await writeFile(join(root, 'baseline.md'), baseline); await writeFile(join(root, 'returned.md'), returned)
   const config = Config({}), revisions = new ManuscriptRevisions(config)
@@ -223,4 +223,45 @@ it('makes a real scene read usable by the ordinary guarded edit tool without ano
   const result = await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })
   expect(result.isError).toBe(false)
   expect(await readFile(join(f.root, 'returned.md'), 'utf8')).toContain('乙：先听我说。')
+})
+
+it.each([
+  ['忠实转写这集。', 'no_literal_user_text_found'],
+  ['不合并台词。', 'literal_user_text_found'],
+])('logs guidance attribution in the real tool result without denying the write: %s', async (request, basis) => {
+  const f = await fixture([
+    toolCallResponse('guide-write', 'write', { file_path: '写作规范.md', content: '不合并台词。' }),
+    toolCallResponse('guide-read', 'read', { file_path: '写作规范.md' }),
+    textResponse('继续处理正文。'),
+  ])
+  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(ToolFs)
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: request }] }))
+  await f.agent.whenIdle()
+  expect(await readFile(join(f.root, '写作规范.md'), 'utf8')).toBe('不合并台词。')
+  const logged = f.agent.session.deriveMessages().filter(message => message.role === 'tool').map(message => JSON.stringify(message))
+  expect(logged).toHaveLength(2)
+  expect(logged[0]).toContain('current_model_tool_mutation')
+  expect(logged[1]).toContain('document_read_authorship_unknown')
+  expect(logged.join('')).toContain(basis)
+  const lastRequest = JSON.stringify(f.adapter.requests.at(-1)?.messages)
+  expect(lastRequest).toContain('manuscript_guidance')
+  expect(lastRequest).toContain('不等于与用户冲突')
+  expect(f.adapter.requests).toHaveLength(3)
+})
+
+it('does not repeat an unchanged guidance read advisory or inspect arbitrary manuscript prose as project rules', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(ToolFs)
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  await writeFile(join(f.root, '写作规范.md'), '不合并台词。')
+  await writeFile(join(f.root, '正文.md'), '甲：不合并台词。')
+  let serial = 0
+  const read = (path: string) => f.ctx.tools.execute({ signal, callId: ToolCallId(`guidance-read-${++serial}`),
+    name: 'read', arguments: { file_path: path }, agent: f.agent })
+  expect(JSON.stringify((await read('写作规范.md')).content)).toContain('manuscript_guidance')
+  expect(JSON.stringify((await read('写作规范.md')).content)).not.toContain('manuscript_guidance')
+  expect(JSON.stringify((await read('正文.md')).content)).not.toContain('manuscript_guidance')
 })

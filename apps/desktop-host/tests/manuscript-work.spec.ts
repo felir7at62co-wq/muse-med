@@ -158,3 +158,49 @@ it('distinguishes actual episode headings from unique labels during a partial sc
   expect(structure.duplicate_episode_labels[0]?.locations.map(entry => entry.line)).toEqual([4, 7])
   expect(structure.duplicate_scene_labels[0]?.locations).toHaveLength(2)
 })
+
+it('connects actual saved versions to dialogue-run and action-overlap candidates without applying edits', async () => {
+  const text = '第4集\n4-1 餐厅 日 内\n▲叶知遥拉开椅子坐下，把包搁在腿边。\n叶知遥（拉开椅子坐下）：妈，爸。\n叶知遥：今天我们过来了。'
+  const f = await fixture(text)
+  const schema = z.object({ screenplay_candidates: z.object({ semantic_assessment: z.string(),
+    dialogue_runs: z.object({ total: z.number(), findings: z.array(z.object({ joined_dialogue_text: z.string() })) }),
+    action_overlaps: z.object({ total: z.number() }) }) })
+  const report = schema.parse(JSON.parse(await f.bind()))
+  expect(report.screenplay_candidates.dialogue_runs.findings[0]?.joined_dialogue_text).toBe('妈，爸。今天我们过来了。')
+  expect(report.screenplay_candidates.action_overlaps.total).toBe(1)
+  expect(report.screenplay_candidates.semantic_assessment).toBe('not_performed')
+  await writeFile(join(f.cwd, 'current.md'), text.replace('叶知遥（拉开椅子坐下）：妈，爸。\n叶知遥：今天我们过来了。', '叶知遥：妈，爸。今天我们过来了。'))
+  const refresh = await f.work.refresh(f.cwd, SessionId('session-A'), signal)
+  expect(refresh).toContain('screenplay_candidate_summary')
+  const current = schema.parse(JSON.parse(await f.request({ action: 'audit' })))
+  expect(current.screenplay_candidates.dialogue_runs.total).toBe(0)
+  expect(current.screenplay_candidates.action_overlaps.total).toBe(0)
+  expect(await readFile(join(f.cwd, 'current.md'), 'utf8')).toContain('▲叶知遥拉开椅子坐下，把包搁在腿边。')
+})
+
+it('includes newly adjoining dialogue at a deletion boundary in the automatic changed-version notice', async () => {
+  const f = await fixture('第1集\n1-1 家 日 内\n甲：先说上句。\n▲甲起身走到门口。\n甲：再接下句。')
+  await f.bind()
+  await writeFile(join(f.cwd, 'current.md'), '第1集\n1-1 家 日 内\n甲：先说上句。\n甲：再接下句。')
+  const notice = await f.work.refresh(f.cwd, SessionId('session-A'), signal)
+  expect(notice).toContain('changed_lines_only')
+  expect(notice).toContain('先说上句。再接下句。')
+  expect(await f.work.refresh(f.cwd, SessionId('session-A'), signal)).toBeUndefined()
+})
+
+it('returns an action-marked dialogue format candidate from actual saved versions without blocking or rewriting it', async () => {
+  const f = await fixture('第8集\n8-1 餐厅 日 内\n人物：贺景川、乔静仪\n贺景川：妈。')
+  await f.bind()
+  const quote = '▲贺景川（眉头拧紧）：妈，你非要这么咄咄逼人吗？'
+  const text = '第8集\n8-1 餐厅 日 内\n人物：贺景川、乔静仪\n' + quote
+  await writeFile(join(f.cwd, 'current.md'), text)
+  const notice = await f.work.refresh(f.cwd, SessionId('session-A'), signal)
+  expect(notice).toContain('mixed_action_dialogue_lines')
+  expect(notice).toContain(quote)
+  const report = z.object({ advisory: z.boolean(), screenplay_candidates: z.object({
+    mixed_action_dialogue_lines: z.object({ total: z.number() }),
+  }) }).parse(JSON.parse(await f.request({ action: 'audit' })))
+  expect(report.advisory).toBe(true)
+  expect(report.screenplay_candidates.mixed_action_dialogue_lines.total).toBe(1)
+  expect(await readFile(join(f.cwd, 'current.md'), 'utf8')).toBe(text)
+})

@@ -1,5 +1,6 @@
 /** Complete-episode image observation, with durable progress and delivery enforcement. */
 import { randomUUID, createHash } from 'node:crypto'
+import { dirname, relative } from 'node:path'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -8,13 +9,19 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
-import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
+import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty,
+  reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
 import { compareReviewDraft } from './review-compare.ts'
+import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from './review-events.ts'
+import { reviewSpeech, type ReviewSpeech, type ReviewSpeechLink, type ReviewSpeechUnavailable } from './review-speech.ts'
+import { reviewBatchAfterOffload } from './review-batch.ts'
 
-const parameters = z.object({ method: z.enum(['scan', 'next', 'observe', 'status', 'metadata', 'compare']).default('scan'),
+const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'compare']).default('scan'),
   file_path: z.string().min(1), episode: z.string().min(1).max(100).optional(),
-  draft_path: z.string().min(1).optional(),
+  draft_path: z.string().min(1).optional(), transcript_path: z.string().min(1).optional(),
+  event_groups: z.array(reviewEventNoteSchema).optional(),
+  frame_ids: z.array(z.string().min(1)).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
     change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000) })).optional() })
 
@@ -25,6 +32,9 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
     scan_complete: review.scan_complete, scanned_until: review.scanned_until, duration: review.duration,
     total: review.frames.length, recorded: review.frames.length - pending.length, pending: pending.length,
     complete: pendingReview(review) === 0,
+    event_groups: (review.event_groups ?? []).map(event => ({ ...event, evidence_current: reviewEventCurrent(event, review.frames),
+      evidence_source: 'model_authored_observations', evidence: reviewEventEvidence(event, review.frames) })),
+    ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference },
     frames_not_shown: review.frames.length - selected.length,
     frames: selected.map((frame) => {
       const { image, decode: _decode, ...data } = frame
@@ -36,13 +46,19 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
       + '图片进入模型请求不代表语义判断正确。全部检测帧须实际呈现并留下观察记录后，才能正式导出或交付当前任务。'
       + 'frames仅列本批；其余仍保留在完整清单，不能据此声称全片已看完。'
       + '画面变化候选不是人物身份或动作结论；独立画面交代、人物进出、位置变化、道具操作和无对白反应按实际先后写入▲，括注只交代这句台词的表演，不重复同一动作或按帧数凑行。'
-      + '正文保存后可用compare和draft_path把全部已记录画面与当前稿一起核对动作、转场和承接；可选提示，不新增交付条件。',
+      + '可用events将连续帧归为动作事件；transcript_path保留原ASR分段并列出连续发言候选。'
+      + '正文保存后可用compare和draft_path核对动作、对白和承接；可选提示，不新增交付条件。',
   }
 }
-type ReviewResult = ReturnType<typeof taskResult> & { observation_report?: string; comparison?: ReturnType<typeof compareReviewDraft> }
+type ReviewResult = ReturnType<typeof taskResult> & {
+  observation_report?: string
+  comparison?: ReturnType<typeof compareReviewDraft>
+  speech?: ReviewSpeech
+  speech_unavailable?: ReviewSpeechUnavailable
+}
 
 const resultSchema = z.object({ review_id: z.string(), episode: z.string(), total: z.number(), recorded: z.number(), pending: z.number(),
-  complete: z.boolean(), frames: z.array(reviewFrameSchema.extend({ status: z.string() })) }).loose()
+  complete: z.boolean(), frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
 
 function content(serialized: string): ContentBlock[] {
   const value = resultSchema.parse(JSON.parse(serialized))
@@ -50,9 +66,10 @@ function content(serialized: string): ContentBlock[] {
   const result: ContentBlock[] = [{ type: 'text', text: JSON.stringify(text) }]
   for (const frame of value.frames) {
     const image = reviewImage(frame)
-    if (image !== undefined && frame.observation === undefined) {
-      result.push({ type: 'text', text:  `VIDEO_FRAME ${value.review_id}/${frame.id} ${value.episode} ${frame.time}s附近：待逐图观察记录。` },
-        { type: 'image', attachment: image })
+    if (image !== undefined && (frame.observation === undefined || frame.revisited === true)) {
+      result.push({ type: 'text', text:  `VIDEO_FRAME ${value.review_id}/${frame.id} ${value.episode} ${frame.time}s附近：`
+        + (frame.revisited === true ? '重看缓存原图；原观察保留，供核对。' : '待逐图观察记录。') },
+      { type: 'image', attachment: image })
     }
   }
   return result
@@ -85,6 +102,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
     const model = session === undefined || !isAgentLoopRequest(options) ? undefined
       : await llm.resolveModelInfo(options.provider, options.model, options.signal)
     const delivered = new Map<string, string>()
+    const retained: { label: string | undefined; attachment: string }[] = []
     for (const message of options.messages) {
       let label: string | undefined
       for (const block of message.content) {
@@ -92,8 +110,9 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const marker = /^VIDEO_FRAME (\S+) /.exec(block.text)
           if (marker !== null) label = marker[1]
         }
-        if (block.type === 'image' && block.offloaded !== true && label !== undefined) {
-          delivered.set(label, block.attachment.attachmentId)
+        if (block.type === 'image' && block.offloaded !== true) {
+          if (message.role === 'user' || message.role === 'tool') retained.push({ label, attachment: block.attachment.attachmentId })
+          if (label !== undefined) delivered.set(label, block.attachment.attachmentId)
         }
       }
     }
@@ -102,12 +121,17 @@ export function applyCompleteReview(ctx: Context, config: Config,
         .filter(frame => !frame.exposed && frame.image !== undefined
           && delivered.get(`${review.id}/${frame.id}`) === frame.image.attachmentId)
         .map(frame => ({ path: review.path, review: review.id, frame: frame.id, image: frame.image?.attachmentId })))
+    const retainedPending = retained.map(image => admitted.some(frame => `${frame.review}/${frame.frame}` === image.label
+      && frame.image === image.attachment) ? image.label : undefined)
     let successful = false
     for await (const chunk of next()) {
       if (chunk.type === 'finish') {
         successful = chunk.reason.kind === 'stop' || chunk.reason.kind === 'tool-calls'
-        if (chunk.reason.kind === 'error' && chunk.reason.failure.code === IMAGE_OFFLOAD_REQUIRED_CODE && session !== undefined) {
-          batchLimits.set(session.id, 1)
+        if (chunk.reason.kind === 'error' && chunk.reason.failure.code === IMAGE_OFFLOAD_REQUIRED_CODE
+          && chunk.reason.failure.offloadImages !== undefined && session !== undefined) {
+          const current = batchLimits.get(session.id) ?? config.reviewBatchFrames
+          const reduced = reviewBatchAfterOffload(retainedPending, chunk.reason.failure.offloadImages, current)
+          if (reduced < current) batchLimits.set(session.id, reduced)
         }
       }
       yield chunk
@@ -147,12 +171,21 @@ export function applyCompleteReview(ctx: Context, config: Config,
   ctx.tools.register(defineTool({ name: 'video_inspect',
     description: '查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。'
       + 'next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。'
-      + 'compare配合draft_path只读返回全部已记录动作与实际正文，供核对▲独立动作、括注、转场和承接，不自动判定覆盖或拦截交付。'
+      + 'events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。'
+      + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
       + '所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。',
     parameters: { file_path: { type: 'string', required: true, description: '当前集实际完整视频路径。' },
       episode: { type: 'string', description: '首次scan时标记集号；省略则使用实际视频路径。' },
-      method: { type: 'string', enum: ['scan', 'next', 'observe', 'status', 'metadata', 'compare'], description: '默认scan；scan扫描整集并返回首批，next查看下一批，observe记录本批每张画面，status读取进度。compare只读对照已记录画面与当前稿；metadata仅查询，不建立已看过记录。' },
+      method: { type: 'string', enum: ['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'compare'], description: '默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。' },
+      frame_ids: { type: 'array', items: { type: 'string' }, description: 'revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。' },
       draft_path: { type: 'string', description: 'compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。' },
+      transcript_path: { type: 'string', description: '可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。任何method均可附带。' },
+      event_groups: { type: 'array', description: 'events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。',
+        items: { type: 'object', additionalProperties: false, properties: {
+          event_id: { type: 'string', required: true }, frame_ids: { type: 'array', items: { type: 'string' }, required: true },
+          actor: { type: 'string', required: true }, action: { type: 'string', required: true }, object: { type: 'string', required: true },
+          before: { type: 'string', required: true }, after: { type: 'string', required: true }, uncertainty: { type: 'string', required: true },
+        } } },
       observations: { type: 'array', description: 'observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。',
         items: { type: 'object', additionalProperties: false, properties: {
           frame_id: { type: 'string', required: true }, visible: { type: 'string', required: true, description: '具体可见人物、位置、动作、神态或道具；至少8个字符。' },
@@ -173,21 +206,98 @@ export function applyCompleteReview(ctx: Context, config: Config,
       sessions.set(session.id, session)
       const result = await run(exec, async (signal): Promise<ReviewResult> => {
         const policy = ctx.sandboxPolicy.resolve({ session })
-        const describe = async (review: VideoReview, batch = false): Promise<ReviewResult> => {
-          const result: ReviewResult = taskResult(review, batchFrames, batch)
-          if (!result.complete) return result
+        const unavailableNotice = '已保留原ASR引用，本次不使用不匹配或不可读的转写；可显式提供transcript_path重新关联。画面事件与正文对照可继续。'
+        const speechFor = async (review: VideoReview): Promise<ReviewSpeechLink> => {
+          const reference = review.transcript_reference, path = args.transcript_path ?? reference?.path
+          if (path === undefined) return {}
+          let currentVersion: string | undefined
+          try {
+            const target = await ctx.fs.resolve(path, { cwd: policy.workspaceRoot, signal })
+            const before = await ctx.fs.stat(target, signal)
+            currentVersion = before?.version
+            if (args.transcript_path === undefined && before?.version !== reference?.version) {
+              throw Error('VIDEO_TRANSCRIPT_CHANGED: 已关联ASR的版本变化或文件缺失。')
+            }
+            if (before?.type !== 'file' || before.size === undefined || before.size > config.maxTranscriptBytes) {
+              throw Error('VIDEO_TRANSCRIPT_SIZE: ASR须为maxTranscriptBytes以内的完整本集JSON。')
+            }
+            const bytes = await ctx.fs.readBytes(target, signal, config.maxTranscriptBytes)
+            const speech = reviewSpeech({ path: target.displayPath, version: before.version,
+              text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) }, review.duration)
+            if ((await ctx.fs.stat(target, signal))?.version !== before.version) throw Error('VIDEO_TRANSCRIPT_CHANGED: ASR读取期间变化，请回读。')
+            if (args.transcript_path === undefined && speech.source.sha256 !== reference?.sha256) {
+              throw Error('VIDEO_TRANSCRIPT_CHANGED: 已关联ASR的文件摘要变化。')
+            }
+            ctx.emit('fs/observed', target, { kind: 'present', version: before.version }, exec)
+            return { speech, transcript_reference: {
+              path: speech.source.path, version: speech.source.version, sha256: speech.source.sha256,
+            } }
+          } catch (error) {
+            if (args.transcript_path !== undefined || reference === undefined) throw error
+            signal.throwIfAborted()
+            return { speech_unavailable: { reference, ...currentVersion === undefined ? {} : { current_version: currentVersion },
+              reason: (error instanceof Error ? error.message : String(error)).slice(0, 2000), notice: unavailableNotice } }
+          }
+        }
+        const bounded = (result: ReviewResult): ReviewResult => {
+          if (Buffer.byteLength(JSON.stringify(result)) > config.reviewCompareMaxBytes) {
+            throw Error('VIDEO_COMPARE_SIZE: 完整事件、转写与正文超出reviewCompareMaxBytes；未截断材料，不影响保存与交付。')
+          }
+          return result
+        }
+        const boundedSpeech = (materialize: (link: ReviewSpeechLink) => ReviewResult, link: ReviewSpeechLink): ReviewResult => {
+          try { return bounded(materialize(link)) } catch (error) {
+            if (args.transcript_path !== undefined || link.speech === undefined || link.transcript_reference === undefined
+              || !(error instanceof Error) || !error.message.startsWith('VIDEO_COMPARE_SIZE:')) throw error
+            return bounded(materialize({ speech_unavailable: { reference: link.transcript_reference,
+              current_version: link.transcript_reference.version, reason: error.message, notice: unavailableNotice } }))
+          }
+        }
+        const reportFor = async (review: VideoReview) => {
           const contents = JSON.stringify(review, null, 2) + '\n'
           const notes = review.frames.map(({ id, observation }) => ({ id, observation }))
-          const digest = createHash('sha256').update(JSON.stringify(notes)).digest('hex')
+          const digest = createHash('sha256').update(JSON.stringify(review.event_groups === undefined && review.transcript_reference === undefined ? notes
+            : { frames: notes, ...review.event_groups === undefined ? {} : { event_groups: review.event_groups },
+              ...review.transcript_reference === undefined ? {} : { transcript_reference: {
+                ...review.transcript_reference, path: relative(dirname(review.path), review.transcript_reference.path),
+              } } })).digest('hex')
           const report = await ctx.fs.resolve(`.muse/video-observations/${review.id}-${digest}.json`,
             { cwd: policy.workspaceRoot, signal })
+          return { contents, report }
+        }
+        const prepareDescription = async (review: VideoReview, batch = false,
+          revisitedFrames?: (ReviewResult['frames'][number] & { revisited: true })[]) => {
+          const link = await speechFor(review)
+          const linked = link.transcript_reference === undefined ? review : { ...review, transcript_reference: link.transcript_reference }
+          if (link.speech !== undefined) {
+            const source = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
+            if ((await ctx.fs.stat(source, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在读取ASR期间变化，请回读。')
+          }
+          const report = revisitedFrames === undefined && pendingReview(linked) === 0 ? await reportFor(linked) : undefined
+          const materialize = (link: ReviewSpeechLink): ReviewResult => ({ ...taskResult(linked, batchFrames, batch),
+            ...revisitedFrames === undefined ? {} : {
+              frames: revisitedFrames, frames_not_shown: linked.frames.length - revisitedFrames.length,
+            },
+            ...link.speech === undefined ? {} : { speech: link.speech },
+            ...link.speech_unavailable === undefined ? {} : { speech_unavailable: link.speech_unavailable },
+            ...report === undefined ? {} : { observation_report: report.report.displayPath } })
+          const result = link.speech !== undefined || link.speech_unavailable !== undefined || linked.event_groups !== undefined
+            || linked.transcript_reference !== undefined ? boundedSpeech(materialize, link) : materialize(link)
+          return { review: linked, result, report }
+        }
+        const publishDescription = async (prepared: Awaited<ReturnType<typeof prepareDescription>>): Promise<ReviewResult> => {
+          if (reviewsOf(ctx, session)[prepared.review.path]?.id === prepared.review.id) saveReview(ctx, session, prepared.review)
+          if (prepared.report === undefined) return prepared.result
+          const { contents, report } = prepared.report
           if (await ctx.fs.stat(report, signal) === undefined) {
             await ctx.fs.writeText(report, contents, { kind: 'createIfAbsent' }, signal, policy)
           } else if (await ctx.fs.readText(report, signal) !== contents) {
             throw Error('VIDEO_OBSERVATION_REPORT_CHANGED: observation report bytes changed; retain the Session record')
           }
-          return { ...result, observation_report: report.displayPath }
+          return prepared.result
         }
+        const describe = async (review: VideoReview, batch = false): Promise<ReviewResult> =>
+          publishDescription(await prepareDescription(review, batch))
         const target = await ctx.fs.resolve(args.file_path, { cwd: policy.workspaceRoot, signal })
         const info = await ctx.fs.stat(target, signal)
         if (!info || info.type !== 'file' || info.size === undefined || info.size > config.maxSourceBytes) throw Error('Video input must be a bounded regular file')
@@ -223,16 +333,52 @@ export function applyCompleteReview(ctx: Context, config: Config,
           }
           const bytes = await ctx.fs.readBytes(draft, signal, config.reviewCompareMaxBytes)
           const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-          const result = { ...taskResult(review, batchFrames), comparison: compareReviewDraft(review, {
+          const link = await speechFor(review)
+          const linked = link.transcript_reference === undefined ? review : { ...review, transcript_reference: link.transcript_reference }
+          const result = boundedSpeech(link => ({ ...taskResult(linked, batchFrames), comparison: compareReviewDraft(linked, {
             path: draft.displayPath, version: before.version, text,
-          }) }
-          if (Buffer.byteLength(JSON.stringify(result)) > config.reviewCompareMaxBytes) {
-            throw Error('VIDEO_COMPARE_SIZE: 完整观察与正文超出reviewCompareMaxBytes；可按原观察报告分段核对或调整部署上限，未截断材料，不影响保存与交付。')
-          }
+          }, link.speech, link.speech_unavailable) }), link)
           if ((await ctx.fs.stat(draft, signal))?.version !== before.version
             || (await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_COMPARE_CHANGED: 视频或剧本读取期间变化，请回读当前版本。')
           ctx.emit('fs/observed', draft, { kind: 'present', version: before.version }, exec)
+          saveReview(ctx, session, linked)
           return result
+        }
+        if (args.method === 'revisit') {
+          const current = review
+          if (!args.frame_ids?.length || args.frame_ids.length > batchFrames || new Set(args.frame_ids).size !== args.frame_ids.length) {
+            throw Error(`VIDEO_REVISIT_INPUT: frame_ids须为1至${batchFrames}个不重复的已记录帧。`)
+          }
+          const selected = args.frame_ids.map((id) => {
+            const frame = current.frames.find(frame => frame.id === id)
+            if (frame?.observation === undefined) throw Error(`VIDEO_REVISIT_FRAME: ${id}不是本集已记录帧；未记录画面请使用next。`)
+            return frame
+          })
+          await imageRoute(ctx, { ...exec, signal })
+          const frames: (ReviewResult['frames'][number] & { revisited: true })[] = []
+          for (const frame of selected) {
+            const image = reviewImage(frame)
+            if (image === undefined) throw Error(`VIDEO_REVISIT_IMAGE_MISSING: ${frame.id}无原图缓存引用，不重新抽帧。`)
+            try { await ctx.attachments.readImage(image, signal) } catch (error) {
+              signal.throwIfAborted()
+              throw Error(`VIDEO_REVISIT_IMAGE_MISSING: ${frame.id}原图缓存不可读取，不重新抽帧。`
+                + (error instanceof Error ? error.message : String(error)))
+            }
+            const { image: _image, decode: _decode, ...data } = frame
+            frames.push({ ...data, image, status: '重看原图', revisited: true })
+          }
+          const prepared = await prepareDescription(current, false, frames)
+          bounded(prepared.result)
+          if ((await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在重看缓存期间变化，请重新scan。')
+          return publishDescription(prepared)
+        }
+        if (args.method === 'events') {
+          if (args.event_groups === undefined) throw Error('VIDEO_EVENT_INPUT: events需要event_groups完整表；空数组可清空。')
+          const updated = { ...review, event_groups: bindReviewEvents(args.event_groups, review.frames) }
+          const prepared = await prepareDescription(updated)
+          if ((await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在记录事件期间变化，请重新scan。')
+          saveReview(ctx, session, prepared.review)
+          return publishDescription(prepared)
         }
         if (args.method === 'observe') {
           if (!args.observations?.length || args.observations.length > config.reviewBatchFrames) throw Error('observe需要本批逐图记录，不能批量确认全部图片。')
@@ -249,7 +395,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
               visible: note.visible, change: note.change, uncertainty: note.uncertainty,
             } }
           }) }
-          const contextual = review.frames.filter(frame => notes.has(frame.id) && frame.observation?.uncertainty
+          const contextual = review.frames.filter(frame => notes.has(frame.id) && frame.observation !== undefined
+            && hasReviewUncertainty(frame.observation.uncertainty)
             && !frame.reasons.includes('uncertainty_context'))
           const closing = review.frames.reduce((end, frame) => Math.max(end, frame.time), 0)
           const frames = [...review.frames]
