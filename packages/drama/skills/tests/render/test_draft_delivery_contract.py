@@ -156,6 +156,63 @@ class DraftDeliveryContractTests(unittest.TestCase):
             request_module.generate_request(request, str(drafts))
         self.assertEqual(content_path.read_bytes(), saved)
 
+    def test_plain_and_bom_timelines_have_the_same_clock_without_rewriting_inputs(self):
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                original = timeline.read_bytes()
+                clips = self.module.load_edit_timeline(timeline)
+                plan = self.module.draft_ending_plan(timeline, clips, root)
+                self.assertEqual(plan['body_end_us'], 4_000_000)
+                self.assertEqual(timeline.read_bytes(), original)
+
+    def test_real_request_retains_plain_and_bom_timeline_and_subtitle_bytes(self):
+        environment, module_path = dict(os.environ), list(sys.path)
+        with patch.dict(os.environ), patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            spec = importlib.util.spec_from_file_location('bom_draft_request', SCRIPT.with_name('generate_draft_request.py'))
+            request_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(request_module)
+            for encoding in ('utf-8', 'utf-8-sig'):
+                with self.subTest(encoding=encoding):
+                    root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                    timeline, subtitle = root / '05_timeline/25.timeline.json', root / '03_subtitle/25.srt'
+                    timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                    subtitle.write_text(SRT, encoding=encoding)
+                    originals = {path: path.read_bytes() for path in (timeline, subtitle)}
+                    drafts = root / 'editor'
+                    drafts.mkdir()
+                    request = {'project': str(root), 'episode': 25, 'name_prefix': 'BOM-',
+                               'audio': str(root / '01_audio/25.wav'),
+                               'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
+                               'subtitle_srt': str(subtitle), 'timeline': str(timeline)}
+                    result = request_module.generate_request(request, str(drafts))
+                    self.assertTrue(result['success'], result)
+                    self.assertFalse(result['editor_open_verified'])
+                    saved = Path(result['drafts'][0]['path']) / 'draft_content.json'
+                    content = json.loads(saved.read_text(encoding='utf-8'))
+                    self.assertEqual(content['duration'], 4_000_000)
+                    self.assertEqual(len(self.texts(content)), 3)
+                    retained = Path(result['materials_dir'])
+                    self.assertEqual((retained / '05_timeline/25.timeline.json').read_bytes(), originals[timeline])
+                    self.assertEqual((retained / '03_subtitle/25.srt').read_bytes(), originals[subtitle])
+                    self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+        self.assertTrue(dict(os.environ) == environment, 'Draft request test must restore environment values')
+        self.assertEqual(sys.path, module_path)
+
+    def test_plain_and_bom_malformed_timeline_still_fails_without_rewriting_inputs(self):
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                root = self.build_root()
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text('{not valid JSON', encoding=encoding)
+                original = timeline.read_bytes()
+                with self.assertRaisesRegex(self.module.DraftInputError, '读取失败'):
+                    self.module.load_edit_timeline(timeline)
+                self.assertEqual(timeline.read_bytes(), original)
+                self.assertFalse((root / 'jianying').exists())
+
     def all_retained_request(self):
         root = self.build_root(timeline=self.delivery_timeline('animation_3d'), srt='\n')
         drafts = root / 'editor'
@@ -1081,6 +1138,33 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(len(next(track for track in content['tracks'] if track['name'] == 'BGM轨道')['segments']), 1)
         for name in ('片尾音', '片尾特效', 'AI内容标识'):
             self.assertEqual(len([track for track in content['tracks'] if track['name'] == name]), 1)
+
+    def test_prepare_and_process_retains_plain_and_bom_timeline_bytes(self):
+        environment, module_path = dict(os.environ), list(sys.path)
+        with patch.dict(os.environ), patch.object(sys, 'path', list(sys.path)):
+            spec = importlib.util.spec_from_file_location('bom_draft_generator', SCRIPT.with_name('draft_generator.py'))
+            generator_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(generator_module)
+            for encoding in ('utf-8', 'utf-8-sig'):
+                with self.subTest(encoding=encoding):
+                    root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                    timeline = root / '05_timeline/25.timeline.json'
+                    timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                    original = timeline.read_bytes()
+                    generator = generator_module.DraftGenerator()
+                    materials = root / 'materials'
+                    generator.prepare_materials(str(root / '01_audio'), str(root / '02_media'), str(materials),
+                                                subtitle_dir=str(root / '03_subtitle'),
+                                                timeline_dir=str(root / '05_timeline'), project=str(root))
+                    drafts = root / 'jianying'
+                    drafts.mkdir()
+                    with patch.dict(sys.modules, {'jianying_draft': self.module}):
+                        result = generator.process(str(materials), str(drafts), name_prefix='BOM-', project=str(root))
+                    self.assertTrue(result['success'], result)
+                    self.assertEqual((materials / '05_timeline/25.timeline.json').read_bytes(), original)
+                    self.assertEqual(timeline.read_bytes(), original)
+        self.assertTrue(dict(os.environ) == environment, 'Draft material test must restore environment values')
+        self.assertEqual(sys.path, module_path)
 
     def generation_result(self, root, seq=None):
         shutil.copytree(root, root / 'materials')
