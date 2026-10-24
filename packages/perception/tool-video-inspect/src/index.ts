@@ -18,6 +18,10 @@ import { applyVideoOcr } from './ocr.ts'
 import { applyCompleteReview } from './review.ts'
 
 export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type TrustedVideoInspectionReceipt } from './evidence.ts'
+export { videoReviewSummaries, readVideoSourceTimeline, type VideoReviewSummary,
+  type VideoSourceTimelineReadOptions, type VideoSourceTimelineContent } from './review-source.ts'
+export { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
+export { VideoReviewId } from './review-state.ts'
 
 /** Plugin name for video observations. */
 export const name = 'tool-video-inspect'
@@ -45,6 +49,8 @@ export interface Config {
   reviewMaxScanBytes: number
   /** Maximum UTF-8 bytes in a complete optional event, ASR or draft-comparison result, and in the draft input. */
   reviewCompareMaxBytes: number
+  /** Source seconds per timeline grouping; these windows do not define scenes or actions. */
+  reviewTimelineWindowSeconds: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */
@@ -158,6 +164,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   reviewMaxFrames: Schema.number().step(1).min(2).max(10_000).default(4000),
   reviewMaxScanBytes: Schema.number().step(1).min(1).max(64 * 1024 * 1024).default(4 * 1024 * 1024),
   reviewCompareMaxBytes: Schema.number().step(1).min(1).max(16 * 1024 * 1024).default(256 * 1024),
+  reviewTimelineWindowSeconds: Schema.number().min(1).max(120).default(10),
   trustedEvidence: Schema.boolean().default(false),
   ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
   powershellPath: Schema.string().default('powershell.exe'),

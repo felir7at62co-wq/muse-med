@@ -17,5 +17,6 @@
                 defaultMaxTokens: 256000
                 reasoningEfforts: [off, low, high, max]
                 defaultReasoningEffort: max
+                inputModalities: [text, image]
     - id: manuscript-fixture
       name: './manuscript-fixture.mjs'

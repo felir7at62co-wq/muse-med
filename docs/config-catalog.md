@@ -4660,7 +4660,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:29`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:33`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
@@ -4683,6 +4683,8 @@ export interface Config {
   reviewMaxScanBytes: number
   /** Maximum UTF-8 bytes in a complete optional event, ASR or draft-comparison result, and in the draft input. */
   reviewCompareMaxBytes: number
+  /** Source seconds per timeline grouping; these windows do not define scenes or actions. */
+  reviewTimelineWindowSeconds: number
   /** Creation-only metadata plans and Host-issued visual evidence; disabled in other deployments. */
   trustedEvidence: boolean
   /** Same-world FFmpeg executable. */

@@ -166,6 +166,86 @@ it('compares recorded observations with the actual draft without completing pend
   expect(h.results().at(-1)?.isError).toBe(false)
 }, 30_000)
 
+it('returns source time windows and cached original image blocks without extraction or observation changes', async () => {
+  const h = await fixture({ config: { reviewTimelineWindowSeconds: 1 } })
+  const transcript = join(h.root, 'timeline-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '先别走。', speaker_id: '1' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  const automaticallyReturned = h.results().at(-1)?.content.find(block => block.type === 'text')
+  if (automaticallyReturned?.type !== 'text') throw Error('Missing ordinary observation result')
+  expect(JSON.parse(automaticallyReturned.text)).toMatchObject({ source_timeline_index: {
+    available: true, total_windows: 3, scan_complete: true, pending_frames: h.review().frames.length - 2,
+    speech_status: 'available', speech_segment_count: 1,
+    windows: [{ window_id: 'W00001', speech_segment_ids: ['S00001'] }, { window_id: 'W00002' }, { window_id: 'W00003' }],
+  } })
+  const before = JSON.stringify(h.review()), options = { windowSeconds: 1, maxTranscriptBytes: 4096,
+    maxBytes: 100_000, maxFrames: 2 }
+  const summary = Video.videoReviewSummaries(h.ctx, h.agent.session)[0]!
+  expect(summary).toMatchObject({ path: h.input, transcript_reference: { path: transcript } })
+  const frame = h.review().frames.find(value => value.observation !== undefined)!
+  const extraction = vi.spyOn(h.ctx.subprocess, 'spawn')
+  const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, summary.review_id,
+    { ...options, frameIds: [frame.id] }, new AbortController().signal)
+  expect(result.timeline.speech?.segments[0]?.text).toBe('先别走。')
+  expect(result.timeline.windows).toHaveLength(3)
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
+  expect(result.content.some(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME '))).toBe(true)
+  expect(extraction).not.toHaveBeenCalled()
+  expect(JSON.stringify(h.review())).toBe(before)
+  await h.run(h.call('timeline', { timeline_start_seconds: 1, timeline_end_seconds: 2 }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const timelineText = h.results().at(-1)?.content.find(block => block.type === 'text')
+  if (timelineText?.type !== 'text') throw Error('Missing source timeline')
+  expect(JSON.parse(timelineText.text)).toMatchObject({ source_timeline: { scope: { full_episode: false } } })
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('keeps source timeline failures advisory and refuses stale sources, missing cache and oversized full results', async () => {
+  const h = await fixture()
+  const transcript = join(h.root, 'timeline-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '原台词。', speaker_id: '1' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  const id = h.review().id, frame = h.review().frames.find(value => value.observation !== undefined)!
+  const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1 }
+  const read = (extra = {}) => Video.readVideoSourceTimeline(h.ctx, h.agent.session, id,
+    { ...options, ...extra }, new AbortController().signal)
+  await expect(read({ frameIds: [frame.id], startSeconds: 2, endSeconds: 3 })).rejects.toThrow('VIDEO_TIMELINE_FRAME')
+  await expect(read({ frameIds: [frame.id, frame.id] })).rejects.toThrow('VIDEO_TIMELINE_IMAGES')
+  await expect(read({ maxBytes: 1 })).rejects.toThrow('VIDEO_TIMELINE_SIZE')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '新台词。' }]))
+  const stale = await read()
+  expect(stale.timeline.speech).toBeUndefined()
+  expect(stale.timeline.speech_unavailable).toBeDefined()
+  expect(JSON.stringify(stale)).not.toContain('新台词')
+  const cached = vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce(Error('missing cache'))
+  await expect(read({ frameIds: [frame.id] })).rejects.toThrow('VIDEO_REVISIT_IMAGE_MISSING')
+  cached.mockRestore()
+  await appendFile(h.input, 'changed source')
+  await expect(read()).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
+  expect(h.review().frames.at(-1)?.observation).toBeUndefined()
+}, 30_000)
+
+it('drops optional ASR that changes while cached frames are read without resubmitting transcription or changing observations', async () => {
+  const h = await fixture(), transcript = join(h.root, 'timeline-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '旧台词。', speaker_id: '1' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  const before = JSON.stringify(h.review()), frame = h.review().frames.find(value => value.observation !== undefined)!
+  const original = h.ctx.attachments.readImage.bind(h.ctx.attachments)
+  vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
+    const image = await original(...args)
+    await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '新台词。' }]))
+    return image
+  })
+  const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
+    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }, new AbortController().signal)
+  expect(result.timeline.speech).toBeUndefined()
+  expect(result.timeline.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
+  expect(JSON.stringify(result)).not.toContain('旧台词')
+  expect(JSON.stringify(result)).not.toContain('新台词')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
 it('bounds the entire UTF-8 comparison and leaves delivery and observations unchanged after comparison failure', async () => {
   const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
   await h.run(h.call('scan'), h.record, undefined)
@@ -356,7 +436,9 @@ it('checks the completed event report wrapper before committing event notes at a
   await h.run(h.call('events', { event_groups: [event] }), undefined)
   const block = h.results().at(-1)!.content.find(block => block.type === 'text')!
   if (block.type !== 'text') throw Error('Missing event result')
-  const bytes = Buffer.byteLength(block.text)
+  const { source_timeline_index: _optionalIndex, ...requiredResult } = z.object({ source_timeline_index: z.unknown().optional() })
+    .loose().parse(JSON.parse(block.text))
+  const bytes = Buffer.byteLength(JSON.stringify(requiredResult))
   await h.run(h.call('events', { event_groups: [] }), undefined)
   const before = JSON.stringify(h.review()), reportRoot = join(h.root, '.muse/video-observations')
   const reports = await readdir(reportRoot)

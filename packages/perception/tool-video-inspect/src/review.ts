@@ -16,11 +16,13 @@ import { compareReviewDraft } from './review-compare.ts'
 import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from './review-events.ts'
 import { reviewSpeech, type ReviewSpeech, type ReviewSpeechLink, type ReviewSpeechUnavailable } from './review-speech.ts'
 import { reviewBatchAfterOffload } from './review-batch.ts'
+import { buildVideoSourceTimeline, type VideoSourceTimeline } from './review-timeline.ts'
 
-const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'compare']).default('scan'),
+const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'timeline', 'compare']).default('scan'),
   file_path: z.string().min(1), episode: z.string().min(1).max(100).optional(),
   draft_path: z.string().min(1).optional(), transcript_path: z.string().min(1).optional(),
   event_groups: z.array(reviewEventNoteSchema).optional(),
+  timeline_start_seconds: z.number().nonnegative().optional(), timeline_end_seconds: z.number().positive().optional(),
   frame_ids: z.array(z.string().min(1)).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
     change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000) })).optional() })
@@ -53,6 +55,28 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
 type ReviewResult = ReturnType<typeof taskResult> & {
   observation_report?: string
   comparison?: ReturnType<typeof compareReviewDraft>
+  source_timeline?: VideoSourceTimeline
+  source_timeline_index?: {
+    available: true
+    source_version: string
+    total_windows: number
+    pending_frames: number
+    scan_complete: boolean
+    window_seconds: number
+    index_omitted_for_budget: boolean
+    speech_status: 'available' | 'unavailable' | 'not_linked'
+    speech_segment_count?: number
+    windows?: {
+      window_id: string
+      start_seconds: number
+      end_seconds: number
+      frame_count: number
+      recorded_count: number
+      event_note_count: number
+      speech_segment_ids: string[]
+      continuous_speech_candidate_indexes: number[]
+    }[]
+  }
   speech?: ReviewSpeech
   speech_unavailable?: ReviewSpeechUnavailable
 }
@@ -172,11 +196,14 @@ export function applyCompleteReview(ctx: Context, config: Config,
     description: '查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。'
       + 'next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。'
       + 'events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。'
+      + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
       + '所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。',
     parameters: { file_path: { type: 'string', required: true, description: '当前集实际完整视频路径。' },
       episode: { type: 'string', description: '首次scan时标记集号；省略则使用实际视频路径。' },
-      method: { type: 'string', enum: ['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'compare'], description: '默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。' },
+      method: { type: 'string', enum: ['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'timeline', 'compare'], description: '默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；timeline按时间并列画面记录、事件笔记与ASR；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。' },
+      timeline_start_seconds: { type: 'number', description: 'timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。' },
+      timeline_end_seconds: { type: 'number', description: 'timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。' },
       frame_ids: { type: 'array', items: { type: 'string' }, description: 'revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。' },
       draft_path: { type: 'string', description: 'compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。' },
       transcript_path: { type: 'string', description: '可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。任何method均可附带。' },
@@ -253,6 +280,27 @@ export function applyCompleteReview(ctx: Context, config: Config,
               current_version: link.transcript_reference.version, reason: error.message, notice: unavailableNotice } }))
           }
         }
+        const indexed = (result: ReviewResult, review: VideoReview, link: ReviewSpeechLink): ReviewResult => {
+          if (!review.id) return result
+          const timeline = buildVideoSourceTimeline(review, { windowSeconds: config.reviewTimelineWindowSeconds },
+            link.speech, link.speech_unavailable)
+          const summary: NonNullable<ReviewResult['source_timeline_index']> = { available: true,
+            source_version: review.source_version, total_windows: timeline.windows.length,
+            pending_frames: review.frames.filter(frame => frame.observation === undefined).length, scan_complete: review.scan_complete,
+            window_seconds: config.reviewTimelineWindowSeconds, index_omitted_for_budget: false,
+            speech_status: link.speech !== undefined ? 'available' : link.speech_unavailable === undefined ? 'not_linked' : 'unavailable',
+            ...link.speech === undefined ? {} : { speech_segment_count: link.speech.segments.length },
+            windows: timeline.windows.map(window => ({ window_id: window.window_id, start_seconds: window.start_seconds,
+              end_seconds: window.end_seconds, frame_count: window.frames.length,
+              recorded_count: window.frames.filter(frame => frame.observation !== undefined).length,
+              event_note_count: window.event_notes.length, speech_segment_ids: window.speech_segment_ids,
+              continuous_speech_candidate_indexes: window.continuous_speech_candidate_indexes })) }
+          const complete = { ...result, source_timeline_index: summary }
+          if (Buffer.byteLength(JSON.stringify(complete)) <= config.reviewCompareMaxBytes) return complete
+          const { windows: _windows, ...compact } = summary
+          const reduced = { ...result, source_timeline_index: { ...compact, index_omitted_for_budget: true } }
+          return Buffer.byteLength(JSON.stringify(reduced)) <= config.reviewCompareMaxBytes ? reduced : result
+        }
         const reportFor = async (review: VideoReview) => {
           const contents = JSON.stringify(review, null, 2) + '\n'
           const notes = review.frames.map(({ id, observation }) => ({ id, observation }))
@@ -283,7 +331,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
             ...report === undefined ? {} : { observation_report: report.report.displayPath } })
           const result = link.speech !== undefined || link.speech_unavailable !== undefined || linked.event_groups !== undefined
             || linked.transcript_reference !== undefined ? boundedSpeech(materialize, link) : materialize(link)
-          return { review: linked, result, report }
+          const sourceLink = result.speech_unavailable === undefined ? link : { speech_unavailable: result.speech_unavailable }
+          return { review: linked, result: indexed(result, linked, sourceLink), report }
         }
         const publishDescription = async (prepared: Awaited<ReturnType<typeof prepareDescription>>): Promise<ReviewResult> => {
           if (reviewsOf(ctx, session)[prepared.review.path]?.id === prepared.review.id) saveReview(ctx, session, prepared.review)
@@ -324,6 +373,18 @@ export function applyCompleteReview(ctx: Context, config: Config,
         }
         if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 先使用scan扫描当前完整视频。')
         if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan。')
+        if (args.method === 'timeline') {
+          const link = await speechFor(review)
+          const linked = link.transcript_reference === undefined ? review : { ...review, transcript_reference: link.transcript_reference }
+          const selection = { windowSeconds: config.reviewTimelineWindowSeconds,
+            ...args.timeline_start_seconds === undefined ? {} : { startSeconds: args.timeline_start_seconds },
+            ...args.timeline_end_seconds === undefined ? {} : { endSeconds: args.timeline_end_seconds } }
+          const result = boundedSpeech(link => ({ ...taskResult(linked, batchFrames),
+            source_timeline: buildVideoSourceTimeline(linked, selection, link.speech, link.speech_unavailable) }), link)
+          if ((await ctx.fs.stat(target, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在读取时间线期间变化，请回读。')
+          saveReview(ctx, session, linked)
+          return result
+        }
         if (args.method === 'compare') {
           if (args.draft_path === undefined) throw Error('VIDEO_COMPARE_DRAFT: compare需要本集已保存的draft_path。')
           const draft = await ctx.fs.resolve(args.draft_path, { cwd: policy.workspaceRoot, signal })

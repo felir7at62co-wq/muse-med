@@ -15,6 +15,7 @@ import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscr
 import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
 import { ManuscriptWork } from './manuscript-work.ts'
 import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
+import { ManuscriptVideoEvidence } from './manuscript-video-evidence.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -40,6 +41,11 @@ export interface Config {
   repeatMinCharacters: number
   actionRepeatMinCharacters: number
   maxRepeatFindings: number
+  videoEvidenceWindowSeconds: number
+  videoEvidenceMaxScenes: number
+  videoEvidenceMaxFrames: number
+  videoEvidenceMaxBytes: number
+  videoEvidenceMaxTranscriptBytes: number
 }
 
 /** Deployment-controlled budgets; no comparison silently truncates manuscripts. */
@@ -54,6 +60,11 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   repeatMinCharacters: Schema.number().step(1).min(1).default(12),
   actionRepeatMinCharacters: Schema.number().step(1).min(1).default(4),
   maxRepeatFindings: Schema.number().step(1).min(1).default(40),
+  videoEvidenceWindowSeconds: Schema.number().min(1).default(8),
+  videoEvidenceMaxScenes: Schema.number().step(1).min(1).default(4),
+  videoEvidenceMaxFrames: Schema.number().step(1).min(1).max(8).default(4),
+  videoEvidenceMaxBytes: Schema.number().step(1).min(1).default(256 * 1024),
+  videoEvidenceMaxTranscriptBytes: Schema.number().step(1).min(1).default(2 * 1024 * 1024),
 })
 
 const documentSchema = z.strictObject({ path: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/u), text: z.string() })
@@ -295,7 +306,16 @@ export class ManuscriptRevisions {
 export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
   const work = new ManuscriptWork(config)
+  const videoEvidence = new ManuscriptVideoEvidence(config)
+  let videoSourceContext: Context | undefined
+  ctx.inject(['fs', 'attachments', 'sandboxPolicy', 'sessionProjections'], (scope) => {
+    scope.effect(() => {
+      videoSourceContext = scope
+      return () => { if (videoSourceContext === scope) videoSourceContext = undefined }
+    })
+  })
   const workReadFailures = new WeakMap<Agent, string>()
+  const videoReadFailures = new WeakMap<Agent, string>()
   const guidanceNotices = new WeakMap<Agent, string>()
   ctx.tools.register(defineTool({
     name: 'manuscript_work',
@@ -378,7 +398,21 @@ export function apply(ctx: Context, config: Config): void {
       if (workReadFailures.get(agent) !== failure) workNotice = failure
       workReadFailures.set(agent, failure)
     }
-    const entered = workNotice ? { ...decision, messages: [...decision.messages, context(workNotice, '采用稿实际版本与场景核对')] } : decision
+    let entered = workNotice ? { ...decision, messages: [...decision.messages, context(workNotice, '采用稿实际版本与场景核对')] } : decision
+    try {
+      const materials = videoSourceContext === undefined ? []
+        : await videoEvidence.refresh(videoSourceContext, agent, signal, decision.messages)
+      videoReadFailures.delete(agent)
+      if (materials.length) entered = { ...entered, messages: [...entered.messages, createUserMessage({
+        source: { kind: 'muse-manuscript', form: 'notice', summary: '已保存正文与局部视频来源材料' }, content: materials,
+      })] }
+    } catch (error) {
+      signal.throwIfAborted()
+      const failure = `正文局部来源材料未返回：${error instanceof Error ? error.message : String(error)}。未作语义核对，不阻止继续。`
+      if (videoReadFailures.get(agent) !== failure) entered = { ...entered,
+        messages: [...entered.messages, context(failure, '正文局部来源读取未完成')] }
+      videoReadFailures.set(agent, failure)
+    }
     if (!messages.some(message => message.source.kind === 'user')) return entered
     let text: string | undefined
     try { text = await revisions.refresh(cwd, agent.id, signal) }
@@ -390,6 +424,14 @@ export function apply(ctx: Context, config: Config): void {
       && /精修|润色|改稿|改过|用户修改|refin(?:e|ement)|polish/iu.test(block.text)))
     const notice = text ?? (refinement ? '本轮涉及文稿精修。若用户自行改过或重新上传文稿，先用 manuscript_revision.compare 关联实际上一稿与最新返稿，查看并保留用户增删改；不要从旧稿恢复。没有基线应说明无法逐处识别，向用户索取上一稿或以最新返稿为准，不声称已完成对比。' : undefined)
     return notice === undefined ? entered : { ...entered, messages: [...entered.messages, context(notice)] }
+  })
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (exec.agent && ['write', 'edit'].includes(exec.name) && !result.isError && decision.kind === 'accept') {
+      const mutation = z.object({ path: z.string() }).safeParse(result.value)
+      if (mutation.success) videoEvidence.remember(exec.agent, mutation.data.path)
+    }
+    return decision
   })
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()

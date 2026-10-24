@@ -1556,7 +1556,7 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false, false, false])
+              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false, false, false, false])
               expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
               expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(7)
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
@@ -1570,7 +1570,19 @@ describe('headless recorded-session snapshots', () => {
               const report = JSON.parse(finalText.text) as { observation_report: string }
               const saved = await readFile(report.observation_report, 'utf8')
               expect(JSON.parse(saved)).toEqual(expected)
-              const comparisonText = results[8]?.content.find(block => block.type === 'text')
+              const timelineText = results[8]?.content.find(block => block.type === 'text')
+              if (timelineText?.type !== 'text') throw Error('Missing source timeline')
+              const { source_timeline: timeline } = JSON.parse(timelineText.text) as { source_timeline: {
+                semantic_assessment: string; scope: { full_episode: boolean }; windows: { frames: object[]; event_notes: object[];
+                  speech_segment_ids: string[] }[]; speech: { segments: object[]; continuous_speech_candidates: object[] }
+              } }
+              expect(timeline.semantic_assessment).toBe('not_performed')
+              expect(timeline.scope.full_episode).toBe(true)
+              expect(timeline.windows.flatMap(window => window.frames)).toHaveLength(5)
+              expect(timeline.windows[0]?.event_notes).toHaveLength(1)
+              expect(timeline.windows[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
+              expect(timeline.speech.continuous_speech_candidates).toHaveLength(1)
+              const comparisonText = results[9]?.content.find(block => block.type === 'text')
               if (comparisonText?.type !== 'text') throw Error('Missing saved-draft comparison')
               const { comparison } = JSON.parse(comparisonText.text) as { comparison: {
                 advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string };
@@ -1589,7 +1601,7 @@ describe('headless recorded-session snapshots', () => {
               expect(comparison.speech.segments).toHaveLength(2)
               expect(comparison.speech.continuous_speech_candidates).toHaveLength(1)
               expect(comparison.draft.numbered_text).toContain('2: ▲合成画面从黑色切换为白色。')
-              const revisitText = results[9]?.content.find(block => block.type === 'text')
+              const revisitText = results[10]?.content.find(block => block.type === 'text')
               if (revisitText?.type !== 'text') throw Error('Missing cached-frame revisit')
               const revisit = JSON.parse(revisitText.text) as {
                 complete: boolean; pending: number; frames: { id: string; revisited: boolean; observation: object }[]

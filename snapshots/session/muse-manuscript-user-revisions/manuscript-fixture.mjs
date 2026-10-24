@@ -1,8 +1,8 @@
 /** Load the real revision plugin and verify its private artifacts before moving them out of the user workspace. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, realpath, rename, rmdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const revisions = await importSnapshotModule(
@@ -11,13 +11,46 @@ const revisions = await importSnapshotModule(
 )
 const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present',
   new URL('../../../apps/desktop-host/package.json', import.meta.url))
+const video = await importSnapshotPackage('@deepseek-ai/dsh-tool-video-inspect',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
+const { FsVersion } = await importSnapshotPackage('@deepseek-ai/dsh-fs',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 export const name = 'manuscript-fixture'
-export const inject = ['tools']
+export const inject = ['tools', 'fs', 'attachments', 'sandboxPolicy', 'sessionProjections']
 export async function apply(ctx) {
+  await ctx.plugin(video, { requireCompleteReview: true })
   await ctx.plugin(revisions)
   await ctx.plugin(present)
+  const originalStat = ctx.fs.stat.bind(ctx.fs)
+  ctx.effect(() => {
+    ctx.fs.stat = async (target, signal) => {
+      const info = await originalStat(target, signal)
+      const name = basename(target.displayPath)
+      return info && ['manuscript-source.mp4', 'manuscript-asr.json'].includes(name)
+        ? { ...info, version: FsVersion(`snapshot-${name}`) } : info
+    }
+    return () => { ctx.fs.stat = originalStat }
+  })
   let owner
-  ctx.on('agent/created', ({ agent }) => { owner = agent })
+  ctx.on('agent/created', async ({ agent }) => {
+    owner = agent
+    const cwd = await realpath(agent.session.header.cwd), sourceDirectory = join(cwd, '.muse', 'video-source-fixture')
+    await mkdir(sourceDirectory, { recursive: true })
+    const path = join(sourceDirectory, 'manuscript-source.mp4'), transcript = join(sourceDirectory, 'manuscript-asr.json')
+    await writeFile(path, 'Deterministic source identity; the material reader does not invoke a decoder.\n')
+    const text = JSON.stringify([{ start: 0, end: 1, text: '我不会走。', speaker_id: '1' },
+      { start: 1, end: 2, text: '你必须留下。', speaker_id: '2' }])
+    await writeFile(transcript, text)
+    const image = await ctx.attachments.saveImage({ mediaType: 'image/png',
+      data: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgZGIGAAAOAAeCcsnOAAAAAElFTkSuQmCC', 'base64') })
+    agent.session.append('video/review', { kind: 'start', review: { id: video.VideoReviewId('manuscript-source-review'),
+      episode: '第1集', path, source_version: 'snapshot-manuscript-source.mp4', duration: 2, scanned_until: 2, scan_complete: true,
+      transcript_reference: { path: transcript, version: 'snapshot-manuscript-asr.json',
+        sha256: createHash('sha256').update(text).digest('hex') },
+      frames: [{ id: 'F00001', time: 0, reasons: ['opening'], image, exposed: true,
+        observation: { visible: '测试用单像素图像只用于核对缓存图片回灌通路。', change: '没有人物动作语义结论。', uncertainty: '' } }],
+    } })
+  })
   ctx.effect(() => {
     const original = globalThis.fetch
     globalThis.fetch = async () => { throw Error('Manuscript snapshot refuses network access') }
@@ -44,6 +77,15 @@ export async function apply(ctx) {
     assert.ok(delivered, 'Successful present must snapshot the actual protected candidate')
     assert.equal(delivered.sha256, hash(await readFile(delivered.path)))
     const events = owner.session.snapshotEvents()
+    const sourceNotices = owner.session.deriveMessages().filter(message => message.role === 'user'
+      && message.source.kind === 'muse-manuscript' && message.content.some(block => block.type === 'text'
+        && block.text.startsWith('{"manuscript_video_evidence":')))
+    assert.ok(sourceNotices.length >= 2, 'Actual changed manuscript versions return source materials into logged model context')
+    const firstSource = JSON.parse(sourceNotices[0].content.find(block => block.type === 'text').text).manuscript_video_evidence
+    assert.equal(firstSource.semantic_assessment, 'not_performed')
+    assert.equal(firstSource.scenes[0].speech.segments[0].text, '我不会走。')
+    assert.ok(sourceNotices[0].content.some(block => block.type === 'image'), 'The source return carries the cached image block')
+    assert.equal(firstSource.image_delivery, 'cached_blocks_returned_not_admission_or_understanding')
     for (const id of ['call_work_bind', 'call_work_scene', 'call_work_audit']) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
       assert.equal(result?.data.message.isError, false)
@@ -111,7 +153,8 @@ export async function apply(ctx) {
       correctedDeliveryAccepted: true, userReturnedFilePreserved: true, privateLedgerVerified: true,
       restartVerifiedByThisScenario: false, shellWriteReconciled: true, duplicateHeadingAdvisoryVisible: true,
       guidanceWriteAccepted: true, guidanceReadAttributed: true, guidanceUnsourcedCandidateVisible: true,
-      guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true }
+      guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true,
+      savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.
@@ -120,6 +163,7 @@ export async function apply(ctx) {
     await rename(ledgerDirectory, join(destination, 'manuscript-revisions'))
     const workDirectory = join(cwd, '.muse', 'manuscript-work')
     await rename(workDirectory, join(destination, 'manuscript-work'))
+    await rm(join(cwd, '.muse', 'video-source-fixture'), { recursive: true })
     assert.equal(hash(await readFile(join(destination, 'manuscript-revisions', 'ledger.json'))), hash(ledgerBytes))
     await rmdir(join(cwd, '.muse'))
   })

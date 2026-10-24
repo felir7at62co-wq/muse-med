@@ -15,5 +15,7 @@
   "guidanceReadAttributed": true,
   "guidanceUnsourcedCandidateVisible": true,
   "guidanceDidNotBlockDelivery": true,
-  "mixedActionDialogueCandidateVisible": true
+  "mixedActionDialogueCandidateVisible": true,
+  "savedDraftSourceMaterialsLogged": true,
+  "cachedSourceImageReturned": true
 }

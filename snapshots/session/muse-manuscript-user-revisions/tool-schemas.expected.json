@@ -718,6 +718,188 @@
       }
     },
     {
+      "name": "video_inspect",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "当前集实际完整视频路径。"
+          },
+          "episode": {
+            "type": "string",
+            "description": "首次scan时标记集号；省略则使用实际视频路径。"
+          },
+          "method": {
+            "type": "string",
+            "description": "默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；timeline按时间并列画面记录、事件笔记与ASR；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。",
+            "enum": [
+              "scan",
+              "next",
+              "revisit",
+              "observe",
+              "events",
+              "status",
+              "metadata",
+              "timeline",
+              "compare"
+            ]
+          },
+          "timeline_start_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+          },
+          "timeline_end_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+          },
+          "frame_ids": {
+            "type": "array",
+            "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "draft_path": {
+            "type": "string",
+            "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+          },
+          "transcript_path": {
+            "type": "string",
+            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。任何method均可附带。"
+          },
+          "event_groups": {
+            "type": "array",
+            "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "frame_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "uncertainty": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "frame_ids",
+                "actor",
+                "action",
+                "object",
+                "before",
+                "after",
+                "uncertainty"
+              ]
+            }
+          },
+          "observations": {
+            "type": "array",
+            "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frame_id": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "string",
+                  "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                },
+                "change": {
+                  "type": "string",
+                  "description": "与邻近画面的变化；无变化也需据实说明。"
+                },
+                "uncertainty": {
+                  "type": "string",
+                  "description": "无法确定的内容；无疑点填空字符串，不猜测。"
+                }
+              },
+              "required": [
+                "frame_id",
+                "visible",
+                "change",
+                "uncertainty"
+              ]
+            }
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "video_ocr",
+      "description": "Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local video path in the current Session filesystem."
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Inclusive source range start; default 0."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+          },
+          "frame_interval_seconds": {
+            "type": "number",
+            "description": "OCR sample spacing; default 0.5s."
+          },
+          "language": {
+            "type": "string",
+            "description": "OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+            "enum": [
+              "auto",
+              "zh-Hans-CN",
+              "zh-Hant-TW",
+              "en-US"
+            ]
+          },
+          "raw_json_path": {
+            "type": "string",
+            "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+          },
+          "merged_text_path": {
+            "type": "string",
+            "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
       "name": "web_fetch",
       "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
       "parameters": {
