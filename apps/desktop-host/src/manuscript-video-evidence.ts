@@ -1,6 +1,7 @@
 /** Version-bound local source materials for saved episode drafts; no semantic verdict or delivery control. */
 import { realpath, stat } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
+import { diffLines } from 'diff'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ImageBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
@@ -9,12 +10,13 @@ import { z } from 'zod'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
-import { manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
+import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptVideoPacketContent, planManuscriptVideoPackets,
   type ManuscriptPacketPlan } from './manuscript-video-packets.ts'
 
 const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
-  action: z.string().optional(), candidate_paths: z.array(z.string()).optional() })
+  action: z.string().optional(), task_key: z.string().optional(), source_paths: z.array(z.string()).optional(),
+  candidate_paths: z.array(z.string()).optional() })
 type CallArguments = z.infer<typeof callArguments>
 type DeclaredOutputs = ReturnType<typeof manuscriptDeclaredOutputs>
 interface MessageMaterialCache {
@@ -30,6 +32,7 @@ const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_
   presentation_version: z.string().optional(),
   source_material_sha256: z.string(),
   source_identity_sha256: z.string().optional(),
+  read_source_identity_sha256: z.string().optional(),
   returned_frames: z.array(z.object({ review_id: z.string(), frame_id: z.string() })),
   scene_versions: z.array(z.object({ id: z.string(), sha256: z.string() })) })
 type Receipt = z.infer<typeof receiptSchema> & { offloaded_frames?: string[] }
@@ -64,9 +67,10 @@ function declaredOutputs(message: Message, cwd: string, cache: MaterialCache): D
   return entry.declarations
 }
 
-function registeredPaths(messages: readonly Message[], cwd: string, cache: MaterialCache): { paths: string[]; explicitlyBound: boolean } {
+function registeredPaths(messages: readonly Message[], cwd: string, cache: MaterialCache) {
   const calls = new Map<string, ToolCallBlock>(), paths = new Set<string>()
   let bound: string[] | undefined
+  let sourceBinding: { task_key: string | undefined; paths: string[] } | undefined
   for (const message of messages) {
     if (message.role === 'assistant') for (const block of message.content) {
       if (block.type === 'tool-call') calls.set(block.id, block)
@@ -78,13 +82,14 @@ function registeredPaths(messages: readonly Message[], cwd: string, cache: Mater
     if (args === undefined) continue
     if (call.name === 'manuscript_work' && args.action === 'bind') {
       bound = args.candidate_paths?.filter(isManuscript).map(path => resolve(cwd, path))
+      sourceBinding = { task_key: args.task_key, paths: (args.source_paths ?? []).map(path => resolve(cwd, path)) }
     }
     const selected = call.name === 'manuscript_work' && args.action === 'bind' ? args.candidate_paths ?? []
       : call.name === 'video_inspect' ? args.draft_path === undefined ? [] : [args.draft_path]
         : args.file_path === undefined ? [] : [args.file_path]
     for (const path of selected) if (isManuscript(path)) paths.add(resolve(cwd, path))
   }
-  return { paths: bound ?? [...paths], explicitlyBound: bound !== undefined }
+  return { paths: bound ?? [...paths], explicitlyBound: bound !== undefined, sourceBinding }
 }
 
 function receipts(messages: readonly Message[], cache: MaterialCache): Receipt[] {
@@ -184,6 +189,107 @@ export function manuscriptEpisodeNumber(value: string): string | undefined {
 
 function normalizedSpeech(value: string): string { return value.replace(/[^\p{L}\p{N}]/gu, '') }
 
+function episodeReadLines(text: string, episode: string) {
+  const lines = text.split('\n'), selected = new Set<number>()
+  for (const scene of manuscriptScenes(text)) {
+    if (manuscriptEpisodeNumber(scene.episode) !== episode) continue
+    const prefixLines = scene.prefix.split('\n').length - 1
+    for (let line = scene.startLine - prefixLines; line <= scene.endLine; line++) selected.add(line)
+  }
+  return [...selected].sort((left, right) => left - right).map(number => ({ number, text: lines[number - 1] ?? '' }))
+}
+
+function sourceLineChanges(before: ReturnType<typeof episodeReadLines>, after: ReturnType<typeof episodeReadLines>, maxEditLength: number) {
+  const parts = diffLines(before.map(line => line.text).join('\n'), after.map(line => line.text).join('\n'), { maxEditLength })
+  if (parts === undefined) return undefined
+  const changes: { kind: string; before: typeof before; after: typeof after }[] = []
+  let oldLine = 0, newLine = 0, pending: typeof changes[number] | undefined
+  const flush = () => {
+    if (pending === undefined) return
+    pending.kind = pending.before.length === 0 ? 'insert' : pending.after.length === 0 ? 'delete' : 'replace'
+    changes.push(pending)
+    pending = undefined
+  }
+  for (const part of parts) {
+    if (!part.added && !part.removed) { flush(); oldLine += part.count; newLine += part.count; continue }
+    pending ??= { kind: '', before: [], after: [] }
+    if (part.removed) { pending.before.push(...before.slice(oldLine, oldLine + part.count)); oldLine += part.count }
+    else { pending.after.push(...after.slice(newLine, newLine + part.count)); newLine += part.count }
+  }
+  flush()
+  return changes
+}
+
+async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited<ReturnType<typeof readManuscript>>,
+  scenes: readonly ManuscriptScene[], binding: ReturnType<typeof registeredPaths>['sourceBinding'], config: Config, signal: AbortSignal) {
+  const snapshots = manuscriptTextReadSnapshots(ctx, agent.session), cwd = agent.session.header.cwd ?? ''
+  const episodes = [...new Set(scenes.flatMap((scene) => {
+    const episode = manuscriptEpisodeNumber(scene.episode)
+    return episode === undefined ? [] : [episode]
+  }))]
+  const reports = []
+  const identityPath = (path: string) => relative(cwd, path).split(sep).join('/')
+  for (const episode of episodes) {
+    const sameEpisodeReads = (snapshots?.reads ?? []).filter(read => resolve(cwd, read.path) !== document.path
+      && read.episodeLabels.some(label => manuscriptEpisodeNumber(label) === episode))
+    const sameEpisode = [...new Set(sameEpisodeReads.map(read => read.path))].flatMap((path) => {
+      const reads = sameEpisodeReads.filter(read => read.path === path)
+      const selected = reads.find(read => read.status === 'complete') ?? reads.at(-1)
+      return selected === undefined ? [] : [selected]
+    })
+    const boundTextPaths = (binding?.paths ?? []).filter(path => /\.(?:md|txt)$/iu.test(path))
+    const explicitlyBound = sameEpisode.filter(read => boundTextPaths.includes(resolve(cwd, read.path)))
+    const preferred = boundTextPaths.length ? explicitlyBound : sameEpisode
+    const candidates = await Promise.all(preferred.map(async (read) => {
+      let current: Awaited<ReturnType<typeof readManuscript>> | undefined, reason: string | undefined
+      try { current = await readManuscript(read.path, cwd, config, signal) }
+      catch (error) { signal.throwIfAborted(); reason = error instanceof Error ? error.message : String(error) }
+      const currentReadHash = current === undefined ? undefined : manuscriptTextHash(manuscriptReadText(current.text))
+      const status = read.status !== 'complete' ? read.status : current === undefined ? 'source_unavailable'
+        : currentReadHash !== read.readTextSha256 ? 'current_source_changed' : 'current'
+      return { path: read.path, read_call_id: read.readCallId, read_result_seq: read.readResultSeq,
+        read_text_sha256: read.readTextSha256, read_window_sha256: read.readWindowSha256,
+        read_scope: { status: read.status, offset: read.offset, returned_lines: read.returnedLines, total_lines: read.totalLines },
+        current_status: status, current_source_file_sha256: current?.sha256, current_read_text_sha256: currentReadHash,
+        read_diagnostics: sameEpisodeReads.filter(other => other.path === read.path && other !== read).map(other => ({
+          read_call_id: other.readCallId, read_result_seq: other.readResultSeq, read_window_sha256: other.readWindowSha256,
+          status: other.status, offset: other.offset, returned_lines: other.returnedLines, total_lines: other.totalLines })),
+        ...reason === undefined ? {} : { reason }, snapshot: read }
+    }))
+    const valid = candidates.filter(candidate => candidate.current_status === 'current')
+    const selected = valid.length === 1 && candidates.length === 1 ? valid[0] : undefined
+    const before = selected?.snapshot.text === undefined ? [] : episodeReadLines(selected.snapshot.text, episode)
+    const after = episodeReadLines(manuscriptReadText(document.text), episode)
+    const changes = selected === undefined || before.length > config.maxParagraphs || after.length > config.maxParagraphs
+      ? undefined : sourceLineChanges(before, after, config.maxEditLength)
+    reports.push({ episode, relationship: boundTextPaths.length ? 'explicit_work_source_path' : 'current_task_read_source_candidate',
+      adopted_authorization: 'not_inferred', source_truth: 'read_text_not_verified_video_facts',
+      status: selected !== undefined ? changes === undefined ? 'diff_budget_exceeded' : 'compared'
+        : candidates.length > 1 ? 'ambiguous' : candidates[0]?.current_status ?? 'no_matching_read_snapshot',
+      candidates: candidates.map(({ snapshot: _snapshot, ...candidate }) => candidate),
+      bound_text_paths_without_matching_snapshot: (binding?.paths ?? []).filter(path => /\.(?:md|txt)$/iu.test(path)
+        && !(snapshots?.reads ?? []).some(read => resolve(cwd, read.path) === path
+          && read.episodeLabels.some(label => manuscriptEpisodeNumber(label) === episode))),
+      omitted_read_snapshots: snapshots?.omitted ?? 0,
+      current_document: { path: document.path, file_sha256: document.sha256 },
+      normalization: 'native_read_line_text_crlf_normalized_final_newline_omitted_not_file_bytes',
+      ...selected === undefined ? {} : { comparison_source: { path: selected.path,
+        read_text_sha256: selected.read_text_sha256, read_call_id: selected.read_call_id, read_result_seq: selected.read_result_seq,
+        source_line_numbers: before.map(line => line.number) } },
+      hunks: changes ?? [], semantic_assessment: 'not_performed' })
+  }
+  const identity = { binding: binding === undefined ? null : { task_key: binding.task_key, paths: binding.paths.map(identityPath) },
+    reports: reports.map(report => ({ episode: report.episode, relationship: report.relationship, status: report.status,
+      omitted_read_snapshots: report.omitted_read_snapshots,
+      bound_text_paths_without_matching_snapshot: report.bound_text_paths_without_matching_snapshot.map(identityPath),
+      candidates: report.candidates.map(candidate => ({ path: identityPath(candidate.path),
+        read_text_sha256: candidate.read_text_sha256, read_window_sha256: candidate.read_window_sha256,
+        read_scope: candidate.read_scope, current_status: candidate.current_status,
+        current_source_file_sha256: candidate.current_source_file_sha256,
+        current_read_text_sha256: candidate.current_read_text_sha256 })) })) }
+  return { reports, identity: manuscriptTextHash(JSON.stringify(identity)) }
+}
+
 function sceneSpeech(scene: ManuscriptScene) {
   return scene.text.split('\n').flatMap((quote, offset) => {
     if (/^\s*[▲△]/u.test(quote)) return []
@@ -268,13 +374,13 @@ export function manuscriptSourceWindows(scene: ManuscriptScene, timeline: VideoS
     repeated_source_text_segment_ids: repeated.map(segment => segment.segment_id),
     notice: '正文行号与ASR字面对应仅为定位候选；短句、语气词及重复台词保留全部命中，不作精确场景对齐或角色识别。'
       + '保留锚之间的连续画面和前后时间窗，包含无对白段；同一ASR原段对应两行标为within_same_speech，行间不制造动作空隙。'
-      + '▲和括注原句对应时间候选，不把旧看图笔记当事实；无ASR锚时仅列全片索引，不自动重显图片或假称局部对齐。未自动判断动作遗漏、衔接或剧情通过。' }
+      + '▲和括注原句对应时间候选，不把旧看图笔记当事实；无ASR锚仍保持未对齐，来源时间包不声称与正文对应。未自动判断动作遗漏、衔接或剧情通过。' }
 }
 
 /**
  * Return the bounded temporal packet identities selected for one saved scene.
  * @param scene - Exact saved scene supplying its identity and current lines.
- * @param location - Literal manuscript/ASR time candidates; unaligned scenes provide no automatic images.
+ * @param location - Literal manuscript/ASR candidates and the independent source-change timeline.
  * @param count - Available shared image allowance.
  * @param excluded - Identities already returned from this review revision.
  * @returns Cached frame ids; selection does not verify actions or model understanding.
@@ -318,7 +424,6 @@ export class ManuscriptVideoEvidence {
     const cwd = agent.session.header.cwd
     if (!cwd || ctx.get('sessionProjections') === undefined) return []
     const sources = videoReviewSummaries(ctx, agent.session)
-    if (!sources.length) return []
     const llm = ctx.get('llm'), provider = agent.options.provider, model = agent.options.model
     const modelInfo = llm === undefined || provider === undefined || model === undefined ? undefined
       : await llm.resolveModelInfo(provider, model, signal)
@@ -336,6 +441,8 @@ export class ManuscriptVideoEvidence {
     const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache)
     const transcriptCandidates = manuscriptVideoReadCandidates(ctx, agent.session)
     const registered = registeredPaths(outputBoundary < 0 ? messages : messages.slice(outputBoundary), cwd, cache)
+    if (!sources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length
+      && registered.sourceBinding === undefined) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
     const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
     if (offloaded.length) {
@@ -381,6 +488,7 @@ export class ManuscriptVideoEvidence {
       }
       const scenes = manuscriptScenes(document.text)
       if (scenes.every(scene => scene.episode === 'unassigned')) continue
+      const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, registered.sourceBinding, this.config, signal)
       const episodeLabels = new Set(scenes.map(scene => manuscriptEpisodeNumber(scene.episode)).filter(label => label !== undefined))
       const currentSources = sources.filter(source => sourceScope.paths.has(source.path))
       const singleCurrent = episodeLabels.size === 1 && sourceScope.paths.size === 1 && currentSources.length === 1
@@ -413,17 +521,18 @@ export class ManuscriptVideoEvidence {
           },
         })) })),
         sources: materials.map(([id, timeline]) => ({ id, digest: timeline.material_sha256 })) }))
-      const sourceIdentityHash = manuscriptTextHash(JSON.stringify(matching.map(entry => ({ scene: entry.scene.id,
-        sources: entry.sources.map((source) => {
-          const timeline = timelines.get(source.review_id)
-          const reference = timeline?.speech?.source ?? timeline?.speech_unavailable?.reference ?? source.transcript_reference
-          return { review_id: source.review_id, path: identityPath(source.path), source_version: source.source_version,
-            observation_state: timeline?.source.scan_complete && timeline.windows.every(window => window.frames
-              .every(frame => frame.exposed && frame.observation_source === 'model_authored_observation')) ? 'complete' : 'pending',
-            speech_available: timeline?.speech !== undefined,
-            ...reference === undefined ? {} : { transcript: { path: identityPath(reference.path),
-              version: reference.version, sha256: reference.sha256 } } }
-        }) }))))
+      const sourceIdentityHash = manuscriptTextHash(JSON.stringify({ read_source: readRevisions.identity,
+        video_sources: matching.map(entry => ({ scene: entry.scene.id,
+          sources: entry.sources.map((source) => {
+            const timeline = timelines.get(source.review_id)
+            const reference = timeline?.speech?.source ?? timeline?.speech_unavailable?.reference ?? source.transcript_reference
+            return { review_id: source.review_id, path: identityPath(source.path), source_version: source.source_version,
+              observation_state: timeline?.source.scan_complete && timeline.windows.every(window => window.frames
+                .every(frame => frame.exposed && frame.observation_source === 'model_authored_observation')) ? 'complete' : 'pending',
+              speech_available: timeline?.speech !== undefined,
+              ...reference === undefined ? {} : { transcript: { path: identityPath(reference.path),
+                version: reference.version, sha256: reference.sha256 } } }
+          }) })) }))
       const evidenceKey = manuscriptTextHash(JSON.stringify({
         path: identityPath(document.path), sha256: document.sha256, sourceIdentityHash,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
@@ -449,6 +558,7 @@ export class ManuscriptVideoEvidence {
       const selected = changed.slice(0, this.config.videoEvidenceMaxScenes)
       if (!selected.length) continue
       const reports = []
+      const returnedReadEpisodes = new Set<string>()
       const packetSources = new Map<string, {
         timeline: VideoSourceTimeline
         plans: ManuscriptPacketPlan[]
@@ -458,10 +568,15 @@ export class ManuscriptVideoEvidence {
       for (const entry of selected) {
         const index = scenes.indexOf(entry.scene)
         const manuscript = { current: entry.scene, previous: scenes[index - 1] ?? null, next: scenes[index + 1] ?? null }
+        const episode = manuscriptEpisodeNumber(entry.scene.episode)
+        const readRevision = episode === undefined ? undefined : readRevisions.reports.find(report => report.episode === episode)
+        const readMaterial = episode === undefined || returnedReadEpisodes.has(episode) ? { read_source_revision_ref: episode }
+          : { read_source_revision: readRevision }
+        if (episode !== undefined) returnedReadEpisodes.add(episode)
         const source = entry.sources.length === 1 ? entry.sources[0] : undefined
         const timeline = entry.timeline
         if (source === undefined || timeline === undefined) {
-          reports.push({ manuscript, source_alignment: entry.sources.length ? 'ambiguous_episode_sources'
+          reports.push({ manuscript, ...readMaterial, source_alignment: entry.sources.length ? 'ambiguous_episode_sources'
             : sourceScope.requireCurrentSource ? 'no_current_task_video_source' : 'no_matching_episode_source',
           source_candidates: entry.sources.length ? entry.sources : sources, semantic_assessment: 'not_performed' })
           continue
@@ -497,12 +612,13 @@ export class ManuscriptVideoEvidence {
         const actualFrames = frameIds.filter(id => packetSource.images.has(id))
         returnedFrames.push(...actualFrames.map(frame_id => ({ review_id: source.review_id, frame_id })))
         const availableFrames = location.windows.flatMap(window => window.frames).filter(frame => frame.image_available)
-        reports.push({ manuscript, source_alignment: location.basis,
+        const sourceFirst = plan.selected.some(packet => packet.origin === 'source_timeline')
+        reports.push({ manuscript, ...readMaterial, source_alignment: location.basis,
           source_association: entry.singleCurrentCandidate ? 'single_current_task_video_candidate'
             : sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
           source: timeline.source, source_material_sha256: timeline.material_sha256,
-          source_packet_review_id: source.review_id, automatic_images: location.automatic_images,
-          image_selection_scope: location.image_selection_scope,
+          source_packet_review_id: source.review_id, automatic_images: sourceFirst ? 'bounded_source_timeline_samples' : location.automatic_images,
+          image_selection_scope: sourceFirst ? 'source_timeline_samples_not_draft_alignment' : location.image_selection_scope,
           transcript_resolution: timeline.transcript_resolution,
           speech_unavailable: timeline.speech_unavailable,
           images: { returned_frame_ids: actualFrames, returned: actualFrames.length,
@@ -514,6 +630,7 @@ export class ManuscriptVideoEvidence {
       }
       const receipt: Receipt = { path: document.path, sha256: document.sha256, evidence_key: evidenceKey,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
+        read_source_identity_sha256: readRevisions.identity,
         source_material_sha256: sourceMaterialHash, source_identity_sha256: sourceIdentityHash, returned_frames: returnedFrames,
         scene_versions: [...deliveredScenes.filter(old => !selected.some(entry => entry.scene.id === old.id)),
           ...selected.map(entry => ({ id: entry.scene.id, sha256: entry.scene.sha256 }))] }
@@ -543,6 +660,10 @@ export class ManuscriptVideoEvidence {
       }
       const current = await readManuscript(path, cwd, this.config, signal)
       if (current.sha256 !== document.sha256) throw Error('MANUSCRIPT_VIDEO_DRAFT_CHANGED: 文稿在局部证据读取期间变化，请以新版本为准。')
+      const currentReadRevisions = await readSourceRevisions(ctx, agent, current, scenes, registered.sourceBinding, this.config, signal)
+      if (currentReadRevisions.identity !== readRevisions.identity) {
+        throw Error('MANUSCRIPT_READ_SOURCE_CHANGED: 来源在原句差异读取期间变化，未返回过期对照或标记完成。')
+      }
       output.push(...content)
     }
     return output

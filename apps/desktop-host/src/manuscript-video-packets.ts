@@ -4,7 +4,7 @@ import type { VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import type { ManuscriptScene } from './manuscript-scenes.ts'
 
 /** Presentation identity; older saved receipts remain readable without suppressing this representation. */
-export const MANUSCRIPT_VIDEO_PRESENTATION = 'line-temporal-packets-v1'
+export const MANUSCRIPT_VIDEO_PRESENTATION = 'source-and-line-temporal-packets-v2'
 type Frame = VideoSourceTimeline['windows'][number]['frames'][number]
 type Segment = NonNullable<VideoSourceTimeline['speech']>['segments'][number]
 interface TimeCandidate { start_seconds: number; end_seconds: number; relation: string; segment_ids: readonly string[] }
@@ -15,7 +15,13 @@ export interface ManuscriptSourceLocation {
   line_candidates: readonly {
     line: number
     quote: string
-    candidates: readonly { segment_id: string; start_seconds: number; end_seconds: number; literal_match: string }[]
+    candidates: readonly {
+      segment_id: string
+      start_seconds: number
+      end_seconds: number
+      literal_match: string
+      matched_characters?: number
+    }[]
   }[]
   between_dialogue_lines: readonly {
     previous_line?: number | undefined
@@ -32,7 +38,10 @@ export interface ManuscriptSourceLocation {
 /** One literal manuscript range and a bounded temporal image sample, never an action verdict. */
 export interface ManuscriptFramePacket {
   scene_id: string
+  origin?: 'draft_candidates' | 'source_timeline'
   lines: { line: number; quote: string; kind: string }[]
+  sampling_lines?: { line: number; quote: string; kind: string }[]
+  literal_selection?: { preferred: boolean; tier: number; matched_characters: number }
   interval: TimeCandidate
   ambiguous: boolean
   selection_anchor?: { frame_id: string; time: number }
@@ -59,8 +68,47 @@ function sourceFrames(windows: VideoSourceTimeline['windows']): Frame[] {
 }
 
 function packetIdentity(packet: ManuscriptFramePacket): string {
-  return JSON.stringify([packet.scene_id, packet.interval.start_seconds, packet.interval.end_seconds,
+  return JSON.stringify([packet.scene_id, packet.origin ?? 'draft_candidates', packet.interval.start_seconds, packet.interval.end_seconds,
     packet.interval.relation, [...packet.interval.segment_ids].sort()])
+}
+
+function originalChange(frame: Frame): boolean {
+  return frame.reasons.some(reason => reason === 'cut' || reason === 'appearance_or_continuity')
+}
+
+function literalTier(value: string): number {
+  return value === 'exact' ? 0 : value === 'source_contains_draft' ? 1 : value === 'draft_contains_source' ? 2 : 3
+}
+
+function querySelection(query: ManuscriptSourceLocation['visual_queries'][number], interval: TimeCandidate,
+  location: ManuscriptSourceLocation): NonNullable<ManuscriptFramePacket['literal_selection']> {
+  const own = location.line_candidates.find(line => line.line === query.line)
+  const relevant = own === undefined ? [
+    { line: location.line_candidates.findLast(line => line.line < query.line), endpoint: 'previous' },
+    { line: location.line_candidates.find(line => line.line > query.line), endpoint: 'next' },
+  ].filter(entry => entry.line !== undefined) : [{ line: own, endpoint: 'own' }]
+  const supports = relevant.flatMap(({ line, endpoint }) => {
+    if (line === undefined) return []
+    const matches = line.candidates.filter((candidate) => {
+      if (!interval.segment_ids.includes(candidate.segment_id)) return false
+      if (interval.relation === 'within_same_speech' || interval.relation === 'within_speech_candidate') {
+        return candidate.start_seconds === interval.start_seconds && candidate.end_seconds === interval.end_seconds
+      }
+      if (interval.relation === 'between_speech_candidates_not_an_event') return endpoint === 'previous'
+        ? candidate.end_seconds === interval.start_seconds : endpoint === 'next' && candidate.start_seconds === interval.end_seconds
+      if (interval.relation === 'before_speech_candidate') return endpoint === 'next' && candidate.start_seconds === interval.end_seconds
+      if (interval.relation === 'after_speech_candidate') return endpoint === 'previous' && candidate.end_seconds === interval.start_seconds
+      return false
+    })
+    const bestTier = Math.min(...line.candidates.map(candidate => literalTier(candidate.literal_match)))
+    const selectedTier = Math.min(...matches.map(candidate => literalTier(candidate.literal_match)))
+    return [{ preferred: matches.length > 0 && selectedTier === bestTier,
+      tier: Number.isFinite(selectedTier) ? selectedTier : 3,
+      matched_characters: Math.max(0, ...matches.map(candidate => candidate.matched_characters ?? 0)) }]
+  })
+  return { preferred: supports.length > 0 && supports.every(support => support.preferred),
+    tier: supports.length ? Math.max(...supports.map(support => support.tier)) : 3,
+    matched_characters: supports.length ? Math.min(...supports.map(support => support.matched_characters)) : 0 }
 }
 
 function temporalSample(packet: ManuscriptFramePacket, frames: readonly Frame[], count: number, tolerance: number): ManuscriptFramePacket {
@@ -71,6 +119,8 @@ function temporalSample(packet: ManuscriptFramePacket, frames: readonly Frame[],
   const contextTargets = new Set(eligible.flatMap(frame => frame.reasons.flatMap(reason =>
     reason.startsWith('context_for:') ? [reason.slice('context_for:'.length)] : [])))
   const anchor = [...interior.length ? interior : eligible].sort((left, right) => {
+    if (packet.origin === 'source_timeline') return Number(originalChange(right)) - Number(originalChange(left))
+      || Math.abs(left.time - center) - Math.abs(right.time - center) || left.time - right.time
     const tier = (frame: Frame) => contextTargets.has(frame.frame_id) ? 0 : frame.reasons.includes('cut') ? 1 : 2
     return tier(left) - tier(right) || Math.abs(left.time - center) - Math.abs(right.time - center)
       || left.time - right.time || left.frame_id.localeCompare(right.frame_id)
@@ -92,7 +142,7 @@ function temporalSample(packet: ManuscriptFramePacket, frames: readonly Frame[],
 }
 
 /**
- * Select local temporal pairs or triplets without using model-authored captions as facts or ranking signals.
+ * Select source-led and literal-line temporal samples without treating model-authored captions as facts.
  * @param scene - Exact saved manuscript scene and its actual line numbers.
  * @param location - All literal ASR candidates, including repeated and shared original segments.
  * @param count - Remaining image allowance, resolved from the shared Host configuration.
@@ -111,7 +161,7 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     const key = JSON.stringify([interval.start_seconds, interval.end_seconds, interval.relation, [...interval.segment_ids].sort()])
     let packet = byRange.get(key)
     if (packet === undefined) {
-      packet = { scene_id: scene.id, lines: [], interval, ambiguous: false, images: [],
+      packet = { scene_id: scene.id, origin: 'draft_candidates', lines: [], sampling_lines: [], interval, ambiguous: false, images: [],
         eligible_cache_frames: 0, selection_basis: 'not_selected' }
       candidates.push(packet)
       byRange.set(key, packet)
@@ -119,16 +169,39 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     if (!packet.lines.some(line => line.line === query.line && line.quote === query.quote)) {
       packet.lines.push({ line: query.line, quote: query.quote, kind: query.kind })
     }
+    const selection = querySelection(query, interval, location)
+    if (selection.preferred) packet.sampling_lines?.push({ line: query.line, quote: query.quote, kind: query.kind })
+    if (packet.literal_selection === undefined || Number(selection.preferred) > Number(packet.literal_selection.preferred)
+      || selection.preferred === packet.literal_selection.preferred && (selection.tier < packet.literal_selection.tier
+        || selection.tier === packet.literal_selection.tier
+          && selection.matched_characters > packet.literal_selection.matched_characters)) packet.literal_selection = selection
     packet.ambiguous ||= query.time_candidates.length > 1
   }
   const hasOriginalChange = (packet: ManuscriptFramePacket) => frames.some(frame => inRange(frame.time, packet.interval, 0)
-    && frame.reasons.some(reason => reason === 'cut' || reason === 'appearance_or_continuity'))
+    && originalChange(frame))
   const ranked = candidates.filter(packet => frames.some(frame => frame.image_available && frame.observation_source === 'model_authored_observation'
     && inRange(frame.time, packet.interval, location.window_seconds))).sort((left, right) =>
-    Number(hasOriginalChange(right)) - Number(hasOriginalChange(left))
+    Number(right.literal_selection?.preferred) - Number(left.literal_selection?.preferred)
+    || (left.literal_selection?.tier ?? 3) - (right.literal_selection?.tier ?? 3)
+    || (right.literal_selection?.matched_characters ?? 0) - (left.literal_selection?.matched_characters ?? 0)
+    || Number(hasOriginalChange(right)) - Number(hasOriginalChange(left))
     || (left.interval.end_seconds - left.interval.start_seconds) - (right.interval.end_seconds - right.interval.start_seconds)
     || (left.lines[0]?.line ?? 0) - (right.lines[0]?.line ?? 0))
-  const groups = ranked.slice(0, Math.min(ranked.length, count < 2 ? count : Math.floor(count / 2)))
+  const sourceCandidates = location.windows.filter(window => window.frames.some(frame => !excluded.has(frame.frame_id)
+    && frame.image_available && frame.observation_source === 'model_authored_observation' && originalChange(frame)))
+    .map((window): ManuscriptFramePacket => ({ scene_id: scene.id, origin: 'source_timeline', lines: [],
+      interval: { start_seconds: window.start_seconds, end_seconds: window.end_seconds,
+        relation: 'source_window_not_draft_alignment', segment_ids: window.speech_segment_ids }, ambiguous: false,
+      images: [], eligible_cache_frames: 0, selection_basis: 'not_selected' }))
+  const uncoveredChanges = (packet: ManuscriptFramePacket) => frames.filter(frame => originalChange(frame)
+    && inRange(frame.time, packet.interval, 0) && !ranked.some(current => current.literal_selection?.preferred
+      && inRange(frame.time, current.interval, 0))).length
+  sourceCandidates.sort((left, right) => uncoveredChanges(right) - uncoveredChanges(left)
+    || left.interval.start_seconds - right.interval.start_seconds)
+  const source = sourceCandidates[0], current = ranked[0]
+  const groups = count <= 0 ? [] : count === 1 ? [source ?? current].filter(packet => packet !== undefined)
+    : [source, current].filter(packet => packet !== undefined)
+  candidates.push(...sourceCandidates)
   let remaining = count
   const selectedFrames = new Set<string>()
   const selected = groups.map((packet, index) => {
@@ -163,6 +236,9 @@ export function manuscriptVideoPacketContent(input: {
 }): ContentBlock[] {
   const { timeline, plans, images } = input, frames = sourceFrames(timeline.windows)
   const source = timeline.source, qualified = (id: string) => `${source.review_id}/${id}`
+  const changes = frames.filter(originalChange)
+  const eventNotes = [...new Map(timeline.windows.flatMap(window => window.event_notes)
+    .map(event => [event.event_id, event])).values()]
   const speech = new Map((timeline.speech?.segments ?? []).map(segment => [segment.segment_id, segment]))
   const matchedIds = new Set(plans.flatMap(plan => plan.location.line_candidates.flatMap(line =>
     line.candidates.map(candidate => candidate.segment_id))))
@@ -170,7 +246,8 @@ export function manuscriptVideoPacketContent(input: {
   const selected = plans.flatMap(plan => plan.selected)
   const lineRefs = plans.flatMap(plan => plan.location.line_candidates.map(line => ({ scene_id: plan.scene.id,
     line: line.line, actual_quote: line.quote, candidate_segment_ids: [...new Set(line.candidates.map(candidate => candidate.segment_id))],
-    literal_matches: line.candidates.map(candidate => ({ segment_id: candidate.segment_id, match: candidate.literal_match })),
+    literal_matches: line.candidates.map(candidate => ({ segment_id: candidate.segment_id, match: candidate.literal_match,
+      matched_characters: candidate.matched_characters })),
     ambiguous_source_matches: line.candidates.length > 1 })))
   const content: ContentBlock[] = [{ type: 'text', text: JSON.stringify({ manuscript_video_source: {
     presentation_version: MANUSCRIPT_VIDEO_PRESENTATION, source, source_scope: timeline.scope,
@@ -184,8 +261,19 @@ export function manuscriptVideoPacketContent(input: {
         frame.observation_source === 'model_authored_observation']) },
     window_index: { columns: ['window_id', 'start', 'end', 'frame_count'],
       rows: timeline.windows.map(window => [window.window_id, window.start_seconds, window.end_seconds, window.frames.length]) },
+    source_change_timeline: { origin: 'original_detector_changes_independent_of_draft_lines',
+      meaning: 'sampling_anchors_not_complete_actions_or_story_scene_boundaries',
+      total_anchors: changes.length, omitted_for_budget: Math.max(0, changes.length - input.indexRows),
+      columns: ['frame_id', 'source_seconds', 'detector_reasons'],
+      rows: changes.slice(0, input.indexRows).map(frame => [frame.frame_id, frame.time, frame.reasons]),
+      interpretation_source: 'unverified_prior_model_observations',
+      recorded_interpretations: changes.slice(0, input.indexRows).flatMap(frame => frame.observation === undefined ? [] : [{
+        frame_id: frame.frame_id, source_seconds: frame.time, observation: frame.observation }]),
+      event_notes: input.indexRows > 0 ? eventNotes : [], event_notes_omitted: input.indexRows > 0 ? 0 : eventNotes.length },
     draft_speech_lines: lineRefs,
     original_asr_scope: { source_segments: speech.size, matched_segment_ids: [...matchedIds],
+      selected_source_window_segment_ids: [...new Set(selected.filter(packet => packet.origin === 'source_timeline')
+        .flatMap(packet => packet.interval.segment_ids))],
       matching: 'actual_source_segment_ids_not_text', speaker_identity: 'unverified' },
     continuous_speech_candidates: (timeline.speech?.continuous_speech_candidates ?? [])
       .filter(candidate => candidate.segment_ids.some(id => matchedIds.has(id)))
@@ -195,11 +283,12 @@ export function manuscriptVideoPacketContent(input: {
       previous_line: pair.previous_line, current_line: pair.current_line, relation: pair.relation,
       ambiguous_source_matches: pair.ambiguous_source_matches, shared_segment_ids: pair.shared_segment_ids }))),
     visual_candidates: plans.flatMap(plan => plan.candidates.map(packet => ({ scene_id: plan.scene.id,
+      origin: packet.origin ?? 'draft_candidates', literal_selection: packet.literal_selection,
       draft_lines: packet.lines.map(line => line.line), time_candidate: packet.interval, ambiguous: packet.ambiguous,
       selected_for_images: plan.selected.some(candidate => packetIdentity(candidate) === packetIdentity(packet)) }))),
     selected_packets: selected.length,
     unselected_packets: plans.reduce((total, plan) => total + plan.candidates.length - plan.selected.length, 0),
-    prior_model_captions: 'omitted_unverified_available_on_demand',
+    prior_model_captions: 'change_anchor_notes_unverified_full_notes_available_on_demand',
     scope: 'bounded_temporal_samples_not_all_actions_or_lines_verified',
   } }) }]
   for (const packet of selected) {
@@ -213,7 +302,9 @@ export function manuscriptVideoPacketContent(input: {
     })
     content.push({ type: 'text', text: JSON.stringify({ manuscript_source_packet: {
       review_id: source.review_id, source_version: source.source_version, document_sha256: input.documentSha256,
-      scene_id: packet.scene_id, scene_sha256: plan?.scene.sha256, actual_current_lines: packet.lines,
+      scene_id: packet.scene_id, scene_sha256: plan?.scene.sha256, origin: packet.origin ?? 'draft_candidates',
+      actual_current_lines: packet.origin === 'source_timeline' ? [] : packet.sampling_lines?.length ? packet.sampling_lines : packet.lines,
+      retained_literal_line_candidates: packet.lines, literal_selection: packet.literal_selection,
       time_candidate: packet.interval, source_time_ambiguous: packet.ambiguous,
       original_asr_first_occurrences: originals, asr_segment_refs: ids,
       selection_anchor: packet.selection_anchor, temporal_roles: 'source_time_only_not_verified_event_phases',

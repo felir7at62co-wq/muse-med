@@ -19,5 +19,7 @@
   "savedDraftSourceMaterialsLogged": true,
   "cachedSourceImageReturned": true,
   "successfulAsrReadCandidateUsed": true,
-  "explicitTranscriptReferenceRequired": false
+  "explicitTranscriptReferenceRequired": false,
+  "completeReadSourceDiffLogged": true,
+  "readSourceAdoptionNotInferred": true
 }

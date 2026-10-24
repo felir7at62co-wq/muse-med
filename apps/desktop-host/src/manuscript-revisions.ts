@@ -310,7 +310,7 @@ export function apply(ctx: Context, config: Config): void {
   const videoEvidence = new ManuscriptVideoEvidence(config)
   let videoSourceContext: Context | undefined
   ctx.inject(['fs', 'attachments', 'sandboxPolicy', 'sessionProjections'], (scope) => {
-    installManuscriptVideoReads(scope, (message, cwd) => manuscriptDeclaredOutputs([message], cwd).length > 0)
+    installManuscriptVideoReads(scope, (message, cwd) => manuscriptDeclaredOutputs([message], cwd).length > 0, config)
     scope.effect(() => {
       videoSourceContext = scope
       return () => { if (videoSourceContext === scope) videoSourceContext = undefined }

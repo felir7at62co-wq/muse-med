@@ -84,6 +84,15 @@ export async function apply(ctx) {
     assert.ok(candidateSource, 'The source comparison must belong to the actual saved candidate, not the earlier returned document')
     const firstSource = JSON.parse(candidateSource.content.find(block => block.type === 'text').text).manuscript_video_evidence
     assert.equal(firstSource.semantic_assessment, 'not_performed')
+    const readRevision = firstSource.scenes[0].read_source_revision
+    assert.equal(readRevision.status, 'compared')
+    assert.equal(readRevision.relationship, 'explicit_work_source_path')
+    assert.equal(readRevision.adopted_authorization, 'not_inferred')
+    assert.equal(readRevision.comparison_source.read_call_id, 'call_manuscript_source_read')
+    const returnedText = await readFile(join(cwd, 'documents', 'user-returned.md'), 'utf8')
+    assert.equal(readRevision.comparison_source.read_text_sha256, hash(returnedText.trimEnd()))
+    assert.ok(readRevision.hunks.flatMap(hunk => hunk.before).some(line => line.text === '秦明枝：这一次，我替自己作主。'))
+    assert.ok(readRevision.hunks.flatMap(hunk => hunk.after).some(line => line.text === '秦明枝：我不会走。'))
     const sourcePackets = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
       .map(block => JSON.parse(block.text).manuscript_source_packet)
     const sourceSpeech = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_speech":'))
@@ -170,7 +179,8 @@ export async function apply(ctx) {
       guidanceWriteAccepted: true, guidanceReadAttributed: true, guidanceUnsourcedCandidateVisible: true,
       guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true,
       savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true,
-      successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false }
+      successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false,
+      completeReadSourceDiffLogged: true, readSourceAdoptionNotInferred: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.
