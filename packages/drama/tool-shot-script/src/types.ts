@@ -23,9 +23,9 @@ export type VoiceType =
 
 /** Which rule produced a shot's packing duration. */
 export type DurationSource =
-  /** Derived from the spoken text at eight effective characters per second. */
+  /** At least the spoken-text estimate and any declared action-complexity estimate. */
   | 'speech'
-  /** Explicit positive whole-second duration in the script. */
+  /** Explicit whole-second duration or complete performance budget in the script. */
   | 'declared'
   /** Derived from the shot's own `动作复杂度` label. */
   | 'complexity'
@@ -71,6 +71,17 @@ export type IssueCode =
   | 'seconds_in_shot_body'
   | 'legacy_duration_invalid'
   | 'legacy_duration_mismatch'
+  | 'timing_plan_invalid'
+  | 'timing_plan_exceeds_duration'
+  | 'action_stages_invalid'
+  | 'action_stages_missing'
+  | 'performance_budget_missing'
+  | 'continuity_declaration_invalid'
+  | 'continuity_change_unexplained'
+  | 'scene_time_declaration_invalid'
+  | 'scene_time_change_unexplained'
+  | 'scene_time_missing'
+  | 'prepared_budget_exceeds_duration'
   | 'missing_negative_prompt'
   | 'narration_marker'
   | 'multiple_speech_lines'

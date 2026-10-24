@@ -1,5 +1,5 @@
 /** Native preview failures report local diagnostics through the Loader and Agent session. */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -67,6 +67,65 @@ it('records the empty-subject diagnostic without ledger or HTTP side effects', a
     expect(await new JubianLedger({ root: ledgerRoot }).records()).toEqual([])
   } finally {
     noNetwork.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('prepares the authored multiline video prompt through the Loader without a paid request', async () => {
+  const prompt = '@[Lead](lead)\n\n【镜头1】\n动作：先放下水桶，再说话。\n台词：Lead：慢一点。'
+  const config = { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN', standardId: 11,
+    genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, genNum: 1,
+    ratio: '9:16', resolution: '720p', prompt, materialList: [], backupModelList: [] }
+  const url = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
+  const material = { assetId: 'lead-id', materialAssetId: 81285, fileName: 'Lead', materialKey: 'lead',
+    materialType: 'image', materialUrl: url, sortOrder: 1 }
+  const methods: string[] = []
+  const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const address = new URL(input instanceof Request ? input.url : input.toString())
+    methods.push(String(init?.method))
+    const answer = (data: unknown) => new Response(JSON.stringify({ code: 200, data }), { status: 200 })
+    if (init?.method !== 'GET') throw new Error('Preparation must not write remotely')
+    if (address.pathname.endsWith('/aigc/storyboard/1')) return answer({ id: 1, scriptId: 2708,
+      modelConfig: JSON.stringify(config), storyboardMaterialList: [material] })
+    if (address.pathname.endsWith('/aigc/asset/81285')) return answer({ id: 81285, scriptId: 2708, assetUrl: url })
+    if (address.pathname.endsWith('/aigc/material/list')) return answer({ total: 1, rows: [
+      { id: 1, assetId: 81285, scriptId: 2708, hsAssetId: 'lead-id', assetUrl: url,
+        hsAssetStatus: 'Active', isUsed: 1 },
+    ] })
+    if (address.pathname.endsWith('/model/charge/getSelectList')) return answer([
+      { ...config, id: 11, genTypes: [{ id: 7, type: 3 }],
+        videoStandards: [{ id: 91, ratio: '9:16', resolution: '720p', genNum: 1 }] },
+    ])
+    throw new Error(`Unexpected preparation request ${address.pathname}`)
+  })
+  onTestFinished(() => { transport.mockRestore() })
+  const { ctx, home, ledgerRoot } = await mountedNativeTools()
+  try {
+    await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const adapter = new MockAdapter([
+      toolCallResponse('multiline-prepare', 'jubian_storyboard', { method: 'prepare_video', project_dir: home, storyboard_id: 1 }),
+      textResponse('Prepared for review without submission.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('multiline-prepare-owner'), { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Prepare this card without generating video.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => event.data.message)
+    expect(results).toHaveLength(1)
+    expect(results[0]?.isError, JSON.stringify(results)).toBe(false)
+    const content = results[0]?.content[0]
+    if (content?.type !== 'text') throw new Error('Expected prepared video result')
+    const prepared = JSON.parse(content.text) as { preview_path: string; payload: { modelConfig: string } }
+    expect((JSON.parse(prepared.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
+    const saved = JSON.parse(await readFile(prepared.preview_path, 'utf8')) as typeof prepared
+    expect((JSON.parse(saved.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
+    expect(methods.length).toBeGreaterThan(0)
+    expect(methods.every(method => method === 'GET')).toBe(true)
+    expect(await new JubianLedger({ root: ledgerRoot }).records()).toEqual([])
+  } finally {
+    transport.mockRestore()
     await ctx.fiber.dispose()
   }
 })

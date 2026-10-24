@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/shot-physical-continuity/guide.md
+/:
+  en: 352eea4a456c7316
+  zh: ee3a3c8201dd8e6c
+/physical-stage-and-continuity-declarations:
+  en: 509ffccf70c0d505
+  zh: 8b6a9b0d6bb205e5
+/physical-stage-and-continuity-declarations/change:
+  en: 5797ad75dee1d4a1
+  zh: 8fa50aff887fe972
+/physical-stage-and-continuity-declarations/migration:
+  en: 5fd33a2a85badebc
+  zh: 47a3103238f96611
