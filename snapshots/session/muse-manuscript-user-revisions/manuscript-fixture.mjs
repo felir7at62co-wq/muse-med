@@ -39,14 +39,18 @@ export async function apply(ctx) {
     const path = join(sourceDirectory, 'manuscript-source.mp4'), transcript = join(sourceDirectory, 'manuscript-asr.json')
     await writeFile(path, 'Deterministic source identity; the material reader does not invoke a decoder.\n')
     const text = JSON.stringify([{ start: 0, end: 1, text: '我不会走。', speaker_id: '1' },
-      { start: 1, end: 2, text: '你必须留下。', speaker_id: '2' }])
+      { start: 1, end: 2, text: '你必需留下。', speaker_id: '2' }])
     await writeFile(transcript, text)
     const image = await ctx.attachments.saveImage({ mediaType: 'image/png',
       data: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgZGIGAAAOAAeCcsnOAAAAAElFTkSuQmCC', 'base64') })
+    const frames = [{ id: 'F00001', time: 1.5, reasons: ['opening'], image, exposed: true,
+      observation: { visible: '测试用单像素图像只用于核对缓存图片回灌通路。', change: '没有人物动作语义结论。', uncertainty: '' } }]
     agent.session.append('video/review', { kind: 'start', review: { id: video.VideoReviewId('manuscript-source-review'),
       episode: '第1集', path, source_version: 'snapshot-manuscript-source.mp4', duration: 2, scanned_until: 2, scan_complete: true,
-      frames: [{ id: 'F00001', time: 0, reasons: ['opening'], image, exposed: true,
-        observation: { visible: '测试用单像素图像只用于核对缓存图片回灌通路。', change: '没有人物动作语义结论。', uncertainty: '' } }],
+      frames, event_groups: [{ event_id: 'fixture-cache-event', frame_ids: ['F00001'], actor: '',
+        action: '仅验证既有事件引用的缓存图返回顺序。', object: '', before: '', after: '', uncertainty: '单像素测试不认证动作。',
+        start_seconds: 1.5, end_seconds: 1.5,
+        observation_digest: 'f5466b6f5eaf34c6d02886ba2bcc64507a55d5b85bed57f27be58ceccda1a33d' }],
     } })
   })
   ctx.effect(() => {
@@ -79,11 +83,18 @@ export async function apply(ctx) {
       && message.source.kind === 'muse-manuscript' && message.content.some(block => block.type === 'text'
         && block.text.startsWith('{"manuscript_video_evidence":')))
     assert.ok(sourceNotices.length >= 2, 'Actual changed manuscript versions return source materials into logged model context')
-    const candidateSource = sourceNotices.find(message => JSON.parse(message.content.find(block => block.type === 'text').text)
+    const candidateSource = sourceNotices.find(message => JSON.parse(message.content.find(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_video_evidence":')).text)
       .manuscript_video_evidence.receipt.path === join(cwd, 'documents', 'candidate.md'))
     assert.ok(candidateSource, 'The source comparison must belong to the actual saved candidate, not the earlier returned document')
-    const firstSource = JSON.parse(candidateSource.content.find(block => block.type === 'text').text).manuscript_video_evidence
+    assert.equal(candidateSource.content[0].type, 'text')
+    assert.ok(candidateSource.content[0].text.startsWith('第1集当前结尾：'), 'The ending cue precedes structured source materials')
+    assert.ok(candidateSource.content[0].text.includes('未找到【下集钩子】标识'))
+    const firstSource = JSON.parse(candidateSource.content.find(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_video_evidence":')).text).manuscript_video_evidence
     assert.equal(firstSource.semantic_assessment, 'not_performed')
+    assert.equal(firstSource.format_reference, undefined, 'Automatic source refresh uses the ending cue, not the full format reference')
+    assert.equal(firstSource.presentation_evidence.semantic_assessment, 'not_performed')
     const readRevision = firstSource.scenes[0].read_source_revision
     assert.equal(readRevision.status, 'compared')
     assert.equal(readRevision.relationship, 'explicit_work_source_path')
@@ -97,9 +108,15 @@ export async function apply(ctx) {
       .map(block => JSON.parse(block.text).manuscript_source_packet)
     const sourceIndex = JSON.parse(candidateSource.content.find(block => block.type === 'text'
       && block.text.startsWith('{"manuscript_video_source":')).text).manuscript_video_source
-    assert.equal(sourceIndex.presentation_version, 'source-and-line-temporal-packets-v3')
+    assert.equal(sourceIndex.presentation_version, 'source-and-line-temporal-packets-v7')
     assert.equal(sourceIndex.document_sha256, firstSource.receipt.sha256)
     assert.equal(sourceIndex.source_change_timeline.interpretation_source, 'unverified_prior_model_observations')
+    assert.deepEqual(sourceIndex.draft_speech_lines.find(line => line.line === 6).candidate_segment_ids, [],
+      'An ASR character difference remains unmatched rather than becoming a corrected-name anchor')
+    const widerAction = sourceIndex.visual_query_anchor_skips.find(query => query.line === 7)
+    assert.deepEqual(widerAction.nearest_aligned_dialogue_lines, { previous_line: 5 })
+    assert.deepEqual(widerAction.skipped_unaligned_dialogue_lines, [6])
+    assert.equal(widerAction.scope, 'nearest_literal_dialogue_candidates_not_semantic_alignment')
     const initialWrite = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_write_bad')
     const initialText = JSON.parse(initialWrite.data.arguments).content
     assert.equal(hash(initialText), sourceIndex.document_sha256)
@@ -110,21 +127,44 @@ export async function apply(ctx) {
       assert.ok(['temporal_samples_not_action_verification', 'no_distinct_cached_sample_after_shared_selection',
         'no_literal_time_candidate', 'no_available_cached_sample', 'not_selected_within_shared_image_allowance'].includes(row.sampling_status))
     }
-    assert.ok(sourcePackets.some(packet => packet.changed_visual_line_candidates?.length > 0))
+    assert.ok(sourceIndex.visual_candidates.some(packet => packet.changed_visual_line_candidates?.length > 0),
+      'Actual changed-line candidates remain visible when the independent source tail uses the only cached image')
+    const sourceTail = sourcePackets.find(packet => packet.time_candidate.relation === 'source_tail_not_aligned_to_draft_ending')
+    assert.ok(sourceTail)
+    assert.deepEqual(sourceTail.actual_current_lines, [])
+    assert.equal(sourceTail.origin, 'source_timeline')
+    assert.ok(sourceTail.candidate_current_lines.some(line => line.line === 7),
+      'An existing event can relate tail images to same-scene literal candidates without asserting ending alignment')
+    assert.equal(sourceTail.previous_text.mapping, 'text_diff_hunk_not_semantic_line_pair')
+    assert.equal(sourceTail.previous_text.adoption, 'not_asserted')
+    assert.ok(sourceTail.previous_text.hunks.some(hunk => hunk.basis === 'complete_read_source_difference'))
+    const lastImageIndex = candidateSource.content.findLastIndex(block => block.type === 'image')
+    const eventIndex = candidateSource.content.findIndex(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_prior_event_interpretations":'))
+    assert.ok(eventIndex > lastImageIndex, 'Unverified event interpretation follows the actual referenced cached image')
+    const priorEvents = JSON.parse(candidateSource.content[eventIndex].text).manuscript_prior_event_interpretations
+    assert.equal(priorEvents.interpretation_source, 'prior_model_authored_unverified')
+    assert.equal(priorEvents.events.length, 1)
+    assert.equal(priorEvents.events[0].event.event_id, 'fixture-cache-event')
     const sourceSpeech = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_speech":'))
       .flatMap(block => JSON.parse(block.text).manuscript_source_speech.original_asr_remaining)
     const originalRows = [...sourcePackets.flatMap(packet => packet.original_asr_first_occurrences), ...sourceSpeech]
     assert.ok(originalRows.some(row => row.text === '我不会走。'))
     assert.equal(new Set(originalRows.map(row => row.segment_id)).size, originalRows.length)
     assert.ok(sourcePackets.every(packet => packet.document_sha256 === firstSource.receipt.sha256))
-    assert.ok(sourcePackets.every(packet => packet.scene_sha256 === firstSource.scenes[0].manuscript.current.sha256))
+    assert.ok(sourcePackets.every(packet => packet.scene_sha256 === firstSource.scenes
+      .find(scene => scene.manuscript.current.id === packet.scene_id)?.manuscript.current.sha256))
     assert.ok(candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME '))
       .every(block => block.text.startsWith(`VIDEO_FRAME ${firstSource.scenes[0].source.review_id}/`)))
     assert.equal(firstSource.scenes[0].transcript_resolution.kind, 'successful_read_candidate')
     assert.equal(firstSource.scenes[0].transcript_resolution.read_receipts[0].readCallId, 'call_manuscript_asr_read')
     assert.ok(candidateSource.content.some(block => block.type === 'image'), 'The candidate source return carries the cached image block')
-    assert.equal(sourceNotices[0].content.some(block => block.type === 'image'), false,
-      'The initial returned manuscript has no ASR read yet and must not receive unaligned automatic images')
+    assert.equal(sourceNotices[0].content.some(block => block.type === 'image'), true,
+      'A cached source-tail image is available before ASR without claiming alignment to manuscript lines')
+    const initialSourcePackets = sourceNotices[0].content
+      .filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
+      .map(block => JSON.parse(block.text).manuscript_source_packet)
+    assert.ok(initialSourcePackets.every(packet => packet.origin === 'source_timeline' && packet.actual_current_lines.length === 0))
     assert.equal(firstSource.image_delivery, 'cached_blocks_returned_not_admission_or_understanding')
     for (const id of ['call_work_bind', 'call_work_scene', 'call_work_audit']) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
@@ -220,7 +260,8 @@ export async function apply(ctx) {
       successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false,
       completeReadSourceDiffLogged: true, readSourceAdoptionNotInferred: true,
       screenplayFormatReferenceReturned: true, endingAndActionLocationsReturned: true,
-      missingEndingMarkerDidNotBlockDelivery: true, changedVisualLineSamplesBoundToCurrentDraft: true }
+      missingEndingMarkerDidNotBlockDelivery: true, changedVisualLineSamplesBoundToCurrentDraft: true,
+      endingCuePrecedesStructuredSourceEvidence: true, sourceTailImagesNotClaimedAsChangedLineCoverage: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.

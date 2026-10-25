@@ -8,6 +8,12 @@ interface Material extends Location { kind: 'action_line' | 'dialogue'; parenthe
 interface Group<T> { findings: T[]; total: number; omitted: number; budget_omitted: number }
 interface Limits { maximumFindings: number; maxTextCharacters: number }
 type Mode = 'adapt' | 'transcribe' | 'edit' | 'unknown'
+interface SourceEnding {
+  episode: string
+  draft_path?: string
+  last_asr: { text: string; start_seconds: number; end_seconds: number } | null
+  frames?: readonly { frame_id: string; time: number }[]
+}
 
 /**
  * Describe screenplay notation without imposing a creative workflow or a count requirement.
@@ -19,12 +25,12 @@ export function manuscriptFormatReference(mode: Mode = 'unknown') {
     action_line: '▲写观众需要看懂的画面事件：进出、走位、物品交接、无对白反应，以及改变局面的动作过程和结果。按剧情作用区分，不按动作长短或是否同步说话机械拆分。',
     parenthetical: '人物名（括注）：台词。括注服务于这句话怎样说，写语气、神态或局部伴随表现；重要事件不靠括注代替。同一动作不重复写，每句不必都有括注。',
     dialogue: '同一人连续表达同一层意思，不因ASR分段机械拆行；保留真实的插话、转折和动作节拍。',
-    ending: '【下集钩子】标在本集实际留悬内容之前，下接正常动作或对白；它属于本集结尾，不另抄一遍末段。标识存在不证明悬念有效，缺少标识不证明剧情有错。',
+    ending: '本集已有留悬内容时，【下集钩子】只是格式标注，不改变剧情；标在原有末段之前，下接正常动作或对白，不另抄一遍末段。标识存在不证明悬念有效，缺少标识不证明剧情有错；完全收束或大结局不强编悬念。',
     source_scope: mode === 'transcribe'
       ? '忠实转写只整理原片已有的结尾信息，不新增事实、不提前搬入下一集；原片完全收束或大结局时如实保留，不强编悬念。'
       : mode === 'adapt'
         ? '改编可在用户已授权的故事材料内调整结尾落点；没有来源支持的动作、事实和人物表现不凭空补写。'
-        : '依用户当前任务区分忠实转写与改编；未明确授权改编时，格式参考不构成新增事实或改动结尾的授权。',
+        : '依用户当前任务区分忠实转写与改编；格式整理不授权新增或改写原片事实。',
   }
 }
 
@@ -98,9 +104,11 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
     const finalScene = [...episode].reverse().find(scene => actual.some(line => line.scene === scene.id)) ?? last
     const endingLines = actual.filter(line => line.scene === finalScene.id)
     const following = lastHook ? all.filter(line => line.line > lastHook.line && line.quote.trim()) : []
-    const lastMaterials = new Set([endingLines.findLast(line => line.kind === 'action_line')?.line,
-      endingLines.findLast(line => line.kind === 'dialogue')?.line,
-      endingLines.findLast(line => line.parentheticals.length > 0)?.line])
+    const lastAction = endingLines.findLast(line => line.kind === 'action_line')
+    const lastDialogue = endingLines.findLast(line => line.kind === 'dialogue')
+    const lastParenthetical = endingLines.findLast(line => line.parentheticals.length > 0)
+    const lastMaterials = new Set([lastAction?.line, lastDialogue?.line, lastParenthetical?.line])
+    const position = (line: Material | undefined) => line === undefined ? null : { scene: line.scene, line: line.line }
     const takeSelection = <T extends { quote: string }>(allLines: readonly T[], selection: readonly T[]) => {
       const group = quotes.take(selection, true)
       return { ...group, total: allLines.length, omitted: allLines.length - group.findings.length,
@@ -108,6 +116,8 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
     }
     const ending = { marker_status: hooks.length ? 'present' : 'not_found', marker_count: hooks.length,
       last_scene: { id: finalScene.id, start_line: finalScene.startLine, end_line: finalScene.endLine },
+      last_material_locations: { action: position(lastAction), dialogue: position(lastDialogue),
+        parenthetical: position(lastParenthetical) },
       last_scene_lines: takeSelection(endingLines, endingLines.filter(line => lastMaterials.has(line.line))),
       hook_markers: quotes.take(hooks, true),
       following_last_marker: takeSelection(following, endpoints(following,
@@ -133,4 +143,71 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
         .some(group => group.budget_omitted > 0)),
     quote_characters: quotes.characters(), max_quote_characters: limits.maxTextCharacters,
     notice: '只返回格式、位置和原句；▲与括注的相邻关系不证明同一事件、重复或遗漏。不按数量报警，不自动搬运、删除或合并。结尾标识与原句不证明悬念质量，原片收束或大结局不构成违规。' }
+}
+
+/**
+ * Present the current episode ending before structured evidence, retaining complete literal quotes or explicit omissions.
+ * @param presentation - Current-file ending evidence, including actual line locations and structural marker status.
+ * @param sourceEndings - Exact episode source candidates; the last ASR and last cached frame need not coincide.
+ * @param limits - Existing entry and total-text limits; a budget too small for a notice returns only an omission symbol.
+ * @param mode - Explicit work mode, without inferring adaptation permission from an editing request.
+ * @returns Bounded advisory text; it does not certify suspense, invent a hook, modify text or require another step.
+ */
+export function manuscriptEndingCue(presentation: ReturnType<typeof manuscriptPresentationEvidence>,
+  sourceEndings: readonly SourceEnding[], limits: Limits, mode: Mode = 'unknown'): string {
+  const entries: { text: string; fallback?: string }[] = [], episodes = presentation.episodes.slice(0, limits.maximumFindings)
+  const reference = manuscriptFormatReference(mode)
+  for (const episode of episodes) {
+    const ending = episode.ending, current = ending.last_scene_lines.findings
+    entries.push({ text: `第${episode.episode}集当前结尾：${ending.marker_status === 'not_found'
+      ? '未找到【下集钩子】标识' : `已有钩子标识${ending.marker_count}处`}（只记结构，不判悬念质量）。` })
+    const positions = [
+      { role: '末动作', kind: 'action_line', location: ending.last_material_locations.action },
+      { role: '末对白', kind: 'dialogue', location: ending.last_material_locations.dialogue },
+    ]
+    const quotes = positions.flatMap(({ role, kind, location }) => location === null ? [] : [{ role, line: location.line,
+      quote: current.find(line => line.kind === kind && line.scene === location.scene && line.line === location.line)?.quote }])
+    const omittedQuote = (line: typeof quotes[number]) => `${line.role}第${line.line}行（原句因预算省略）`
+    entries.push(quotes.length ? {
+      text: '当前稿原句：' + quotes.map(line => line.quote === undefined ? omittedQuote(line)
+        : `${line.role}第${line.line}行「${line.quote}」`).join('；'),
+      fallback: '当前稿位置：' + quotes.map(omittedQuote).join('；'),
+    } : { text: `当前稿末场${ending.last_scene.id}：${ending.last_scene_lines.total > 0
+      ? '原句因选择或预算省略，见结构证据' : '没有返回可识别的动作或对白原句'}。` })
+    const sources = sourceEndings.filter(source => source.episode === episode.episode
+      && (source.draft_path === undefined || source.draft_path === episode.path))
+    const source = sources.length === 1 ? sources[0] : undefined
+    if (source === undefined) {
+      entries.push({ text: sources.length > 1 ? `来源末段有${sources.length}份候选，未选择唯一来源。` : '来源末段：没有可用候选，未推定原片结尾。' })
+      continue
+    }
+    const asr = source.last_asr, frame = source.frames?.reduce<{ frame_id: string; time: number } | undefined>((latest, candidate) =>
+      latest === undefined || candidate.time > latest.time ? candidate : latest, undefined)
+    const frameRef = frame === undefined ? '末图引用未提供' : `末图引用${frame.time}秒/${frame.frame_id}`
+    entries.push(asr === null ? { text: `来源最后已有ASR：没有可用末句；${frameRef}，不代表无声或台词同步。` } : {
+      text: `来源最后已有ASR（${asr.start_seconds}—${asr.end_seconds}秒）：「${asr.text}」；${frameRef}，两者不作同步认定。`,
+      fallback: `来源ASR位置：${asr.start_seconds}—${asr.end_seconds}秒（原句因预算省略）；${frameRef}，两者不作同步认定。`,
+    })
+  }
+  const omittedEpisodes = presentation.omitted_episodes + presentation.episodes.length - episodes.length
+  if (omittedEpisodes > 0) entries.push({ text: `另有${omittedEpisodes}集因条目预算未列，未作结尾判断。` })
+  if (episodes.length) {
+    entries.push({ text: `标注参考：${reference.ending}${reference.source_scope}` })
+    entries.push({ text: `动作与括注参考：${reference.action_line}${reference.parenthetical}` })
+  }
+  const full = entries.map(entry => entry.text).join('\n')
+  if (full.length <= limits.maxTextCharacters) return full
+  const omitted = '部分材料因预算省略，原句和位置见后续结构证据。'
+  if (omitted.length > limits.maxTextCharacters) return limits.maxTextCharacters > 0 ? '…' : ''
+  const result: string[] = []
+  let characters = omitted.length
+  for (const entry of entries) {
+    const room = limits.maxTextCharacters - characters - 1
+    const text = entry.text.length <= room ? entry.text : entry.fallback !== undefined && entry.fallback.length <= room
+      ? entry.fallback : undefined
+    if (text === undefined) continue
+    result.push(text)
+    characters += text.length + 1
+  }
+  return [...result, omitted].join('\n')
 }

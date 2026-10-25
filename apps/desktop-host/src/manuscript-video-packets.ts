@@ -4,10 +4,36 @@ import type { VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import type { ManuscriptScene } from './manuscript-scenes.ts'
 
 /** Presentation identity; older saved receipts remain readable without suppressing this representation. */
-export const MANUSCRIPT_VIDEO_PRESENTATION = 'source-and-line-temporal-packets-v3'
+export const MANUSCRIPT_VIDEO_PRESENTATION = 'source-and-line-temporal-packets-v7'
 type Frame = VideoSourceTimeline['windows'][number]['frames'][number]
 type Segment = NonNullable<VideoSourceTimeline['speech']>['segments'][number]
-interface TimeCandidate { start_seconds: number; end_seconds: number; relation: string; segment_ids: readonly string[] }
+type EventNote = VideoSourceTimeline['windows'][number]['event_notes'][number]
+interface TimeInterval { start_seconds: number; end_seconds: number }
+interface TimeCandidate extends TimeInterval { relation: string; segment_ids: readonly string[] }
+
+/** Current-document text hunks and source-local event identities supplied by the saved-manuscript reader. */
+export interface PacketContext {
+  document_sha256: string
+  previous_status: 'available' | 'unavailable'
+  previous_hunks?: readonly {
+    basis: 'successful_native_mutation' | 'complete_read_source_difference'
+    before: readonly { line: number; quote: string }[]
+    after_lines: readonly number[]
+    source_path?: string
+    source_text_sha256?: string
+  }[]
+  excluded_event_ids?: ReadonlySet<string>
+}
+
+interface EventCandidate extends TimeInterval {
+  event_id: string
+  observation_digest: string
+  evidence_current: boolean
+  frame_ids: readonly string[]
+  missing_local_frame_ids: string[]
+  unreadable_frame_ids: string[]
+  association: 'event_time_intersects_literal_candidate_only'
+}
 
 /** Literal line/source candidates supplied by the manuscript reader, without semantic interpretation. */
 export interface ManuscriptSourceLocation {
@@ -30,7 +56,14 @@ export interface ManuscriptSourceLocation {
     ambiguous_source_matches: boolean
     shared_segment_ids: readonly string[]
   }[]
-  visual_queries: readonly { line: number; quote: string; kind: string; time_candidates: readonly TimeCandidate[] }[]
+  visual_queries: readonly {
+    line: number
+    quote: string
+    kind: string
+    time_candidates: readonly TimeCandidate[]
+    nearest_aligned_dialogue_lines?: { previous_line?: number; next_line?: number }
+    skipped_unaligned_dialogue_lines?: readonly number[]
+  }[]
   windows: VideoSourceTimeline['windows']
   window_seconds: number
 }
@@ -45,11 +78,20 @@ export interface ManuscriptFramePacket {
   literal_selection?: { preferred: boolean; tier: number; matched_characters: number }
   changed_literal_selection?: { preferred: boolean; tier: number; matched_characters: number }
   interval: TimeCandidate
+  sampling_interval: TimeInterval
   ambiguous: boolean
   selection_anchor?: { frame_id: string; time: number }
   images: { frame_id: string; time: number; role: 'before' | 'anchor' | 'after' }[]
   eligible_cache_frames: number
   selection_basis: string
+  event_candidates?: EventCandidate[]
+  event_selection?: {
+    event_id: string
+    referenced_frame_ids: string[]
+    context_frame_ids: string[]
+    sampling_interval: TimeInterval
+    association: 'event_frame_refs_not_asr_or_verified_action_alignment'
+  }
 }
 
 /** Saved-scene candidates with the actual temporal samples selected for this refresh. */
@@ -59,9 +101,11 @@ export interface ManuscriptPacketPlan {
   changed_visual_lines: { line: number; quote: string; kind: string }[]
   candidates: ManuscriptFramePacket[]
   selected: ManuscriptFramePacket[]
+  selected_event_ids: string[]
+  context?: PacketContext
 }
 
-function inRange(time: number, range: TimeCandidate, tolerance: number): boolean {
+function inRange(time: number, range: TimeInterval, tolerance: number): boolean {
   return time >= range.start_seconds - tolerance && time <= range.end_seconds + tolerance
 }
 
@@ -79,6 +123,82 @@ function originalChange(frame: Frame): boolean {
   return frame.reasons.some(reason => reason === 'cut' || reason === 'appearance_or_continuity')
 }
 
+function sourceEvents(windows: VideoSourceTimeline['windows']): EventNote[] {
+  return [...new Map(windows.flatMap(window => window.event_notes).map(event => [event.event_id, event])).values()]
+}
+
+function intersects(left: TimeInterval, right: TimeInterval): boolean {
+  return left.start_seconds <= right.end_seconds && left.end_seconds >= right.start_seconds
+}
+
+function readable(frame: Frame): boolean {
+  return frame.image_available && frame.observation !== undefined
+}
+
+function eventCandidates(interval: TimeInterval, events: readonly EventNote[], frames: readonly Frame[]): EventCandidate[] {
+  const byId = new Map(frames.map(frame => [frame.frame_id, frame]))
+  return events.filter(event => intersects(event, interval)).map(event => ({
+    event_id: event.event_id, observation_digest: event.observation_digest, evidence_current: event.evidence_current,
+    start_seconds: event.start_seconds, end_seconds: event.end_seconds, frame_ids: event.frame_ids,
+    missing_local_frame_ids: event.frame_ids.filter(id => !byId.has(id)),
+    unreadable_frame_ids: event.frame_ids.filter((id) => {
+      const frame = byId.get(id)
+      return frame !== undefined && !readable(frame)
+    }),
+    association: 'event_time_intersects_literal_candidate_only',
+  }))
+}
+
+function eventSample(packet: ManuscriptFramePacket, frames: readonly Frame[], count: number,
+  excluded: ReadonlySet<string>): ManuscriptFramePacket | undefined {
+  if (count <= 0) return undefined
+  const available = frames.filter(readable)
+  for (const event of packet.event_candidates ?? []) {
+    if (!event.evidence_current || excluded.has(event.event_id)) continue
+    const named = available.filter(frame => event.frame_ids.includes(frame.frame_id))
+    const first = named[0]
+    if (first === undefined) continue
+    const context = available.filter(frame => !event.frame_ids.includes(frame.frame_id)
+      && named.some(anchor => frame.reasons.includes(`context_for:${anchor.frame_id}`)))
+    const center = (event.start_seconds + event.end_seconds) / 2
+    const nearest = (values: readonly Frame[]) => [...values].sort((left, right) =>
+      Math.abs(left.time - center) - Math.abs(right.time - center) || left.time - right.time)[0]
+    const last = named.at(-1) ?? first
+    let selected: [Frame, ...Frame[]] = count === 1 ? [nearest(named) ?? first] : named.length > 1 ? [first, last] : [first]
+    if (count > selected.length) {
+      const extra = nearest(named.filter(frame => !selected.includes(frame))) ?? nearest(context)
+      if (extra !== undefined) selected.push(extra)
+    }
+    selected = selected.sort((left, right) => left.time - right.time)
+    const interval = { start_seconds: selected[0].time, end_seconds: (selected.at(-1) ?? selected[0]).time }
+    return { ...packet, sampling_interval: interval,
+      eligible_cache_frames: new Set([...named, ...context].map(frame => frame.frame_id)).size,
+      images: selected.map((frame, index) => ({ frame_id: frame.frame_id, time: frame.time,
+        role: selected.length === 1 ? 'anchor' : index === 0 ? 'before' : index === selected.length - 1 ? 'after' : 'anchor' })),
+      event_selection: { event_id: event.event_id,
+        referenced_frame_ids: selected.filter(frame => event.frame_ids.includes(frame.frame_id)).map(frame => frame.frame_id),
+        context_frame_ids: selected.filter(frame => !event.frame_ids.includes(frame.frame_id)).map(frame => frame.frame_id),
+        sampling_interval: interval, association: 'event_frame_refs_not_asr_or_verified_action_alignment' },
+      selection_basis: 'current_event_frame_refs_and_recorded_context_not_semantic_alignment' }
+  }
+  return undefined
+}
+
+function samplingInterval(interval: TimeCandidate, windowSeconds: number): TimeInterval {
+  if (interval.relation === 'before_speech_candidate') return {
+    start_seconds: Math.max(interval.start_seconds, interval.end_seconds - windowSeconds), end_seconds: interval.end_seconds,
+  }
+  if (interval.relation === 'after_speech_candidate') return {
+    start_seconds: interval.start_seconds, end_seconds: Math.min(interval.end_seconds, interval.start_seconds + windowSeconds),
+  }
+  return { start_seconds: Math.max(0, interval.start_seconds - windowSeconds), end_seconds: interval.end_seconds + windowSeconds }
+}
+
+function samplingAnchorInterval(packet: ManuscriptFramePacket): TimeInterval {
+  return packet.interval.relation === 'before_speech_candidate' || packet.interval.relation === 'after_speech_candidate'
+    ? packet.sampling_interval : packet.interval
+}
+
 function literalTier(value: string): number {
   return value === 'exact' ? 0 : value === 'source_contains_draft' ? 1 : value === 'draft_contains_source' ? 2 : 3
 }
@@ -91,9 +211,12 @@ function compareLiteral(left: ManuscriptFramePacket['literal_selection'], right:
 function querySelection(query: ManuscriptSourceLocation['visual_queries'][number], interval: TimeCandidate,
   location: ManuscriptSourceLocation): NonNullable<ManuscriptFramePacket['literal_selection']> {
   const own = location.line_candidates.find(line => line.line === query.line)
+  const support = query.nearest_aligned_dialogue_lines
   const relevant = own === undefined ? [
-    { line: location.line_candidates.findLast(line => line.line < query.line), endpoint: 'previous' },
-    { line: location.line_candidates.find(line => line.line > query.line), endpoint: 'next' },
+    { line: support === undefined ? location.line_candidates.findLast(line => line.line < query.line)
+      : location.line_candidates.find(line => line.line === support.previous_line), endpoint: 'previous' },
+    { line: support === undefined ? location.line_candidates.find(line => line.line > query.line)
+      : location.line_candidates.find(line => line.line === support.next_line), endpoint: 'next' },
   ].filter(entry => entry.line !== undefined) : [{ line: own, endpoint: 'own' }]
   const supports = relevant.flatMap(({ line, endpoint }) => {
     if (line === undefined) return []
@@ -119,11 +242,15 @@ function querySelection(query: ManuscriptSourceLocation['visual_queries'][number
     matched_characters: supports.length ? Math.min(...supports.map(support => support.matched_characters)) : 0 }
 }
 
-function temporalSample(packet: ManuscriptFramePacket, frames: readonly Frame[], count: number, tolerance: number): ManuscriptFramePacket {
+function temporalSample(packet: ManuscriptFramePacket, frames: readonly Frame[], count: number,
+  excludedEvents: ReadonlySet<string>): ManuscriptFramePacket {
+  const event = eventSample(packet, frames, count, excludedEvents)
+  if (event !== undefined) return event
   const eligible = frames.filter(frame => frame.image_available && frame.observation_source === 'model_authored_observation'
-    && inRange(frame.time, packet.interval, tolerance))
-  const interior = eligible.filter(frame => inRange(frame.time, packet.interval, 0))
-  const center = (packet.interval.start_seconds + packet.interval.end_seconds) / 2
+    && inRange(frame.time, packet.sampling_interval, 0))
+  const anchorInterval = samplingAnchorInterval(packet)
+  const interior = eligible.filter(frame => inRange(frame.time, anchorInterval, 0))
+  const center = (anchorInterval.start_seconds + anchorInterval.end_seconds) / 2
   const contextTargets = new Set(eligible.flatMap(frame => frame.reasons.flatMap(reason =>
     reason.startsWith('context_for:') ? [reason.slice('context_for:'.length)] : [])))
   const anchor = [...interior.length ? interior : eligible].sort((left, right) => {
@@ -180,11 +307,13 @@ function changedPacketGroups(ranked: readonly ManuscriptFramePacket[], count: nu
  * @param count - Remaining image allowance, resolved from the shared Host configuration.
  * @param excluded - Already returned cache identities within this review revision.
  * @param changedLines - Actual current-document changed line numbers, bound to that document SHA by the caller.
- * @returns Complete candidate ranges and the bounded selected packets; absent images do not block writing.
+ * @param context - Optional current-document text hunks and event identities already presented for this source.
+ * @returns Complete candidate ranges and bounded packets, preserving initial samples and filling unused allowance from other ranges.
  */
 export function planManuscriptVideoPackets(scene: ManuscriptScene, location: ManuscriptSourceLocation, count: number,
-  excluded: ReadonlySet<string>, changedLines?: ReadonlySet<number>): ManuscriptPacketPlan {
-  const frames = sourceFrames(location.windows).filter(frame => !excluded.has(frame.frame_id))
+  excluded: ReadonlySet<string>, changedLines?: ReadonlySet<number>, context?: PacketContext): ManuscriptPacketPlan {
+  const allFrames = sourceFrames(location.windows), frames = allFrames.filter(frame => !excluded.has(frame.frame_id))
+  const events = sourceEvents(location.windows), selectedEvents = new Set(context?.excluded_event_ids)
   const queries = location.visual_queries.some(query => query.time_candidates.length > 0) ? location.visual_queries
     : location.line_candidates.map(line => ({ ...line, kind: 'dialogue_line', time_candidates: line.candidates.map(candidate => ({
       start_seconds: candidate.start_seconds, end_seconds: candidate.end_seconds, relation: 'within_speech_candidate',
@@ -198,7 +327,8 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     let packet = byRange.get(key)
     if (packet === undefined) {
       packet = { scene_id: scene.id, origin: 'draft_candidates', lines: [], sampling_lines: [], changed_visual_lines: [],
-        interval, ambiguous: false, images: [], eligible_cache_frames: 0, selection_basis: 'not_selected' }
+        interval, sampling_interval: samplingInterval(interval, location.window_seconds),
+        ambiguous: false, images: [], eligible_cache_frames: 0, selection_basis: 'not_selected' }
       candidates.push(packet)
       byRange.set(key, packet)
     }
@@ -219,10 +349,15 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     }
     packet.ambiguous ||= query.time_candidates.length > 1
   }
-  const hasOriginalChange = (packet: ManuscriptFramePacket) => frames.some(frame => inRange(frame.time, packet.interval, 0)
+  const hasOriginalChange = (packet: ManuscriptFramePacket) => frames.some(frame => inRange(frame.time, samplingAnchorInterval(packet), 0)
     && originalChange(frame))
-  for (const packet of candidates) packet.eligible_cache_frames = frames.filter(frame => frame.image_available
-    && frame.observation_source === 'model_authored_observation' && inRange(frame.time, packet.interval, location.window_seconds)).length
+  for (const packet of candidates) {
+    packet.event_candidates = eventCandidates(packet.interval, events, allFrames)
+    packet.eligible_cache_frames = new Set(frames.filter(frame => frame.image_available
+      && frame.observation_source === 'model_authored_observation' && inRange(frame.time, packet.sampling_interval, 0)
+      || readable(frame) && packet.event_candidates?.some(event => event.evidence_current
+        && !selectedEvents.has(event.event_id) && event.frame_ids.includes(frame.frame_id))).map(frame => frame.frame_id)).size
+  }
   const ranked = candidates.filter(packet => packet.eligible_cache_frames > 0).sort((left, right) =>
     compareLiteral(left.literal_selection, right.literal_selection)
     || Number(hasOriginalChange(right)) - Number(hasOriginalChange(left))
@@ -233,6 +368,8 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     .map((window): ManuscriptFramePacket => ({ scene_id: scene.id, origin: 'source_timeline', lines: [],
       interval: { start_seconds: window.start_seconds, end_seconds: window.end_seconds,
         relation: 'source_window_not_draft_alignment', segment_ids: window.speech_segment_ids }, ambiguous: false,
+      sampling_interval: { start_seconds: Math.max(0, window.start_seconds - location.window_seconds),
+        end_seconds: window.end_seconds + location.window_seconds },
       images: [], eligible_cache_frames: 0, selection_basis: 'not_selected' }))
   const uncoveredChanges = (packet: ManuscriptFramePacket) => frames.filter(frame => originalChange(frame)
     && inRange(frame.time, packet.interval, 0) && !ranked.some(current => current.literal_selection?.preferred
@@ -250,12 +387,70 @@ export function planManuscriptVideoPackets(scene: ManuscriptScene, location: Man
     const allowance = changedGroups.length > 0 ? Math.ceil(remaining / (groups.length - index))
       : Math.floor(remaining / (groups.length - index))
     const sample = temporalSample(packet, frames.filter(frame => !selectedFrames.has(frame.frame_id)),
-      Math.min(3, allowance), location.window_seconds)
+      Math.min(3, allowance), selectedEvents)
     for (const frame of sample.images) selectedFrames.add(frame.frame_id)
+    if (sample.event_selection !== undefined) selectedEvents.add(sample.event_selection.event_id)
     remaining -= sample.images.length
     return sample
   })
-  return { scene, location, changed_visual_lines: changedVisualLines, candidates, selected }
+  const rangeIdentity = (packet: ManuscriptFramePacket) => JSON.stringify([packet.interval.start_seconds, packet.interval.end_seconds])
+  const attemptedRanges = new Set(groups.map(rangeIdentity))
+  const refill = changedGroups.length > 0
+    ? [...ranked.filter(packet => packet.changed_visual_lines?.length), ...ranked, ...sourceCandidates] : [...ranked, ...sourceCandidates]
+  for (const packet of refill) {
+    if (remaining <= 0) break
+    const range = rangeIdentity(packet)
+    if (attemptedRanges.has(range)) continue
+    attemptedRanges.add(range)
+    const availableFrames = frames.filter(frame => !selectedFrames.has(frame.frame_id))
+    const sample = temporalSample(packet, availableFrames, Math.min(3, remaining), selectedEvents)
+    if (sample.images.length === 0) continue
+    for (const frame of sample.images) selectedFrames.add(frame.frame_id)
+    if (sample.event_selection !== undefined) selectedEvents.add(sample.event_selection.event_id)
+    remaining -= sample.images.length
+    selected.push(sample)
+  }
+  return { scene, location, changed_visual_lines: changedVisualLines, candidates, selected,
+    selected_event_ids: selected.flatMap(packet => packet.event_selection === undefined ? [] : [packet.event_selection.event_id]),
+    ...context === undefined ? {} : { context } }
+}
+
+/**
+ * Sample the cached source ending independently of manuscript lines or an inferred ending hook.
+ * @param scene - Saved scene receiving this source-only packet; no line alignment is claimed.
+ * @param timeline - Current source timeline, original ASR and cached images with provider-readable observations.
+ * @param count - Remaining shared image allowance; at most two distinct images are selected.
+ * @param excluded - Cache identities already returned within this source revision.
+ * @returns Source-tail middle/latest samples, or no packet when no new eligible cache images remain.
+ */
+export function planManuscriptSourceTail(scene: ManuscriptScene, timeline: VideoSourceTimeline, count: number,
+  excluded: ReadonlySet<string>): ManuscriptFramePacket | undefined {
+  if (count <= 0) return undefined
+  const end = timeline.source.duration_seconds
+  const speech = timeline.speech?.segments ?? [], lastSpeechEnd = speech.length > 0
+    ? Math.max(...speech.map(segment => segment.end_seconds)) : undefined
+  const frames = sourceFrames(timeline.windows).filter(frame => frame.image_available)
+  const afterSpeech = lastSpeechEnd === undefined ? [] : frames.filter(frame => frame.time > lastSpeechEnd && frame.time <= end)
+  const interval = { start_seconds: afterSpeech.length > 0 && lastSpeechEnd !== undefined ? lastSpeechEnd
+    : Math.max(0, end - timeline.scope.window_seconds), end_seconds: end }
+  const available = (afterSpeech.length > 0 ? afterSpeech : frames.filter(frame => inRange(frame.time, interval, 0)))
+    .filter(frame => frame.observation !== undefined && !excluded.has(frame.frame_id))
+  const last = available.at(-1)
+  if (last === undefined) return undefined
+  const center = (interval.start_seconds + interval.end_seconds) / 2
+  const middle = available.filter(frame => frame.frame_id !== last.frame_id).sort((left, right) =>
+    Math.abs(left.time - center) - Math.abs(right.time - center) || left.time - right.time
+    || left.frame_id.localeCompare(right.frame_id))[0]
+  const selected = count < 2 || middle === undefined ? [{ ...last, role: 'after' as const }]
+    : [{ ...middle, role: 'anchor' as const }, { ...last, role: 'after' as const }]
+  return { scene_id: scene.id, origin: 'source_timeline', lines: [],
+    interval: { ...interval, relation: 'source_tail_not_aligned_to_draft_ending', segment_ids: [] },
+    sampling_interval: interval, ambiguous: false,
+    images: selected.map(frame => ({ frame_id: frame.frame_id, time: frame.time, role: frame.role })),
+    eligible_cache_frames: available.length,
+    selection_basis: afterSpeech.length > 0 ? 'cached_middle_latest_after_final_asr_end_not_draft_alignment'
+      : lastSpeechEnd === undefined ? 'rolling_source_tail_without_asr_not_draft_alignment'
+        : 'rolling_source_tail_without_post_asr_cache_not_draft_alignment' }
 }
 
 function originalSpeech(segment: Segment, plans: readonly ManuscriptPacketPlan[]) {
@@ -264,6 +459,52 @@ function originalSpeech(segment: Segment, plans: readonly ManuscriptPacketPlan[]
     speaker_identity_unverified: true, draft_line_refs: plans.flatMap(plan => plan.location.line_candidates.flatMap(line =>
       line.candidates.some(candidate => candidate.segment_id === segment.segment_id)
         ? [{ scene_id: plan.scene.id, line: line.line }] : [])) }
+}
+
+function pairedEvents(timeline: VideoSourceTimeline, plans: readonly ManuscriptPacketPlan[], actualFrameIds: ReadonlySet<string>) {
+  return sourceEvents(timeline.windows).flatMap((event) => {
+    const matchingPlans = plans.filter(plan => plan.selected.some(packet => packet.images.some(frame =>
+      actualFrameIds.has(frame.frame_id) && event.frame_ids.includes(frame.frame_id))))
+    if (matchingPlans.length === 0) return []
+    const candidates = matchingPlans.flatMap(plan => plan.location.visual_queries
+      .filter(query => query.time_candidates.some(range => intersects(range, event)))
+      .map(({ line, quote, kind }) => ({ scene_id: plan.scene.id, line, quote, kind })))
+    const lines = [...new Map(candidates.map(line => [`${line.scene_id}:${line.line}`, line])).values()]
+    return [{ event, candidate_current_lines: lines }]
+  })
+}
+
+/**
+ * Identify source events whose referenced images were returned, with or without literal scene-time candidates.
+ * @param timeline - Verified current source and optional prior model-authored events.
+ * @param plans - Current scene packets, including independent source-tail samples.
+ * @param actualFrameIds - Source-local identities with actual returned image blocks.
+ * @returns Event ids for notice-local explanation deduplication, without asserting interpretation or coverage.
+ */
+export function manuscriptPacketEventIds(timeline: VideoSourceTimeline, plans: readonly ManuscriptPacketPlan[],
+  actualFrameIds: ReadonlySet<string>): string[] {
+  return pairedEvents(timeline, plans, actualFrameIds).map(entry => entry.event.event_id)
+}
+
+function candidateLines(plan: ManuscriptPacketPlan | undefined, packet: ManuscriptFramePacket, frames: readonly Frame[],
+  events: readonly EventNote[]) {
+  if (plan === undefined) return []
+  const imageIds = new Set(packet.images.map(frame => frame.frame_id))
+  const times = frames.filter(frame => imageIds.has(frame.frame_id)).map(frame => frame.time)
+  const linked = events.filter(event => event.frame_ids.some(id => imageIds.has(id)))
+  return plan.location.visual_queries.filter(query => query.time_candidates.some(range =>
+    times.some(time => inRange(time, range, 0)) || linked.some(event => intersects(range, event))))
+    .map(({ line, quote, kind }) => ({ line, quote, kind }))
+}
+
+function previousText(plan: ManuscriptPacketPlan | undefined, lines: readonly { line: number }[]) {
+  const context = plan?.context
+  const hunks = context?.previous_hunks?.filter(hunk => hunk.after_lines.some(line => lines.some(current => current.line === line))) ?? []
+  return { status: context === undefined ? 'context_not_supplied' : context.previous_status === 'unavailable'
+    ? 'previous_context_unavailable' : hunks.length ? 'same_text_diff_hunk_candidates' : 'no_corresponding_hunk_supplied',
+  context_document_sha256: context?.document_sha256, mapping: 'text_diff_hunk_not_semantic_line_pair', adoption: 'not_asserted',
+  hunks: hunks.map(hunk => ({ ...hunk, source_role: hunk.basis === 'complete_read_source_difference'
+    ? 'read_text_comparison_candidate_not_approved_baseline' : 'previous_native_saved_text_not_approved_baseline' })) }
 }
 
 /**
@@ -281,13 +522,16 @@ export function manuscriptVideoPacketContent(input: {
   const { timeline, plans, images } = input, frames = sourceFrames(timeline.windows)
   const source = timeline.source, qualified = (id: string) => `${source.review_id}/${id}`
   const changes = frames.filter(originalChange)
-  const eventNotes = [...new Map(timeline.windows.flatMap(window => window.event_notes)
-    .map(event => [event.event_id, event])).values()]
+  const eventNotes = sourceEvents(timeline.windows)
+  const selected = plans.flatMap(plan => plan.selected)
+  const actualFrameIds = new Set(selected.flatMap(packet => packet.images
+    .filter(frame => images.has(frame.frame_id)).map(frame => frame.frame_id)))
+  const paired = pairedEvents(timeline, plans, actualFrameIds), pairedIds = new Set(paired.map(entry => entry.event.event_id))
+  const priorEvents = new Set(plans.flatMap(plan => [...(plan.context?.excluded_event_ids ?? [])]))
   const speech = new Map((timeline.speech?.segments ?? []).map(segment => [segment.segment_id, segment]))
   const matchedIds = new Set(plans.flatMap(plan => plan.location.line_candidates.flatMap(line =>
     line.candidates.map(candidate => candidate.segment_id))))
   const emitted = new Set<string>()
-  const selected = plans.flatMap(plan => plan.selected)
   const lineRefs = plans.flatMap(plan => plan.location.line_candidates.map(line => ({ scene_id: plan.scene.id,
     line: line.line, actual_quote: line.quote, candidate_segment_ids: [...new Set(line.candidates.map(candidate => candidate.segment_id))],
     literal_matches: line.candidates.map(candidate => ({ segment_id: candidate.segment_id, match: candidate.literal_match,
@@ -311,10 +555,23 @@ export function manuscriptVideoPacketContent(input: {
       columns: ['frame_id', 'source_seconds', 'detector_reasons'],
       rows: changes.slice(0, input.indexRows).map(frame => [frame.frame_id, frame.time, frame.reasons]),
       interpretation_source: 'unverified_prior_model_observations',
-      recorded_interpretations: changes.slice(0, input.indexRows).flatMap(frame => frame.observation === undefined ? [] : [{
-        frame_id: frame.frame_id, source_seconds: frame.time, observation: frame.observation }]),
-      event_notes: input.indexRows > 0 ? eventNotes : [], event_notes_omitted: input.indexRows > 0 ? 0 : eventNotes.length },
+      recorded_interpretations: changes.slice(0, input.indexRows).flatMap(frame => frame.observation === undefined
+        || actualFrameIds.has(frame.frame_id) ? [] : [{
+          frame_id: frame.frame_id, source_seconds: frame.time, observation: frame.observation }]),
+      selected_frame_observation_refs: frames.filter(frame => actualFrameIds.has(frame.frame_id)).map(frame => qualified(frame.frame_id)),
+      event_notes: input.indexRows > 0 ? eventNotes.map(event => !pairedIds.has(event.event_id) && !priorEvents.has(event.event_id)
+        ? event : {
+          event_id: event.event_id, start_seconds: event.start_seconds, end_seconds: event.end_seconds,
+          frame_ids: event.frame_ids, evidence_current: event.evidence_current,
+          interpretation: priorEvents.has(event.event_id) ? 'already_presented_in_this_notice' : 'returned_after_cached_images' }) : [],
+      event_notes_omitted: input.indexRows > 0 ? 0 : eventNotes.length },
     draft_speech_lines: lineRefs,
+    visual_query_anchor_skips: plans.flatMap(plan => plan.location.visual_queries
+      .filter(query => query.skipped_unaligned_dialogue_lines?.length)
+      .map(query => ({ scene_id: plan.scene.id, line: query.line,
+        nearest_aligned_dialogue_lines: query.nearest_aligned_dialogue_lines,
+        skipped_unaligned_dialogue_lines: query.skipped_unaligned_dialogue_lines,
+        scope: 'nearest_literal_dialogue_candidates_not_semantic_alignment' }))),
     original_asr_scope: { source_segments: speech.size, matched_segment_ids: [...matchedIds],
       selected_source_window_segment_ids: [...new Set(selected.filter(packet => packet.origin === 'source_timeline')
         .flatMap(packet => packet.interval.segment_ids))],
@@ -329,7 +586,9 @@ export function manuscriptVideoPacketContent(input: {
     visual_candidates: plans.flatMap(plan => plan.candidates.map(packet => ({ scene_id: plan.scene.id,
       origin: packet.origin ?? 'draft_candidates', literal_selection: packet.literal_selection,
       changed_visual_line_candidates: packet.changed_visual_lines, changed_literal_selection: packet.changed_literal_selection,
-      draft_lines: packet.lines.map(line => line.line), time_candidate: packet.interval, ambiguous: packet.ambiguous,
+      draft_lines: packet.lines.map(line => line.line), time_candidate: packet.interval, sampling_interval: packet.sampling_interval,
+      event_candidates: packet.event_candidates,
+      ambiguous: packet.ambiguous,
       selected_for_images: plan.selected.some(candidate => packetIdentity(candidate) === packetIdentity(packet)) }))),
     changed_visual_line_sampling: plans.flatMap(plan => plan.changed_visual_lines.map((line) => {
       const candidates = plan.candidates.filter(packet => packet.changed_visual_lines?.some(candidate => candidate.line === line.line))
@@ -351,6 +610,8 @@ export function manuscriptVideoPacketContent(input: {
   } }) }]
   for (const packet of selected) {
     const plan = plans.find(candidate => candidate.scene.id === packet.scene_id)
+    const candidates = candidateLines(plan, packet, frames, eventNotes)
+    const currentLines = packet.origin === 'source_timeline' ? [] : packet.sampling_lines?.length ? packet.sampling_lines : packet.lines
     const ids = [...new Set(packet.interval.segment_ids)]
     const originals = ids.flatMap((id) => {
       const segment = speech.get(id)
@@ -361,15 +622,21 @@ export function manuscriptVideoPacketContent(input: {
     content.push({ type: 'text', text: JSON.stringify({ manuscript_source_packet: {
       review_id: source.review_id, source_version: source.source_version, document_sha256: input.documentSha256,
       scene_id: packet.scene_id, scene_sha256: plan?.scene.sha256, origin: packet.origin ?? 'draft_candidates',
-      actual_current_lines: packet.origin === 'source_timeline' ? [] : packet.sampling_lines?.length ? packet.sampling_lines : packet.lines,
+      actual_current_lines: currentLines,
+      candidate_current_lines: candidates, candidate_current_lines_scope: 'temporal_candidates_not_verified_event_alignment',
+      previous_text: previousText(plan, [...currentLines, ...candidates]),
       retained_literal_line_candidates: packet.lines, literal_selection: packet.literal_selection,
       changed_visual_line_candidates: packet.changed_visual_lines, changed_literal_selection: packet.changed_literal_selection,
-      time_candidate: packet.interval, source_time_ambiguous: packet.ambiguous,
+      time_candidate: packet.interval, sampling_interval: packet.sampling_interval, source_time_ambiguous: packet.ambiguous,
       original_asr_first_occurrences: originals, asr_segment_refs: ids,
       selection_anchor: packet.selection_anchor, temporal_roles: 'source_time_only_not_verified_event_phases',
       selection_anchor_returned: packet.images.some(frame => frame.frame_id === packet.selection_anchor?.frame_id
         && images.has(frame.frame_id)),
       selection_basis: packet.selection_basis, eligible_cached_frames: packet.eligible_cache_frames,
+      event_candidates: packet.event_candidates, event_selection: packet.event_selection,
+      event_refs: paired.filter(entry => entry.event.frame_ids.some(id => packet.images.some(frame => frame.frame_id === id)))
+        .map(entry => ({ event_id: entry.event.event_id, frame_ids: entry.event.frame_ids,
+          evidence_current: entry.event.evidence_current, interpretation_source: 'prior_model_authored_unverified' })),
       requested_frame_ids: packet.images.map(frame => qualified(frame.frame_id)),
     } }) })
     for (const [index, frame] of packet.images.entries()) {
@@ -384,6 +651,20 @@ export function manuscriptVideoPacketContent(input: {
       if (image !== undefined) content.push(image)
     }
   }
+  content.push({ type: 'text', text: JSON.stringify({ manuscript_prior_frame_observations: {
+    review_id: source.review_id, source_version: source.source_version, document_sha256: input.documentSha256,
+    interpretation_source: 'prior_model_authored_unverified', meaning: 'recorded_observations_not_visual_truth_or_coverage',
+    frames: frames.filter(frame => actualFrameIds.has(frame.frame_id)).map(frame => ({
+      frame_id: qualified(frame.frame_id), time: frame.time,
+      status: frame.observation === undefined ? 'not_recorded' : 'recorded', observation: frame.observation })),
+  } }) })
+  content.push({ type: 'text', text: JSON.stringify({ manuscript_prior_event_interpretations: {
+    review_id: source.review_id, source_version: source.source_version, document_sha256: input.documentSha256,
+    interpretation_source: 'prior_model_authored_unverified', association: 'event_frame_refs_and_literal_time_overlap_not_semantic_alignment',
+    events: paired.filter(entry => !priorEvents.has(entry.event.event_id)).map(entry => ({ ...entry,
+      returned_frame_ids: entry.event.frame_ids.filter(id => actualFrameIds.has(id)).map(qualified) })),
+    already_presented_event_refs: paired.filter(entry => priorEvents.has(entry.event.event_id)).map(entry => entry.event.event_id),
+  } }) })
   content.push({ type: 'text', text: JSON.stringify({ manuscript_source_speech: {
     review_id: source.review_id, source_version: source.source_version,
     original_asr_remaining: [...matchedIds].flatMap((id) => {

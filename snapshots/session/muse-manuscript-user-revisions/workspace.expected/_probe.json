@@ -25,5 +25,7 @@
   "screenplayFormatReferenceReturned": true,
   "endingAndActionLocationsReturned": true,
   "missingEndingMarkerDidNotBlockDelivery": true,
-  "changedVisualLineSamplesBoundToCurrentDraft": true
+  "changedVisualLineSamplesBoundToCurrentDraft": true,
+  "endingCuePrecedesStructuredSourceEvidence": true,
+  "sourceTailImagesNotClaimedAsChangedLineCoverage": true
 }

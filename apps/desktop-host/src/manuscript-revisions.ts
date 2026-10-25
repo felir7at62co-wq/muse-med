@@ -308,6 +308,7 @@ export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
   const work = new ManuscriptWork(config)
   const videoEvidence = new ManuscriptVideoEvidence(config)
+  ctx.on('session/event', (session, event) => { videoEvidence.observeReceipt(session, event) })
   let videoSourceContext: Context | undefined
   ctx.inject(['fs', 'attachments', 'sandboxPolicy', 'sessionProjections'], (scope) => {
     installManuscriptVideoReads(scope, (message, cwd) => manuscriptDeclaredOutputs([message], cwd).length > 0, config)

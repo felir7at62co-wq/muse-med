@@ -7,13 +7,14 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ImageBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import { readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
-import { manuscriptFormatReference, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
+import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
-import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptVideoPacketContent, planManuscriptVideoPackets,
-  type ManuscriptPacketPlan } from './manuscript-video-packets.ts'
+import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
+  planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
 
 const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
   action: z.string().optional(), task_key: z.string().optional(), source_paths: z.array(z.string()).optional(),
@@ -31,6 +32,7 @@ interface MaterialCache {
 }
 const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_key: z.string(),
   presentation_version: z.string().optional(),
+  complete_lf_text_sha256: z.string().optional(),
   source_material_sha256: z.string(),
   source_identity_sha256: z.string().optional(),
   read_source_identity_sha256: z.string().optional(),
@@ -39,6 +41,8 @@ const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_
 type Receipt = z.infer<typeof receiptSchema> & { offloaded_frames?: string[] }
 interface SavedMutation {
   sha256: string
+  baselineText: string | null
+  returned: boolean
   lines: Set<number>
   basis: 'successful_native_mutation' | 'new_saved_document'
 }
@@ -318,7 +322,7 @@ function sceneVisualQueries(scene: ManuscriptScene) {
 }
 
 /**
- * Locate actual manuscript lines against saved ASR, retaining silent spans and every literal ambiguity.
+ * Locate manuscript lines against saved ASR; action ranges may skip unaligned dialogue to the nearest literal candidates in this scene.
  * @param scene - Complete current scene with actual line locations.
  * @param timeline - Verified current video material and original saved ASR rows.
  * @returns Candidate source windows, line anchors and literal visual queries; no semantic coverage verdict.
@@ -353,8 +357,10 @@ export function manuscriptSourceWindows(scene: ManuscriptScene, timeline: VideoS
     : timeline.windows.filter(window => window.end_seconds > start && window.start_seconds < end)
   const visualQueries = sceneVisualQueries(scene).map((query) => {
     const own = lineCandidates.find(line => line.line === query.line)
-    const previous = lineCandidates.findLast(line => line.line < query.line)
-    const next = lineCandidates.find(line => line.line > query.line)
+    const previous = lineCandidates.findLast(line => line.line < query.line && line.candidates.length > 0)
+    const next = lineCandidates.find(line => line.line > query.line && line.candidates.length > 0)
+    const skipped = query.kind === 'action_line' ? lineCandidates.filter(line => line.candidates.length === 0
+      && (previous === undefined || line.line > previous.line) && (next === undefined || line.line < next.line)) : []
     const ranges = query.kind === 'dialogue_parenthetical'
       ? (own?.candidates ?? []).map(anchor => ({ start_seconds: anchor.start_seconds, end_seconds: anchor.end_seconds,
         relation: 'within_speech_candidate', segment_ids: [anchor.segment_id] }))
@@ -369,6 +375,9 @@ export function manuscriptSourceWindows(scene: ManuscriptScene, timeline: VideoS
         start_seconds: windows[0]?.start_seconds ?? anchor.start_seconds, end_seconds: anchor.start_seconds,
         relation: 'before_speech_candidate', segment_ids: [anchor.segment_id] }))
     return { ...query, time_candidates: ranges,
+      ...skipped.length === 0 ? {} : { nearest_aligned_dialogue_lines: {
+        ...previous === undefined ? {} : { previous_line: previous.line }, ...next === undefined ? {} : { next_line: next.line } },
+      skipped_unaligned_dialogue_lines: skipped.map(line => line.line) },
       temporal_alignment: ranges.length ? 'literal_speech_time_candidates' : 'not_aligned',
       source_ambiguity_retained: ranges.length > 1 }
   })
@@ -398,15 +407,23 @@ export function manuscriptEvidenceFrames(scene: ManuscriptScene, location: Retur
 }
 
 function sourceEnding(timeline: VideoSourceTimeline, maximum: number) {
-  const window = timeline.windows.at(-1)
-  const segments = (timeline.speech?.segments ?? []).filter(segment => window?.speech_segment_ids.includes(segment.segment_id))
+  const end = timeline.source.duration_seconds, start = Math.max(0, end - timeline.scope.window_seconds)
+  const windows = timeline.windows.filter(window => window.end_seconds >= start)
+  const frames = windows.flatMap(window => window.frames).filter(frame => frame.time >= start)
+  const allSpeech = timeline.speech?.segments ?? []
+  const lastSpeech = allSpeech.reduce<typeof allSpeech[number] | undefined>((last, segment) =>
+    last === undefined || segment.end_seconds > last.end_seconds ? segment : last, undefined)
+  const segments = allSpeech.filter(segment => segment.end_seconds >= start && segment.start_seconds <= end)
+  const speechRef = ({ raw: _raw, ...segment }: typeof allSpeech[number]) => segment
   return { source_end_seconds: timeline.source.duration_seconds, scanned_until: timeline.source.scanned_until,
-    scan_complete: timeline.source.scan_complete, window: window === undefined ? null : {
-      window_id: window.window_id, start_seconds: window.start_seconds, end_seconds: window.end_seconds,
-      frame_refs: window.frames.slice(-maximum).map(frame => ({ frame_id: frame.frame_id, time: frame.time })),
-      omitted_frames: Math.max(0, window.frames.length - maximum) },
-    original_asr: segments.slice(-maximum), omitted_asr: Math.max(0, segments.length - maximum),
-    selection: 'last_timeline_window_source_tail_observations_may_be_incomplete',
+    scan_complete: timeline.source.scan_complete, window: {
+      window_ids: windows.map(window => window.window_id), start_seconds: start, end_seconds: end,
+      frame_refs: frames.slice(-maximum).map(frame => ({ frame_id: frame.frame_id, time: frame.time })),
+      omitted_frames: Math.max(0, frames.length - maximum) },
+    original_asr: segments.slice(-maximum).map(speechRef), omitted_asr: Math.max(0, segments.length - maximum),
+    last_recorded_asr: lastSpeech === undefined ? null : speechRef(lastSpeech),
+    asr_payload: 'canonical_original_text_and_time_refs_raw_rows_in_source_packet',
+    selection: 'rolling_source_tail_last_recorded_speech_separate_from_silent_tail',
     relationship: 'source_tail_not_aligned_to_draft_ending', suspense_assessment: 'not_performed' }
 }
 
@@ -437,9 +454,27 @@ function observationLocations(location: ReturnType<typeof manuscriptSourceWindow
 export class ManuscriptVideoEvidence {
   private readonly saved = new WeakMap<Agent, Set<string>>()
   private readonly parsed = new WeakMap<Agent, MaterialCache>()
-  private readonly mutations = new WeakMap<Agent, Map<string, SavedMutation>>()
+  private readonly mutations = new WeakMap<Session, Map<string, SavedMutation>>()
 
   constructor(private readonly config: Config) {}
+
+  /**
+   * Mark only an actually logged source receipt as returned, without claiming image admission or understanding.
+   * @param session - Session owning the committed receipt and pending native mutation.
+   * @param event - Newly committed event; unrelated events do not inspect prior history.
+   */
+  observeReceipt(session: Session, event: SessionEvent): void {
+    if (event.type !== 'user/message' || event.data.source.kind !== 'muse-manuscript') return
+    const pending = this.mutations.get(session)
+    if (pending === undefined || pending.size === 0) return
+    for (const block of event.data.content) {
+      if (block.type !== 'text' || !block.text.startsWith('{"manuscript_video_evidence":')) continue
+      const parsed = z.object({ manuscript_video_evidence: z.object({ receipt: receiptSchema }) }).safeParse(parsedJson(block.text))
+      if (!parsed.success) continue
+      const receipt = parsed.data.manuscript_video_evidence.receipt, mutation = pending.get(receipt.path)
+      if (mutation !== undefined && mutation.sha256 === receipt.complete_lf_text_sha256) mutation.returned = true
+    }
+  }
 
   /**
    * Retain a successful tool result's actual path, including nested dispatches whose arguments are not top-level messages.
@@ -462,23 +497,26 @@ export class ManuscriptVideoEvidence {
     try { key = await realpath(resolved) }
     catch (_error) {
       // A successful write can disappear before this advisory reads its identity; no mutation is inferred.
-      this.mutations.get(agent)?.delete(resolved)
+      this.mutations.get(agent.session)?.delete(resolved)
       return
     }
-    const retained = this.mutations.get(agent) ?? new Map<string, SavedMutation>()
+    const retained = this.mutations.get(agent.session) ?? new Map<string, SavedMutation>(), previous = retained.get(key)
     retained.delete(key)
     if (mutation !== undefined && (mutation.before !== null || mutation.operation === 'create')
       && (mutation.before === null || mutation.before.length <= this.config.maxTextChars)
       && mutation.after.length <= this.config.maxTextChars && retained.size < this.config.maxDocuments) {
+      const continuesPending = previous !== undefined && !previous.returned && mutation.before !== null
+        && previous.sha256 === manuscriptTextHash(mutation.before)
+      const baselineText = continuesPending ? previous.baselineText : mutation.before
       const numbered = (text: string) => manuscriptReadText(text).split('\n').map((text, index) => ({ number: index + 1, text }))
-      const before = mutation.before === null ? [] : numbered(mutation.before), after = numbered(mutation.after)
+      const before = baselineText === null ? [] : numbered(baselineText), after = numbered(mutation.after)
       const changes = before.length > this.config.maxParagraphs || after.length > this.config.maxParagraphs
         ? undefined : sourceLineChanges(before, after, this.config.maxEditLength)
-      if (changes !== undefined) retained.set(key, { sha256: manuscriptTextHash(mutation.after),
+      if (changes !== undefined) retained.set(key, { sha256: manuscriptTextHash(mutation.after), baselineText, returned: false,
         lines: new Set(changes.flatMap(hunk => hunk.after.map(line => line.number))),
-        basis: mutation.before === null ? 'new_saved_document' : 'successful_native_mutation' })
+        basis: baselineText === null ? 'new_saved_document' : 'successful_native_mutation' })
     }
-    this.mutations.set(agent, retained)
+    this.mutations.set(agent.session, retained)
   }
 
   /**
@@ -548,6 +586,7 @@ export class ManuscriptVideoEvidence {
     paths.sort((a, b) => (prior.findLast(entry => entry.path === a)?.returned_frames.length ?? 0)
       - (prior.findLast(entry => entry.path === b)?.returned_frames.length ?? 0))
     let remainingFrames = this.config.videoEvidenceMaxFrames
+    const returnedEvents = new Map<string, Set<string>>()
     for (const path of paths) {
       let document
       try { document = await readManuscript(path, cwd, this.config, signal) }
@@ -558,9 +597,15 @@ export class ManuscriptVideoEvidence {
       const scenes = manuscriptScenes(document.text)
       if (scenes.every(scene => scene.episode === 'unassigned')) continue
       const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, registered.sourceBinding, this.config, signal)
-      const mutation = this.mutations.get(agent)?.get(document.path)
+      const mutation = this.mutations.get(agent.session)?.get(document.path)
       const currentMutation = mutation?.sha256 === manuscriptTextHash(document.text.replaceAll('\r\n', '\n')) ? mutation : undefined
       const readChanges = readRevisions.reports.filter(report => report.status === 'compared')
+      const numbered = (text: string) => manuscriptReadText(text).split('\n').map((text, index) => ({ number: index + 1, text }))
+      const nativeBaseline = currentMutation?.baselineText
+      const nativeChanges = nativeBaseline === undefined || nativeBaseline === null ? undefined
+        : sourceLineChanges(numbered(nativeBaseline), numbered(document.text), this.config.maxEditLength)
+      const nativeSourceTextHash = nativeBaseline === undefined || nativeBaseline === null ? undefined
+        : manuscriptTextHash(manuscriptReadText(nativeBaseline))
       const changedLines = currentMutation?.basis === 'successful_native_mutation' ? currentMutation.lines : readChanges.length
         ? new Set(readChanges.flatMap(report => report.hunks.flatMap(hunk => hunk.after.map(line => line.number))))
         : currentMutation?.lines
@@ -648,6 +693,7 @@ export class ManuscriptVideoEvidence {
         plans: ManuscriptPacketPlan[]
         images: Map<string, ImageBlock>
       }>()
+      const sourceEndings = new Map<string, ReturnType<typeof sourceEnding> & { episode: string; draft_path: string }>()
       const returnedFrames = [...carriedFrames]
       for (const [selectedIndex, entry] of selected.entries()) {
         const index = scenes.indexOf(entry.scene)
@@ -671,7 +717,28 @@ export class ManuscriptVideoEvidence {
           ? Math.floor(remainingFrames / Math.max(1, priorityScenes))
           : Math.min(remainingFrames, Math.max(1, Math.floor(this.config.videoEvidenceMaxFrames / (selected.length * paths.length)))) : 0
         const alreadyReturned = new Set(returnedFrames.filter(frame => frame.review_id === source.review_id).map(frame => frame.frame_id))
-        const plan = planManuscriptVideoPackets(entry.scene, location, allowance, alreadyReturned, changedLines)
+        const tail = imageCapable && !sourceEndings.has(source.review_id)
+          ? planManuscriptSourceTail(entry.scene, timeline, Math.min(2, remainingFrames), alreadyReturned) : undefined
+        const tailIds = tail?.images.map(frame => frame.frame_id) ?? []
+        const previousHunks = readRevision?.status === 'compared'
+          ? readRevision.hunks.map(hunk => ({ basis: 'complete_read_source_difference' as const,
+            before: hunk.before.map(line => ({ line: line.number, quote: line.text })),
+            after_lines: hunk.after.map(line => line.number),
+            ...readRevision.comparison_source === undefined ? {} : { source_path: readRevision.comparison_source.path,
+              ...readRevision.comparison_source.read_text_sha256 === undefined ? {} : {
+                source_text_sha256: readRevision.comparison_source.read_text_sha256 } } }))
+          : nativeChanges?.map(hunk => ({ basis: 'successful_native_mutation' as const,
+            before: hunk.before.map(line => ({ line: line.number, quote: line.text })),
+            after_lines: hunk.after.map(line => line.number), source_path: document.path,
+            ...nativeSourceTextHash === undefined ? {} : { source_text_sha256: nativeSourceTextHash } }))
+        const packetContext: PacketContext = { document_sha256: document.sha256,
+          previous_status: previousHunks === undefined ? 'unavailable' : 'available',
+          ...previousHunks === undefined ? {} : { previous_hunks: previousHunks },
+          excluded_event_ids: new Set(returnedEvents.get(source.review_id)) }
+        const plan = planManuscriptVideoPackets(entry.scene, location,
+          tail === undefined ? allowance : remainingFrames - tailIds.length,
+          new Set([...alreadyReturned, ...tailIds]), changedLines, packetContext)
+        if (tail !== undefined) { plan.candidates.push(tail); plan.selected.unshift(tail) }
         const frameIds = plan.selected.flatMap(packet => packet.images.map(frame => frame.frame_id))
         const selectedMaterial = frameIds.length ? await readVideoSourceTimeline(ctx, agent.session, source.review_id, {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
@@ -699,6 +766,10 @@ export class ManuscriptVideoEvidence {
         returnedFrames.push(...actualFrames.map(frame_id => ({ review_id: source.review_id, frame_id })))
         const availableFrames = location.windows.flatMap(window => window.frames).filter(frame => frame.image_available)
         const sourceFirst = plan.selected.some(packet => packet.origin === 'source_timeline')
+        const ending = sourceEndings.has(source.review_id) ? { source_ending_ref: source.review_id }
+          : { source_ending: sourceEnding(timeline, this.config.maxRepeatFindings) }
+        if ('source_ending' in ending) sourceEndings.set(source.review_id, { ...ending.source_ending,
+          episode: entry.scene.episode, draft_path: document.path })
         reports.push({ manuscript, ...readMaterial, source_alignment: location.basis,
           source_association: entry.singleCurrentCandidate ? 'single_current_task_video_candidate'
             : sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
@@ -707,7 +778,7 @@ export class ManuscriptVideoEvidence {
           image_selection_scope: sourceFirst ? 'source_timeline_samples_not_draft_alignment' : location.image_selection_scope,
           transcript_resolution: timeline.transcript_resolution,
           speech_unavailable: timeline.speech_unavailable,
-          source_ending: sourceEnding(timeline, this.config.maxRepeatFindings),
+          ...ending,
           observation_locations: observationLocations(location, this.config.maxRepeatFindings),
           images: { returned_frame_ids: actualFrames, returned: actualFrames.length,
             requested_frame_ids: frameIds, unavailable_frame_ids: frameIds.filter(id => !packetSource.images.has(id)),
@@ -717,6 +788,7 @@ export class ManuscriptVideoEvidence {
           notice: location.notice })
       }
       const receipt: Receipt = { path: document.path, sha256: document.sha256, evidence_key: evidenceKey,
+        complete_lf_text_sha256: manuscriptTextHash(document.text.replaceAll('\r\n', '\n')),
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
         read_source_identity_sha256: readRevisions.identity,
         source_material_sha256: sourceMaterialHash, source_identity_sha256: sourceIdentityHash, returned_frames: returnedFrames,
@@ -725,13 +797,17 @@ export class ManuscriptVideoEvidence {
       const remainingImages = locations.filter(entry => entry.location !== undefined && entry.sources[0] !== undefined
         && manuscriptEvidenceFrames(entry.scene, entry.location, 1, new Set(returnedFrames
           .filter(frame => frame.review_id === entry.sources[0]?.review_id).map(frame => frame.frame_id))).length > 0)
+      const presentation = manuscriptPresentationEvidence(scenes.map(scene => ({ ...scene, path: document.path })),
+        { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars },
+        changedLines === undefined ? undefined : new Map([[document.path, changedLines]]),
+        new Map([[document.path, new Set(selected.map(entry => entry.scene.episode))]]))
+      const cue = manuscriptEndingCue(presentation, [...sourceEndings.values()].map(ending => ({
+        episode: ending.episode, draft_path: ending.draft_path, last_asr: ending.last_recorded_asr,
+        frames: ending.window.frame_refs })),
+      { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars }, registered.sourceBinding?.mode)
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
-        format_reference: manuscriptFormatReference(registered.sourceBinding?.mode),
-        presentation_evidence: manuscriptPresentationEvidence(scenes.map(scene => ({ ...scene, path: document.path })),
-          { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars },
-          changedLines === undefined ? undefined : new Map([[document.path, changedLines]]),
-          new Map([[document.path, new Set(selected.map(entry => entry.scene.episode))]])),
+        presentation_evidence: presentation,
         changed_line_selection: changedSelection,
         output_association: declarations.get(document.path) ?? { basis: registered.explicitlyBound
           ? 'explicit_manuscript_work_binding' : 'successful_tool_path' },
@@ -741,13 +817,13 @@ export class ManuscriptVideoEvidence {
         not_returned_scenes: changed.filter(entry => !selected.includes(entry)).length,
         remaining_image_scenes: remainingImages.length,
         scope: 'saved_draft_changed_scenes_with_source_candidates', scenes: reports,
-        notice: '这是保存后回读的当前稿、前后场和来源定位候选；模型观察不是独立事实，图片与ASR原段供当前Muse判断。未返回场景和原图不算已核对；未返回原图只是范围说明，不要求消成零或重跑整集，可选revisit读取其他缓存图。没有审批、动作行配额或交付限制。' } })
+        notice: '当前稿、原句与缓存图仅供判断；引用和模型笔记不是独立事实。未返回范围未核对，不要求消成零或自动重跑；无审批、动作配额或交付限制。' } })
       const sourceContent = (includeIndexes: boolean) => [...packetSources.values()].flatMap(packetSource =>
         manuscriptVideoPacketContent({ ...packetSource, documentSha256: document.sha256,
           indexRows: includeIndexes ? packetSource.timeline.windows.reduce((total, window) => total + window.frames.length, 0) : 0 }))
-      let content: ContentBlock[] = [{ type: 'text', text }, ...sourceContent(true)]
+      let content: ContentBlock[] = [{ type: 'text', text: cue }, { type: 'text', text }, ...sourceContent(true)]
       if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
-        content = [{ type: 'text', text }, ...sourceContent(false)]
+        content = [{ type: 'text', text: cue }, { type: 'text', text }, ...sourceContent(false)]
       }
       if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
         throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
@@ -757,6 +833,11 @@ export class ManuscriptVideoEvidence {
       const currentReadRevisions = await readSourceRevisions(ctx, agent, current, scenes, registered.sourceBinding, this.config, signal)
       if (currentReadRevisions.identity !== readRevisions.identity) {
         throw Error('MANUSCRIPT_READ_SOURCE_CHANGED: 来源在原句差异读取期间变化，未返回过期对照或标记完成。')
+      }
+      for (const [id, source] of packetSources) {
+        const ids = returnedEvents.get(id) ?? new Set<string>()
+        for (const eventId of manuscriptPacketEventIds(source.timeline, source.plans, new Set(source.images.keys()))) ids.add(eventId)
+        returnedEvents.set(id, ids)
       }
       output.push(...content)
     }
