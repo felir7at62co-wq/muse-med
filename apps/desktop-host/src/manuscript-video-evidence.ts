@@ -10,13 +10,14 @@ import { z } from 'zod'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
+import { manuscriptFormatReference, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptVideoPacketContent, planManuscriptVideoPackets,
   type ManuscriptPacketPlan } from './manuscript-video-packets.ts'
 
 const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
   action: z.string().optional(), task_key: z.string().optional(), source_paths: z.array(z.string()).optional(),
-  candidate_paths: z.array(z.string()).optional() })
+  candidate_paths: z.array(z.string()).optional(), mode: z.enum(['adapt', 'transcribe', 'edit']).optional() })
 type CallArguments = z.infer<typeof callArguments>
 type DeclaredOutputs = ReturnType<typeof manuscriptDeclaredOutputs>
 interface MessageMaterialCache {
@@ -36,6 +37,11 @@ const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_
   returned_frames: z.array(z.object({ review_id: z.string(), frame_id: z.string() })),
   scene_versions: z.array(z.object({ id: z.string(), sha256: z.string() })) })
 type Receipt = z.infer<typeof receiptSchema> & { offloaded_frames?: string[] }
+interface SavedMutation {
+  sha256: string
+  lines: Set<number>
+  basis: 'successful_native_mutation' | 'new_saved_document'
+}
 
 function parsedJson(text: string): unknown {
   try { return JSON.parse(text) }
@@ -70,7 +76,7 @@ function declaredOutputs(message: Message, cwd: string, cache: MaterialCache): D
 function registeredPaths(messages: readonly Message[], cwd: string, cache: MaterialCache) {
   const calls = new Map<string, ToolCallBlock>(), paths = new Set<string>()
   let bound: string[] | undefined
-  let sourceBinding: { task_key: string | undefined; paths: string[] } | undefined
+  let sourceBinding: { task_key: string | undefined; paths: string[]; mode: CallArguments['mode'] } | undefined
   for (const message of messages) {
     if (message.role === 'assistant') for (const block of message.content) {
       if (block.type === 'tool-call') calls.set(block.id, block)
@@ -82,7 +88,7 @@ function registeredPaths(messages: readonly Message[], cwd: string, cache: Mater
     if (args === undefined) continue
     if (call.name === 'manuscript_work' && args.action === 'bind') {
       bound = args.candidate_paths?.filter(isManuscript).map(path => resolve(cwd, path))
-      sourceBinding = { task_key: args.task_key, paths: (args.source_paths ?? []).map(path => resolve(cwd, path)) }
+      sourceBinding = { task_key: args.task_key, paths: (args.source_paths ?? []).map(path => resolve(cwd, path)), mode: args.mode }
     }
     const selected = call.name === 'manuscript_work' && args.action === 'bind' ? args.candidate_paths ?? []
       : call.name === 'video_inspect' ? args.draft_path === undefined ? [] : [args.draft_path]
@@ -278,15 +284,16 @@ async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited
         source_line_numbers: before.map(line => line.number) } },
       hunks: changes ?? [], semantic_assessment: 'not_performed' })
   }
-  const identity = { binding: binding === undefined ? null : { task_key: binding.task_key, paths: binding.paths.map(identityPath) },
-    reports: reports.map(report => ({ episode: report.episode, relationship: report.relationship, status: report.status,
-      omitted_read_snapshots: report.omitted_read_snapshots,
-      bound_text_paths_without_matching_snapshot: report.bound_text_paths_without_matching_snapshot.map(identityPath),
-      candidates: report.candidates.map(candidate => ({ path: identityPath(candidate.path),
-        read_text_sha256: candidate.read_text_sha256, read_window_sha256: candidate.read_window_sha256,
-        read_scope: candidate.read_scope, current_status: candidate.current_status,
-        current_source_file_sha256: candidate.current_source_file_sha256,
-        current_read_text_sha256: candidate.current_read_text_sha256 })) })) }
+  const identity = { binding: binding === undefined ? null : {
+    task_key: binding.task_key, paths: binding.paths.map(identityPath), mode: binding.mode },
+  reports: reports.map(report => ({ episode: report.episode, relationship: report.relationship, status: report.status,
+    omitted_read_snapshots: report.omitted_read_snapshots,
+    bound_text_paths_without_matching_snapshot: report.bound_text_paths_without_matching_snapshot.map(identityPath),
+    candidates: report.candidates.map(candidate => ({ path: identityPath(candidate.path),
+      read_text_sha256: candidate.read_text_sha256, read_window_sha256: candidate.read_window_sha256,
+      read_scope: candidate.read_scope, current_status: candidate.current_status,
+      current_source_file_sha256: candidate.current_source_file_sha256,
+      current_read_text_sha256: candidate.current_read_text_sha256 })) })) }
   return { reports, identity: manuscriptTextHash(JSON.stringify(identity)) }
 }
 
@@ -390,6 +397,39 @@ export function manuscriptEvidenceFrames(scene: ManuscriptScene, location: Retur
   return planManuscriptVideoPackets(scene, location, count, excluded).selected.flatMap(packet => packet.images.map(frame => frame.frame_id))
 }
 
+function sourceEnding(timeline: VideoSourceTimeline, maximum: number) {
+  const window = timeline.windows.at(-1)
+  const segments = (timeline.speech?.segments ?? []).filter(segment => window?.speech_segment_ids.includes(segment.segment_id))
+  return { source_end_seconds: timeline.source.duration_seconds, scanned_until: timeline.source.scanned_until,
+    scan_complete: timeline.source.scan_complete, window: window === undefined ? null : {
+      window_id: window.window_id, start_seconds: window.start_seconds, end_seconds: window.end_seconds,
+      frame_refs: window.frames.slice(-maximum).map(frame => ({ frame_id: frame.frame_id, time: frame.time })),
+      omitted_frames: Math.max(0, window.frames.length - maximum) },
+    original_asr: segments.slice(-maximum), omitted_asr: Math.max(0, segments.length - maximum),
+    selection: 'last_timeline_window_source_tail_observations_may_be_incomplete',
+    relationship: 'source_tail_not_aligned_to_draft_ending', suspense_assessment: 'not_performed' }
+}
+
+function observationLocations(location: ReturnType<typeof manuscriptSourceWindows>, maximum: number) {
+  const rows = location.visual_queries.flatMap(query => query.time_candidates.map((range) => {
+    const windows = location.windows.filter(window => window.start_seconds <= range.end_seconds
+      && window.end_seconds >= range.start_seconds)
+    const observations = windows.flatMap(window => window.frames.filter(frame => frame.observation !== undefined
+        && frame.time >= range.start_seconds && frame.time <= range.end_seconds)
+      .map(frame => ({ window_id: window.window_id, frame_id: frame.frame_id, time: frame.time })))
+    const events = windows.flatMap(window => window.event_notes.filter(event => event.start_seconds <= range.end_seconds
+      && event.end_seconds >= range.start_seconds).map(event => ({ window_id: window.window_id, event_id: event.event_id,
+      evidence_current: event.evidence_current, evidence_source: event.evidence_source })))
+    return { line: query.line, kind: query.kind, time_candidate: range,
+      observation_refs: observations.slice(0, maximum), omitted_observation_refs: Math.max(0, observations.length - maximum),
+      event_refs: events.slice(0, maximum), omitted_event_refs: Math.max(0, events.length - maximum) }
+  }))
+  return { candidates: rows.slice(0, maximum), total: rows.length, omitted: Math.max(0, rows.length - maximum),
+    note_text_location: 'refs_only_text_may_require_cached_frame_read',
+    relationship: 'time_overlap_candidates_not_event_equivalence', unmatched: 'unjudged_not_an_omission',
+    semantic_assessment: 'not_performed' }
+}
+
 /**
  * Connect successfully saved manuscript paths to current Session-local video sources and logged source receipts.
  * @param config - Deployment-controlled scene, image and source-read budgets.
@@ -397,6 +437,7 @@ export function manuscriptEvidenceFrames(scene: ManuscriptScene, location: Retur
 export class ManuscriptVideoEvidence {
   private readonly saved = new WeakMap<Agent, Set<string>>()
   private readonly parsed = new WeakMap<Agent, MaterialCache>()
+  private readonly mutations = new WeakMap<Agent, Map<string, SavedMutation>>()
 
   constructor(private readonly config: Config) {}
 
@@ -404,12 +445,40 @@ export class ManuscriptVideoEvidence {
    * Retain a successful tool result's actual path, including nested dispatches whose arguments are not top-level messages.
    * @param agent - Owning author Session.
    * @param path - Actual successful write/edit result path.
+   * @param mutation - Native LF-normalized mutation text, used only while its complete after text matches the saved file.
+   * @returns Once the existing file identity is retained; a later unavailable file does not change the successful tool result.
    */
-  remember(agent: Agent, path: string): void {
+  async remember(agent: Agent, path: string, mutation?: {
+    before: string | null
+    after: string
+    operation?: 'create' | 'update' | undefined
+  }): Promise<void> {
     if (!isManuscript(path)) return
     const paths = this.saved.get(agent) ?? new Set<string>()
     paths.add(path)
     this.saved.set(agent, paths)
+    const resolved = resolve(agent.session.header.cwd ?? '', path)
+    let key: string
+    try { key = await realpath(resolved) }
+    catch (_error) {
+      // A successful write can disappear before this advisory reads its identity; no mutation is inferred.
+      this.mutations.get(agent)?.delete(resolved)
+      return
+    }
+    const retained = this.mutations.get(agent) ?? new Map<string, SavedMutation>()
+    retained.delete(key)
+    if (mutation !== undefined && (mutation.before !== null || mutation.operation === 'create')
+      && (mutation.before === null || mutation.before.length <= this.config.maxTextChars)
+      && mutation.after.length <= this.config.maxTextChars && retained.size < this.config.maxDocuments) {
+      const numbered = (text: string) => manuscriptReadText(text).split('\n').map((text, index) => ({ number: index + 1, text }))
+      const before = mutation.before === null ? [] : numbered(mutation.before), after = numbered(mutation.after)
+      const changes = before.length > this.config.maxParagraphs || after.length > this.config.maxParagraphs
+        ? undefined : sourceLineChanges(before, after, this.config.maxEditLength)
+      if (changes !== undefined) retained.set(key, { sha256: manuscriptTextHash(mutation.after),
+        lines: new Set(changes.flatMap(hunk => hunk.after.map(line => line.number))),
+        basis: mutation.before === null ? 'new_saved_document' : 'successful_native_mutation' })
+    }
+    this.mutations.set(agent, retained)
   }
 
   /**
@@ -489,6 +558,18 @@ export class ManuscriptVideoEvidence {
       const scenes = manuscriptScenes(document.text)
       if (scenes.every(scene => scene.episode === 'unassigned')) continue
       const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, registered.sourceBinding, this.config, signal)
+      const mutation = this.mutations.get(agent)?.get(document.path)
+      const currentMutation = mutation?.sha256 === manuscriptTextHash(document.text.replaceAll('\r\n', '\n')) ? mutation : undefined
+      const readChanges = readRevisions.reports.filter(report => report.status === 'compared')
+      const changedLines = currentMutation?.basis === 'successful_native_mutation' ? currentMutation.lines : readChanges.length
+        ? new Set(readChanges.flatMap(report => report.hunks.flatMap(hunk => hunk.after.map(line => line.number))))
+        : currentMutation?.lines
+      const changedSelection = { basis: currentMutation?.basis === 'successful_native_mutation' ? currentMutation.basis
+        : readChanges.length ? 'complete_read_source_difference' : currentMutation?.basis ?? 'unavailable',
+      current_file_sha256: document.sha256, after_changed_lines: changedLines === undefined ? [] : [...changedLines],
+      native_text_comparison: 'complete_lf_normalized_text_with_final_newline_preserved',
+      native_mutation_status: mutation === undefined ? 'not_retained' : currentMutation === undefined ? 'after_hash_mismatch' : 'current',
+      semantic_assessment: 'not_performed' }
       const episodeLabels = new Set(scenes.map(scene => manuscriptEpisodeNumber(scene.episode)).filter(label => label !== undefined))
       const currentSources = sources.filter(source => sourceScope.paths.has(source.path))
       const singleCurrent = episodeLabels.size === 1 && sourceScope.paths.size === 1 && currentSources.length === 1
@@ -550,8 +631,11 @@ export class ManuscriptVideoEvidence {
         const timeline = source === undefined ? undefined : timelines.get(source.review_id)
         return { ...entry, timeline, location: timeline === undefined ? undefined : manuscriptSourceWindows(entry.scene, timeline) }
       })
+      const priority = (entry: typeof locations[number]) => entry.location?.visual_queries.some(query => changedLines?.has(query.line)
+        && query.time_candidates.length) ? 2 : sceneVisualQueries(entry.scene).some(query => changedLines?.has(query.line)) ? 1 : 0
       const changed = locations
         .filter(entry => !deliveredScenes.some(old => old.id === entry.scene.id && old.sha256 === entry.scene.sha256))
+        .sort((left, right) => priority(right) - priority(left))
       const invalidatedFrames = new Set(carried?.sha256 === document.sha256 ? [] : changed.flatMap(entry => entry.location?.windows
         .flatMap(window => window.frames.map(frame => `${entry.sources[0]?.review_id}/${frame.frame_id}`)) ?? []))
       const carriedFrames = carried?.returned_frames.filter(frame => !invalidatedFrames.has(`${frame.review_id}/${frame.frame_id}`)) ?? []
@@ -565,7 +649,7 @@ export class ManuscriptVideoEvidence {
         images: Map<string, ImageBlock>
       }>()
       const returnedFrames = [...carriedFrames]
-      for (const entry of selected) {
+      for (const [selectedIndex, entry] of selected.entries()) {
         const index = scenes.indexOf(entry.scene)
         const manuscript = { current: entry.scene, previous: scenes[index - 1] ?? null, next: scenes[index + 1] ?? null }
         const episode = manuscriptEpisodeNumber(entry.scene.episode)
@@ -582,10 +666,12 @@ export class ManuscriptVideoEvidence {
           continue
         }
         const location = entry.location ?? manuscriptSourceWindows(entry.scene, timeline)
-        const allowance = imageCapable
-          ? Math.min(remainingFrames, Math.max(1, Math.floor(this.config.videoEvidenceMaxFrames / (selected.length * paths.length)))) : 0
+        const priorityScenes = selected.slice(selectedIndex).filter(candidate => priority(candidate) > 0).length
+        const allowance = imageCapable ? priority(entry) > 0
+          ? Math.floor(remainingFrames / Math.max(1, priorityScenes))
+          : Math.min(remainingFrames, Math.max(1, Math.floor(this.config.videoEvidenceMaxFrames / (selected.length * paths.length)))) : 0
         const alreadyReturned = new Set(returnedFrames.filter(frame => frame.review_id === source.review_id).map(frame => frame.frame_id))
-        const plan = planManuscriptVideoPackets(entry.scene, location, allowance, alreadyReturned)
+        const plan = planManuscriptVideoPackets(entry.scene, location, allowance, alreadyReturned, changedLines)
         const frameIds = plan.selected.flatMap(packet => packet.images.map(frame => frame.frame_id))
         const selectedMaterial = frameIds.length ? await readVideoSourceTimeline(ctx, agent.session, source.review_id, {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
@@ -621,6 +707,8 @@ export class ManuscriptVideoEvidence {
           image_selection_scope: sourceFirst ? 'source_timeline_samples_not_draft_alignment' : location.image_selection_scope,
           transcript_resolution: timeline.transcript_resolution,
           speech_unavailable: timeline.speech_unavailable,
+          source_ending: sourceEnding(timeline, this.config.maxRepeatFindings),
+          observation_locations: observationLocations(location, this.config.maxRepeatFindings),
           images: { returned_frame_ids: actualFrames, returned: actualFrames.length,
             requested_frame_ids: frameIds, unavailable_frame_ids: frameIds.filter(id => !packetSource.images.has(id)),
             available_in_selected_windows: availableFrames.length,
@@ -639,6 +727,12 @@ export class ManuscriptVideoEvidence {
           .filter(frame => frame.review_id === entry.sources[0]?.review_id).map(frame => frame.frame_id))).length > 0)
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
+        format_reference: manuscriptFormatReference(registered.sourceBinding?.mode),
+        presentation_evidence: manuscriptPresentationEvidence(scenes.map(scene => ({ ...scene, path: document.path })),
+          { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars },
+          changedLines === undefined ? undefined : new Map([[document.path, changedLines]]),
+          new Map([[document.path, new Set(selected.map(entry => entry.scene.episode))]])),
+        changed_line_selection: changedSelection,
         output_association: declarations.get(document.path) ?? { basis: registered.explicitlyBound
           ? 'explicit_manuscript_work_binding' : 'successful_tool_path' },
         image_delivery: 'cached_blocks_returned_not_admission_or_understanding',

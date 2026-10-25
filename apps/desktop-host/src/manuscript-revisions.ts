@@ -431,7 +431,9 @@ export function apply(ctx: Context, config: Config): void {
     const decision = await next()
     if (exec.agent && ['write', 'edit'].includes(exec.name) && !result.isError && decision.kind === 'accept') {
       const mutation = z.object({ path: z.string() }).safeParse(result.value)
-      if (mutation.success) videoEvidence.remember(exec.agent, mutation.data.path)
+      const text = z.object({ before: z.string().nullable(), after: z.string(),
+        operation: z.enum(['create', 'update']).optional() }).safeParse(result.value)
+      if (mutation.success) await videoEvidence.remember(exec.agent, mutation.data.path, text.success ? text.data : undefined)
     }
     return decision
   })

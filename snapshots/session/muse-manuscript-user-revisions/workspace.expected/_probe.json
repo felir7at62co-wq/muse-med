@@ -21,5 +21,9 @@
   "successfulAsrReadCandidateUsed": true,
   "explicitTranscriptReferenceRequired": false,
   "completeReadSourceDiffLogged": true,
-  "readSourceAdoptionNotInferred": true
+  "readSourceAdoptionNotInferred": true,
+  "screenplayFormatReferenceReturned": true,
+  "endingAndActionLocationsReturned": true,
+  "missingEndingMarkerDidNotBlockDelivery": true,
+  "changedVisualLineSamplesBoundToCurrentDraft": true
 }

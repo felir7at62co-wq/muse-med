@@ -37,7 +37,12 @@ interface GuidanceCandidates {
   notice: string
 }
 
-function dialogue(location: Location): Dialogue | undefined {
+/**
+ * Parse a screenplay dialogue label while preserving its exact line and parentheticals.
+ * @param location - Current manuscript location and unmodified line.
+ * @returns A syntactically recognized speech line, without judging speaker identity or performance.
+ */
+export function manuscriptDialogue(location: Location): Dialogue | undefined {
   const match = /^\s*([^：:\n]+)[：:]\s*(.+)$/u.exec(location.quote)
   if (!match?.[1] || !match[2]) return undefined
   const parentheticals = [...match[1].matchAll(/[（(]([^（）()]*)[）)]/gu)].map(entry => entry[1] ?? '')
@@ -75,7 +80,7 @@ export function manuscriptScreenplayCandidates(scenes: readonly (ManuscriptScene
       const cast = /^\s*人物\s*[：:]\s*(.*)$/u.exec(quote)?.[1]
       if (cast !== undefined) return cast.split(/[、，,；;]/u).map(name => name.trim())
       if (/^\s*[▲△]/u.test(quote)) return []
-      const parsed = dialogue({ path: scene.path, scene: scene.id, episode: scene.episode, line: 0, quote })
+      const parsed = manuscriptDialogue({ path: scene.path, scene: scene.id, episode: scene.episode, line: 0, quote })
       return parsed ? [parsed.speaker] : []
     }))
     let run: Dialogue[] = []
@@ -94,7 +99,7 @@ export function manuscriptScreenplayCandidates(scenes: readonly (ManuscriptScene
       const location: Location = { path: scene.path, scene: scene.id, episode: scene.episode,
         line: scene.startLine + offset, quote }
       const marked = /^\s*[▲△]\s*(.*)$/u.exec(quote)?.[1]
-      const parsed = marked === undefined ? undefined : dialogue({ ...location, quote: marked })
+      const parsed = marked === undefined ? undefined : manuscriptDialogue({ ...location, quote: marked })
       const bracketHeader = marked !== undefined && /^[^：:\n]+[）)]\s*[：:]/u.test(marked)
       const mixed = parsed && (bracketHeader || namedSpeakers.has(parsed.speaker)) ? parsed : undefined
       if (mixed && included([location])) {
@@ -102,7 +107,7 @@ export function manuscriptScreenplayCandidates(scenes: readonly (ManuscriptScene
         if (mixedLines.length < maximumFindings) mixedLines.push({ ...mixed, quote })
       }
       const action = mixed ? undefined : marked
-      const speech = marked === undefined ? dialogue(location) : undefined
+      const speech = marked === undefined ? manuscriptDialogue(location) : undefined
       if (speech) {
         if (run[0] && (run[0].speaker !== speech.speaker || run[0].voice !== speech.voice)) flush()
         run.push(speech)

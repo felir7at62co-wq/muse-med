@@ -204,3 +204,24 @@ it('returns an action-marked dialogue format candidate from actual saved version
   expect(report.screenplay_candidates.mixed_action_dialogue_lines.total).toBe(1)
   expect(await readFile(join(f.cwd, 'current.md'), 'utf8')).toBe(text)
 })
+
+it('returns literal episode endings and notation references without requiring a hook or changing a closed ending', async () => {
+  const text = '第1集\n1-1 家 日 内\n▲甲把钥匙递给乙。\n甲（看向乙）：再见。\n【全剧终】'
+  const f = await fixture(text)
+  const schema = z.object({ advisory: z.boolean(), format_reference: z.object({ action_line: z.string(), source_scope: z.string() }),
+    presentation_evidence: z.object({ semantic_assessment: z.string(), episodes: z.array(z.object({
+      ending: z.object({ marker_status: z.string(), suspense_assessment: z.string() }),
+      action_locations: z.object({ findings: z.array(z.object({ quote: z.string() })) }),
+    })) }) })
+  const bound = schema.parse(JSON.parse(await f.bind()))
+  expect(bound.presentation_evidence.episodes[0]?.ending).toEqual({ marker_status: 'not_found', suspense_assessment: 'not_performed' })
+  expect(bound.presentation_evidence.episodes[0]?.action_locations.findings.map(line => line.quote))
+    .toEqual(['▲甲把钥匙递给乙。', '甲（看向乙）：再见。'])
+  expect(bound.format_reference.source_scope).toContain('用户已授权')
+  expect(await readFile(join(f.cwd, 'current.md'), 'utf8')).toBe(text)
+  await writeFile(join(f.cwd, 'current.md'), text.replace('再见。', '就到这里吧。'))
+  const refreshed = await f.work.refresh(f.cwd, SessionId('session-A'), signal)
+  expect(refreshed).toContain('presentation_summary')
+  expect(refreshed).not.toContain('format_reference')
+  expect(schema.parse(JSON.parse(await f.request({ action: 'audit' }))).presentation_evidence.semantic_assessment).toBe('not_performed')
+})

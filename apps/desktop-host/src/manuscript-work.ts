@@ -7,6 +7,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
 import { diffManuscript, manuscriptParagraphs } from './manuscript-diff.ts'
 import { manuscriptScreenplayCandidates } from './manuscript-advisories.ts'
+import { manuscriptFormatReference, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptEpisodeCounts, manuscriptRepetitions, manuscriptScenes, manuscriptStructure, manuscriptTextHash } from './manuscript-scenes.ts'
 import type { Config } from './manuscript-revisions.ts'
 
@@ -152,6 +153,9 @@ export class ManuscriptWork {
       literal_repetitions: manuscriptRepetitions(data.scenes, this.config.repeatMinCharacters, this.config.maxRepeatFindings),
       screenplay_candidates: manuscriptScreenplayCandidates(data.scenes,
         this.config.actionRepeatMinCharacters, this.config.maxRepeatFindings, changedLines),
+      format_reference: manuscriptFormatReference(state.mode),
+      presentation_evidence: manuscriptPresentationEvidence(data.scenes,
+        { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars }, changedLines),
       event_notes: data.active, repeated_advance_events: repeatedEvents, invalidated_event_notes: data.invalidated,
       scenes_without_event_notes: data.scenes.filter(scene => !data.active.some(entry => entry.scene_id === scene.id))
         .map(scene => scene.id),
@@ -222,7 +226,11 @@ export class ManuscriptWork {
         source_files: sources, source_excerpts: excerpts, source_alignment: excerpts.length ? 'model_selected_ranges' : 'not_selected',
         event_notes: data.active,
         screenplay_candidates: manuscriptScreenplayCandidates([scene],
-          this.config.actionRepeatMinCharacters, this.config.maxRepeatFindings), notice }
+          this.config.actionRepeatMinCharacters, this.config.maxRepeatFindings),
+        format_reference: manuscriptFormatReference(state.mode),
+        presentation_evidence: manuscriptPresentationEvidence(data.scenes.filter(entry =>
+          entry.path === scene.path && entry.episode === scene.episode),
+        { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars }), notice }
       if (args.action === 'scene') return JSON.stringify(context)
       if (args.expected_sha256 !== scene.sha256) throw Error('MANUSCRIPT_SCENE_STALE: 场景已变，读取当前全文后再提出修改。')
       if (args.replacement === undefined || !args.replacement.trim()) throw Error('MANUSCRIPT_REPLACEMENT: 提供完整替换场景，不按钩子位置追加补字。')
@@ -272,8 +280,14 @@ export class ManuscriptWork {
         }
         changedLines.set(document.path, touched)
       }
-      const { scenes, event_notes: _notes, screenplay_candidates: candidates, ...summary } = this.report(state, data, changedLines)
+      const { scenes, event_notes: _notes, screenplay_candidates: candidates,
+        format_reference: _format, presentation_evidence: presentation, ...summary } = this.report(state, data, changedLines)
+      const changedEndings = presentation.episodes.filter(({ path, ending }) =>
+        [...ending.last_scene_lines.findings, ...ending.hook_markers.findings]
+          .some(line => changedLines.get(path)?.has(line.line)))
       const result = JSON.stringify({ ...summary, scene_count: scenes.length,
+        ...changedEndings.length ? { presentation_summary: changedEndings.map(({ path, episode, ending }) => ({
+          path, episode, marker_status: ending.marker_status, last_scene: ending.last_scene.id })) } : {},
         screenplay_candidate_summary: { scope: candidates.scope, dialogue_runs: candidates.dialogue_runs.total,
           action_overlaps: candidates.action_overlaps.total, mixed_action_dialogue_lines: candidates.mixed_action_dialogue_lines.total },
         ...candidates.dialogue_runs.total + candidates.action_overlaps.total + candidates.mixed_action_dialogue_lines.total > 0

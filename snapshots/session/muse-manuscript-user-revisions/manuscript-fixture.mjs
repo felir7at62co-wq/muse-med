@@ -95,6 +95,22 @@ export async function apply(ctx) {
     assert.ok(readRevision.hunks.flatMap(hunk => hunk.after).some(line => line.text === '秦明枝：我不会走。'))
     const sourcePackets = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
       .map(block => JSON.parse(block.text).manuscript_source_packet)
+    const sourceIndex = JSON.parse(candidateSource.content.find(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_video_source":')).text).manuscript_video_source
+    assert.equal(sourceIndex.presentation_version, 'source-and-line-temporal-packets-v3')
+    assert.equal(sourceIndex.document_sha256, firstSource.receipt.sha256)
+    assert.equal(sourceIndex.source_change_timeline.interpretation_source, 'unverified_prior_model_observations')
+    const initialWrite = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_write_bad')
+    const initialText = JSON.parse(initialWrite.data.arguments).content
+    assert.equal(hash(initialText), sourceIndex.document_sha256)
+    assert.ok(sourceIndex.changed_visual_line_sampling.length > 0, 'Changed visual line candidates stay visible in the logged source return')
+    for (const row of sourceIndex.changed_visual_line_sampling) {
+      assert.equal(row.actual_current_line.quote, initialText.split('\n')[row.actual_current_line.line - 1])
+      assert.ok(['action_line', 'dialogue_parenthetical'].includes(row.actual_current_line.kind))
+      assert.ok(['temporal_samples_not_action_verification', 'no_distinct_cached_sample_after_shared_selection',
+        'no_literal_time_candidate', 'no_available_cached_sample', 'not_selected_within_shared_image_allowance'].includes(row.sampling_status))
+    }
+    assert.ok(sourcePackets.some(packet => packet.changed_visual_line_candidates?.length > 0))
     const sourceSpeech = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_speech":'))
       .flatMap(block => JSON.parse(block.text).manuscript_source_speech.original_asr_remaining)
     const originalRows = [...sourcePackets.flatMap(packet => packet.original_asr_first_occurrences), ...sourceSpeech]
@@ -119,6 +135,8 @@ export async function apply(ctx) {
     assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')
     const advisoryText = advisory[0].data.content.find(block => block.type === 'text').text
     const firstVersion = JSON.parse(advisoryText.slice(advisoryText.indexOf('\n') + 1))
+    assert.ok(firstVersion.presentation_summary.some(episode => episode.marker_status === 'not_found'),
+      'The missing ending marker is structural context, not a delivery rejection')
     const structure = firstVersion.structure
     assert.equal(structure.episode_heading_count, 2)
     assert.equal(structure.unique_episode_label_count, 1)
@@ -155,6 +173,26 @@ export async function apply(ctx) {
     const auditResult = results.find(message => message.toolCallId === 'call_work_audit')
     const audit = JSON.parse(auditResult.content.find(block => block.type === 'text').text)
     assert.equal(audit.screenplay_candidates.mixed_action_dialogue_lines.total, 0, 'Final corrected manuscript omits the format sample')
+    const bindResult = results.find(message => message.toolCallId === 'call_work_bind')
+    const bound = JSON.parse(bindResult.content.find(block => block.type === 'text').text)
+    for (const report of [bound, scene, audit]) {
+      assert.deepEqual(Object.keys(report.format_reference), ['action_line', 'parenthetical', 'dialogue', 'ending', 'source_scope'])
+      assert.ok(report.format_reference.action_line.includes('▲'))
+      assert.ok(report.format_reference.parenthetical.includes('人物名（括注）：台词'))
+      assert.ok(report.format_reference.ending.includes('【下集钩子】'))
+      assert.equal(report.presentation_evidence.advisory, true)
+      assert.equal(report.presentation_evidence.semantic_assessment, 'not_performed')
+    }
+    const presentation = audit.presentation_evidence.episodes[0]
+    const finalText = await readFile(join(cwd, 'documents', 'candidate.md'), 'utf8')
+    assert.equal(presentation.ending.marker_status, 'not_found')
+    assert.equal(presentation.ending.marker_count, 0)
+    assert.equal(presentation.ending.suspense_assessment, 'not_performed')
+    assert.deepEqual(presentation.action_locations.findings.map(line => line.quote),
+      finalText.split('\n').filter(line => line.startsWith('▲')))
+    for (const line of [...presentation.action_locations.findings, ...presentation.ending.last_scene_lines.findings]) {
+      assert.equal(line.quote, finalText.split('\n')[line.line - 1])
+    }
     for (const [id, attribution] of [['call_guidance_write', 'current_model_tool_mutation'],
       ['call_guidance_read', 'document_read_authorship_unknown']]) {
       const result = results.find(message => message.toolCallId === id)
@@ -180,7 +218,9 @@ export async function apply(ctx) {
       guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true,
       savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true,
       successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false,
-      completeReadSourceDiffLogged: true, readSourceAdoptionNotInferred: true }
+      completeReadSourceDiffLogged: true, readSourceAdoptionNotInferred: true,
+      screenplayFormatReferenceReturned: true, endingAndActionLocationsReturned: true,
+      missingEndingMarkerDidNotBlockDelivery: true, changedVisualLineSamplesBoundToCurrentDraft: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
     // Retain the genuine private ledger bytes under the harness-owned runtime directory. The
     // workspace oracle remains portable without rewriting Session ids, absolute paths, or hashes.
