@@ -1,6 +1,6 @@
 /** Exercise feedback services and additive domain-event payloads through both SDK projections. */
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { posix } from 'node:path'
 
 export const name = 'snapshot-feedback-producer'
 export const inject = ['commands', 'messageFeedback', 'sessionFeedback']
@@ -31,7 +31,7 @@ export function apply(ctx) {
       { id: 'sdk-frame-2', time: 2, reasons: ['fixture'], exposed: false,
         observation: { visible: 'The woman holds the open door.', change: 'The door is open.', uncertainty: '' } },
     ]
-    const path = join(agent.session.header.cwd, 'sdk-video.mp4')
+    const path = posix.join(agent.session.header.cwd, 'sdk-video.mp4')
     const review = { id: 'sdk-review-1', episode: 'SDK', path, source_version: 'fixture-source-version',
       duration: 3, scanned_until: 3, scan_complete: true, frames }
     agent.session.append('video/review', { kind: 'start', review })
@@ -41,7 +41,7 @@ export function apply(ctx) {
       observation_digest: createHash('sha256').update(JSON.stringify(frames.map(frame => ({
         id: frame.id, time: frame.time, observation: frame.observation,
       })))).digest('hex') }
-    const transcript = { path: join(agent.session.header.cwd, 'sdk-transcript.json'), version: 'fixture-transcript-version',
+    const transcript = { path: posix.join(agent.session.header.cwd, 'sdk-transcript.json'), version: 'fixture-transcript-version',
       sha256: createHash('sha256').update('fixture-transcript').digest('hex') }
     agent.session.append('video/review', { kind: 'update', path, id: review.id, frames: [], frame_count: frames.length,
       scanned_until: 3, scan_complete: true, event_groups: [event], transcript_reference: transcript })
