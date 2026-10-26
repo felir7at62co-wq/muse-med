@@ -13,7 +13,27 @@ kind: "package-reference"
 
 ## 管理员账号概览
 
-`admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看注册、正常、停用与管理员数量。同页统计已鉴权且连接中的桌面实例，并将多台电脑对应的在线账号去重。这些是页面刷新时的快照，不是历史活跃记录：桌面连接不代表有人正在操作，注册数也包含测试账号；当前不提供日活与月活。普通账号不能进入该页；查看数量不要求运行时管理使用的独立提权，也不读取私人会话与稿件。
+`admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看账号状态、绑定的飞书姓名与组织标识、最近登录和主动任务活动，以及桌面连接数量。在线账号按多台电脑去重，连接不表示有人正在操作。注册账号包含历史与测试账号；飞书绑定人数只统计已验证绑定的账号。今日与近七天使用按北京时间及最近一次主动任务事件统计，不包含停用账号；启用上报之前的历史活动无法还原。普通账号不能进入该页；查看这些信息不读取私人会话和稿件。
+
+<a id="feishu-login"></a>
+## 飞书登录
+
+将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。
+
+```json
+{
+  "appType": "custom",
+  "appId": "cli_REPLACE_WITH_APP_ID",
+  "appSecret": "REPLACE_WITH_PRIVATE_APP_SECRET",
+  "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
+}
+```
+
+可选策略字段为 `requestTimeoutMs`（默认 15000，范围 1000–60000）、`attemptTtlMs`（300000，范围 60000–600000）、`maxAttempts`（1000，范围 1–10000）和 `requestRatePerMinute`（60，范围 1–1000）。OAuth 使用 PKCE S256、一次性 state 和绑定浏览器的临时 Cookie；换取令牌失败不会重试。反向代理不能把回调查询参数写入访问日志，因为其中含授权码和 state。Nginx 可使用精确的 `location = /auth/feishu/callback`，配置 `access_log off` 并沿用网关代理设置。令牌和应用密钥只留在服务器，不进入账号记录、桌面凭据、模型上下文或界面。
+
+`GET /auth/feishu/start` 用于登录；`POST /auth/feishu/bind` 从已登录的同源账号页明确发起绑定。绑定保留现有 Muse ID、管理员标记、密码与工作区；首次遇到的身份创建无密码的普通账号，不按姓名或邮箱合并。所有者应先登录原有 `ylk` 管理员账号，再绑定自己的飞书身份；登录先后顺序不会授予管理员权限。成功页面先提交安全的 Muse 会话，再返回同源的桌面授权流程。
+
+`POST /api/muse.activity` 仅接受已登录同源客户端的 `{ "activity": "task-start" }`，为当前账号记录服务器时间。桌面端上报用户主动发起的轮次，排除子代理、自动目标、模型重试和目录刷新；不携带任务内容与本地路径。这是尽力上报的使用统计元数据，不是全部用户操作的审计；离线或请求失败时不重试、不补传。`MUSE_ACTIVITY_RATE_PER_MINUTE` 配置每账号／IP 每分钟最多接收次数（默认 120，范围 1–10000）。账号存储读取版本 1 和 2，变更时写入版本 2；切换或回滚网关前须遵循[账号升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-feishu-accounts/guide.zh.md)。
 
 <a id="shared-voice-registration"></a>
 ## 共享声线登记

@@ -13,7 +13,27 @@ This directory contains the separately deployed Muse account gateway. It serves 
 
 ## Administrator account overview
 
-An account with `admin: true` can open `/account` → account management, or `/admin`, to see registered, enabled, disabled and administrator counts. The same page counts authenticated connected Desktop installations and deduplicates online accounts across computers. These are a refresh-time snapshot, not activity history: an open Desktop connection does not establish human interaction, and registered accounts include test accounts. Daily and monthly active-user counts are unavailable. Ordinary accounts cannot open the page; viewing totals does not require the separate elevation used for runtime administration or read private conversations and manuscripts.
+An account with `admin: true` can open `/account` → account management, or `/admin`, to see account state, linked Feishu names and organization identifiers, recent login and explicit task activity, and connected Desktop counts. Online accounts are deduplicated across computers; connections do not establish human interaction. Registered accounts include legacy and test accounts. Linked-user counts include accounts with a verified Feishu binding. Today and seven-day activity use the latest explicit task event in the Asia/Shanghai calendar and omit disabled accounts; historical activity before reporting was enabled is unavailable. Ordinary accounts cannot open the page. Viewing this metadata does not expose private conversations or manuscripts.
+
+<a id="feishu-login"></a>
+## Feishu login
+
+Set `MUSE_FEISHU_LOGIN_CONFIG` to an absolute owner-only regular JSON file outside the release. Omit it to disable Feishu entry points. For internal use, configure `appType: "custom"` and set the app's availability to the enterprise members allowed to sign in. An existing bot app can add web capability; a custom app does not admit other enterprises or personal-edition users. `appType: "store"` is reserved for a separately published Store App, still subject to Feishu installation and availability policies. Set the app's redirect URL to the exact public origin plus `/auth/feishu/callback`. Enable its web application capability; basic login does not request phone, email, contacts, messages or `offline_access` scopes.
+
+```json
+{
+  "appType": "custom",
+  "appId": "cli_REPLACE_WITH_APP_ID",
+  "appSecret": "REPLACE_WITH_PRIVATE_APP_SECRET",
+  "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
+}
+```
+
+Optional policy fields are `requestTimeoutMs` (default 15000, range 1000–60000), `attemptTtlMs` (300000, range 60000–600000), `maxAttempts` (1000, range 1–10000), and `requestRatePerMinute` (60, range 1–1000). OAuth uses PKCE S256, single-use state and a browser-bound transient cookie; failed code exchanges are not retried. Keep callback query strings out of reverse-proxy access logs because they contain authorization codes and state. For Nginx, use an exact `location = /auth/feishu/callback` with `access_log off` and the existing gateway proxy settings. Tokens and application secrets stay on the server and never enter account records, Desktop credentials, model context or UI.
+
+`GET /auth/feishu/start` signs in; `POST /auth/feishu/bind` binds from an already authenticated, same-origin account page. Binding preserves the existing Muse ID, administrator flag, passwords and workspaces; a newly encountered identity creates an ordinary password-free account. Names and email do not merge accounts. In particular, bind the owner's Feishu identity while signed in to the existing `ylk` administrator account; login order never grants administration. A success document commits the secure Muse session before returning to the same-origin Desktop approval flow.
+
+`POST /api/muse.activity` accepts only `{ "activity": "task-start" }` from an authenticated same-origin client and records server time for that account. The Desktop reports explicit user turns, excluding delegated agents, automatic goals, model retries and catalog refreshes; its report contains no task text or local paths. Reporting is best effort: offline or failed requests are neither retried nor backfilled. This is usage metadata, not an audit of all user actions. `MUSE_ACTIVITY_RATE_PER_MINUTE` sets the per-account/IP admission limit (default 120, range 1–10000). Account storage reads versions 1 and 2 and writes version 2 on mutation; follow the [account upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-feishu-accounts/guide.md) before switching or rolling back gateways.
 
 <a id="shared-voice-registration"></a>
 ## Shared voice registration

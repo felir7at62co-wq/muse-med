@@ -71,6 +71,8 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
+| `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
+| `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
 | `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
 | `remoteAccess` | `false` | Enable the account-bound desktop connector; Muse Desktop enables it. Requires bridge, Connection and Web server providers. |
 | `remoteChunkBytes` | 32,768 | Acknowledged chunk size, from 1,024 to 32,768 bytes. |
@@ -84,6 +86,8 @@ The [configuration catalog](../../../docs/config-catalog.md) is generated from p
 When remote access is enabled, signing in or restoring the saved account starts an outbound connection. Sign in to the same account on the website to use the desktop's sessions, files and progress. The website displays **您的电脑上的 Muse 未启动** while offline and checks for reconnection. It starts no substitute cloud agent. Each installation sends its persistent UUID, hostname and operating system. Several computers can stay connected to the same account; the website selects one and keeps every tab bound to that computer. Its switch link opens the computer list in a new tab. Sessions and files remain local to each installation.
 
 The connector exchanges the existing Host bootstrap URL for a private loopback cookie. Both that cookie and the Muse session stay in HTTP headers. Switching accounts awaits closure of the old transport. Logout detaches before contacting the gateway; a failed logout keeps that saved revision paused until a new login. Closing a browser stream removes its observer without cancelling agent work or retrying a submitted request. Revocation and expiry close access.
+
+Committed human input in a root turn sends a best-effort `task-start` marker to `/api/muse.activity` for administrator usage statistics. Goal continuations, subagents, saved history and model-catalog refreshes do not report activity. Reports contain no task identifiers, titles, paths, messages or client timestamps; the gateway records its own time. The Host captures and rechecks the saved login revision, throttles each login with `activityReportIntervalMs`, and bounds requests with `activityRequestTimeoutMs`. Reporting never delays a task, retries failed writes or persists a delivery queue; offline activity may therefore be absent. Plugin unload aborts and awaits pending reporting.
 
 -----
 
