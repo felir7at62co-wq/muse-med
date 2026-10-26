@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
@@ -187,6 +187,36 @@ it('reads existing relative mapping paths from the project rather than the runne
   const f = await fixture()
   await writeFile(f.transcriptsPath, JSON.stringify({ shots: [{ shot: 4, receipt: 'transcript/jobs/part4-v1.json' }] }))
   expect((await reviewSpeechCoverage({ ...f.input, transcriptsPath: 'receipts.json' })).findings).toEqual([])
+})
+
+it('reads project-owned evidence through a project-root junction without accepting paths outside that alias', async () => {
+  const f = await fixture()
+  const aliasParent = await mkdtemp(join(tmpdir(), 'muse-speech-alias-'))
+  const alias = join(aliasParent, 'project')
+  await symlink(f.project, alias, 'junction')
+  onTestFinished(async () => { await unlink(alias); await rm(aliasParent, { recursive: true, force: true }) })
+  const source = join(alias, 'part4.mp4')
+  const subtitleSrt = join(alias, 'final.srt')
+  const transcriptsPath = join(alias, 'receipts.json')
+  await writeFile(f.receipt, JSON.stringify({ status: 'complete', source,
+    sourceSha256: hash(await readFile(source)), stem: 'part4', version: 1 }))
+  await writeFile(f.transcriptsPath, JSON.stringify({ shots: [{ shot: 4, receipt: 'transcript/jobs/part4-v1.json' }] }))
+  const input = { ...f.input, project: alias, sources: new Map([[4, source]]), subtitleSrt, transcriptsPath }
+  const report = await reviewSpeechCoverage(input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings).toEqual([])
+  expect(report.sources[0]?.path).toBe(await realpath(source))
+  expect((await reviewSpeechCoverage({ ...input, subtitleSrt: 'final.srt', transcriptsPath: 'receipts.json' })).evidence_complete).toBe(true)
+  await expect(reviewSpeechCoverage({ ...input, subtitleSrt: f.subtitleSrt })).rejects.toThrow('转写证据路径必须位于当前项目内。')
+  const external = await mkdtemp(join(tmpdir(), 'muse-speech-external-'))
+  onTestFinished(() => rm(external, { recursive: true, force: true }))
+  await writeFile(join(external, 'final.srt'), await readFile(f.subtitleSrt))
+  const link = join(f.project, 'external-link')
+  await symlink(external, link, 'junction')
+  try {
+    await expect(reviewSpeechCoverage({ ...input, subtitleSrt: join(alias, 'external-link', 'final.srt') }))
+      .rejects.toThrow('转写证据链接指向项目外。')
+  } finally { await unlink(link) }
 })
 
 it.each([

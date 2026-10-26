@@ -96,9 +96,9 @@ const seconds = (value: number): number => Math.round(value * 1_000_000) / 1_000
 const overlaps = (left: { start_seconds: number; end_seconds: number }, cue: SubtitleCue): boolean =>
   left.start_seconds < cue.endSeconds && left.end_seconds > cue.startSeconds
 
-async function ownedPath(project: string, file: string): Promise<string> {
-  const path = resolve(project, file)
-  const lexical = relative(project, path)
+async function ownedPath(projectPath: string, project: string, file: string): Promise<string> {
+  const path = resolve(projectPath, file)
+  const lexical = relative(projectPath, path)
   if (lexical === '..' || lexical.startsWith(`..${sep}`) || isAbsolute(lexical)) throw new Error('转写证据路径必须位于当前项目内。')
   const actual = await realpath(path)
   const inside = relative(project, actual)
@@ -200,10 +200,11 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
  * @returns Source-bound ASR candidates and optional caller listening statements, never an acoustic approval.
  */
 export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<SpeechCoverageReport> {
-  const project = await realpath(input.project), fingerprints = new Map<string, string>()
+  // A Windows junction can change the root path under realpath; keep lexical and real roots separate.
+  const projectPath = resolve(input.project), project = await realpath(projectPath), fingerprints = new Map<string, string>()
   const warnings: string[] = []
   const capture = async (file: string) => {
-    const path = await ownedPath(project, file), bytes = await readFile(path)
+    const path = await ownedPath(projectPath, project, file), bytes = await readFile(path)
     fingerprints.set(path, digest(bytes))
     return { path, bytes, sha256: digest(bytes) }
   }
@@ -220,7 +221,7 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
       const row = object(entry)
       if (typeof row.shot !== 'number' || !Number.isSafeInteger(row.shot) || row.shot < 1
         || typeof row.receipt !== 'string' || !row.receipt || mapping.has(row.shot)) throw new Error('云转写映射含无效或重复镜头。')
-      mapping.set(row.shot, resolve(dirname(resolve(project, input.transcriptsPath)), row.receipt))
+      mapping.set(row.shot, resolve(dirname(resolve(projectPath, input.transcriptsPath)), row.receipt))
     }
   } catch (error) {
     mapping.clear()
@@ -231,10 +232,10 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
     try {
       const selected = input.sources.get(clip.shot), receiptFile = mapping.get(clip.shot)
       if (selected === undefined || receiptFile === undefined) throw new Error('缺少选定源文件或云转写收据。')
-      const source = await ownedPath(project, selected), sha256 = await fileSha256(source)
+      const source = await ownedPath(projectPath, project, selected), sha256 = await fileSha256(source)
       fingerprints.set(source, sha256)
       const receipt = await capture(receiptFile), row = object(JSON.parse(receipt.bytes.toString('utf8')))
-      if (typeof row.source !== 'string' || await ownedPath(project, row.source) !== source || row.sourceSha256 !== sha256) throw new Error('收据源路径或 SHA-256 与当前镜头不一致。')
+      if (typeof row.source !== 'string' || await ownedPath(projectPath, project, row.source) !== source || row.sourceSha256 !== sha256) throw new Error('收据源路径或 SHA-256 与当前镜头不一致。')
       if (row.status !== 'complete' && row.status !== 'silent') throw new Error('转写未完成，不能认定无发声。')
       if (typeof row.stem !== 'string' || !/^[\w.-]+$/u.test(row.stem) || typeof row.version !== 'number'
         || !Number.isSafeInteger(row.version) || row.version < 1
@@ -242,7 +243,7 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
       let transcriptPath = '', transcriptHash = ''
       const shotWords: SpeechCoverageWord[] = []
       if (row.status === 'complete') {
-        const transcript = await capture(resolve(project, 'transcript', 'raw', `${row.stem}-v${String(row.version)}.json`))
+        const transcript = await capture(resolve(projectPath, 'transcript', 'raw', `${row.stem}-v${String(row.version)}.json`))
         transcriptPath = transcript.path; transcriptHash = transcript.sha256
         const segments: unknown = JSON.parse(transcript.bytes.toString('utf8'))
         if (!Array.isArray(segments) || segments.length === 0) throw new Error('转写缺少原始语音片段。')
