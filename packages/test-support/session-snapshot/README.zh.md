@@ -92,6 +92,8 @@ SDK 回放副本在 JSONL 字符串值和序列化工具参数中展开 `{{cwd}}
 
 ### 平台与组合变体
 
+Headless manifest 用 `platform: posix` 指定非 Windows 执行，用 `platform: pwsh` 指定需要可用的 PowerShell 可执行文件；后者并不表示仅限 Windows。平台排除会跳过执行，但不会跳过 fixture 校验。不同 Shell 方言的变体各自拥有记录输入和完整输出比较基准，并须执行相同业务断言；变体被跳过不能证明其行为已通过。
+
 记录会话 patch 使用的可选插件声明在仓库根目录的 `devDependencies` 中。patch 启动器只把可解析的裸包条目链接到各自的临时 profile；这些测试依赖不进入 CLI 或 Desktop 的生产依赖清单。构建模式的 fixture 辅助模块从声明所需包的工作区解析依赖，不假定 CLI 拥有每项间接依赖。
 
 需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；组合需要可用 `pwsh` 的场景声明 `pwshOnly`。当临时目录授权自身待测时，`workspaceParent` 将生成子级 cwd 移出平台临时区域；场景签入的 `workspace/` 会先复制到该子级，随后 `prepareWorkspace` 在 agent 启动前针对生成 cwd 运行。默认生成的 workspace 在会话 fixture 中存储为 `{{cwd}}`，使平台临时根目录与随机 basename 不影响录制。headless manifest 在测试 Session workspace 授权本身时使用 `workspace.parent: outside-temp`。适配器在父目录可写且位于系统临时授权之外时，于平台临时根目录旁分配目录，否则使用 home，并拒绝已被自动临时写授权覆盖的生成 cwd。
