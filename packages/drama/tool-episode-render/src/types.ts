@@ -7,9 +7,11 @@
  */
 
 import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
+import type { SpeechCoverageReport } from './speech-coverage.ts'
 
 /** The operation one `drama_render` call runs. */
 export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview' | 'subtitle_overlay'
+  | 'speech_coverage' | 'subtitle_layout'
 
 /** How the effect source occupies the existing ending window. */
 export type EndingEffectFit = 'source_once' | 'stretch_to_window'
@@ -52,6 +54,26 @@ export interface DeliverySubtitle {
   readonly margin_bottom_px?: number
 }
 
+/** One project-owned visual intent, in a reference raster, independently adapted to each renderer. */
+export interface DeliverySubtitleVisual {
+  /** Adapter contract version; an explicit empty section disables this optional mode. */
+  readonly schema_version: 1
+  /** Reference raster width, used to explain the approved preview geometry. */
+  readonly reference_width: number
+  /** Reference height used to scale nominal typography to the actual output. */
+  readonly reference_height: number
+  /** Nominal font size in reference pixels, not the measured glyph height. */
+  readonly font_size_px: number
+  /** Black outline thickness in reference pixels. */
+  readonly outline_px: number
+  /** Text-box centre relative to picture height, measured from the top. */
+  readonly center_y_ratio: number
+  /** Available single-line width as a fraction of the actual picture width. */
+  readonly max_width_ratio: number
+  /** Optional requested family; does not install a font or prove the editor uses it. */
+  readonly font_family?: string
+}
+
 /** Explicit linear gains applied by the existing delivery mix, including zero for mute. */
 export interface DeliveryAudio {
   /** Dialogue master gain, from 0 through 8. */
@@ -92,6 +114,8 @@ export interface TimelineDelivery {
   readonly fps: number
   /** Optional project subtitle section captured by prepare; never inferred from an SRT. */
   readonly subtitle?: DeliverySubtitle
+  /** Shared visual intent. A saved empty section restores the legacy per-engine path. */
+  readonly subtitle_visual?: DeliverySubtitleVisual | { readonly schema_version?: never }
   /** Optional project mix section captured by prepare. */
   readonly audio?: DeliveryAudio
   /** Optional complete draft-style section captured by prepare, with no ASS effect. */
@@ -407,6 +431,10 @@ export interface RenderSummary {
 
 /** Subtitle design values and their nominal scale at the delivered size, not measured glyph bounds. */
 export interface SubtitleRenderStyle {
+  /** Explicit centre for the optional unified visual mode; omitted for legacy bottom alignment. */
+  readonly center_y_output_px?: number
+  /** Requested usable width, checked against rendered glyphs rather than character count. */
+  readonly max_width_output_px?: number
   /** ASS design canvas width. */
   readonly design_width: number
   /** ASS design canvas height. */
@@ -453,6 +481,28 @@ export interface RenderPreview {
   }
 }
 
+/** Compact real-glyph observations; complete per-text measurements and font traces stay in the report file. */
+export interface SubtitleLayoutSummary {
+  /** Summary format version. */
+  readonly schema_version: 1
+  /** A successful measurement is not editor or human acceptance. */
+  readonly status: 'not_requested' | 'measured' | 'partial' | 'not_measured'
+  /** Complete measurement JSON, or an empty string when it could not be saved. */
+  readonly report_path: string
+  /** Different authored texts measured once each. */
+  readonly distinct_texts: number
+  /** Texts with complete, non-clipped white-ink bounds. */
+  readonly measured_texts: number
+  /** Original cue indexes wider than the project band including estimated outline allowance. */
+  readonly overwidth_cue_indexes: number[]
+  /** Original cue indexes with failed, empty or edge-clipped measurement. */
+  readonly uncertain_cue_indexes: number[]
+  /** Actually written full-width probe previews, not completed-episode frames. */
+  readonly preview_paths: string[]
+  /** Actually written complete FFmpeg output for font selection and technical diagnosis. */
+  readonly stderr_paths: string[]
+}
+
 /**
  * The canonical value every `drama_render` method returns.
  *
@@ -462,6 +512,10 @@ export interface RenderPreview {
  * Explicit audio profiles add optional `audio_mix` evidence.
  */
 export interface DramaRenderReport {
+  /** Advisory real-glyph evidence; omitted from legacy renders without an active visual profile. */
+  readonly subtitle_layout?: SubtitleLayoutSummary
+  /** Word-timed ASR comparison candidates; never a listening or silence verdict. */
+  readonly speech_coverage?: SpeechCoverageReport
   /** Explicit subtitle-overlay decisions; omitted for legacy calls. */
   readonly subtitle_overlay?: SubtitleOverlayReport
   /** Measured timing for an explicitly selected effect fit. */

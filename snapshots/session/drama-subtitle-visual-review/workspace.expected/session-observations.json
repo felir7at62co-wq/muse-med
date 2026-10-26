@@ -1,0 +1,22 @@
+{
+  "media_execution": "external prepare fixture; no glyph or acoustic measurement",
+  "visual_snapshotted": {
+    "schema_version": 1,
+    "reference_width": 480,
+    "reference_height": 854,
+    "font_size_px": 52,
+    "outline_px": 2,
+    "center_y_ratio": 0.7,
+    "max_width_ratio": 0.9
+  },
+  "layout_reset": "not_requested; no media execution or layout files",
+  "matched_text": "做饭",
+  "extra_recognized_text": [
+    "啦"
+  ],
+  "evidence_complete": true,
+  "listening_verified": false,
+  "media_command_count": 2,
+  "inputs_unchanged": true,
+  "added_bgm": false
+}

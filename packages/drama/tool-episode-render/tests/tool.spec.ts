@@ -178,9 +178,11 @@ describe('registration', () => {
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
       'alignment', 'audio', 'bgm', 'bgm_generation', 'bgm_plan', 'duration_seconds', 'ending_audio', 'ending_effect', 'episode', 'force',
-      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'shots', 'start_seconds', 'subtitle_plan', 'subtitle_srt', 'timeline',
+      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'shots',
+      'speech_decisions', 'speech_transcripts', 'start_seconds', 'subtitle_plan', 'subtitle_srt', 'timeline',
     ])
-    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay'])
+    expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay',
+      'speech_coverage', 'subtitle_layout'])
     for (const field of ['shots', 'lines', 'alignment', 'timeline', 'subtitle_srt', 'bgm', 'bgm_plan',
       'ending_audio', 'ending_effect', 'output']) {
       expect(parameters.properties[field]?.description).toContain('相对路径以 project 为基准')
