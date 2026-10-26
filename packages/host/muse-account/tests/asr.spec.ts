@@ -266,16 +266,26 @@ it('retains safe gateway diagnostics and recovery without response bodies or pri
   expect(await setup.client.get(id)).toEqual({ id, status: 'uncertain', ...metadata })
 })
 
+it('retains the original-task quota diagnosis and bounded retry delay', async () => {
+  const id = randomUUID()
+  const metadata = { provider_diagnostic: { operation: 'query', http_status: 429, provider_code: '45000292', quota_type: 'audio_duration_lifetime' },
+    recovery: { capability: 'query_original_task', next_action: 'inspect_receipt', automatic_resubmit: false, retry_after: 300 } }
+  const setup = await fixture(async () => Response.json({ id, status: 'uncertain', ...metadata }))
+  expect(await setup.client.get(id)).toEqual({ id, status: 'uncertain', ...metadata })
+})
+
 it.each([
   { queued: 1 }, { error_code: 'PRIVATE' }, { provider_diagnostic: null }, { provider_diagnostic: [] },
   { provider_diagnostic: { reason: 'PRIVATE' } }, { provider_diagnostic: { operation: ['flash'] } },
   { provider_diagnostic: { http_status: '504' } }, { provider_diagnostic: { http_status: 99 } },
   { provider_diagnostic: { http_status: 600 } }, { provider_diagnostic: { http_status: 200.5 } },
   { provider_diagnostic: { provider_code: 'PRIVATE' } }, { provider_diagnostic: { provider_code: 55000000 } },
+  { provider_diagnostic: { quota_type: 'PRIVATE' } }, { provider_diagnostic: { quota_type: ['qps'] } },
   { recovery: null }, { recovery: [] }, { recovery: { capability: 'PRIVATE' } },
   { recovery: { capability: 'no_query', next_action: 'PRIVATE', automatic_resubmit: false } },
   { recovery: { capability: 'no_query', next_action: 'wait', automatic_resubmit: true } },
   { recovery: { capability: ['no_query'], next_action: 'wait', automatic_resubmit: false } },
+  ...[0, -1, 86401, 0.5, '300', null].map(retry_after => ({ recovery: { capability: 'query_original_task', next_action: 'wait', automatic_resubmit: false, retry_after } })),
 ])('rejects unsafe optional recovery metadata (%j)', async (metadata) => {
   const id = randomUUID(), setup = await fixture(async () => Response.json({ id, status: 'uncertain', ...metadata }))
   await expect(setup.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })

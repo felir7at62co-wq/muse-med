@@ -1,6 +1,6 @@
 /** Safe diagnostics preserve routing facts without retaining supplier-controlled strings. */
 import { expect, it } from 'vitest'
-import { LlmError, ProviderRequestId } from '@deepseek-ai/dsh-llm'
+import { LlmError, ProviderRequestId, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { safeMuseModelStream } from '../src/model-errors.ts'
 
@@ -75,4 +75,30 @@ it('replaces untyped iteration failures without coercing supplier values', async
     throw new Error('Secret')
   }
   await expect(collect(safeMuseModelStream(source))).rejects.toMatchObject({ code: 'UNKNOWN' })
+})
+
+it('reports a content refusal without exposing supplier text or enabling retries', async () => {
+  async function* source(): AsyncGenerator<StreamChunk> {
+    yield { type: 'finish', reason: { kind: 'error', failure: {
+      code: 'CONTENT_FILTER', message: 'synthetic-secret',
+    } } }
+  }
+  const chunks = await collect(safeMuseModelStream(source))
+  expect(chunks).toMatchInlineSnapshot(`
+    [
+      {
+        "reason": {
+          "failure": {
+            "code": "CONTENT_FILTER",
+            "message": "Upstream content safety refused this request. Repeating the same request will not resolve the refusal.",
+          },
+          "kind": "error",
+        },
+        "type": "finish",
+      },
+    ]
+  `)
+  const policy = resolveRetryPolicy(undefined, 'fixture')
+  if (policy.mode !== 'normal') throw new Error('Expected bounded provider retry policy')
+  expect(policy.retryableCodes).not.toContain('CONTENT_FILTER')
 })

@@ -180,11 +180,11 @@ it.each(['caller', 'deadline'])('releases known access before dispatch after %s 
   try {
     await expect(drain(safeMuseModelStream(() => streamWithModelLease(
       { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', controller.signal, supplier,
-    )))).rejects.toMatchObject({ code: kind === 'caller' ? 'ABORTED' : 'UNKNOWN' })
+    )))).rejects.toMatchObject({ code: kind === 'caller' ? 'ABORTED' : 'MODEL_REQUEST_DEADLINE' })
     const policy = resolveRetryPolicy(undefined, 'fixture')
     expect(policy.mode).toBe('normal')
     if (policy.mode !== 'normal') throw new Error('Expected the default retry policy')
-    expect(policy.retryableCodes).not.toContain(kind === 'caller' ? 'ABORTED' : 'UNKNOWN')
+    expect(policy.retryableCodes).not.toContain(kind === 'caller' ? 'ABORTED' : 'MODEL_REQUEST_DEADLINE')
     expect(calls).toEqual(['POST', 'DELETE'])
     expect(supplier).not.toHaveBeenCalled()
   } finally { timeout?.mockRestore() }
@@ -285,10 +285,91 @@ it.each(['ok', 'rejected', 'login'])('checks %s session liveness and settles the
     await vi.waitFor(() => { expect(vi.getTimerCount()).toBe(1) })
     controller.abort()
   }
-  await result
+  expect(await result).toMatchObject([{ type: 'finish', reason: kind === 'ok'
+    ? { kind: 'aborted', failure: { code: 'ABORTED' } }
+    : { kind: 'error', failure: { code: 'MODEL_ACCESS_CHECK_FAILED', ...kind === 'rejected' ? { status: 401 } : {} } },
+  }])
   expect(supplierSignal?.aborted).toBe(true)
   expect(calls).toEqual(kind === 'login' ? ['POST', 'DELETE'] : ['POST', 'GET', 'DELETE'])
 })
+
+it.each(['http', 'transport', 'supplier throw'])(
+  'keeps a failed liveness check distinct from %s failure without repeating the request', async (kind) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const calls: string[] = []
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const fetcher: typeof fetch = async (_url, init) => {
+      calls.push(String(init?.method))
+      if (init?.method !== 'GET') return Response.json(init?.method === 'POST' ? lease() : {})
+      if (kind === 'transport') throw new Error('synthetic-secret')
+      return new Response('synthetic-secret', { status: 429, headers: { 'retry-after': '2' } })
+    }
+    const result = drain(safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal,
+      async function* (_access, signal) {
+        entered()
+        await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+        if (kind === 'supplier throw') throw new Error('synthetic-secret')
+        yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'synthetic-secret' } } }
+      },
+    )))
+    const settled = result.catch((error: unknown) => error)
+    await started
+    await vi.advanceTimersByTimeAsync(1000)
+    if (kind === 'supplier throw') {
+      expect(await settled).toMatchObject({ code: 'MODEL_ACCESS_CHECK_FAILED', failure: {
+        code: 'MODEL_ACCESS_CHECK_FAILED', status: 429, providerRetryAfterMs: 2000,
+      } })
+      expect(await settled).not.toHaveProperty('cause')
+    } else {
+      const chunks = await result
+      expect(chunks).toMatchObject([{ type: 'finish', reason: { kind: 'error', failure: {
+        code: 'MODEL_ACCESS_CHECK_FAILED', ...kind === 'http' ? { status: 429, providerRetryAfterMs: 2000 } : {},
+      } } }])
+      expect(JSON.stringify(chunks)).not.toContain('synthetic-secret')
+    }
+    const policy = resolveRetryPolicy(undefined, 'fixture')
+    if (policy.mode !== 'normal') throw new Error('Expected bounded provider retry policy')
+    expect(policy.retryableCodes).not.toContain('MODEL_ACCESS_CHECK_FAILED')
+    expect(calls).toEqual(['POST', 'GET', 'DELETE'])
+  },
+)
+
+it.each(['finish', 'throw'])(
+  'retains an in-flight access deadline when the supplier cancels through %s', async (delivery) => {
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(deadline.signal)
+    const calls: string[] = []
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const fetcher: typeof fetch = async (_url, init) => {
+      calls.push(String(init?.method))
+      return Response.json(init?.method === 'POST' ? lease() : {})
+    }
+    const result = drain(safeMuseModelStream(() => streamWithModelLease(
+      { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', new AbortController().signal,
+      async function* (_access, signal) {
+        entered()
+        await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+        if (delivery === 'throw') throw new Error('synthetic-secret')
+        yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'synthetic-secret' } } }
+      },
+    )))
+    const settled = result.catch((error: unknown) => error)
+    try {
+      await started
+      deadline.abort(new DOMException('synthetic-secret', 'TimeoutError'))
+      if (delivery === 'throw') {
+        expect(await settled).toMatchObject({ code: 'MODEL_REQUEST_DEADLINE', failure: { code: 'MODEL_REQUEST_DEADLINE' } })
+        expect(await settled).not.toHaveProperty('cause')
+      } else {
+        expect(await result).toMatchObject([{ type: 'finish', reason: { kind: 'error', failure: { code: 'MODEL_REQUEST_DEADLINE' } } }])
+      }
+      expect(calls).toEqual(['POST', 'DELETE'])
+    } finally { timeout.mockRestore() }
+  },
+)
 
 
 it('uses the default transport without exposing the temporary credential to gateway calls', async () => {

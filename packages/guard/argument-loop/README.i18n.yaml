@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/argument-loop/README.md
 /:
-  en: c7b951fa7e44739f
-  zh: 23d5054ef2aa58f4
+  en: 280f64a08a985f2a
+  zh: 8c8856e708801f79
 /deepseek-ai-dsh-argument-loop:
   en: 4431cbe988026923
   zh: 55db5c735f2fa4c8
 /deepseek-ai-dsh-argument-loop/summary:
-  en: f819bd5425cdba84
-  zh: 3d09f78d8820b759
+  en: 70a1bf09c186e950
+  zh: 14aa7a8afbb4a6b5
 /deepseek-ai-dsh-argument-loop/table-of-contents:
   en: d152484eb41ac6b4
   zh: 205937b190ceb620
@@ -21,20 +21,20 @@
   en: 60674aefd5e74a46
   zh: 659a3e31a4a53b61
 /deepseek-ai-dsh-argument-loop/use-this-package/minimal-configuration:
-  en: 3fce43130f9eeaa2
-  zh: b700cc423ea4da64
+  en: 16920f2867773121
+  zh: b9d27727a6a0b520
 /deepseek-ai-dsh-argument-loop/use-this-package/after-a-stop:
-  en: 1d35ad9da4f6138d
-  zh: 884d7c733e5dd890
+  en: 12cc6a12dad583de
+  zh: f2a13695d45e7e79
 /deepseek-ai-dsh-argument-loop/understand-the-implementation:
-  en: 4dc400c48e7966df
-  zh: 4798d29333cf38b3
+  en: f0f7e4ac20353e09
+  zh: 84260b33acdc5552
 /deepseek-ai-dsh-argument-loop/further-exploration:
   en: 44a59733e3ef6107
   zh: e110b94c9ca8c019
 /deepseek-ai-dsh-argument-loop/model-experience:
-  en: a70c98c087493ffc
-  zh: c9335ff368b5d684
+  en: 813cbb4527e38fb3
+  zh: 793f9910e15329af
 /deepseek-ai-dsh-argument-loop/model-experience/kv-cache-effect:
   en: 495ca383399d64d9
   zh: 4176417828aa4a43

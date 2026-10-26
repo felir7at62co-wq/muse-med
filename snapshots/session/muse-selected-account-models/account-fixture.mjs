@@ -48,6 +48,7 @@ function completion(message) {
 export async function apply(ctx) {
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
+  const contentRefusal = process.env.DSH_SNAPSHOT_CONTENT_REFUSAL === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
   const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
   const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
@@ -58,6 +59,7 @@ export async function apply(ctx) {
   assert.ok(!officialGlm || direct)
   assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
+  assert.ok(!contentRefusal || direct && !refusal && !admissionFailure)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -85,7 +87,7 @@ export async function apply(ctx) {
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
-  assert.equal(script.length, refusal || admissionFailure ? 0 : 2)
+  assert.equal(script.length, refusal || contentRefusal || admissionFailure ? 0 : 2)
   const requests = []
   let admissionSubmissions = 0
   let supplierSubmissions = 0
@@ -167,8 +169,14 @@ export async function apply(ctx) {
             assert.deepEqual(payload.thinking, { type: 'enabled' })
           }
           const message = script[requests.length]
-          if (!refusal) assert.ok(message)
+          if (!refusal && !contentRefusal) assert.ok(message)
           requests.push(payload)
+          if (contentRefusal) {
+            assert.equal(payload.stream, true)
+            response.writeHead(200, { 'content-type': 'text/event-stream' })
+            response.end('data: {"choices":[{"index":0,"delta":{},"finish_reason":"content_filter"}]}\n\ndata: [DONE]\n\n')
+            return
+          }
           if (refusal) {
             response.writeHead(429, {
               'content-type': 'application/json',
@@ -340,8 +348,34 @@ export async function apply(ctx) {
       }, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     })
   }
+  if (contentRefusal) {
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'turn/end') return
+      if (rejected) throw rejected
+      assert.equal(requests.length, 1)
+      assert.equal(supplierSubmissions, 1)
+      const events = session.snapshotEvents()
+      const retryEvents = events.filter(event => event.type === 'llm/retry').length
+      assert.equal(retryEvents, 0)
+      const attempts = events.filter(event => event.type === 'assistant/attempt')
+      assert.equal(attempts.length, 1)
+      const finish = attempts[0].data.stream.find(entry => entry.type === 'chunk' && entry.chunk.type === 'finish')
+      assert.deepEqual(finish?.chunk.reason, { kind: 'error', failure: {
+        code: 'CONTENT_FILTER',
+        message: 'Upstream content safety refused this request. Repeating the same request will not resolve the refusal.',
+      } })
+      assert.deepEqual(event.data.reason, { kind: 'error', error: finish.chunk.reason.failure })
+      const serialized = JSON.stringify(events)
+      for (const secret of ['snapshot-session', 's'.repeat(43), 'fixture-password', 'supplier-fixture-']) {
+        assert.ok(!serialized.includes(secret))
+      }
+      writeFileSync(join(process.cwd(), 'content-refusal-observation.json'), JSON.stringify({
+        supplierSubmissions, retryEvents, failureCode: finish.chunk.reason.failure.code,
+      }, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    })
+  }
   ctx.on('agent/turn-stopping', async ({ agent }) => {
-    if (admissionFailure) return
+    if (admissionFailure || contentRefusal) return
     if (rejected) throw rejected
     assert.equal(requests.length, refusal ? 6 : 2)
     const config = agent.session.requestHeader()?.config

@@ -51,11 +51,13 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
     reason: { type: 'string', enum: ['timeout', 'transport', 'http', 'response', 'json', 'result', 'audio'] },
     operation: { type: 'string', enum: ['submit', 'query', 'flash'] },
     http_status: { type: 'number' }, provider_code: { type: 'string' },
+    quota_type: { type: 'string', enum: ['qps', 'concurrency', 'audio_duration', 'audio_duration_saas', 'audio_duration_lifetime', 'text_words_lifetime', 'tokens_lifetime'], description: '供应商明确返回的额度种类；lifetime 表示试用额度耗尽，需在原应用恢复额度，不能当作普通排队。' },
   } },
   recovery: { type: 'object', additionalProperties: false, description: '按原任务实际恢复能力行动。no_query+inspect_receipt 表示该极速任务不能再向提供方查询，不继续盲等、不自动重投；客户端网络错误仍先回读服务端原任务。', properties: {
     capability: { type: 'string', enum: ['query_original_task', 'no_query', 'none'], required: true },
     next_action: { type: 'string', enum: ['poll_original', 'wait', 'inspect_receipt', 'use_result', 'resume_upload'], required: true },
     automatic_resubmit: { type: 'boolean', enum: [false], required: true },
+    retry_after: { type: 'number', description: '网关下次查询原任务前的等待秒数；不授权重新提交，额度耗尽时先恢复原应用额度。' },
   } },
   error_code: { type: 'string', description: '安全错误类别；provider_rate 是服务额度或提交频率限制，按等待秒数恢复；daily_quota 先处理账号日额度，sign-in-required 先登录，idempotency_conflict 先核对原任务，不直接重投。' },
   retry_after_seconds: { type: 'number', description: '服务端建议等待的秒数；等待后沿用原收据。' },

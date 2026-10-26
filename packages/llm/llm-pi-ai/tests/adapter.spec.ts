@@ -457,6 +457,29 @@ describe('PiAiAdapter provider routing', () => {
     } })
   })
 
+  it.each([
+    ['content_filter', 'CONTENT_FILTER', false],
+    ['network_error', 'TRANSPORT', true],
+  ] as const)('preserves the distinct recovery meaning of finish_reason %s', async (reason, code, retryable) => {
+    const server = await mockServer([{ events: [
+      JSON.stringify({ choices: [{ delta: {}, index: 0, finish_reason: reason }] }),
+      '[DONE]',
+    ] }])
+    const onProviderFailure = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const adapter = adapterOf({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url } }, 'test-key', { onProviderFailure })
+    ctx.llm.registerAdapter(['deepseek'], adapter)
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    expect(onProviderFailure).toHaveBeenCalledWith({ provider: 'deepseek', model: 'deepseek-flash', code })
+    const policy = adapter.providerRetryPolicy('deepseek')
+    expect(policy?.mode).toBe('normal')
+    if (policy?.mode !== 'normal') throw new Error('Expected bounded provider retry policy')
+    expect(policy.retryableCodes.includes(code)).toBe(retryable)
+    expect(server.paths).toEqual(['/chat/completions'])
+  })
+
   it('normalizes provider retry delays and bounded request-id header variants', async () => {
     const future = new Date(Date.now() + 60_000).toUTCString()
     const responses = [

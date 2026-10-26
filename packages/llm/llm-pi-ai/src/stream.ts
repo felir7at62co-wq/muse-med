@@ -40,6 +40,9 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // terse words here. HTTP response facts are captured before this conversion; if
 // pi-ai forwards the original Error, classify transport on `code`/`cause` instead.
 function classifyPiAiError(message: string, status?: number): string {
+  // These are SDK-owned terminal protocol labels, not provider prose.
+  if (message === 'Provider finish_reason: content_filter') return 'CONTENT_FILTER'
+  if (message === 'Provider finish_reason: network_error') return 'TRANSPORT'
   // Prefer the response boundary over provider prose. Quota wording remains a
   // deliberate refinement of HTTP 429 because resending it cannot recover.
   if (status === 401 || status === 403) return 'AUTH'

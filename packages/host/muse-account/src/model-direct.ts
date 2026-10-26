@@ -37,7 +37,8 @@ function interruptedAccess(signal: AbortSignal): LlmError {
  * @param model - Catalog-authorized supplier model.
  * @param signal - Caller cancellation and account authorization lifetime.
  * @param stream - Supplier stream factory receiving only this call's temporary credential.
- * @returns Unchanged model chunks; ambiguous admission failures are classified without enabling automatic retry.
+ * @returns Model chunks with distinct non-retryable lease-check and deadline
+ *   failures; ambiguous admission failures never enable automatic retry.
  */
 export async function* streamWithModelLease(
   options: DirectModelOptions, model: string, signal: AbortSignal,
@@ -88,10 +89,15 @@ export async function* streamWithModelLease(
   const lease = parsed.data
   const controller = new AbortController()
   const remainingMs = Math.max(1, Math.ceil(lease.requestMs - (performance.now() - started)))
-  const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(remainingMs)])
+  const deadline = AbortSignal.timeout(remainingMs)
+  const combined = AbortSignal.any([signal, controller.signal, deadline])
   let timer: ReturnType<typeof setTimeout> | undefined
   let checking = Promise.resolve()
   let done = false
+  let accessFailure: LlmError | undefined
+  const interruption = (): LlmError | undefined => signal.aborted ? undefined
+    : accessFailure ?? (deadline.aborted
+      ? new LlmError('Muse model request reached its access deadline', 'MODEL_REQUEST_DEADLINE') : undefined)
   const check = (): void => {
     timer = setTimeout(() => {
       checking = (async () => {
@@ -100,7 +106,16 @@ export async function* streamWithModelLease(
           if (current?.revision !== options.revision) throw new Error('Muse login changed')
           const response = await request('/' + lease.id, 'GET', AbortSignal.any([combined, AbortSignal.timeout(options.requestTimeoutMs)]))
           await response.arrayBuffer()
-        } catch (_error) { controller.abort() }
+        } catch (error) {
+          if (!combined.aborted) {
+            accessFailure = new LlmError('Muse model access check failed', 'MODEL_ACCESS_CHECK_FAILED',
+              error instanceof LlmError ? {
+                ...error.failure.status === undefined ? {} : { status: error.failure.status },
+                ...error.failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: error.failure.providerRetryAfterMs },
+              } : undefined)
+          }
+          controller.abort()
+        }
         if (!done && !combined.aborted) check()
       })()
     }, lease.checkMs)
@@ -112,10 +127,18 @@ export async function* streamWithModelLease(
     try { combined.throwIfAborted() }
     catch (error) {
       if (signal.aborted) throw interruptedAccess(signal)
-      throw error
+      throw interruption() ?? error
     }
     check()
-    yield* stream({ baseURL: lease.baseURL, apiKey: lease.apiKey }, combined)
+    for await (const chunk of stream({ baseURL: lease.baseURL, apiKey: lease.apiKey }, combined)) {
+      const failure = interruption()
+      if (failure !== undefined && chunk.type === 'finish'
+        && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+        yield { ...chunk, reason: { kind: 'error', failure: failure.failure } }
+      } else yield chunk
+    }
+  } catch (error) {
+    throw interruption() ?? error
   } finally {
     done = true
     clearTimeout(timer)

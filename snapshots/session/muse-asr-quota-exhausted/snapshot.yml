@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-asr-quota-exhausted
+profile: headless
+composition: muse-asr-quota-exhausted
+recording: authored
+header:
+  class: muse-asr-quota-exhausted
+  pin: true
+workspace:
+  final: true
+writerOutput: true

@@ -37,12 +37,13 @@
         repeatWindowChars: 16384
 
 # A single object repeating one member 64 times cannot advance a tool call.
-# Stop locally without provider retry, output continuation, or tool replay.
+# Discard malformed tool calls and allow one bounded response recovery per turn.
 - insert:
     - id: tool-argument-loop
       name: '@deepseek-ai/dsh-argument-loop'
       config:
         repeatedPropertyLimit: 64
+        recoveryAttempts: 1
 
 # Muse account models reserve a bounded budget for summaries.
 - id: compaction-basic
