@@ -607,29 +607,24 @@ class DraftDeliveryContractTests(unittest.TestCase):
                         str(root / '01_audio/25.wav')], check=True, timeout=30, creationflags=NO_WINDOW)
         return root, timeline
 
-    def test_small_sdk_video_tails_use_verified_frames_without_moving_body_audio_or_subtitles(self):
+    def test_small_sdk_video_tails_retime_motion_without_freeze_or_moving_audio_subtitles(self):
         for medium in ('animation_3d', 'photorealistic'):
             with self.subTest(medium=medium):
                 root, timeline = self.body_gap_root(medium=medium)
                 draft_dir = self.generate(root)
                 content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
-                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
-                self.assertEqual(len(evidence), 2)
+                self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
                 video = self.segments(content, 'video')
-                self.assertEqual([segment['target_timerange'] for segment in video[:4]], [
-                    {'start': 0, 'duration': 2_042_000}, {'start': 2_042_000, 'duration': 6_000},
-                    {'start': 2_048_000, 'duration': 2_042_000}, {'start': 4_090_000, 'duration': 6_000}])
-                self.assertTrue(all(segment['speed'] == 1.0 and segment['volume'] == 0 for segment in video[:4]))
+                self.assertEqual([segment['target_timerange'] for segment in video[:2]], [
+                    {'start': 0, 'duration': 2_048_000},
+                    {'start': 2_048_000, 'duration': 2_048_000}])
+                self.assertTrue(all(segment['source_timerange']['duration'] == 2_042_000
+                                    and segment['volume'] == 0 for segment in video[:2]))
+                self.assertTrue(all(abs(segment['speed'] - 2_042_000 / 2_048_000) < 1e-9
+                                    for segment in video[:2]))
                 self.assertEqual(self.segments(content, 'audio')[0]['target_timerange'], {'start': 0, 'duration': 4_096_000})
                 self.assertEqual(self.segments(content, 'text')[0]['target_timerange'], {'start': 0, 'duration': 1_000_000})
                 self.assertEqual(json.loads((root / '05_timeline/25.timeline.json').read_text(encoding='utf-8')), timeline)
-                for hold in evidence:
-                    source, image = Path(hold['source']), Path(hold['image'])
-                    self.assertEqual(hold['source_sha256'], hashlib.sha256(source.read_bytes()).hexdigest())
-                    self.assertEqual(hold['image_sha256'], hashlib.sha256(image.read_bytes()).hexdigest())
-                    expected = self.module.decoded_frame_hashes(source, hold['selected_duration_us'])[-1]
-                    self.assertEqual(self.module.decoded_frame_hashes(image), [expected])
-                    self.assertEqual(hold['frame_rgb_md5'], expected)
                 if medium == 'animation_3d':
                     self.assertEqual(content['duration'], 4_096_000)
                     self.assertFalse((draft_dir / 'ending-evidence.json').exists())
@@ -647,56 +642,51 @@ class DraftDeliveryContractTests(unittest.TestCase):
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
         self.assertEqual(len(self.segments(content, 'video')), 2)
         self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
-        self.assertIn('超过容差；不自动补帧', '\n'.join(captured.output))
+        self.assertIn('不自动补定格帧', '\n'.join(captured.output))
         self.assertTrue((draft_dir / 'muse-review.json').exists())
 
-    def test_body_tail_tolerance_includes_200ms_but_does_not_extend_beyond_it(self):
+    def test_200ms_body_tail_is_not_silently_frozen_or_retimed(self):
         for extra_us in (0, 1):
             with self.subTest(extra_us=extra_us):
                 root, _timeline = self.body_gap_root(clip_duration_us=2_242_000 + extra_us)
                 draft_dir = self.generate(root)
                 evidence_path = draft_dir / 'body-tail-evidence.json'
-                self.assertEqual(evidence_path.is_file(), extra_us == 0)
-                if evidence_path.is_file():
-                    holds = json.loads(evidence_path.read_text(encoding='utf-8'))['holds']
-                    self.assertEqual([hold['duration_us'] for hold in holds], [200_000, 200_000])
+                self.assertFalse(evidence_path.exists())
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                self.assertEqual([segment['speed'] for segment in self.segments(content, 'video')], [1.0, 1.0])
+                review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+                self.assertTrue(any('不自动补定格帧' in warning for warning in review['warnings']))
 
-    def test_unverified_body_tail_keeps_existing_segments_and_returns_a_review_warning(self):
-        root, _timeline = self.body_gap_root()
-        with patch.object(self.module, 'extract_draft_tail', side_effect=self.module.DraftInputError('frame mismatch')):
-            draft_dir = self.generate(root)
+    def test_small_multiframe_gap_retimes_moving_video_without_a_cut_flash(self):
+        root, _timeline = self.body_gap_root(clip_duration_us=2_100_000)
+        draft_dir = self.generate(root)
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
         video = self.segments(content, 'video')
         self.assertEqual([segment['target_timerange'] for segment in video], [
-            {'start': 0, 'duration': 2_042_000}, {'start': 2_048_000, 'duration': 2_042_000}])
+            {'start': 0, 'duration': 2_100_000}, {'start': 2_100_000, 'duration': 2_100_000}])
+        self.assertEqual([segment['source_timerange'] for segment in video], [
+            {'start': 0, 'duration': 2_042_000}, {'start': 0, 'duration': 2_042_000}])
         self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
         review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
-        self.assertEqual(len([warning for warning in review['warnings'] if 'frame mismatch' in warning]), 2)
+        self.assertFalse(any('不自动补定格帧' in warning for warning in review['warnings']))
 
-    def test_body_tail_records_do_not_excuse_missing_or_changed_source_segments(self):
+    def test_micro_retime_still_rejects_missing_or_shifted_source_segments(self):
         root, timeline = self.body_gap_root()
         draft_dir = self.generate(root)
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
-        holds = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
         plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips(timeline))
         cues = self.module.parse_srt_cues(root / '03_subtitle/25.srt')
-        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan, body_tail_holds=holds)
-        for tamper in ('missing_source', 'missing_hold', 'changed_hold', 'undeclared_hold'):
+        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan)
+        for tamper in ('missing_source', 'shifted_source'):
             with self.subTest(tamper=tamper):
                 bad = json.loads(json.dumps(content))
                 track = next(track for track in bad['tracks'] if track['name'] == '视频轨道')
-                records = holds
                 if tamper == 'missing_source':
                     track['segments'].pop(0)
-                elif tamper == 'missing_hold':
-                    track['segments'].pop(1)
-                elif tamper == 'changed_hold':
-                    track['segments'][1]['target_timerange']['duration'] += 1
                 else:
-                    records = []
-                with self.assertRaisesRegex(self.module.DraftInputError, '视频段数|正文末帧补齐'):
-                    self.module.verify_draft_delivery(bad, self.clips(timeline), 4_096_000, cues, plan,
-                                                       body_tail_holds=records)
+                    track['segments'][0]['target_timerange']['start'] += 1
+                with self.assertRaisesRegex(self.module.DraftInputError, '视频段数|时间范围'):
+                    self.module.verify_draft_delivery(bad, self.clips(timeline), 4_096_000, cues, plan)
 
     def test_punctuated_lines_become_single_line_cues_matching_the_draft(self):
         root = self.build_root()
