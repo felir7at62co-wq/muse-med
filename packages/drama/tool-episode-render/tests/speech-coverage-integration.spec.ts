@@ -1,6 +1,6 @@
 /** Loader-mounted, keyless speech review uses real local files and the tool's closed output validation. */
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -108,7 +108,10 @@ it('uses explicitly selected independent audio rather than attributing the video
   expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
   const value = readReport(f.ctx, response)
   expect(value.clips[0]?.source).toBe(f.video)
-  expect(value.speech_coverage?.sources[0]?.path).toBe(f.audio)
+  const sourcePath = value.speech_coverage?.sources[0]?.path
+  if (sourcePath === undefined) throw new Error('Independent speech source is missing')
+  expect(await realpath(sourcePath)).toBe(await realpath(f.audio))
+  expect(await realpath(sourcePath)).not.toBe(await realpath(f.video))
   expect(value.speech_coverage?.evidence_complete).toBe(true)
 })
 
