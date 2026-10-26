@@ -497,8 +497,17 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
     + '.storyboard-native.prepared.json')
   await atomicWriteJson(destination, preview)
   const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
+  const hasDialogue = /(?:台词|对白)[：:]/u.test(String(modelConfig.prompt))
+  const voiceContinuityReview = hasDialogue
+    ? audio.length === 0
+      ? { status: 'dialogue_without_voice_reference',
+        message: '本卡有对白，但未绑定任何声线参考。首包可作为取样来源；若同一角色还会在后续包说话，先核对首包实际声线并绑定同一角色的认可参考，再提交后续包。仅重复文字描述不能保证跨包同音色。' }
+      : { status: 'voice_reference_present_unverified',
+        message: '本卡有音频参考，仍须逐角色核对实际说话人、引用身份及生成后的听感；存在参考不保证同音色。' }
+    : { status: 'no_dialogue_detected', message: '未从本卡提示词识别到明确对白；如实际有对白，请人工核对。' }
   return { ...preview, preview_path: destination, content_duration_ms: contentDurationMs,
     storyboard_duration_seconds: duration,
+    voice_continuity_review: voiceContinuityReview,
     ...promptRiskReview([{ storyboard_id: storyboardId,
       card_name: typeof preview.payload.storyboardName === 'string' ? preview.payload.storyboardName : null,
       prompt: String(modelConfig.prompt) }], review),
@@ -506,7 +515,9 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
       duration_seconds: material.audioDuration ?? null,
       duration_basis: material.audioDuration === undefined || material.audioDuration === null
         ? 'unavailable' : 'saved_metadata', duration_verified: false })),
-    next: '生成前请按系统提示词中的固定自检清单自主核对本次提交。'
+    next: (voiceContinuityReview.status === 'dialogue_without_voice_reference'
+      ? '本卡有对白但没有声线参考；跨包角色请先核对首包声音并绑定后续包。' : '')
+      + '生成前请按系统提示词中的固定自检清单自主核对本次提交。'
       + 'prepare 只写 preview：不 PUT、不创建任务、不收费。自主检查后调用 submit_video 或 submit_video_batch，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
 }

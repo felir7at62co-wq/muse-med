@@ -415,12 +415,21 @@ it('names a local subject verification failure without exposing asset URLs', asy
 })
 
 describe('uploaded voice references', () => {
+  it('flags dialogue without a voice reference before any paid request', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT} 台词：大辣：这名字还挺好。` }) } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result.voice_continuity_review).toMatchObject({ status: 'dialogue_without_voice_reference' })
+    expect(putCalls(provider)).toHaveLength(0)
+  })
+
   it.each([undefined, null])('reports unavailable saved audio duration %s without inventing measurement', async (audioDuration) => {
     const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav',
       materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration }
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       storyboardMaterialList: [...MATERIALS, audio], modelConfig: JSON.stringify({ ...MODEL_CONFIG,
-        prompt: `${PROMPT} 声音 @[陆沉舟声线](voice-lead)` }) } }
+        prompt: `${PROMPT} 台词：陆沉舟：收到。声音 @[陆沉舟声线](voice-lead)` }) } }
     expect(await prepareVideoMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, project_dir: await project() }))
       .toMatchObject({ audio_references: [{ duration_seconds: null, duration_basis: 'unavailable', duration_verified: false }] })
@@ -430,10 +439,11 @@ describe('uploaded voice references', () => {
       materialKey: 'voice-lead', fileName: '陆沉舟声线', sortOrder: 1, audioDuration: 2 }
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       storyboardMaterialList: [...MATERIALS, audio], modelConfig: JSON.stringify({ ...MODEL_CONFIG,
-        prompt: `${PROMPT} 声音 @[陆沉舟声线](voice-lead)` }) } }
+        prompt: `${PROMPT} 台词：陆沉舟：收到。声音 @[陆沉舟声线](voice-lead)` }) } }
     const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       project_dir: await project() })
     expect(result.status).toBe('prepared')
+    expect(result.voice_continuity_review).toMatchObject({ status: 'voice_reference_present_unverified' })
     expect(putCalls(provider)).toHaveLength(0)
     expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/'))).toHaveLength(2)
   })
