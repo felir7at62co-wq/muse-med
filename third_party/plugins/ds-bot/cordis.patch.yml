@@ -1,0 +1,11 @@
+# Muse owns model routes, web search, account access and runtime updates.
+- insert:
+    - id: muse-bot
+      name: ds-bot
+      config:
+        agentPreset: short-drama
+        contextManagement: host
+        goals: host
+        memoryReview: false
+        github: false
+        updateCheck: false

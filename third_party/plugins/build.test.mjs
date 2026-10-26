@@ -123,7 +123,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
       }
       if (manifest.name === '@wenbin_wb/dsh-bridge') assertAccountRemotePayload(list.stdout, manifest)
       for (const [dependency, range] of Object.entries(original.peerDependencies ?? {})) {
-        if (dependency === '@deepseek-ai/dsh-invariants') {
+        if (dependency === '@deepseek-ai/dsh-invariants' || (manifest.name === 'ds-bot' && dependency === '@deepseek-ai/dsh-web')) {
           assert.equal(manifest.peerDependencies[dependency], undefined)
           continue
         }

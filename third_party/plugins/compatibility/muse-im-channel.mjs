@@ -4,6 +4,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { createImHostPlugin } from './upstream.js'
 import { migrateMuseIm, reconcileMuseImWorkspaces } from './muse-im-migration.mjs'
 import { createMuseImAdmission } from './muse-im-admission.mjs'
+import { createMuseImTeamScope } from './muse-im-team.mjs'
 import { createUpdateService } from '../plugin-src/host/update-service.mjs'
 import { installUpdateRpc } from '../plugin-src/host/update-rpc.mjs'
 
@@ -45,6 +46,18 @@ export async function apply(ctx, supplied) {
   const migration = await migrateMuseIm(ctx, config)
   await reconcileMuseImWorkspaces(ctx, config)
   const museAdmission = createMuseImAdmission(config, migration)
+  let team
+  ctx.inject(['museTeam'], scope => {
+    const service = scope.get('museTeam')
+    team = service
+    scope.effect(() => () => { if (team === service) team = undefined }, 'muse-im: team routing service')
+  })
+  const museTeam = { forBot: (imBotId, appId, scope, workspaces) => createMuseImTeamScope(scope, {
+    imBotId, appId, dshHome: config.dshHome, getTeam: () => team,
+    retentionMs: config.inboundClaimRetentionMs, maxEntries: config.inboundClaimMaxEntries,
+    legacyAdmission: museAdmission.forBot(imBotId, workspaces),
+  }) }
+
   const plugin = createImHostPlugin({ installUpdateRpc: updateCtx => {
     const refuseUpdate = async () => { throw Object.assign(new Error('IM updates are supplied by Muse'), { code: 'unsupported-runtime' }) }
     const statusService = createUpdateService({ runtime: {
@@ -60,5 +73,6 @@ export async function apply(ctx, supplied) {
     ...(config.defaultCwd === undefined ? {} : { workspace: config.defaultCwd }),
     ...(config.feishuDataDir === undefined ? {} : { dataDir: config.feishuDataDir }),
     museAdmission,
+    museTeam,
   } })
 }

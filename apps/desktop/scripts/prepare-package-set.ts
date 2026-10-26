@@ -20,6 +20,8 @@ import {
   DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
   DESKTOP_CODEX_PACKAGE,
   DESKTOP_CODEX_RUNTIME_FILES,
+  DESKTOP_MUSE_BOT_PACKAGE,
+  DESKTOP_MUSE_BOT_RUNTIME_FILES,
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_FEISHU_RUNTIME_FILES,
   DESKTOP_HOST_PACKAGE,
@@ -163,6 +165,14 @@ export function assertDesktopFeishuPackageFiles(files: readonly string[]): void 
   assertPackageFiles(DESKTOP_FEISHU_PACKAGE, DESKTOP_FEISHU_RUNTIME_FILES, files)
 }
 
+/** Require the native Muse Bot workspace and retained Apache attribution.
+ * @param files - Tarball paths rooted at `package/`.
+ * @returns Nothing.
+ */
+export function assertDesktopMuseBotPackageFiles(files: readonly string[]): void {
+  assertPackageFiles(DESKTOP_MUSE_BOT_PACKAGE, DESKTOP_MUSE_BOT_RUNTIME_FILES, files)
+}
+
 function assertPackageFiles(name: string, required: readonly string[], files: readonly string[]): void {
   const available = new Set(files)
   const missing = required
@@ -188,6 +198,9 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const codex = selected.find(packed => packed.manifest.name === DESKTOP_CODEX_PACKAGE)
   if (codex === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_CODEX_PACKAGE}`)
   assertDesktopCodexPackageFiles(tarballFiles(codex.tarball))
+  const museBot = selected.find(packed => packed.manifest.name === DESKTOP_MUSE_BOT_PACKAGE)
+  if (museBot === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_MUSE_BOT_PACKAGE}`)
+  assertDesktopMuseBotPackageFiles(tarballFiles(museBot.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

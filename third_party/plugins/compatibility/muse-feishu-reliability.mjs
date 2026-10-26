@@ -7,7 +7,7 @@ import { dirname } from 'node:path'
  * Open bounded, durable message claims without replaying interrupted work.
  * @param {string} file Private app-scoped claim file owned by this connection.
  * @param {{retentionMs: number, maxEntries: number, now?: () => number}} options Validated replay window, capacity and clock.
- * @returns {{claim(messageId: string): boolean}} A synchronous claim committed before dispatch; repeats return false.
+ * @returns {{has(messageId: string): boolean, claim(messageId: string): boolean}} A synchronous claim committed before dispatch; repeats return false.
  */
 export function createInboundClaims(file, { retentionMs, maxEntries, now = Date.now }) {
   if (!Number.isSafeInteger(retentionMs) || retentionMs <= 0 || !Number.isSafeInteger(maxEntries) || maxEntries <= 0) {
@@ -29,6 +29,13 @@ export function createInboundClaims(file, { retentionMs, maxEntries, now = Date.
     if (error.code !== 'ENOENT') throw error
   }
   return {
+    has(messageId) {
+      if (typeof messageId !== 'string' || !messageId) throw new Error('Feishu message ID is required')
+      const time = now()
+      if (!Number.isSafeInteger(time) || time < 0) throw new Error('Feishu message claim clock is invalid')
+      const timestamp = entries.get(messageId)
+      return timestamp !== undefined && time - timestamp < retentionMs
+    },
     claim(messageId) {
       if (typeof messageId !== 'string' || !messageId) throw new Error('Feishu message ID is required')
       const time = now()

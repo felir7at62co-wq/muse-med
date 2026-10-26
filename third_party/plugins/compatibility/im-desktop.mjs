@@ -13,6 +13,7 @@ export const imDesktopCompatibility = {
   newGroups: 'saved native access settings authorize messages and card actions without legacy sender or chat gates',
   workspace: 'one selected workspace per Feishu bot with independent conversation histories',
   remoteProvider: 'retained at @wenbin_wb/dsh-bridge/remote',
+  teamRouting: 'registered app and chat bind one Muse Bot named from available Feishu metadata; native Sessions and workspace fences remain authoritative',
   updates: 'supplied only by Muse application updates',
 }
 
@@ -41,8 +42,10 @@ export function applyImDesktopCompatibility(directory) {
         botId: id, workspaces, state, agentPresetCatalog,
         readSessionWorkspace: async sessionId => ctx.sessions.get(sessionId)?.header.cwd
           ?? (await ctx.sessionPersistence.stat(sessionId))?.header.cwd,
-      });`],
-    ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
+      });
+      const teamScope = config.museTeam?.forBot(id, botConfig.appId, workspaceScope, workspaces) ?? workspaceScope;`],
+    ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: teamScope.harness,\n        state: teamScope.state,'],
+    ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: teamScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
   ])
   edit(directory, 'plugin-src/client/channels/feishu/index.js', '4dfa9310756bd0ca6d0d570b1cbde24f18175a1c18997f077a47d2c526e492bc', [
     ['          onSave: onWorkspaceSave,\n        }),', '          onSave: onWorkspaceSave,\n        }),\n      h("p", { className: "dim-help" }, "同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。"),'],
@@ -81,6 +84,21 @@ export function applyImDesktopCompatibility(directory) {
     return this.status;`],
   ])
   edit(directory, 'src/channels/feishu/bridge.mjs', '2bf5173d6b6e9a92659b05c8443f2fedb392ea43e6ac869545121c2214f65e1c', [
+    ['  #resolveKey(event) {', '  #resolveKey(event) {\n    const canonical = this.#museAdmission?.conversationKey?.(event);\n    if (canonical !== undefined) return canonical;'],
+    ['  #rememberTopicReply(messageId, key) {', '  #rememberTopicReply(messageId, key, threaded = false) {'],
+    ['    this.#anchorTopicReply.set(messageId, isTopicKey(key));', `    const inThread = threaded || isTopicKey(key) || this.#anchorTopicReply.get(messageId) === true
+      || this.#museAdmission?.replyInThreadFor?.(messageId) === true;
+    this.#anchorTopicReply.set(messageId, inThread);`],
+    ['    this.#rememberTopicReply(messageId, key);\n\n    const commandMessage', `    this.#rememberTopicReply(messageId, key, Boolean(nonEmptyString(event?.message?.thread_id))
+      || (this.#mentionTopicReply && this.#isMentioned(event) && !isBareMentionMessage(event)));
+
+    const commandMessage`],
+    ['  #rememberCardRoute(messageId, chatId, options) {', `  #rememberCardRoute(messageId, chatId, options) {
+    if (messageId && this.#replyInThreadFor(options.replyTo)) {
+      this.#anchorTopicReply.set(messageId, true);
+      try { this.#museAdmission?.rememberReply?.(messageId, true); }
+      catch (error) { this.#logger.warn?.('[muse-im] sent card thread receipt could not be saved:', error?.message); }
+    }`],
     ['  #botOpenId;', '  #botOpenId;\n  #museAdmission;'],
     ['    botOpenId,', '    botOpenId,\n    museAdmission,'],
     ['    this.#botOpenId = nonEmptyString(botOpenId);', '    this.#botOpenId = nonEmptyString(botOpenId);\n    this.#museAdmission = museAdmission;'],
@@ -97,7 +115,17 @@ export function applyImDesktopCompatibility(directory) {
 
   async #acceptWithHistory(event) {`],
     ['  #accept(event) {', '  async #accept(event) {'],
-    ['    // Register a managed-topic root only after access is allowed, so a', '    if (this.#museAdmission && !await this.#museAdmission.message(event, this.#state)) return;\n    if (this.#signal?.aborted) return;\n    // Register a managed-topic root only after access is allowed, so a'],
+    ['    // Register a managed-topic root only after access is allowed, so a', `    try {
+      if (this.#museAdmission && !await this.#museAdmission.message(event, this.#state, {
+        replyInThread: this.#anchorTopicReply.get(messageId) === true,
+        client: this.#client, signal: this.#signal,
+      })) return;
+      if (this.#signal?.aborted) return;
+    } catch (error) {
+      await this.#sendFailure(event.message.chat_id, error, { logLabel: 'Muse Bot routing', replyTo: messageId });
+      return;
+    }
+    // Register a managed-topic root only after access is allowed, so a`],
     ['      const tasks = [\n        ...this.#queues.values(),', '      const tasks = [\n        ...this.#acceptTasks,\n        ...this.#queues.values(),'],
     ['      if (this.#queues.size === 0\n', '      if (this.#acceptTasks.size === 0\n        && this.#queues.size === 0\n'],
     ["      || resolvedAction.startsWith('answer:');", "      || resolvedAction.startsWith('answer:')\n      || resolvedAction.startsWith('answerCustom:');"],
@@ -115,7 +143,7 @@ export function applyImDesktopCompatibility(directory) {
     ['        installOutboundArtifactTool(artifactCtx);', '        installMuseImFiles(artifactCtx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],
     ['      installOutboundArtifactTool(ctx);', '      installMuseImFiles(ctx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],
   ])
-  for (const file of ['muse-im-channel.mjs', 'muse-im-admission.mjs', 'muse-im-migration.mjs', 'muse-feishu-reliability.mjs', 'muse-im-socket.mjs', 'muse-im-files.mjs', 'muse-im-workspace.mjs']) {
+  for (const file of ['muse-im-channel.mjs', 'muse-im-admission.mjs', 'muse-im-migration.mjs', 'muse-feishu-reliability.mjs', 'muse-im-socket.mjs', 'muse-im-files.mjs', 'muse-im-workspace.mjs', 'muse-im-team.mjs']) {
     cpSync(join(import.meta.dirname, file), join(directory, 'lib', file === 'muse-im-channel.mjs' ? 'index.js' : file))
   }
   const manifestPath = join(directory, 'package.json')

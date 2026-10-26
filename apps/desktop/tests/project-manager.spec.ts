@@ -85,6 +85,7 @@ const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   '@xmanrui/dsh-im',
   'dsh-codex-subscription',
+  'ds-bot',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {

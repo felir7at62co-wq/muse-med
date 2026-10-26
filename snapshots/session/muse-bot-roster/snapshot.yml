@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-bot-roster
+profile: headless
+composition: muse-bot-roster
+recording: authored
+writerOutput: true
+header:
+  class: muse-bot-roster
+  pin: true
