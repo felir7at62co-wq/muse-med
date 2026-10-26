@@ -8,6 +8,29 @@ import { measureSubtitleLayout } from '../src/subtitle-layout.ts'
 import type { MediaToolkit, RenderSettings, SubtitleCue, TimelineDelivery } from '../src/types.ts'
 import { createMediaRunner } from './audio-ffmpeg-harness.ts'
 
+const fsFaults = vi.hoisted(() => ({ access: null as Error | null, mkdir: null as string | null }))
+function rejectNonError(reason: string): Promise<never> {
+  return Promise.reject(reason)
+}
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual,
+    access: (...args: Parameters<typeof actual.access>) => {
+      if (fsFaults.access === null) return actual.access(...args)
+      const error = fsFaults.access
+      fsFaults.access = null
+      return Promise.reject(error)
+    },
+    mkdir: (...args: Parameters<typeof actual.mkdir>) => {
+      if (fsFaults.mkdir === null) return actual.mkdir(...args)
+      const error = fsFaults.mkdir
+      fsFaults.mkdir = null
+      return rejectNonError(error)
+    },
+  }
+})
+
 const visual = { schema_version: 1 as const, reference_width: 320, reference_height: 180,
   font_size_px: 30, outline_px: 2, center_y_ratio: 0.65, max_width_ratio: 0.8, font_family: 'Arial' }
 const delivery: TimelineDelivery = { width: 320, height: 180, fps: 12, subtitle_visual: visual }
@@ -117,6 +140,13 @@ it('reports empty white-pixel bounds and authored newlines without guessing a wi
   expect(result.warnings.join('\n')).toContain('未取得白字边界')
 })
 
+it('reports absent bbox output without claiming that the subtitle fits', async () => {
+  const root = await directory(), process = stub('fontselect: (Arial, 400, 0) -> ArialMT, 0, ArialMT')
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('台词')], directory: root })
+  expect(result.report.entries[0]).toMatchObject({ status: 'not_measured', ink_bounds: null, fits_available_width: null })
+  expect(result.warnings.join('\n')).toContain('未取得白字边界')
+})
+
 it('keeps a thrown runtime failure in the per-text evidence', async () => {
   const root = await directory()
   const toolkit: MediaToolkit = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: { run: async () => { throw new Error('runtime unavailable') } } }
@@ -124,6 +154,41 @@ it('keeps a thrown runtime failure in the per-text evidence', async () => {
   expect(result.report.entries[0]?.fits_available_width).toBeNull()
   expect(await readFile(result.report.entries[0]!.files.stderr, 'utf8')).toContain('runtime unavailable')
   expect(result.warnings.join('\n')).toContain('退出码 null')
+})
+
+it('records a non-Error process rejection as diagnostic text', async () => {
+  const root = await directory()
+  const toolkit: MediaToolkit = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe',
+    channel: { run: async () => rejectNonError('native process refused the probe') } }
+  const result = await measureSubtitleLayout({ toolkit, settings, delivery, cues: [cue('台词')], directory: root })
+  expect(await readFile(result.report.entries[0]!.files.stderr, 'utf8')).toBe('native process refused the probe')
+  expect(result.report.entries[0]?.status).toBe('not_measured')
+})
+
+it('keeps a non-ENOENT preview access failure advisory and preserves written evidence', async () => {
+  const root = await directory(), process = stub()
+  fsFaults.access = Object.assign(new Error('preview access denied'), { code: 'EACCES' })
+  try {
+    const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('台词')], directory: root })
+    expect(result.report.status).toBe('not_measured')
+    expect(result.warnings.join('\n')).toContain('preview access denied')
+    expect(result.written.some(path => path.endsWith('.stderr.log'))).toBe(true)
+  } finally {
+    fsFaults.access = null
+  }
+})
+
+it('keeps a non-Error setup rejection advisory', async () => {
+  const root = await directory(), process = stub()
+  fsFaults.mkdir = 'injected directory failure'
+  try {
+    const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('台词')], directory: root })
+    expect(result.report.status).toBe('not_measured')
+    expect(result.warnings.join('\n')).toContain('injected directory failure')
+    expect(process.run).not.toHaveBeenCalled()
+  } finally {
+    fsFaults.mkdir = null
+  }
 })
 
 it('keeps measurement directory failures advisory', async () => {

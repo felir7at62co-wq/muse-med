@@ -51,6 +51,17 @@ it.each([null, [], { schema_version: 1 }, { schema_version: 2 },
   await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+it.each([null, 7, '', '  ', 'A'.repeat(129), 'Arial,Noto', 'bad\nname'])(
+  'rejects an invalid requested subtitle font family without writing: %j', async (font_family) => {
+    const { ctx, home } = await bench()
+    const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854,
+      font_size_px: 42, outline_px: 2, center_y_ratio: 0.635, max_width_ratio: 0.9, font_family }
+    await expect(previewProjectBible(ctx.settings, home, { delivery: { subtitle_visual } }, 'invalid font'))
+      .rejects.toThrow('delivery.subtitle_visual.font_family')
+    await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  },
+)
+
 it('exposes project bible reads, previews and guarded updates through the real Loader', async () => {
   const { ctx, home } = await bench()
   const tool = ctx.tools.get('drama_project')

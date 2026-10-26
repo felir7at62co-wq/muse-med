@@ -12,6 +12,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
+import * as Layout from '../src/subtitle-layout.ts'
 import type { DramaRenderReport, DeliverySubtitleVisual, MediaToolkit } from '../src/types.ts'
 import type { SubtitleLayoutReport } from '../src/subtitle-layout.ts'
 import { placeholderHandler, probeHandler, runContext, stubChannel } from './harness.ts'
@@ -133,6 +134,22 @@ it('keeps native render output when its advisory layout subprocess fails and exp
   expect(await readFile(result.subtitle_layout!.stderr_paths[0]!, 'utf8')).toBe('layout-only decoder failure\nfull native diagnostics')
   expect(result.written).toContain(result.subtitle_layout!.report_path)
   expect(await readFile(result.log_path, 'utf8')).toContain('subtitle_layout=')
+})
+
+it('logs an advisory layout failure with no saved report while delivering the episode', async () => {
+  const input = await fixture(visual), external = externalStub(input.output)
+  const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: external.channel })
+  const measurement = vi.spyOn(Layout, 'measureSubtitleLayout').mockResolvedValueOnce({
+    report: { schema_version: 1, status: 'not_measured', delivery_size: { width: 320, height: 180 },
+      probe_size: { width: 960, height: 180 }, requested_font: 'Arial', entries: [], report_path: null },
+    warnings: ['字幕字形测量未完成：证据目录不可写；保留已写证据，不阻断制作。'], written: [],
+  })
+  onTestFinished(() => { measurement.mockRestore(); factory.mockRestore() })
+  const result = await invoke(input.tool, { method: 'render', project: input.root, episode: 1,
+    timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1, bgm: 'bed.wav', output: input.output })
+  expect(result).toMatchObject({ ok: true, output: input.output, subtitle_layout: { status: 'not_measured', report_path: '' } })
+  expect(result.warnings.join('\n')).toContain('证据目录不可写')
+  expect(await readFile(result.log_path, 'utf8')).toContain('subtitle_layout=(not saved) status=not_measured')
 })
 
 it.each([undefined, {}])('leaves legacy render return fields and media calls unchanged for profile %j', async (profile) => {
