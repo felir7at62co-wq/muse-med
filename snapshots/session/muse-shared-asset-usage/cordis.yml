@@ -1,3 +1,8 @@
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
 - id: llm-deepseek
   disabled: true
 - id: tool-bash

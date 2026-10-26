@@ -1594,7 +1594,7 @@ describe('jubian_storyboard', () => {
     expect(calls).toEqual([])
   })
 
-  it('compiles the erasure body without any catalogue read', async () => {
+  it('compiles the erasure body without another catalogue read when a caller estimate exists', async () => {
     const { client, calls } = stubClient(request => request.path.includes('sub/list')
       ? { total: 1, rows: [{ id: 972949, aigcVideoTaskId: 428322, taskStatus: 'succeeded', duration: 13,
         modelId: 'doubao-seedance-2-0-260128', resolution: '720p',
@@ -1603,7 +1603,8 @@ describe('jubian_storyboard', () => {
       : { id: 428322, taskType: 1, taskStatus: 'succeeded', episodeId: 46734, episodeCount: 1,
         taskName: 'null-第1集' })
     const result = await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6',
-      task_id: 428322, script_id: 2708, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+      task_id: 428322, script_id: 2708, model_id: 'quzimuToB', video_width: 720, video_height: 1280,
+      estimated_cost_cny: '1.00', estimate_basis: 'Offline body fixture' })
     expect(result.next).toContain('subtitle_erased=true')
     expect(result.next).not.toContain('last_task_type=10')
     // Two reads then one submit — the selectors are pinned, so no catalogue call.
@@ -1629,7 +1630,8 @@ describe('jubian_storyboard', () => {
       : { id: 428322, taskType: 1, taskStatus: 'succeeded', scriptId: 2708, episodeId: 46734,
         episodeCount: 1, taskName: 'null-第1集' })
     await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6b',
-      task_id: 428322, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+      task_id: 428322, model_id: 'quzimuToB', video_width: 720, video_height: 1280,
+      estimated_cost_cny: '1.00', estimate_basis: 'Offline identity fixture' })
     expect(calls.length).toBe(3)
     expect(calls[2]!.path.endsWith('/aigc/storyboard/subtitleEraser')).toBe(true)
     expect(calls[2]!.body).toMatchObject({ scriptId: 2708 })
@@ -1641,6 +1643,7 @@ describe('jubian_storyboard', () => {
       : { id: 42, scriptId: 2708, episodeId: 1 })
     expect(await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'explicit-subtitle-box',
       task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720,
+      estimated_cost_cny: '1.00', estimate_basis: 'Offline rectangle fixture',
       subtitle_box: { zimuLeft: 0, zimuTop: 600, zimuWidth: 1279, zimuHeight: 100 } }))
       .toMatchObject({ outcome: 'accepted' })
     expect(calls[2]?.body).toMatchObject({ taskName: 'task-42-去字幕',
@@ -1882,6 +1885,7 @@ it('uses the current video when the original result URL is absent on a returned 
     ? { total: 1, rows: [{ id: 99, duration: 8, resultList: [{ lastTosVideoUrl: 'https://example.test/current.mp4' }] }] }
     : { id: 42, scriptId: 2708, episodeId: 1 })
   await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'current-only',
-    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720 })
+    task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720,
+    estimated_cost_cny: '1.00', estimate_basis: 'Offline source fixture' })
   expect(calls.at(-1)?.body).toMatchObject({ videoUrl: 'https://example.test/current.mp4' })
 })

@@ -4,7 +4,8 @@
  * Each `【镜头N】` block preserves its speech and voice choice, and the `身体状态`
  * each of its `主体状态追踪` entries declares for one on-screen character, which
  * the asset binding then has to agree with. Explicit positive whole-second
- * durations take precedence over speech/complexity estimates. Creative checks
+ * durations take precedence over speech/complexity estimates; a declared
+ * performance budget must still fit that duration. Creative checks
  * produce warnings; malformed fields remain failures.
  *
  * The parser never throws and never stops at the first problem: it returns every
@@ -15,6 +16,7 @@
  */
 
 import { declaredBodyStates } from './state.ts'
+import { reviewShotQuality } from './quality.ts'
 import type { DurationSource, IssueCode, IssueSeverity, ParsedShot, ShotIssue, VoiceType } from './types.ts'
 
 /** Han characters, Latin letters, and digits: punctuation and spaces never count. */
@@ -42,7 +44,7 @@ const SPEAKER_PREFIX = /^([^：:]{1,30})[：:](.+)$/
 const SPEAKER_PREFIX_ONLY = /^([^：:]{1,30})[：:]\s*$/
 
 /** The style line every shot block is preceded by, with the whitespace that follows it. */
-const STYLE_LINE = /((?:真人短剧写实|写实3D CG渲染)风格)\s*$/
+const STYLE_LINE = /(?:^|\n)[ \t]*(?:风格[：:][ \t]*)?((?:真人短剧写实|写实3D CG渲染)风格)[。. ]*\s*$/
 
 /** A suggested negative prompt; absence only produces a warning. */
 const NEGATIVE_PROMPT = '无噪点，无跳帧，五官稳定不变形'
@@ -85,14 +87,21 @@ export const DEFAULT_MAX_EFFECTIVE_CHARS = 36
 /** The writing threshold above which the source sentence should have been split. */
 const WRITING_THRESHOLD_CHARS = 15
 
+/** Default speech estimate for deployments that retain the original timing policy. */
+export const DEFAULT_SPEECH_CHARS_PER_SECOND = 8
+
 /** Guidance for checking the project's voice choice without rewriting speech. */
 const NARRATION_FIX_HINT = '将作为 vo 画外发声保留，不阻塞编译；请核对本项目是否需要旁白/心声，'
   + '并核对说话人、原文与后期发声轨，不要删改原文。'
 
 /** How the parser charges a silent shot that declares no complexity. */
 export interface ParseOptions {
+  /** Whole episodes start at one; prepared packages keep their contiguous source shot numbers. */
+  sourceScope?: 'episode' | 'prepared_package'
   /** Seconds charged to a silent shot with no `动作复杂度` label. */
   actionShotSeconds: number
+  /** Effective spoken characters per second; omitted retains the original estimate. */
+  speechCharsPerSecond?: number
   /**
    * The per-shot spoken-text ceiling this project declares in its
    * `project_config.json`. Omitted means the project states none, and
@@ -123,10 +132,11 @@ export function effectiveChars(text: string): number {
 /**
  * Derive a speaking shot's whole-second duration.
  * @param chars - Effective characters of the spoken text.
- * @returns `max(1, ceil(chars / 8))` seconds.
+ * @param charsPerSecond - Resolved speech-estimate rate, at least one.
+ * @returns At least one whole second at the specified rate.
  */
-export function speechSeconds(chars: number): number {
-  return Math.max(1, Math.ceil(chars / 8))
+export function speechSeconds(chars: number, charsPerSecond = DEFAULT_SPEECH_CHARS_PER_SECOND): number {
+  return Math.max(1, Math.ceil(chars / charsPerSecond))
 }
 
 /** Trim the bracket forms the older gate shell wrapped field values in. */
@@ -348,6 +358,38 @@ function fieldOffset(blockText: string, name: string): number {
   return new RegExp(`^${name}[：:]`, 'm').exec(blockText)?.index ?? 0
 }
 
+/** Read a complete authored performance budget without guessing action speed. */
+function readPerformanceTiming(text: string, block: Block, blockText: string, speech: Speech): Duration | undefined {
+  const rows = [...blockText.matchAll(/^(动作预算|发声预算|反应预算|表演顺序)[：:][ \t]*(.*)$/gm)]
+  const firstRow = rows[0]
+  if (firstRow === undefined) return undefined
+  const value = (name: string): string => {
+    const matching = rows.filter(row => row[1] === name)
+    const [row] = matching
+    return row === undefined || matching.length !== 1 ? '' : row[0].slice(name.length + 1).trim()
+  }
+  const budget = (name: string): number => {
+    const raw = value(name)
+    return /^(?:0|[1-9]\d*)秒$/.test(raw) ? Number(raw.slice(0, -1)) : Number.NaN
+  }
+  const action = budget('动作预算')
+  const spoken = budget('发声预算')
+  const reaction = budget('反应预算')
+  const order = value('表演顺序')
+  const simultaneous = order === '同时'
+  const seconds = (simultaneous ? Math.max(action, spoken) : action + spoken) + reaction
+  if (![action, spoken, reaction, seconds].every(Number.isSafeInteger)
+    || seconds < 1 || (speech.text === '' ? spoken !== 0 : spoken < 1)
+    || !['同时', '先动作后台词', '先台词后动作'].includes(order)) {
+    return { seconds: 0, source: 'declared', issues: [issue('failure', 'timing_plan_invalid', block.number,
+      lineAt(text, block.start + firstRow.index),
+      `镜头${block.number}表演预算不完整或无效：动作预算、发声预算、反应预算、表演顺序须各写一次。`
+      + '三项预算用非负安全整数秒；有发声时发声预算至少1秒，无发声时为0秒，总时长至少1秒且为安全整数。'
+      + '表演顺序只接受 同时/先动作后台词/先台词后动作；同时取动作与发声较长者，先后累加，再加反应预算。')] }
+  }
+  return { seconds, source: 'declared', issues: [] }
+}
+
 /** Read one shot's duration from its speech, its complexity label, or the default. */
 function readDuration(
   text: string,
@@ -372,11 +414,16 @@ function readDuration(
   }
   if (complexity !== '') {
     issues.push(issue('warning', 'action_complexity_on_speaking_shot', block.number, complexityLine,
-      `镜头${block.number}同时有台词与动作复杂度：估算以发声为准，明确时长声明优先；`
-      + '请核对说话时的动作与停顿是否需要额外时间，不必删除动作描述。'))
+      `镜头${block.number}同时有台词与动作复杂度：估算取发声与动作所需时间的较长者，明确时长声明优先；`
+      + '先后完成的动作、台词和反应须另行累加并声明时长，不必删除动作描述。'))
+    if (ACTION_COMPLEXITY[complexity] === undefined) {
+      issues.push(issue('failure', 'unknown_action_complexity', block.number, complexityLine,
+        `镜头${block.number}的 动作复杂度：${complexity} 不是合法取值：只接受 ${COMPLEXITY_LABELS}。`))
+    }
   }
   const chars = effectiveChars(speech.text)
-  const seconds = speechSeconds(chars)
+  const rate = options.speechCharsPerSecond ?? DEFAULT_SPEECH_CHARS_PER_SECOND
+  const seconds = Math.max(speechSeconds(chars, rate), ACTION_COMPLEXITY[complexity] ?? 0)
   const declared = options.maxEffectiveChars
   const limit = declared ?? DEFAULT_MAX_EFFECTIVE_CHARS
   if (chars > limit) {
@@ -391,7 +438,7 @@ function readDuration(
   } else if (chars > WRITING_THRESHOLD_CHARS) {
     issues.push(issue('warning', 'speech_above_writing_threshold', block.number, speech.line,
       `镜头${block.number}语音${chars}字，超过 ${WRITING_THRESHOLD_CHARS} 字的写作阈值：`
-      + `按 8 有效字/秒记为 ${seconds} 秒、不阻塞编译；原文语义上还能拆就拆成连续镜头（不删字、不改顺序）。`))
+      + `按 ${rate} 有效字/秒及动作复杂度记为 ${seconds} 秒、不阻塞编译；原文语义上还能拆就拆成连续镜头（不删字、不改顺序）。`))
   }
   return { seconds, source: 'speech', issues }
 }
@@ -408,7 +455,8 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
   const issues: ShotIssue[] = []
   const shots: ParsedShot[] = []
   const blocks = splitBlocks(text)
-  if (blocks.length === 0) {
+  const firstBlock = blocks[0]
+  if (firstBlock === undefined) {
     issues.push(issue('failure', 'no_shots', 0, 0,
       '脚本里没有任何【镜头N】块：本工具编译导演格式镜头脚本，'
       + '每个镜头以独占一行的【镜头N】开头，上一行可声明项目的真人或3D渲染风格。'))
@@ -428,7 +476,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     const legacy = LEGACY_DURATION.exec(blockText)
     const legacyValue = legacy === null ? '' : capture(legacy, 1).trim()
     const legacyLine = legacy === null ? 0 : lineAt(text, block.start + legacy.index)
-    const body = blockText.replace(/^时长[：:].*$\n?/gm, '')
+    const body = blockText.replace(/^(?:时长|动作预算|发声预算|反应预算|表演顺序)[：:].*$\n?/gm, '')
     const declaredSeconds = legacy === null ? undefined : Number(legacyValue.replace(/秒$/, ''))
     const validDuration = legacy !== null && LEGACY_DURATION_VALUE.test(legacyValue)
       && Number.isSafeInteger(declaredSeconds)
@@ -437,7 +485,9 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
         `镜头${block.number}时长必须是正整数秒：${legacyValue}。例如「时长：20秒」；`
         + '省略时长行时按台词或动作复杂度估算。'))
     }
-    const seconds = SECONDS_IN_BODY.exec(body)
+    const prose = blockText.replace(/^(?:时长|动作预算|发声预算|反应预算|表演顺序)[：:].*$/gm,
+      row => ' '.repeat(row.length))
+    const seconds = SECONDS_IN_BODY.exec(prose)
     if (seconds !== null) {
       const line = lineAt(text, block.start + seconds.index)
       issues.push(issue('warning', 'seconds_in_shot_body', block.number, line,
@@ -455,8 +505,21 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     issues.push(...speech.issues)
     const duration = readDuration(text, block, blockText, speech, options)
     issues.push(...duration.issues)
+    const performance = readPerformanceTiming(text, block, blockText, speech)
+    if (performance !== undefined) {
+      issues.push(...performance.issues)
+      if (performance.issues.length === 0) {
+        duration.seconds = performance.seconds
+        duration.source = performance.source
+      }
+    }
 
-    if (validDuration && declaredSeconds !== duration.seconds) {
+    if (validDuration && declaredSeconds !== undefined && performance?.issues.length === 0
+      && declaredSeconds < performance.seconds) {
+      issues.push(issue('failure', 'timing_plan_exceeds_duration', block.number, legacyLine,
+        `镜头${block.number}声明${legacyValue}，小于本镜表演预算合计${performance.seconds}秒。`
+        + '按真实表演修正预算与时长，或沿原文动作顺序拆成连续镜头；不能删掉必要动作或加速表演凑时长。'))
+    } else if (validDuration && declaredSeconds !== duration.seconds) {
       issues.push(issue('warning', 'legacy_duration_mismatch', block.number, legacyLine,
         `镜头${block.number}估算为${duration.seconds}秒，采用声明的${legacyValue}。`
         + '请试听确认语速、停顿与动作时间；估算不覆盖导演声明。'))
@@ -495,12 +558,15 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     })
   }
 
-  const deviation = shots.find((item, index) => item.shot !== index + 1)
+  const initial = firstBlock.number
+  const first = options.sourceScope === 'prepared_package' && Number.isSafeInteger(initial) && initial > 0 ? initial : 1
+  const deviation = shots.find((item, index) => item.shot !== index + first)
   if (deviation !== undefined) {
     const position = shots.indexOf(deviation) + 1
     issues.push(issue('failure', 'shot_numbering', deviation.shot, deviation.line,
-      `镜头号不连续：第 ${position} 个镜头块的编号是「${deviation.shot}」，应为 ${position}；`
-      + '镜头必须从 1 开始连续编号，不跳号、不重复。'))
+      `镜头号不连续：第 ${position} 个镜头块的编号是「${deviation.shot}」，应为 ${position + first - 1}；`
+      + `镜头必须从 ${first} 开始连续编号，不跳号、不重复。`))
   }
+  issues.push(...reviewShotQuality(shots).issues)
   return { shots, issues }
 }

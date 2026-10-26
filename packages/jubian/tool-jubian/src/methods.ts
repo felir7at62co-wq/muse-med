@@ -49,6 +49,7 @@ import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audi
 import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
 import { readUpscaleQuote } from './upscale-price.ts'
+import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
@@ -1487,6 +1488,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       // budget gate, which cannot ask for a project the caller never states.
       let projectId: number | undefined
       let estimate: ReturnType<typeof estimatedCostReservation>
+      let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
@@ -1496,11 +1498,26 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
           const modelId = need(args.model_id, 'model_id')
-          const selected = SUBTITLE_ERASE_MODELS.some(id => id === modelId) && args.platform_id === undefined
-            ? undefined : resolvePostProcessModel((await client.request({ method: 'GET',
-              path: '/model/charge/getSelectList?taskType=10' })).data, { modelId,
-              ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-            })
+          const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
+          const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
+          const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
+          let catalogue: unknown
+          if (needsCatalogue) {
+            try { catalogue = (await client.request({ method: 'GET',
+              path: '/model/charge/getSelectList?taskType=10' })).data }
+            catch (error) {
+              // A known route can retain its older operator-approved estimate when
+              // catalogue access is denied. Unknown routes still need live selectors.
+              if (!knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
+                || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+            }
+          }
+          const selected = catalogue === undefined ? undefined : resolvePostProcessModel(catalogue, { modelId,
+            ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+          })
+          if (!hasCallerEstimate && selected !== undefined && knownModel) {
+            catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+          }
           return buildSubtitleEraseRequest(modelId, {
             ...media,
             taskName: args.task_name
@@ -1513,12 +1530,14 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
         () => {
           estimate = estimatedCostReservation(args)
-          return { ...estimate, scriptId: projectId as number }
+          return { ...(catalogueQuote ?? estimate), scriptId: projectId as number }
         })
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
           + (!result.replayed && estimate !== undefined
-            ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '') }
+            ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '')
+          + (!result.replayed && catalogueQuote !== undefined
+            ? ` 本次按 ${catalogueQuote.basis} 预留 ${catalogueQuote.amount} CNY。` : '') }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

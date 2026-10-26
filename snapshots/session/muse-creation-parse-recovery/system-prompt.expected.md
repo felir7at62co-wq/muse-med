@@ -223,7 +223,7 @@ interface ToolArgsMap {
     /** render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。 */
     force?: boolean;
   } & Record<string, JsonValue>;
-  /** 镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。 */
+  /** 镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。完整的动作预算、发声预算、反应预算与表演顺序用于同步/串行时间核算；缺项、算术冲突仍报告warning，不能据ok=true判断可行。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。 */
   drama_shot: {
     /** validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。 */
     method: "validate" | "preview" | "compile";
@@ -1761,7 +1761,7 @@ interface ToolOutputMap {
       effective_chars: number;
       /** 本镜计入打包预算的整秒数。 */
       duration_seconds: number;
-      /** 时长来源：明确声明、8 有效字/秒估算、动作复杂度、或编译器默认值。 */
+      /** 时长来源：明确时长或完整表演预算、发声与动作复杂度的较长估算、无声动作复杂度、或编译器默认值。 */
       duration_source: "speech" | "declared" | "complexity" | "default";
       /** 是否是同场画外音。 */
       offscreen: boolean;

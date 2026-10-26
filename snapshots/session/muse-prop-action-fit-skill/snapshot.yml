@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-prop-action-fit-skill
+profile: headless
+composition: muse-prop-action-fit-skill
+recording: authored
+header:
+  class: muse-prop-action-fit-skill
+  pin: true
+workspace:
+  setup: muse-prop-action-fit-skill
+writerOutput: true

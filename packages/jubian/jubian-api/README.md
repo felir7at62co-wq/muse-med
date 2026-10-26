@@ -168,6 +168,8 @@ Where a field is optional in the provider's own data, the reader carries that op
 
 ### The video stage vocabulary
 
+`buildNativeVideoPreview()` trims only the prompt's outer whitespace and preserves internal line breaks and spacing in the frozen payload. Fingerprinting covers that exact payload; prompt comparisons used to reconcile provider tasks still collapse whitespace. Existing preview validation and original submission keys remain unchanged. See the [formatting upgrade guide](../../../docs/upgrade-guide/v0.2.1-alpha.1/native-video-prompt-formatting/guide.md) for unsubmitted previews from multiline cards.
+
 `buildNativeVideoPreview()` preserves an explicit `backupModelList` and supplies `[]` when it is missing or null, so the frozen model configuration carries the provider's list field without choosing an alternate model. A non-list value is rejected before submission. This field participates in the fingerprint; rebuild an unsubmitted preview prepared without it. Recorded keys still reconcile without another paid request.
 
 Native claims read model selectors and prompt from the child's `modelConfig`, or directly from the child when that field is absent or null. Direct `modelVideoStandardId` is the provider's spelling of `videoStandardId`. Both formats require all ten frozen model fields, the prompt and the complete ordered subject identity; incomplete or malformed evidence never permits another paid submission. The live storyboard cannot supply missing task evidence.

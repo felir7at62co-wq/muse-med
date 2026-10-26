@@ -617,6 +617,17 @@ describe('preview construction and validation', () => {
     expect(again.idempotencyKey).toBe(PREVIEW.idempotencyKey)
   })
 
+  it('preserves authored shot and performance paragraphs in the frozen paid payload', () => {
+    const prompt = `${PROMPT}\n\n【镜头1】\n动作：先放下水桶，再说话。\n台词：苏晚：慢一点。\n\n【镜头2】\n运镜：缓慢推近。`
+    const preview = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
+    expect((JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>).prompt).toBe(prompt)
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+    const tampered = { ...preview.payload, modelConfig: JSON.stringify({
+      ...JSON.parse(String(preview.payload.modelConfig)), prompt: prompt.replaceAll('\n', ' ') }) }
+    expect(() => validateNativeVideoPreview({ ...preview, payload: tampered })).toThrow()
+  })
+
   it('refuses a payload whose settings, duration or assets break the contract', () => {
     const broken = (overrides: Record<string, unknown>) => ({ ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, ...overrides }) })

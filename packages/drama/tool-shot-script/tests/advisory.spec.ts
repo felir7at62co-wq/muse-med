@@ -32,6 +32,18 @@ function warningCodes(report: DramaShotReport): string[] {
   return report.warnings.map(issue => issue.code)
 }
 
+it('reports an undersized performance plan as advice without accepting it for generation', async () => {
+  const f = await fixture({ script: speakingShot(1, '苏晚：等我回来。', [
+    '出镜人物：苏晚', '核心场景：后厨', '时长：4秒', '动作预算：6秒',
+    '发声预算：3秒', '反应预算：2秒', '表演顺序：先动作后台词',
+  ]) })
+  const report = await f.tool.report({ ...f.args, method: 'preview' })
+  expect(report.ok).toBe(true)
+  expect(report.failures).toEqual([])
+  expect(warningCodes(report)).toContain('timing_plan_exceeds_duration')
+  expect(report.shots[0]?.duration_seconds).toBe(4)
+})
+
 it.each(['validate', 'preview', 'compile'] as const)('reports content issues without blocking %s or altering speech and duration', async (method) => {
   const f = await fixture()
   await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ delivery: { max_effective_chars_per_shot: 3 } }))

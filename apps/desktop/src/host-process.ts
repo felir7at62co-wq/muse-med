@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import { parseDouyinRequest, parseDouyinDataRequest } from './douyin-policy.ts'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from './host-protocol.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 import type { DouyinDesktopRequest, DouyinDesktopResult, DouyinDesktopDataRequest, DouyinDesktopDataResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 interface ReadyEvent {
@@ -65,6 +65,9 @@ export interface DesktopQuitInspection {
 export const QUIT_INSPECTION_DEADLINE_MS = 2_000
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
+
+/** Leave time for the Host to acknowledge a completed disposal before escalating. */
+export const DESKTOP_HOST_SHUTDOWN_DEADLINE_MS = DESKTOP_HOST_SHUTDOWN_GRACE_MS + 5_000
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
@@ -451,7 +454,7 @@ export class DesktopHostProcess {
         if (error !== null) this.fail(error)
       })
     const exited = this.exitPromise ?? Promise.resolve()
-    const graceful = await exitsWithin(exited, 10_000)
+    const graceful = await exitsWithin(exited, DESKTOP_HOST_SHUTDOWN_DEADLINE_MS)
     if (!graceful) child.kill('SIGTERM')
     if (!(await exitsWithin(exited, 5_000))) {
       child.kill('SIGKILL')

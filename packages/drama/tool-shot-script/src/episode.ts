@@ -26,6 +26,7 @@ import type {
   ShotIssue,
 } from './types.ts'
 import { characterNames } from './assets.ts'
+import { continuityPeriod, reviewSceneTimes, reviewShotQuality } from './quality.ts'
 
 /** Seconds of natural reaction, breath, or movement closure every package adds. */
 export const NATURAL_HOLD_SECONDS = 1
@@ -136,9 +137,10 @@ export function materialKeys(prompt: string): string[] {
  * without inventing features from an asset name.
  * @param shots - Compiled shots in script order.
  * @param manifest - Registrations supplying story names, aliases and animal classification.
- * @returns New shot rows with current cast limits and complete material references.
+ * @returns New shot rows with inherited scene time, current cast limits and complete material references.
  */
 export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: readonly ManifestAsset[] = []): CompiledShot[] {
+  const { times } = reviewSceneTimes(shots.map(item => item.shot))
   const keysByAsset = new Map<string, string>()
   for (const item of shots) {
     for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
@@ -150,7 +152,8 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
   }
   return shots.map((item) => {
     const present = new Set<string>()
-    const original = item.shot.visual.split('\n').filter(line => !line.startsWith('本镜人物范围：'))
+    const original = item.shot.visual.split('\n').filter(line => !line.startsWith('本镜人物范围：')
+      && !/^时段(?:连续性|呈现)[：:]/u.test(line))
       .join('\n').replace(MATERIAL_PLACEHOLDER, (whole: string, label: string, key: string) => {
         const match: RegExpMatchArray = [whole, label, key]
         const asset = referenceAsset(item, match, manifest)
@@ -194,7 +197,10 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
       } else if (!present.has(asset.assetId)) added.push(reference)
       present.add(asset.assetId)
     }
-    const visual = `${original}\n${[...added, castLimit].join('\n')}`
+    const time = times.get(item.shot.shot)
+    const temporal = time === undefined ? [] : [`时段连续性：${time}`,
+      '时段呈现：切镜及分包不推进剧情时间；光照按本镜时段，合理调整机位曝光，不因近景自动入夜或恢复白天；场景参考图保留布局与空间锚点，冲突天光不能照搬。']
+    const visual = `${original}\n${[...added, ...temporal, castLimit].join('\n')}`
     return { ...item, shot: { ...item.shot, visual } }
   })
 }
@@ -202,7 +208,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
 /**
  * Split shots at the boundaries one package may never cross.
  *
- * A package closes before a shot of another scene and after a shot marked
+ * A package closes before another scene or explicit source period and after a shot marked
  * `子任务边界：是`. A shot whose scene is not bound carries an empty name, which is a
  * missing declaration rather than a scene of its own: it stays in the run it
  * arrived in and never closes one. Reading it as a scene split an episode whose
@@ -211,7 +217,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
  * compiled.
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
- * @returns Runs of shots, each packable on its own.
+ * @returns Nonempty runs of shots, each packable on its own.
  */
 function splitContinuityUnits(
   shots: readonly CompiledShot[], maxContentSeconds: number, advisory = false,
@@ -219,6 +225,8 @@ function splitContinuityUnits(
   const units: CompiledShot[][] = []
   let current: CompiledShot[] = []
   let scene: string | undefined
+  const periods = new Map<string, string>()
+  const { times: sceneTimes } = reviewSceneTimes(shots.map(item => item.shot))
   for (const item of shots) {
     const duration = item.shot.durationSeconds
     if (duration > maxContentSeconds) {
@@ -231,7 +239,10 @@ function splitContinuityUnits(
       }
       throw new Error(`镜头${item.shot.shot}时长${duration}秒超过内容预算${maxContentSeconds}秒；不能截断镜头。`)
     }
-    const declared = item.scene === '' ? undefined : item.scene
+    const period = continuityPeriod(item.shot) || periods.get(item.scene) || ''
+    if (item.scene !== '') periods.set(item.scene, period)
+    const time = sceneTimes.get(item.shot.shot) ?? ''
+    const declared = item.scene === '' ? undefined : JSON.stringify([item.scene, period, time])
     const changedScene = declared !== undefined && scene !== undefined && declared !== scene
     if (current.length > 0 && changedScene) {
       units.push(current)
@@ -316,11 +327,14 @@ function advisoryPackages(
     }
   }
   const tasks: PackedTask[] = []
+  const { openings } = reviewShotQuality(shots.map(item => item.shot))
   for (const unit of splitContinuityUnits(shots, maxContentSeconds, true)) {
     const packs = unit.length === 1 ? [unit] : splitUnitEvenly(unit, maxContentSeconds)
     for (const pack of packs) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
-      const prompt = pack.map(item => item.shot.visual).join('\n\n')
+      const [first] = pack as readonly [CompiledShot, ...CompiledShot[]]
+      const opening = openings.get(first.shot.shot)
+      const prompt = [opening, ...pack.map(item => item.shot.visual)].filter(Boolean).join('\n\n')
       const bindings = materialKeys(prompt).flatMap((key) => {
         const binding = candidates.get(key)
         return binding === undefined || rejectedKeys.has(key) || rejectedParents.has(binding.asset_id) ? [] : [binding]
@@ -341,9 +355,9 @@ function advisoryPackages(
  * Balancing targets the arithmetic minimum package count. Whole-shot boundaries
  * can require more packages; a greedy partition then retains the ceiling and
  * source order. Short tails remain visible for the caller to report.
- * @param unit - One run of continuous shots.
+ * @param unit - One nonempty run of continuous shots.
  * @param ceiling - Content-second ceiling of one package.
- * @returns Consecutive packs covering the run in order.
+ * @returns Nonempty consecutive packs covering the run in order.
  */
 function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readonly (readonly CompiledShot[])[] {
   const secondsOf = (shots: readonly CompiledShot[]): number =>
@@ -425,10 +439,13 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
   const invalid = materialReferenceIssues(prepared, [])
   if (invalid.length > 0) throw new Error(invalid.map(issue => issue.message).join('\n'))
   const tasks: PackedTask[] = []
+  const { openings } = reviewShotQuality(prepared.map(item => item.shot))
   for (const unit of splitContinuityUnits(prepared, maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
-      const prompt = `${pack.map(item => item.shot.visual).join('\n\n')}\n${HOLD_INSTRUCTION}`
+      const [first] = pack as readonly [CompiledShot, ...CompiledShot[]]
+      const opening = openings.get(first.shot.shot)
+      const prompt = `${[opening, ...pack.map(item => item.shot.visual)].filter(Boolean).join('\n\n')}\n${HOLD_INSTRUCTION}`
       const bindings = new Map<string, MaterialBinding>()
       for (const item of pack) {
         for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {

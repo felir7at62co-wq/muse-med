@@ -40,9 +40,10 @@ describe('a conforming script', () => {
     actionShot(2, ['动作复杂度：复杂', '子任务边界：是']),
   )
 
-  it('parses every shot with its derived facts and no issues', () => {
+  it('parses legacy shots and reports complex-performance preparation separately', () => {
     const result = parse(text)
-    expect(result.issues).toEqual([])
+    expect(codes(result.issues)).toEqual(['action_stages_missing', 'performance_budget_missing'])
+    expect(result.issues.every(issue => issue.severity === 'warning')).toBe(true)
     expect(result.shots.map(item => item.shot)).toEqual([1, 2])
     expect(result.shots[0]).toMatchObject({
       line: 2,
@@ -79,7 +80,7 @@ describe('a conforming script', () => {
 
   it('preserves a 3D project style without inserting live-action instructions', () => {
     const result = parse(text.replaceAll('真人短剧写实风格', '写实3D CG渲染风格'))
-    expect(result.issues).toEqual([])
+    expect(codes(result.issues)).toEqual(['action_stages_missing', 'performance_budget_missing'])
     expect(result.shots[0]?.visual).toMatch(/^写实3D CG渲染风格\n【镜头1】/)
     expect(result.shots.every(item => !item.visual.includes('真人短剧写实风格'))).toBe(true)
   })
@@ -343,7 +344,7 @@ describe('the packing duration rules', () => {
     const labels = [['简单', 1], ['一般', 2], ['较复杂', 3], ['复杂', 4]] as const
     for (const [label, seconds] of labels) {
       const result = parse(scriptOf(actionShot(1, [`动作复杂度：${label}`])))
-      expect(result.issues).toEqual([])
+      expect(codes(result.issues)).toEqual(seconds >= 3 ? ['action_stages_missing', 'performance_budget_missing'] : [])
       expect(result.shots[0]).toMatchObject({ durationSeconds: seconds, durationSource: 'complexity' })
     }
   })
@@ -354,9 +355,9 @@ describe('the packing duration rules', () => {
     expect(result.shots[0]).toMatchObject({ durationSeconds: 3, durationSource: 'default' })
   })
 
-  it('refuses a complexity label on a speaking shot', () => {
+  it('retains speaking complexity estimates and reports missing performance preparation', () => {
     const result = parse(scriptOf(speakingShot(1, '苏晚：原文台词', ['动作复杂度：复杂'])))
-    expect(codes(result.issues)).toEqual(['action_complexity_on_speaking_shot'])
+    expect(codes(result.issues)).toEqual(['action_complexity_on_speaking_shot', 'action_stages_missing', 'performance_budget_missing'])
     expect(result.issues[0]?.severity).toBe('warning')
     expect(result.shots[0]?.durationSource).toBe('speech')
   })
