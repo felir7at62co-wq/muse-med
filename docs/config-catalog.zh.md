@@ -671,7 +671,7 @@ export interface Config {
 ```ts config-catalog
 /** Product-owned feedback destination. */
 export interface FeedbackConfig {
-  /** HTTPS page opened in the browser; no account credentials are appended. */
+  /** HTTPS or exact loopback HTTP page opened without appending account credentials. */
   feedbackUrl: string
 }
 ```
