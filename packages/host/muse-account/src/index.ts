@@ -15,6 +15,7 @@ import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
 import { MuseFeedbackClient, feedbackSecrets } from './feedback.ts'
 import { MuseDesktopRemote } from './desktop-remote.ts'
+import { mountMuseActivity } from './activity.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -63,6 +64,10 @@ export interface Config {
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Minimum interval between best-effort human-task activity reports for the same login. */
+  readonly activityReportIntervalMs: number
+  /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
+  readonly activityRequestTimeoutMs: number
   /** Enable the product's account-bound desktop connector; requires its three Host providers. */
   readonly remoteAccess: boolean
   /** Largest acknowledged chunk forwarded over the desktop connection, in bytes. */
@@ -89,6 +94,8 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
+  activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
+  activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
   remoteChunkBytes: Schema.number().step(1).min(1024).max(32768).default(32768),
   remoteAckTimeoutMs: Schema.number().step(1).min(1000).max(120_000).default(15_000),
@@ -111,6 +118,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     sessionFile: join(accountHome, 'session.json'),
     gateway: createMuseAccountGateway(baseUrl, config.requestTimeoutMs),
   })
+  mountMuseActivity(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'),
+    reportIntervalMs: config.activityReportIntervalMs, requestTimeoutMs: config.activityRequestTimeoutMs })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,

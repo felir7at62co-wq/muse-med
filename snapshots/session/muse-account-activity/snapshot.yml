@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-account-activity
+profile: headless
+composition: muse-account-activity
+recording: authored
+header:
+  class: muse-account-activity
+  pin: true
+  systemPromptSource: muse-attention-audio
+  toolSchemasSource: muse-attention-audio
+writerOutput: true
+workspace:
+  final: true

@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "path": "/api/muse.activity",
+      "method": "POST",
+      "body": {
+        "activity": "task-start"
+      },
+      "headerNames": [
+        "content-type",
+        "cookie",
+        "origin"
+      ],
+      "sameOrigin": true,
+      "authenticated": true,
+      "redirect": "manual"
+    }
+  ]
+}

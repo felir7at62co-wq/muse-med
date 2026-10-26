@@ -2373,7 +2373,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:38`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:39`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2405,6 +2405,10 @@ export interface Config {
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Minimum interval between best-effort human-task activity reports for the same login. */
+  readonly activityReportIntervalMs: number
+  /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
+  readonly activityRequestTimeoutMs: number
   /** Enable the product's account-bound desktop connector; requires its three Host providers. */
   readonly remoteAccess: boolean
   /** Largest acknowledged chunk forwarded over the desktop connection, in bytes. */
