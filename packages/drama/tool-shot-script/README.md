@@ -192,7 +192,7 @@ Tool results and selection-review context append without rewriting previous mess
 - Scene and authored source period determine package boundaries; an omitted period retains that scene's preceding period. Costume changes within one period still require an explicit package break when they need separate generation.
 - Writes are prechecked but not transactional across concurrent processes.
 
-Strict packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted strict package is checked against the content ceiling; one indivisible overlong shot fails with its shot number. Advisory suggestions may exceed the ceiling and must be reviewed against the actual selected generation model before use.
+Packing preserves source order and emits no empty packages. Strict packing respects whole-shot boundaries even when they require more packages than the arithmetic minimum. Every emitted strict package is checked against the content ceiling; one indivisible overlong shot fails with its shot number. Advisory suggestions may exceed the ceiling and must be reviewed against the actual selected generation model before use.
 
 <a id="dev-note"></a>
 ### Dev Note

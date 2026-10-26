@@ -3,11 +3,12 @@ import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import * as Publication from '@deepseek-ai/dsh-tool-jubian'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { registerProductionTool } from '../src/production.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { encodeVoiceSlot } from '@deepseek-ai/dsh-jubian-api'
 import type { ProductionConfig } from '../src/production.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
@@ -232,6 +233,58 @@ it('reviews ordered physical steps in actual native preparation even without a c
   expect(actual.first_pass_review.findings).toContainEqual(expect.objectContaining({ code: 'action_stages_missing' }))
   expect(actual.first_pass_review.findings).toContainEqual(expect.objectContaining({ code: 'performance_budget_missing' }))
   expect(f.calls.filter(call => call.method === 'PUT' && call.body?.isGenerate === 1)).toEqual([])
+})
+
+it.each([
+  null, [], {}, { preview_path: 'preview.json', payload: null },
+  { preview_path: 'preview.json', payload: [] },
+  { preview_path: 'preview.json', payload: { modelConfig: 1 } },
+  { preview_path: 'preview.json', payload: { modelConfig: '{' } },
+  ...[null, [], {}, { prompt: 1 }, { prompt: 'ordinary prompt' }].map(config => ({
+    preview_path: 'preview.json', payload: { modelConfig: JSON.stringify(config) },
+  })),
+].map(value => ({ value })))('leaves native results without a parseable shot prompt unchanged: $value', async ({ value }) => {
+  const f = await fixture()
+  f.ctx.effect(() => f.ctx.tools.register(defineTool({
+    name: 'jubian_storyboard', description: 'Offline native preparation result',
+    parameters: { method: { type: 'string', required: true } },
+    output: { schema: { type: 'json' }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
+    async execute() { return value },
+  })))
+  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+    arguments: { method: 'prepare_video' }, callId: ToolCallId('native-unreviewable-result'),
+    signal: new AbortController().signal })
+  expect(result.isError).toBe(false)
+  expect(result.value).toEqual(value)
+})
+
+it('reports a declared overrun while preserving extra contexts supplied after preparation', async () => {
+  const f = await fixture()
+  const context = createUserMessage({ content: [{ type: 'text', text: 'Keep the original preview.' }], source: { kind: 'user' } })
+  const value = { preview_path: 'preview.json', payload: { modelConfig: JSON.stringify({ duration: 3,
+    prompt: speakingShot(1, '苏晚：等一下。', ['核心场景：后厨', '场景时段：清晨', '发声类型：dialogue', '时长：8秒']),
+  }) } }
+  f.ctx.effect(() => f.ctx.tools.register(defineTool({
+    name: 'jubian_storyboard', description: 'Offline native preparation result',
+    parameters: { method: { type: 'string', required: true } },
+    output: { schema: { type: 'json' }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
+    async execute() { return value },
+  })))
+  f.ctx.on('tools/post-execute', async (_exec, _result, next) => {
+    await next()
+    return { kind: 'accept', value, additionalContexts: [context] }
+  })
+  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+    arguments: { method: 'prepare_video' }, callId: ToolCallId('native-declared-overrun'),
+    signal: new AbortController().signal })
+  expect(result.isError).toBe(false)
+  const actual = result.value as {
+    first_pass_review: { timing_includes_estimates: boolean; findings: { code: string; message: string }[] }
+  }
+  expect(actual.first_pass_review.timing_includes_estimates).toBe(false)
+  expect(actual.first_pass_review.findings.find(issue => issue.code === 'prepared_budget_exceeds_duration')?.message)
+    .toContain('（已声明）')
+  expect(result.additionalContexts).toEqual([context])
 })
 
 it('retains a disputed costume choice as a warning and paginates complete candidate evidence', async () => {

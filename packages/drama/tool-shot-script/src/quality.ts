@@ -12,7 +12,7 @@ const STAGES = ['动作起点', '接触与支撑', '动作落点']
 const PLACEHOLDER = /^(?:无|待补|待定|同上|略|TODO)$/iu
 
 function values(body: string, name: string): string[] {
-  return [...body.matchAll(new RegExp(`^${name}[：:](.*)$`, 'gm'))].map(row => row[1]?.trim() ?? '')
+  return [...body.matchAll(new RegExp(`^${name}[：:](.*)$`, 'gm'))].map(row => row[0].slice(name.length + 1).trim())
 }
 
 /**

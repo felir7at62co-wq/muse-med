@@ -11,6 +11,14 @@ const shot = (number: number, rows: string[] = []): string => actionShot(number,
 const parse = (source: string) => parseShotScript(source, { actionShotSeconds: 2 })
 
 describe('first-pass physical performance', () => {
+  it('requires a scene only when continuity state or a change is declared', () => {
+    expect(parse(actionShot(1)).issues).not.toContainEqual(expect.objectContaining({ code: 'continuity_declaration_invalid' }))
+    for (const field of [state('完整'), '连续性变化：肉条A｜原文切肉']) {
+      expect(parse(actionShot(1, [field])).issues)
+        .toContainEqual(expect.objectContaining({ code: 'continuity_declaration_invalid', severity: 'failure' }))
+    }
+  })
+
   it('preserves action stages in the submitted visual rather than only in budget metadata', () => {
     const result = parse(shot(1, [...stages, '动作复杂度：较复杂', '动作预算：7秒', '发声预算：0秒', '反应预算：1秒', '表演顺序：同时']))
     expect(result.issues).toEqual([])

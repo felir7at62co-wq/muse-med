@@ -361,10 +361,12 @@ function fieldOffset(blockText: string, name: string): number {
 /** Read a complete authored performance budget without guessing action speed. */
 function readPerformanceTiming(text: string, block: Block, blockText: string, speech: Speech): Duration | undefined {
   const rows = [...blockText.matchAll(/^(动作预算|发声预算|反应预算|表演顺序)[：:][ \t]*(.*)$/gm)]
-  if (rows.length === 0) return undefined
+  const firstRow = rows[0]
+  if (firstRow === undefined) return undefined
   const value = (name: string): string => {
     const matching = rows.filter(row => row[1] === name)
-    return matching.length === 1 ? matching[0]?.[2]?.trim() ?? '' : ''
+    const [row] = matching
+    return row === undefined || matching.length !== 1 ? '' : row[0].slice(name.length + 1).trim()
   }
   const budget = (name: string): number => {
     const raw = value(name)
@@ -380,7 +382,7 @@ function readPerformanceTiming(text: string, block: Block, blockText: string, sp
     || seconds < 1 || (speech.text === '' ? spoken !== 0 : spoken < 1)
     || !['同时', '先动作后台词', '先台词后动作'].includes(order)) {
     return { seconds: 0, source: 'declared', issues: [issue('failure', 'timing_plan_invalid', block.number,
-      lineAt(text, block.start + (rows[0]?.index ?? 0)),
+      lineAt(text, block.start + firstRow.index),
       `镜头${block.number}表演预算不完整或无效：动作预算、发声预算、反应预算、表演顺序须各写一次。`
       + '三项预算用非负安全整数秒；有发声时发声预算至少1秒，无发声时为0秒，总时长至少1秒且为安全整数。'
       + '表演顺序只接受 同时/先动作后台词/先台词后动作；同时取动作与发声较长者，先后累加，再加反应预算。')] }
@@ -453,7 +455,8 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
   const issues: ShotIssue[] = []
   const shots: ParsedShot[] = []
   const blocks = splitBlocks(text)
-  if (blocks.length === 0) {
+  const firstBlock = blocks[0]
+  if (firstBlock === undefined) {
     issues.push(issue('failure', 'no_shots', 0, 0,
       '脚本里没有任何【镜头N】块：本工具编译导演格式镜头脚本，'
       + '每个镜头以独占一行的【镜头N】开头，上一行可声明项目的真人或3D渲染风格。'))
@@ -555,7 +558,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     })
   }
 
-  const initial = shots[0]?.shot ?? 1
+  const initial = firstBlock.number
   const first = options.sourceScope === 'prepared_package' && Number.isSafeInteger(initial) && initial > 0 ? initial : 1
   const deviation = shots.find((item, index) => item.shot !== index + first)
   if (deviation !== undefined) {

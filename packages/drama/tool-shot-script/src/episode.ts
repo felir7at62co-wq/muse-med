@@ -217,7 +217,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
  * compiled.
  * @param shots - Compiled shots in script order.
  * @param maxContentSeconds - Content-second ceiling of one package.
- * @returns Runs of shots, each packable on its own.
+ * @returns Nonempty runs of shots, each packable on its own.
  */
 function splitContinuityUnits(
   shots: readonly CompiledShot[], maxContentSeconds: number, advisory = false,
@@ -332,7 +332,8 @@ function advisoryPackages(
     const packs = unit.length === 1 ? [unit] : splitUnitEvenly(unit, maxContentSeconds)
     for (const pack of packs) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
-      const opening = openings.get(pack[0]?.shot.shot ?? 0)
+      const [first] = pack as readonly [CompiledShot, ...CompiledShot[]]
+      const opening = openings.get(first.shot.shot)
       const prompt = [opening, ...pack.map(item => item.shot.visual)].filter(Boolean).join('\n\n')
       const bindings = materialKeys(prompt).flatMap((key) => {
         const binding = candidates.get(key)
@@ -354,9 +355,9 @@ function advisoryPackages(
  * Balancing targets the arithmetic minimum package count. Whole-shot boundaries
  * can require more packages; a greedy partition then retains the ceiling and
  * source order. Short tails remain visible for the caller to report.
- * @param unit - One run of continuous shots.
+ * @param unit - One nonempty run of continuous shots.
  * @param ceiling - Content-second ceiling of one package.
- * @returns Consecutive packs covering the run in order.
+ * @returns Nonempty consecutive packs covering the run in order.
  */
 function splitUnitEvenly(unit: readonly CompiledShot[], ceiling: number): readonly (readonly CompiledShot[])[] {
   const secondsOf = (shots: readonly CompiledShot[]): number =>
@@ -442,7 +443,8 @@ export function packEpisode(shots: readonly CompiledShot[], maxContentSeconds: n
   for (const unit of splitContinuityUnits(prepared, maxContentSeconds)) {
     for (const pack of splitUnitEvenly(unit, maxContentSeconds)) {
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
-      const opening = openings.get(pack[0]?.shot.shot ?? 0)
+      const [first] = pack as readonly [CompiledShot, ...CompiledShot[]]
+      const opening = openings.get(first.shot.shot)
       const prompt = `${[opening, ...pack.map(item => item.shot.visual)].filter(Boolean).join('\n\n')}\n${HOLD_INSTRUCTION}`
       const bindings = new Map<string, MaterialBinding>()
       for (const item of pack) {
