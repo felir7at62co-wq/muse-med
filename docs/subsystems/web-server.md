@@ -328,4 +328,4 @@ Collect the structured index injection table. Emitted on every index render and 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->
 
-The Desktop Host account service `ctx.museAccount` owns Muse sign-in, account-backed operations and private voice coordination. Its `requestVoiceSlot` method is Host-only; it is absent from the renderer Remote API. See the [account package](../../packages/host/muse-account/README.md) for session and request fields.
+The Desktop Host account service `ctx.museAccount` owns Muse sign-in, account-backed operations and private voice coordination. Administrator navigation requires current gateway identity verification; cached account status omits it. Its `requestVoiceSlot` method is Host-only; it is absent from the renderer Remote API. See the [account package](../../packages/host/muse-account/README.md) for session and request fields.

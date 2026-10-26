@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
 import { MuseAccountOnboarding } from '../src/client/MuseAccountOnboarding.tsx'
-import type { MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseAccountStatus, MuseAccountStatusRequest, MuseBrowserLoginAttempt, MuseBrowserLoginId } from '@deepseek-ai/dsh-muse-account/types'
 
 afterEach(() => {
   cleanup()
@@ -14,6 +14,10 @@ afterEach(() => {
 
 const SIGNED_OUT: MuseAccountStatus = { state: 'signed-out' }
 const SIGNED_IN = { state: 'signed-in', username: 'writer', verified: true } as const satisfies MuseAccountStatus
+const ATTEMPT: MuseBrowserLoginAttempt = {
+  id: 'feishu-login' as MuseBrowserLoginId, code: 'TEST1234', authorizeUrl: 'https://muse.test/desktop-login',
+  expiresAt: 600_000, pollIntervalMs: 2000,
+}
 
 function props(overrides: Partial<MuseAccountInjected> = {}): MuseAccountSectionProps {
   const injected: MuseAccountInjected = {
@@ -101,67 +105,43 @@ describe('MuseAccountSection', () => {
     expect(onSignedIn).not.toHaveBeenCalled()
   })
 
-  it('requires credentials and signs in without registration by default', async () => {
-    const login = vi.fn(async () => ({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } }))
-    render(<MuseAccountSection {...props({ login })} />)
+  it('offers only Feishu browser sign-in without a credential or registration form', async () => {
+    const login = vi.fn<MuseAccountInjected['login']>()
+    const startBrowserLogin = vi.fn<MuseAccountInjected['startBrowserLogin']>()
+      .mockResolvedValue({ ok: false, code: 'muse-account/gateway-unavailable' })
+    const page = render(<MuseAccountSection {...props({ login, startBrowserLogin })} />)
 
-    const submit = await screen.findByRole('button', { name: 'signIn' })
-    expect(submit.hasAttribute('disabled')).toBe(true)
-    fireEvent.change(screen.getByLabelText('username'), { target: { value: 'writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    expect(screen.getByLabelText<HTMLInputElement>('password').type).toBe('password')
-    fireEvent.click(submit)
-
-    expect(login).toHaveBeenCalledWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
-    expect(await screen.findByText('signedIn')).toBeDefined()
-    expect(screen.queryByDisplayValue('private-password')).toBeNull()
-    expect(screen.getByText('accountNamed')).toBeDefined()
+    const button = await screen.findByRole('button', { name: 'browserSignIn' })
+    expect(screen.getByRole('heading', { name: 'title', level: 3 })).toBeDefined()
+    expect(screen.getAllByRole('button')).toEqual([button])
+    expect(button.hasAttribute('disabled')).toBe(false)
+    expect(page.container.querySelector('input, form')).toBeNull()
+    expect(screen.queryByLabelText('username')).toBeNull()
+    expect(screen.queryByLabelText('password')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    fireEvent.click(button)
+    await screen.findByText('error.gatewayUnavailable')
+    expect(startBrowserLogin).toHaveBeenCalledOnce()
+    expect(login).not.toHaveBeenCalled()
   })
 
-  it('keeps the signed-in UI when Host model refresh fails after authentication', async () => {
+  it('keeps the signed-in UI when Host model refresh fails after browser authentication', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null)
     const refreshModels = vi.fn(async () => { throw new Error('private model catalog detail') })
-    const login = vi.fn(async () => {
+    const checkBrowserLogin = vi.fn<MuseAccountInjected['checkBrowserLogin']>(async () => {
       await refreshModels().catch(() => undefined)
-      return { ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } }
+      return { ok: true, value: { state: 'signed-in', status: SIGNED_IN } }
     })
-    render(<MuseAccountSection {...props({ login })} />)
+    render(<MuseAccountSection {...props({
+      startBrowserLogin: async () => ({ ok: true, value: ATTEMPT }), checkBrowserLogin,
+    })} />)
 
-    const submit = await screen.findByRole('button', { name: 'signIn' })
-    fireEvent.change(screen.getByLabelText('username'), { target: { value: 'writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    fireEvent.click(submit)
-
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
     expect(await screen.findByText('signedIn')).toBeDefined()
     expect(screen.getByText('accountNamed')).toBeDefined()
     expect(screen.queryByText('error.gatewayUnavailable')).toBeNull()
     expect(screen.queryByText('private model catalog detail')).toBeNull()
     expect(refreshModels).toHaveBeenCalledTimes(1)
-  })
-
-  it('reports a newly registered account after the user selects registration', async () => {
-    const login = vi.fn(async () => ({ ok: true as const, value: { outcome: 'registered' as const, status: SIGNED_IN } }))
-    render(<MuseAccountSection {...props({ login })} />)
-
-    fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'new-writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'registerIfMissing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
-
-    expect(login).toHaveBeenCalledWith({ username: 'new-writer', password: 'private-password', registerIfMissing: true })
-    expect(await screen.findByText('registered')).toBeDefined()
-  })
-
-  it('leaves registration disabled until the user selects it', async () => {
-    const login = vi.fn(async () => ({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } }))
-    render(<MuseAccountSection {...props({ login })} />)
-
-    fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    const registration = screen.getByRole<HTMLInputElement>('checkbox', { name: 'registerIfMissing' })
-    expect(registration.checked).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
-
-    expect(login).toHaveBeenCalledWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
   })
 
   it('revalidates an existing session after verification and reopening, then signs out', async () => {
@@ -185,7 +165,7 @@ describe('MuseAccountSection', () => {
     expect(status).toHaveBeenNthCalledWith(3, { verify: true })
     fireEvent.click(screen.getByRole('button', { name: 'signOut' }))
     expect(logout).toHaveBeenCalledTimes(1)
-    expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'browserSignIn' })).toBeDefined()
   })
 
   it('shows sign-in when the gateway rejects the session after reopening', async () => {
@@ -198,23 +178,21 @@ describe('MuseAccountSection', () => {
     page.unmount()
     render(<MuseAccountSection {...account} />)
 
-    expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'browserSignIn' })).toBeDefined()
     expect(status).toHaveBeenNthCalledWith(2, { verify: true })
     expect(screen.queryByText('verified')).toBeNull()
     expect(screen.queryByText('accountNamed')).toBeNull()
   })
 
-  it('shows fixed copy for a login refusal without exposing the password', async () => {
-    const login = vi.fn(async () => ({ ok: false as const, code: 'muse-account/invalid-credentials' }))
-    render(<MuseAccountSection {...props({ login })} />)
+  it('shows fixed copy when browser authorization is refused', async () => {
+    const startBrowserLogin = vi.fn<MuseAccountInjected['startBrowserLogin']>()
+      .mockResolvedValue({ ok: false, code: 'muse-account/gateway-rejected' })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    render(<MuseAccountSection {...props({ startBrowserLogin })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
 
-    fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
-
-    expect(await screen.findByText('error.invalidCredentials')).toBeDefined()
-    expect(screen.queryByDisplayValue('private-password')).toBeNull()
-    expect(screen.queryByText('private-password')).toBeNull()
+    expect(await screen.findByText('error.gatewayRejected')).toBeDefined()
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('retries online verification when reopening after a successful check encounters a gateway outage', async () => {
@@ -236,23 +214,21 @@ describe('MuseAccountSection', () => {
     expect(status).toHaveBeenNthCalledWith(3, { verify: true })
   })
 
-  it('clears a password and permits a new sign-in after the Host connection drops', async () => {
-    const login = vi.fn()
-      .mockRejectedValueOnce(new Error('transport closed with private-password'))
-      .mockResolvedValueOnce({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } })
-    render(<MuseAccountSection {...props({ login })} />)
+  it('permits a new browser sign-in after the Host connection drops', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    const startBrowserLogin = vi.fn<MuseAccountInjected['startBrowserLogin']>()
+      .mockRejectedValueOnce(new Error('transport closed with private detail'))
+      .mockResolvedValueOnce({ ok: true, value: ATTEMPT })
+    render(<MuseAccountSection {...props({ startBrowserLogin,
+      checkBrowserLogin: async () => ({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } }),
+    })} />)
 
-    fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
-
+    fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
     expect(await screen.findByText('error.generic')).toBeDefined()
-    expect(screen.queryByDisplayValue('private-password')).toBeNull()
-    expect(screen.queryByText('transport closed with private-password')).toBeNull()
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'new-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+    expect(screen.queryByText('transport closed with private detail')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'browserSignIn' }))
     expect(await screen.findByText('signedIn')).toBeDefined()
-    expect(login).toHaveBeenCalledTimes(2)
+    expect(startBrowserLogin).toHaveBeenCalledTimes(2)
   })
 
   it('offers retry when the initial Host status request is rejected', async () => {
@@ -263,20 +239,23 @@ describe('MuseAccountSection', () => {
 
     expect(await screen.findByText('error.generic')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-    expect(await screen.findByRole('button', { name: 'signIn' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'browserSignIn' })).toBeDefined()
   })
 })
 
-it('uses Muse sign-in to advance the desktop first-run flow', async () => {
-  const complete = vi.fn()
-  const account = props()
-  render(<MuseAccountOnboarding {...account} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+it('uses the shared Feishu sign-in to advance the desktop first-run flow', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null)
+  const complete = vi.fn(), login = vi.fn<MuseAccountInjected['login']>()
+  const account = props({ login,
+    startBrowserLogin: async () => ({ ok: true, value: ATTEMPT }),
+    checkBrowserLogin: async () => ({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } }),
+  })
+  const page = render(<MuseAccountOnboarding {...account} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
   expect(await screen.findByRole('dialog', { name: 'onboardingTitle' })).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('username'), { target: { value: 'writer' } })
-  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   await waitFor(() => { expect(complete).toHaveBeenCalledOnce() })
-  expect(screen.queryByDisplayValue('private-password')).toBeNull()
+  expect(login).not.toHaveBeenCalled()
+  expect(page.container.querySelector('input, form')).toBeNull()
 })
 
 it('advances onboarding when retry confirms an already saved login', async () => {
@@ -290,54 +269,44 @@ it('advances onboarding when retry confirms an already saved login', async () =>
   expect(complete).toHaveBeenCalledOnce()
 })
 
-it('does not advance a dismissed onboarding page when its pending login succeeds', async () => {
+it('does not advance a dismissed onboarding page when its pending browser login succeeds', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null)
   const complete = vi.fn()
-  let finish!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
-  const login: MuseAccountInjected['login'] = () => new Promise((resolve) => { finish = resolve })
-  const page = render(<MuseAccountOnboarding {...props({ login })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
-  fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
-  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  const pending = Promise.withResolvers<Awaited<ReturnType<MuseAccountInjected['checkBrowserLogin']>>>()
+  const cancelBrowserLogin = vi.fn<MuseAccountInjected['cancelBrowserLogin']>()
+    .mockResolvedValue({ ok: true, value: SIGNED_OUT })
+  const page = render(<MuseAccountOnboarding {...props({
+    startBrowserLogin: async () => ({ ok: true, value: ATTEMPT }),
+    checkBrowserLogin: () => pending.promise, cancelBrowserLogin,
+  })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
+  await screen.findByText('browserWaiting')
   fireEvent.click(screen.getByRole('button', { name: 'onboardingLater' }))
   page.unmount()
-  await act(async () => { finish({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } }) })
+  await act(async () => { pending.resolve({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } }) })
   expect(complete).toHaveBeenCalledOnce()
+  expect(cancelBrowserLogin).toHaveBeenCalledWith(ATTEMPT.id)
 })
 
-it.each(['verify', 'login', 'logout'] as const)('ignores %s completion after page close', async (operation) => {
-  for (const reject of [false, true]) {
-    let finishStatus!: (value: Awaited<ReturnType<MuseAccountInjected['status']>>) => void
-    let finishLogin!: (value: Awaited<ReturnType<MuseAccountInjected['login']>>) => void
-    let fail!: (reason: Error) => void
-    const statusPending = new Promise<Awaited<ReturnType<MuseAccountInjected['status']>>>((resolve, no) => {
-      finishStatus = resolve
-      if (operation !== 'login') fail = no
-    })
-    const loginPending = new Promise<Awaited<ReturnType<MuseAccountInjected['login']>>>((resolve, no) => {
-      finishLogin = resolve
-      if (operation === 'login') fail = no
-    })
-    const onSignedIn = vi.fn()
-    const status = vi.fn<MuseAccountInjected['status']>().mockResolvedValueOnce({ ok: true, value: operation === 'login' ? SIGNED_OUT : SIGNED_IN })
-    status.mockImplementation(() => statusPending)
-    const page = render(<MuseAccountSection
-      {...props({ status, login: () => loginPending, logout: () => statusPending })} onSignedIn={onSignedIn}
-    />)
-    if (operation === 'login') {
-      fireEvent.change(await screen.findByLabelText('username'), { target: { value: 'writer' } })
-      fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-    }
-    fireEvent.click(await screen.findByRole('button', { name: operation === 'login' ? 'signIn' : operation === 'logout' ? 'signOut' : 'verify' }))
-    onSignedIn.mockClear()
-    page.unmount()
-    await act(async () => {
-      if (reject) fail(new Error('private delayed failure'))
-      else if (operation === 'login') finishLogin({ ok: true, value: { outcome: 'signed-in', status: SIGNED_IN } })
-      else finishStatus({ ok: true, value: SIGNED_OUT })
-    })
-    expect(onSignedIn).not.toHaveBeenCalled()
-    expect(screen.queryByText('private delayed failure')).toBeNull()
-  }
+it.each([
+  ['verify', false], ['verify', true], ['logout', false], ['logout', true],
+] as const)('ignores %s completion after page close (rejected=%s)', async (operation, reject) => {
+  const pending = Promise.withResolvers<Awaited<ReturnType<MuseAccountInjected['status']>>>()
+  const onSignedIn = vi.fn()
+  const status = vi.fn<MuseAccountInjected['status']>().mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
+    .mockImplementation(() => pending.promise)
+  const page = render(<MuseAccountSection
+    {...props({ status, logout: () => pending.promise })} onSignedIn={onSignedIn}
+  />)
+  fireEvent.click(await screen.findByRole('button', { name: operation === 'logout' ? 'signOut' : 'verify' }))
+  onSignedIn.mockClear()
+  page.unmount()
+  await act(async () => {
+    if (reject) pending.reject(new Error('private delayed failure'))
+    else pending.resolve({ ok: true, value: SIGNED_OUT })
+  })
+  expect(onSignedIn).not.toHaveBeenCalled()
+  expect(screen.queryByText('private delayed failure')).toBeNull()
 })
 
 it.each([false, true])('restores the page inert state after onboarding (previous=%s)', async (previous) => {
@@ -374,6 +343,7 @@ it.each(['resolve', 'reject'] as const)('ignores an initial account request that
   const onSignedIn = vi.fn()
   const page = render(<MuseAccountSection {...props({ status: () => pending })} onSignedIn={onSignedIn} />)
   expect(screen.getByText('loading')).toBeDefined()
+  expect(screen.getByRole('heading', { name: 'title', level: 3 })).toBeDefined()
   page.unmount()
   await act(async () => {
     if (mode === 'resolve') resolve({ ok: true, value: SIGNED_IN })
@@ -417,33 +387,76 @@ it.each(['muse-account/storage-failed', 'future-refusal', 'transport'])(
   },
 )
 
-it('renders unknown initial and login refusal codes as fixed generic copy', async () => {
+it('renders unknown initial and browser refusal codes as fixed generic copy', async () => {
   const status = vi.fn<MuseAccountInjected['status']>()
     .mockResolvedValueOnce({ ok: false, code: 'future-initial-code' })
     .mockResolvedValueOnce({ ok: true, value: SIGNED_OUT })
-  render(<MuseAccountSection {...props({ status, login: async () => ({ ok: false, code: 'future-login-code' }) })} />)
+  const startBrowserLogin = vi.fn<MuseAccountInjected['startBrowserLogin']>()
+    .mockResolvedValue({ ok: false, code: 'future-browser-code' })
+  render(<MuseAccountSection {...props({ status, startBrowserLogin })} />)
   expect(await screen.findByText('error.generic')).toBeDefined()
   fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-  fireEvent.change(await screen.findByLabelText('username'), { target: { value: ' writer ' } })
-  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-  fireEvent.click(screen.getByRole('button', { name: 'signIn' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   expect(await screen.findByText('error.generic')).toBeDefined()
-  expect(screen.queryByDisplayValue('private-password')).toBeNull()
+  expect(startBrowserLogin).toHaveBeenCalledOnce()
 })
 
-it('rejects empty and repeated form submissions while one sign-in is pending', async () => {
-  let resolve!: (value: { ok: false; code: string }) => void
-  const login = vi.fn<MuseAccountInjected['login']>(() => new Promise((yes) => { resolve = yes }))
-  render(<MuseAccountSection {...props({ login })} />)
-  const username = await screen.findByLabelText('username'), form = username.closest('form')!
-  fireEvent.submit(form)
-  fireEvent.change(username, { target: { value: 'writer' } })
-  fireEvent.submit(form)
-  expect(login).not.toHaveBeenCalled()
-  fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private-password' } })
-  fireEvent.submit(form)
-  fireEvent.submit(form)
-  expect(login).toHaveBeenCalledExactlyOnceWith({ username: 'writer', password: 'private-password', registerIfMissing: false })
-  await act(async () => { resolve({ ok: false, code: 'muse-account/invalid-credentials' }) })
-  expect(screen.getByText('error.invalidCredentials')).toBeDefined()
+it('opens only the supplied management URL for a verified administrator', async () => {
+  const adminUrl = 'https://muse.test/admin/issues?view=open'
+  const account: MuseAccountStatus = { ...SIGNED_IN, admin: true, adminUrl }
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  render(<MuseAccountSection {...props({ status: async () => ({ ok: true, value: account }) })} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'adminManagement' }))
+  expect(screen.getByRole('heading', { name: 'title', level: 3 })).toBeDefined()
+  expect(open).toHaveBeenCalledExactlyOnceWith(adminUrl, '_blank', 'noopener,noreferrer')
+})
+
+it.each([
+  ['ordinary account', { ...SIGNED_IN, admin: false, adminUrl: 'https://muse.test/admin' }],
+  ['missing administrator claim', { ...SIGNED_IN, adminUrl: 'https://muse.test/admin' }],
+  ['unverified account', { ...SIGNED_IN, verified: false, admin: true, adminUrl: 'https://muse.test/admin' }],
+  ['missing management URL', { ...SIGNED_IN, admin: true }],
+  ['signed out', SIGNED_OUT],
+] satisfies ReadonlyArray<readonly [string, MuseAccountStatus]>)(
+  'hides management for %s', async (_name, account) => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    render(<MuseAccountSection {...props({ status: async () => ({ ok: true, value: account }) })} />)
+    await screen.findByText(account.state === 'signed-in' ? 'accountNamed' : 'description')
+    await waitFor(() => { expect(screen.queryByText('loading')).toBeNull() })
+    expect(screen.queryByRole('button', { name: 'adminManagement' })).toBeNull()
+    expect(open).not.toHaveBeenCalled()
+  },
+)
+
+it('removes management access when a fresh verification no longer identifies an administrator', async () => {
+  const status = vi.fn<MuseAccountInjected['status']>()
+    .mockResolvedValueOnce({ ok: true, value: { ...SIGNED_IN, admin: true, adminUrl: 'https://muse.test/admin' } })
+    .mockResolvedValueOnce({ ok: true, value: { ...SIGNED_IN, admin: false } })
+  render(<MuseAccountSection {...props({ status })} />)
+  await screen.findByRole('button', { name: 'adminManagement' })
+  fireEvent.click(screen.getByRole('button', { name: 'verify' }))
+  await waitFor(() => { expect(screen.queryByRole('button', { name: 'adminManagement' })).toBeNull() })
+})
+
+it.each(['refused', 'rejected'] as const)('hides prior administrator access while verification is pending and after it is %s', async (outcome) => {
+  const pending = Promise.withResolvers<Awaited<ReturnType<MuseAccountInjected['status']>>>()
+  const status = vi.fn<MuseAccountInjected['status']>()
+    .mockResolvedValueOnce({ ok: true, value: { ...SIGNED_IN, admin: true, adminUrl: 'https://muse.test/admin' } })
+    .mockImplementationOnce(() => pending.promise)
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  render(<MuseAccountSection {...props({ status })} />)
+  await screen.findByRole('button', { name: 'adminManagement' })
+  fireEvent.click(screen.getByRole('button', { name: 'verify' }))
+  expect(screen.queryByRole('button', { name: 'adminManagement' })).toBeNull()
+  expect(screen.getByText('accountNamed')).toBeDefined()
+  await act(async () => {
+    if (outcome === 'rejected') pending.reject(new Error('private verification transport detail'))
+    else pending.resolve({ ok: false, code: 'muse-account/gateway-unavailable' })
+  })
+  expect(screen.getByText(outcome === 'rejected' ? 'error.generic' : 'error.gatewayUnavailable')).toBeDefined()
+  expect(screen.queryByText('private verification transport detail')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'adminManagement' })).toBeNull()
+  expect(screen.getByText('verificationPending')).toBeDefined()
+  expect(screen.getByText('accountNamed')).toBeDefined()
+  expect(open).not.toHaveBeenCalled()
 })

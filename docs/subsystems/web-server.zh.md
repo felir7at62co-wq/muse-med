@@ -328,4 +328,4 @@ Collect the structured index injection table. Emitted on every index render and 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->
 
-桌面 Host 的账号服务 ctx.museAccount 负责 Muse 登录、账号操作和私密声线协调。requestVoiceSlot 仅供 Host 使用，不进入渲染端 Remote API。会话及请求字段见[账号包](../../packages/host/muse-account/README.zh.md)。
+桌面 Host 的账号服务 ctx.museAccount 负责 Muse 登录、账号操作和私密声线协调。管理员入口需要当前网关身份核验，本地缓存账号状态不包含该入口。requestVoiceSlot 仅供 Host 使用，不进入渲染端 Remote API。会话及请求字段见[账号包](../../packages/host/muse-account/README.zh.md)。

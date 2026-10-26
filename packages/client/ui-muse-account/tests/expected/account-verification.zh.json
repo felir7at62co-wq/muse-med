@@ -1,7 +1,10 @@
 {
   "verified": {
+    "headings": [
+      "MUSE"
+    ],
     "paragraphs": [
-      "在浏览器完成登录并确认验证码后，Muse 会自动登录。也可在下方使用账号密码；密码不会发给 Agent。",
+      "使用飞书官方页面授权登录 MUSE",
       "当前账号：writer",
       "账号已验证。",
       "工作空间：First studio"
@@ -19,8 +22,11 @@
     "inputs": []
   },
   "reopened": {
+    "headings": [
+      "MUSE"
+    ],
     "paragraphs": [
-      "在浏览器完成登录并确认验证码后，Muse 会自动登录。也可在下方使用账号密码；密码不会发给 Agent。",
+      "使用飞书官方页面授权登录 MUSE",
       "当前账号：writer",
       "账号已验证。",
       "工作空间：Changed studio"
@@ -38,33 +44,19 @@
     "inputs": []
   },
   "signedOut": {
+    "headings": [
+      "MUSE"
+    ],
     "paragraphs": [
-      "在浏览器完成登录并确认验证码后，Muse 会自动登录。也可在下方使用账号密码；密码不会发给 Agent。",
+      "使用飞书官方页面授权登录 MUSE",
       "已退出登录。"
     ],
     "buttons": [
       {
-        "name": "在浏览器登录",
+        "name": "飞书登录",
         "disabled": false
-      },
-      {
-        "name": "登录",
-        "disabled": true
       }
     ],
-    "inputs": [
-      {
-        "name": "账号",
-        "type": "text"
-      },
-      {
-        "name": "密码",
-        "type": "password"
-      },
-      {
-        "name": "登录失败时尝试注册新账号",
-        "type": "checkbox"
-      }
-    ]
+    "inputs": []
   }
 }

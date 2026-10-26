@@ -51,13 +51,13 @@ export class MuseBrowserLogin {
 
   /**
    * Start or reopen this Host's current browser approval.
-   * @returns Safe browser URL, matching code, expiry and polling interval; never the redemption secret.
+   * @returns Exact Muse approval or Feishu entry URL, matching code, expiry and polling interval; never the redemption secret.
    */
   start(): Promise<MuseBrowserLoginAttempt> {
     return this.serial(async () => {
       if (this.closed) throw new MuseGatewayError('gateway-unavailable')
       if (this.pending !== undefined && this.pending.attempt.expiresAt > Date.now()) return this.pending.attempt
-      const response = await this.post('start', {})
+      const response = await this.post('start', { provider: 'feishu' })
       let value: unknown
       try { value = await response.json() } catch { throw new MuseGatewayError('gateway-rejected') }
       if (typeof value !== 'object' || value === null || !('id' in value) || typeof value.id !== 'string'
@@ -67,7 +67,8 @@ export class MuseBrowserLogin {
         || !Number.isSafeInteger(value.expiresAt) || value.expiresAt <= Date.now()
         || !('pollIntervalMs' in value) || typeof value.pollIntervalMs !== 'number'
         || !Number.isSafeInteger(value.pollIntervalMs) || value.pollIntervalMs < 1000 || value.pollIntervalMs > 60_000
-        || !('authorizeUrl' in value) || value.authorizeUrl !== this.origin + '/desktop-login?attempt=' + value.id) {
+        || !('authorizeUrl' in value) || (value.authorizeUrl !== this.origin + '/desktop-login?attempt=' + value.id
+          && value.authorizeUrl !== this.origin + '/auth/feishu/start?desktop_login=' + value.id)) {
         throw new MuseGatewayError('gateway-rejected')
       }
       const attempt: MuseBrowserLoginAttempt = {
@@ -102,7 +103,12 @@ export class MuseBrowserLogin {
       const gateway = createMuseAccountGateway(this.origin, this.options.requestTimeoutMs, this.options.fetcher)
       const identity = await gateway.identity(cookie)
       try {
-        await writeMuseSession(this.options.sessionFile, { ...identity, cookie, baseUrl: this.origin })
+        await writeMuseSession(this.options.sessionFile, {
+          username: identity.username,
+          ...(identity.environment === undefined ? {} : { environment: identity.environment }),
+          ...(identity.workspaceLabel === undefined ? {} : { workspaceLabel: identity.workspaceLabel }),
+          cookie, baseUrl: this.origin,
+        })
       } catch (error) {
         await gateway.signOut(cookie).catch(() => undefined)
         throw error

@@ -95,6 +95,55 @@ it('returns only the approved account identity fields and treats network failure
   await expect(failing.identity('__Host-muse=private')).rejects.toMatchObject({ code: 'gateway-unavailable', message: 'MUSE account gateway: gateway-unavailable' })
 })
 
+it('resolves the default transport per request while retaining an explicitly injected transport', async () => {
+  const originalFetch = globalThis.fetch
+  const calls: string[] = []
+  let released = false
+  const temporaryFetch: typeof fetch = async () => {
+    calls.push('temporary')
+    if (released) throw new Error('PRIVATE_RELEASED_TRANSPORT')
+    return Response.json({ username: 'temporary' })
+  }
+  const restoredFetch: typeof fetch = async () => {
+    calls.push('restored')
+    return Response.json({ username: 'writer' })
+  }
+  try {
+    globalThis.fetch = temporaryFetch
+    const gateway = createMuseAccountGateway('https://muse.example', 1000)
+    const injected = createMuseAccountGateway('https://muse.example', 1000, temporaryFetch)
+    globalThis.fetch = restoredFetch
+    released = true
+
+    await expect(gateway.identity('__Host-muse=private')).resolves.toEqual({ username: 'writer' })
+    await expect(injected.identity('__Host-muse=private')).rejects.toMatchObject({
+      code: 'gateway-unavailable', message: 'MUSE account gateway: gateway-unavailable',
+    })
+    expect(calls).toEqual(['restored', 'temporary'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  expect(globalThis.fetch).toBe(originalFetch)
+})
+
+it.each(['https://muse.example', 'http://localhost:19488'])(
+  'returns the canonical administrator destination only after strict gateway approval at %s', async (origin) => {
+    const gateway = createMuseAccountGateway(origin, 1000, async () => Response.json({ username: 'owner', admin: true, adminUrl: '/admin' }))
+    expect(await gateway.identity('__Host-muse=private')).toEqual({ username: 'owner', admin: true, adminUrl: origin + '/admin' })
+  },
+)
+
+it.each([
+  { admin: false, adminUrl: '/admin' }, { admin: 'true', adminUrl: '/admin' }, { admin: 1, adminUrl: '/admin' },
+  { adminUrl: '/admin' }, { admin: true }, { admin: true, adminUrl: 'https://evil.test/admin' },
+  { admin: true, adminUrl: 'https://muse.example/admin' }, { admin: true, adminUrl: '//evil.test/admin' },
+  { admin: true, adminUrl: '/admin?next=https://evil.test' }, { admin: true, adminUrl: '/admin#section' },
+  { admin: true, adminUrl: '/other' }, { admin: true, adminUrl: 1 },
+])('omits administrator navigation for unapproved gateway fields %j', async (fields) => {
+  const gateway = createMuseAccountGateway('https://muse.example', 1000, async () => Response.json({ username: 'writer', ...fields }))
+  expect(await gateway.identity('__Host-muse=private')).toEqual({ username: 'writer' })
+})
+
 it.each([200, 303, 500])('accepts successful logout responses and rejects server failures (%s)', async (status) => {
   const gateway = createMuseAccountGateway('https://muse.example', 1000, async () => new Response(null, { status }))
   if (status === 500) await expect(gateway.signOut('__Host-muse=private')).rejects.toMatchObject({ code: 'gateway-rejected' })
