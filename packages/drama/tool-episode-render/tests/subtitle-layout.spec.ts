@@ -9,8 +9,9 @@ import type { MediaToolkit, RenderSettings, SubtitleCue, TimelineDelivery } from
 import { createMediaRunner } from './audio-ffmpeg-harness.ts'
 
 const fsFaults = vi.hoisted(() => ({ access: null as Error | null, mkdir: null as string | null }))
-function rejectNonError(reason: string): Promise<never> {
-  return Promise.reject(reason)
+async function rejectNonError(reason: string): Promise<never> {
+  // An async throw models native processes that reject with a non-Error value.
+  throw reason
 }
 
 vi.mock('node:fs/promises', async (importOriginal) => {
