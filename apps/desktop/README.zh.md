@@ -285,6 +285,8 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Electron 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
 
+Mac unsigned CI 从 Muse v1.2.0 已发布、经大小和 SHA-256 锁定的源码归档[预热媒体原始源码](scripts/prewarm_macos_media_sources.py)。它按当前媒体与字幕锁逐一验证原件，填充两个 FFmpeg 缓存位置，并拒绝不安全的归档成员或被修改的现有缓存。它不导入旧构建配方或可执行文件；正常打包继续执行当前准备流程和 smoke 检查。[工作流](../../.github/workflows/muse-desktop.yml)在获取资源前测试此程序，并随打包诊断保留源码缓存收据。
+
 ### 失败后从断点续跑
 
 打包读取工作树，所以打出的字节必须能归因到某一个提交。`pnpm --dir apps/desktop exec tsx scripts/package-target.ts --list-steps` 会打印流水线的十三个步骤（S1–S13）以及每一步产出哪些路径；一次运行在 `git status --porcelain` 除 `.pi-glla/` 之外不为空时拒绝启动，在每一步之前重新读取 HEAD 并在其变化时停下，还会打印它复用的每个产物及其时间与 SHA-256 摘要。

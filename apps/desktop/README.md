@@ -283,6 +283,8 @@ The macOS arm64 command requires Apple Silicon. The macOS x64 command runs on In
 
 Each target owns its packed package inputs, prepared runtime, package set, dsh tree, pnpm preparation state, unpacked application, update metadata, and final artifacts under `apps/desktop/.desktop-build/targets/<target>/`. The Electron archive cache remains shared under `.desktop-build/downloads` because every archive name includes its version, platform, and architecture and is verified before extraction. A target build never consumes another target's mutable preparation state.
 
+The Mac unsigned CI [prewarms raw media sources](scripts/prewarm_macos_media_sources.py) from the size- and SHA-256-pinned source archive published with Muse v1.2.0. It verifies each original against the current media and subtitle locks, seeds both FFmpeg cache locations, and refuses unsafe archive members or changed existing caches. It imports no old build recipes or executables; normal packaging retains its current preparation and smoke checks. The [workflow](../../.github/workflows/muse-desktop.yml) tests this helper before acquisition and retains its source-cache receipt with packaging diagnostics.
+
 ### Resuming a failed run
 
 Packaging reads the working tree, so the packaged byte must be attributable to one commit. `pnpm --dir apps/desktop exec tsx scripts/package-target.ts --list-steps` prints the pipeline's thirteen steps (S1–S13) and the paths each one produces; a run refuses to start unless `git status --porcelain` lists nothing but `.pi-glla/`, re-reads HEAD before every step and stops when it moved, and prints every artifact it reuses with its time and SHA-256 digest.
