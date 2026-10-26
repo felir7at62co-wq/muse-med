@@ -1565,12 +1565,16 @@ def main_with_args(args, results=None):
                                 duration = min(duration, int(media_material.duration))
 
                         gap = int(clip["duration_us"]) - duration
-                        frame_us = round(1_000_000 / ending_plan["policy"]["fps"])
-                        micro_retime = (media_file.suffix.lower() in video_extensions
-                                        and 0 < gap <= frame_us)
-                        if micro_retime:
-                            # Spread a sub-frame container/SDK duration difference across the
-                            # moving shot. A still image at every cut is visible in Jianying.
+                        # A small duration shortfall should play through moving frames,
+                        # not turn into a hold or an empty flash at the cut. Cap the
+                        # retime by both the existing timeline tolerance and 5% of
+                        # the decoded source so short clips are not visibly slowed.
+                        retime_limit_us = min(TIMELINE_TOLERANCE_US, int(duration * 0.05))
+                        bounded_retime = (media_file.suffix.lower() in video_extensions
+                                          and 0 < gap <= retime_limit_us)
+                        if bounded_retime:
+                            # Spread a small source/timeline difference across moving
+                            # frames. A hold or empty interval at each cut is visible.
                             video_segment = draft.VideoSegment(
                                 media_material, Timerange(start_time, int(clip["duration_us"])),
                                 source_timerange=Timerange(0, duration))
@@ -1584,11 +1588,11 @@ def main_with_args(args, results=None):
 
                         if shot == ending_plan["last_shot"]:
                             last_source, last_duration = media_file, duration
-                        if micro_retime:
+                        if bounded_retime:
                             logger.info(f"镜头 {shot} 的 {gap / 1e6:.6f} 秒尾差均匀微调速，未添加定格帧")
                         elif gap > 0:
                             warn(f"镜头 {shot} 的正文缺口 {gap / 1e6:.6f} 秒不适合微调速；"
-                                 "不自动补定格帧，保留原片供核对。")
+                                 "不自动补定格帧，保留原片供核对；剪口可能闪屏，需人工检查。")
 
                     except DraftInputError:
                         raise

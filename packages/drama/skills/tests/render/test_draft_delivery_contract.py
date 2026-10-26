@@ -657,16 +657,18 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
                 self.assertTrue(any('不自动补定格帧' in warning for warning in review['warnings']))
 
-    def test_gap_above_micro_retime_limit_keeps_source_and_returns_review_warning(self):
+    def test_small_multiframe_gap_retimes_moving_video_without_a_cut_flash(self):
         root, _timeline = self.body_gap_root(clip_duration_us=2_100_000)
         draft_dir = self.generate(root)
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
         video = self.segments(content, 'video')
         self.assertEqual([segment['target_timerange'] for segment in video], [
-            {'start': 0, 'duration': 2_042_000}, {'start': 2_100_000, 'duration': 2_042_000}])
+            {'start': 0, 'duration': 2_100_000}, {'start': 2_100_000, 'duration': 2_100_000}])
+        self.assertEqual([segment['source_timerange'] for segment in video], [
+            {'start': 0, 'duration': 2_042_000}, {'start': 0, 'duration': 2_042_000}])
         self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
         review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
-        self.assertEqual(len([warning for warning in review['warnings'] if '不自动补定格帧' in warning]), 2)
+        self.assertFalse(any('不自动补定格帧' in warning for warning in review['warnings']))
 
     def test_micro_retime_still_rejects_missing_or_shifted_source_segments(self):
         root, timeline = self.body_gap_root()
