@@ -7,7 +7,7 @@ import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { MuseAccountIdentity } from './gateway.ts'
 
 /** Stored gateway cookie and confirmed account identity for one origin. */
-export interface MuseStoredSession extends MuseAccountIdentity {
+export interface MuseStoredSession extends Pick<MuseAccountIdentity, 'username' | 'environment' | 'workspaceLabel'> {
   readonly baseUrl: string
   readonly cookie: string
   readonly revision: string

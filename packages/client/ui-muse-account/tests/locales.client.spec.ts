@@ -9,6 +9,17 @@ describe('MUSE account Settings copy', () => {
     }
   })
 
+  it('names the shared Feishu entry and administrator action in both languages', () => {
+    expect(zh.nav).toBe('MUSE')
+    expect(en.nav).toBe('MUSE')
+    expect(zh.title).toBe('MUSE')
+    expect(en.title).toBe('MUSE')
+    expect(zh.browserSignIn).toBe('飞书登录')
+    expect(en.browserSignIn).toBe('Sign in with Feishu')
+    expect(zh.adminManagement).toBe('用户管理')
+    expect(en.adminManagement).toBe('User management')
+  })
+
   it('does not echo credential values through interpolation', () => {
     expect(JSON.stringify({ en, zh })).not.toMatch(/\{password\}|\{cookie\}|\{token\}/iu)
   })

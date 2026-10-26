@@ -25,31 +25,17 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.group,
-.field {
+.group {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.field {
-  font-size: 13px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.input {
-  width: 100%;
-}
-
-.checkbox,
 .actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-}
-
-.checkbox {
-  font-size: 13px;
 }
 
 .actions {

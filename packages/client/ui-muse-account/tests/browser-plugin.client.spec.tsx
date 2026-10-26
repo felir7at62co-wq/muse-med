@@ -114,16 +114,18 @@ describe('MUSE account browser plugin', () => {
     ])
     await dispose(); expect(b.ctx.get('feedbackDelivery')).toBeUndefined(); await b.ctx.fiber.dispose()
   })
-  it('owns the Muse desktop launcher and first-run account step', async () => {
-    vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
-    vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl: 'https://muse.example/feedback' })
-    const b = await bench()
-    await mountMuseAccountSettings(b.ctx, REMOTE)
-    expect(b.slots.entries('settings.launcher')).toHaveLength(1)
-    expect(b.slots.entries('settings.launcher')[0]?.inject?.()).toEqual({ feedbackUrl: 'https://muse.example/feedback' })
-    expect(b.slots.entries('settings.onboarding')[0]?.options).toMatchObject({ id: 'muse-account', order: -50 })
-    await b.ctx.fiber.dispose()
-  })
+  it.each(['https://muse.example/feedback', 'http://localhost:19488/feedback'])(
+    'owns the Muse desktop launcher and first-run account step (%s)', async (feedbackUrl) => {
+      vi.stubGlobal('dshDesktop', { productName: 'muse-med' })
+      vi.stubGlobal('__MUSE_FEEDBACK_CONFIG__', { feedbackUrl })
+      const b = await bench()
+      await mountMuseAccountSettings(b.ctx, REMOTE)
+      expect(b.slots.entries('settings.launcher')).toHaveLength(1)
+      expect(b.slots.entries('settings.launcher')[0]?.inject?.()).toEqual({ feedbackUrl })
+      expect(b.slots.entries('settings.onboarding')[0]?.options).toMatchObject({ id: 'muse-account', order: -50 })
+      await b.ctx.fiber.dispose()
+    },
+  )
 
   it('registers the account page in Settings and releases it on disposal', async () => {
     expect(inject).toEqual(['slots', 'locale', 'remote'])
@@ -135,10 +137,10 @@ describe('MUSE account browser plugin', () => {
     expect(entry.component).toBe(MuseAccountSection)
     expect(entry.options).toMatchObject({ id: 'muse-account' })
     expect(entry.locale).toBe(NS)
-    expect(resolveSlotLabel(entry.options.label)).toBe('MUSE 账号')
+    expect(resolveSlotLabel(entry.options.label)).toBe('MUSE')
 
     b.locale.setLocale('en')
-    expect(resolveSlotLabel(entry.options.label)).toBe('MUSE account')
+    expect(resolveSlotLabel(entry.options.label)).toBe('MUSE')
 
     await dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)

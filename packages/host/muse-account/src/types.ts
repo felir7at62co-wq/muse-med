@@ -56,6 +56,10 @@ export type MuseAccountStatus =
     readonly verified: boolean
     readonly environment?: string
     readonly workspaceLabel?: string
+    /** Current gateway verification only; absent from locally cached status. */
+    readonly admin?: boolean
+    /** Canonical gateway administrator URL, available only with verified administrator status. */
+    readonly adminUrl?: string
   }
 
 /** User-entered credentials delivered only through the authenticated Remote call. */

@@ -51,6 +51,7 @@ async function outcome<T>(operation: () => Promise<T>): Promise<RemoteResult<T>>
 
 function pageView(container: HTMLElement) {
   return {
+    headings: [...container.querySelectorAll('h3')].map(node => node.textContent),
     paragraphs: [...container.querySelectorAll('p')].map(node => node.textContent),
     buttons: [...container.querySelectorAll('button')].map(button => ({ name: button.textContent, disabled: button.disabled })),
     inputs: [...container.querySelectorAll('input')].map(input => ({ name: input.labels?.[0]?.textContent?.trim(), type: input.type })),
@@ -124,7 +125,7 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   expect(b.operations.filter(operation => operation === 'models')).toHaveLength(3)
   expect(b.operations.filter(operation => operation === 'remote')).toHaveLength(3)
   fireEvent.click(thirdUi.getByRole('button', { name: '退出登录' }))
-  await thirdUi.findByRole('button', { name: '登录' })
+  await thirdUi.findByRole('button', { name: '飞书登录' })
   expect(await readMuseSession(b.sessionFile, b.baseUrl)).toBeNull()
   expect(b.operations.slice(6)).toEqual(['pause', 'models'])
   expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account', '/api/muse.account', '/logout'])
@@ -146,7 +147,7 @@ it('retains the real session after a gateway outage but removes a confirmed inva
   expect(ui.queryByText('private cookie upstream failure')).toBeNull()
   b.respond(async () => new Response(null, { status: 401 }))
   fireEvent.click(ui.getByRole('button', { name: '重试' }))
-  await ui.findByRole('button', { name: '登录' })
+  await ui.findByRole('button', { name: '飞书登录' })
   expect(await readMuseSession(b.sessionFile, b.baseUrl)).toBeNull()
 })
 

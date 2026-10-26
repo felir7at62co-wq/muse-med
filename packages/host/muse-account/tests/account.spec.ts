@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -124,6 +124,28 @@ it('distinguishes locally saved identity from a current gateway verification and
   expect(await account.logout()).toEqual({ state: 'signed-out' })
 })
 
+it('returns administrator navigation only from current verification and never stores it in the session', async () => {
+  const file = join(await accountHome(), 'session.json'), baseUrl = 'https://muse.example'
+  let admin = true
+  const gateway: MuseAccountGateway = {
+    signIn: async () => '__Host-muse=owner', register: async () => '', signOut: async () => {},
+    identity: async () => ({ username: 'owner', ...(admin ? { admin: true, adminUrl: baseUrl + '/admin' } : {}) }),
+  }
+  const account = new MuseAccountController({ baseUrl, sessionFile: file, gateway })
+  const verified = { state: 'signed-in', username: 'owner', verified: true, admin: true, adminUrl: baseUrl + '/admin' }
+  expect((await account.login({ username: 'owner', password: 'synthetic', registerIfMissing: false })).status).toEqual(verified)
+  expect(await readFile(file, 'utf8')).not.toMatch(/"(?:admin|adminUrl|verified)"/u)
+  const cached = { state: 'signed-in', username: 'owner', verified: false }
+  expect(await account.status()).toEqual(cached)
+  expect(await account.status({ verify: true })).toEqual(verified)
+  const stored = await readMuseSession(file, baseUrl)
+  if (stored === null) throw new Error('Expected synthetic saved session')
+  await writeFile(file, JSON.stringify({ ...stored, admin: true, adminUrl: 'https://evil.test/admin' }))
+  expect(await account.status()).toEqual(cached)
+  admin = false
+  expect(await account.status({ verify: true })).toEqual({ ...cached, verified: true })
+})
+
 it.each([{ username: 'a', password: 'password' }, { username: 'x'.repeat(33), password: 'password' },
   { username: 'writer', password: '' }, { username: 'writer', password: 'x'.repeat(129) }])(
   'refuses invalid login field lengths before dispatch (%j)', async (fields) => {
@@ -173,7 +195,7 @@ it('returns the replacement login when an older successful verification finishes
   const gate = new Promise<void>((resolve) => { release = resolve })
   const account = new MuseAccountController({ baseUrl, sessionFile: file, gateway: {
     signIn: async () => '', register: async () => '', signOut: async () => {},
-    identity: async () => { entered(); await gate; return { username: 'old' } },
+    identity: async () => { entered(); await gate; return { username: 'old', admin: true, adminUrl: baseUrl + '/admin' } },
   } })
   const checking = account.status({ verify: true })
   await started
