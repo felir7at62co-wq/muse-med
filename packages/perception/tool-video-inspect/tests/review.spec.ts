@@ -206,7 +206,8 @@ it('omits bulky timeline windows when the compact index exactly fits the result 
   await h.run(h.call('status'), undefined)
   const block = h.results().at(-1)!.content.find(value => value.type === 'text')!
   if (block.type !== 'text') throw Error('Missing review status')
-  const full = JSON.parse(block.text)
+  const full = z.object({ source_timeline_index: z.object({ windows: z.array(z.unknown()),
+    index_omitted_for_budget: z.boolean() }).loose() }).loose().parse(JSON.parse(block.text))
   const { windows: _windows, ...index } = full.source_timeline_index
   const compactBytes = Buffer.byteLength(JSON.stringify({ ...full,
     source_timeline_index: { ...index, index_omitted_for_budget: true } }))
@@ -217,8 +218,10 @@ it('omits bulky timeline windows when the compact index exactly fits the result 
   await h.run(h.call('status'), undefined)
   const limited = h.results().at(-1)!.content.find(value => value.type === 'text')!
   if (limited.type !== 'text') throw Error('Missing compact review status')
-  expect(JSON.parse(limited.text).source_timeline_index).toMatchObject({ index_omitted_for_budget: true })
-  expect(JSON.parse(limited.text).source_timeline_index).not.toHaveProperty('windows')
+  const compact = z.object({ source_timeline_index: z.object({ index_omitted_for_budget: z.boolean() }).loose() })
+    .parse(JSON.parse(limited.text)).source_timeline_index
+  expect(compact.index_omitted_for_budget).toBe(true)
+  expect(compact).not.toHaveProperty('windows')
 }, 30_000)
 
 it('keeps source timeline failures advisory and refuses stale sources, missing cache and oversized full results', async () => {
@@ -736,7 +739,7 @@ it('rejects missing cached images and preserves the underlying non-Error cache f
   const h = await fixture()
   await h.run(h.call('scan'), h.record, undefined)
   const frame = h.review().frames.find(value => value.observation !== undefined)!
-  const before = JSON.stringify(h.review())
+  const original = h.review(), before = JSON.stringify(original)
   saveReview(h.ctx, h.agent.session, { ...h.review(), frames: h.review().frames.map((value) => {
     if (value.id !== frame.id) return value
     const { image: _image, ...withoutImage } = value
@@ -744,7 +747,7 @@ it('rejects missing cached images and preserves the underlying non-Error cache f
   }) })
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
-  saveReview(h.ctx, h.agent.session, JSON.parse(before))
+  saveReview(h.ctx, h.agent.session, original)
   vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache unavailable')
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('cache unavailable')

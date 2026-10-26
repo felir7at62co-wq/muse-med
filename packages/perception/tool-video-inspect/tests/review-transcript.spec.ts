@@ -127,8 +127,8 @@ it('rejects a changed explicit ASR digest and reports a missing referenced file 
   h.review.transcript_reference = { path, version, sha256: 'wrong-digest' }
   const changed = await h.resolve([h.receipt('explicit.json')])
   expect(changed.link.speech).toBeUndefined()
-  expect(changed.link.speech_unavailable).toMatchObject({ current_version: version,
-    reason: expect.stringContaining('VIDEO_TRANSCRIPT_CHANGED') })
+  expect(changed.link.speech_unavailable?.current_version).toBe(version)
+  expect(changed.link.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
   h.review.transcript_reference = { path: join(h.root, 'missing.json'), version: 'old', sha256: 'old' }
   const missing = await h.resolve([h.receipt('explicit.json')])
   expect(missing.link.speech_unavailable?.current_version).toBeUndefined()
