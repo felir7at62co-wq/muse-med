@@ -4,6 +4,10 @@
   disabled: true
 - id: skill-filesystem
   disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
 - id: bash-sandbox
   disabled: true
 - id: pwsh-sandbox
