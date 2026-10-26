@@ -21,8 +21,8 @@
   en: bb04e98a08b2006c
   zh: 6aa143d0ccea86f8
 /deepseek-ai-dsh-tool-episode-render/use-this-package/render-and-audio-audition-methods:
-  en: 5e4dc053f85258b7
-  zh: d493bc5ab4451cf3
+  en: c2542ed7ac9c3f51
+  zh: a095aba8b2e8a77b
 /deepseek-ai-dsh-tool-episode-render/use-this-package/explicit-audio-profiles-and-auditions:
   en: 78c3c324394122c4
   zh: 26ff2f647e3b9dd1
@@ -33,8 +33,14 @@
   en: 014a0bc55530aacf
   zh: 73312f99e005035a
 /deepseek-ai-dsh-tool-episode-render/use-this-package/project-draft-style:
-  en: 5c892565993e9de3
-  zh: fbd5898ffe1c6fbe
+  en: 968b8a987813d6be
+  zh: 1e69adefd7d95480
+/deepseek-ai-dsh-tool-episode-render/use-this-package/shared-subtitle-visual-intent-and-real-width-previews:
+  en: 85c7a70eb8312371
+  zh: a12e580c1e774dc0
+/deepseek-ai-dsh-tool-episode-render/use-this-package/actual-words-and-final-subtitle-coverage:
+  en: 3cef2e8e4b13e7a2
+  zh: 437a94860c2aac55
 /deepseek-ai-dsh-tool-episode-render/use-this-package/marked-delivery-prerequisites-the-two-ending-files:
   en: de33577677b9ac8c
   zh: c1b85a1a119dced6
@@ -48,8 +54,8 @@
   en: 50a74987c0d07432
   zh: 5e088c53096fb11a
 /deepseek-ai-dsh-tool-episode-render/use-this-package/delivery-style:
-  en: 40a261ef8f6ae121
-  zh: e911b3481c1a9dcd
+  en: 7ab958cbb59b8602
+  zh: ea780f182b719a32
 /deepseek-ai-dsh-tool-episode-render/use-this-package/the-three-known-traps:
   en: e5bd784ee79e3644
   zh: f1df2cc076f9248d
@@ -63,8 +69,8 @@
   en: eba56c4904730ee1
   zh: 644340f08ae55cda
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation/source-map:
-  en: 402ab92c501410d3
-  zh: 88eafa66b9fbb2e2
+  en: 97fd5551ad2d0049
+  zh: 9e0c7a5ac06fc322
 /deepseek-ai-dsh-tool-episode-render/further-exploration:
   en: 2647dcc45b64eb22
   zh: c9b42a2dba999a25
@@ -84,8 +90,8 @@
   en: 064f99a9c816466f
   zh: 656fd64286b15620
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
-  en: d74097e8cc73b3ce
-  zh: 3e27dbf51b070d53
+  en: 7bb4910e1ab21f7c
+  zh: b6a155758b83f01f
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
   en: 7592720dbb825107
   zh: b45c7ac69e2f8d1a

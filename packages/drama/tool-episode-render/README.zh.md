@@ -69,17 +69,22 @@ kind: "package-reference"
 | `render` | 时间线、已准备的镜头、整集原声、字幕、BGM，以及该媒介所需的片尾素材 | 成片 MP4 与 `exports/.render_cache/<集>/render.log` | 出片并回报实测参数 |
 | `verify` | 成片、它的时间线与字幕 | 无 | 事后检查成片，或复查更早会话留下的成片 |
 | `audio_preview` | 项目内原声、时间线、显式混音配置及可选音乐元数据 | `audio/previews/` 下新建的对齐 WAV 试听、音乐 stem 与分析 JSON | 编码画面前比较新增配乐与保留原声 |
+| `subtitle_overlay` | 已准备的源、时间线、原 SRT 及明确的已有文字决定 | 新外加字幕 SRT 与绑定选源的决定报告 | 避免重复叠字，不改变烧录字 |
+| `subtitle_layout` | 时间线、最终 SRT 及显式共享视觉样式 | 新排版报告、自然宽度探针与交付尺寸 PNG | 测量真实 libass 排版，不改字幕 |
+| `speech_coverage` | 选源、时间线、完整显示 SRT 及已有同源词级转写 | 无 | 双向复核发声与字幕的覆盖 |
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify`、`audio_preview` 或 `subtitle_overlay` |
+| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify`、`audio_preview`、`subtitle_overlay`、`subtitle_layout` 或 `speech_coverage` |
 | `project` | 总是 | 项目根目录（含 `video/`、`audio/`、`editing/`、`exports/`） |
 | `episode` | 总是 | 集号；所有路径都补成两位 |
-| `shots` | `subtitles`、`prepare` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
+| `shots` | `subtitles`、`prepare`、`speech_coverage` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
 | `lines` | `subtitles` | 逐镜台词计划：`{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`；每一项就是一条字幕，已按交付长度切好 |
 | `alignment` | `subtitles` | 识别时间：`{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，镜内相对。只取时间，文本必须与剧本台词一致 |
-| `timeline` | `render`、`verify`、`audio_preview` | 时间线 JSON，通常是 `prepare` 写出的那个 |
-| `subtitle_srt` | `prepare`、`render`、`verify`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT；`subtitles` 省略时写 `editing/<集>.srt` |
+| `timeline` | `render`、`verify`、`audio_preview`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage` | 时间线 JSON，通常是 `prepare` 写出的那个 |
+| `subtitle_srt` | `prepare`、`render`、`verify`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT；覆盖检查使用完整显示 SRT，不是删减后的外加字幕；`subtitles` 省略时写 `editing/<集>.srt` |
+| `speech_transcripts` | `speech_coverage` | 项目内已有的 `{shots:[{shot,receipt}]}` 映射，引用绑定源字节的词级转写收据 |
+| `speech_decisions` | 可选，`speech_coverage` | 绑定本次完整证据哈希的项目内核听声明，不是 Host 签发的核听认证 |
 | `last_shot` | `render` | 本次交付覆盖到的最后一个镜头号；时间线里 `shot <= last_shot` 的镜头数必须正好等于它 |
 | `bgm` | 启用音乐的 `render`、`audio_preview` | BGM，循环铺到正片结束；显式 `no_bgm` 配置忽略且不打开它 |
 | `bgm_plan` | 可选，`render`、`audio_preview` | 现有 `episodes[].segments[]` 计划；返回声明的曲目来源、时间、理由、音轨哈希与同序复用集号，不代表试听通过 |
@@ -138,6 +143,21 @@ kind: "package-reference"
 
 `prepare` 将该可选节保存在 `timeline.delivery.draft_style`；已保存的整节（包括 `{}`）优先于当前项目值。所选节缺少的字段沿用草稿默认，不从另一节补字段。修改项目后重跑 `prepare` 才采用新值。此节不改变正式成片 ASS 或混音设置，动画仍不增加水印或片尾。草稿导出器负责字体解析并报告回退；检查候选和其 review，不把请求字族当作已验证外观。
 
+<a id="subtitle-visual"></a>
+### 共享字幕视觉目标与真实画幅预览
+
+显式 `delivery.subtitle_visual` 选择完整的带版本参考画布样式：`schema_version: 1`、正数 `reference_width/reference_height/font_size_px`、非负 `outline_px`、从上往下0至1的 `center_y_ratio`，以及大于0且不超过1的 `max_width_ratio`；`font_family` 可选。prepare 保存整节；快照 `{}` 恢复旧样式，缺节才可继承项目。正式渲染按参考高度缩放名义排版，使用居中白字黑边并关闭自动换行。没有新节时不改变旧调用方默认值。
+
+可编辑草稿保留单独选定的 `draft_style.subtitle` UI字号、描边和字体。显式 `transform_y` 保留独立校准的编辑器位置，仅省略位置时才映射公共中心。公共节提供单行策略和行宽意图，不提供像素至UI的字号系数。未配置的编辑器字段保留旧默认并给审查建议。请求字族不证明任一引擎实际选中的字体；关闭编辑器换行时，保存的行宽也不能防止裁切。
+
+调用 `subtitle_layout`，提供 `timeline` 与最终 `subtitle_srt`，通过实际libass烧录链测量不同文字。报告区分三倍宽自然白墨探针与真实交付尺寸预览；返回的 `subtitle_layout.preview_paths` 指向后者。黑描边余量是估算，不是实测描边。超宽和无法测量只给建议，不改文字、不单独缩小某条字幕、不阻断整集。长句仅按实际字词时间切分，并在MP4与重开的可编辑草稿中比较短句和长句；名义值与保存成功不证明画面验收通过。
+
+### 实际字词与最终字幕覆盖
+
+调用 `speech_coverage`，提供 `shots`、`timeline`、最终完整显示的 `subtitle_srt` 与 `speech_transcripts`，比对每个已有同源词时码，包括一两个字及剧本外额外发声。只读报告区分识别有字而字幕缺失、字幕无对应识别及时间不匹配。源字节、转写收据及原始结果必须匹配；操作不调用供应商、不按波形猜词，也不认证ASR准确度。
+
+可选 `speech_decisions` 将调用方声明的核听决定绑定到完整证据哈希。源、转写、时间线、字幕或映射变化都会使绑定失效。先核听再补字、调整或明确保留不加字幕的决定，MP4与草稿核查复用同一份完整显示SRT。保留在原画面中的文字也属于该完整SRT，即使仅后加字幕的SRT已省略它。发现仍是建议；`listening_verified: false` 不会变成Host签发的人工验收声明。
+
 ### 带标记交付前置：两份片尾素材
 
 带标记 `render` 要求两份随包素材，并在媒体命令前校验字节。缺失或替换素材只阻塞该模式；同目录正确哈希的另一份素材可证明安装目录存在，诊断据此指出安装缺失。
@@ -195,7 +215,7 @@ kind: "package-reference"
 | 码率控制 | 目标 24M、上限 30M、缓冲 48M、GOP 2 秒 |
 | 总码率下限 | 成片整体 4.6 Mbps |
 | 片尾 | 3D 动画无片尾；带标记交付用最后一镜的真实尾帧定格 2.000 秒。默认 `source_once` 将特效以 0.90 不透明度叠在开头 1.020 秒；时间线显式 `stretch_to_window` 时，完整运动覆盖两秒 |
-| 字幕 | 未覆盖项目设置时：配置字族、1080px 宽 ASS 画布上的字号 40、画布高度 140/1920 的底边距。项目只覆盖正文的字族、字号和边距。字距 -2、按宽度缩放的黑描边、底部居中、带标记交付唯一的 `内容由AI生成` 水印及 `ScaledBorderAndShadow: yes` 保持不变；烧录链以快照帧率的 `fps` 和 `setpts` 结尾 |
+| 字幕 | 旧样式使用配置字族、1080px 宽 ASS 画布上的字号 40、画布高度 140/1920 的底边距、字距 -2 及按宽度缩放的黑描边；`subtitle` 覆盖其正文字族、字号与边距。显式 `subtitle_visual` 则使用按参考高度缩放的字号与描边、零字距、居中位置及不折行。两种路径均保留带标记交付唯一的 `内容由AI生成` 水印与 `ScaledBorderAndShadow: yes`；烧录链以快照帧率的 `fps` 和 `setpts` 结尾 |
 | 音频 | 项目或部署的实际增益（默认原声 1.45、BGM 0.24）铺到正片结束；带标记交付保留片尾音前 2 秒延迟到正片结束，`amix` 关闭归一化，`alimiter=0.95` |
 | 容器 | AAC 192k / 48kHz，`+faststart` |
 
@@ -260,6 +280,9 @@ kind: "package-reference"
 | [`src/subtitle-plan.ts`](src/subtitle-plan.ts) | 绑定源视频的已有文字决定与独立外加字幕导出 |
 | [`src/speech.ts`](src/speech.ts) | 读对齐文档并把台词落到整集时钟上，不做识别 |
 | [`src/cues.ts`](src/cues.ts) | `subtitles`：台词计划、对齐文档与写出的 SRT |
+| [`src/subtitle-visual.ts`](src/subtitle-visual.ts) | 共享视觉目标的校验、选择及 ASS 映射 |
+| [`src/subtitle-layout.ts`](src/subtitle-layout.ts) | 真实 libass 字形探针与交付尺寸预览 |
+| [`src/speech-coverage.ts`](src/speech-coverage.ts) | 同源词级覆盖与绑定证据的核听声明 |
 | [`src/encoder.ts`](src/encoder.ts) | NVENC 探测，以及带原因记录的 CPU 回退 |
 | [`src/ending.ts`](src/ending.ts) | 带 framemd5 证明的尾帧抽取、片尾素材校验，以及片尾片段 |
 | [`src/prepare.ts`](src/prepare.ts) | `prepare`：成片清单、探测、复制出的布局与整集原声滤镜图 |
@@ -308,7 +331,7 @@ kind: "package-reference"
 这些限制界定了本包是什么、不是什么。它们是当前约束，不是任务清单。
 
 - **ffmpeg 与 ffprobe 是外部依赖**——本包启动 `ffmpegPath` 与 `ffprobePath` 指向的任何东西。缺少 `libass`、`minterpolate` 或 `screen` 混合模式的构建会在需要它的那条命令上失败，而报告里只有那条命令的 stderr。
-- **交付元数据不开放任意滤镜**——项目宽高/帧率与明确媒介经过校验并写入快照；码率控制、字幕描边、水印、随包片尾哈希及限幅器保持固定。插件 `Config` 只包含可执行文件、增益、编码器偏好和字体。
+- **交付元数据不开放任意滤镜**——项目宽高/帧率、明确媒介与共享字幕目标经过校验并写入快照；码率控制、旧版字幕描边、水印、随包片尾哈希及限幅器保持固定。插件 `Config` 只包含可执行文件、增益、编码器偏好和字体。
 - **缓存与日志写入不是事务**——渲染失败可能留下中间文件，由下一次运行覆盖。旧版最终 MP4 在同目录暂存，禁用检查后以 rename 发布；显式音频配置的 MP4/音乐 stem 无覆盖发布。发布前失败会保留旧成片。
 - **禁用不是全局媒体过滤器**——不拦截通用 FFmpeg 工具和任意外部转码。准备后的副本按实际 SHA256 检查；正式渲染以当前源哈希关联编码缓存。缺失或过期的映射不能证明任意转码文件的原始版本。
 - **需要片尾的带标记渲染每次重建片尾**——尾帧会重新抽取并重新证明，片尾片段会重新编码，即使缓存里两者都在。证明正是重点，而缓存里的片尾可能早于一次重剪。

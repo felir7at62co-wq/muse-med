@@ -21,6 +21,7 @@ export function buildRenderPreview(input: {
   delete delivery.subtitle
   delete delivery.audio
   delete delivery.draft_style
+  delete delivery.subtitle_visual
   return {
     delivery,
     subtitle: { path: input.subtitle, font_family: settings.subtitleFontFamily, ...subtitleRenderStyle(input.delivery) },

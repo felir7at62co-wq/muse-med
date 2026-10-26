@@ -6,6 +6,8 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
+import { parseSubtitleVisual } from './subtitle-visual.ts'
+import { activeSubtitleVisual } from './subtitle-visual.ts'
 import type { DeliveryAudio, DeliveryDraftStyle, DeliveryPolicy, DeliverySubtitle, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
 
 /** Reject malformed explicit metadata instead of treating it as missing. */
@@ -94,6 +96,14 @@ function draftStyle(value: unknown, path: string): DeliveryDraftStyle {
 
 /** Reject a positive output size that rounds to zero in the actual ASS representation. */
 function assertRepresentableSubtitle(delivery: TimelineDelivery, path: string): void {
+  if (activeSubtitleVisual(delivery) !== undefined) {
+    const style = subtitleRenderStyle(delivery)
+    if (Object.values(style).some(value => !Number.isFinite(value))
+      || style.font_size_design <= 0 || style.font_size_output_px <= 0) {
+      throw new Error(`${path}.subtitle_visual 的字号或描边在实际画幅换算后不可表达；`
+        + '请使用可换算为有限值及正 ASS 字号的参考高度与字号（ASS 字号精度为 0.001 设计单位）。')
+    }
+  }
   if (delivery.subtitle?.font_size_px !== undefined && subtitleRenderStyle(delivery).font_size_design <= 0) {
     throw new Error(`${path}.subtitle.font_size_px 在 ${String(delivery.width)}×${String(delivery.height)} 输出画幅下`
       + '换算后为 0 ASS 设计单位，无法表达正字号；请使用换算后可保留为正数的字号（ASS 字号精度为 0.001 设计单位）。')
@@ -117,6 +127,7 @@ export function parseTimelineDelivery(value: unknown, path: string): TimelineDel
     ...(Object.hasOwn(row, 'visual_medium') ? { visual_medium: medium(row.visual_medium, `${path}.visual_medium`) } : {}),
     width, height, fps,
     ...(Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
+    ...(Object.hasOwn(row, 'subtitle_visual') ? { subtitle_visual: parseSubtitleVisual(row.subtitle_visual, `${path}.subtitle_visual`) } : {}),
     ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
     ...(Object.hasOwn(row, 'draft_style') ? { draft_style: draftStyle(row.draft_style, `${path}.draft_style`) } : {}),
   }
@@ -148,6 +159,7 @@ export async function readProjectDelivery(project: string): Promise<TimelineDeli
     ...(Object.hasOwn(geometry, 'height') ? { height: geometry.height } : {}),
     ...(Object.hasOwn(geometry, 'fps') ? { fps: geometry.fps } : {}),
     ...(Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
+    ...(Object.hasOwn(geometry, 'subtitle_visual') ? { subtitle_visual: geometry.subtitle_visual } : {}),
     ...(Object.hasOwn(geometry, 'audio') ? { audio: geometry.audio } : {}),
     ...(Object.hasOwn(geometry, 'draft_style') ? { draft_style: geometry.draft_style } : {}),
     ...(Object.hasOwn(bible, 'visual_medium') ? { visual_medium: bible.visual_medium } : {}),
@@ -192,6 +204,8 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
     ...(snapshot ?? DEFAULT_DELIVERY),
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
     ...(snapshot?.subtitle !== undefined || current.subtitle === undefined ? {} : { subtitle: current.subtitle }),
+    ...(snapshot?.subtitle_visual !== undefined || current.subtitle_visual === undefined
+      ? {} : { subtitle_visual: current.subtitle_visual }),
     ...(snapshot?.audio !== undefined || current.audio === undefined ? {} : { audio: current.audio }),
     ...(snapshot?.draft_style !== undefined || current.draft_style === undefined ? {} : { draft_style: current.draft_style }),
   }

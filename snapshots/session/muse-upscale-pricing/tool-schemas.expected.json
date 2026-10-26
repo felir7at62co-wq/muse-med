@@ -127,6 +127,47 @@
                   "max_effective_chars_per_shot": {
                     "type": "integer"
                   },
+                  "subtitle_visual": {
+                    "type": "object",
+                    "description": "Optional shared reference-raster subtitle intent. Replaces this whole section; {} restores legacy per-engine styling. Approve real MP4/editor previews, not these nominal numbers.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "schema_version": {
+                        "type": "integer",
+                        "enum": [
+                          1
+                        ]
+                      },
+                      "reference_width": {
+                        "type": "number",
+                        "description": "Reference picture width, positive and at most 16384."
+                      },
+                      "reference_height": {
+                        "type": "number",
+                        "description": "Reference height; typography scales by actual height / reference height."
+                      },
+                      "font_size_px": {
+                        "type": "number",
+                        "description": "Nominal reference-pixel size, not measured glyph height or editor UI size."
+                      },
+                      "outline_px": {
+                        "type": "number",
+                        "description": "Black outline in reference pixels, from 0 through 100."
+                      },
+                      "center_y_ratio": {
+                        "type": "number",
+                        "description": "Text-box centre from the top, from 0 through 1; calibrate with real previews."
+                      },
+                      "max_width_ratio": {
+                        "type": "number",
+                        "description": "Actual picture width available for a single line, greater than 0 and at most 1; measure glyph width."
+                      },
+                      "font_family": {
+                        "type": "string",
+                        "description": "Optional requested local family, no comma or controls. A request does not prove both engines resolve the same font; never download missing fonts."
+                      }
+                    }
+                  },
                   "draft_style": {
                     "type": "object",
                     "description": "Editable Jianying typography in editor UI units, not formal-render pixels. Replaces the whole draft-style section; {} restores draft defaults after prepare.",

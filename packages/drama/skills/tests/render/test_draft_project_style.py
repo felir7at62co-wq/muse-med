@@ -23,6 +23,11 @@ PROJECT_STYLE = {
     'subtitle': {'font_family': '山海经', 'font_size_ui': 11,
                  'border_width_ui': 20, 'transform_y': -0.4},
 }
+VISUAL_STYLE = {
+    'schema_version': 1, 'reference_width': 1280, 'reference_height': 720,
+    'font_size_px': 40, 'outline_px': 2, 'center_y_ratio': 0.75,
+    'max_width_ratio': 0.8,
+}
 
 
 def load_module(name, filename):
@@ -62,6 +67,20 @@ class DraftStyleResolutionTests(unittest.TestCase):
         (self.project / 'project_config.json').write_text('{}', encoding='utf-8')
         self.assertEqual(self.inputs.draft_style({}, self.project), LEGACY_STYLE)
 
+    def test_common_center_only_replaces_the_default_editor_position(self):
+        self.assertEqual(self.inputs.draft_style({}, self.project, center_y_ratio=0.75), PROJECT_STYLE)
+        for snapshot in ({}, {'subtitle': {'font_size_ui': 13.2}},
+                         {'watermark': {'font_size_ui': 8}}):
+            with self.subTest(snapshot=snapshot):
+                timeline = {'delivery': {'draft_style': snapshot}}
+                resolved = self.inputs.draft_style(timeline, self.project, center_y_ratio=0.75)
+                self.assertEqual(resolved['subtitle']['transform_y'], -0.5)
+        saved = {'subtitle': {'font_size_ui': 13, 'transform_y': 0}}
+        resolved = self.inputs.draft_style({'delivery': {'draft_style': saved}}, self.project,
+                                         center_y_ratio=0.75)
+        self.assertEqual(resolved['subtitle']['transform_y'], 0)
+        self.assertEqual(resolved['subtitle']['font_size_ui'], 13)
+
     def test_invalid_numeric_style_fields_are_rejected(self):
         cases = (
             ('watermark', 'font_size_ui', (0, -1, 101, True, '7', float('inf'), float('nan'))),
@@ -90,6 +109,106 @@ class DraftStyleResolutionTests(unittest.TestCase):
             'subtitle': {'font_family': ' ' * 200 + name + ' ' * 200},
         }}}
         self.assertEqual(self.inputs.draft_style(timeline, self.project)['subtitle']['font_family'], name)
+
+
+class SubtitleVisualResolutionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.inputs = load_module('project_subtitle_visual_inputs', 'draft_inputs.py')
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='subtitle-visual-inputs-')
+        self.addCleanup(temporary.cleanup)
+        self.project = Path(temporary.name)
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'delivery': {'subtitle_visual': VISUAL_STYLE}},
+        }), encoding='utf-8')
+
+    def test_missing_visual_snapshot_inherits_the_whole_project_section(self):
+        self.assertEqual(self.inputs.subtitle_visual({'delivery': {}}, self.project), VISUAL_STYLE)
+        self.assertIsNone(self.inputs.subtitle_visual({}))
+
+    def test_saved_visual_section_wins_and_empty_section_disables_the_project_mapping(self):
+        saved = {**VISUAL_STYLE, 'font_size_px': 48}
+        self.assertEqual(self.inputs.subtitle_visual({'delivery': {'subtitle_visual': saved}},
+                                                     self.project), saved)
+        self.assertIsNone(self.inputs.subtitle_visual({'delivery': {'subtitle_visual': {}}}, self.project))
+        with self.assertRaisesRegex(ValueError, 'reference_width'):
+            self.inputs.subtitle_visual({'delivery': {'subtitle_visual': {'schema_version': 1}}}, self.project)
+
+    def test_visual_fields_require_finite_numbers_and_exact_supported_version(self):
+        cases = {
+            'schema_version': (True, 0, 2, '1'),
+            'reference_width': (True, 0, -1, 16384.1, '1280', float('inf'), float('nan')),
+            'reference_height': (0, -1, 16384.1, float('inf')),
+            'font_size_px': (False, 0, -1, 16384.1, float('nan')),
+            'outline_px': (True, -1, 100.1, float('inf')),
+            'center_y_ratio': (-0.01, 1.01, False, float('nan')),
+            'max_width_ratio': (0, -0.01, 1.01, True, float('inf')),
+        }
+        for field, values in cases.items():
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    saved = {**VISUAL_STYLE, field: value}
+                    with self.assertRaisesRegex(ValueError, field):
+                        self.inputs.subtitle_visual({'delivery': {'subtitle_visual': saved}})
+        for section in (None, [], 'visual'):
+            with self.subTest(section=section):
+                with self.assertRaisesRegex(ValueError, 'subtitle_visual'):
+                    self.inputs.subtitle_visual({'delivery': {'subtitle_visual': section}})
+
+    def test_visual_font_is_trimmed_and_cannot_inject_ass_fields(self):
+        saved = {**VISUAL_STYLE, 'font_family': ' Noto Sans CJK SC '}
+        self.assertEqual(self.inputs.subtitle_visual({'delivery': {'subtitle_visual': saved}})['font_family'],
+                         'Noto Sans CJK SC')
+        for name in ('', '字' * 129, 'font,name', 'font\nname', 'font\u0085name', None, True):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, 'font_family'):
+                    self.inputs.subtitle_visual({'delivery': {'subtitle_visual': {
+                        **VISUAL_STYLE, 'font_family': name,
+                    }}})
+
+    def test_adapter_keeps_resolved_editor_typography_and_position(self):
+        original = deepcopy(PROJECT_STYLE['subtitle'])
+        mapped = self.inputs.draft_subtitle_visual(VISUAL_STYLE, original)
+        self.assertEqual(mapped['subtitle'], {
+            'font_family': '山海经', 'font_size_ui': 11, 'border_width_ui': 20,
+            'transform_y': -0.4, 'auto_wrapping': False, 'max_line_width': 0.8,
+        })
+        self.assertEqual(original, PROJECT_STYLE['subtitle'])
+        self.assertEqual(mapped['adapter']['typography_source'], 'delivery.draft_style.subtitle')
+        self.assertEqual(mapped['adapter']['nominal_reference_font_size_px'], 40)
+        self.assertEqual(mapped['adapter']['nominal_reference_outline_px'], 2)
+        self.assertEqual(mapped['adapter']['status'], 'needs_preview')
+        self.assertFalse(mapped['adapter']['gui_verified'])
+        self.assertFalse(mapped['adapter']['pixel_equivalence_verified'])
+        self.assertFalse(mapped['adapter']['line_width_is_fit_guarantee'])
+        for center, position in ((0, 1), (0.5, 0), (1, -1)):
+            with self.subTest(center=center):
+                result = self.inputs.draft_subtitle_visual({**VISUAL_STYLE, 'center_y_ratio': center},
+                                                          {key: value for key, value in LEGACY_STYLE['subtitle'].items()
+                                                           if key != 'transform_y'})
+                self.assertEqual(result['subtitle']['transform_y'], position)
+
+    def test_visual_reference_typography_accepts_exact_upper_limits(self):
+        saved = {**VISUAL_STYLE, 'reference_width': 16384, 'reference_height': 16384,
+                 'font_size_px': 16384, 'outline_px': 100}
+        self.assertEqual(self.inputs.subtitle_visual({'delivery': {'subtitle_visual': saved}}), saved)
+
+    def test_visual_zero_outline_and_inclusive_center_width_endpoints_are_preserved(self):
+        saved = {**VISUAL_STYLE, 'outline_px': 0, 'center_y_ratio': 1, 'max_width_ratio': 1}
+        self.assertEqual(self.inputs.subtitle_visual({'delivery': {'subtitle_visual': saved}}), saved)
+
+    def test_adapter_does_not_convert_reference_pixels_or_replace_the_editor_font(self):
+        for width, height in ((480, 854), (720, 1280), (1440, 2560)):
+            with self.subTest(width=width, height=height):
+                visual = {**VISUAL_STYLE, 'reference_width': width, 'reference_height': height,
+                          'font_size_px': 100, 'outline_px': 10, 'font_family': 'Reference font'}
+                mapped = self.inputs.draft_subtitle_visual(visual, PROJECT_STYLE['subtitle'])
+                self.assertEqual(mapped['subtitle']['font_size_ui'], 11)
+                self.assertEqual(mapped['subtitle']['border_width_ui'], 20)
+                self.assertEqual(mapped['subtitle']['font_family'], '山海经')
+                self.assertEqual(mapped['adapter']['reference_font_family'], 'Reference font')
 
 
 class DraftProjectStyleGenerationTests(unittest.TestCase):
@@ -134,13 +253,16 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         return result.stdout
 
     def make_candidate(self, style=None, medium='photorealistic', snapshot=None,
-                       has_snapshot=False, ending_assets=False, geometry=None):
+                       has_snapshot=False, ending_assets=False, geometry=None, visual=None,
+                       snapshot_visual=None, has_visual_snapshot=False):
         temporary = tempfile.TemporaryDirectory(prefix='draft-project-style-')
         self.addCleanup(temporary.cleanup)
         project = Path(temporary.name)
         delivery = {'visual_medium': medium, 'width': 2560, 'height': 1440, 'fps': 30}
         delivery.update(geometry or {})
         project_delivery = {} if style is None else {'draft_style': style}
+        if visual is not None:
+            project_delivery['subtitle_visual'] = visual
         (project / 'project_config.json').write_text(json.dumps({
             'project_bible': {'visual_medium': medium, 'delivery': project_delivery},
         }, ensure_ascii=False), encoding='utf-8')
@@ -155,6 +277,8 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
             '2\n00:00:02,000 --> 00:00:04,000\n一起走吧\n', encoding='utf-8')
         if has_snapshot:
             delivery['draft_style'] = snapshot
+        if has_visual_snapshot:
+            delivery['subtitle_visual'] = snapshot_visual
         timeline = {'delivery': delivery, 'clips': [
             {'shot': 1, 'start_us': 0, 'duration_us': 2_000_000},
             {'shot': 2, 'start_us': 2_000_000, 'duration_us': 2_000_000},
@@ -219,7 +343,129 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         self.assertIsNone(review['subtitle_font']['resource_id'])
         for warnings in (result['warnings'], review['warnings']):
             self.assertTrue(any('山海经' in warning and '回退剪映系统默认字体' in warning
-                                for warning in warnings), warnings)
+                                 for warning in warnings), warnings)
+
+    def test_visual_adapter_serializes_a_fixed_size_single_line_without_editor_auto_wrapping(self):
+        inputs = load_module('serialized_subtitle_visual_inputs', 'draft_inputs.py')
+        mapped = inputs.draft_subtitle_visual(VISUAL_STYLE, LEGACY_STYLE['subtitle'])
+        subtitle = mapped['subtitle']
+        from pyJianYingDraft.segment import ClipSettings
+        from pyJianYingDraft.text_segment import TextBorder, TextSegment, TextStyle
+        from pyJianYingDraft.time_util import Timerange
+        segment = TextSegment(
+            '今天我们一起去看远处的大山 TEST', Timerange(0, 1_000_000),
+            style=TextStyle(size=subtitle['font_size_ui'], align=1,
+                            auto_wrapping=subtitle['auto_wrapping'],
+                            max_line_width=subtitle['max_line_width']),
+            border=TextBorder(width=subtitle['border_width_ui']),
+            clip_settings=ClipSettings(transform_y=subtitle['transform_y']),
+        )
+        material = segment.export_material()
+        content = json.loads(material['content'])
+        self.assertEqual(content['styles'][0]['size'], 11)
+        self.assertNotIn('font', content['styles'][0])
+        self.assertAlmostEqual(content['styles'][0]['strokes'][0]['width'], 0.04)
+        self.assertEqual(material['type'], 'text')
+        self.assertEqual(material['line_max_width'], 0.8)
+        self.assertEqual(content['text'], '今天我们一起去看远处的大山 TEST')
+        self.assertNotIn('\n', content['text'])
+        self.assertEqual(segment.clip_settings.transform_y, LEGACY_STYLE['subtitle']['transform_y'])
+
+    def test_project_visual_style_overrides_only_subtitles_and_reports_unverified_adapter(self):
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE)
+        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
+        self.assertEqual(review['subtitle_visual'], VISUAL_STYLE)
+        self.assertEqual(review['subtitle_visual_adapter']['status'], 'needs_preview')
+        self.assertFalse(review['subtitle_visual_adapter']['gui_verified'])
+        self.assertEqual(review['subtitle_visual_adapter']['typography_source'], 'delivery.draft_style.subtitle')
+        self.assertEqual(review['subtitle_visual_adapter']['nominal_reference_font_size_px'], 40)
+        self.assertEqual(review['subtitle_font']['requested'], '山海经')
+        for segment, material, text in self.text_rows(content):
+            self.assertNotIn('font', text['styles'][0])
+            self.assertEqual(text['styles'][0]['size'], 11)
+            self.assertEqual(segment['clip']['transform']['y'], -0.4)
+            self.assertEqual(material['type'], 'text')
+            self.assertEqual(material['line_max_width'], 0.8)
+        self.assertTrue(any('山海经' in warning for warning in result['warnings']))
+        self.assertTrue(any('字幕视觉适配' in warning and '未确认' in warning
+                            for warning in result['warnings']), result['warnings'])
+        self.assertTrue(any('不保证' in warning and '裁切' in warning for warning in result['warnings']))
+
+    def test_empty_visual_snapshot_keeps_the_existing_draft_style(self):
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE,
+                                                       snapshot_visual={}, has_visual_snapshot=True)
+        self.assertEqual(review['draft_style'], PROJECT_STYLE)
+        self.assertNotIn('subtitle_visual_adapter', review)
+        self.assert_subtitle_style(content, transform_y=-0.4)
+        self.assertTrue(any('山海经' in warning for warning in result['warnings']))
+
+    def test_saved_visual_snapshot_does_not_replace_editor_typography_with_reference_font(self):
+        project = {**VISUAL_STYLE, 'font_family': 'Project reference font'}
+        saved = {**VISUAL_STYLE, 'center_y_ratio': 0.6, 'max_width_ratio': 0.9,
+                 'font_family': 'Saved reference font'}
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=project,
+                                                     snapshot_visual=saved, has_visual_snapshot=True)
+        self.assertEqual(review['subtitle_visual'], saved)
+        self.assertEqual(review['subtitle_font']['requested'], '山海经')
+        self.assertEqual(review['subtitle_visual_adapter']['reference_font_family'], 'Saved reference font')
+        for segment, material, text in self.text_rows(content):
+            self.assertNotIn('font', text['styles'][0])
+            self.assertEqual(segment['clip']['transform']['y'], -0.4)
+            self.assertEqual(material['line_max_width'], 0.9)
+        self.assertTrue(any('山海经' in warning for warning in result['warnings']))
+
+    def test_visual_position_uses_the_selected_whole_draft_style_snapshot(self):
+        cases = (
+            ({'subtitle': {'font_size_ui': 13, 'transform_y': 0}}, 13, 0),
+            ({'watermark': {'font_size_ui': 8}}, 11, -0.5),
+            ({}, 11, -0.5),
+        )
+        for snapshot, size, position in cases:
+            with self.subTest(snapshot=snapshot):
+                content, _result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE,
+                                                               snapshot=snapshot, has_snapshot=True)
+                self.assert_subtitle_style(content, size=size, transform_y=position)
+                self.assertEqual(review['draft_style']['subtitle']['transform_y'], position)
+                self.generator.verify_draft_delivery(content, **self.verification)
+
+    def test_visual_style_does_not_multiply_editor_ui_by_the_actual_canvas_height(self):
+        style = {'subtitle': {'font_size_ui': 13, 'border_width_ui': 25}}
+        for width, height in ((480, 854), (720, 1280), (1440, 2560)):
+            with self.subTest(width=width, height=height):
+                content, _result, review = self.make_candidate(style=style, visual=VISUAL_STYLE,
+                                                              geometry={'width': width, 'height': height})
+                self.assert_subtitle_style(content, size=13, transform_y=-0.5, stroke_width=0.05)
+                self.assertFalse(review['subtitle_visual_adapter']['pixel_equivalence_verified'])
+
+    def test_unconfigured_editor_typography_keeps_legacy_ui_and_only_warns(self):
+        content, result, review = self.make_candidate(visual=VISUAL_STYLE)
+        self.assertTrue(result['success'])
+        self.assert_subtitle_style(content, transform_y=-0.5)
+        self.assertEqual(review['subtitle_font']['status'], 'default')
+        self.assertTrue(any('旧默认' in warning and '预览' in warning for warning in result['warnings']))
+
+    def test_no_visual_section_keeps_the_complete_legacy_subtitle_path(self):
+        content, result, review = self.make_candidate()
+        self.assertEqual(review['draft_style'], LEGACY_STYLE)
+        self.assertNotIn('subtitle_visual', review)
+        self.assertNotIn('subtitle_visual_adapter', review)
+        self.assert_subtitle_style(content)
+        for _segment, material, _text in self.text_rows(content):
+            self.assertEqual(material['type'], 'subtitle')
+            self.assertEqual(material['line_max_width'], 0.82)
+        self.assertFalse(any('字幕视觉适配' in warning for warning in result['warnings']))
+
+    def test_visual_readback_observes_editor_wrapping_and_available_width(self):
+        content, _result, _review = self.make_candidate(visual=VISUAL_STYLE)
+        self.generator.verify_draft_delivery(content, **self.verification)
+        for field, value, message in (('type', 'subtitle', '自动换行'),
+                                      ('line_max_width', 1, '最大行宽')):
+            with self.subTest(field=field):
+                changed = deepcopy(content)
+                _segment, material, _text = self.text_rows(changed)[0]
+                material[field] = value
+                with self.assertRaisesRegex(self.generator.DraftInputError, message):
+                    self.generator.verify_draft_delivery(changed, **self.verification)
 
     def test_empty_snapshot_preserves_legacy_style_and_ignores_project_font(self):
         content, result, _review = self.make_candidate(style=PROJECT_STYLE,

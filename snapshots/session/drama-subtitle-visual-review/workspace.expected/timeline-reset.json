@@ -1,0 +1,5 @@
+{
+  "clips": [{"shot": 1, "start_us": 0, "duration_us": 5000000}],
+  "body_end": 5,
+  "delivery": {"visual_medium": "animation_3d", "width": 480, "height": 854, "fps": 24, "subtitle_visual": {}}
+}

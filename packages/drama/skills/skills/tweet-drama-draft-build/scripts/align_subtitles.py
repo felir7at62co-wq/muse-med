@@ -51,7 +51,6 @@ MEDIUM_LINE_SCORE = 0.40
 LONG_LINE_SCORE = 0.55
 MODEL_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 ALL_ALIGNED = "asr_aligned"
-MIN_UNMAPPED_SPEECH_CHARS = 4
 
 
 try:
@@ -192,16 +191,16 @@ def anchor(lines: list, chars: list) -> list:
 
 
 def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
-    """Find substantial recognized speech not covered by the declared script.
+    """Report recognized speech of any length not covered by the declared script.
 
     An aligned script line does not prove that the take contains *only* that line.
-    Report a four-character phrase for human review
-    before, between or after anchors, or inserted inside a matched line.
+    Retain each unmatched run's measured word endpoints for review, including
+    short responses and interjections; ASR text is not a listening verdict.
     """
     found = []
 
     def record(run: list) -> None:
-        if len(run) >= MIN_UNMAPPED_SPEECH_CHARS:
+        if run:
             found.append({"start": round(run[0][1], 3),
                           "end": round(run[-1][2], 3),
                           "text": "".join(char for char, _, _ in run)})
@@ -227,13 +226,13 @@ def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
         for tag, source_begin, source_end, begin, end in matcher.get_opcodes():
             if tag == "insert" or (tag == "replace"
                                    and end - begin - (source_end - source_begin)
-                                   >= MIN_UNMAPPED_SPEECH_CHARS):
+                                   > 0):
                 record(within[begin:end])
     return found
 
 
 def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
-    """Report a substantial script phrase omitted by ASR inside an accepted anchor.
+    """Report any script text omitted by ASR inside an accepted anchor.
 
     A partial match can clear the deliberately tolerant anchor threshold while
     the end of a spoken line is absent. Such a span is useful for review, but it
@@ -250,9 +249,8 @@ def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
         matcher = difflib.SequenceMatcher(None, expected, recognized, autojunk=False)
         for tag, begin, end, heard_begin, heard_end in matcher.get_opcodes():
             omitted = end - begin - (heard_end - heard_begin)
-            if tag == "delete" or (tag == "replace" and omitted >= MIN_UNMAPPED_SPEECH_CHARS):
-                if omitted >= MIN_UNMAPPED_SPEECH_CHARS:
-                    found.append({"line": index, "text": expected[begin:end]})
+            if (tag == "delete" or tag == "replace") and omitted > 0:
+                found.append({"line": index, "text": expected[begin:end]})
     return found
 
 
