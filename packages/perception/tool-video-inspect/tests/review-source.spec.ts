@@ -1,6 +1,6 @@
 /** Source reads must fail closed when saved video, ASR or cached frames change. */
 import { createHash } from 'node:crypto'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -23,7 +23,7 @@ function fixture(linkTranscript = false) {
     ...(linkTranscript ? { transcript_reference: reference } : {}) }
   let currentReview = review, sourceVersion = 'video-v1', transcriptVersion = 'asr-v1'
   let imageRead: () => Promise<void> = async () => {}, transcriptStatFailure: unknown
-  const ctx = { get: (name: string) => name === 'sessionProjections'
+  const ctx = Object.assign(new Context(), { get: (name: string) => name === 'sessionProjections'
     ? { stateOf: () => ({ [sourcePath]: currentReview }) } : undefined,
   sandboxPolicy: { resolve: () => ({ workspaceRoot: '/workspace' }) },
   fs: { resolve: async (path: string) => ({ displayPath: path, targetKey: path }),
@@ -34,7 +34,7 @@ function fixture(linkTranscript = false) {
       return { version: transcriptVersion, type: 'file', size: Buffer.byteLength(transcriptText) }
     },
     readBytes: async () => Buffer.from(transcriptText) },
-  attachments: { readImage: async () => imageRead() } } as unknown as Context
+  attachments: { readImage: async () => imageRead() } })
   const session = {} as Session, signal = new AbortController().signal
   const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 2 }
   const read = (extra: Record<string, unknown> = {}) => readVideoSourceTimeline(ctx, session, review.id,
