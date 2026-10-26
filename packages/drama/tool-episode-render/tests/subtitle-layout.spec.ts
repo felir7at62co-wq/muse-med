@@ -157,6 +157,16 @@ it('keeps a thrown runtime failure in the per-text evidence', async () => {
   expect(result.warnings.join('\n')).toContain('退出码 null')
 })
 
+it('preserves the message when a runtime Error has no stack', async () => {
+  const root = await directory(), failure = new Error('runtime unavailable without stack')
+  delete failure.stack
+  expect(failure.stack).toBeUndefined()
+  const toolkit: MediaToolkit = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: { run: async () => { throw failure } } }
+  const result = await measureSubtitleLayout({ toolkit, settings, delivery, cues: [cue('台词')], directory: root })
+  expect(result.report.entries[0]?.status).toBe('not_measured')
+  expect(await readFile(result.report.entries[0]!.files.stderr, 'utf8')).toBe('runtime unavailable without stack')
+})
+
 it('records a non-Error process rejection as diagnostic text', async () => {
   const root = await directory()
   const toolkit: MediaToolkit = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe',
