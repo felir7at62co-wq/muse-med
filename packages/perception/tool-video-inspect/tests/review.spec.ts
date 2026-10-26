@@ -9,7 +9,7 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import NodeRuntime from '@deepseek-ai/dsh-ptc-runtime-node'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
 import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { LlmAdapter, ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ToolCallId, createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -22,7 +22,7 @@ import * as Media from '../src/media.ts'
 import sharp from 'sharp'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { scanReviewFrames, appearanceCandidates } from '../src/review-scan.ts'
-import { reviewsOf, installReviewState, reviewImage, VideoReviewId } from '../src/review-state.ts'
+import { reviewsOf, installReviewState, reviewImage, saveReview, VideoReviewId } from '../src/review-state.ts'
 import { applyCompleteReview } from '../src/review.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { z } from 'zod'
@@ -198,6 +198,27 @@ it('returns source time windows and cached original image blocks without extract
   if (timelineText?.type !== 'text') throw Error('Missing source timeline')
   expect(JSON.parse(timelineText.text)).toMatchObject({ source_timeline: { scope: { full_episode: false } } })
   expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('omits bulky timeline windows when the compact index exactly fits the result budget', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  await h.run(h.call('status'), undefined)
+  const block = h.results().at(-1)!.content.find(value => value.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing review status')
+  const full = JSON.parse(block.text)
+  const { windows: _windows, ...index } = full.source_timeline_index
+  const compactBytes = Buffer.byteLength(JSON.stringify({ ...full,
+    source_timeline_index: { ...index, index_omitted_for_budget: true } }))
+  expect(Buffer.byteLength(block.text)).toBeGreaterThan(compactBytes)
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2,
+    reviewChunkSeconds: 2, reviewCompareMaxBytes: compactBytes })).await()
+  await h.run(h.call('status'), undefined)
+  const limited = h.results().at(-1)!.content.find(value => value.type === 'text')!
+  if (limited.type !== 'text') throw Error('Missing compact review status')
+  expect(JSON.parse(limited.text).source_timeline_index).toMatchObject({ index_omitted_for_budget: true })
+  expect(JSON.parse(limited.text).source_timeline_index).not.toHaveProperty('windows')
 }, 30_000)
 
 it('keeps source timeline failures advisory and refuses stale sources, missing cache and oversized full results', async () => {
@@ -415,8 +436,8 @@ it('keeps transcript-linked report digests stable across workspace roots while d
   expect(digest(firstPath)).toMatch(/^[a-f0-9]{64}$/)
   expect(digest(firstPath)).toBe(digest(secondPath))
   const before = await readFile(firstPath, 'utf8')
-  expect(before).toContain(join(first.root, 'episode-asr.json'))
-  expect(await readFile(secondPath, 'utf8')).toContain(join(second.root, 'episode-asr.json'))
+  expect(before).toContain(JSON.stringify(join(first.root, 'episode-asr.json')).slice(1, -1))
+  expect(await readFile(secondPath, 'utf8')).toContain(JSON.stringify(join(second.root, 'episode-asr.json')).slice(1, -1))
   const different = join(first.root, 'alternate-asr.json')
   await writeFile(different, source)
   await first.run(first.call('status', { transcript_path: different }), undefined)
@@ -606,6 +627,22 @@ it('detects a saved ASR digest mismatch even if its reported filesystem version 
   expect(h.review().transcript_reference).toEqual(reference)
 }, 30_000)
 
+it('preserves a non-Error failure reason when a previously linked ASR becomes unavailable', async () => {
+  const h = await fixture(), transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '先别走。' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), undefined)
+  const reference = h.review().transcript_reference
+  const resolve = h.ctx.fs.resolve.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (path, ...rest) => {
+    if (path === transcript) throw 'ASR storage unavailable'
+    return resolve(path, ...rest)
+  })
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('ASR storage unavailable')
+  expect(h.review().transcript_reference).toEqual(reference)
+}, 30_000)
+
 it('puts referenced event observations beside their summary even when those frames are outside the normal status batch', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), h.record, undefined)
@@ -693,6 +730,71 @@ it('rejects a video revision change during cached-image revisit without replacin
   await h.run(h.call('revisit', { frame_ids: [h.review().frames[0]!.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
   expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('rejects missing cached images and preserves the underlying non-Error cache failure', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const frame = h.review().frames.find(value => value.observation !== undefined)!
+  const before = JSON.stringify(h.review())
+  saveReview(h.ctx, h.agent.session, { ...h.review(), frames: h.review().frames.map((value) => {
+    if (value.id !== frame.id) return value
+    const { image: _image, ...withoutImage } = value
+    return withoutImage
+  }) })
+  await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
+  saveReview(h.ctx, h.agent.session, JSON.parse(before))
+  vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache unavailable')
+  await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('cache unavailable')
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('refuses a video revision that changes while timeline or event evidence is prepared', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), stat = h.ctx.fs.stat.bind(h.ctx.fs)
+  let inputStats = 0
+  const changed = vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const result = await stat(...args)
+    if (args[0].displayPath === h.input && ++inputStats === 2 && result !== undefined) {
+      return { ...result, version: FsVersion('changed-during-timeline') }
+    }
+    return result
+  })
+  await h.run(h.call('timeline'), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  changed.mockRestore()
+  inputStats = 0
+  const changedEvent = vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const result = await stat(...args)
+    if (args[0].displayPath === h.input && ++inputStats === 2 && result !== undefined) {
+      return { ...result, version: FsVersion('changed-during-events') }
+    }
+    return result
+  })
+  await h.run(h.call('events', { event_groups: [] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  changedEvent.mockRestore()
+  expect(JSON.stringify(h.review())).toBe(before)
+}, 30_000)
+
+it('rejects an ASR file that is not regular and a video that changes during ASR reading', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  await h.run(h.call('status', { transcript_path: h.root }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_TRANSCRIPT_SIZE')
+  const transcript = join(h.root, 'episode-asr.json')
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '先别走。' }]))
+  const readBytes = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
+    const bytes = await readBytes(...args)
+    if (args[0].displayPath === transcript) await appendFile(h.input, 'changed during ASR')
+    return bytes
+  })
+  await h.run(h.call('status', { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
 }, 30_000)
 
 it('retains cumulative within-shot appearance changes rather than comparing only adjacent frames', () => {
@@ -1083,7 +1185,8 @@ it('does not attribute unrelated image requests or their budget failures to an e
   const image = reviewImage(h.review().frames[0]!)
   if (image === undefined) throw Error('Expected extracted image')
   h.adapter.plans = ['offload']
-  const messages = [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'image', attachment: image }] })]
+  const messages = [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'image', attachment: image }] }),
+    createAssistantMessage({ source: { provider: 'synthetic', model: 'vision' }, content: [{ type: 'image', attachment: image }] })]
   for await (const chunk of h.ctx.llm.stream({ ...request, messages })) { void chunk }
   await h.run(h.call('next'), undefined)
   expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(2)

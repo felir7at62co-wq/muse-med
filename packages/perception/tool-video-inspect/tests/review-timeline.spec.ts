@@ -99,6 +99,35 @@ it('keeps candidate receipt and diagnostic paths out of material identity while 
   expect(timeline('/two/project', 'second', 'new-hash').material_sha256).not.toBe(first.material_sha256)
 })
 
+it('keeps zero-duration boundary speech in its source window and sorts same-time frames', () => {
+  const review = source()
+  review.frames.push({ ...review.frames[0]!, id: 'A', time: 2 }, { ...review.frames[0]!, id: 'B', time: 2 })
+  const base = reviewSpeech({ path: 'asr.json', version: 'asr-v1', text: JSON.stringify([
+    { start: 2, end: 3, text: '开始。' }, { start: 4, end: 5, text: '结束。' },
+  ]) }, 6)
+  const speech = { ...base, segments: base.segments.map(segment => ({ ...segment, end_seconds: segment.start_seconds })) }
+  const partial = buildVideoSourceTimeline(review, { windowSeconds: 2, startSeconds: 2, endSeconds: 4 }, speech)
+  expect(partial.windows[0]?.frames.map(frame => frame.frame_id)).toEqual(['A', 'B', 'F00002'])
+  expect(partial.windows[0]?.speech_segment_ids).toEqual([base.segments[0]!.segment_id])
+  expect(partial.speech?.segments.map(segment => segment.segment_id)).toEqual([base.segments[0]!.segment_id])
+  const closing = buildVideoSourceTimeline(review, { windowSeconds: 2 }, {
+    ...speech, segments: [{ ...base.segments[1]!, start_seconds: 6, end_seconds: 6 }],
+  })
+  expect(closing.windows.at(-1)?.speech_segment_ids).toEqual([base.segments[1]!.segment_id])
+})
+
+it('retains current unavailable ASR revision and deterministic same-path diagnostic ordering', () => {
+  const review = source(), reference = { path: 'asr.json', version: 'old', sha256: 'old-hash' }
+  const unavailable = { reference, current_version: 'new', reason: 'changed', notice: '未使用ASR。' }
+  const resolution: VideoTranscriptResolution = { kind: 'unavailable', same_source_verified: false,
+    diagnostics: [{ path: 'asr.json', status: 'valid', reference },
+      { path: 'asr.json', status: 'unavailable', reason: 'changed' }] }
+  const result = buildVideoSourceTimeline(review, { windowSeconds: 2 }, undefined, unavailable, resolution)
+  expect(result.speech_unavailable?.current_version).toBe('new')
+  expect(result.transcript_resolution?.diagnostics).toEqual(resolution.diagnostics)
+  expect(result.material_sha256).toMatch(/^[a-f0-9]{64}$/)
+})
+
 it.each([{ windowSeconds: 0 }, { windowSeconds: Infinity }, { windowSeconds: 2, startSeconds: -1 },
   { windowSeconds: 2, startSeconds: 3, endSeconds: 3 }, { windowSeconds: 2, endSeconds: 7 }])('rejects invalid timeline ranges %j', (selection) => {
   expect(() => buildVideoSourceTimeline(source(), selection)).toThrow('VIDEO_TIMELINE_RANGE')

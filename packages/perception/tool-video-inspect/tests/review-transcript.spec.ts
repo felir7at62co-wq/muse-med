@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { resolveReviewTranscript, type VideoTranscriptReadReceipt } from '../src/review-transcript.ts'
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId, type VideoReview } from '../src/review-state.ts'
@@ -119,4 +119,33 @@ it('prioritizes the explicit reference even when it becomes stale and a valid ca
   expect(stale.link.speech).toBeUndefined()
   expect(stale.link.speech_unavailable?.reference).toEqual(h.review.transcript_reference)
   expect(JSON.stringify(stale)).not.toContain('不应替换原来源')
+})
+
+it('rejects a changed explicit ASR digest and reports a missing referenced file without substituting candidates', async () => {
+  const h = await fixture(), path = await h.saved('explicit.json')
+  const target = await h.ctx.fs.resolve(path), version = (await h.ctx.fs.stat(target))!.version
+  h.review.transcript_reference = { path, version, sha256: 'wrong-digest' }
+  const changed = await h.resolve([h.receipt('explicit.json')])
+  expect(changed.link.speech).toBeUndefined()
+  expect(changed.link.speech_unavailable).toMatchObject({ current_version: version,
+    reason: expect.stringContaining('VIDEO_TRANSCRIPT_CHANGED') })
+  h.review.transcript_reference = { path: join(h.root, 'missing.json'), version: 'old', sha256: 'old' }
+  const missing = await h.resolve([h.receipt('explicit.json')])
+  expect(missing.link.speech_unavailable?.current_version).toBeUndefined()
+  expect(missing.resolution?.kind).toBe('explicit_reference')
+})
+
+it('leaves speech unlinked without read receipts and diagnoses filesystem resolution failures', async () => {
+  const h = await fixture()
+  expect(await resolveReviewTranscript(h.ctx, h.review, h.source, { maxTranscriptBytes: 4096 }, h.root,
+    new AbortController().signal)).toEqual({ link: {} })
+  const failure = vi.spyOn(h.ctx.fs, 'resolve').mockRejectedValueOnce('provider unavailable')
+  try {
+    const result = await h.resolve([h.receipt('asr.json')])
+    expect(result.resolution).toMatchObject({ kind: 'unavailable', diagnostics: [
+      { status: 'unavailable', reason: 'provider unavailable' },
+    ] })
+  } finally {
+    failure.mockRestore()
+  }
 })
