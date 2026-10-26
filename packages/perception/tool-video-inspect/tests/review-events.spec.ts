@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { bindReviewEvents, reviewEventCurrent, reviewEventNoteSchema } from '../src/review-events.ts'
+import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from '../src/review-events.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId } from '../src/review-state.ts'
@@ -28,6 +28,25 @@ it('refuses missing, unrecorded or duplicate frame references and duplicate even
     expect(() => bindReviewEvents([{ ...note, frame_ids: ids }], frames)).toThrow('VIDEO_EVENT_FRAME')
   }
   expect(() => bindReviewEvents([note, note], frames)).toThrow('VIDEO_EVENT_DUPLICATE')
+  expect(() => bindReviewEvents([{ ...note, frame_ids: [] }], frames)).toThrow('没有引用观察帧')
+})
+
+it('orders tied sampled frames by identity and distinguishes missing from unobserved event evidence', () => {
+  const tied = [frames[1]!, { ...frames[0]!, time: 2 }]
+  const [event] = bindReviewEvents([note], tied)
+  expect(event?.frame_ids).toEqual(['F00001', 'F00002'])
+  expect(reviewEventCurrent(event!, tied.toReversed())).toBe(true)
+  expect(reviewEventCurrent(event!, [tied[0]!])).toBe(false)
+  expect(reviewEventEvidence({ ...event!, frame_ids: ['missing', 'F00003', 'F00001'] }, frames))
+    .toEqual([{ frame_id: 'missing', status: 'not_recorded' },
+      { frame_id: 'F00003', time: 3, status: 'not_recorded' },
+      { frame_id: 'F00001', time: 1, ...frames[0]!.observation, status: 'recorded' }])
+  const events = bindReviewEvents([
+    { ...note, event_id: 'later', frame_ids: ['F00002'] },
+    { ...note, event_id: 'long', frame_ids: ['F00001', 'F00002'] },
+    { ...note, event_id: 'short', frame_ids: ['F00001'] },
+  ], frames)
+  expect(events.map(value => value.event_id)).toEqual(['short', 'long', 'later'])
 })
 
 it('accepts a meaningful single-character Chinese action without imposing a writing-length quota', () => {
