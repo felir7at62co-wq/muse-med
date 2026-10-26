@@ -1,5 +1,5 @@
 /** Successful-read candidates retain explicit source priority, canonical identity and current-file evidence. */
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -11,17 +11,25 @@ import { resolveReviewTranscript, type VideoTranscriptReadReceipt } from '../src
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId, type VideoReview } from '../src/review-state.ts'
 
-const fixtures: { ctx: Context; root: string }[] = []
+const fixtures: { ctx: Context; root: string; links: string[] }[] = []
 afterEach(async () => {
-  for (const { ctx, root } of fixtures.splice(0)) {
-    await ctx.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
+  for (const { ctx, root, links } of fixtures.splice(0)) {
+    try { await ctx.fiber.dispose() }
+    finally {
+      for (const link of links) {
+        if (!(await lstat(link)).isSymbolicLink()) throw Error('Fixture cleanup refuses a non-link alias')
+        await unlink(link)
+      }
+      await rm(root, { recursive: true, force: true })
+    }
   }
 })
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-transcript-candidate-')), ctx = new Context()
-  fixtures.push({ ctx, root })
+  const parent = await mkdtemp(join(tmpdir(), 'dsh-transcript-candidate-')), ctx = new Context()
+  const root = join(parent, 'source'), links: string[] = []
+  fixtures.push({ ctx, root: parent, links })
+  await mkdir(root)
   await ctx.plugin(LocalFileSystem, { cwd: root }).await()
   const path = join(root, 'source.mp4')
   await writeFile(path, 'video source')
@@ -39,7 +47,7 @@ async function fixture() {
   const resolve = (reads: VideoTranscriptReadReceipt[], maxTranscriptBytes = 4096) => resolveReviewTranscript(ctx, review,
     source, { maxTranscriptBytes, transcriptCandidates: { taskStartSeq: SessionSeq(3), reads } }, root,
     new AbortController().signal)
-  return { root, ctx, source, review, receipt, saved, resolve }
+  return { root, parent, links, ctx, source, review, receipt, saved, resolve }
 }
 
 it('offers a unique current-task same-directory successful JSON read as a candidate without storing an association', async () => {
@@ -73,8 +81,16 @@ it('retains ambiguity between distinct valid ASR files without selecting by read
 it('deduplicates canonical aliases while keeping the actual successful-read receipts', async () => {
   const h = await fixture()
   const path = await h.saved('asr.json')
-  await symlink(path, join(h.root, 'alias.json'))
-  const receipts = [h.receipt('asr.json'), h.receipt('alias.json')]
+  const aliasDirectory = join(h.parent, 'alias')
+  const alias = process.platform === 'win32' ? join(aliasDirectory, 'asr.json') : join(h.root, 'alias.json')
+  if (process.platform === 'win32') {
+    await symlink(h.root, aliasDirectory, 'junction')
+    h.links.push(aliasDirectory)
+  } else {
+    await symlink(path, alias)
+    h.links.push(alias)
+  }
+  const receipts = [h.receipt('asr.json'), { ...h.receipt('alias.json'), path: alias }]
   const result = await h.resolve(receipts)
   expect(result.resolution).toMatchObject({ kind: 'successful_read_candidate', read_receipts: receipts })
   expect(result.resolution?.diagnostics).toHaveLength(1)
@@ -84,10 +100,20 @@ it('excludes previous-task reads, plain text and canonical files in another sour
   const h = await fixture()
   await h.saved('old.json')
   await h.saved('asr.txt')
-  await mkdir(join(h.root, 'other'))
-  const other = await h.saved('other/asr.json')
-  await symlink(other, join(h.root, 'linked.json'))
-  const result = await h.resolve([h.receipt('old.json', 2), h.receipt('asr.txt'), h.receipt('other/asr.json'), h.receipt('linked.json')])
+  const otherDirectory = join(process.platform === 'win32' ? h.parent : h.root, 'other')
+  await mkdir(otherDirectory)
+  const other = await h.saved(process.platform === 'win32' ? '../other/asr.json' : 'other/asr.json')
+  const aliasDirectory = join(h.parent, 'linked')
+  const linked = process.platform === 'win32' ? join(aliasDirectory, 'asr.json') : join(h.root, 'linked.json')
+  if (process.platform === 'win32') {
+    await symlink(otherDirectory, aliasDirectory, 'junction')
+    h.links.push(aliasDirectory)
+  } else {
+    await symlink(other, linked)
+    h.links.push(linked)
+  }
+  const result = await h.resolve([h.receipt('old.json', 2), h.receipt('asr.txt'),
+    { ...h.receipt('other/asr.json'), path: other }, { ...h.receipt('linked.json'), path: linked }])
   expect(result.resolution).toMatchObject({ kind: 'unavailable', diagnostics: [
     { status: 'not_current_task' }, { status: 'not_json' }, { status: 'outside_source_directory' }, { status: 'outside_source_directory' },
   ] })
