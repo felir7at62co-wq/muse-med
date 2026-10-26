@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { resolveReviewTranscript, type VideoTranscriptReadReceipt } from '../src/review-transcript.ts'
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId, type VideoReview } from '../src/review-state.ts'
@@ -145,4 +145,44 @@ it('prioritizes the explicit reference even when it becomes stale and a valid ca
   expect(stale.link.speech).toBeUndefined()
   expect(stale.link.speech_unavailable?.reference).toEqual(h.review.transcript_reference)
   expect(JSON.stringify(stale)).not.toContain('不应替换原来源')
+})
+
+it('reports an absent explicit ASR without pretending a candidate replaced it', async () => {
+  const h = await fixture()
+  h.review.transcript_reference = { path: join(h.root, 'gone.json'), version: 'old', sha256: 'old' }
+  const result = await h.resolve([])
+  expect(result.resolution?.kind).toBe('explicit_reference')
+  expect(result.link.speech_unavailable).toMatchObject({ reference: h.review.transcript_reference })
+  expect(result.link.speech_unavailable).not.toHaveProperty('current_version')
+})
+
+it('keeps directories, unavailable reads and empty candidate lists out of speech', async () => {
+  const h = await fixture()
+  expect(await resolveReviewTranscript(h.ctx, h.review, h.source, { maxTranscriptBytes: 4096 },
+    h.root, new AbortController().signal)).toEqual({ link: {} })
+  await mkdir(join(h.root, 'folder.json'))
+  expect((await h.resolve([h.receipt('folder.json')])).resolution)
+    .toMatchObject({ kind: 'unavailable', diagnostics: [{ status: 'unavailable' }] })
+  expect((await h.resolve([])).resolution).toMatchObject({ kind: 'none', diagnostics: [] })
+  vi.spyOn(h.ctx.fs, 'resolve').mockRejectedValueOnce('unresolvable path')
+  const badPath = await h.resolve([h.receipt('bad.json')])
+  expect(badPath.resolution).toMatchObject({ kind: 'unavailable', diagnostics: [
+    { status: 'unavailable', reason: 'unresolvable path' },
+  ] })
+})
+
+it('rejects ASR bytes that change during a read or disagree with a saved digest', async () => {
+  const h = await fixture(), path = await h.saved('asr.json')
+  const original = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementationOnce(async (...args) => {
+    const bytes = await original(...args)
+    await h.saved('asr.json', 'changed during read')
+    return bytes
+  })
+  const changed = (await h.resolve([h.receipt('asr.json')])).resolution
+  expect(changed).toMatchObject({ kind: 'unavailable', diagnostics: [{ status: 'unavailable' }] })
+  expect(changed?.diagnostics[0]?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
+  const target = await h.ctx.fs.resolve(path), version = (await h.ctx.fs.stat(target))!.version
+  h.review.transcript_reference = { path, version, sha256: 'different-digest' }
+  expect((await h.resolve([])).link.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
 })
