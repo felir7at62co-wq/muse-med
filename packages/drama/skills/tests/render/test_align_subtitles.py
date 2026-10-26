@@ -50,6 +50,16 @@ class RequiredSecondsTests(unittest.TestCase):
 
 
 class AlignTests(unittest.TestCase):
+    def test_local_word_keeps_measured_bounds_for_partial_character_review(self):
+        class Model:
+            def transcribe(self, *_args, **_kwargs):
+                return [SimpleNamespace(words=[SimpleNamespace(word='做饭', start=0.2, end=0.6)])], None
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(ALIGN, 'decode'):
+            characters = ALIGN.transcribe(Path(directory) / 'shot.mp4', Path(directory), Model())
+        self.assertEqual(ALIGN.unmapped_speech(['做'], ALIGN.anchor(['做'], characters), characters),
+                         [{'start': 0.2, 'end': 0.6, 'text': '饭'}])
+
     def test_reads_the_span_from_the_recognized_side_of_each_match(self):
         # The model heard one extra character before the line, so the match block
         # starts at candidate index 1 while the line's own index stays 0. Reading
@@ -421,7 +431,13 @@ class CloudReceiptTests(unittest.TestCase):
             output = raw / 'shot-v1.json'
             output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好', 'words': [
                 {'start': 0.2, 'end': 0.5, 'text': '你'}, {'start': 0.8, 'end': 1.2, 'text': '好'}]}]), encoding='utf-8')
-            self.assertEqual(ALIGN.cloud_characters(video, receipt), [('你', 0.2, 0.5), ('好', 0.8, 1.2)])
+            self.assertEqual(ALIGN.cloud_characters(video, receipt),
+                             [('你', 0.2, 0.5, 0.2, 0.5), ('好', 0.8, 1.2, 0.8, 1.2)])
+            output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '做饭', 'words': [
+                {'start': 0.2, 'end': 0.6, 'text': '做饭'}]}]), encoding='utf-8')
+            characters = ALIGN.cloud_characters(video, receipt)
+            self.assertEqual(ALIGN.unmapped_speech(['做'], ALIGN.anchor(['做'], characters), characters),
+                             [{'start': 0.2, 'end': 0.6, 'text': '饭'}])
             output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好'}]), encoding='utf-8')
             with self.assertRaisesRegex(SystemExit, '字词时间戳'):
                 ALIGN.cloud_characters(video, receipt)

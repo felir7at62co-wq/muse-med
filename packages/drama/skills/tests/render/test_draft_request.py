@@ -158,6 +158,25 @@ class DraftRequestCliTests(unittest.TestCase):
     def test_production_cli_keeps_existing_contiguous_shot_mapping(self):
         self.assert_saved((1, 2))
 
+    def test_production_cli_preserves_shot_order_when_timeline_rows_are_unsorted(self):
+        request, drafts = self.request((1, 2))
+        timeline_path = Path(request['timeline'])
+        timeline = json.loads(timeline_path.read_text(encoding='utf-8'))
+        timeline['clips'].reverse()
+        timeline_path.write_text(json.dumps(timeline), encoding='utf-8')
+        outcome, result = self.invoke(request, drafts)
+        self.assertEqual(outcome.returncode, 0, result)
+        self.assertTrue(result['success'], result)
+        stage = Path(result['materials_dir']) / '02_media/26'
+        for shot, video in enumerate(request['videos'], 1):
+            self.assertEqual(sha256(stage / f'shot_{shot:03d}.mp4'), sha256(Path(video)))
+        content = json.loads((Path(result['drafts'][0]['path']) / 'draft_content.json').read_text(encoding='utf-8'))
+        materials = {item['id']: item for item in content['materials']['videos']}
+        segments = sorted(next(track for track in content['tracks'] if track.get('name') == '视频轨道')['segments'],
+                          key=lambda row: row['target_timerange']['start'])
+        self.assertEqual([Path(materials[segment['material_id']]['path']).name for segment in segments],
+                         ['shot_001.mp4', 'shot_002.mp4'])
+
     def test_production_cli_rejects_missing_extra_and_duplicate_mapping_before_staging(self):
         for case in ('missing_video', 'extra_video', 'duplicate_shot'):
             with self.subTest(case=case):

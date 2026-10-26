@@ -121,7 +121,7 @@ def probe_seconds(video: Path) -> float:
 
 
 def transcribe(video: Path, work: Path, model) -> list:
-    """Return (char, start, end) for every recognized character of one shot.
+    """Return each character's alignment estimate and its original ASR word bounds.
 
     Decoding is pinned to one thread and one temperature. Multi-threaded int8
     beam search is not reproducible: two runs over the same shot returned 34 and
@@ -141,7 +141,8 @@ def transcribe(video: Path, work: Path, model) -> list:
                 continue
             span = (word.end - word.start) / len(piece)
             for offset, char in enumerate(piece):
-                chars.append((char, word.start + offset * span, word.start + (offset + 1) * span))
+                chars.append((char, word.start + offset * span, word.start + (offset + 1) * span,
+                              word.start, word.end))
     return chars
 
 
@@ -159,7 +160,7 @@ def align(line: str, chars: list, floor_index: int) -> tuple:
     target = normalise(line)
     if not target or floor_index >= len(chars):
         return 0.0, 0.0, 0.0, floor_index
-    haystack = "".join(char for char, _, _ in chars)
+    haystack = "".join(item[0] for item in chars)
     window = len(target) * WINDOW_FACTOR + WINDOW_PAD
     best = (0.0, 0.0, 0.0, floor_index)
     start = floor_index
@@ -201,9 +202,11 @@ def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
 
     def record(run: list) -> None:
         if run:
-            found.append({"start": round(run[0][1], 3),
-                          "end": round(run[-1][2], 3),
-                          "text": "".join(char for char, _, _ in run)})
+            # Character spacing inside a multi-character ASR word is only an
+            # alignment estimate. Report the measured whole-word bounds.
+            found.append({"start": round(run[0][3] if len(run[0]) > 4 else run[0][1], 3),
+                          "end": round(run[-1][4] if len(run[-1]) > 4 else run[-1][2], 3),
+                          "text": "".join(item[0] for item in run)})
 
     outside = []
     for item in chars:
@@ -458,7 +461,7 @@ def load_document(path: Path, key: str) -> list:
 
 
 def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False) -> list:
-    """Read timed words from a completed Muse receipt bound to this exact video."""
+    """Read timed words with original bounds from a receipt bound to this video."""
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
         raise SystemExit("云转写收据未完成或不属于当前镜头。")
@@ -497,7 +500,8 @@ def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False)
             piece = normalise(text)
             for index, char in enumerate(piece):
                 span = (end - start) / len(piece)
-                chars.append((char, start + index * span, start + (index + 1) * span))
+                chars.append((char, start + index * span, start + (index + 1) * span,
+                              start, end))
     if not chars and not allow_empty:
         raise SystemExit("云转写没有可对齐的文字。")
     return chars
@@ -581,7 +585,7 @@ def main() -> None:
             with tempfile.TemporaryDirectory(prefix="align-") as work:
                 chars = transcribe(video, Path(work), model)
         duration = probe_seconds(video)
-        if any(end > duration + 0.25 for _, _, end in chars):
+        if any(item[2] > duration + 0.25 for item in chars):
             raise SystemExit(f"镜头 {shot} 的字词时间超过视频时长。")
         anchors = anchor(lines, chars)
         cues, strategy = place(lines, anchors, duration)

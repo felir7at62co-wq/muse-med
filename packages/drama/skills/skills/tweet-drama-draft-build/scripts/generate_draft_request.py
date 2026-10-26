@@ -49,7 +49,7 @@ def read_subtitle_overlay_report(request):
     if not isinstance(sources, list) or len(shots) != len(videos) or len(sources) != len(set(shots)):
         raise ValueError('Subtitle report requires the same ordered body sources as the timeline')
     actual = {}
-    for shot, video in zip(shots, videos):
+    for shot, video in zip(sorted(shots), videos):
         with Path(video).open('rb') as stream:
             actual[shot] = hashlib.file_digest(stream, 'sha256').hexdigest()
     for source in sources:
@@ -162,7 +162,8 @@ def generate_request(request, drafts_dir):
         if note.is_file():
             retain(note, f'03_subtitle/{seq}.srt{suffix}')
     retain(paths['timeline'], f'05_timeline/{seq}.timeline.json')
-    for shot, path in zip(shots, video_paths):
+    # Request videos are in shot order; timeline rows may be in any order.
+    for shot, path in zip(sorted(shots), video_paths):
         retain(path, f'02_media/{seq}/shot_{shot:03d}{path.suffix}')
     for field, relative in [('bgm', '04_bgm/bed'), ('ending_audio', '06_ending/ending_audio.mp3'),
                             ('ending_effect', '06_ending/ending_effect.mp4')]:
