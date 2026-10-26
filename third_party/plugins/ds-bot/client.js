@@ -1504,7 +1504,7 @@ function createSource(initial) {
 }
 var EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bots: [], rooms: [], agents: [], exchangeTurns: {}, questions: {}, btwCards: {}, sideChats: {}, secrets: [], capabilities: [], capabilityStatuses: {}, secretRequests: {}, models: [], defaultModel: null, modelsKey: null, prefs: {}, byId: {}, roomsById: {}, agentsById: {}, agentOf: {}, ready: false };
 var isMainOf = (roster, id) => id !== void 0 && (roster.mainBotIds ?? []).includes(id);
-var botDisplayName = (bot) => (bot.nameSource === "session" || bot.nameSource === "channel") && bot.channelName ? bot.channelName : bot.name;
+var botDisplayName = (bot) => bot.nameSource === "session" ? bot.channelName || bot.sessionTitle || bot.name : bot.nameSource === "channel" && bot.channelName ? bot.channelName : bot.name;
 function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
@@ -13187,7 +13187,8 @@ function adoptableSessions(list, roster) {
   for (const entry of [...roster.bots, ...roster.rooms]) {
     for (const id of [entry.id, entry.sessionId, ...entry.parts ?? []]) if (id) owned.add(id);
   }
-  return list.ids.map((id) => list.byId[id]).filter((session) => session && !session.parentId && session.origin !== "subagent" && !owned.has(session.id)).sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const agent of roster.agents ?? []) for (const id of agent.sessions ?? []) owned.add(id);
+  return list.ids.map((id) => list.byId[id]).filter((session) => session && session.origin !== "subagent" && !owned.has(session.id)).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 function AdoptSession({ actions, onBack, onAdopted }) {
   const sessions = actions.adoptableSessions();

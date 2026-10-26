@@ -21,7 +21,9 @@ export const EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bot
 export const isMainOf = (roster, id) => id !== undefined && (roster.mainBotIds ?? []).includes(id)
 
 /** Display the source chat title while preserving a name the user chose. */
-export const botDisplayName = bot => (bot.nameSource === 'session' || bot.nameSource === 'channel') && bot.channelName ? bot.channelName : bot.name
+export const botDisplayName = bot => bot.nameSource === 'session'
+  ? bot.channelName || bot.sessionTitle || bot.name
+  : bot.nameSource === 'channel' && bot.channelName ? bot.channelName : bot.name
 
 // A Bot's chat is a chain of Sessions ("parts"): the Bot id is its first part's id
 // and `sessionId` its current one. Every part id finds the Bot; Session state

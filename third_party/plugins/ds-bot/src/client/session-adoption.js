@@ -8,7 +8,8 @@ export function adoptableSessions(list, roster) {
   for (const entry of [...roster.bots, ...roster.rooms]) {
     for (const id of [entry.id, entry.sessionId, ...(entry.parts ?? [])]) if (id) owned.add(id)
   }
-  return list.ids.map(id => list.byId[id]).filter(session => session && !session.parentId
+  for (const agent of roster.agents ?? []) for (const id of agent.sessions ?? []) owned.add(id)
+  return list.ids.map(id => list.byId[id]).filter(session => session
     && session.origin !== 'subagent' && !owned.has(session.id))
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }

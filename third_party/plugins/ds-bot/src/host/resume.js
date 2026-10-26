@@ -5,6 +5,8 @@
 // ever run either again, and whoever waited for them was not told. Muse Bot notes each
 // running Bot turn and each message it delivers until a turn takes it up, in
 // inflight.json; what is still noted at the next start is picked up once.
+// Native own-chat user and goal turns remain Muse's responsibility; only an
+// admitted Bot collaboration trigger gives Muse Bot work to recover there.
 //
 // A turn that ends while Muse Bot is not watching it (the plugin reloaded, DSH went on)
 // is settled from the Session's durable log: an answer that was produced goes to the Bot
@@ -133,6 +135,18 @@ export function install(rt) {
     else turns[id] = next
     persist()
   }
+  const nativeOwnTurn = (botId, roomId) => {
+    const bot = rt.botOf(botId)
+    return roomId === undefined && (bot?.autoSessionBot === true || bot?.interactionSource === 'session')
+  }
+  const recoverableBot = (botId) => {
+    const bot = rt.botOf(botId)
+    return bot !== undefined && rt.museTeam.isSessionBotVisible(bot)
+  }
+  const turnRecord = (id, time) => {
+    const owner = rt.groupOwners.get(id)
+    return { botId: owner?.botId ?? rt.chatOwners.get(id), ...(owner ? { roomId: owner.roomId } : {}), since: time ?? Date.now() }
+  }
   const forgetQueued = (exchangeId) => {
     for (const [sessionId, list] of Object.entries(queued)) {
       const at = list.findIndex(item => item.args.exchangeId === exchangeId)
@@ -190,17 +204,21 @@ export function install(rt) {
     if (!rt.isBotSession(id)) return
     switch (event.type) {
       case 'turn/start': {
-        const owner = rt.groupOwners.get(id)
-        const botId = owner?.botId ?? rt.chatOwners.get(id)
-        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now() }))
+        const record = turnRecord(id, event.time)
+        const info = rt.live.get(id)?.info
+        if (nativeOwnTurn(record.botId, record.roomId)) {
+          update(id, () => info?.kind === SOURCE_KIND
+            ? { ...record, trigger: triggerOf(info), ...(info.resumed ? { resumed: true } : {}) }
+            : undefined)
+        } else update(id, () => record)
         break
       }
       case 'user/message': {
         if (event.data?.source?.kind !== SOURCE_KIND) break
         // turns.js, installed earlier, has already claimed the turn's trigger.
         const info = rt.live.get(id)?.info
-        update(id, record => (record === undefined || record.trigger !== undefined || info === undefined ? record
-          : { ...record, trigger: triggerOf(info), ...(info.resumed ? { resumed: true } : {}) }))
+        update(id, record => (record?.trigger !== undefined || info === undefined ? record
+          : { ...(record ?? turnRecord(id, event.time)), trigger: triggerOf(info), ...(info.resumed ? { resumed: true } : {}) }))
         break
       }
       case 'turn/end': {
@@ -219,7 +237,7 @@ export function install(rt) {
 
   async function resumeTurn(sessionId, record) {
     const bot = rt.botOf(record.botId)
-    if (bot === undefined) return
+    if (!recoverableBot(record.botId)) return
     const text = resumeText(record)
     if (record.roomId !== undefined) {
       const room = rt.roomOf(record.roomId)
@@ -250,14 +268,14 @@ export function install(rt) {
       if (rt.isBotSession(sessionId)) return sessionId
       return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
     }
-    const fresh = list.filter(item => Date.now() - item.at < QUEUED_KEPT_MS && rt.botOf(item.args?.toId) !== undefined
+    const fresh = list.filter(item => Date.now() - item.at < QUEUED_KEPT_MS && recoverableBot(item.args?.toId)
       && current(item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
     if (fresh.length === 0) return
     const target = current(fresh[0].args)
     const agent = await rt.resolveAgent(target)
     const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].map(message => message.source?.exchangeId))
     for (const { args } of fresh) {
-      if (waiting.has(args.exchangeId) || taken?.has(args.exchangeId) === true) continue
+      if (!recoverableBot(args.toId) || waiting.has(args.exchangeId) || taken?.has(args.exchangeId) === true) continue
       await rt.deliver({ ...args, sessionId: current(args), steer: false, resent: true })
     }
   }
@@ -355,6 +373,8 @@ export function install(rt) {
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
+    await rt.museTeam.syncSessionsAsBots()
+    if (stopped || rt.readOnly() !== undefined) return
     const { turns: noted, queued: dropped } = interrupted
     interrupted = { turns: {}, queued: {} }
     // Taken up now, so another restart does not pick them up twice.
@@ -362,6 +382,8 @@ export function install(rt) {
     // Agents and inboxes are read before anything wakes their Sessions.
     const cut = []
     for (const [sessionId, record] of Object.entries(noted)) {
+      if (!recoverableBot(record.botId)) continue
+      if (record.trigger === undefined && nativeOwnTurn(record.botId, record.roomId)) continue
       const first = firstTurn.get(sessionId)
       if (first?.type === 'turn/end') {
         // The turn ended while Muse Bot was not watching it: what it did is settled from

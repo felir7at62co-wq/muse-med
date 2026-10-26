@@ -196,6 +196,8 @@ export function install(rt) {
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
   async function groupSessionFor(room, member) {
+    await rt.museTeam.syncSessionsAsBots()
+    if (!rt.museTeam.isSessionBotVisible(member)) throw new Error(`${member.name}'s source conversation is archived or unavailable.`)
     room.sessions ??= {}
     const known = room.sessions[member.id]
     if (known !== undefined) {

@@ -8,7 +8,9 @@ Muse Bot adds persistent Bot conversations, a team roster, group chats, shared w
 
 Open Muse Bot from the Muse sidebar. Create a Bot, select its model and reasoning level, and send it a task. A Bot uses the existing Muse model catalog, account, workspace and tools. Its conversation remains an ordinary Harness Session, and the original Muse task interface remains available. Group chats let Bots coordinate messages without requiring a separate planning, review or approval workflow.
 
-Settings → Bots → Use an existing conversation registers a listed root Session in place. Its history, working directory, workspace, current model and reasoning level, native questions, live Agent, goals and jobs stay with that Session. Registration sends no greeting or model request. It adds an ordinary member; the user can assign the Main Bot role in the same settings page. A Main Bot coordinates the work and can execute simple tasks directly, delegating where useful.
+When the Muse Bot interface opens or the roster is queried, visible independent Muse Sessions become ordinary Bots in place, including ordinary forks. Subagents, team-room Sessions, earlier Bot parts, standalone DSH Agent Sessions and archived Sessions are excluded. Their history, working directory, workspace, model, reasoning level and preset remain with the original Session, as do native questions, live Agents, goals and jobs. Automatic registration reads list metadata without restoring inactive Agents, sending greetings or requesting a model.
+
+Settings → Bots → Use an existing conversation remains available when automatic registration is disabled. It registers the selected Session in place and opens its original conversation; the Session title supplies its default Bot name. The user can assign the Main Bot role in the same settings page. A Main Bot coordinates the work and can execute simple tasks directly, delegating where useful.
 
 The team workspace uses Muse's bundled short-drama tools. Its settings omit generic plugin and capability creation entries; the account footer remains owned by Muse. Bots can still discover and load their existing skills and use attached capabilities. Host tools, permissions and saved capability definitions are unchanged. The About page identifies Muse Bot and keeps upstream attribution inside a collapsed open-source license disclosure.
 
@@ -18,7 +20,7 @@ Bot state and memory default to `muse-bot/` inside the active Muse home. Convers
 
 Muse's existing `hindsight_memory` stores sourced, confirmed user preferences, aesthetic feedback and project decisions on demand. Bot memory covers identity, assignments, coordination agreements and reusable working methods. Per-turn Bot memory review defaults off; existing notes remain readable and editable, and are not migrated or deleted. These stores are not synchronized: explicit edits can still create overlapping notes, and the latest user instruction and current project files take priority.
 
-The Host exposes `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`, `resolveCurrentSession(botId)` and `switchCurrentSession(botId, sessionId)` for the native IM adapter. The Bot ID remains stable when the user explicitly changes its current Session; the earlier Session remains in its history. Goals and jobs remain attached to their original Session. Registration and switching validate root Session ownership and roll back roster changes if saving fails.
+The Host exposes `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`, `resolveCurrentSession(botId)` and `switchCurrentSession(botId, sessionId)` for the native IM adapter. The Bot ID remains stable when the user explicitly changes its current Session; the earlier Session remains in its history. Goals and jobs remain attached to their original Session. Registration and switching validate independent Session ownership and roll back roster changes if saving fails. An explicit switch may absorb an untouched automatic roster entry; customized or collaborating Bots retain their identities. Ordinary adopted user and goal turns keep native restart behavior; admitted Bot collaboration messages retain their original exchange recovery.
 
 Native Feishu routes each app registration and chat ID to one Bot; threads retain their native reply location within their group. Existing group and private Sessions are registered without restarting them. The adapter passes the group or peer name as `nameHint`, using existing chat/message metadata without requesting contact permissions. The interface displays the chat title; a distinct addressable Bot name remains visible when titles repeat or need sanitizing. Missing metadata leaves the original Session title in use, and a user rename takes priority over later hints. Authentication, workspace isolation, message deduplication, cards, files and sending receipts remain owned by the native IM runtime. Explicit `/new` and `/use` select a current Session for the same Bot rather than creating another team identity.
 
@@ -35,6 +37,8 @@ The bundled composition mounts one `muse-bot` row:
         contextManagement: host
         goals: host
         memoryReview: false
+        autoSessionBots: true
+        sessionBotSyncIntervalMs: 30000
         github: false
         updateCheck: false
 ```
@@ -42,6 +46,8 @@ The bundled composition mounts one `muse-bot` row:
 `agentPreset` chooses the registered Muse preset for new Bot Sessions. `contextManagement: host` leaves context compaction with the current Host. `goals: host` retains the Host goal tools and continuation behavior. `updateCheck: false` disables independent plugin and Harness update offers; Muse application updates supply the reviewed plugin. `github: false` disables the optional built-in GitHub MCP connector. The bundle does not replace the profile's web-search provider, model routes, account settings or permission policy.
 
 `memoryReview: true` explicitly enables background review of Bot coordination notes; the default does not issue that extra model request. Adopted Sessions keep their native model selection through catalog refreshes. An explicit model or effort change from the interface or `update_bot` makes that selection Bot-managed.
+
+`autoSessionBots: false` disables automatic Session registration while retaining the manual entry. `sessionBotSyncIntervalMs` sets the roster's metadata refresh interval in milliseconds; native Session changes invalidate the cached result. Newly created Bot Sessions continue to use `short-drama`; registration preserves an existing Session's preset.
 
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
 

@@ -59,7 +59,7 @@ async function fixture(t) {
   installModelSelectionProjection(ctx)
   const nativeResolver = new ApiSessionAgentController(ctx)
   const selected = [], created = [], asked = [], cancelled = [], followups = [], registered = []
-  const rows = []
+  const rows = [], metadataRows = []
   ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'offline', model: 'default', reasoningEffort: 'low' }), saveSelection: async () => {} })
   ctx.provide('workspaceRegistry', {
     list: () => [{ id: 'native-workspace', path: workspace, sessionIds: rows }], get: () => undefined,
@@ -69,6 +69,7 @@ async function fixture(t) {
   ctx.provide('llm', { listProviders: () => [{ id: 'offline' }], listModels: async () => [{ id: 'native-model' }, { id: 'default' }] })
   ctx.provide('sessionTitle', { get: () => ({ title: '已有项目' }), rename: () => { throw new Error('Must not rename during adoption') } })
   ctx.provide('sessionController', {
+    list: async () => ({ items: metadataRows }),
     resolveAgent: id => nativeResolver.resolveAgent(id),
     create: () => { throw new Error('Team adoption must not create a Session') },
     selectModel: request => { selected.push(request); throw new Error('Team adoption must not select a model') },
@@ -89,7 +90,7 @@ async function fixture(t) {
   }
   let runtime, owner
   const mountTeam = async () => {
-    owner = await ctx.plugin(inner => {
+    const teamPlugin = inner => {
       runtime = { ctx: inner, home: join(home, 'team'), dshHome: home, statePath: join(home, 'team/state.json'), config: { contextManagement: 'host', goals: 'host', agentPreset: 'short-drama' }, warn() {} }
       for (const install of [installStore, installModels, installFolders, installRoster, installAgents, installTeam]) install(runtime)
       runtime.resolveAgent = async id => {
@@ -97,7 +98,9 @@ async function fixture(t) {
         if ('error' in result) throw result.error
         return result.agent
       }
-    })
+    }
+    teamPlugin.inject = ['sessions']
+    owner = await ctx.plugin(teamPlugin)
     await runtime.load()
   }
   await mountTeam()
@@ -131,7 +134,7 @@ async function fixture(t) {
     closeBridges.push(stop)
     return { scope, state, bridge, sent, stop }
   }
-  return { ctx, home, workspace, created, selected, asked, cancelled, followups, registered, addSession, restartTeam, make, runtime: () => runtime }
+  return { ctx, home, workspace, metadataRows, created, selected, asked, cancelled, followups, registered, addSession, restartTeam, make, runtime: () => runtime }
 }
 
 const event = (id, { chat = 'oc_group', text = '继续任务', thread } = {}) => ({ sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } }, message: {
@@ -197,6 +200,27 @@ test('native new and use keep a stable real Bot while old native work stays in i
   assert.equal(Object.keys(f.runtime().state.bots).length, 1)
   assert.deepEqual(f.ctx.goals.get(original), goal)
   assert.deepEqual(f.runtime().botOf('native-1').segments.map(row => row.sessionId), ['native-1', 'native-2'])
+  assert.deepEqual([f.selected, f.cancelled, f.followups], [[], [], []])
+})
+
+test('native use accepts an untouched cold-listed Session Bot and keeps the Feishu chat identity', async t => {
+  const f = await fixture(t)
+  const n = await f.make()
+  await accept(n, event('om_first'))
+  const original = f.ctx.agents.get(SessionId('native-1'))
+  const goal = f.ctx.goals.create(original, { objective: '原任务继续' })
+  f.metadataRows.push({ sessionId: 'chosen-session', cwd: f.workspace, blank: false,
+    projections: { values: { title: '已有分集讨论', modelSelection: { next: { provider: 'offline', model: 'native-model', reasoningEffort: 'high' } } } } })
+  assert.deepEqual(await f.runtime().museTeam.syncSessionsAsBots(), { created: ['chosen-session'], failures: [] })
+  assert.equal(f.ctx.sessions.get(SessionId('chosen-session')), undefined)
+  await f.addSession('chosen-session')
+  await n.scope.harness.bindWorkspaceSession('group:oc_group', 'chosen-session')
+  await accept(n, event('om_selected'))
+  assert.deepEqual(await f.ctx.get('museTeam').resolveCurrentSession('native-1'), { botId: 'native-1', sessionId: 'chosen-session' })
+  assert.equal(f.runtime().botOf('chosen-session'), undefined)
+  assert.deepEqual(Object.keys(f.runtime().state.bots), ['native-1'])
+  assert.deepEqual(f.asked.map(row => row.id), ['native-1', 'chosen-session'])
+  assert.deepEqual(f.ctx.goals.get(original), goal)
   assert.deepEqual([f.selected, f.cancelled, f.followups], [[], [], []])
 })
 

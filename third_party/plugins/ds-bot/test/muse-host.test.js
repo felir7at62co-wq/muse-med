@@ -89,11 +89,12 @@ function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama
 }
 
 test('Muse defaults retain native goals and context management and reject incompatible settings', () => {
-  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: false })
-  for (const input of [null, [], { agentPreset: '../editing' }, { contextManagement: 'unknown' }, { goals: true }, { contextManagement: 'bot' }, { updateCheck: true }]) {
+  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: false, autoSessionBots: true, sessionBotSyncIntervalMs: 30000 })
+  for (const input of [null, [], { agentPreset: '../editing' }, { contextManagement: 'unknown' }, { goals: true }, { contextManagement: 'bot' }, { updateCheck: true }, { autoSessionBots: 'yes' }, { sessionBotSyncIntervalMs: 0 }, { sessionBotSyncIntervalMs: 1.5 }]) {
     assert.throws(() => resolveMuseConfig(input), TypeError)
   }
   assert.equal(resolveMuseConfig({ contextManagement: 'bot', goals: 'disabled' }).contextManagement, 'bot')
+  assert.equal(resolveMuseConfig({ autoSessionBots: false, sessionBotSyncIntervalMs: 1000 }).autoSessionBots, false)
 })
 
 test('new Bot Sessions use short-drama and never fall back to a different preset', async (t) => {

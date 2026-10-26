@@ -11,6 +11,8 @@ export const museBotDesktopCompatibility = Object.freeze({
   contextManagement: 'host',
   goals: 'host',
   memoryReview: false,
+  autoSessionBots: true,
+  sessionBotSyncIntervalMs: 30000,
   updateCheck: false,
   github: false,
   webSearch: 'Muse profile unchanged; upstream search bundle omitted',
@@ -30,7 +32,8 @@ export function applyMuseBotDesktopCompatibility(directory) {
   }
   const patch = load(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'))
   const expected = [{ insert: [{ id: 'muse-bot', name: 'ds-bot', config: {
-    agentPreset: 'short-drama', contextManagement: 'host', goals: 'host', memoryReview: false, github: false, updateCheck: false,
+    agentPreset: 'short-drama', contextManagement: 'host', goals: 'host', memoryReview: false,
+    autoSessionBots: true, sessionBotSyncIntervalMs: 30000, github: false, updateCheck: false,
   } }] }]
   if (JSON.stringify(patch) !== JSON.stringify(expected)) {
     throw new Error('community plugins: Muse Bot composition must preserve the Muse profile services')

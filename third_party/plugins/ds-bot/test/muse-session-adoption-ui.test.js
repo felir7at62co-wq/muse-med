@@ -40,16 +40,18 @@ async function mount(t, component, props) {
 }
 const button = (container, text) => [...container.querySelectorAll('button')].find(entry => entry.textContent === text)
 
-void test('adoption lists root Sessions in recent order and excludes Bot parts, relay Sessions and children', () => {
-  const rows = [session, { ...session, id: 'older', updatedAt: 1 }, { ...session, id: 'child', parentId: 'source' },
-    { ...session, id: 'child-origin', origin: 'subagent' }, { ...session, id: 'bot' }, { ...session, id: 'bot-part' },
-    { ...session, id: 'room' }, { ...session, id: 'room-part' }]
+void test('adoption includes ordinary forks in recent order and excludes owned Sessions and subagents', () => {
+  const rows = [session, { ...session, id: 'older', updatedAt: 1 }, { ...session, id: 'fork', parentId: 'source', updatedAt: 20 },
+    { ...session, id: 'child', parentId: 'source', origin: 'subagent' }, { ...session, id: 'child-origin', origin: 'subagent' },
+    { ...session, id: 'bot' }, { ...session, id: 'bot-live' }, { ...session, id: 'bot-part' },
+    { ...session, id: 'room' }, { ...session, id: 'room-part' }, { ...session, id: 'agent-session' }]
   const available = adoptableSessions({ ids: rows.map(row => row.id), byId: Object.fromEntries(rows.map(row => [row.id, row])) },
-    { ...roster, bots: [{ id: 'bot', parts: ['bot-part'] }], rooms: [{ id: 'room', parts: ['room-part'] }] })
-  assert.deepEqual(Array.from(available, row => row.id), ['source', 'older'])
+    { ...roster, bots: [{ id: 'bot', sessionId: 'bot-live', parts: ['bot-part'] }], rooms: [{ id: 'room', parts: ['room-part'] }],
+      agents: [{ id: 'agent', sessions: ['agent-session'] }] })
+  assert.deepEqual(Array.from(available, row => row.id), ['source', 'fork', 'older'])
 })
 
-void test('settings registers the selected original Session only on submission, then opens that Bot', async t => {
+void test('manual registration keeps the default title and opens the original Session only after submission', async t => {
   const calls = []
   const actions = { closeSettings: () => calls.push('close'), openSettings: () => {}, folders: async () => ({}),
     adoptableSessions: () => [session], adoptSession: async payload => { calls.push({ ...payload }); return { botId: 'source', sessionId: 'source' } },
@@ -59,6 +61,10 @@ void test('settings registers the selected original Session only on submission, 
   assert.deepEqual(calls, [])
   assert.ok(container.textContent.includes('/existing/project'))
   assert.ok(container.textContent.includes('Keep its history, workspace and current model.'))
+  const name = container.querySelector('input[aria-label="Name"]')
+  assert.equal(name.value, '')
+  assert.equal(name.placeholder, session.displayTitle)
+  assert.equal(container.querySelector('select[aria-label="Conversation"]').value, session.id)
   assert.equal(container.querySelector('input[aria-label="Model"]'), null)
   await act(() => button(container, 'Use as Bot').click())
   assert.deepEqual(calls, [{ sessionId: 'source' }, ['open', 'source'], 'close'])
@@ -94,4 +100,7 @@ void test('matching Feishu titles stay visible beside distinct addressable Bot n
   assert.equal(botDisplayName({ ...bots[1], name: '我的编剧', nameSource: 'user' }), '我的编剧')
   assert.equal(botDisplayName({ id: 'legacy', name: '原来手工名字', channelName: '编剧组' }), '原来手工名字')
   assert.equal(botDisplayName({ id: 'ordinary', name: 'Muse' }), 'Muse')
+  const originalTitle = '原会话完整标题'.repeat(12)
+  assert.equal(botDisplayName({ id: 'long', name: originalTitle.slice(0, 40), sessionTitle: originalTitle, nameSource: 'session' }), originalTitle)
+  assert.equal(botDisplayName({ id: 'renamed', name: '我的编导', sessionTitle: originalTitle, nameSource: 'user' }), '我的编导')
 })

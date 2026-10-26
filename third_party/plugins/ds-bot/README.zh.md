@@ -8,7 +8,9 @@ Muse Bot 为现有 Muse 桌面应用增加持久 Bot 会话、团队名单、群
 
 从 Muse 侧栏打开 Muse Bot，创建 Bot，选择模型与推理等级，然后向它发送任务。Bot 使用现有 Muse 的模型列表、账号、工作目录和工具。会话仍是普通 Harness Session，原来的 Muse 任务界面继续可用。群聊可让 Bot 通过消息协作，无须引入另一套必须执行的规划、审校或审批流程。
 
-“设置 → Bots → 使用已有会话”将已列出的根 Session 原地登记为 Bot。历史、当前目录、工作间、模型与推理等级、原生提问、运行中的 Agent、目标和后台任务仍属于原 Session；登记不会发送问候或模型请求。新登记者是普通成员，用户可在同页赋予主 Bot 身份。主 Bot 负责协调，也能直接执行简单任务，按需要委派。
+打开 Muse Bot 界面或查询名单时，可见的独立 Muse Session 会原地登记为普通 Bot，包括普通分叉会话。子 Agent、团队群聊内部会话、Bot 历史分段、独立 DSH Agent 管理的会话和已归档会话不参与登记。历史、当前目录、工作间、模型、推理等级和预设仍属于原 Session，原生提问、运行中的 Agent、目标和后台任务也继续保留。自动登记读取名单元数据，不恢复未加载的 Agent，不发送问候或模型请求。
+
+关闭自动登记后，仍可从“设置 → Bots → 使用已有会话”将所选 Session 原地登记，并打开原来的对话；Bot 默认使用 Session 标题命名。用户可在同页赋予主 Bot 身份。主 Bot 负责协调，也能直接执行简单任务，按需要委派。
 
 团队工作区使用 Muse 预装的短剧工具，设置中不提供通用插件和能力新增入口；底部账号区继续由 Muse 管理。Bot 仍可发现和加载已有技能、使用已挂接的能力，Host 工具、权限和保存的能力定义保持不变。“关于”页展示 Muse Bot，原项目署名放在默认收起的开源许可详情中。
 
@@ -18,7 +20,7 @@ Bot 状态和记忆默认存放在当前 Muse home 的 `muse-bot/` 下，会话�
 
 Muse 原有的 `hindsight_memory` 按需保存有来源且已确认的用户偏好、审美反馈和项目决定；Bot 记忆用于身份分工、协作约定和可复用工作方法。默认不在每轮结束后自动复盘 Bot 记忆，已有记录仍可阅读和编辑，不自动迁移或删除。两套存储不会同步，显式编辑仍可能产生重复记录；最新用户要求和当前项目文件优先。
 
-Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`、`resolveCurrentSession(botId)` 和 `switchCurrentSession(botId, sessionId)`。用户明确切换当前 Session 时，Bot ID 保持稳定，早先的 Session 仍可从历史打开；目标和后台任务留在原 Session。登记与切换会校验根 Session 归属，保存失败则回滚名单变更。
+Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`、`resolveCurrentSession(botId)` 和 `switchCurrentSession(botId, sessionId)`。用户明确切换当前 Session 时，Bot ID 保持稳定，早先的 Session 仍可从历史打开；目标和后台任务留在原 Session。登记与切换会校验独立 Session 归属，保存失败则回滚名单变更。显式切换可吸收未定制的自动名单项，已定制或参与协作的 Bot 保留独立身份。接入后的普通用户回合和目标续跑仍由原生机制恢复；已接收的 Bot 协作消息继续按原交接收据恢复。
 
 原生飞书按应用注册项和聊天 ID 对应一个 Bot，群内话题沿用原来的回复位置。已有群聊和私聊 Session 直接登记，不重新启动。适配器用既有聊天或消息元数据取得群名或聊天对象名字，以 `nameHint` 传入，不申请通讯录权限。界面展示原聊天名；重名或名称需处理时，另显示可准确引用的 Bot 名称。未取得元数据时沿用原会话标题，用户手动改名优先于后续自动名称。认证、工作区隔离、消息去重、卡片、文件和发送回执继续由原生 IM 运行时管理。显式 `/new` 和 `/use` 为同一个 Bot 选择当前 Session，不另建团队身份。
 
@@ -35,6 +37,8 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
         contextManagement: host
         goals: host
         memoryReview: false
+        autoSessionBots: true
+        sessionBotSyncIntervalMs: 30000
         github: false
         updateCheck: false
 ```
@@ -42,6 +46,8 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
 `agentPreset` 为新 Bot 会话选择已注册的 Muse 预设。`contextManagement: host` 让当前 Host 管理上下文压缩。`goals: host` 保留 Host 的目标工具和续跑行为。`updateCheck: false` 关闭插件和 Harness 的独立更新提示；已审核插件随 Muse 应用更新提供。`github: false` 关闭可选的内置 GitHub MCP 连接器。该 bundle 不替换 profile 的网页搜索、模型路由、账号设置或权限策略。
 
 显式配置 `memoryReview: true` 可开启 Bot 协作笔记的后台复盘，默认不发起这类额外模型请求。已登记 Session 在模型目录刷新时保留原生选择；用户通过界面或 `update_bot` 明确修改模型或推理等级后，才由 Bot 配置管理该选择。
+
+`autoSessionBots: false` 关闭自动会话登记，仍保留手动入口。`sessionBotSyncIntervalMs` 按毫秒设置名单元数据的刷新间隔；原生 Session 变更会使缓存失效。新建 Bot 会话继续使用 `short-drama`，登记已有 Session 则保留其原有预设。
 
 可选的 `home` 配置可指定其他 Bot 状态目录。模型和推理等级仍可在界面中选择；创建 Bot 或向其发送消息可能通过已配置的提供方发起正常模型请求。认证与提供方可用性由 Muse 原有服务管理。
 

@@ -87,7 +87,16 @@ export function install(rt) {
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
-    const { sessionId } = await ctx.sessionController.create({ ...place, ...preset })
+    rt.pendingTeamSessionCreates = (rt.pendingTeamSessionCreates ?? 0) + 1
+    let sessionId
+    try {
+      const created = await ctx.sessionController.create({ ...place, ...preset })
+      sessionId = created.sessionId
+      rt.teamSessionIds ??= new Set()
+      rt.teamSessionIds.add(sessionId)
+    } finally {
+      rt.pendingTeamSessionCreates -= 1
+    }
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId

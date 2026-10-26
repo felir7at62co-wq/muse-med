@@ -260,6 +260,106 @@ test('explicit native Session switching preserves stable Bot identity and all ol
   assert.deepEqual(repeat, { botId: 'source', sessionId: 'source', created: false })
 })
 
+async function automaticTarget(t) {
+  const f = start(t)
+  await f.rt.museTeam.registerSessionAsBot('source')
+  const items = [{ sessionId: 'next', cwd: join(f.workspace.path, 'next'), blank: false,
+    projections: { values: { title: 'Existing episode discussion', modelSelection: { next: MODEL } } } }]
+  f.ctx.sessionController.list = async () => ({ items })
+  assert.equal(f.agents.has('next'), false)
+  assert.deepEqual((await f.rt.museTeam.syncSessionsAsBots()).created, ['next'])
+  assert.equal(f.agents.has('next'), false)
+  return f
+}
+
+test('explicit use absorbs an untouched cold-registered entry while retaining the chat Bot and native work', async t => {
+  const f = await automaticTarget(t)
+  const original = f.agentOf('source'), before = structuredClone({ goal: original.goal, inbox: original.inbox, jobs: original.jobs })
+  assert.deepEqual(await f.rt.museTeam.switchCurrentSession('source', 'next'),
+    { botId: 'source', sessionId: 'next', previousSessionId: 'source' })
+  assert.equal(f.rt.botOf('next'), undefined)
+  assert.equal(f.rt.selfOf('next'), 'source')
+  assert.equal(f.rt.selfOf('source'), 'source')
+  assert.deepEqual([f.rt.botOf('source').model, f.rt.botOf('source').effort], ['muse/native-choice', 'high'])
+  assert.deepEqual({ goal: original.goal, inbox: original.inbox, jobs: original.jobs }, before)
+  f.rt.museTeam.invalidateSessionBots()
+  assert.deepEqual((await f.rt.museTeam.syncSessionsAsBots()).created, [])
+  assert.deepEqual([f.selected, f.created, f.archived, f.sent], [[], [], [], []])
+})
+
+test('a failed explicit use restores the automatic target identity and both original Session mappings', async t => {
+  const f = await automaticTarget(t)
+  const automatic = f.rt.botOf('next'), before = structuredClone(f.rt.botOf('source'))
+  const save = f.rt.save
+  let writes = 0
+  f.rt.save = options => ++writes === 1 ? Promise.reject(new Error('disk full')) : save(options)
+  await assert.rejects(f.rt.museTeam.switchCurrentSession('source', 'next'), /disk full/)
+  assert.equal(f.rt.botOf('next'), automatic)
+  assert.deepEqual(f.rt.botOf('source'), before)
+  assert.equal(f.rt.selfOf('source'), 'source')
+  assert.equal(f.rt.selfOf('next'), 'next')
+  const stored = JSON.parse(readFileSync(join(f.home, 'state.json'), 'utf8'))
+  assert.deepEqual(stored.bots.next, automatic)
+  assert.equal(stored.bots.source.sessionId, 'source')
+  assert.deepEqual(f.archived, [])
+})
+
+test('a failed explicit use preserves user settings changed while its save was pending', async t => {
+  const f = await automaticTarget(t)
+  const bot = f.rt.botOf('source'), automatic = f.rt.botOf('next')
+  f.agentOf('next')
+  f.projections.get('next').pending = { provider: 'muse', model: 'new-choice', reasoningEffort: 'low' }
+  const save = f.rt.save
+  let entered, release, writes = 0
+  const waiting = new Promise(resolve => { entered = resolve })
+  const blocked = new Promise(resolve => { release = resolve })
+  f.rt.save = async options => {
+    if (++writes === 1) { entered(); await blocked; throw new Error('disk full') }
+    return save(options)
+  }
+  const switching = f.rt.museTeam.switchCurrentSession('source', 'next')
+  const rejected = assert.rejects(switching, /disk full/)
+  await waiting
+  await f.rt.updateBot('source', { role: 'Continuity editor', color: 'blue' })
+  bot.model = 'muse/user-selection'
+  bot.effort = 'user-effort'
+  release()
+  await rejected
+  assert.equal(f.rt.chatOf('source'), 'source')
+  assert.equal(f.rt.selfOf('next'), 'next')
+  assert.equal(f.rt.botOf('next'), automatic)
+  assert.equal(bot.segments, undefined)
+  assert.deepEqual([bot.role, bot.color, bot.model, bot.effort], ['Continuity editor', 'blue', 'muse/user-selection', 'user-effort'])
+  const stored = JSON.parse(readFileSync(join(f.home, 'state.json'), 'utf8')).bots.source
+  assert.deepEqual([stored.sessionId, stored.role, stored.color, stored.model, stored.effort],
+    ['source', 'Continuity editor', 'blue', 'muse/user-selection', 'user-effort'])
+})
+
+test('explicit use keeps customized or team-used automatic Bots as independent members', async t => {
+  const f = await automaticTarget(t)
+  const bot = f.rt.botOf('next')
+  for (const patch of [{ role: 'Director' }, { nameSource: 'user' }, { nameSource: 'channel', channelName: 'Group' },
+    { instructions: 'Keep my role' }, { capabilities: ['skill'] }, { modelSource: 'bot' }, { permission: 'workspace' },
+    { color: 'blue' }, { avatar: { shape: 'star' } }, { segments: [] }]) {
+    const original = { ...bot }
+    Object.assign(bot, patch)
+    await assert.rejects(f.rt.museTeam.switchCurrentSession('source', 'next'), /another team/)
+    for (const key of Object.keys(bot)) delete bot[key]
+    Object.assign(bot, original)
+  }
+  f.rt.state.mainBotIds.push('next')
+  await assert.rejects(f.rt.museTeam.switchCurrentSession('source', 'next'), /another team/)
+  f.rt.state.mainBotIds.pop()
+  f.rt.state.rooms.discussion = { id: 'discussion', members: ['next'], sessions: {} }
+  await assert.rejects(f.rt.museTeam.switchCurrentSession('source', 'next'), /another team/)
+  delete f.rt.state.rooms.discussion
+  f.rt.state.exchanges.push({ id: 'used', from: 'chief', to: 'next' })
+  await assert.rejects(f.rt.museTeam.switchCurrentSession('source', 'next'), /another team/)
+  assert.equal(f.rt.botOf('next'), bot)
+  assert.equal(f.agents.has('next'), false)
+  assert.equal(f.rt.chatOf('source'), 'source')
+})
+
 test('registration refuses invalid, child and team-group identities without creating a replacement Session', async t => {
   const { rt, created, archived } = start(t)
   for (const id of ['', '../source', '__proto__', 'missing', 'owned-child', 'child']) await assert.rejects(rt.museTeam.registerSessionAsBot(id))
@@ -333,6 +433,38 @@ test('unloading during root resolution waits for the pending operation and recor
   assert.equal(rt.botOf('source'), undefined)
   assert.equal(agent.goal.activation, 'armed')
   assert.deepEqual([created, archived], [[], []])
+})
+
+test('an unlisted ordinary caller can make its first message_bot call without opening the Bot roster', async t => {
+  const f = start(t)
+  const caller = f.agentOf('source')
+  const original = structuredClone({ goal: caller.goal, inbox: caller.inbox, jobs: caller.jobs })
+  f.ctx.sessionController.list = async () => ({ items: [{ sessionId: 'source', cwd: caller.session.header.cwd, blank: false,
+    projections: { values: { title: 'Original project', modelSelection: { next: MODEL } } } }] })
+  assert.equal(f.rt.botOf('source'), undefined)
+  const reply = await f.ctx.registeredTools.get('message_bot').execute(
+    { to: 'Chief', message: 'Review this episode', reply_to: 'user', when: 'queue' }, { agent: caller })
+  assert.match(reply, /^Delivered to Chief/)
+  assert.equal(f.rt.botOf('source').autoSessionBot, true)
+  assert.equal(f.rt.selfOf('source'), 'source')
+  assert.equal(f.sent.length, 1)
+  assert.equal(f.sent[0].id, 'chief')
+  assert.equal(f.sent[0].message.source.senderSessionId, 'source')
+  assert.deepEqual({ goal: caller.goal, inbox: caller.inbox, jobs: caller.jobs }, original)
+  assert.deepEqual([f.selected, f.created, f.archived], [[], [], []])
+})
+
+test('archived automatic members cannot receive a task or be added through group tools', async t => {
+  const { rt, ctx, sent, created } = start(t)
+  await rt.load()
+  rt.state.bots.archived = { id: 'archived', name: 'Archived editor', autoSessionBot: true, sessionArchived: true }
+  const exec = { agent: { id: 'chief' } }
+  const message = await ctx.registeredTools.get('message_bot').execute({ to: 'Archived editor', message: 'Continue writing' }, exec)
+  assert.match(message, /archived or unavailable/)
+  const group = ctx.registeredTools.get('create_group')
+  assert.match(await group.execute({ members: ['Archived editor'], name: 'Crew' }, exec), /No Bot named/)
+  assert.match(await group.execute({ members: [], admin: 'Archived editor', name: 'Crew' }, exec), /No Bot named/)
+  assert.deepEqual([sent, created], [[], []])
 })
 
 test('museTeam is injectable through Cordis and unavailable after its owning plugin unloads', async t => {

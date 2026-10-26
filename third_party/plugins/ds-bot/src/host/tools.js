@@ -62,8 +62,9 @@ export function install(rt) {
     output,
     async execute(_args, exec) {
       await rt.load()
+      await rt.museTeam.syncSessionsAsBots(exec.signal)
       const self = rt.selfOf(exec.agent?.id)
-      const lines = Object.values(state.bots).map(bot => {
+      const lines = Object.values(state.bots).filter(bot => rt.museTeam.isSessionBotVisible(bot)).map(bot => {
         const view = { ...bot, ...rt.modelView(bot) }
         const model = view.appliedModel ?? view.model
         const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
@@ -164,10 +165,12 @@ export function install(rt) {
     output,
     async execute(args, exec) {
       await rt.load()
+      await rt.museTeam.syncSessionsAsBots(exec.signal)
       const sender = callerBot(exec)
       if (sender === undefined) return 'Only Bots on the team can use message_bot.'
       const target = rt.findBot(args.to)
-      if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
+      if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).filter(bot => rt.museTeam.isSessionBotVisible(bot)).map(bot => bot.name).join(', ')}`
+      if (!rt.museTeam.isSessionBotVisible(target)) return 'This Bot\'s source conversation is archived or unavailable.'
       if (target.id === sender.id) return 'You cannot message yourself.'
       if (String(args.message ?? '').trim() === '') return 'Write a message to send.'
       const name = typeof args.request_id === 'string' ? args.request_id.trim() : ''
@@ -433,12 +436,12 @@ export function install(rt) {
     const unknown = []
     for (const ref of nameList(refs)) {
       const bot = rt.findBot(ref)
-      if (bot === undefined) unknown.push(ref)
+      if (bot === undefined || !rt.museTeam.isSessionBotVisible(bot)) unknown.push(ref)
       else if (!bots.includes(bot)) bots.push(bot)
     }
     return { bots, unknown }
   }
-  const teamNames = () => Object.values(state.bots).map(bot => bot.name).join(', ')
+  const teamNames = () => Object.values(state.bots).filter(bot => rt.museTeam.isSessionBotVisible(bot)).map(bot => bot.name).join(', ')
   const groupNames = self => visibleRooms(self).map(room => `"${room.name}"`).join(', ') || 'none'
   const pickRoom = (ref, self) => {
     const matches = rt.findRooms(ref).filter(room => visibleRooms(self).includes(room))
@@ -465,7 +468,7 @@ export function install(rt) {
       const { bots, unknown } = resolveBots(args.members)
       if (unknown.length > 0) return `No Bot named ${unknown.join(', ')}. Team: ${teamNames()}`
       const admin = args.admin ? rt.findBot(args.admin) : rt.botOf(self)
-      if (admin === undefined) return `No Bot named ${args.admin}. Team: ${teamNames()}`
+      if (admin === undefined || !rt.museTeam.isSessionBotVisible(admin)) return `No Bot named ${args.admin}. Team: ${teamNames()}`
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
         const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, createdBy: self })
