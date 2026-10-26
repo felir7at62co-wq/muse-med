@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, onTestFinished, vi } from 'vitest'
-import * as Cache from '../src/cache.ts'
+import { expect, it, onTestFinished } from 'vitest'
 import { reviewSpeechCoverage } from '../src/speech-coverage.ts'
 import { formatSrtDocument } from '../src/subtitles.ts'
 import type { SubtitleCue, Timeline } from '../src/types.ts'
@@ -317,15 +317,14 @@ it('does not read lexical paths or junction targets outside its project', async 
 
 it('rejects source changes during the comparison instead of publishing a stale fingerprint', async () => {
   const f = await fixture()
-  const original = Cache.fileSha256
-  let changed = false
-  const spy = vi.spyOn(Cache, 'fileSha256').mockImplementation(async (path) => {
-    const result = await original(path)
-    if (path === f.source && !changed) { changed = true; await writeFile(path, 'changed-during-review') }
-    return result
+  const sources = new Map(f.input.sources)
+  Object.defineProperty(sources, Symbol.iterator, {
+    value: function* () {
+      writeFileSync(f.source, 'changed-during-review')
+      yield* sources.entries()
+    },
   })
-  try { await expect(reviewSpeechCoverage(f.input)).rejects.toThrow('比较期间输入文件已变化') }
-  finally { spy.mockRestore() }
+  await expect(reviewSpeechCoverage({ ...f.input, sources })).rejects.toThrow('比较期间输入文件已变化')
 })
 
 it('keeps partial listening statements without clearing the other candidates', async () => {
