@@ -1,3 +1,7 @@
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+
 # This scenario exercises native business tools, not a platform shell.
 - id: tool-bash
   disabled: true

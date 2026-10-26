@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-speech-timing/guide.md
+/:
+  en: eb78020b3708fe84
+  zh: 1fa7af26a35704fa
+/muse-speech-timing:
+  en: ccd2c1504fb00f57
+  zh: a7b53d365eba7556
+/muse-speech-timing/change:
+  en: d7493ab8bdfd1569
+  zh: 7563efa30cb00149
+/muse-speech-timing/migration:
+  en: e1d706653bc1e760
+  zh: 3e52adbad099823c

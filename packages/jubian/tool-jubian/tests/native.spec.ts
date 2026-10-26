@@ -641,19 +641,22 @@ describe('prepare_video', () => {
 })
 
 describe('submit_video', () => {
-  it('prepares a saved decimal duration as numeric seconds and reconciles one synthetic submission', async () => {
+  it.each([false, true])('preserves payload formatting and reconciles one synthetic submission, multiline=%s', async (multiline) => {
+    const prompt = multiline ? `${PROMPT}\n\n【镜头1】\n先放下水桶，再说话。` : PROMPT
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
-      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '10' }) }, tasks: [], subtasks: {} }
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '10', prompt }) }, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)
     const frozen = await readFile(previewPath, 'utf8')
     const preview = JSON.parse(frozen) as NativeVideoPreview
-    expect(JSON.parse(String(preview.payload.modelConfig))).toMatchObject({ duration: 10 })
+    expect(JSON.parse(String(preview.payload.modelConfig))).toMatchObject({ duration: 10, prompt })
     expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
     expect(await ledger.records()).toEqual([])
     provider.onPut = (payload) => {
-      expect(JSON.parse(String(payload.modelConfig))).toMatchObject({ duration: 10 })
+      expect(JSON.parse(String(payload.modelConfig))).toMatchObject({ duration: 10, prompt })
       provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1 })
-      provider.subtasks['335343'] = [childOf(payload)]
+      provider.subtasks['335343'] = [childOf(payload, { modelConfig: JSON.stringify({
+        ...JSON.parse(String(payload.modelConfig)), prompt: prompt.replace(/\s+/g, ' '),
+      }) })]
     }
     const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
     expect(await submitVideoMethod(clientFor(provider), ledger, args)).toMatchObject({ status: 'submitted', put_sent: true })
@@ -1886,21 +1889,26 @@ describe('keyed binding executor regressions', () => {
 })
 
 /** One current preview and the equivalent images-then-audio frozen request. */
-async function normalizedLegacyFixture() {
+async function normalizedLegacyFixture(options: { multiline?: boolean; grouped?: boolean } = {}) {
   const audio = { materialType: 'audio', materialKey: 'voice-lead', materialUrl: 'https://media.example/lead.wav',
     fileName: 'lead voice', sortOrder: 1, audioDuration: 2 }
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
     storyboard: { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, audio],
-      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: '@[陆沉舟](lead) @[声线](voice-lead) @[苏晚](guest)' }) } }
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: options.multiline
+        ? '@[陆沉舟](lead)\n@[声线](voice-lead)\n@[苏晚](guest)\n\n【镜头1】\n先放下水桶，再说话。'
+        : '@[陆沉舟](lead) @[声线](voice-lead) @[苏晚](guest)' }) } }
   const directory = await project()
   const client = clientFor(provider)
   const prepared = await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: directory })
   const previewPath = String(prepared.preview_path)
   const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
   const rows = preview.payload.storyboardMaterialList as Record<string, unknown>[]
-  const grouped = [...rows.filter(row => row.materialType === 'image'), ...rows.filter(row => row.materialType === 'audio')]
+  const grouped = options.grouped === false ? rows
+    : [...rows.filter(row => row.materialType === 'image'), ...rows.filter(row => row.materialType === 'audio')]
+  const config = JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>
   const oldPayload = { ...preview.payload, storyboardMaterialList: grouped,
-    modelConfig: JSON.stringify({ ...JSON.parse(String(preview.payload.modelConfig)), materialList: grouped }) }
+    modelConfig: JSON.stringify({ ...config, materialList: grouped,
+      ...(options.multiline ? { prompt: String(config.prompt).replace(/\s+/g, ' ').trim() } : {}) }) }
   const originalKey = stableSha256(submissionSemantics(oldPayload))
   expect(originalKey).not.toBe(preview.idempotencyKey)
   const originalPreviewPath = join(directory, 'video_tasks', `storyboard-916953-${originalKey.slice(0, 12)}.storyboard-native.prepared.json`)
@@ -1914,6 +1922,21 @@ async function normalizedLegacyFixture() {
   provider.calls.length = 0
   return { provider, client, directory, preview, previewPath, originalKey, originalPreviewPath, oldPayload, audio }
 }
+
+it.each([false, true])('does not charge a formatted prompt again after a compacted legacy intent, grouped=%s', async (grouped) => {
+  const { provider, client, preview, previewPath, originalKey, oldPayload, originalPreviewPath } =
+    await normalizedLegacyFixture({ multiline: true, grouped })
+  await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: bodyHash(oldPayload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  await rm(originalPreviewPath)
+  expect((JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>).prompt).toContain('\n\n【镜头1】\n')
+  const result = await submitVideoMethod(client, ledger, { preview_path: previewPath, idempotency_key: preview.idempotencyKey })
+  expect(result).toMatchObject({ status: 'reconcile_conflict', put_sent: false, original_idempotency_key: originalKey })
+  await expect(submitVideoBatchMethod(client, ledger, { items: [{ preview_path: previewPath,
+    idempotency_key: preview.idempotencyKey }] })).rejects.toThrow(originalKey)
+  expect(putCalls(provider)).toHaveLength(0)
+  expect(await ledger.records()).toHaveLength(1)
+})
 
 it.each([false, true])('retains old-key reconciliation when a normalized preview reads reordered child=%s', async (reordered) => {
   const fixture = await normalizedLegacyFixture()
