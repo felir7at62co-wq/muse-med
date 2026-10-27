@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
-import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
@@ -16,7 +16,7 @@ const storage={key:id=>id,assertPrivateBeforeUpload:async()=>{},upload:async()=>
 const limits={storage,probe:async()=>10,maxAudioBytes:1024,maxDurationSeconds:600,maxDailySeconds:72000,maxDailyJobs:100,maxActiveJobs:1,retentionSeconds:86400,maxConcurrentJobs:2,pollIntervalMs:20,queryBackoffMaxMs:80,queryBlockedRetryMs:200};
 const limited=(quota='qps',retry='1')=>new AsrProviderError('query','http',new Response('private-body',{status:429,headers:{'X-Api-Status-Code':'45000292','X-Api-Message':'quota exceeded for types: '+quota,'Retry-After':retry}}));
 
-async function receipt(root,id){for(const name of await readdir(join(root,'jobs'))){const path=join(root,'jobs',name),job=JSON.parse(await readFile(path,'utf8'));if(job.id===id)return {path,job};}assert.fail('Missing receipt');}
+async function receipt(root,id){for(const name of await readdir(join(root,'jobs'))){if(!name.endsWith('.json'))continue;const path=join(root,'jobs',name),job=JSON.parse(await readFile(path,'utf8'));if(job.id===id)return {path,job};}assert.fail('Missing receipt');}
 async function until(predicate){const deadline=performance.now()+5000;while(performance.now()<deadline){const result=await predicate();if(result)return result;await immediate();}assert.fail('Expected durable query transition');}
 async function fixture(t,query,extra={}){
  const root=await mkdtemp(join(tmpdir(),'muse-asr-query-retry-'));let submissions=0;
@@ -24,6 +24,14 @@ async function fixture(t,query,extra={}){
  const service=createAsrService(settings);t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});
  return {root,settings,service,submissions:()=>submissions,submit:(account,id=randomUUID())=>service.submit(account,id,hash,'zh',Readable.from(audio))};
 }
+
+test('receipt helper ignores transient atomic-write files',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-query-retry-receipt-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ await mkdir(join(root,'jobs'));
+ await writeFile(join(root,'jobs','a.json.pending.tmp'),'incomplete');
+ await writeFile(join(root,'jobs','b.json'),JSON.stringify({id:'original'}));
+ assert.equal((await receipt(root,'original')).job.id,'original');
+});
 
 test('query quota diagnostics retain only known types and numeric Retry-After seconds',async()=>{
  for(const quota of ['qps','concurrency','audio_duration_lifetime','text_words_lifetime','tokens_lifetime']){

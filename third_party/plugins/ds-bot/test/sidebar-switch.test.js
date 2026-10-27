@@ -393,23 +393,13 @@ test('the logo row takes no room in an open sidebar under a Windows title bar', 
   assert.equal(shell({ platform: 'windows', collapsed: true }).document.querySelector('.x_logoRow').matches(flat[0].selector), false)
 })
 
-// The shell hides the footer of a collapsed sidebar under a Windows title bar, whose width
-// is zero; a forced display put the account button off the screen.
-test('the team view lays out the shell footer but never decides whether it shows', () => {
-  const { document } = shell({ platform: 'windows', collapsed: true })
-  const foot = document.querySelector('.x_footArea')
-  const deciding = rules.filter(rule => foot.matches(rule.selector) && /(^|;)display:/.test(rule.body))
-  assert.deepEqual(deciding.map(rule => rule.selector), [])
-})
-
-// 公开#164: the footer's grid gives other plugins' entries rows of their own; it holds
-// wherever the shell shows the footer, and stays out of the one place it hides it.
-test('the shell footer is a grid wherever the shell shows it', () => {
+// The shell owns footer layout and visibility, including the zero-width Windows rail.
+test('the team view leaves shell footer layout and visibility to the shell', () => {
   for (const platform of ['web', 'windows', 'mac']) {
     for (const collapsed of [false, true]) {
       const foot = shell({ platform, collapsed }).document.querySelector('.x_footArea')
-      const grid = rules.some(rule => foot.matches(rule.selector) && /(^|;)display:grid/.test(rule.body))
-      assert.equal(grid, !(platform === 'windows' && collapsed), `${platform} ${collapsed ? 'collapsed' : 'open'}`)
+      const deciding = rules.filter(rule => foot.matches(rule.selector) && /(^|;)display:/.test(rule.body))
+      assert.deepEqual(deciding.map(rule => rule.selector), [], `${platform} ${collapsed ? 'collapsed' : 'open'}`)
     }
   }
 })
