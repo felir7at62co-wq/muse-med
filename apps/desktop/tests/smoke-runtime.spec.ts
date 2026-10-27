@@ -403,14 +403,20 @@ it('rejects transcription in the minimal preset', async () => {
 })
 
 it('rejects Host readiness when the private preset smoke never completes', async () => {
-  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ pid: 2468, url: 'http://127.0.0.1:1/' })
+  let packageManager: unknown
+  const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(async function (this: DesktopHostProcess) {
+    packageManager = Reflect.get(this, 'packageManager')
+    return { pid: 2468, url: 'http://127.0.0.1:1/' }
+  })
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
   const stop = vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue()
   try {
     const root = fixture().home
     const runtime = runtimeFixture(root)
-    await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(root)))
+    const resources = primaryRuntimeFixture(root)
+    await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, resources))
       .rejects.toThrow('product preset smoke did not complete')
+    expect(packageManager).toEqual({ pnpm: join(resources, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()

@@ -1,0 +1,30 @@
+{
+  "version": "12.5.1",
+  "targets": {
+    "mac-arm64": {
+      "package": "@pnpm/exe.darwin-arm64",
+      "url": "https://registry.npmjs.org/@pnpm/exe.darwin-arm64/-/exe.darwin-arm64-12.5.1.tgz",
+      "integrity": "sha512-r1vEMQPVjRexZMyL2HonxJoo3+nuB/+G+tg+f2PK6faRdXX1TDwevKXOxJAfqlPInTy6W/pm912+s+m0NcR4BQ=="
+    },
+    "mac-x64": {
+      "package": "@pnpm/exe.darwin-x64",
+      "url": "https://registry.npmjs.org/@pnpm/exe.darwin-x64/-/exe.darwin-x64-12.5.1.tgz",
+      "integrity": "sha512-YHwI1g2B+Y2cAEylOR31r781GWijdJL7Gy7TEn/ZpZ5v/Cuwp5/Pz0EFCgo0M2MKLafAbL/laUMGvOpAdnerAw=="
+    },
+    "linux-arm64": {
+      "package": "@pnpm/exe.linux-arm64",
+      "url": "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.5.1.tgz",
+      "integrity": "sha512-6hbMWW2/eQo1b5wvQPe/ndLHVTH88Rav6N+ffD4/h6IuFMjWCgasFYYsFv0GrvpqREAx3SwmZSvli+0NFXqbxA=="
+    },
+    "linux-x64": {
+      "package": "@pnpm/exe.linux-x64",
+      "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.5.1.tgz",
+      "integrity": "sha512-3PkUBYo5z4dgtlnTNIFj7QGpcDUAuqXz9WGVigPDCeccEnhGiRkWmA5102TmYJHtwJP3LfmE+ZF9PGeWhn8p9Q=="
+    },
+    "win-x64": {
+      "package": "@pnpm/exe.win32-x64",
+      "url": "https://registry.npmjs.org/@pnpm/exe.win32-x64/-/exe.win32-x64-12.5.1.tgz",
+      "integrity": "sha512-ePUmQFPAPJFNMwg1lelDx2PdjHqYRiF0yfg5e6qeDbPNOu97QNo557Ru/SxmCrmt8ydQWNuZXWpdEp019md5vw=="
+    }
+  }
+}

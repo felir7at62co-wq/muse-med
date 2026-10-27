@@ -2,9 +2,9 @@
 
 import { packagingStep } from './packaging-step.mjs'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { downloadArtifact } from '@electron/get'
 import extractZip from 'extract-zip'
@@ -12,21 +12,10 @@ import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './des
 import { preparePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { prepareDesktopCli } from './prepare-cli.ts'
 import { prepareCommandLink } from './prepare-command-link.ts'
+import { preparePnpmRuntime } from '../../../scripts/primary-runtime/pnpm.ts'
 
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const RUNTIME_ROOT = BUILD_PATHS.runtime
-
-function preparePnpm(): string {
-  const require = createRequire(import.meta.url)
-  const manifestPath = require.resolve('pnpm')
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version?: unknown }
-  if (typeof manifest.version !== 'string') throw new Error('desktop runtime: pnpm manifest has no version')
-  const packageDir = dirname(manifestPath)
-  const destination = join(RUNTIME_ROOT, 'pnpm')
-  rmSync(destination, { recursive: true, force: true })
-  cpSync(packageDir, destination, { recursive: true })
-  return manifest.version
-}
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { 'defer-primary-runtime-smoke': { type: 'boolean', default: false } } })
@@ -47,7 +36,7 @@ async function main(): Promise<void> {
     ['-c', 'Print LSMinimumSystemVersion', join(BUILD_PATHS.electron, 'Electron.app', 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim() : undefined
   rmSync(RUNTIME_ROOT, { recursive: true, force: true })
   mkdirSync(RUNTIME_ROOT, { recursive: true })
-  const pnpmVersion = preparePnpm()
+  const pnpmVersion = await preparePnpmRuntime(target, join(RUNTIME_ROOT, 'pnpm'), BUILD_PATHS.downloads)
   cpSync(join(import.meta.dirname, 'node-bin'), join(RUNTIME_ROOT, 'bin'), { recursive: true })
   chmodSync(join(RUNTIME_ROOT, 'bin', 'node'), 0o755)
   writeFileSync(join(RUNTIME_ROOT, 'versions.json'), `${JSON.stringify({
