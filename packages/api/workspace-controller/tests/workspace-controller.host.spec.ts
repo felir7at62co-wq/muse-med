@@ -346,6 +346,26 @@ describe('WorkspaceController follow', () => {
     }
   })
 
+  it('publishes attachment of an existing session to classic workspace followers', async () => {
+    const { controller, ctx, root } = await harness()
+    const created = await controller.create({ path: stageDir(root, 'project') })
+    const session = ctx.sessions.create(SessionId('existing-bot-part'), { meta: { cwd: created.workspace.path } })
+    const workspace = ctx.workspaceRegistry.get(created.workspace.workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    const abort = new AbortController()
+    const iterator = controller.follow(abort.signal)[Symbol.asyncIterator]()
+    try {
+      await expect(nextFrame(iterator)).resolves.toMatchObject({ type: 'baseline', value: { items: [{ sessionIds: [] }] } })
+      await workspace.attachSession(session.id)
+      await expect(nextFrame(iterator)).resolves.toMatchObject({
+        type: 'upsert', workspace: { workspaceId: created.workspace.workspaceId, sessionIds: [session.id] },
+      })
+    } finally {
+      abort.abort()
+      await iterator.return?.()
+    }
+  })
+
   it('starts with a complete baseline and emits committed increments in domain order', async () => {
     const { controller, ctx, root } = await harness()
     const abort = new AbortController()

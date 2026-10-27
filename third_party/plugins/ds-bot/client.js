@@ -8559,12 +8559,8 @@ function useListGlide(listRef, layout, key) {
   }, [layout, key]);
 }
 function TeamSidebar(props) {
-  const { wide, expandSidebar, useRoster, useUi, useSessions, actions } = props;
+  const { wide, useRoster, useUi, useSessions, actions } = props;
   const listRef = (0, import_react14.useRef)(null);
-  const closing = (0, import_react14.useRef)(false);
-  (0, import_react14.useLayoutEffect)(() => {
-    closing.current = false;
-  });
   const roster = useRoster((value) => value);
   const markedUnread = useUi((value) => value.unread);
   props.useRegistry((value) => value);
@@ -8587,23 +8583,7 @@ function TeamSidebar(props) {
   }, [roster, updated]);
   useListGlide(listRef, wide, [...mains.map((bot) => bot.id), ...order.map((entry) => entry.item.id)].join(","));
   useLandOnMainBot(roster, useSessions, actions);
-  const navigate = (open, id) => {
-    const result = open(id);
-    if (wide && window.innerWidth < 1024 && !closing.current) {
-      closing.current = true;
-      expandSidebar?.();
-      actions.toggleSidebar();
-    }
-    return result;
-  };
-  const rowActions = {
-    ...actions,
-    openSession: (id) => navigate(actions.openSession, id),
-    openAgent: (id) => navigate(actions.openAgent, id),
-    openAgentSession: (id) => navigate(actions.openAgentSession, id),
-    newAgentSession: (id) => navigate(actions.newAgentSession, id)
-  };
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide };
+  const rowProps = { roster, actions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
@@ -8899,13 +8879,14 @@ function BotReturn({ wide, useSurface, actions }) {
   if (mode !== "agent") return null;
   return (0, import_react14.createElement)(
     "button",
-    { type: "button", className: "bt-return", "aria-label": t("DS Bot"), title: t("DS Bot"), onClick: () => actions.setSurface("bot") },
+    { type: "button", className: "bt-return", "data-collapsed": !wide, "aria-label": t("DS Bot"), title: t("DS Bot"), onClick: () => actions.setSurface("bot") },
     (0, import_react14.createElement)(BotMark, { look: MAIN_LOOK, size: 20 }),
     wide ? (0, import_react14.createElement)("span", { className: "bt-return-name" }, t("DS Bot")) : null
   );
 }
 var RETURN_CSS = `
-.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return{display:flex;box-sizing:border-box;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-width:0;min-height:36px;padding:0 4px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return[data-collapsed=true]{width:36px;justify-content:center;padding:0}
 .bt-return:hover{background:rgba(127,127,127,.14)}
 .bt-return:active{transform:scale(.96)}
 .bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
@@ -9970,6 +9951,11 @@ function migrateStorage(storage = globalThis.localStorage) {
 }
 
 // src/client/surface.js
+function classicWorkspaceTarget(currentMode, nextMode, sessionId, roster) {
+  if (currentMode !== "bot" || nextMode !== "agent" || sessionId === void 0) return void 0;
+  const bot = roster.byId[sessionId];
+  return bot !== void 0 && currentPart(bot) === sessionId ? { botId: bot.id, sessionId } : void 0;
+}
 function groupsFor({ mode, plain = false }) {
   return { shell: mode === "bot", conversation: mode === "bot" && !plain };
 }
@@ -18958,6 +18944,8 @@ function apply(ctx) {
       if (mode !== "bot" && mode !== "agent") return;
       if (surface.getSnapshot().mode === mode) return;
       if (mode === "agent") {
+        const target = classicWorkspaceTarget(surface.getSnapshot().mode, mode, mainView(), roster.getSnapshot());
+        if (target !== void 0) void call("attach-current-workspace", target).catch(quietly("attach current workspace"));
         ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
       }
       writeMode(mode);

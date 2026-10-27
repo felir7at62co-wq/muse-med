@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
@@ -108,6 +108,51 @@ test('new Bot Sessions use short-drama and never fall back to a different preset
     await assert.rejects(candidate.rt.createSession('New editor'), /short-drama.*unavailable/)
     assert.equal(candidate.created.length, 0)
   }
+})
+
+test('new Bot parts join an existing workspace for their working folder', async (t) => {
+  const { rt, ctx, home, created } = start(t)
+  const registered = join(home, 'registered')
+  const unregistered = join(home, 'unregistered')
+  mkdirSync(registered)
+  mkdirSync(unregistered)
+  ctx.workspaceRegistry.resolveByPath = async path => path === registered ? { id: 'existing', path } : undefined
+  await rt.load()
+  await rt.createSession('Registered folder', { dir: registered })
+  await rt.createSession('Unregistered folder', { dir: unregistered })
+  assert.deepEqual(created, [
+    { workspaceId: 'existing', agentPreset: 'short-drama' },
+    { cwd: unregistered, agentPreset: 'short-drama' },
+  ])
+})
+
+test('classic view attaches only the current Bot part to its matching workspace', async (t) => {
+  const { rt, ctx, home, agentOf, call } = start(t)
+  const folder = join(home, 'project')
+  const otherFolder = join(home, 'other')
+  mkdirSync(folder)
+  mkdirSync(otherFolder)
+  const agent = agentOf('chief')
+  agent.session.header.cwd = folder
+  ctx.sessions.get = id => id === 'chief' ? agent.session : undefined
+  let currentFolder = folder
+  ctx.get = ((get) => name => name === 'workingDirectory' ? { get: () => currentFolder } : get(name))(ctx.get.bind(ctx))
+  const attached = []
+  const workspace = { id: 'project', path: folder, sessionIds: [], attachSession: async id => { attached.push(id); workspace.sessionIds.push(id) } }
+  ctx.workspaceRegistry.list = () => [workspace]
+  ctx.workspaceRegistry.resolveByPath = async path => path === folder ? workspace : undefined
+  await rt.load()
+  assert.equal((await call('attach-current-workspace', { botId: 'chief', sessionId: 'old-part' })).value.attached, false)
+  currentFolder = otherFolder
+  assert.equal((await call('attach-current-workspace', { botId: 'chief', sessionId: 'chief' })).value.attached, false)
+  currentFolder = folder
+  ctx.workspaceRegistry.resolveByPath = async () => undefined
+  assert.equal((await call('attach-current-workspace', { botId: 'chief', sessionId: 'chief' })).value.attached, false)
+  ctx.workspaceRegistry.resolveByPath = async () => workspace
+  assert.equal((await call('attach-current-workspace', { botId: 'chief', sessionId: 'chief' })).value.attached, true)
+  assert.equal((await call('attach-current-workspace', { botId: 'chief', sessionId: 'chief' })).value.attached, false)
+  assert.deepEqual(attached, ['chief'])
+  assert.equal(agent.session.header.cwd, folder)
 })
 
 test('an explicitly configured Muse preset is selected without changing global defaults', async (t) => {

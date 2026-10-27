@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
+import { classicWorkspaceTarget, freePriority, groupsFor, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
 import { STORAGE } from '../src/client/storage.js'
+
+test('only a switch to classic view carries the displayed Bot current part to the workspace', () => {
+  const bot = { id: 'writer', sessionId: 'current' }
+  const roster = { byId: { writer: bot, current: bot, old: bot } }
+  assert.deepEqual(classicWorkspaceTarget('bot', 'agent', 'current', roster), { botId: 'writer', sessionId: 'current' })
+  for (const [from, to, id] of [['agent', 'agent', 'current'], ['bot', 'bot', 'current'], ['bot', 'agent', 'old'], ['bot', 'agent', 'outside'], ['bot', 'agent', undefined]]) {
+    assert.equal(classicWorkspaceTarget(from, to, id, roster), undefined)
+  }
+})
 
 test('Bot mode mounts both groups; Agent mode mounts neither', () => {
   assert.deepEqual(groupsFor({ mode: 'bot' }), { shell: true, conversation: true })

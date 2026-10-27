@@ -1,4 +1,12 @@
 import { STORAGE } from './storage.js'
+import { currentPart } from './text.js'
+
+// The classic view may attach only the current part of the Bot being displayed.
+export function classicWorkspaceTarget(currentMode, nextMode, sessionId, roster) {
+  if (currentMode !== 'bot' || nextMode !== 'agent' || sessionId === undefined) return undefined
+  const bot = roster.byId[sessionId]
+  return bot !== undefined && currentPart(bot) === sessionId ? { botId: bot.id, sessionId } : undefined
+}
 
 // The plugin's surface mode: 'bot' paints the whole team interface over the shell,
 // 'agent' withdraws every replacement so the shell's own interface comes back.

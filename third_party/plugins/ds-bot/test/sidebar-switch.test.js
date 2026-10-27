@@ -120,7 +120,7 @@ function navigationSidebar(wide, { shell = true } = {}) {
 
 for (const width of [390, 1023, 1024, 1280]) {
   for (const wide of [false, true]) {
-    test(`sidebar navigation at ${width}px with ${wide ? 'expanded content' : 'a collapsed rail'} only closes an open mobile sidebar`, () => {
+    test(`sidebar navigation at ${width}px preserves ${wide ? 'expanded content' : 'a collapsed rail'}`, () => {
       viewport.innerWidth = width
       const initial = navigationSidebar(wide)
       assert.equal(initial.rows.length, 3)
@@ -129,20 +129,20 @@ for (const width of [390, 1023, 1024, 1280]) {
         for (const name of names) {
           const { rows, calls } = navigationSidebar(wide)
           assert.equal(rows[index].props.actions[name]('selected'), 'selected')
-          assert.deepEqual(calls, wide && width < 1024 ? [[name, 'selected'], ['toggleSidebar']] : [[name, 'selected']])
+          assert.deepEqual(calls, [[name, 'selected']])
         }
       }
     })
   }
 }
 
-test('repeated sidebar navigation before another commit closes only once', () => {
+test('repeated navigation leaves the explicitly opened sidebar expanded', () => {
   viewport.innerWidth = 390
   const side = navigationSidebar(true)
   side.rows[0].props.actions.openAgent('first')
   side.rows[1].props.actions.openSession('second')
-  assert.equal(side.collapsed, true)
-  assert.deepEqual(side.calls, [['openAgent', 'first'], ['toggleSidebar'], ['openSession', 'second']])
+  assert.equal(side.collapsed, false)
+  assert.deepEqual(side.calls, [['openAgent', 'first'], ['openSession', 'second']])
 })
 
 test('the standalone UI can navigate without a shell expansion action', () => {
@@ -151,8 +151,9 @@ test('the standalone UI can navigate without a shell expansion action', () => {
   const side = navigationSidebar(true, { shell: false })
   side.rows[1].props.actions.openSession('first')
   side.rows[2].props.actions.openSession('second')
-  assert.equal(side.collapsed, true)
-  assert.deepEqual(side.calls, [['openSession', 'first'], ['toggleSidebar'], ['openSession', 'second']])
+  assert.equal(side.collapsed, false)
+  assert.deepEqual(side.calls, [['openSession', 'first'], ['openSession', 'second']])
+  side.actions.toggleSidebar()
   side.render()
   side.calls.length = 0
   side.rows[1].props.actions.openSession('from-rail')
@@ -160,13 +161,13 @@ test('the standalone UI can navigate without a shell expansion action', () => {
   side.actions.toggleSidebar()
   side.render()
   side.rows[2].props.actions.openSession('after-expansion')
-  assert.equal(side.collapsed, true)
+  assert.equal(side.collapsed, false)
 })
 
 test('navigation during the shell fade-out keeps the already collapsed sidebar closed', () => {
   viewport.innerWidth = 390
   const side = navigationSidebar(true)
-  side.rows[0].props.actions.openAgentSession('first')
+  side.actions.toggleSidebar()
   assert.equal(side.collapsed, true)
   side.render(true)
   side.calls.length = 0
@@ -175,22 +176,22 @@ test('navigation during the shell fade-out keeps the already collapsed sidebar c
   assert.equal(side.calls.filter(([name]) => name === 'openSession').length, 1)
 })
 
-test('a sidebar reopened before wide becomes false still closes on the next navigation', () => {
+test('a sidebar reopened before wide becomes false stays open on navigation', () => {
   viewport.innerWidth = 390
   const side = navigationSidebar(true)
-  side.rows[0].props.actions.openAgent('first')
+  side.actions.toggleSidebar()
   side.render(true)
   side.actions.toggleSidebar()
   side.render(true)
   assert.equal(side.collapsed, false)
   side.rows[1].props.actions.openSession('after-reopen')
-  assert.equal(side.collapsed, true)
+  assert.equal(side.collapsed, false)
 })
 
-test('the navigation guard resets across a full collapse and expansion cycle', () => {
+test('navigation preserves manual collapse and expansion', () => {
   viewport.innerWidth = 390
   const side = navigationSidebar(true)
-  side.rows[0].props.actions.newAgentSession('first')
+  side.actions.toggleSidebar()
   side.render(false)
   side.calls.length = 0
   side.rows[1].props.actions.openSession('from-rail')
@@ -199,7 +200,7 @@ test('the navigation guard resets across a full collapse and expansion cycle', (
   side.actions.toggleSidebar()
   side.render(true)
   side.rows[1].props.actions.openSession('after-expansion')
-  assert.equal(side.collapsed, true)
+  assert.equal(side.collapsed, false)
 })
 
 // A Bot working in its own chat previews what it is doing, the way a group row does

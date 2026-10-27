@@ -135,6 +135,23 @@ export function install(rt) {
   const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
     .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
 
+  // Attach only the current Bot part when the user opens it in the classic view.
+  // Existing ownership and the Session's working directory must both remain intact.
+  async function attachCurrentToWorkspace(botId, sessionId) {
+    await rt.load()
+    if (rt.botOf(botId) === undefined || rt.chatOf(botId) !== sessionId) return false
+    if (ctx.workspaceRegistry.list().some(workspace => workspace.sessionIds.includes(sessionId))) return false
+    const session = ctx.sessions.get(sessionId)
+    const cwd = session?.header?.cwd
+    if (cwd === undefined || await real(cwd) !== await real(sessionFolder(session) ?? cwd)) return false
+    const workspace = await ctx.workspaceRegistry.resolveByPath(cwd)
+    if (workspace === undefined || rt.botOf(botId) === undefined || rt.chatOf(botId) !== sessionId) return false
+    if (ctx.workspaceRegistry.list().some(entry => entry.sessionIds.includes(sessionId))) return false
+    if (await real(cwd) !== await real(sessionFolder(session) ?? cwd)) return false
+    await workspace.attachSession(sessionId)
+    return true
+  }
+
   // A folder outside the team workspace widens where a Bot may write, so a Bot that
   // sets one for Bots whose writes are bounded by their folder asks the user first.
   // `sessions` are the Sessions that would work there; the default policy counts too,
@@ -208,5 +225,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, attachCurrentToWorkspace, approveFolder, folderEndpoint })
 }

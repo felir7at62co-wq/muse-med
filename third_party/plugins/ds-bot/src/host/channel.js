@@ -153,6 +153,8 @@ export function install(rt) {
           await rt.loadSecrets()
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) return ok({ revision: state.revision, unchanged: true, ...await live() })
           return ok({ ...view(), ...await live() })
+        case 'attach-current-workspace':
+          return ok({ attached: await rt.attachCurrentToWorkspace(String(body.botId ?? ''), String(body.sessionId ?? '')) })
         case 'models':
           await rt.catalog({ fresh: true })
           return ok({ modelsKey: modelsKey() })
