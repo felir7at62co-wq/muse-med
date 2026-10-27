@@ -1,6 +1,6 @@
 /** Project evidence rejects invalid references, stale media and text that cannot support literal quotations. */
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -73,8 +73,9 @@ it('rejects directories, oversized text and invalid UTF-8 without treating them 
 it('enforces the byte bound again when a source grows after stat', async () => {
   const root = await fixture()
   await writeFile(join(root, 'script.txt'), 'real action')
-  growth.file = join(root, 'script.txt')
+  growth.file = await realpath(join(root, 'script.txt'))
   await expect(groundStory(root, [reference], false, signal())).rejects.toThrow('exceeds 2 MiB')
+  expect(growth.file).toBe('')
   expect((await readFile(join(root, 'script.txt'))).length).toBeGreaterThan(2 * 1024 * 1024)
 })
 
