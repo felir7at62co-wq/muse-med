@@ -251,6 +251,7 @@ export async function writeUnderLedger(
     scriptId?: number
     standardId?: number
     observedAt?: string
+    verifiedFreeSubtitleErase?: boolean
   } | undefined,
   options?: WriteOptions,
 ): Promise<WriteOutcome> {
@@ -284,6 +285,7 @@ export async function writeUnderLedger(
     budget = await checkBudget({ ledger, method,
       ...(scriptId === undefined ? {} : { scriptId }),
       ...(quoted === undefined ? {} : { quote: quoted }),
+      ...(quoted?.verifiedFreeSubtitleErase === true ? { verifiedFreeSubtitleErase: true } : {}),
       ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
     if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
     const intent: JubianLedgerBegin = { idempotencyKey: key, method, requestSha256: bodyHash(payload),

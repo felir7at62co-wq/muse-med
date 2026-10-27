@@ -209,6 +209,8 @@ export async function checkBudget(input: {
   readonly method: JubianLedgerMethod
   readonly scriptId?: number | undefined
   readonly quote?: { amount?: string | undefined; unit?: string | undefined } | undefined
+  /** Internal evidence from the current catalogue for the known free subtitle eraser. */
+  readonly verifiedFreeSubtitleErase?: boolean | undefined
   /** Identically priced requests reserved together before any is sent. */
   readonly count?: number | undefined
   readonly authorizationPath?: string | undefined
@@ -219,6 +221,15 @@ export async function checkBudget(input: {
   const scriptId = input.scriptId ?? null
   const empty = { settledCents: 0, reservedCents: 0 }
   if (!SPENDING_METHODS.has(input.method)) return { status: 'authorized', reason: '', ...empty }
+
+  // Free erasure does not consume a project budget. Only the erasure tool can
+  // construct this evidence from the exact current provider model row; a caller's
+  // zero estimate alone is never evidence of a free operation.
+  if (input.method === 'erase_subtitle' && input.verifiedFreeSubtitleErase === true
+    && input.quote?.amount === '0.00' && input.quote.unit === 'CNY'
+    && scriptId !== null && Number.isSafeInteger(scriptId) && scriptId > 0) {
+    return { status: 'authorized', reason: '', ...empty, chargedAmount: '0.00', chargedUnit: 'CNY' }
+  }
 
   const path = input.authorizationPath ?? authorizationPathFor(input.ledger.root)
   const authorization = await readAuthorization(path)

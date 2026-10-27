@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { estimateEraseRate } from '../src/erase-price.ts'
+import { estimateEraseRate, isFreeFireErase } from '../src/erase-price.ts'
 import { storyboardMethod } from '../src/methods.ts'
 
 const regional = { id: 26, modelId: 'quzimuToB', platformId: 'YU_DIAN', unitPrice: 0.505, unit: '元/分钟', videoStandards: [] }
@@ -28,6 +28,22 @@ describe('subtitle erasure catalogue estimates', () => {
     expect(estimateEraseRate([{ ...regional, id: undefined, standardId: 26 }], request)?.amount).toBe('0.51')
   })
 
+  it('recognizes only the exact unambiguous free fire eraser row', () => {
+    const fire = { modelId: automatic.modelId, platformId: automatic.platformId, standardId: 67 }
+    expect(isFreeFireErase([automatic], fire)).toBe(true)
+    for (const rows of [null, [], [null, 'bad', []], [automatic, automatic], [{ ...automatic, unitPrice: '0' }],
+      [{ ...automatic, unitPrice: 0.01 }], [{ ...automatic, unit: '元/分钟' }],
+      [{ ...automatic, id: 68 }], [{ ...automatic, platformId: 'OTHER' }]]) {
+      expect(isFreeFireErase(rows, fire)).toBe(false)
+    }
+    expect(isFreeFireErase([automatic], { ...fire, standardId: 26 })).toBe(false)
+    expect(isFreeFireErase([automatic], { ...fire, modelId: 'other' })).toBe(false)
+    expect(isFreeFireErase([automatic], { ...fire, platformId: 'OTHER' })).toBe(false)
+    expect(isFreeFireErase([{ ...automatic, id: undefined, standardId: 67 }], fire)).toBe(true)
+    expect(isFreeFireErase([null, 'bad', [], automatic], fire)).toBe(true)
+    expect(isFreeFireErase([{ ...regional, unitPrice: 0 }], request)).toBe(false)
+  })
+
   async function fixture(options: { catalogue: unknown; limitCents?: number }) {
     const root = await mkdtemp(join(tmpdir(), 'jubian-erase-rate-'))
     onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
@@ -46,7 +62,9 @@ describe('subtitle erasure catalogue estimates', () => {
         else if (url.pathname === '/model/charge/getSelectList') data = options.catalogue
         else if (url.pathname === '/aigc/storyboard/subtitleEraser') {
           expect(init?.method).toBe('POST')
-          expect(await ledger.find('rate-estimate')).toMatchObject({ quoted_amount: '0.51', quote_unit: 'CNY', outcome: null })
+          expect(await ledger.find('rate-estimate')).toMatchObject({ quoted_amount: options.catalogue instanceof Array
+            && options.catalogue.some(row => row === automatic) && JSON.parse(String(init?.body)).modelId === automatic.modelId
+            ? '0.00' : '0.51', quote_unit: 'CNY', outcome: null })
           data = { taskId: 429001 }
         } else throw new Error(`unexpected request: ${url.pathname}`)
         return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
@@ -68,8 +86,21 @@ describe('subtitle erasure catalogue estimates', () => {
     expect(calls).toHaveLength(count)
   })
 
-  it('does not submit the zero-priced model or a rate above the project budget', async () => {
-    for (const [model_id, limitCents] of [['ark-erase-video-subtitle-pro', 400_000], ['quzimuToB', 50]] as const) {
+  it('submits the confirmed free model once without consuming budget, and replays safely', async () => {
+    const { client, ledger, calls } = await fixture({ catalogue: [regional, automatic], limitCents: 0 })
+    const args = { method: 'erase_subtitle', task_id: 42, model_id: automatic.modelId,
+      video_width: 480, video_height: 854, idempotency_key: 'rate-estimate' } as const
+    const result = await storyboardMethod(client, ledger, args)
+    expect(result).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001' })
+    expect(result.next).toContain('0 元/条')
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ quoted_amount: '0.00', quote_unit: 'CNY', quote_standard_id: 67 })
+    const count = calls.length
+    expect(await storyboardMethod(client, ledger, args)).toMatchObject({ replayed: true })
+    expect(calls).toHaveLength(count)
+  })
+
+  it('does not submit a rate above the project budget', async () => {
+    for (const [model_id, limitCents] of [['quzimuToB', 50]] as const) {
       const { client, ledger, calls } = await fixture({ catalogue: [regional, automatic], limitCents })
       await expect(storyboardMethod(client, ledger, { method: 'erase_subtitle', task_id: 42, model_id,
         video_width: 480, video_height: 854, idempotency_key: 'rate-estimate' })).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })

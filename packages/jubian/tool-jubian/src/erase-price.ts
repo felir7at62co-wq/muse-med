@@ -8,6 +8,24 @@ export interface EraseRateEstimate {
 }
 
 /**
+ * Identify the confirmed free fire eraser in the current catalogue.
+ * @param catalogue - The taskType 10 catalogue returned by the provider.
+ * @param request - The resolved erasure request.
+ * @returns True only for one exact matching zero-priced fire model row.
+ */
+export function isFreeFireErase(catalogue: unknown, request: Record<string, unknown>): boolean {
+  if (!Array.isArray(catalogue) || request.modelId !== 'ark-erase-video-subtitle-pro'
+    || request.platformId !== 'AI_MEDIA_KIT' || request.standardId !== 67) return false
+  const matches = catalogue.filter((value): value is Record<string, unknown> => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+    const row = value as Record<string, unknown>
+    return row.modelId === request.modelId && row.platformId === request.platformId
+      && (row.id ?? row.standardId) === request.standardId
+  })
+  return matches.length === 1 && matches[0]?.unitPrice === 0 && matches[0]?.unit === '元/条'
+}
+
+/**
  * Estimate a per-minute erasure from the exact model row and source duration.
  * The rate and duration are rounded upward separately; the provider's actual
  * minimums, rounding and final charge are not established by this estimate.

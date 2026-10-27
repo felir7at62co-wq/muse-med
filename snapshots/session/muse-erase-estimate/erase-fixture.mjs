@@ -43,7 +43,7 @@ export async function apply(ctx) {
           resultList: [{ taskType: 1, tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
       } else if (method === 'GET' && path === '/model/charge/getSelectList') {
         data = [{ id: 67, modelId: 'ark-erase-video-subtitle-pro', platformId: 'AI_MEDIA_KIT',
-          unitPrice: 0, unit: '元/条', videoStandards: [] }]
+          unit: '元/条', videoStandards: [] }]
       } else if (method === 'POST' && path === '/aigc/storyboard/subtitleEraser') {
         const payload = JSON.parse(init.body)
         assert.equal(payload.scriptId, 2708); assert.equal(payload.episodeId, 46744)

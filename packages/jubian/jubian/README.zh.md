@@ -106,7 +106,7 @@ settled spend + in-flight reservations + this call's quote <= the project's limi
 
 既没有匹配项目授权，也没有已挂载的短剧默认预算时，计费调用在记录 intent 和请求提供方之前被拒绝。默认值给未单独授权的项目提供人民币上限；明确项目条目覆盖默认值。没有报价或认可估算时仍拒绝收费。`readProjectBudget` 返回实际额度、已花、预留与精确修订，其公开 JSON 类型 `ProjectBudget` 可从 `@deepseek-ai/dsh-jubian/types` 导入。`updateProjectBudget` 保留历史估算、其他项目和账本消费，将用户证据追加至 `authorization_history`，在账本预留队列和独占 `.authorization.lock` 下检查修订，再原子替换 JSON 并真实回读。低于已记账消费的额度、未解决的账务、不支持的币种、损坏文件或过期版本都在替换文件前拒绝。预算写入锁排斥其他进程的预算写入方；付费预留仍只在同一运行时串行。本地文件访问不构成独立安全隔离。
 
-分镜视频批次在 `beginManyChecked` 内调用 `checkBudget(..., count)`，先检查整批估算金额，再一次登记各个原 key 的计价 intent，随后才允许发送任何提供方 PUT。每种计费方法的单笔报价或估算至少须为授权币种的 0.01；舍入后为零的不足一分金额不能授权消费。预算拒绝或 key 已存在时不新增 intent。同进程的队列会把这次预约与单项计费写入串行处理；不同进程仍不受该队列保护。
+分镜视频批次在 `beginManyChecked` 内调用 `checkBudget(..., count)`，先检查整批估算金额，再一次登记各个原 key 的计价 intent，随后才允许发送任何提供方 PUT。收费调用的单笔报价或估算至少须为授权币种的 0.01；已核实免费的火山去字幕无需消费授权并记录零元。舍入后为零的不足一分金额不能授权消费。预算拒绝或 key 已存在时不新增 intent。同进程的队列会把这次预约与单项计费写入串行处理；不同进程仍不受该队列保护。
 
 ### 以两个阶段记录一次写入
 
