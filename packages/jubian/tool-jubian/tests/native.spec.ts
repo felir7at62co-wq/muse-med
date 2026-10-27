@@ -309,7 +309,7 @@ it('preserves numeric official identity and a string use flag while ignoring unr
   const storyboard = { ...STORYBOARD, storyboardMaterialList: [{ ...MATERIALS[0], assetId: 11 }, MATERIALS[1]] }
   const provider: FakeProvider = { calls: [], storyboard, tasks: [], subtasks: {},
     assets: { ...ASSETS, '81285': { ...ASSETS['81285'], url: URL_LEAD } },
-    subjectPage: page => ({ rows: page === 1 ? [{}, { assetId: '' }, { assetId: 999999 },
+    subjectPage: page => ({ rows: page === 1 ? [{ id: 40 }, { id: 41, assetId: '' }, { id: 42, assetId: 999999 },
       { ...SUBJECT_ROWS[0], hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] : [] }) }
   expect(await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() }))
     .toMatchObject({ status: 'prepared' })
@@ -332,7 +332,7 @@ it.each([null, 'asset-20261009'])
 })
 
 it('rejects a local asset when only another project has its matching official subject', async () => {
-  const foreign = { ...SUBJECT_ROWS[0], assetId: 99501, scriptId: 9999 }
+  const foreign = { ...SUBJECT_ROWS[0], id: 900, assetId: 99501, scriptId: 9999 }
   const rows = [foreign, SUBJECT_ROWS[1]]
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
     storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
@@ -347,7 +347,7 @@ it('rejects a local asset when only another project has its matching official su
 })
 
 it('ignores a foreign project subject when one valid current-project mapping exists', async () => {
-  const foreign = { ...SUBJECT_ROWS[0], assetId: 99501, scriptId: 9999 }
+  const foreign = { ...SUBJECT_ROWS[0], id: 900, assetId: 99501, scriptId: 9999 }
   const rows = [foreign, ...SUBJECT_ROWS]
   const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
     storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: 'asset-20261009' }, MATERIALS[1]] },
@@ -380,7 +380,7 @@ it.each(['asset-parent', '1e3', '0x10', '9007199254740993'])
 
 it.each([
   { label: 'no official match', rows: SUBJECT_ROWS.slice(1) },
-  { label: 'duplicate official match', rows: [SUBJECT_ROWS[0], SUBJECT_ROWS[0], SUBJECT_ROWS[1]] },
+  { label: 'duplicate official match', rows: [SUBJECT_ROWS[0], { ...SUBJECT_ROWS[0], id: 99 }, SUBJECT_ROWS[1]] },
   { label: 'wrong URL', rows: [{ ...SUBJECT_ROWS[0], assetUrl: URL_GUEST }, SUBJECT_ROWS[1]] },
   { label: 'inactive official match', rows: [{ ...SUBJECT_ROWS[0], hsAssetStatus: 'Pending' }, SUBJECT_ROWS[1]] },
   { label: 'missing official status', rows: [{ ...SUBJECT_ROWS[0], hsAssetStatus: null }, SUBJECT_ROWS[1]] },
@@ -2181,6 +2181,45 @@ describe('bare singleton list responses through the client', () => {
       idempotency_key: 'short-pages' })).toMatchObject({ status: 'applied', paid_requests: 0 })
     expect(provider.calls.filter(call => call.path.includes('/aigc/material/list') && call.path.includes('pageNum=3'))).toHaveLength(1)
     expect(provider.calls.filter(call => call.path.includes('/admin/aigc/video/task/list') && call.path.includes('pageNum=3')).length).toBeGreaterThan(0)
+  })
+
+  it('allows different material IDs for the same parent across pages', async () => {
+    const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: 0 }
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : page === 2 ? [old] : [] }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'same-parent' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+  })
+
+  it('refuses a repeated material when total first appears on a later page', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      subjectPage: page => page === 1 ? { rows: [SUBJECT_ROWS[0]] } : { total: 2, rows: [SUBJECT_ROWS[0]] } }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'duplicate-later-total' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['subject', 'task'])('refuses missing stable IDs in the %s inventory', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => page === 1 ? kind === 'subject' ? [{ ...SUBJECT_ROWS[0], id: null },
+        { ...SUBJECT_ROWS[0], id: null, assetId: 111 }] : [SUBJECT_ROWS[0]] : [],
+      rawTaskPage: page => page === 1 && kind === 'task' ? [{ id: null }, { id: null }] : [] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: `missing-${kind}` })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['subject', 'task'])('rejects contradictory hasMore on %s inventory pages', async (kind) => {
+    const subject = SUBJECT_ROWS[0], task = { id: 9, scriptId: 2708, storyboardId: 999999 }
+    for (const contradict of [{ total: 1, hasMore: true, rows: [kind === 'subject' ? subject : task] },
+      { hasMore: true, rows: [] }, { total: 2, hasMore: false, rows: [kind === 'subject' ? subject : task] }]) {
+      const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+        subjectPage: () => kind === 'subject' ? contradict : { total: 1, rows: [subject] },
+        taskPage: () => kind === 'task' ? contradict : { total: 0, rows: [] } }
+      await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+        idempotency_key: `has-more-${kind}` })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      expect(putCalls(provider)).toEqual([])
+    }
   })
 
   it('checks later short pages before accepting the subject inventory', async () => {

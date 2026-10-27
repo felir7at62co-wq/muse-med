@@ -109,19 +109,21 @@ export async function resolveGenerateMethod(ledger: JubianLedger, args: {
 }
 
 /** Read one paged envelope, refusing a page whose rows cannot be listed. */
-function pageOf(response: JubianResponse): { rows: Record<string, unknown>[]; total: number | null } {
+function pageOf(response: JubianResponse): { rows: Record<string, unknown>[]; total: number | null; hasMore: boolean | null } {
   const value = response.data
   // The transport unwraps a bare one-record array for singular endpoints.
   if (response.envelope_layout === 'array-single') {
     const record = object(value)
-    if (!Object.hasOwn(record, 'rows') && !Object.hasOwn(record, 'list')) return { rows: [record], total: null }
+    if (!Object.hasOwn(record, 'rows') && !Object.hasOwn(record, 'list')) return { rows: [record], total: null, hasMore: null }
   }
-  if (Array.isArray(value)) return { rows: value.map(object), total: null }
+  if (Array.isArray(value)) return { rows: value.map(object), total: null, hasMore: null }
   const record = object(value)
   const total = typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : null
+  const hasMore = typeof record.hasMore === 'boolean' ? record.hasMore : null
+  if (record.total != null && total === null) throw new JubianError('CONTRACT_CHANGED')
   const rows = record.rows ?? record.list
   if (!Array.isArray(rows)) throw new JubianError('CONTRACT_CHANGED')
-  return { rows: rows.map(object), total }
+  return { rows: rows.map(object), total, hasMore }
 }
 
 /**
@@ -147,6 +149,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
     }
+    if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
     for (const record of page.rows) {
       const taskId = taskIdOf(record)
       if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
@@ -156,7 +159,11 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
     }
     if (knownTotal !== null) {
       if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
-      if (collected.length === knownTotal) return collected
+      if (collected.length === knownTotal) {
+        if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
+        return collected
+      }
+      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
       if (page.rows.length < TASK_PAGE_SIZE) throw new JubianError('CONTRACT_CHANGED')
     } else if (page.rows.length === 0) {
       return collected
@@ -176,7 +183,6 @@ async function listSubtasks(client: JubianClient, taskId: string): Promise<Recor
 /** Read every active subject-setting row of one project as one complete snapshot. */
 async function listAllSubjectMaterials(client: JubianClient, scriptId: number): Promise<Record<string, unknown>[]> {
   const collected: Record<string, unknown>[] = []
-  const seenRows = new Set<string>()
   const seenIds = new Set<string>()
   let knownTotal: number | null = null
   for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
@@ -188,25 +194,24 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
     }
-    if (knownTotal === null) {
-      const pageRows = new Set<string>()
-      const pageIds = new Set<string>()
-      for (const row of page.rows) {
-        const digest = stableSha256(row)
-        const id = wireText(row.id ?? row.materialId)
-        if (seenRows.has(digest) || (id !== null && id !== '' && seenIds.has(id))) {
-          throw new JubianError('CONTRACT_CHANGED', 'Subject inventory repeated a row across pages')
-        }
-        pageRows.add(digest)
-        if (id !== null && id !== '') pageIds.add(id)
+    if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
+    for (const row of page.rows) {
+      const rawId = row.id ?? row.materialId
+      const id = typeof rawId === 'string' ? rawId.trim()
+        : typeof rawId === 'number' && Number.isSafeInteger(rawId) && rawId > 0 ? String(rawId) : ''
+      if (!id || seenIds.has(id)) {
+        throw new JubianError('CONTRACT_CHANGED', 'Subject inventory lacks unique material identity')
       }
-      for (const digest of pageRows) seenRows.add(digest)
-      for (const id of pageIds) seenIds.add(id)
+      seenIds.add(id)
     }
     collected.push(...page.rows)
     if (knownTotal !== null) {
       if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
-      if (collected.length === knownTotal) return collected
+      if (collected.length === knownTotal) {
+        if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
+        return collected
+      }
+      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
       if (page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
     } else if (page.rows.length === 0) {
       return collected
