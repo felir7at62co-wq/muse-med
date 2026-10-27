@@ -180,6 +180,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 
+明确标记 `isUsed=0` 的记录作为未使用历史排除；待处理、状态未知或多个已使用记录仍视为歧义，不得选用。同一判断导出为 `isExplicitUnusedSubject`。
+
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
 
 原生视频任务对账比较明确的集 ID 和集号，不把缺失值转成零。`nativeEpisodeScope()` 校验 camelCase 与 snake_case 别名；`matchesNativeEpisode()` 排除能够证明属于其他集的任务，并拒绝矛盾证据。字段缺失不能证明任务属于其他集。这些失败使用 `VIDEO_TASK_EVIDENCE_INVALID`；主体、模型、提示词和音频匹配仍为必要条件。

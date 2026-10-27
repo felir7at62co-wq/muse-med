@@ -180,6 +180,8 @@ Native materials are matched by `materialKey` and numeric parent asset ID rather
 
 Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
 
+Rows explicitly marked `isUsed=0` are excluded as unused history. Pending, unknown or multiple used rows remain ambiguous and cannot be selected. The same predicate is exported as `isExplicitUnusedSubject`.
+
 Subject selection reports a remotely removed parent as `PRE_PUT_ASSET_REMOVED`, including when the picker has already excluded its material. A missing or ambiguous active confirmed material is `PRE_PUT_SUBJECT_UNAVAILABLE`. Both diagnostics precede any selection PUT; refresh the live project and choose a valid existing asset instead of retrying the same invalid reference. The provider stores `isGenerate=1` on saved storyboards, including free saves, so this read-back flag alone does not establish that generation occurred.
 
 Native task reconciliation compares explicit episode IDs and numbers without converting absent values to zero. `nativeEpisodeScope()` validates camelCase and snake_case aliases; `matchesNativeEpisode()` excludes proven different episodes and refuses contradictory evidence. Missing axes do not prove another episode. These failures use `VIDEO_TASK_EVIDENCE_INVALID`; subject, model, prompt and audio matching remain required.

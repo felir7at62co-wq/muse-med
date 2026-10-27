@@ -2710,6 +2710,9 @@ def normalize_snapshot_value(
         normalized = value
         for actual, token in replacements:
             normalized = normalized.replace(actual, token)
+        # Pathlib joins use the host separator after the replaced cwd. Keep
+        # expected snapshots identical across Windows and POSIX installations.
+        normalized = normalized.replace("{{cwd}}\\", "{{cwd}}/")
         return normalized
     if isinstance(value, list):
         return [normalize_snapshot_value(item, replacements) for item in value]

@@ -63,6 +63,15 @@ function parseField(value: unknown): { value: unknown; serialized: boolean } {
   } catch { return invalid() }
 }
 
+/**
+ * Ignore only an explicitly unused subject row; unknown or in-progress rows remain ambiguous.
+ * @param value - Provider use flag.
+ * @returns Whether the row is explicitly unused.
+ */
+export function isExplicitUnusedSubject(value: unknown): boolean {
+  return value === 0 || (typeof value === 'string' && value.trim() === '0')
+}
+
 /** Whether a picker row states the one confirmed-use value the wire uses. */
 function strictlyUsed(value: unknown): boolean {
   return (typeof value === 'number' && Number.isInteger(value) && value === 1)
@@ -208,6 +217,7 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
 
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
   for (const row of input.subjectRows) {
+    if (isExplicitUnusedSubject(row.isUsed)) continue
     const parent = wireText(row.assetId)
     if (parent === null || parent === '') continue
     rowsByParent.set(parent, [...(rowsByParent.get(parent) ?? []), row])

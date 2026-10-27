@@ -54,7 +54,7 @@ it('passes ambiguous regenerated image rows through the real tool chain for manu
       .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
     expect(results).toHaveLength(1)
     expect(results[0]).toMatchObject({ isError: false })
-    const payload = JSON.parse(results[0]!.content.find(item => item.type === 'text')!.text)
+    const payload: unknown = JSON.parse(results[0]!.content.find(item => item.type === 'text')!.text)
     expect(payload).toMatchObject({ image: null, requires_review: true, rows_observed: 2,
       unverified_candidates: [
         { material_id: null, url: null, result_status: 'pending' },

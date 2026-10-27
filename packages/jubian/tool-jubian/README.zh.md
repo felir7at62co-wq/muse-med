@@ -321,7 +321,11 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 配置 `promptRiskReview` 后，`edit_preview`、`edit_batch_preview` 和 `prepare_video` 在正常成功结果中返回 `prompt_risk_review`，扫描完整的拟写入或已保存提示词，包括否定清单、备注和引号内文字。每条命中包含 `storyboard_id`、`card_name`、`term`、以 UTF-16 计数的 `offset` 和保留完整 Unicode 字符的 `context`。`total_matches` 包含未展示的命中；共享 `maxMatches` 限制截断明细时，`truncated` 为真。报告不修改提示词、指纹、保存权限或提交权限。字面命中不等于内容违规，也不能确认原台词；Agent 须对照来源，首次保留原台词，仅在确认生成失败与该词有关后最小修改对应词语。修正后重新预览编辑、核对保存回读，再重新准备视频。没有命中不代表完整审核通过。Muse 在 Desktop Host 配置中提供词表，其他部署没有隐含词表。
 
+选材和预检会排除明确标记 `isUsed=0` 的未使用历史记录；待处理、状态未知或多个已使用记录仍视为歧义。身份、项目与 URL 校验照常执行。
+
 已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。
+
+主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 

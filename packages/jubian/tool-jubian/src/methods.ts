@@ -824,15 +824,15 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
           const resultStatus = wireText(row.resultStatus)?.trim().toLowerCase()
           const assetStatus = wireText(row.hsAssetStatus)?.trim().toLowerCase()
           const used = wireText(row.isUsed)?.trim()
-          return { asset_id: row.assetId === undefined ? null : Number(assetId),
+          return { asset_id: row.assetId === undefined ? null : assetId,
             material_id: Number.isSafeInteger(parsedMaterialId) && parsedMaterialId > 0
               ? parsedMaterialId : null,
             url: typeof rawUrl === 'string' && rawUrl.trim() ? rawUrl : null,
             task_id: taskId(row) > 0 ? taskId(row) : null,
             result_status: resultStatus === 'succeeded' || resultStatus === 'failed'
               ? resultStatus : ['submit', 'waiting', 'pending', 'running', 'processing'].includes(resultStatus ?? '')
-                ? 'pending' : resultStatus === null || resultStatus === undefined ? null : 'unknown',
-            asset_status: assetStatus === 'active' ? 'active' : assetStatus === null || assetStatus === undefined
+                ? 'pending' : resultStatus === undefined ? null : 'unknown',
+            asset_status: assetStatus === 'active' ? 'active' : assetStatus === undefined
               ? null : 'unverified',
             is_used: row.isUsed === true || used === '1' ? true
               : row.isUsed === false || used === '0' ? false : null }
