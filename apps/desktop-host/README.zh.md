@@ -27,7 +27,7 @@ Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app
 
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。
 
-桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，并将 `yunying` 加入 `hiddenProviderIds`：云映路由继续为已保存的 Session 注册，但新模型选择只展示账号提供的官方 DeepSeek 与智谱 GLM。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
+桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，将 `yunying` 加入 `hiddenProviderIds`，并通过 `visibleModels` 允许精确组合 `yunying/gemini-3.1-pro`：网关提供该模型时可在新模型选择器中选择，其他云映模型仍隐藏，已注册路由仍供保存的 Session 使用。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
 
 桌面账号组合还从新会话可选目录精确排除云映的 `claude-opus-5-5`、`claude-fable-5-1`、`gpt-6-astra`、`glm-5.3-flash`。网关私有目录及其他提供方（包括智谱官方 GLM 路由）保持不变。已有会话保留原模型 ID；当目录不再提供该路由时，选择器提示先切换模型。
 

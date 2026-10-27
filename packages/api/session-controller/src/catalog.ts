@@ -25,7 +25,7 @@ export async function buildModelCatalog(
   const catalog = await Promise.all(providers.map(async (provider) => {
     try {
       const models = await ctx.llm.listModels(provider.id)
-      const entries = await Promise.all(models.map(async (model) => {
+      const entries = await Promise.all(models.filter(model => model.selectable !== false).map(async (model) => {
         const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
         const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
           ? undefined
@@ -86,7 +86,7 @@ export async function modelAvailable(ctx: Context, selection: ModelSelection): P
       error instanceof Error ? error.message : String(error),
       { provider: selection.provider, model: selection.model })
   }
-  return models.some(model => model.id === selection.model)
+  return models.some(model => model.id === selection.model && model.selectable !== false)
 }
 
 /**

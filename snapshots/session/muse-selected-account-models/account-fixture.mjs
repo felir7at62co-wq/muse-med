@@ -64,6 +64,9 @@ export async function apply(ctx) {
   const excludedYunying = process.env.DSH_SNAPSHOT_EXCLUDED_YUNYING_MODELS
   assert.ok(excludedYunying === undefined || excludedYunying === 'true')
   const excludesYunyingModels = excludedYunying === 'true'
+  const visibleGemini = process.env.DSH_SNAPSHOT_YUNYING_GEMINI_VISIBLE
+  assert.ok(visibleGemini === undefined || visibleGemini === 'true')
+  const onlyYunyingGemini = visibleGemini === 'true'
   const hiddenYunyingModelIds = ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra', 'glm-5.3-flash']
   const defaultRace = process.env.DSH_SNAPSHOT_DEFAULT_SELECTION_RACE
   assert.ok(defaultRace === undefined || defaultRace === 'preserve-newer')
@@ -189,9 +192,8 @@ export async function apply(ctx) {
             }
             if (excludesYunyingModels) {
               const available = JSON.parse(result.content).available
-              assert.deepEqual(available.find(row => row.provider === 'muse-cloud-yunying')?.models.map(model => model.id), [
-                'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro',
-              ])
+              assert.deepEqual(available.find(row => row.provider === 'muse-cloud-yunying')?.models.map(model => model.id),
+                onlyYunyingGemini ? ['gemini-3.1-pro'] : ['gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro'])
               assert.deepEqual(available.find(row => row.provider === 'muse-cloud-zhipu-official')?.models.map(model => model.id), [
                 'glm-5.3-flashx', 'glm-5.3-flash',
               ])
@@ -264,7 +266,8 @@ export async function apply(ctx) {
   if (excludesStandaloneAa) ctx.effect(() => ctx.llm.registerAdapter(['personal'], new PersonalAdapter()))
   const mounted = ctx.plugin(account, { baseUrl: `http://127.0.0.1:${address.port}`, accountHome: home, remoteAccess: false,
     ...(excludesStandaloneAa ? { excludedProviderIds: ['aa'] } : {}),
-    ...(excludesYunyingModels ? { excludedModels: hiddenYunyingModelIds.map(modelId => ({ providerId: 'yunying', modelId })) } : {}) })
+    ...(excludesYunyingModels ? { excludedModels: hiddenYunyingModelIds.map(modelId => ({ providerId: 'yunying', modelId })) } : {}),
+    ...(onlyYunyingGemini ? { hiddenProviderIds: ['yunying'], visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }] } : {}) })
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
@@ -284,7 +287,7 @@ export async function apply(ctx) {
       ])
       for (const provider of catalog.providers) {
         if (!providerIds.includes(`muse-cloud-${provider.id}`)) continue
-        const models = await ctx.llm.listModels(`muse-cloud-${provider.id}`)
+        const models = (await ctx.llm.listModels(`muse-cloud-${provider.id}`)).filter(model => model.selectable !== false)
         available.push({ provider: `muse-cloud-${provider.id}`, models: await Promise.all(models.map(async model => {
           const resolved = await ctx.llm.resolveModelInfo(`muse-cloud-${provider.id}`, model.id)
           const configured = provider.models.find(candidate => candidate.id === model.id)
@@ -292,7 +295,8 @@ export async function apply(ctx) {
           return { id: model.id, name: model.name, contextWindow: resolved.context.contextWindow, maxTokens: configured.maxTokens }
         })) })
       }
-      assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), excludesYunyingModels
+      assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), onlyYunyingGemini
+        ? ['deepseek-flash', 'deepseek-v4-pro', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash'] : excludesYunyingModels
         ? ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
         : ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
       if (excludesStandaloneAa) {

@@ -525,6 +525,26 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('hides a non-selectable model while retaining its provider route', async () => {
+    const { ctx, sessionId } = await harness()
+    ctx.llm.registerAdapter(['muse-cloud-yunying'], new CatalogAdapter('Muse · 云映', [
+      { provider: 'muse-cloud-yunying', id: 'gpt-6-sol', name: 'GPT 6 Sol', selectable: false },
+      { provider: 'muse-cloud-yunying', id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+    ]))
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp',
+    })
+    const catalog = await buildModelCatalog(ctx)
+    expect(catalog.groups.find(group => group.id === 'muse-cloud-yunying')?.models.map(model => model.id))
+      .toEqual(['gemini-3.1-pro'])
+    expect((await ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gpt-6-sol', 'gemini-3.1-pro'])
+    expect(await remote.selectModel({ sessionId, provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }))
+      .toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    expect(await remote.selectModel({ sessionId, provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }))
+      .toMatchObject({ ok: true })
+    await ctx.fiber.dispose()
+  })
+
   it('rejects unlisted models and switches available models only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })

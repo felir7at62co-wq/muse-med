@@ -105,13 +105,13 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
     })
     const accountGroups = catalog.groups.filter(group => group.id.startsWith('muse-cloud-'))
     expect(accountGroups.map(group => group.id)).toEqual([
-      'muse-cloud-deepseek-official', 'muse-cloud-zhipu-official',
+      'muse-cloud-yunying', 'muse-cloud-deepseek-official', 'muse-cloud-zhipu-official',
     ])
     expect(accountGroups.flatMap(group => group.models.map(model => model.id)))
-      .toEqual(['deepseek-flash', 'glm-5.3-flash'])
-    expect(catalog.groups.some(group => group.id === 'muse-cloud-yunying')).toBe(false)
+      .toEqual(['gemini-3.1-pro', 'deepseek-flash', 'glm-5.3-flash'])
+    expect(catalog.groups.some(group => group.id === 'muse-cloud-yunying')).toBe(true)
     expect(fixture.ctx.llm.listProviders().find(provider => provider.id === 'muse-cloud-yunying'))
-      .toMatchObject({ selectable: false })
+      .not.toHaveProperty('selectable', false)
   }
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
   for (const text of ['Continue the script.', 'Continue the next scene.']) {
