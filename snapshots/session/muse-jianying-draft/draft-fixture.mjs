@@ -1,4 +1,4 @@
-/** Exercise Host warning persistence and results with only external Python/library substituted, not acoustic verification. */
+/** Exercise Host warning persistence with external Python substituted; this does not verify Python input decoding, saved editor compatibility or acoustics. */
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
 
 const Draft = await importSnapshotModule(
