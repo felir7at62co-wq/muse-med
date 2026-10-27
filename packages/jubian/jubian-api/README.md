@@ -40,6 +40,8 @@ Pool rows expose `claim_leader_id` and `claim_member_id` when available. The cla
 
 `readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.
 
+`readGeneratedImage(data)` accepts one object or a one-row list. A multi-row list is ambiguous without a verified task identity and is rejected instead of selecting provider order. The tool readback checks the requested parent; its read-only `generated_image` method selects a unique highest task ID when several attempts exist.
+
 Readers take the `data` field of a Jubian response envelope, through `JubianResponse.data`; `readStoryboardPage(data, scriptId)` additionally checks each row against the requested project. It returns bounded identity rows without requiring generation settings, preserves missing totals and episode bindings as null, and accepts empty pages. The transport returns that field untouched, and this library is what gives it a type.
 
 ### Smallest working call

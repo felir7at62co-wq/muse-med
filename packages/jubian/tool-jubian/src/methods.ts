@@ -496,8 +496,15 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
     observed = asset.status
     if (observed !== null && observed.trim().toLowerCase() === 'active') {
       try {
-        const image = readGeneratedImage((await client.request({ method: 'GET',
-          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data)
+        const data = (await client.request({ method: 'GET',
+          path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })).data
+        const rows = responseRecords(data)
+        const [onlyRow] = rows
+        if (rows.length !== 1 || onlyRow === undefined || (onlyRow.assetId !== undefined
+          && wireText(onlyRow.assetId) !== String(assetId))) {
+          throw new JubianError('CONTRACT_CHANGED', 'No unique generated image for the accepted parent')
+        }
+        const image = readGeneratedImage(onlyRow)
         return { status: 'active', material_id: image.material_id, image_url: image.url,
           observed_status: observed, waited_ms: now() - started, error: null }
       } catch (error) {
@@ -796,13 +803,44 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       if (scoped.length !== rows.length || scoped.length === 0) {
         throw new JubianError('CONTRACT_CHANGED', 'Generated-image response has no verified target asset')
       }
-      // A regenerated parent retains older, already-used material rows. Read the highest
-      // observed task ID, not an old Active image or provider-dependent list order.
+      // A regenerated parent retains older, already-used material rows. A unique
+      // highest task ID identifies the latest attempt; missing or tied IDs do not.
       const taskId = (row: Record<string, unknown>): number => {
         const parsed = Number(row.taskId)
         return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : -1
       }
-      const latest = [...scoped].sort((a, b) => taskId(b) - taskId(a))[0] as Record<string, unknown>
+      const sorted = [...scoped].sort((a, b) => taskId(b) - taskId(a))
+      const [latest, second] = sorted
+      if (latest === undefined) {
+        throw new JubianError('CONTRACT_CHANGED', 'Generated-image response has no target asset rows')
+      }
+      if (second !== undefined && (scoped.some(row => taskId(row) < 1)
+        || taskId(latest) === taskId(second))) {
+        const unverifiedCandidates = scoped.map((row) => {
+          const rawMaterialId = row.id ?? row.materialId
+          const parsedMaterialId = typeof rawMaterialId === 'number' || typeof rawMaterialId === 'string'
+            ? Number(rawMaterialId) : NaN
+          const rawUrl = row.assetUrl ?? row.url ?? row.materialUrl
+          const resultStatus = wireText(row.resultStatus)?.trim().toLowerCase()
+          const assetStatus = wireText(row.hsAssetStatus)?.trim().toLowerCase()
+          const used = wireText(row.isUsed)?.trim()
+          return { asset_id: row.assetId === undefined ? null : Number(assetId),
+            material_id: Number.isSafeInteger(parsedMaterialId) && parsedMaterialId > 0
+              ? parsedMaterialId : null,
+            url: typeof rawUrl === 'string' && rawUrl.trim() ? rawUrl : null,
+            task_id: taskId(row) > 0 ? taskId(row) : null,
+            result_status: resultStatus === 'succeeded' || resultStatus === 'failed'
+              ? resultStatus : ['submit', 'waiting', 'pending', 'running', 'processing'].includes(resultStatus ?? '')
+                ? 'pending' : resultStatus === null || resultStatus === undefined ? null : 'unknown',
+            asset_status: assetStatus === 'active' ? 'active' : assetStatus === null || assetStatus === undefined
+              ? null : 'unverified',
+            is_used: row.isUsed === true || used === '1' ? true
+              : row.isUsed === false || used === '0' ? false : null }
+        })
+        return { image: null, requires_review: true, unverified_candidates: unverifiedCandidates,
+          rows_observed: scoped.length,
+          guidance: '该资产有多条生成图记录，缺少可唯一确定最新任务的 ID。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。' }
+      }
       const generation = readImageGeneration(latest)
       if (generation !== null && generation.status !== 'succeeded') {
         return { image: null, generation,

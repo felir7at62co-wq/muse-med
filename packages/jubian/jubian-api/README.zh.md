@@ -40,6 +40,8 @@ kind: "package-reference"
 
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
+`readGeneratedImage(data)` 接受单个对象或仅有一行的列表。多行缺少已核实任务身份时属于歧义，不能按提供方行序选择。工具回读会核对所请求的父资产；只读的 `generated_image` 方法在多个任务并存时，仅选择任务 ID 唯一最大的记录。
+
 读取器接收剧变响应信封的 `data` 字段，即 `JubianResponse.data`；`readStoryboardPage(data, scriptId)` 还会逐行核对请求项目。它无需生成设置即可返回当前页身份行，缺失的总数和分集归属保留为 null，并接受空页。传输层把这个字段原样返回，而赋予它类型的就是本库。
 
 ### 最小可用调用

@@ -489,11 +489,57 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it.each(['tied-task', 'missing-task'])('shows %s images for review without selecting a latest attempt', async (kind) => {
+    const { client, calls } = stubClient(() => [
+      { assetId: 156575, id: 160260, assetUrl: 'https://old.example/image.png',
+        taskId: 527855, resultStatus: 'succeeded' },
+      { assetId: 156575, id: 160261, assetUrl: 'https://new.example/image.png',
+        ...(kind === 'tied-task' ? { taskId: 527855 } : {}), resultStatus: 'succeeded' },
+    ])
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 })
+    expect(result).toMatchObject({ image: null, requires_review: true, rows_observed: 2,
+      unverified_candidates: [{ material_id: 160260, url: 'https://old.example/image.png' },
+        { material_id: 160261, url: 'https://new.example/image.png' }] })
+    expect(result.guidance).toContain('不能自动绑定或确认出演')
+    expect(calls).toHaveLength(1)
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('rejects a generated-image row attributed to a different asset', async () => {
     const { client } = stubClient(() => [{ assetId: 156576, id: 999,
       resultStatus: 'succeeded', assetUrl: 'https://other.example/image.png' }])
     await expect(assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 }))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  })
+
+  it('shows a regenerated asset whose first row has no image without treating the older picture as new', async () => {
+    const { client, calls } = stubClient(() => [
+      { assetId: 212497, id: null, assetUrl: null, taskId: null, resultStatus: 'pending',
+        hsAssetStatus: null, isUsed: false },
+      { assetId: 212497, id: 9001, assetUrl: 'https://media.example/older.png',
+        taskId: null, resultStatus: 'succeeded', hsAssetStatus: 'Active', isUsed: true },
+    ])
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497 })
+    expect(result).toMatchObject({ image: null, requires_review: true, rows_observed: 2,
+      unverified_candidates: [
+        { material_id: null, url: null, task_id: null, result_status: 'pending', is_used: false },
+        { material_id: 9001, url: 'https://media.example/older.png', task_id: null,
+          result_status: 'succeeded', asset_status: 'active', is_used: true },
+      ] })
+    expect(result.guidance).toContain('不能把旧图当作本次新图')
+    expect(calls).toHaveLength(1)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reads the unique newer successful task even when an earlier row has no image', async () => {
+    const { client } = stubClient(() => [
+      { assetId: 212497, id: null, assetUrl: null, taskId: 101, resultStatus: 'failed' },
+      { assetId: 212497, id: 9002, assetUrl: 'https://media.example/current.png',
+        taskId: 102, resultStatus: 'succeeded', hsAssetStatus: 'Active', isUsed: 0 },
+    ])
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497 }))
+      .toMatchObject({ image: { material_id: 9002, url: 'https://media.example/current.png' },
+        generation: { task_id: 102, status: 'succeeded' } })
   })
 
   it('records casting confirmation under the ledger even though the verb is GET', async () => {
@@ -531,13 +577,21 @@ describe('jubian_asset reads and the side-effecting GET', () => {
 })
 
 describe('jubian_video', () => {
-  it('keeps unversioned generated-image rows behind positive task IDs without inventing one', async () => {
+  it('reads a single legacy generated image without inventing a task ID', async () => {
+    const { client } = stubClient(() => [
+      { id: 1, assetId: 2708, taskId: 0, assetUrl: 'https://fixture.invalid/legacy.png' },
+    ])
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 2708 }))
+      .toMatchObject({ image: { material_id: 1, url: 'https://fixture.invalid/legacy.png' } })
+  })
+  it('shows multiple unversioned images without identifying either as the latest task', async () => {
     const { client } = stubClient(() => [
       { id: 1, assetId: 2708, taskId: 0, assetUrl: 'https://fixture.invalid/legacy.png' },
       { id: 2, assetId: 2708, taskId: 'invalid', assetUrl: 'https://fixture.invalid/other.png' },
     ])
     expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 2708 }))
-      .toMatchObject({ image: { material_id: 1, url: 'https://fixture.invalid/legacy.png' } })
+      .toMatchObject({ image: null, rows_observed: 2,
+        unverified_candidates: [{ material_id: 1 }, { material_id: 2 }] })
   })
   it('marks a batch item as not submitted when authorization refuses it before the ledger intent', async () => {
     const { client, calls } = imageProvider()
@@ -753,6 +807,27 @@ describe('jubian_video', () => {
       generation_status: state === 'Failed' ? 'failed' : 'submitted_pending' })
     expect(result.readback_error).toBeTypeOf('string')
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it.each(['wrong-parent', 'multiple-materials'])
+  ('keeps an accepted image unverified when Active readback has %s', async (kind) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return kind === 'wrong-parent'
+        ? [{ ...GENERATED_IMAGE[0], assetId: 83750 }]
+        : [GENERATED_IMAGE[0], { ...GENERATED_IMAGE[0], id: 901 }]
+      if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
+        return { id: 83749, hsAssetStatus: 'Active' }
+      }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: `active-${kind}` },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'timeout', material_id: null, image_url: null })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
   })
 
   it('contains an injected readback scheduler failure after recording the accepted paid write', async () => {
