@@ -810,10 +810,9 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : -1
       }
       const sorted = [...scoped].sort((a, b) => taskId(b) - taskId(a))
-      const [latest, second] = sorted
-      if (latest === undefined) {
-        throw new JubianError('CONTRACT_CHANGED', 'Generated-image response has no target asset rows')
-      }
+      // The empty case is rejected above, and sorting preserves the row count.
+      const latest = sorted[0] as Record<string, unknown>
+      const second = sorted[1]
       if (second !== undefined && (scoped.some(row => taskId(row) < 1)
         || taskId(latest) === taskId(second))) {
         const unverifiedCandidates = scoped.map((row) => {

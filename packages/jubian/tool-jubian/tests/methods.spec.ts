@@ -505,6 +505,21 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it('keeps incomplete and unknown generated-image candidates unverified', async () => {
+    const { client, calls } = stubClient(() => [
+      { id: 11, taskId: null, resultStatus: 'provider-new-state', hsAssetStatus: 'Retired',
+        assetUrl: 'https://media.example/older.png' },
+      { assetId: 156575, id: 12, taskId: null, assetUrl: 'https://media.example/other.png' },
+    ])
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 })
+    expect(result).toMatchObject({ image: null, requires_review: true, unverified_candidates: [
+      { asset_id: null, material_id: 11, result_status: 'unknown', asset_status: 'unverified' },
+      { asset_id: 156575, material_id: 12, result_status: null, asset_status: null },
+    ] })
+    expect(calls).toHaveLength(1)
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('rejects a generated-image row attributed to a different asset', async () => {
     const { client } = stubClient(() => [{ assetId: 156576, id: 999,
       resultStatus: 'succeeded', assetUrl: 'https://other.example/image.png' }])
