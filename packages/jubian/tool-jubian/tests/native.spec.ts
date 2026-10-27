@@ -415,6 +415,45 @@ it('names a local subject verification failure without exposing asset URLs', asy
 })
 
 describe('uploaded voice references', () => {
+  it.each([
+    '台词 ：陆沉舟：今晚别走。',
+    '旁白：雨停了。',
+    '画外音：陆沉舟：我回来了。',
+    'VO: I am back.',
+    '陆沉舟：今晚别走。',
+    '张三：“今晚别走。”',
+    '说话人：张三\n张三：今晚别走。',
+    '说话人：Mary Jane\nMary Jane：Hello.',
+  ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result.voice_continuity_review).toMatchObject({ status: 'dialogue_without_voice_reference' })
+    expect(putCalls(provider)).toHaveLength(0)
+  })
+
+  it.each([
+    '核心场景：工地\n动作：陆沉舟转身。\n人物：陆沉舟',
+    '负面提示：不要台词：大声喊叫',
+    '负面提示：陆沉舟：“今晚别走。”',
+    '不要 台词：大声喊叫',
+    '不要 台词：“大声喊叫”',
+    '无对白：“大声喊叫”',
+    '台词：无',
+    '台词：陆沉舟：无',
+    '旁白：无',
+    '字幕：“今晚别走。”',
+    '角色：“陆沉舟”',
+  ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result.voice_continuity_review).toMatchObject({ status: 'no_dialogue_detected' })
+    expect(putCalls(provider)).toHaveLength(0)
+  })
+
   it('flags dialogue without a voice reference before any paid request', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT} 台词：大辣：这名字还挺好。` }) } }

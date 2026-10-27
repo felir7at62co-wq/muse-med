@@ -468,6 +468,37 @@ function projectRootOfPreview(previewPath: string): string {
   throw new JubianError('CONTRACT_CHANGED')
 }
 
+/** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
+function hasPromptSpeech(prompt: string): boolean {
+  const names = new Set<string>()
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) if (match[1] !== undefined) names.add(match[1].trim())
+  for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
+    if (match[1] !== undefined) names.add(match[1].trim())
+  }
+  const fields = new Set(['场景', '场景名称', '核心场景', '镜头', '景别', '时长', '动作', '人物动作', '动作状态',
+    '人物', '角色', '角色名', '出镜人物', '说话人', '主体', '主体状态追踪', '道具', '关键道具',
+    '风格', '声音', '音效', '配乐', '字幕', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
+  for (const raw of prompt.split(/\r?\n/u)) {
+    const line = raw.trim()
+    if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
+    const speech = /(?:^|[\s；;])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/iu.exec(line)
+    if (speech?.[1] !== undefined) {
+      const before = line.slice(0, speech.index).trim()
+      const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
+      if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
+        && content !== '' && !/^(?:无|没有|暂无|none|null)[。.!！]?$/iu.test(content)) return true
+    }
+    const named = /^([^：:]{1,30})\s*[：:]\s*(.+)$/u.exec(line)
+    if (named?.[1] === undefined || named[2] === undefined) continue
+    const speaker = named[1].trim().replace(/[（(]\s*(?:画外音|VO|OS)\s*[）)]\s*$/iu, '')
+    const content = named[2].trim()
+    if (!fields.has(speaker) && !/^(?:无|没有|不要|禁止|避免|不得)/u.test(speaker)
+      && !/^(?:无|没有|暂无|none|null)[。.!！]?$/iu.test(content)
+      && (names.has(speaker) || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
+  }
+  return false
+}
+
 /**
  * Prepare one storyboard-native video package without any remote write.
  * @param client - Jubian transport.
@@ -497,7 +528,7 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
     + '.storyboard-native.prepared.json')
   await atomicWriteJson(destination, preview)
   const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
-  const hasDialogue = /(?:台词|对白)[：:]/u.test(String(modelConfig.prompt))
+  const hasDialogue = hasPromptSpeech(String(modelConfig.prompt))
   const voiceContinuityReview = hasDialogue
     ? audio.length === 0
       ? { status: 'dialogue_without_voice_reference',

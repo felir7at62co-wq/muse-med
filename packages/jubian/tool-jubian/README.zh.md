@@ -337,7 +337,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。这是免费预检提示，不会自动生成、绑定或改写台词。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词，以及角色名下的引号台词；负面要求和空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
