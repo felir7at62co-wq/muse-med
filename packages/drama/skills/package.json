@@ -58,6 +58,7 @@
     "skills/tweet-drama-delivery/scripts/assemble_delivery.py",
     "skills/tweet-drama-draft-build/SKILL.md",
     "skills/tweet-drama-draft-build/agents/openai.yaml",
+    "skills/tweet-drama-draft-build/references/cloud-subtitles.md",
     "skills/tweet-drama-draft-build/references/dependencies.md",
     "skills/tweet-drama-draft-build/references/io-contract.md",
     "skills/tweet-drama-draft-build/requirements.txt",
@@ -67,6 +68,8 @@
     "skills/tweet-drama-draft-build/scripts/generate_draft_request.py",
     "skills/tweet-drama-draft-build/scripts/draft_inputs.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
+    "skills/tweet-drama-draft-build/scripts/windows_aa_draft.py",
+    "skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1",
     "skills/tweet-drama-draft-build/scripts/paths.py",
     "skills/tweet-drama-key-manager/SKILL.md",
     "skills/tweet-drama-key-manager/scripts/check_keys.py",
@@ -129,6 +132,6 @@
     "skills/tweet-drama-early-shot-script/references/director-format.md"
   ],
   "scripts": {
-    "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/test_background_render_guidance.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py tests/render/test_draft_input_semantics.py tests/render/test_draft_project_style.py tests/render/test_subtitle_overlay_request.py skills/tweet-drama-draft-build/tests/test_embedded_python_import.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch && python -B -m unittest discover -s tests/anime_3d"
+    "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/test_background_render_guidance.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_windows_aa_draft.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py tests/render/test_draft_input_semantics.py tests/render/test_draft_project_style.py tests/render/test_subtitle_overlay_request.py skills/tweet-drama-draft-build/tests/test_embedded_python_import.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch && python -B -m unittest discover -s tests/anime_3d"
   }
 }

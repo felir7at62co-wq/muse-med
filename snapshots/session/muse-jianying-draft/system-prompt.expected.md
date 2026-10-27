@@ -32,7 +32,7 @@ Verify your work by running the code or tests. Keep answers brief and factual.
 
 当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。用 drama_draft_dir 取得根目录，write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
 
-独立对白成功导入后才静音正文源视频，保留独立对白；导入失败时保留源视频原声并说明未完成分轨，不删除对白或把所有音轨静音。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
+Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
 
 If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry.
 

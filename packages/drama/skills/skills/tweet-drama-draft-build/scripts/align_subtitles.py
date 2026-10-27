@@ -9,6 +9,8 @@ the default path never downloads or loads a local recognition model.
 
     python -B align_subtitles.py --project <项目根> --episode 4 \\
         [--shots _probe/ep04-render-shots.json] [--lines _probe/ep04-lines.json] \\
+        [--cloud-transcripts _probe/ep04-cloud-transcripts.json] \\
+        [--corrections _probe/ep04-transcript-corrections.json] \\
         [--out _probe/ep04-aligned.json] [--model-dir <本地模型目录>] \\
         [--model-url <模型包 URL>] [--model-sha256 <64 位十六进制>] [--strict]
 """
@@ -27,6 +29,7 @@ import tempfile
 import urllib.request
 import zipfile
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -460,8 +463,55 @@ def load_document(path: Path, key: str) -> list:
     return rows
 
 
-def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False) -> list:
-    """Read timed words with original bounds from a receipt bound to this video."""
+def corrected_cloud_words(segments: list, correction: dict, source_sha256: str,
+                          transcript_sha256: str) -> tuple:
+    """Apply explicitly supplied spelling substitutions without changing raw words or timing.
+
+    The word index counts every raw word in segment order, including punctuation.
+    Exact source/raw hashes and original text prevent a review from being reused on
+    another take or recognition version. Equal normalized lengths limit this input
+    to spelling substitutions; actual omitted or additional speech remains reviewable.
+    """
+    if (correction.get("source_sha256") != source_sha256
+            or correction.get("transcript_sha256") != transcript_sha256):
+        raise SystemExit("字幕纠错映射的源视频或原始转写摘要不符，请核对当前收据和纠错记录。")
+    replacements = correction.get("corrections")
+    if not isinstance(replacements, list) or not replacements:
+        raise SystemExit("字幕纠错映射必须包含非空 corrections 数组。")
+    corrected = deepcopy(segments)
+    words = []
+    for segment in corrected:
+        if not isinstance(segment, dict) or not isinstance(segment.get("words"), list):
+            raise SystemExit("字幕纠错映射需要原始云转写字词数组。")
+        words.extend(segment["words"])
+    applied, seen = [], set()
+    for row in replacements:
+        if not isinstance(row, dict):
+            raise SystemExit("字幕纠错项必须为对象。")
+        index = row.get("word_index")
+        original, replacement, reason = row.get("original"), row.get("replacement"), row.get("reason")
+        if (not isinstance(index, int) or isinstance(index, bool) or index < 0
+                or index >= len(words) or index in seen):
+            raise SystemExit("字幕纠错 word_index 无效或重复；按原始 words 从零编号。")
+        if (not isinstance(original, str) or not isinstance(replacement, str)
+                or not isinstance(reason, str) or not reason.strip()
+                or not normalise(original)
+                or len(normalise(original)) != len(normalise(replacement))):
+            raise SystemExit("字幕纠错仅接受带理由的等长非空错字替换，不能增删实际台词。")
+        word = words[index]
+        if not isinstance(word, dict) or word.get("text") != original:
+            raise SystemExit("字幕纠错 original 与原始字词不一致，请核对词序和转写版本。")
+        seen.add(index)
+        word["text"] = replacement
+        applied.append({"word_index": index, "original": original, "replacement": replacement,
+                        "reason": reason.strip(), "start": word.get("start"), "end": word.get("end")})
+    return corrected, {"source_sha256": source_sha256, "transcript_sha256": transcript_sha256,
+                       "listening_verified": False, "corrections": applied}
+
+
+def cloud_alignment_source(video: Path, receipt_path: Path, allow_empty: bool = False,
+                           correction: dict | None = None) -> tuple:
+    """Read source-bound timed words and optional explicit correction evidence."""
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
         raise SystemExit("云转写收据未完成或不属于当前镜头。")
@@ -469,7 +519,8 @@ def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False)
     with video.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
-    if receipt.get("sourceSha256") != digest.hexdigest():
+    source_sha256 = digest.hexdigest()
+    if receipt.get("sourceSha256") != source_sha256:
         raise SystemExit("镜头内容已变化或旧收据缺少源文件摘要，请对当前视频重新转写。")
     stem, version = receipt.get("stem"), receipt.get("version")
     if not isinstance(stem, str) or not re.fullmatch(r"[\w.-]+", stem) or not isinstance(version, int) or version < 1:
@@ -477,13 +528,20 @@ def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False)
     if receipt_path.parent.name != "jobs" or receipt_path.name != f"{stem}-v{version}.json":
         raise SystemExit("请使用 audio_transcribe 返回的原始收据路径。")
     if receipt["status"] == "silent":
+        if correction is not None:
+            raise SystemExit("无发声收据没有可纠正的字词，不能用纠错记录添加台词。")
         if not allow_empty:
             raise SystemExit("云转写判定无发声，但剧本含台词，请人工核听。")
-        return []
+        return [], None
     transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
-    segments = json.loads(transcript.read_text(encoding="utf-8"))
+    transcript_bytes = transcript.read_bytes()
+    segments = json.loads(transcript_bytes.decode("utf-8"))
     if not isinstance(segments, list) or (not segments and not allow_empty):
         raise SystemExit("云转写缺少语音片段。")
+    evidence = None
+    if correction is not None:
+        segments, evidence = corrected_cloud_words(segments, correction, source_sha256,
+                                                   hashlib.sha256(transcript_bytes).hexdigest())
     chars = []
     previous = 0.0
     for segment in segments:
@@ -504,7 +562,12 @@ def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False)
                               start, end))
     if not chars and not allow_empty:
         raise SystemExit("云转写没有可对齐的文字。")
-    return chars
+    return chars, evidence
+
+
+def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False) -> list:
+    """Read original timed words from a receipt bound to the selected video."""
+    return cloud_alignment_source(video, receipt_path, allow_empty)[0]
 
 
 def main() -> None:
@@ -515,6 +578,7 @@ def main() -> None:
     parser.add_argument("--lines", help="逐镜台词计划，默认 <项目>/_probe/epNN-lines.json")
     parser.add_argument("--out", help="输出的对齐文档，默认 <项目>/_probe/epNN-aligned.json")
     parser.add_argument("--cloud-transcripts", help="逐镜 Muse 收据映射 JSON：shots 数组含 shot 与 receipt")
+    parser.add_argument("--corrections", help="可选逐镜核实错字映射；绑定源视频与原始转写摘要，不修改原收据或时间")
     parser.add_argument("--model-dir", help="本地模型目录")
     parser.add_argument("--model-url", help="模型包（zip）的下载地址")
     parser.add_argument("--model-sha256", default="", help="模型包的 SHA-256，与 --model-url 一起用")
@@ -522,6 +586,8 @@ def main() -> None:
     parser.add_argument("--strict", action="store_true", help="兼容旧参数；对齐质量问题仍只报告，不阻断制作")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
+    if args.corrections and not args.cloud_transcripts:
+        raise SystemExit("--corrections 仅可配合 --cloud-transcripts 复用原始云时间轴。")
 
     project = Path(args.project).resolve()
     probe = project / "_probe"
@@ -540,6 +606,7 @@ def main() -> None:
             by_shot[shot] = []
 
     cloud_receipts = None
+    corrections = {}
     model = None
     model_label = "muse-cloud"
     if args.cloud_transcripts:
@@ -559,6 +626,15 @@ def main() -> None:
     else:
         raise SystemExit("请先用 audio_transcribe 转写各镜头，传入 --cloud-transcripts 收据映射；离线识别须显式指定 --model-dir 或 --model-url。")
 
+    if args.corrections:
+        selected_shots = {int(row["shot"]) for row in manifest}
+        for row in load_document(Path(args.corrections).resolve(), "shots"):
+            shot = row.get("shot") if isinstance(row, dict) else None
+            if (not isinstance(shot, int) or isinstance(shot, bool) or shot < 1
+                    or shot in corrections or shot not in selected_shots):
+                raise SystemExit("字幕纠错映射的镜头编号无效、重复或不属于当前字幕计划。")
+            corrections[shot] = row
+
     placed, strategies = [], []
     for entry in manifest:
         shot = int(entry["shot"])
@@ -566,6 +642,7 @@ def main() -> None:
         if not video.is_file():
             raise SystemExit(f"缺少该镜成片：{video}")
         lines = by_shot[shot]
+        correction_evidence = None
         if cloud_receipts is not None and shot not in cloud_receipts:
             message = f"镜头 {shot} 缺少云转写收据，声音与字幕尚未核实；请 Muse 核听后决定下一步。"
             print(f"提示：{message}")
@@ -574,7 +651,11 @@ def main() -> None:
             continue
         if cloud_receipts is not None:
             try:
-                chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
+                if shot in corrections:
+                    chars, correction_evidence = cloud_alignment_source(
+                        video, cloud_receipts[shot], allow_empty=not lines, correction=corrections[shot])
+                else:
+                    chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
             except SystemExit as error:
                 message = str(error)
                 print(f"提示：镜头 {shot} 收据尚不能提供同源时间：{message}")
@@ -605,11 +686,14 @@ def main() -> None:
             print(f"    未映射发声 {extra['start']:.3f}–{extra['end']:.3f}  {extra['text']}")
         for omission in missing_script:
             print(f"    第 {omission['line']} 条剧本台词缺少连续识别文字  {omission['text']}")
-        placed.append({"shot": shot, "strategy": strategy,
-                       "unmapped_speech": extras,
-                       "missing_script_speech": missing_script,
-                       "cues": [{"start": start, "end": end, "text": line}
-                                for (start, end), line in zip(cues, lines)]})
+        result = {"shot": shot, "strategy": strategy,
+                  "unmapped_speech": extras,
+                  "missing_script_speech": missing_script,
+                  "cues": [{"start": start, "end": end, "text": line}
+                           for (start, end), line in zip(cues, lines)]}
+        if correction_evidence is not None:
+            result["correction_evidence"] = correction_evidence
+        placed.append(result)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({"model": model_label, "shots": placed},

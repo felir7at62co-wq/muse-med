@@ -467,5 +467,172 @@ class CloudReceiptTests(unittest.TestCase):
                 ALIGN.cloud_characters(video, receipt, allow_empty=True)
 
 
+class CloudCorrectionTests(unittest.TestCase):
+    def source(self, root):
+        video = root / 'shot.mp4'
+        video.write_bytes(b'source-video')
+        jobs, raw = root / 'transcript/jobs', root / 'transcript/raw'
+        jobs.mkdir(parents=True)
+        raw.mkdir()
+        receipt = jobs / 'shot-v1.json'
+        source_sha256 = hashlib.sha256(video.read_bytes()).hexdigest()
+        receipt.write_text(json.dumps({'status': 'complete', 'source': str(video), 'stem': 'shot',
+                                      'version': 1, 'sourceSha256': source_sha256}), encoding='utf-8')
+        transcript = raw / 'shot-v1.json'
+        transcript.write_text(json.dumps([{'start': 0.2, 'end': 2.8, 'text': '城昭宁你回来拉', 'words': [
+            {'start': 0.2, 'end': 0.4, 'text': '城'}, {'start': 0.4, 'end': 0.6, 'text': '昭'},
+            {'start': 0.6, 'end': 0.8, 'text': '宁'}, {'start': 1.0, 'end': 1.2, 'text': '你'},
+            {'start': 1.4, 'end': 2.1, 'text': '回来'}, {'start': 2.5, 'end': 2.8, 'text': '拉'}]}],
+                              ensure_ascii=False), encoding='utf-8')
+        correction = {'shot': 1, 'source_sha256': source_sha256,
+                      'transcript_sha256': hashlib.sha256(transcript.read_bytes()).hexdigest(),
+                      'corrections': [
+                          {'word_index': 0, 'original': '城', 'replacement': '程', 'reason': '核对人物名和原声'},
+                          {'word_index': 5, 'original': '拉', 'replacement': '啦', 'reason': '核对句尾同音字'},
+                      ]}
+        return video, receipt, transcript, correction
+
+    def test_reviewed_first_and_last_words_keep_the_full_measured_span(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video, receipt, transcript, correction = self.source(Path(tmp))
+            before = {path: path.read_bytes() for path in (video, receipt, transcript)}
+            original = ALIGN.cloud_characters(video, receipt)
+            self.assertEqual(ALIGN.anchor(['程昭宁你回来啦'], original), [(0.4, 2.1)])
+            chars, evidence = ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+            self.assertEqual(ALIGN.anchor(['程昭宁你回来啦'], chars), [(0.2, 2.8)])
+            self.assertEqual([(item[1], item[2]) for item in chars],
+                             [(item[1], item[2]) for item in original])
+            self.assertEqual([(row['start'], row['end']) for row in evidence['corrections']],
+                             [(0.2, 0.4), (2.5, 2.8)])
+            self.assertFalse(evidence['listening_verified'])
+            self.assertEqual(evidence['source_sha256'], correction['source_sha256'])
+            self.assertEqual(evidence['transcript_sha256'], correction['transcript_sha256'])
+            for path, data in before.items():
+                self.assertEqual(path.read_bytes(), data)
+
+    def test_cli_writes_corrected_cues_and_evidence_without_recognition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, correction = self.source(root)
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['程昭宁你回来啦']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            (root / 'corrections.json').write_text(json.dumps({'shots': [correction]}))
+            before = transcript.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'),
+                    '--corrections', str(root / 'corrections.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=3.0), \
+                    patch.object(ALIGN, 'transcribe', side_effect=AssertionError('no new recognition')):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertEqual(result['strategy'], 'asr_aligned')
+            self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '程昭宁你回来啦'}])
+            self.assertEqual(result['correction_evidence']['transcript_sha256'], correction['transcript_sha256'])
+            self.assertEqual(transcript.read_bytes(), before)
+
+    def test_cli_stale_correction_returns_missing_evidence_without_guessing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, correction = self.source(root)
+            correction['transcript_sha256'] = '0' * 64
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['程昭宁你回来啦']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            (root / 'corrections.json').write_text(json.dumps({'shots': [correction]}))
+            before = transcript.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'),
+                    '--corrections', str(root / 'corrections.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'transcribe', side_effect=AssertionError('no new recognition')):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertEqual(result['strategy'], 'missing_evidence')
+            self.assertEqual(result['cues'], [])
+            self.assertNotIn('correction_evidence', result)
+            self.assertEqual(transcript.read_bytes(), before)
+
+    def test_corrections_require_cloud_mode_before_loading_a_local_model(self):
+        output = io.StringIO()
+        output.reconfigure = lambda **_: None
+        args = ['align_subtitles.py', '--project', '.', '--episode', '1',
+                '--model-dir', 'unused', '--corrections', 'unused.json']
+        with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                patch.object(ALIGN, 'resolve_model', side_effect=AssertionError('no model load')):
+            with self.assertRaisesRegex(SystemExit, '--cloud-transcripts'):
+                ALIGN.main()
+
+    def test_duplicate_or_unselected_correction_shots_fail_before_alignment(self):
+        for shots in ([1, 1], [2]):
+            with self.subTest(shots=shots), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': 'shot.mp4'}]}))
+                (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['你好']},
+                                                                    {'shot': 2, 'lines': ['未选镜头']}]}))
+                (root / 'receipts.json').write_text(json.dumps({'shots': []}))
+                (root / 'corrections.json').write_text(json.dumps({'shots': [{'shot': shot} for shot in shots]}))
+                args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                        '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                        '--cloud-transcripts', str(root / 'receipts.json'),
+                        '--corrections', str(root / 'corrections.json')]
+                output = io.StringIO()
+                output.reconfigure = lambda **_: None
+                with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output):
+                    with self.assertRaisesRegex(SystemExit, '镜头编号'):
+                        ALIGN.main()
+
+    def test_stale_source_or_raw_transcript_hash_cannot_apply(self):
+        for field in ('source_sha256', 'transcript_sha256'):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                video, receipt, _transcript, correction = self.source(Path(tmp))
+                correction[field] = '0' * 64
+                with self.assertRaisesRegex(SystemExit, '摘要不符'):
+                    ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+
+    def test_original_word_must_match_at_the_recorded_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video, receipt, _transcript, correction = self.source(Path(tmp))
+            correction['corrections'][0]['original'] = '成'
+            with self.assertRaisesRegex(SystemExit, 'original'):
+                ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+
+    def test_correction_cannot_add_or_remove_recognized_characters(self):
+        for replacement in ('', '程昭宁'):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as tmp:
+                video, receipt, _transcript, correction = self.source(Path(tmp))
+                correction['corrections'][0]['replacement'] = replacement
+                with self.assertRaisesRegex(SystemExit, '增删'):
+                    ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+
+    def test_index_and_reason_are_required_and_duplicate_words_are_rejected(self):
+        for change in ({'word_index': -1}, {'word_index': True}, {'word_index': 9}, {'reason': ''}):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as tmp:
+                video, receipt, _transcript, correction = self.source(Path(tmp))
+                correction['corrections'][0].update(change)
+                with self.assertRaises(SystemExit):
+                    ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+        with tempfile.TemporaryDirectory() as tmp:
+            video, receipt, _transcript, correction = self.source(Path(tmp))
+            correction['corrections'].append(dict(correction['corrections'][0]))
+            with self.assertRaisesRegex(SystemExit, '重复'):
+                ALIGN.cloud_alignment_source(video, receipt, correction=correction)
+
+    def test_corrections_do_not_mutate_the_loaded_raw_segments(self):
+        segments = [{'words': [{'text': '城', 'start': 0.2, 'end': 0.4}]}]
+        correction = {'source_sha256': 'a' * 64, 'transcript_sha256': 'b' * 64,
+                      'corrections': [{'word_index': 0, 'original': '城', 'replacement': '程', 'reason': '人名'}]}
+        corrected, _evidence = ALIGN.corrected_cloud_words(segments, correction, 'a' * 64, 'b' * 64)
+        self.assertEqual(segments[0]['words'][0]['text'], '城')
+        self.assertEqual(corrected[0]['words'][0]['text'], '程')
+
+
 if __name__ == '__main__':
     unittest.main()

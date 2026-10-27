@@ -132,7 +132,7 @@
     },
     {
       "name": "jianying_draft",
-      "description": "使用随 Muse 打包的 pyJianYingDraft 生成一集可编辑剪映草稿，不经过 PowerShell。先读 tweet-drama-draft-build 技能并用 drama_draft_dir 取得根目录；write 一个 JSON 请求文件，包含 project、episode、name_prefix、audio、按镜头顺序的 videos 路径数组、subtitle_srt、timeline，可选 bgm、bgm_role、ending_audio、ending_effect，所有文件用绝对路径。主音轨是未混 BGM 的完整对白；独立 bgm 应为纯音乐并声明 bgm_role=music_only，dialogue_music_mix 审查混音不会再导入独立 BGM 轨，未知用途只提示、不会宣称已证明无对白。字幕已按实际语音校时，timeline 沿用成片时间线。只处理指定集，不覆盖已有草稿；字幕、配乐和轨道质量疑点返回 warnings 与 review_path 软提示，由你查看实际轨道决定，不要求提示清零。返回保存后读回一致的草稿路径和库版本，editor_open_verified=false 表示尚未在用户剪映里打开验收。",
+      "description": "生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 bgm、bgm_role、ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。BGM 为独立纯音乐轨，声明 bgm_role=music_only；含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。",
       "parameters": {
         "type": "object",
         "properties": {

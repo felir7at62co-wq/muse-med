@@ -304,6 +304,20 @@ it('rejects a library save failure even when the child exits zero', async () => 
   }
 })
 
+it('reports startup stderr when a generator exits before returning JSON', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', 'process.stderr.write("ModuleNotFoundError: draft_inputs"); process.exit(1)'] }))
+  try {
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config))
+      .rejects.toThrow('Draft generator returned no JSON (exit 1): ModuleNotFoundError: draft_inputs')
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
 it('preserves embedded-text warnings and limited subtitle editability from the generator', async () => {
   const f = await fixture()
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
@@ -330,6 +344,56 @@ it('rejects oversized requests before starting a generator', async () => {
     await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config))
       .rejects.toThrow('input limit')
     expect(spy).not.toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it('selects the source-audio backend only for Windows and preserves the independent-audio route', () => {
+  expect(Draft.resolveJianyingDraftBackend('embedded', 'win32')).toEqual({
+    script: 'windows_aa_draft.py', library: 'aa-jianying',
+  })
+  for (const platform of ['win32', 'darwin', 'linux'] as const) {
+    expect(Draft.resolveJianyingDraftBackend('independent', platform)).toEqual({
+      script: 'generate_draft_request.py', library: 'pyJianYingDraft',
+    })
+  }
+  expect(() => Draft.resolveJianyingDraftBackend('embedded', 'darwin')).toThrow('Windows only')
+})
+
+it.each(['{"audio_mode":"guess"}', 'null', '[]', '{'])('rejects an invalid episode request before a subprocess: %s', async (request) => {
+  const f = await fixture()
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn')
+  try {
+    await writeFile(f.input.request_file, request)
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config)).rejects.toThrow()
+    expect(spy).not.toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it.runIf(process.platform === 'win32')('runs embedded source audio through the same Host tool and AA implementation', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const script = fakePython.replace("name:'pyJianYingDraft'", "name:'aa-jianying'")
+    .replace('success:true,drafts_created:1', "success:true,backend:'aa-jianying',drafts_created:1")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', script, f.input.request_file, f.input.drafts_dir] }))
+  try {
+    await writeFile(f.input.request_file, '\ufeff' + JSON.stringify({ episode: 95, name_prefix: 'candidate-', audio_mode: 'embedded' }))
+    await f.ctx.plugin(Draft, { ...f.config, ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
+      windowsPowerShellPath: 'C:\\Windows\\powershell.exe' })
+    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      callId: ToolCallId('aa-source-audio'), signal: f.signal })
+    expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+    expect(response.value).toMatchObject({ backend: 'aa-jianying', library: { name: 'aa-jianying' }, editor_open_verified: false })
+    expect(spy.mock.calls[0]![0].argv[2]).toMatch(/windows_aa_draft\.py$/u)
+    expect(spy.mock.calls[0]![0].env).toMatchObject({ FFMPEG_BINARY: 'C:\\media\\ffmpeg.exe',
+      FFPROBE_BINARY: 'C:\\media\\ffprobe.exe', MUSE_JIANYING_POWERSHELL: 'C:\\Windows\\powershell.exe' })
+    expect(f.ctx.tools.schemas().filter(tool => tool.name === 'jianying_draft')).toHaveLength(1)
   } finally {
     spy.mockRestore()
     await f.dispose()
