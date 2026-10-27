@@ -818,6 +818,63 @@ describe('jubian_video', () => {
     expect(await ledger.records()).toHaveLength(1)
   })
 
+  it.each(['Active', null])('does not accept an unconfirmed image task with a URL when parent status is %s', async (parentStatus) => {
+    for (const resultStatus of ['pending', 'future-state', 'failed']) {
+      const { client, calls } = stubClient((request) => {
+        if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+        if (request.method === 'POST') return 83749
+        if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
+          assetUrl: 'https://media.example/placeholder.png', hsAssetStatus: 'Active', isUsed: 0,
+          taskId: 545217, resultStatus }]
+        return { id: 83749, hsAssetStatus: parentStatus }
+      })
+      const key = `image-state-${parentStatus}-${resultStatus}`
+      const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+        asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: key }, imageDeps({ timeoutMs: 0 }))
+      expect(result).toMatchObject({ outcome: 'accepted', asset_status: resultStatus === 'failed' ? 'failed' : 'timeout',
+        material_id: null, image_url: null })
+      if (resultStatus === 'failed') expect(JSON.stringify(result)).toContain('545217')
+      expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+      expect(await ledger.find(key)).toMatchObject({ outcome: 'accepted' })
+    }
+  })
+
+  it.each(['Active', null])('accepts an explicitly successful image task with parent status %s', async (parentStatus) => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
+        assetUrl: 'https://media.example/final.png', hsAssetStatus: 'Active', isUsed: 0,
+        taskId: 545217, resultStatus: 'succeeded' }]
+      return { id: 83749, hsAssetStatus: parentStatus }
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: `image-ok-${parentStatus}` }, imageDeps({ timeoutMs: 0 }))
+    expect(result).toMatchObject({ outcome: 'accepted', asset_status: parentStatus === null ? 'generated' : 'active',
+      material_id: 900, image_url: 'https://media.example/final.png' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('polls the original image task until its explicit status succeeds', async () => {
+    let reads = 0
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
+        assetUrl: 'https://media.example/final.png', taskId: 545217,
+        resultStatus: ++reads === 1 ? 'pending' : 'succeeded' }]
+      return { id: 83749, hsAssetStatus: 'Active' }
+    })
+    const key = 'image-status-transition'
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: key }, imageDeps({ timeoutMs: 500 }))
+    expect(result).toMatchObject({ outcome: 'accepted', asset_status: 'active', material_id: 900,
+      image_url: 'https://media.example/final.png' })
+    expect(reads).toBe(2)
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.find(key)).toMatchObject({ outcome: 'accepted' })
+  })
+
   it('refuses oversized KU_AI references for the entire image batch before any paid write', async () => {
     const { client, calls } = stubClient(() => MULTI_IMAGE_CATALOGUE)
     await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,

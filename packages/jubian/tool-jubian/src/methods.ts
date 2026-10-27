@@ -396,6 +396,19 @@ interface ImageReadback {
   error: string | null
 }
 
+/** Preserve the provider's classified terminal failure without exposing its raw message. */
+function failedImageReadback(generation: NonNullable<ReturnType<typeof readImageGeneration>>, waitedMs: number): ImageReadback {
+  const task = generation.task_id ?? '未提供'
+  const error = generation.error_code === 'reference_limit'
+    ? `原生图任务${task}已失败：最多${generation.max_reference_images}张参考图。请修正引用数量。`
+    : generation.error_code === 'content_refused'
+      ? `原生图任务${task}已被供应商内容审核拒绝；不要原样重复提交。`
+      : generation.error_code === 'insufficient_credits'
+        ? `原生图任务${task}已因供应商额度不足失败；先由用户处理额度，不能自动重投。`
+        : `原生图任务${task}已失败：供应商报告生成失败。原请求不可继续等待。`
+  return { status: 'failed', material_id: null, image_url: null, observed_status: 'failed', waited_ms: waitedMs, error }
+}
+
 /** One readback with nothing read and one reason why. */
 function unread(status: 'replayed' | 'unverified', error: string): ImageReadback {
   return { status, material_id: null, image_url: null, observed_status: null, waited_ms: 0, error }
@@ -505,6 +518,11 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
           && wireText(onlyRow.assetId) !== String(assetId))) {
           throw new JubianError('CONTRACT_CHANGED', 'No unique generated image for the accepted parent')
         }
+        const generation = readImageGeneration(onlyRow)
+        if (generation?.status === 'failed') return failedImageReadback(generation, now() - started)
+        if (generation !== null && generation.status !== 'succeeded') {
+          throw new JubianError('CONTRACT_CHANGED', 'Generated image task is not confirmed successful')
+        }
         const image = readGeneratedImage(onlyRow)
         return { status: 'active', material_id: image.material_id, image_url: image.url,
           observed_status: observed, waited_ms: now() - started, error: null }
@@ -522,20 +540,17 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
         if (results.length === 1) {
           const generation = readImageGeneration(results)
           if (generation?.status === 'failed') {
-            return { status: 'failed', material_id: null, image_url: null, observed_status: 'failed',
-              waited_ms: now() - started,
-              error: generation.error_code === 'reference_limit'
-                ? `原生图任务${generation.task_id ?? '未提供'}已失败：最多${generation.max_reference_images}张参考图。请修正引用数量。`
-                : generation.error_code === 'content_refused'
-                  ? `原生图任务${generation.task_id ?? '未提供'}已被供应商内容审核拒绝；不要原样重复提交。`
-                  : generation.error_code === 'insufficient_credits'
-                    ? `原生图任务${generation.task_id ?? '未提供'}已因供应商额度不足失败；先由用户处理额度，不能自动重投。`
-                    : `原生图任务${generation.task_id ?? '未提供'}已失败：供应商报告生成失败。原请求不可继续等待。` }
+            return failedImageReadback(generation, now() - started)
           }
         }
         const candidates = responseRecords(data).filter(row => wireText(row.assetId) === String(assetId)
           && wireText(row.hsAssetStatus)?.trim().toLowerCase() === 'active' && row.isUsed === 0)
         if (candidates.length !== 1) throw new JubianError('CONTRACT_CHANGED', 'No unique active unselected image candidate for the accepted parent')
+        const generation = readImageGeneration(candidates[0])
+        if (generation?.status === 'failed') return failedImageReadback(generation, now() - started)
+        if (generation !== null && generation.status !== 'succeeded') {
+          throw new JubianError('CONTRACT_CHANGED', 'Generated image task is not confirmed successful')
+        }
         const image = readGeneratedImage(candidates)
         if (image.material_id === null || !image.url.startsWith('https://')) {
           throw new JubianError('CONTRACT_CHANGED', 'Generated image candidate requires a material identity and HTTPS URL')
@@ -797,7 +812,15 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       const materialPage = Array.isArray(data) ? { rows: data }
         : data && typeof data === 'object' && result.envelope_layout === 'array-single'
           && !Object.hasOwn(data, 'rows') && !Object.hasOwn(data, 'list') ? { rows: [data] } : data
-      return { materials: readMaterialList(materialPage) }
+      const rawTotal = materialPage && typeof materialPage === 'object' && !Array.isArray(materialPage)
+        ? (materialPage as Record<string, unknown>).total : undefined
+      if (rawTotal !== undefined && rawTotal !== null
+        && (typeof rawTotal !== 'number' || !Number.isSafeInteger(rawTotal) || rawTotal < 0)) {
+        throw new JubianError('CONTRACT_CHANGED', 'Material inventory has an invalid total')
+      }
+      const totalSource = typeof rawTotal === 'number' ? 'provider' : 'page_count'
+      return { materials: { ...readMaterialList(materialPage), total_source: totalSource },
+        ...totalSource === 'page_count' ? { guidance: '供应商未提供总数；total 为本页记录数，不能作为全部素材总数。' } : {} }
     }
     case 'generated_image': {
       const assetId = need(args.asset_id)
