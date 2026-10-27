@@ -168,6 +168,28 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 self.assertEqual(plan['body_end_us'], 4_000_000)
                 self.assertEqual(timeline.read_bytes(), original)
 
+    def test_plain_and_bom_timelines_keep_verified_project_frame_clock(self):
+        results = []
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                timeline_data = self.delivery_timeline('animation_3d')
+                timeline_data['delivery']['fps'] = 24
+                root = self.build_root(timeline=timeline_data)
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text(json.dumps(timeline_data), encoding=encoding)
+                original = timeline.read_bytes()
+                draft_dir = self.generate(root)
+                clock = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['frame_clock']
+                self.assertEqual(clock['status'], 'verified_same_fps_cfr')
+                self.assertEqual(clock['fps'], 24)
+                self.assertEqual([clock['clips'][str(shot)]['source_frame_count'] for shot in (1, 2)], [48, 48])
+                self.assertEqual(timeline.read_bytes(), original)
+                self.assertEqual((root / 'materials/05_timeline/25.timeline.json').read_bytes(), original)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                results.append((clock['body_end_us'], clock['duration_us'], content['duration'],
+                                [segment['target_timerange'] for segment in self.segments(content, 'video')]))
+        self.assertEqual(results[0], results[1])
+
     def test_real_request_retains_plain_and_bom_timeline_and_subtitle_bytes(self):
         environment, module_path = dict(os.environ), list(sys.path)
         with patch.dict(os.environ), patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
