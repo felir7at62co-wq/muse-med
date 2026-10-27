@@ -424,6 +424,10 @@ describe('uploaded voice references', () => {
     '张三：“今晚别走。”',
     '说话人：张三\n张三：今晚别走。',
     '说话人：Mary Jane\nMary Jane：Hello.',
+    '人物：张三、李四\n李四：今晚别走。',
+    '角色：张三，李四\n张三：今晚别走。',
+    '出镜人物：张三（工人）/ Mary Jane\nMary Jane：Hello.',
+    '人物：无双；李四\n无双：今晚别走。',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -445,6 +449,16 @@ describe('uploaded voice references', () => {
     '旁白：无',
     '字幕：“今晚别走。”',
     '角色：“陆沉舟”',
+    '人物：张三、李四\n场景：晚上。',
+    '人物：无\n无：今晚别走。',
+    '人物：不出现张三\n张三：今晚别走。',
+    '人物：张三（不出现）\n张三：今晚别走。',
+    '人物：张三（无台词）\n张三：今晚别走。',
+    '人物：张三\n李四：今晚别走。',
+    '人物：张三\n张三：无',
+    '人物：张三\n张三：无对白',
+    '对白：暂无台词',
+    '场景：张三\n张三：今晚别走。',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }

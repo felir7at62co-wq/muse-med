@@ -475,9 +475,20 @@ function hasPromptSpeech(prompt: string): boolean {
   for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
     if (match[1] !== undefined) names.add(match[1].trim())
   }
+  for (const match of prompt.matchAll(/^[ \t]*(?:人物|角色|角色名|出镜人物)\s*[：:]\s*([^\n\r]+)/gmu)) {
+    for (const raw of (match[1] ?? '').split(/[、，,；;\/|]/u)) {
+      const entry = raw.trim()
+      if (/^(?:不要|不得|禁止|避免|排除|不出现)/u.test(entry)
+        || /[（(][^）)]*(?:不要|不得|禁止|避免|排除|不出现|不说话|不发声|无台词|没有台词)[^）)]*[）)]/u.test(entry)) continue
+      const name = entry.replace(/\s*[（(][^）)]*[）)]\s*$/u, '').trim()
+      if (/^[\p{L}\p{N}·][\p{L}\p{N}· .]{0,29}$/u.test(name)
+        && !/^(?:无|没有|暂无|none|null)$/iu.test(name)) names.add(name)
+    }
+  }
   const fields = new Set(['场景', '场景名称', '核心场景', '镜头', '景别', '时长', '动作', '人物动作', '动作状态',
     '人物', '角色', '角色名', '出镜人物', '说话人', '主体', '主体状态追踪', '道具', '关键道具',
     '风格', '声音', '音效', '配乐', '字幕', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
+  const emptySpeech = /^(?:无(?:对白|台词|旁白|语音|声音)?|没有(?:台词|对白|旁白)?|暂无(?:台词|对白|旁白)?|不说话|不发声|none|null)[。.!！]?$/iu
   for (const raw of prompt.split(/\r?\n/u)) {
     const line = raw.trim()
     if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
@@ -486,14 +497,14 @@ function hasPromptSpeech(prompt: string): boolean {
       const before = line.slice(0, speech.index).trim()
       const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
       if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
-        && content !== '' && !/^(?:无|没有|暂无|none|null)[。.!！]?$/iu.test(content)) return true
+        && content !== '' && !emptySpeech.test(content)) return true
     }
     const named = /^([^：:]{1,30})\s*[：:]\s*(.+)$/u.exec(line)
     if (named?.[1] === undefined || named[2] === undefined) continue
     const speaker = named[1].trim().replace(/[（(]\s*(?:画外音|VO|OS)\s*[）)]\s*$/iu, '')
     const content = named[2].trim()
-    if (!fields.has(speaker) && !/^(?:无|没有|不要|禁止|避免|不得)/u.test(speaker)
-      && !/^(?:无|没有|暂无|none|null)[。.!！]?$/iu.test(content)
+    if (!fields.has(speaker) && !/^(?:无(?:对白|台词|旁白|语音|声音|人物|角色)?$|没有|不要|禁止|避免|不得)/u.test(speaker)
+      && !emptySpeech.test(content)
       && (names.has(speaker) || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
   }
   return false
