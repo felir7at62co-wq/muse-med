@@ -88,8 +88,11 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
       catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/index.json',
     })
     expect(source).toContain("fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'")
-    expect(source).toContain("subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'")
-    expect(source).toContain("watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
+    for (const preset of ['short-drama', 'creation']) {
+      const presetSource = await readFile(join(productRoot, preset, 'agent.cordis.yml'), 'utf8')
+      expect(presetSource).toContain("subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'")
+      expect(presetSource).toContain("watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
+    }
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
     expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
     expect(prompt).toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')

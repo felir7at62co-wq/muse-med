@@ -100,6 +100,15 @@ it('rejects invalid model image budgets before activation', () => {
   }
 })
 
+it('bounds activity reporting frequency and lifetime independently of account model requests', () => {
+  expect(Config({ baseUrl })).toMatchObject({ activityReportIntervalMs: 30_000, activityRequestTimeoutMs: 5_000 })
+  for (const [field, maximum] of [['activityReportIntervalMs', 3_600_000], ['activityRequestTimeoutMs', 30_000]] as const) {
+    for (const value of [0, -1, 1.5, '1000', maximum + 1]) {
+      expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, [field]: value }]) }).toThrow()
+    }
+  }
+})
+
 it('forwards account provider exclusions without removing other account groups', async () => {
   const { ctx, home, sessionFile } = await fixture()
   const entry = catalog.providers[0]!.models[0]!

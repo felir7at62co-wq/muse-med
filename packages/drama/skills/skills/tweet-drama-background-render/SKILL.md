@@ -76,7 +76,7 @@ SD2.5（Seedance 2.5）默认使用通过内容审核的原片合成，不自动
 - **片尾特效完整覆盖选项**：新建仿真人交付候选时，在 `prepare` 后的共享 timeline 显式写 `ending_effect_fit: "stretch_to_window"`，除非项目已经明确选择原速短特效。正式渲染和草稿均将完整特效源按实测时长变速覆盖 2 秒；1.020 秒源的播放速度为 0.51，音频仍原速取前 2 秒。此选项不循环、不补黑场，也不把黑尾冻结冒称仍有特效；报告源时长、目标时长与速度，预览片尾后再确定效果。省略字段按上面的 `source_once` 旧规则播放一次，保留旧调用；3D 动画仍不添加任何片尾。
 - **禁止**转场、额外音效、调色、滤镜、画面特效和花字；全片只有基础硬切与上述片尾特效。
 
-**字幕可读性建议两条路径保持一致**：建议去标点、按语义切分、单行，文字以实际核听为准；14 个有效字只是初筛，不代表字形能放入画幅。缺对齐、声文不符、样式或配乐问题只返回具体路径与原因，由 Muse 判断如何处理；不要求提示清零，也不新增批准步骤。草稿路径的 `normalize_subtitle_text` 写出独立 `.normalized.srt`；超长字幕保留原文与时间，不按字数猜切点。`drama_render subtitles` 有疑点时写 `.draft.srt` 并保留原字幕；`.review.txt` 与旧 `.blocked` 只作提醒，准备和渲染可继续。保存成功不表示已完成质量验收。未启用 `subtitle_visual` 时，两条路径保持各自默认：成片按项目正文样式或部署默认（字族 SimHei、ASS 字号 `40`、字间距 `-2`、描边按成片像素推导）；草稿默认字族由编辑器选择（文件不写 `font`）、字号 `11`、字间距 `0`、描边 `20`，均为剪映 UI 单位。
+**字幕可读性建议两条路径保持一致**：建议去标点、按语义切分、单行，文字以实际核听为准；14 个有效字只是初筛，不代表字形能放入画幅。缺对齐、声文不符、样式或配乐问题只返回具体路径与原因，由 Muse 判断如何处理；不要求提示清零，也不新增批准步骤。草稿路径的 `normalize_subtitle_text` 写出独立 `.normalized.srt`；超长字幕保留原文与时间，不按字数猜切点。`drama_render subtitles` 有疑点时写 `.draft.srt` 并保留原字幕；`.review.txt` 与旧 `.blocked` 只作提醒，准备和渲染可继续。保存成功不表示已完成质量验收。未启用 `subtitle_visual` 时，两条路径保持各自默认：成片按项目正文样式或部署默认（字族见下文「本地依赖与入口」、ASS 字号 `40`、字间距 `-2`、描边按成片像素推导）；草稿默认字族由编辑器选择（文件不写 `font`）、字号 `11`、字间距 `0`、描边 `20`，均为剪映 UI 单位。
 
 ## 共享字幕视觉配置
 
@@ -104,7 +104,7 @@ BGM 授权信息交接：`match/download` 的 `intended_use` 与计划中本集�
 
 ## 本地依赖与入口
 
-本包包含维护源码和片尾这两份素材（本技能目录下的 `assets/ending_effect.mp4`、`assets/ending_audio.mp3`），不包含 BGM、字体或 FFmpeg 二进制。安装 FFmpeg/ffprobe（需字幕滤镜和所选编码器）；路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，兼容 `FFMPEG_PATH` / `FFPROBE_PATH`，否则使用 PATH。**字体只有这一处权威说法**：随包字体只存在于 muse-med Windows 产品——它捆绑 OFL 授权的 Noto Sans CJK SC，未配置项目正文覆盖时 ASS 正文 40、水印 44 及其余默认不变，Python 通过 `MUSE_FONTS_DIR` 和 `MUSE_FONT_FAMILY` 使用包内字体，正式 `drama_render` 由产品配置传入同一目录和字族；`background-render` 与 `draft-build` 的其余段落都不再另称 SimHei。非产品部署没有随包字体，字族回落为系统发现的 SimHei（正文）与 Microsoft YaHei（水印），即 `drama_render` 的默认值，或用 `DSH_FONTS_DIR` 指定已授权目录，需自行确认这两个字体可用且已获授权；选择 Noto Sans CJK SC 的理由是它可以随包再分发（OFL），SimHei 不行。脚本仅依赖 Python 标准库和相邻 `tweet-drama-core/scripts/video_bans.py`，建议 Python 3.11+，运行时用 `python -B`。
+本包包含维护源码和片尾这两份素材（本技能目录下的 `assets/ending_effect.mp4`、`assets/ending_audio.mp3`），不包含 BGM、字体或 FFmpeg 二进制。安装 FFmpeg/ffprobe（需字幕滤镜和所选编码器）；路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，兼容 `FFMPEG_PATH` / `FFPROBE_PATH`，否则使用 PATH。**字体只有这一处权威说法**：随包字体只存在于 muse-med Windows 产品；正式直出正文默认请求 `Zhuque Fangsong (technical preview)`，水印仍请求 OFL 授权的 Noto Sans CJK SC，未配置项目正文覆盖时 ASS 正文 40、水印 44 及其余默认不变。Python 通过 `MUSE_FONTS_DIR`、`MUSE_SUBTITLE_FONT_FAMILY` 与 `MUSE_WATERMARK_FONT_FAMILY` 使用包内字体，正式 `drama_render` 由产品配置传入同一目录及分别选定的字族；旧 `MUSE_FONT_FAMILY` 在对应专用变量缺失时仍作为两者的兼容回退。非产品部署没有随包字体，字族回落为系统发现的 SimHei（正文）与 Microsoft YaHei（水印），即 `drama_render` 的默认值，或用 `DSH_FONTS_DIR` 指定已授权目录，需自行确认字体可用且已获授权；字体名称与实际 FFmpeg 命中须分别核对。脚本仅依赖 Python 标准库和相邻 `tweet-drama-core/scripts/video_bans.py`，建议 Python 3.11+，运行时用 `python -B`。
 
 单集入口 `scripts/render_episode.py` 的旧调用仍需显式提供 `--bgm`（本集实际选择并试听的配乐音轨，不限定曲数）；无后加配乐或项目级混音使用当前 `drama_render` schema 支持的显式方案，不以静音文件假装已经选曲。仿真人及旧项目还必须提供 `--ending-audio` 和 `--ending-effect`，指向本技能 `assets/` 下的两份素材，缺失或字节不符都明确失败。3D 动画无需片尾参数，即使传入也不读取。批量入口 `scripts/render_batch.py` 使用 `--bgm-dir` 中逐集的 `NN.mp3`，每集独立执行同一媒介策略。选曲情绪与使用授权由项目分段记录和试听核验，脚本不从已混音文件推断曲目。生成规格服从当前模型目录与分镜，脚本按时间线 `delivery` 快照输出并校验尺寸和帧率，缺少快照时保留上面的旧版默认。
 

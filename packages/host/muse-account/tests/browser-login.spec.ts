@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { MuseBrowserLogin } from '../src/browser-login.ts'
+import type { MuseAccountIdentity } from '../src/gateway.ts'
 import { readMuseSession } from '../src/session.ts'
 import type { MuseBrowserLoginId } from '../src/types.ts'
 
-async function fixture() {
+async function fixture(identity: MuseAccountIdentity = { username: 'writer' }) {
   const home = await mkdtemp(join(tmpdir(), 'muse-browser-host-'))
   onTestFinished(() => rm(home, { recursive: true, force: true }))
   const sessionFile = join(home, 'session.json'), baseUrl = 'https://muse.test'
@@ -17,7 +18,11 @@ async function fixture() {
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input)
     expect(init?.redirect).toBe('manual')
-    if (url.pathname === '/api/desktop-login/start') return Response.json(attempt)
+    if (url.pathname === '/api/desktop-login/start') {
+      expect(init?.body).toBeInstanceOf(URLSearchParams)
+      expect((init?.body as URLSearchParams).toString()).toBe('provider=feishu')
+      return Response.json(attempt)
+    }
     if (url.pathname === '/api/desktop-login/check') {
       expect(init?.body).toBeInstanceOf(URLSearchParams)
       expect((init?.body as URLSearchParams).toString()).toBe(new URLSearchParams({ id, secret }).toString())
@@ -27,7 +32,7 @@ async function fixture() {
     if (url.pathname === '/api/desktop-login/cancel') return Response.json({ state: 'cancelled' })
     if (url.pathname === '/api/muse.account') {
       expect(new Headers(init?.headers).get('cookie')).toBe('__Host-muse=local-token')
-      return Response.json({ username: 'writer' })
+      return Response.json(identity)
     }
     if (url.pathname === '/logout') return new Response(null, { status: 303 })
     throw new Error('Unexpected fixture route')
@@ -49,6 +54,30 @@ it('exposes only approval fields and saves a verified independent session before
   expect(await readMuseSession(f.sessionFile, f.baseUrl)).toMatchObject({ cookie: '__Host-muse=local-token', username: 'writer' })
   expect(await readFile(f.sessionFile, 'utf8')).not.toContain(f.secret)
   expect(await f.login.check(f.id)).toEqual({ state: 'expired' })
+})
+
+it('accepts the exact Feishu entry URL and keeps the device pending until browser confirmation', async () => {
+  const f = await fixture()
+  f.attempt.authorizeUrl = f.baseUrl + '/auth/feishu/start?desktop_login=' + f.id
+  const attempt = await f.login.start()
+  expect(attempt.authorizeUrl).toBe(f.attempt.authorizeUrl)
+  expect(JSON.stringify(attempt)).not.toContain(f.secret)
+  expect(await f.login.check(f.id)).toEqual({ state: 'pending' })
+  expect(await readMuseSession(f.sessionFile, f.baseUrl)).toBeNull()
+  f.approve()
+  expect(await f.login.check(f.id)).toEqual({ state: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } })
+  expect(await readMuseSession(f.sessionFile, f.baseUrl)).toMatchObject({ cookie: '__Host-muse=local-token', username: 'writer' })
+})
+
+it('returns freshly verified administrator navigation without persisting that permission', async () => {
+  const f = await fixture({ username: 'owner', admin: true, adminUrl: '/admin' })
+  await f.login.start()
+  f.approve()
+  expect(await f.login.check(f.id)).toEqual({ state: 'signed-in', status: {
+    state: 'signed-in', username: 'owner', verified: true, admin: true, adminUrl: f.baseUrl + '/admin',
+  } })
+  expect(await readFile(f.sessionFile, 'utf8')).not.toMatch(/"(?:admin|adminUrl|verified)"/u)
+  expect(await readMuseSession(f.sessionFile, f.baseUrl)).not.toHaveProperty('admin')
 })
 
 it('does not redeem another attempt and cancellation prevents later local persistence', async () => {
@@ -83,9 +112,20 @@ it('serializes concurrent redemption and collects a pending request before dispo
   await expect(f.login.start()).rejects.toMatchObject({ code: 'gateway-unavailable' })
 })
 
-it.each(['https://evil.test/desktop-login', 'https://muse.test/elsewhere', 'http://muse.test/desktop-login'])('rejects an approval link outside the exact configured route: %s', async (authorizeUrl) => {
+it.each([
+  'https://evil.test/desktop-login', 'https://muse.test/elsewhere', 'http://muse.test/desktop-login',
+  'https://evil.test/auth/feishu/start?desktop_login={id}',
+  'http://muse.test/auth/feishu/start?desktop_login={id}',
+  'https://muse.test/desktop-login?attempt={id}&next=/admin',
+  'https://muse.test/desktop-login?attempt={id}#approval',
+  'https://muse.test/auth/feishu/start?desktop_login={id}&next=/admin',
+  'https://muse.test/auth/feishu/start?desktop_login={id}#approval',
+  'https://muse.test/auth/feishu/start?desktop_login={id}&desktop_login={id}',
+  'https://muse.test/auth/feishu/start?desktop_login=' + 'b'.repeat(43),
+  'https://muse.test/auth/feishu/start/?desktop_login={id}',
+])('rejects an approval link outside the exact configured routes: %s', async (authorizeUrl) => {
   const f = await fixture()
-  f.fetcher.mockResolvedValueOnce(Response.json({ ...f.attempt, authorizeUrl }))
+  f.fetcher.mockResolvedValueOnce(Response.json({ ...f.attempt, authorizeUrl: authorizeUrl.replaceAll('{id}', f.id) }))
   await expect(f.login.start()).rejects.toMatchObject({ code: 'gateway-rejected' })
   expect(await readMuseSession(f.sessionFile, f.baseUrl)).toBeNull()
 })

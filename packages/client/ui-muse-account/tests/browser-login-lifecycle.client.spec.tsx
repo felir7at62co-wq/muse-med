@@ -50,7 +50,8 @@ it.each(['expired', 'cancelled'] as const)('returns to sign-in when browser appr
   render(<MuseAccountSection {...props({ checkBrowserLogin: async () => ({ ok: true, value: { state } }) })} />)
   fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   expect(await screen.findByText(state === 'expired' ? 'browserExpired' : 'browserCancelled')).toBeDefined()
-  expect(screen.getByLabelText('username')).toBeDefined()
+  expect(screen.getByRole('button', { name: 'browserSignIn' })).toBeDefined()
+  expect(screen.queryByRole('textbox')).toBeNull()
 })
 
 it('reopens the same approval page without creating a new attempt', async () => {
@@ -188,7 +189,7 @@ it.each(['success', 'rejected'] as const)('ignores a late %s cancellation after 
   expect(page.container.innerHTML).toBe('')
 })
 
-it('returns to the password form when explicit cancellation fails', async () => {
+it('returns to Feishu sign-in when explicit cancellation fails', async () => {
   render(<MuseAccountSection {...props({ cancelBrowserLogin: async () => { throw new Error('private cancellation detail') } })} />)
   fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   fireEvent.click(await screen.findByRole('button', { name: 'browserCancel' }))

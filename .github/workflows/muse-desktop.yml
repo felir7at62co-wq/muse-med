@@ -74,6 +74,8 @@ jobs:
         run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
       - name: Check offline OCR process protocol
         run: python -B -m unittest discover -s packages/perception/tool-video-inspect/tests -p test_ocr_bridge.py
+      - name: Check Mac raw-source cache preparation
+        run: python -B -m unittest discover -s apps/desktop/tests -p test_prewarm_macos_media_sources.py
       - name: Check media creation evidence validation
         run: python -B -m unittest discover -s apps/desktop/tests -p test_macos_creation_smoke.py
       - name: Verify shipped drama skill resources
@@ -98,6 +100,9 @@ jobs:
         run: |
           pnpm run build
           pnpm --dir apps/desktop run test:updates:local
+      - name: Prewarm locked Mac media sources
+        if: matrix.target == 'mac-arm64'
+        run: python -B apps/desktop/scripts/prewarm_macos_media_sources.py
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
       - name: Check bundled Host integrations against built dependencies

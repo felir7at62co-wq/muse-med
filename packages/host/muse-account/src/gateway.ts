@@ -22,6 +22,8 @@ export interface MuseAccountIdentity {
   readonly username: string
   readonly environment?: string
   readonly workspaceLabel?: string
+  readonly admin?: boolean
+  readonly adminUrl?: string
 }
 
 /** Network operations over one configured MUSE origin. */
@@ -56,15 +58,15 @@ export function museGatewayOrigin(raw: string): string {
  * Create a gateway client for the configured origin.
  * @param baseUrl - Canonical gateway origin.
  * @param requestTimeoutMs - Validated product request timeout.
- * @param fetcher - Fetch implementation; defaults to Node's global fetch.
+ * @param fetcher - Fixed injected transport; omitted resolves the current global fetch per request.
  * @returns Sign-in, registration, identity and sign-out operations.
  */
-export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: number, fetcher: typeof fetch = fetch): MuseAccountGateway {
+export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: number, fetcher?: typeof fetch): MuseAccountGateway {
   const origin = museGatewayOrigin(baseUrl)
 
   async function request(path: string, options: RequestInit): Promise<Response> {
     try {
-      return await fetcher(new URL(path, origin), {
+      return await (fetcher ?? globalThis.fetch)(new URL(path, origin), {
         ...options,
         redirect: 'manual',
         signal: AbortSignal.timeout(requestTimeoutMs),
@@ -134,6 +136,7 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
         username: fields.username,
         ...(typeof fields.environment === 'string' ? { environment: fields.environment } : {}),
         ...(typeof fields.workspaceLabel === 'string' ? { workspaceLabel: fields.workspaceLabel } : {}),
+        ...(fields.admin === true && fields.adminUrl === '/admin' ? { admin: true, adminUrl: origin + '/admin' } : {}),
       }
     },
     async signOut(cookie) {

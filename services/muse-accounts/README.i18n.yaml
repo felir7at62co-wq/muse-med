@@ -12,8 +12,11 @@
   en: 2a25ab611c404ce7
   zh: 2afdad2b7e85393a
 /muse-accounts-gateway/administrator-account-overview:
-  en: c2b659e486b32753
-  zh: cdaaf037bbedb7d7
+  en: 81e689608bddf767
+  zh: deb43d5e4947ba80
+/muse-accounts-gateway/feishu-login:
+  en: ce9fd125beeea90b
+  zh: 0519988efc718734
 /muse-accounts-gateway/shared-voice-registration:
   en: 36fd7c3c03f0a935
   zh: 15c32fdca803d5e1
@@ -21,8 +24,8 @@
   en: cc1c5f9f8891e2f9
   zh: e99986fa909e9b88
 /muse-accounts-gateway/release-inputs/desktop-browser-sign-in:
-  en: af4d2ef62dc1cca8
-  zh: 1d6d66b170989ce3
+  en: fc1654f0ee713f42
+  zh: 5e58dbb2ae81e16b
 /muse-accounts-gateway/release-inputs/account-sessions:
   en: f89ab61481a0671c
   zh: 33629c37838c9bdb

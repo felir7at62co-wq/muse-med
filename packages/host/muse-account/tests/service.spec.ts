@@ -14,6 +14,7 @@ import { readMuseSession, writeMuseSession } from '../src/session.ts'
 import type { MuseAccountStatus } from '../src/types.ts'
 
 const contexts: Context[] = []
+const homes: string[] = []
 
 it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {
   const context = new Context(), operations: string[] = []
@@ -67,6 +68,23 @@ it('bounds browser login failures and reports unavailable Hosts without exposing
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(async context => context.fiber.dispose()))
+  await Promise.all(homes.splice(0).map(home => rm(home, { recursive: true, force: true })))
+})
+
+it('returns live administrator navigation through status but omits it after unverified browser cancellation', async () => {
+  const context = new Context(), home = await mkdtemp(join(tmpdir(), 'muse-admin-service-'))
+  contexts.push(context); homes.push(home)
+  const baseUrl = 'https://muse.example', sessionFile = join(home, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl, cookie: '__Host-muse=owner', username: 'owner' })
+  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: {
+    signIn: async () => '', register: async () => '', signOut: async () => {},
+    identity: async () => ({ username: 'owner', admin: true, adminUrl: baseUrl + '/admin' }),
+  } })
+  await context.plugin(MuseAccountService, { controller })
+  const service = context.get('museAccount') as MuseAccountService
+  expect(await service.status({ verify: true })).toEqual({ state: 'signed-in', username: 'owner', verified: true, admin: true, adminUrl: baseUrl + '/admin' })
+  expect(await service.status({ verify: false })).toEqual({ state: 'signed-in', username: 'owner', verified: false })
+  expect(await service.cancelBrowserLogin('old-attempt' as import('../src/types.ts').MuseBrowserLoginId)).toEqual({ state: 'signed-in', username: 'owner', verified: false })
 })
 
 it('publishes account setup and explicit inbox submission over the authenticated Remote namespace', async () => {

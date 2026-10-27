@@ -6447,7 +6447,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseAccountStatus',
-    declaration: 'export type MuseAccountStatus = {\n    readonly state: \'signed-out\';\n} | {\n    readonly state: \'signed-in\';\n    readonly username: string;\n    readonly verified: boolean;\n    readonly environment?: string;\n    readonly workspaceLabel?: string;\n};',
+    declaration: 'export type MuseAccountStatus = {\n    readonly state: \'signed-out\';\n} | {\n    readonly state: \'signed-in\';\n    readonly username: string;\n    readonly verified: boolean;\n    readonly environment?: string;\n    readonly workspaceLabel?: string;\n    readonly admin?: boolean;\n    readonly adminUrl?: string;\n};',
   },
   {
     name: 'MuseAccountStatusRequest',

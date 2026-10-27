@@ -29,6 +29,7 @@ function signedIn(identity: MuseAccountIdentity, verified: boolean): Extract<Mus
     verified,
     ...(identity.environment === undefined ? {} : { environment: identity.environment }),
     ...(identity.workspaceLabel === undefined ? {} : { workspaceLabel: identity.workspaceLabel }),
+    ...(verified && identity.admin === true && identity.adminUrl !== undefined ? { admin: true, adminUrl: identity.adminUrl } : {}),
   }
 }
 
@@ -85,7 +86,12 @@ export class MuseAccountController {
       }
     }
     const identity = await this.options.gateway.identity(cookie)
-    await writeMuseSession(this.options.sessionFile, { ...identity, cookie, baseUrl: this.options.baseUrl })
+    await writeMuseSession(this.options.sessionFile, {
+      username: identity.username,
+      ...(identity.environment === undefined ? {} : { environment: identity.environment }),
+      ...(identity.workspaceLabel === undefined ? {} : { workspaceLabel: identity.workspaceLabel }),
+      cookie, baseUrl: this.options.baseUrl,
+    })
     return { outcome, status: signedIn(identity, true) }
   }
 

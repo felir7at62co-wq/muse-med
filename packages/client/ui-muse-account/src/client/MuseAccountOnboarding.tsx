@@ -1,4 +1,4 @@
-/** Muse first-run account step using the same credential form as Settings. */
+/** Muse first-run account step using the same Feishu sign-in flow as Settings. */
 
 import { useEffect, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -7,7 +7,7 @@ import { MuseAccountSection, type MuseAccountInjected } from './MuseAccountSecti
 import css from './MuseAccountOnboarding.module.css'
 
 /**
- * Ask for the Muse KB account before the model readiness step.
+ * Offer Feishu sign-in before the model readiness step.
  * @param props - account operations and onboarding completion.
  * @returns the first-run dialog.
  */

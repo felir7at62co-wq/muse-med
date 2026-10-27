@@ -13,7 +13,31 @@ kind: "package-reference"
 
 ## 管理员账号概览
 
-`admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看注册、正常、停用与管理员数量。同页统计已鉴权且连接中的桌面实例，并将多台电脑对应的在线账号去重。这些是页面刷新时的快照，不是历史活跃记录：桌面连接不代表有人正在操作，注册数也包含测试账号；当前不提供日活与月活。普通账号不能进入该页；查看数量不要求运行时管理使用的独立提权，也不读取私人会话与稿件。
+`admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看账号状态、绑定的飞书姓名与组织标识、最近登录和主动任务活动，以及桌面连接数量。在线账号按多台电脑去重，连接不表示有人正在操作。注册账号包含历史与测试账号；飞书绑定人数只统计已验证绑定的账号。今日与近七天使用按北京时间及最近一次主动任务事件统计，不包含停用账号；启用上报之前的历史活动无法还原。普通账号不能进入该页；查看这些信息不读取私人会话和稿件。
+
+<a id="feishu-login"></a>
+## 飞书登录
+
+将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。复用已有应用时，飞书可能显示用户此前已授予的权限；Muse 仅使用登录身份，不持久保存飞书令牌。
+
+```json
+{
+  "appType": "custom",
+  "appId": "cli_REPLACE_WITH_APP_ID",
+  "appSecret": "REPLACE_WITH_PRIVATE_APP_SECRET",
+  "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
+}
+```
+
+`tokenEndpointVersion` 默认为 `"v3"`；`"v2"` 显式选择固定的 v2 端点以兼容。Muse 不自动回退，也不复用换取失败的授权码；选择版本后须从全新授权开始验证。[授权码文档](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) 描述了 PKCE 搭配 v2 的方式；[SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) 报告了 v3 返回 `20049`、v2 对照成功的情况，这不代表官方确认。
+
+可选策略字段为 `requestTimeoutMs`（默认 15000，范围 1000–60000）、`attemptTtlMs`（300000，范围 60000–600000）、`maxAttempts`（1000，范围 1–10000）和 `requestRatePerMinute`（60，范围 1–1000）。OAuth 使用 PKCE S256、一次性 state 和绑定浏览器的临时 Cookie；换取令牌失败不会重试。仅含已启用飞书授权表单的页面在 CSP `form-action` 中加入固定的 `https://accounts.feishu.cn` Origin 以允许 OAuth 跳转；其他页面仍只允许同源。反向代理不能把回调查询参数写入访问日志，因为其中含授权码和 state。Nginx 可使用精确的 `location = /auth/feishu/callback`，配置 `access_log off` 并沿用网关代理设置。令牌和应用密钥只留在服务器，不进入账号记录、桌面凭据、模型上下文或界面。失败诊断仅含阶段、固定错误分类、HTTP 状态、数值供应商错误码和耗时，不包含响应正文、身份或凭据。
+
+启用飞书后只显示飞书登录入口，登录和注册页面不渲染用户名、密码或注册表单。旧 POST 接口与账号数据继续兼容，未配置飞书的网关保留原有页面。普通飞书用户无需注册 Muse 用户名、设置密码或绑定账号。`GET /auth/feishu/start` 发起网页登录；`POST /auth/feishu/bind` 仍仅供已认证账号页发起明确的同源绑定，以衔接既有账号。绑定保留原 Muse ID、管理员标记、密码与工作区；新身份创建不带密码的普通账号。姓名与邮箱不合并账号。为所有者启用登录前，应在已认证的原 `ylk` 管理员会话中绑定其已验证飞书身份；首次登录顺序不能授予管理员权限。
+
+隔离本地验收仅在 `MUSE_ENVIRONMENT=development`，或两个库工厂均接收明确的开发环境时，允许 `http://localhost:<port>/auth/feishu/callback` 或 `http://127.0.0.1:<port>/auth/feishu/callback`。登记回调必须与公开 Origin 精确匹配。正式环境仍要求 HTTPS；其他 HTTP 主机、用户信息与回调查询参数均拒绝。Secure、HttpOnly、`__Host-` Cookie 与 OAuth 校验保持启用。监听仅限回环地址，并使用独立账号与会话文件；不得转接正式回调或复用正式环境可写数据。真实供应商授权与浏览器 Cookie 行为须在本地验证。
+
+`POST /api/muse.activity` 仅接受已登录同源客户端的 `{ "activity": "task-start" }`，为当前账号记录服务器时间。桌面端上报用户主动发起的轮次，排除子代理、自动目标、模型重试和目录刷新；不携带任务内容与本地路径。这是尽力上报的使用统计元数据，不是全部用户操作的审计；离线或请求失败时不重试、不补传。`MUSE_ACTIVITY_RATE_PER_MINUTE` 配置每账号／IP 每分钟最多接收次数（默认 120，范围 1–10000）。账号存储读取版本 1 和 2，变更时写入版本 2；切换或回滚网关前须遵循[账号升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-feishu-accounts/guide.zh.md)。
 
 <a id="shared-voice-registration"></a>
 ## 共享声线登记
@@ -30,7 +54,7 @@ kind: "package-reference"
 
 ### 桌面端浏览器登录
 
-`POST /api/desktop-login/start` 签发私密兑换密钥、公开授权网址与核对码。`/desktop-login` 网页复用已有登录，或在登录与注册过程中保留本次请求，再要求明确的同源授权确认。`POST /api/desktop-login/check` 必须携带原始密钥；授权仅可兑换一次，通过 `Set-Cookie` 签发独立的桌面会话。`POST /api/desktop-login/cancel` 取消尚未兑换的请求。密钥不进入 URL，首次签发后也不再出现在响应正文；授权和状态响应禁止缓存。兑换前退出网页登录、重置密码或撤销账号会使授权失效；兑换完成后，网页与桌面端分别退出。
+`POST /api/desktop-login/start` 签发私密兑换密钥、公开授权网址与核对码。客户端提交 `provider=feishu` 且网关启用飞书时，返回的入口网址直接跳转到飞书官方授权 UI，不先展示 Muse 登录页。未提供该字段的请求继续返回原授权网址，兼容旧桌面版本。OAuth 保留 PKCE 与绑定浏览器的单次 state，随后返回 MUSE 设备确认页。用户核对桌面端显示的设备码并以同源 POST 确认后，设备才能登录；含 `desktop_login` 的 GET 不会批准设备。未配置飞书的网关保留密码登录和明确的设备确认。原有 `/desktop-login` 飞书表单继续兼容：同源 POST 消耗与独立 HttpOnly 浏览器随机 Cookie 绑定的单次表单凭据，回调只能批准该仍待完成的请求，无需再次确认。`POST /api/desktop-login/check` 必须携带原始私密密钥，仅兑换一次授权，通过 `Set-Cookie` 签发独立桌面会话。`POST /api/desktop-login/cancel` 取消尚未兑换的请求。密钥不进入 URL，首次签发后也不再出现在响应正文；授权和状态响应禁止缓存。取消、到期或刷新授权页会使待完成的飞书设备同意失效。兑换前退出网页登录、重置密码或撤销账号会使授权失效；兑换完成后，网页与桌面端分别退出。
 
 请求仅存在内存中，十分钟后到期，每进程最多1,000个；告知桌面端的轮询间隔为两秒。工厂参数 `desktopLoginOptions` 可配置 `ttlMs`、`maxAttempts` 与 `pollIntervalMs`。网关重启会清除待完成授权，单次兑换的结果丢失时需要重新登录。兑换后沿用既有的持久化会话策略。网关与桌面改动须配套部署；不需要注册操作系统 URL 协议或启动本地回调监听器。
 

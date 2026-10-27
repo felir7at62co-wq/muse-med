@@ -15,10 +15,12 @@ def main():
     args = parser.parse_args()
     fonts = Path(args.fonts).resolve()
     assert (fonts / 'NotoSansCJKsc-Regular.otf').is_file(), 'bundled CJK font missing'
+    assert (fonts / 'ZhuqueFangsong-Regular.ttf').is_file(), 'bundled subtitle font missing'
     work = Path(args.output).resolve()
     work.mkdir(parents=True, exist_ok=True)
     os.environ['MUSE_FONTS_DIR'] = str(fonts)
     os.environ['MUSE_FONT_FAMILY'] = 'Noto Sans CJK SC'
+    os.environ['MUSE_SUBTITLE_FONT_FAMILY'] = 'Zhuque Fangsong (technical preview)'
     source = Path(__file__).resolve().parents[3] / 'packages/drama/skills/skills/tweet-drama-background-render/scripts/render_episode.py'
     spec = importlib.util.spec_from_file_location('font_smoke_renderer', source)
     renderer = importlib.util.module_from_spec(spec)
@@ -30,7 +32,7 @@ def main():
     else:
         renderer.write_ass(srt, ass)
     text = ass.read_text(encoding='utf-8')
-    assert 'Style: Default,Noto Sans CJK SC,40,' in text
+    assert 'Style: Default,Zhuque Fangsong (technical preview),40,' in text
     assert 'Style: Watermark,Noto Sans CJK SC,44,' in text
     command = [str(Path(args.ffmpeg).resolve()), '-hide_banner', '-loglevel', 'verbose', '-y', '-f', 'lavfi', '-i',
                'color=c=black:s=1080x1920:r=1:d=1', '-vf', renderer.subtitle_filter(ass),
@@ -39,8 +41,12 @@ def main():
     (work / 'ffmpeg-fonts.log').write_text(result.stderr, encoding='utf-8')
     assert result.returncode == 0, result.stderr
     assert 'NotoSansCJKsc-Regular.otf' in result.stderr, 'bundled font was not loaded'
+    assert 'ZhuqueFangsong-Regular.ttf' in result.stderr, 'bundled subtitle font was not loaded'
     selected = [line for line in result.stderr.splitlines() if 'fontselect:' in line and '->' in line]
-    assert selected and all('NotoSansCJKsc-Regular' in line.split('->')[1] for line in selected), selected
+    assert any('Zhuque Fangsong (technical preview)' in line.split('->')[0]
+               and 'ZhuqueFangsong-Regular' in line.split('->')[1] for line in selected), selected
+    assert any('Noto Sans CJK SC' in line.split('->')[0]
+               and 'NotoSansCJKsc-Regular' in line.split('->')[1] for line in selected), selected
     assert 'glyph' not in result.stderr.lower(), 'unexpected glyph fallback or missing glyph'
     pixels = (work / 'chinese.gray').read_bytes()
     width, height = renderer.WIDTH, renderer.HEIGHT

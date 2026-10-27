@@ -40,6 +40,19 @@ describe('explicit shared subtitle visual intent', () => {
       .toContain('Style: Default,ChosenFont,')
   })
 
+  it('uses the bundled subtitle font by default while project overrides leave the watermark font intact', () => {
+    const bundledFonts = { subtitleFontFamily: 'Zhuque Fangsong (technical preview)', watermarkFontFamily: 'Noto Sans CJK SC' }
+    const defaults = buildAssHeader(bundledFonts, { ...geometry, subtitle_visual: visual })
+    expect(defaults).toContain('Style: Default,Zhuque Fangsong (technical preview),')
+    expect(defaults).toContain('Style: Watermark,Noto Sans CJK SC,')
+    const explicit = buildAssHeader(bundledFonts, { ...geometry, subtitle_visual: { ...visual, font_family: 'ChosenFont' } })
+    expect(explicit).toContain('Style: Default,ChosenFont,')
+    expect(explicit).toContain('Style: Watermark,Noto Sans CJK SC,')
+    const legacy = buildAssHeader(bundledFonts, { ...geometry, subtitle: { font_family: 'LegacyFont' } })
+    expect(legacy).toContain('Style: Default,LegacyFont,')
+    expect(legacy).toContain('Style: Watermark,Noto Sans CJK SC,')
+  })
+
   it('retains byte-identical legacy ASS defaults when omitted or explicitly reset', () => {
     const legacy = { ...geometry, subtitle: { font_size_px: 30, margin_bottom_px: 90 } }
     expect(buildAssHeader(fonts, { ...legacy, subtitle_visual: {} })).toBe(buildAssHeader(fonts, legacy))
