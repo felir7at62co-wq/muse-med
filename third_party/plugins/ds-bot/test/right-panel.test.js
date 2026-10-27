@@ -101,8 +101,9 @@ const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
 const room = { id: 'g', name: 'Writers', named: true, members: ['a'] }
 const roster = { byId: { a: bot }, roomsById: { g: room }, bots: [], exchangeTurns: {}, questions: {}, memory: false }
 const hook = value => select => select(value)
-const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
+const drawer = (sessionId, actions, liveRoster = roster, videoUi = null) => DetailsDrawer({
   sessionId, roster: liveRoster, actions,
+  useVideoUi: hook(videoUi),
   useSessions: hook({ byId: {} }),
   useSessionStatus: hook(new Map()),
   useActivity: hook({}),
@@ -161,4 +162,16 @@ test('a group keeps only the column tabs, and nothing when they are absent', () 
 
 test('a non-team surface shows no `···`', () => {
   assert.equal(moreButton(drawer('plain', { canOpenTerminal: () => true })), null)
+})
+
+test('video controls follow the bot current session and tolerate missing service or scope', () => {
+  const calls = []
+  const ui = { render: id => { calls.push(id); return { type: 'video-selector', props: {}, children: [] } } }
+  const live = { ...roster, byId: { a: { ...bot, sessionId: 'session-new' } } }
+  const node = drawer('a', {}, live, ui)
+  assert.deepEqual(calls, ['session-new'])
+  const find = (value, type) => Array.isArray(value) ? value.some(item => find(item, type)) : !!value && typeof value === 'object' && (value.type === type || find(value.children, type))
+  assert.equal(find(node, 'video-selector'), true)
+  assert.equal(find(drawer('a', {}, live, null), 'video-selector'), false)
+  assert.equal(find(drawer('a', {}, live, { render: () => null }), 'video-selector'), false)
 })

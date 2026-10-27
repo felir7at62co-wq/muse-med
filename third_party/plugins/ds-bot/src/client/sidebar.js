@@ -42,7 +42,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, tile = false }) {
   const id = bot.id
   const displayName = botDisplayName(bot)
   const part = currentPart(bot)
@@ -52,7 +52,6 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
-  const tile = roster.mainBotId === id
   const approval = useApproval(useWork, entry => entry.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
   const doing = useActivity(map => map[id])
@@ -77,8 +76,9 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h(BotAvatar, { bot, size: 60, state, main: true }),
+    h(BotAvatar, { bot, size: 64, state, main, gaze: true, feishu: roster.feishuBotIds?.includes(id) === true }),
     h('span', { className: 'bt-tile-name' }, displayName),
+    unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null,
     displayName !== bot.name ? h('span', { className: 'bt-chip' }, bot.name) : null,
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }
@@ -86,7 +86,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-bot-id': id, title: wide ? undefined : bot.name, onClick: () => actions.openSession(id), onContextMenu,
   },
-  h(BotAvatar, { bot, size: 36, state, main }),
+  h(BotAvatar, { bot, size: 36, state, main, feishu: roster.feishuBotIds?.includes(id) === true }),
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, displayName),
@@ -263,18 +263,19 @@ export function TeamSidebar(props) {
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
     return JSON.stringify(stamps)
   })
+  const mains = (roster.mainBotIds ?? (roster.mainBotId ? [roster.mainBotId] : [])).map(id => roster.byId[id]).filter(Boolean)
   const order = useMemo(() => {
     const stamps = JSON.parse(updated)
+    const mainIds = new Set(mains.map(bot => bot.id))
     const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
+      ...roster.bots.filter(bot => !mainIds.has(bot.id)).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
       ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const main = roster.byId[roster.mainBotId]
-  useListGlide(listRef, wide, order.map(entry => entry.item.id).join(','))
+  useListGlide(listRef, wide, [...mains.map(bot => bot.id), ...order.map(entry => entry.item.id)].join(','))
   useLandOnMainBot(roster, useSessions, actions)
   // The shell keeps wide content during its collapse fade. Normalize through its
   // public expansion action before toggling; coalesce synchronous activations
@@ -315,7 +316,10 @@ export function TeamSidebar(props) {
           h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon))),
     wide && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', { ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list') },
-      main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+      mains.length > 0 ? (wide
+        ? h('div', { className: 'bt-top-grid' }, mains.map(bot => h(BotRow, { key: bot.id, ...rowProps, bot, tile: true, marked: markedUnread[bot.id] === true })))
+        : mains.map(bot => h(BotRow, { key: bot.id, ...rowProps, bot, marked: markedUnread[bot.id] === true })))
+        : roster.ready ? null : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
       order.map(entry => (entry.kind === 'bot'
         ? h(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true })
         : entry.kind === 'room'

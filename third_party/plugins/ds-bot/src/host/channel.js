@@ -86,7 +86,8 @@ export function install(rt) {
   // running; `work`: per Bot, the turn it runs and its tool; per group, the members whose
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
-  const live = () => ({
+  const live = async () => ({
+    feishuBotIds: await rt.museTeam.connectedFeishuBots(),
     activity: rt.activityView(),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {} },
     memoryNews: rt.memoryNews(),
@@ -150,8 +151,8 @@ export function install(rt) {
           await rt.museTeam.syncSessionsAsBots(signal)
           await rt.catalog()
           await rt.loadSecrets()
-          if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) return ok({ revision: state.revision, unchanged: true, ...live() })
-          return ok({ ...view(), ...live() })
+          if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) return ok({ revision: state.revision, unchanged: true, ...await live() })
+          return ok({ ...view(), ...await live() })
         case 'models':
           await rt.catalog({ fresh: true })
           return ok({ modelsKey: modelsKey() })

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { MAIN_LOOK, SHAPES, PICKER_SHAPES, DEFAULT_SHAPES, characterMarkup, lookOf } from '../src/client/characters.js'
+import { MAIN_LOOK, SHAPES, PICKER_SHAPES, DEFAULT_SHAPES, characterMarkup, lookOf, maskOf } from '../src/client/characters.js'
 import { SPIDER_SHAPE } from '../src/client/muse-spider.js'
 import { installLocale, t, hostText } from '../src/client/i18n.js'
 
@@ -38,7 +38,7 @@ function chineseLocale() {
     bind: () => key => dictionary?.[key] ?? key, getLocale: () => ({ active: 'zh' }) }
 }
 
-test('the Muse spider is the shared product mark and remains a real selectable vector character', () => {
+test('the Muse spider is the shared selectable mark with animated eyes', () => {
   assert.deepEqual(MAIN_LOOK, { shape: 'muse-spider', color: 'violet' })
   assert.equal(SHAPES[MAIN_LOOK.shape], SPIDER_SHAPE)
   assert.ok(!PICKER_SHAPES.includes('muse-spider'), 'custom shapes use the custom picker enumeration')
@@ -47,8 +47,12 @@ test('the Muse spider is the shared product mark and remains a real selectable v
   assert.equal(lookOf({ avatar: { shape: 'muse-spider' } }).shape, 'muse-spider')
   const svg = characterMarkup('muse-spider', 'violet')
   assert.match(svg, /bt-eye/)
+  assert.match(svg, /fill="#21152f"/)
+  assert.match(svg, /bt-eye-happy/)
+  assert.doesNotMatch(characterMarkup('whale', 'violet'), /fill="#21152f"/)
   assert.match(svg, /stroke-linecap="round"/)
-  assert.doesNotMatch(svg, /<image|base64/)
+  assert.match(svg, /<image href="data:image\/png;base64,/)
+  assert.doesNotMatch(maskOf('muse-spider'), /base64/)
   assert.equal(SPIDER_SHAPE.eyes.length, 2)
 })
 

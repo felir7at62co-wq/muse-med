@@ -172,9 +172,11 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
-export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }) {
+export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useVideoUi }) {
+  const videoUi = useVideoUi?.(value => value)
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
+  const videoEntry = owner && videoUi && part ? videoUi.render(part) : null
   const isMainBot = isMainOf(roster, owner?.id)
   const [tab, setTab] = useState('details')
   const room = roster.roomsById[sessionId]
@@ -274,6 +276,9 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name }))),
+        videoEntry ? h('div', { key: 'video', className: 'bt-drawer-model' },
+          h('div', { className: 'bt-section-title' }, t('Video model')),
+          videoEntry) : null,
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Working folder')),

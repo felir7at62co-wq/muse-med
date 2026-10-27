@@ -38,6 +38,44 @@ runInNewContext(outputFiles[0].text, {
 })
 const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
 
+test('all Main Bots appear once in their configured order above the ordinary list', () => {
+  const bots = [
+    { id: 'chief', name: 'Chief', createdAt: 1 },
+    { id: 'writer', name: 'Writer', createdAt: 3 },
+    { id: 'assistant', name: 'Assistant', pinned: true, createdAt: 4 },
+    { id: 'reviewer', name: 'Reviewer', createdAt: 2 },
+  ]
+  const roster = { bots, rooms: [], agents: [], byId: Object.fromEntries(bots.map(bot => [bot.id, bot])), mainBotId: 'chief', mainBotIds: ['chief', 'reviewer', 'writer'], ready: true, exchangeTurns: {} }
+  const actions = Object.fromEntries(['openSession', 'openAgent', 'openAgentSession', 'newAgentSession', 'openMenu', 'openPalette', 'openNewChat', 'toggleSidebar', 'clearUnread'].map(name => [name, () => {}]))
+  const props = {
+    actions, useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useSessionStatus: pick => pick(new Map()),
+    useSessionRetainInfo: () => null, useActivity: pick => pick({}), useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
+  }
+  const collect = (node, predicate, results = []) => {
+    if (Array.isArray(node)) { node.forEach(child => collect(child, predicate, results)); return results }
+    if (!node || typeof node !== 'object') return results
+    if (predicate(node)) results.push(node)
+    collect(node.props?.children, predicate, results)
+    return results
+  }
+  for (const wide of [true, false]) {
+    const tree = TeamSidebar({ ...props, wide })
+    const rows = collect(tree, node => node.type?.name === 'BotRow')
+    assert.deepEqual(rows.map(row => row.props.bot.id), ['chief', 'reviewer', 'writer', 'assistant'])
+    assert.deepEqual(rows.map(row => Boolean(row.props.tile)), wide ? [true, true, true, false] : [false, false, false, false])
+    assert.equal(collect(tree, node => node.props?.className === 'bt-top-grid').length, wide ? 1 : 0)
+    for (const row of rows.slice(0, 3)) {
+      const rendered = row.type(row.props)
+      const avatars = collect(rendered, node => node.type?.name === 'BotAvatar')
+      assert.equal(avatars[0].props.main, true)
+      const buttons = collect(rendered, node => node.type === 'button')
+      assert.equal(typeof buttons[0].props.onClick, 'function')
+      assert.equal(typeof buttons[0].props.onContextMenu, 'function')
+    }
+  }
+})
+
 function navigationSidebar(wide, { shell = true } = {}) {
   const calls = []
   const refs = []

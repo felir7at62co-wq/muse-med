@@ -93,12 +93,14 @@ export const shapeId = id => (hasShape(id) ? id : FALLBACK_SHAPE)
 export const shapeOf = id => SHAPES[shapeId(id)]
 // `flat` draws the silhouette alone, for masks and selection rings.
 export function bodyOf(def, paint, flat = false) {
+  if (flat && def.flatPath) return `<path d="${def.flatPath}" fill="${paint}"/>`
   if (def.path) return `<g fill-rule="evenodd"><path d="${def.path}" fill="${paint}"/>${flat ? '' : def.layers}</g>`
   try { return def.body(paint) } catch { return '' }
 }
 const eyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}"/></g>`
+const solidEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><g class="bt-eye"><ellipse rx="${w / 2}" ry="${h / 2}" fill="#21152f"/><ellipse cx="${w * .16}" cy="${-h * .2}" rx="${w * .13}" ry="${h * .14}" fill="#fff"/></g></g>`
 // A closed, happy eye (an upturned arc) in the same spot, shown while the mark is petted.
-const happyEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h * 0.14}Q0 ${-h * 0.42} ${w * 0.62} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`
+const happyEyeMarkup = ([cx, cy, w, h, tilt], halfWidth = 0.62, thickness = 0.5) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * halfWidth} ${h * 0.14}Q0 ${-h * 0.42} ${w * halfWidth} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * thickness}" stroke-linecap="round"/></g>`
 // A mask covering three boxes, so a bob or squash never clips the body at the edge.
 export const maskBox = size => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`
 export const holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`
@@ -116,11 +118,13 @@ export function characterMarkup(shape, color) {
     const def = shapeOf(shape)
     // The eyes sit in the mask, untransformed by their placement, so CSS blinks and
     // glances never replace where they sit.
-    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
+    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(eye => happyEyeMarkup(eye)).join('')}</g></g>`
     const stops = GRADIENTS[color]
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`
-    markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`
+    const visibleEyes = def.solidEyes ? `<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(eye => happyEyeMarkup(eye, 0.45, 0.22)).join('')}</g></g>` : ''
+    const visibleBody = def.solidEyes ? bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color)) + visibleEyes : body
+    markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b"${def.pointerEventsNone ? ' pointer-events="none"' : ''}>${def.wrap ? `<g transform="${def.wrap}">${visibleBody}</g>` : visibleBody}</g>`
     markupCache.set(key, markup)
   }
   return markup

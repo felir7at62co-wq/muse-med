@@ -1,7 +1,15 @@
-// Original code-native character, using DS Bot's existing paint, eye-mask and motion system.
+import bodyImage from './muse-spider-art.js'
+
+const image = `<image href="${bodyImage}" x="-30.2083" y="-4.5833" width="160" height="106.6667"/>`
+const imageDefinition = `<image id="%MASK%spider-image" href="${bodyImage}" x="-30.2083" y="-4.5833" width="160" height="106.6667"/>`
+
+// The body image keeps the approved design; the eyes use the character animation system.
 export const SPIDER_SHAPE = {
   label: 'Muse Spider',
   size: 100,
-  eyes: [[43, 51, 7, 13, -4], [61, 49, 7, 13, -4]],
-  body: paint => `<g stroke="${paint}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M31 32 22 20 12 24M26 43 14 36 5 42M25 56 12 57 7 66M31 69 22 77 23 88M71 30 79 17 89 21M77 41 88 33 96 39M79 54 91 55 96 64M74 67 84 76 83 87"/></g><ellipse cx="51" cy="51" rx="29" ry="33" transform="rotate(-5 51 51)" fill="${paint}"/><path d="M77 36c7 19-1 39-20 46-14 4-26-3-31-14 9 9 22 11 33 4 14-8 19-22 18-36" fill="var(--bt-ink)" fill-opacity=".14"/><path d="M34 34c3-9 13-14 21-13-8 2-14 7-18 15-2 3-5 2-3-2" fill="var(--bt-card)" fill-opacity=".3"/>`,
+  solidEyes: true,
+  pointerEventsNone: true,
+  flatPath: 'M3 59Q3 46 16 42Q22 22 46 17Q71 12 86 35Q97 40 97 62Q98 79 85 81Q76 87 68 82Q56 87 45 83Q32 87 25 82Q10 82 3 70Z',
+  eyes: [[54.6, 47.4, 16.8, 17.7, -8], [74.3, 45.9, 15, 18.3, -8]],
+  body: paint => paint === 'var(--bt-ink-violet)' ? image : `<defs>${imageDefinition}<mask id="%MASK%spider" style="mask-type:alpha" x="-100" y="-100" width="300" height="300"><use href="#%MASK%spider-image"/></mask><filter id="%MASK%gray" color-interpolation-filters="sRGB"><feColorMatrix type="saturate" values="0"/></filter></defs><g style="isolation:isolate;pointer-events:none"><rect x="0" y="0" width="100" height="100" fill="${paint}" mask="url(#%MASK%spider)"/><use href="#%MASK%spider-image" filter="url(#%MASK%gray)" style="mix-blend-mode:multiply;opacity:.25"/><use href="#%MASK%spider-image" filter="url(#%MASK%gray)" style="mix-blend-mode:screen;opacity:.12"/></g>`,
 }

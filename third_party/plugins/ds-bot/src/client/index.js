@@ -158,6 +158,7 @@ export function apply(ctx) {
     // Connector and capability states change without a new revision.
     const live = {}
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
+    if (value.feishuBotIds !== undefined && JSON.stringify(value.feishuBotIds) !== JSON.stringify(current.feishuBotIds ?? [])) live.feishuBotIds = value.feishuBotIds
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
@@ -623,10 +624,16 @@ export function apply(ctx) {
   actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
   actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
   actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
+  const videoUi = createSource(null)
+  ctx.inject(['jubianVideoUi'], scope => {
+    const service = scope.jubianVideoUi
+    videoUi.set(service)
+    scope.effect(() => () => { if (videoUi.getSnapshot() === service) videoUi.set(null) }, 'ds-bot: video selector')
+  })
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, videoUi } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,

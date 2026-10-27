@@ -132,7 +132,7 @@ async function fixture(t) {
       logger: { error() {}, warn() {}, info() {} } })
     const stop = async () => { lifetime.abort(); await bridge.waitForIdle() }
     closeBridges.push(stop)
-    return { scope, state, bridge, sent, stop }
+    return { scope, state, workspaces, bridge, sent, stop }
   }
   return { ctx, home, workspace, metadataRows, created, selected, asked, cancelled, followups, registered, addSession, restartTeam, make, runtime: () => runtime }
 }
@@ -278,4 +278,32 @@ test('native group metadata and a private sender name reach the real Host servic
   assert.deepEqual(f.created, ['native-1'])
   assert.deepEqual(f.asked.map(row => row.id), ['native-1', original.id])
   assert.deepEqual([f.selected, f.cancelled, f.followups], [[], [], []])
+})
+
+test('Feishu status projects only live workspace-matched chat bindings without platform identifiers', async t => {
+  const f = await fixture(t)
+  const n = await f.make()
+  const status = { ready: true, feishuLongConnectionState: 'connected', harnessReachable: true }
+  n.scope.setRuntime({ status })
+  const team = f.ctx.get('museTeam')
+  const unregister = team.registerFeishuProvider(n.scope.connectedBots)
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  await accept(n, event('om_projection'))
+  assert.deepEqual(await team.connectedFeishuBots(), ['native-1'])
+  status.feishuLongConnectionState = 'disconnected'
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  status.feishuLongConnectionState = 'connected'
+  status.harnessReachable = false
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  status.harnessReachable = true
+  const secondWorkspace = join(f.home, 'other-workspace')
+  await mkdir(secondWorkspace)
+  await n.workspaces.setWorkspace('registered_bot', secondWorkspace)
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  await n.workspaces.setWorkspace('registered_bot', f.workspace)
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  await n.scope.state.clearSession('group:oc_group')
+  assert.deepEqual(await team.connectedFeishuBots(), [])
+  unregister()
+  assert.deepEqual(await team.connectedFeishuBots(), [])
 })

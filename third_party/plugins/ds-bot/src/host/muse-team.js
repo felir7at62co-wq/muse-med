@@ -60,6 +60,26 @@ export class MuseTeamService {
     this.sessionBotsFingerprint = undefined
     this.sessionBotsArchives = undefined
     this.warnedMissingList = false
+    this.feishuProviders = new Set()
+  }
+
+  /** Register a Feishu binding reader for its active bridge lifetime. */
+  registerFeishuProvider(provider) {
+    this.feishuProviders.add(provider)
+    return () => this.feishuProviders.delete(provider)
+  }
+
+  /** Return Bot ids with a currently reachable Feishu chat binding. */
+  async connectedFeishuBots() {
+    const ids = new Set()
+    for (const provider of this.feishuProviders) {
+      try {
+        for (const id of await provider()) if (this.runtime.botOf(id) !== undefined) ids.add(id)
+      } catch (error) {
+        this.runtime.warn('Muse Bot could not read Feishu binding status: %s', error?.code ?? 'unavailable')
+      }
+    }
+    return [...ids].sort()
   }
 
   /** Mark the next requested Session-list reconciliation as stale without starting it. */

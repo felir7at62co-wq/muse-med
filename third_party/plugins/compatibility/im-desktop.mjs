@@ -45,6 +45,8 @@ export function applyImDesktopCompatibility(directory) {
       });
       const teamScope = config.museTeam?.forBot(id, botConfig.appId, workspaceScope, workspaces) ?? workspaceScope;`],
     ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: teamScope.harness,\n        state: teamScope.state,'],
+    ['      return new Runtime({', '      const runtime = new Runtime({'],
+    ['      });\n    },\n    deleteState:', '      });\n      teamScope.setRuntime?.(runtime);\n      return runtime;\n    },\n    deleteState:'],
     ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: teamScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
   ])
   edit(directory, 'plugin-src/client/channels/feishu/index.js', '4dfa9310756bd0ca6d0d570b1cbde24f18175a1c18997f077a47d2c526e492bc', [

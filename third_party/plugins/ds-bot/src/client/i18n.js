@@ -31,6 +31,8 @@ const ZH = {
   'What you did, what you expected, and what happened instead.': '你做了什么、期望的效果，以及实际发生的情况',
   // Shared
   'Main Bot': '主 Bot',
+  'Video model': '视频模型',
+  'Feishu linked': '已绑定飞书',
   Working: '工作中',
   'Waiting for your answer': '等你回答',
   'Waiting for {names}': '等 {names} 交回',

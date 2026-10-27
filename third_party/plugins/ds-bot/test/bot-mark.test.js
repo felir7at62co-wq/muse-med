@@ -55,3 +55,18 @@ test('a photo that does not load shows the Bot\'s character instead', () => {
   states.push(false, photo)
   assert.equal(BotMark({ bot: { ...bot, avatar: { ...bot.avatar, image: `${photo}AA` } } }).children[0].type, 'img')
 })
+
+test('Feishu identity appears with status while the Main Bot role remains accessible', () => {
+  const badges = props => BotAvatar({ bot: { id: 'b', name: 'Writer' }, size: 36, ...props }).children.slice(1).filter(Boolean)
+  const identityClass = 'bt-badge bt-badge-feishu'
+  assert.deepEqual(badges({ feishu: true }).map(child => child.props.className), [identityClass])
+  assert.deepEqual(badges({ feishu: true, main: true }).map(child => child.props.className), ['bt-badge bt-badge-main', `${identityClass} bt-badge-feishu-main`])
+  assert.deepEqual(badges({ feishu: true, state: 'working' }).map(child => child.props.className), ['bt-badge bt-badge-working', identityClass])
+  assert.deepEqual(badges({ feishu: true, state: 'alert' }).map(child => child.props.className), ['bt-badge bt-badge-alert', identityClass])
+  assert.equal(badges({ feishu: true })[0].props['aria-label'], 'Feishu linked')
+  assert.equal(badges({ main: true })[0].props['aria-label'], 'Main Bot')
+  assert.deepEqual(badges({}), [])
+  assert.match(SHELL_CSS, /\.bt-badge-feishu\{width:8px;height:8px;right:1px;bottom:13px;background:#fff/)
+  assert.match(SHELL_CSS, /\.bt-badge-feishu-main\{bottom:calc\(clamp\(14px/)
+  assert.match(SHELL_CSS, /\.bt-badge-working\{[^}]*width:8px;height:8px;right:1px;bottom:1px/)
+})

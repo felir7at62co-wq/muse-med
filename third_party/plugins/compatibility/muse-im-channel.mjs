@@ -47,16 +47,34 @@ export async function apply(ctx, supplied) {
   await reconcileMuseImWorkspaces(ctx, config)
   const museAdmission = createMuseImAdmission(config, migration)
   let team
+  const providers = new Map()
+  const subscriptions = new Map()
+  const subscribe = (key, provider) => {
+    subscriptions.get(key)?.()
+    subscriptions.delete(key)
+    if (team?.registerFeishuProvider) subscriptions.set(key, team.registerFeishuProvider(provider))
+  }
   ctx.inject(['museTeam'], scope => {
     const service = scope.get('museTeam')
     team = service
-    scope.effect(() => () => { if (team === service) team = undefined }, 'muse-im: team routing service')
+    for (const [key, provider] of providers) subscribe(key, provider)
+    scope.effect(() => () => {
+      if (team !== service) return
+      for (const dispose of subscriptions.values()) dispose()
+      subscriptions.clear()
+      team = undefined
+    }, 'muse-im: team routing service')
   })
-  const museTeam = { forBot: (imBotId, appId, scope, workspaces) => createMuseImTeamScope(scope, {
-    imBotId, appId, dshHome: config.dshHome, getTeam: () => team,
-    retentionMs: config.inboundClaimRetentionMs, maxEntries: config.inboundClaimMaxEntries,
-    legacyAdmission: museAdmission.forBot(imBotId, workspaces),
-  }) }
+  const museTeam = { forBot: (imBotId, appId, scope, workspaces) => {
+    const scoped = createMuseImTeamScope(scope, {
+      imBotId, appId, dshHome: config.dshHome, getTeam: () => team,
+      retentionMs: config.inboundClaimRetentionMs, maxEntries: config.inboundClaimMaxEntries,
+      legacyAdmission: museAdmission.forBot(imBotId, workspaces),
+    })
+    providers.set(imBotId, scoped.connectedBots)
+    subscribe(imBotId, scoped.connectedBots)
+    return scoped
+  } }
 
   const plugin = createImHostPlugin({ installUpdateRpc: updateCtx => {
     const refuseUpdate = async () => { throw Object.assign(new Error('IM updates are supplied by Muse'), { code: 'unsupported-runtime' }) }

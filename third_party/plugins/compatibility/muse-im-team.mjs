@@ -208,6 +208,32 @@ export function createMuseImTeamScope(scope, options) {
     if (committed === false) throw failure('workspace-session-stale', 'The Feishu workspace changed before Muse Bot routing completed')
     saveBinding(chatId, selected, old?.originalSessionId ?? source)
   })
+  let runtime
+  const connectedBots = async () => {
+    const ready = () => {
+      const status = runtime?.status
+      return status?.ready === true && status.feishuLongConnectionState === 'connected' && status.harnessReachable === true
+    }
+    if (!ready()) return []
+    const value = store.read()
+    const service = team()
+    const ids = new Set()
+    for (const [chatId, row] of Object.entries(value.bindings)) {
+      const key = value.chats[chatId]?.key
+      if (!key || row.pendingNew || row.workspace !== scope.harness.currentWorkspace?.()
+        || scope.state.sessionFor(key) !== row.sessionId) continue
+      try {
+        const current = await service.resolveCurrentSession(row.botId)
+        const latest = store.read().bindings[chatId]
+        if (ready() && !latest?.pendingNew && latest?.botId === row.botId && latest.sessionId === row.sessionId
+          && latest.workspace === scope.harness.currentWorkspace?.() && scope.state.sessionFor(key) === row.sessionId
+          && current.botId === row.botId && current.sessionId === row.sessionId) ids.add(row.botId)
+      } catch (error) {
+        // Deleted or inaccessible Bot identities do not describe an active binding.
+      }
+    }
+    return [...ids]
+  }
   const state = new Proxy(scope.state, {
     get(target, property) {
       if (property === 'setSession') return (key, id) => chatForKey(key) ? setChat(key, id).then(value => value === false ? false : undefined) : target.setSession(key, id)
@@ -275,5 +301,5 @@ export function createMuseImTeamScope(scope, options) {
     rememberReply(messageId, inThread) { if (identifier(messageId)) store.rememberReply(messageId, inThread) },
     replyInThreadFor(messageId) { return store.read().replies[messageId]?.thread },
   }
-  return { harness, state, admission, bindingPath: path }
+  return { harness, state, admission, bindingPath: path, connectedBots, setRuntime: value => { runtime = value } }
 }
