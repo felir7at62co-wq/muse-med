@@ -1227,7 +1227,7 @@ it('reports an unread bound source without substituting another complete same-ep
   expect(report?.hunks).toEqual([])
   const context = JSON.stringify(f.agent.session.deriveMessages())
   expect(context).toContain('bound_text_paths_without_matching_snapshot')
-  expect(context).toContain(join(f.root, 'source.md'))
+  expect(report?.bound_text_paths_without_matching_snapshot).toContain(join(f.root, 'source.md'))
 })
 
 it('retains an explicit diagnostic when complete read text exceeds the configured snapshot allowance', async () => {

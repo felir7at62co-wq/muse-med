@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { buildProductionPlan, productionHash, requirementKey } from './production-plan.ts'
 import { productionMetadata } from './production-metadata.ts'
 import { reviewPresentationMeta } from './session-video.ts'
-import { parseShotScript } from './script.ts'
+import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
 import type { ProductionChoice, ProductionPlan, ProductionRequirement } from './production-types.ts'
 
 /** Deployment limits and the same account ledger root used by the native Jubian tools. */
@@ -140,9 +140,11 @@ function view(plan: ProductionPlan, path: string, args: ProductionArgs): Record<
  * @param ctx - Scoped tool registry, credentials and session video-selection owner.
  * @param input - Deployment transport and inventory bounds.
  * @param actionShotSeconds - Existing compiler's silent-shot estimate.
+ * @param speechCharsPerSecond - Resolved speech-estimate rate shared with drama_shot.
  * @returns Resolves after the optional native provider and batch tool are registered.
  */
-export async function registerProductionTool(ctx: Context, input: ProductionConfig, actionShotSeconds: number): Promise<void> {
+export async function registerProductionTool(ctx: Context, input: ProductionConfig, actionShotSeconds: number,
+  speechCharsPerSecond = DEFAULT_SPEECH_CHARS_PER_SECOND): Promise<void> {
   const config = configSchema.parse(input)
   const { productionRows, productionCard, publishProductionCard, readProductionLibrary } = await import('@deepseek-ai/dsh-tool-jubian')
   const credentials = ctx.get('credentials'), video = ctx.get('jubianVideoSelection')
@@ -188,7 +190,7 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
       source, requirements: [...requirements.values()], choices: [...decisions.values()],
       targets: args.targets ?? previous?.targets ?? [], assets,
       model: { ...selectors, maxDurationSeconds: selection.maxDurationSeconds, revision: selection.revision } }
-    let plan = buildProductionPlan(inputPlan, config.candidateLimit, actionShotSeconds)
+    let plan = buildProductionPlan(inputPlan, config.candidateLimit, actionShotSeconds, speechCharsPerSecond)
     let manifest: unknown
     try { manifest = JSON.parse(await readFile(join(root, 'assets_manifest.json'), 'utf8')) }
     catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error }
@@ -196,7 +198,8 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
     assets = metadata.assets
     const enriched = new Map([...requirements])
     for (const item of metadata.requirements.filter(item => item.kind === 'voice')) enriched.set(requirementKey(item), item)
-    plan = buildProductionPlan({ ...inputPlan, assets, requirements: [...enriched.values()] }, config.candidateLimit, actionShotSeconds)
+    plan = buildProductionPlan({ ...inputPlan, assets, requirements: [...enriched.values()] },
+      config.candidateLimit, actionShotSeconds, speechCharsPerSecond)
     plan.requirements = [...requirements.values()]
     if (plan.packages.length > config.maxPackages) throw new Error('制作范围超过部署的视频包上限；按分集缩小本次范围。')
     const boards = await productionRows(client, plan.script_id, 'storyboard', config.pageSize, config.pageLimit, signal)

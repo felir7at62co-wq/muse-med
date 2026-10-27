@@ -69,7 +69,7 @@ electron-builder 只把清单中的 `dependencies` 复制进 `app.asar/node_modu
 
 Windows 签名打包按 PE 文件内容扫描第一方运行时和应用生产依赖，包括没有常规扩展名的文件。最终扫描覆盖整个解包应用。目录链接、格式错误的 `MZ` 文件以及非 PE 的 `.exe`、`.dll` 或 `.pyd` 文件会使打包停止；以 `MZ` 开头的数据文件也会被拒绝，除非包含有效 PE 头。它保留有效的上游签名，并在记录运行时哈希或执行冒烟检查前为未签名代码补签。公钥验签每个进程处理最多 32 个文件，同时最多运行四个进程；硬件令牌签名仍串行执行，每个新签名必须匹配配置的证书且带时间戳。硬件签名或验签失败会停止本轮执行；独立的时间戳请求遵循下文的有界重试规则。electron-builder 只有在验签和逐字节比对通过后，才保留复制后运行时可执行文件的签名。写入发布完成记录前，必须通过最终 PE 签名检查，以及使用全新缓存的 ASAR 载荷和 Host 冒烟检查。开发、仅准备和未签名构建不使用硬件令牌，可能被 Windows 代码完整性策略阻止；任何构建模式都不会关闭该策略。冒烟检查通过不代表兼容所有企业策略。
 
-Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
+Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。打包时按照共享运行时锁校验目标平台的 pnpm 可执行文件，并将其打入安装包供离线使用。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
 
 Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译哈希锁定的 FFmpeg、x264、libass、FreeType、HarfBuzz 和 FriBidi 源码，静态链接这些外部库并启用 GPL；nonfree、version3 和外部依赖自动发现仍禁用。x264 网络获取失败时可以使用锁中声明的 GitHub 镜像；两条入口都必须匹配同一提交、归档大小和 SHA-256，其他失败仍报错。CoreText 提供系统字体发现，PNG 核查使用 macOS 系统 zlib。准备和复用拒绝 Apple 系统库以外的动态依赖，要求 `/usr/lib/libz.1.dylib`，并验证 H264/AAC 编码、可见的 SRT/ASS 字幕像素、PNG 缩放、源时间戳和完整 PNG 解码。缓存身份包含源码锁、依赖构建配方和目标配置；复用时核对两个可执行文件的哈希、保留的全部依赖源码和许可声明，以及保留的构建配方。可执行文件随附对应源码归档、构建脚本和许可声明。CMake 仅为构建机器所需。[Mac 制作检查](scripts/smoke-macos-creation.py)另用指定的中文字体执行生产 Python 渲染器，完整解码产物、核对字幕时间与像素，并读回可编辑草稿的媒体和轨道；它不打开剪映，也不验证原生导出。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
 
@@ -140,7 +140,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 短剧资源与限制
 
-维护中的短剧技能 tarball 不含小红书技能。工作流通过 core 的 `style_references` 导入与检查操作接受用户提供的参考图，并保留继续制作前的审核和用户确认。这些是技能层面的要求，不是新增的收费工具授权机制。Python 与 TypeScript 渲染路径为字幕和水印选择锁定的 OFL 许可 Noto 字体。源码测试及开发用 FFmpeg 输入的字形渲染已通过；最终重建安装包与干净机器的字体路径仍待验收。
+维护中的短剧技能 tarball 不含小红书技能。工作流通过 core 的 `style_references` 导入与检查操作接受用户提供的参考图，并保留继续制作前的审核和用户确认。这些是技能层面的要求，不是新增的收费工具授权机制。Windows 媒体准备锁定 OFL 许可的朱雀仿宋 v0.212 预览版，供直出对白字幕默认使用；水印仍用思源黑体，项目级字幕字体覆盖仍然生效。朱雀目前是预览版，交付前需查看实际字形。剪映可编辑文字使用独立字体选择；若剪映无法使用该字体，草稿与直出默认效果可能不同。源码构建或安装包文件本身不能证明干净安装后的字体选择，仍需分别验证安装版 Host 和真实渲染画面。
 
 本地媒体准备覆盖 Python 文档与媒体依赖及 FFmpeg；默认负载不含本地 ASR 模型或 Whisper 依赖。默认云端转写需要登录 MUSE、网关已启用服务且服务器有提供方额度；桌面版没有用户 ASR 或 TOS 凭据设置页。自定义模型生成须单独配置提供方凭据。公开 BGM 匹配与下载需要联网；可选的 MERT 索引与单曲分析不属于默认离线媒体运行时，且仍受非商业许可限制。随包的剧变抢本技能使用产品内剧变凭据设置；认领前需要用户明确授权目标；定时抢本还需指定开始与结束时间，token 不得写入提示词、日志或源码。
 
@@ -284,6 +284,8 @@ pnpm run package:desktop:win:x64
 macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS 或带 Rosetta 的 Apple Silicon 上运行。Windows x64 命令要求 Windows x64。Linux 不是受支持的 Desktop 发布目标。
 
 每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Electron 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
+
+Mac unsigned CI 从 Muse v1.2.0 已发布、经大小和 SHA-256 锁定的源码归档[预热媒体原始源码](scripts/prewarm_macos_media_sources.py)。它按当前媒体与字幕锁逐一验证原件，填充两个 FFmpeg 缓存位置，并拒绝不安全的归档成员或被修改的现有缓存。它不导入旧构建配方或可执行文件；正常打包继续执行当前准备流程和 smoke 检查。[工作流](../../.github/workflows/muse-desktop.yml)在获取资源前测试此程序，并随打包诊断保留源码缓存收据。
 
 ### 失败后从断点续跑
 

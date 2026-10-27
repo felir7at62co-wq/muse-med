@@ -1,3 +1,8 @@
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
 # Replay executes the real compiler with deterministic recorded model decisions.
 - id: llm-deepseek
   disabled: true

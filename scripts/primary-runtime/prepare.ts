@@ -12,6 +12,8 @@ import extractZip from 'extract-zip'
 import { x as extractTar } from 'tar'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import lock from './lock.json' with { type: 'json' }
+import pnpmLock from './pnpm-lock.json' with { type: 'json' }
+import { preparePnpmRuntime } from './pnpm.ts'
 
 /**
  * Download or reuse an archive only when its bytes match the release lock.
@@ -54,8 +56,9 @@ export function primaryRuntimePayloadDigest(
   // Identity preserves key order within the selected target, wheel records and distribution map, plus wheel-entry order.
   // Bump format when extraction or assembly changes payload bytes without changing locked inputs.
   return createHash('sha256').update(JSON.stringify({
-    format: 5, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
+    format: 6, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
+    pnpmExecutable: pnpmVersion === undefined ? undefined : pnpmLock.targets[target],
     ocrNotices: ['ocr-models-notice.txt', 'ocr-models-license.txt'].map(filename =>
       createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
   })).digest('hex')
@@ -139,10 +142,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
       cpSync(join(nodeSource, ...(target === 'win-x64' ? ['node.exe'] : ['bin', 'node'])),
         join(dependencies, 'node', 'bin', target === 'win-x64' ? 'node.exe' : 'node'))
       cpSync(join(nodeSource, 'LICENSE'), join(dependencies, 'node', 'LICENSE'))
-      const require = createRequire(import.meta.url)
-      const pnpmManifest = require.resolve('pnpm')
-      pnpmVersion = (JSON.parse(readFileSync(pnpmManifest, 'utf8')) as { version: string }).version
-      await cp(dirname(pnpmManifest), join(dependencies, 'pnpm'), { recursive: true, dereference: true })
+      pnpmVersion = await preparePnpmRuntime(target, join(dependencies, 'pnpm'), paths.downloads)
     }
     await extractTar({ file: await pythonArchive(target, paths.downloads), cwd: dependencies })
     const manifest: PrimaryRuntimeManifest = {
@@ -191,7 +191,9 @@ export function smokePrimaryRuntime(root: string, environment: NodeJS.ProcessEnv
     manifest.python, join(dirname(root), 'office-skills', 'scripts', 'check_office.py')], options)
   execFileSync(entries.python, ['-I', '-B', '-m', 'pip', 'check'], options)
   if (entries.node !== undefined) execFileSync(entries.node, ['-e', `if (process.versions.node !== ${JSON.stringify(manifest.node)}) process.exit(1)`], options)
-  if (entries.pnpm !== undefined && entries.node !== undefined) execFileSync(entries.node, [entries.pnpm, '--version'], options)
+  if (entries.pnpm !== undefined && entries.node !== undefined) {
+    execFileSync(entries.node, [entries.pnpm, '--version'], { ...options, env: { ...environment, COREPACK_ENABLE_NETWORK: '0' } })
+  }
 }
 
 if (import.meta.main) {

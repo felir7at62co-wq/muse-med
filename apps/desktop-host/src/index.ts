@@ -24,7 +24,7 @@ import { attentionSoundForEvent } from './attention-sound.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from './host-protocol.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -141,6 +141,7 @@ async function main(): Promise<void> {
   const application = runProfile({
     environment: loadLayeredEnv('muse-med'),
     profile: 'desktop',
+    shutdownTimeoutMs: DESKTOP_HOST_SHUTDOWN_GRACE_MS,
     resolvedProfile: { profile, installAnchor, moduleOverrides },
     patchFiles: [overlayPath],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
@@ -170,7 +171,10 @@ async function main(): Promise<void> {
     const running = await application.catch(() => undefined)
     await running?.shutdown.shutdown(0)
     await send({ type: 'shutdown-complete' })
-    if (process.connected) process.disconnect()
+    if (process.connected) {
+      if (process.disconnect === undefined) throw new Error('desktop host: connected IPC has no disconnect method')
+      process.disconnect()
+    }
   })()
   process.on('message', (message: unknown) => {
     if (typeof message !== 'object' || message === null || !('type' in message)) return
@@ -239,6 +243,9 @@ if (import.meta.main) {
     if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, (error) => { if (error !== null) console.error(error) })
     console.error(error)
     process.exitCode = 1
-    if (process.connected) process.disconnect()
+    if (process.connected) {
+      if (process.disconnect === undefined) throw new Error('desktop host: connected IPC has no disconnect method')
+      process.disconnect()
+    }
   })
 }

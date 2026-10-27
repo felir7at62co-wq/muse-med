@@ -168,6 +168,8 @@ async function downloadVideo(row: VideoSubtask) {
 
 ### 视频阶段词表
 
+`buildNativeVideoPreview()` 只裁去提示词首尾空白，冻结载荷保留内部换行与空格。指纹覆盖这一完整载荷；用于提供方任务对账的提示词比较仍压平空白。已有预览校验和原提交key保持不变。多行卡片的未提交预览参见[格式升级指南](../../../docs/upgrade-guide/v0.2.1-alpha.1/native-video-prompt-formatting/guide.zh.md)。
+
 `buildNativeVideoPreview()` 保留显式的 `backupModelList`，缺失或为 null 时补为 `[]`，使冻结的模型配置包含列表字段，但不代选备用模型。非列表值在提交前被拒绝。此字段参与指纹；缺少它的未提交预览需要重新准备。已有账本记录的键仍只做对账，不再次发送付费请求。
 
 原生任务认领从子项 `modelConfig` 读取模型选择器和提示词；该字段缺失或为 null 时读取子项直接携带的字段。直接字段 `modelVideoStandardId` 是提供方对 `videoStandardId` 的命名。两种格式都要求全部十个冻结模型字段、提示词及完整有序主体身份；证据缺失或损坏时均不允许再次付费提交。不能用当前分镜补充任务缺失的证据。

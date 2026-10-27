@@ -47,7 +47,10 @@ class RemoteProcess implements SubprocessHandle {
     this.stdout = spec.stdio.stdout === 'pipe' ? this.out : undefined
     this.stderr = spec.stdio.stderr === 'pipe' ? this.err : undefined
     const requestedControl = (spec.stdio as typeof spec.stdio & { control?: 'pipe' }).control
-    this.control = requestedControl === undefined ? undefined : Duplex.from({ writable: this.toControl, readable: this.fromControl })
+    // Node accepts a pair of Node streams, which the Node 26 declarations omit.
+    this.control = requestedControl === undefined ? undefined : Reflect.apply(
+      Reflect.get(Duplex, 'from'), Duplex, [{ writable: this.toControl, readable: this.fromControl }],
+    ) as Duplex
     for (const stream of [this.inbound, this.out, this.err, this.toControl, this.fromControl, this.control]) stream?.on('error', () => {})
     const collect = (name: 'stdout' | 'stderr', stream: PassThrough, mode: SubprocessOutputMode) => {
       if (mode === 'pipe') return undefined

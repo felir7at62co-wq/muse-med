@@ -1,16 +1,87 @@
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { zipSync } from 'fflate'
+import { c as createTar } from 'tar'
 import { expect, it } from 'vitest'
 import { downloadPrimaryRuntimeAsset, prepareOfficeSkillAssets, primaryRuntimePayloadDigest, smokePrimaryRuntime, unpackPrimaryRuntimeWheel } from './prepare.ts'
 import lock from './lock.json' with { type: 'json' }
+import pnpmLock from './pnpm-lock.json' with { type: 'json' }
+import { copyPnpmWrapper, preparePnpmRuntime, unpackVerifiedPnpmArchive } from './pnpm.ts'
 
 it('covers every SDK wheel target with the shared interpreter lock', () => {
   const platforms = JSON.parse(readFileSync(new URL('../../python/sdk-runtime/platforms.json', import.meta.url), 'utf8')) as Record<string, unknown>
   expect(Object.keys(lock.targets).sort()).toEqual(Object.keys(platforms).map(target => target.replace('macos-', 'mac-')).sort())
+  expect(Object.keys(pnpmLock.targets).sort()).toEqual(Object.keys(lock.targets).sort())
+  const dependencyLock = readFileSync(new URL('../../pnpm-lock.yaml', import.meta.url), 'utf8')
+  for (const artifact of Object.values(pnpmLock.targets)) {
+    expect(dependencyLock).toContain(`'${artifact.package}@${pnpmLock.version}':`)
+    expect(dependencyLock).toContain(artifact.integrity)
+  }
+})
+
+it('rejects a corrupt cached pnpm executable before copying a runtime', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-cache-'))
+  try {
+    const integrity = pnpmLock.targets['mac-arm64'].integrity.slice('sha512-'.length)
+    const name = Buffer.from(integrity, 'base64').toString('hex')
+    await writeFile(join(root, name), 'corrupt')
+    await expect(preparePnpmRuntime('mac-arm64', join(root, 'output'), root)).rejects.toThrow('checksum mismatch')
+    expect(await readFile(join(root, name), 'utf8')).toBe('corrupt')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('copies pnpm without generated local shims but keeps its bundled downloader', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-wrapper-'))
+  try {
+    const source = join(root, 'source')
+    const destination = join(root, 'destination')
+    await mkdir(join(source, 'node_modules', '.bin'), { recursive: true })
+    await mkdir(join(source, 'dist', 'node_modules', 'get-pnpm'), { recursive: true })
+    await writeFile(join(source, 'node_modules', '.bin', 'pnpm'), root)
+    await writeFile(join(source, 'pnpm'), 'host executable')
+    await writeFile(join(source, 'dist', 'node_modules', 'get-pnpm', 'index.js'), 'bundled')
+    await copyPnpmWrapper(source, destination)
+    await expect(readFile(join(destination, 'node_modules', '.bin', 'pnpm'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(destination, 'pnpm'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(join(destination, 'dist', 'node_modules', 'get-pnpm', 'index.js'), 'utf8')).toBe('bundled')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('fails offline when the copied pnpm wrapper has no platform executable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-missing-'))
+  try {
+    const manifest = createRequire(import.meta.url).resolve('pnpm/package.json')
+    await copyPnpmWrapper(dirname(manifest), join(root, 'pnpm'))
+    const result = spawnSync(process.execPath, [join(root, 'pnpm', 'bin', 'pnpm.mjs'), '--version'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, COREPACK_ENABLE_NETWORK: '0' },
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('Network access is disabled')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('extracts verified bytes concurrently even when their shared cache file changes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-archive-test-'))
+  try {
+    await mkdir(join(root, 'package'))
+    await writeFile(join(root, 'package', 'pnpm'), 'verified executable')
+    const archive = join(root, 'cache.tgz')
+    await createTar({ cwd: root, file: archive, gzip: true }, ['package'])
+    const verified = await readFile(archive)
+    await writeFile(archive, 'tampered cache')
+    const first = join(root, 'first')
+    const second = join(root, 'second')
+    await Promise.all([mkdir(first), mkdir(second)])
+    await Promise.all([unpackVerifiedPnpmArchive(verified, first), unpackVerifiedPnpmArchive(verified, second)])
+    expect(await readFile(join(first, 'pnpm'), 'utf8')).toBe('verified executable')
+    expect(await readFile(join(second, 'pnpm'), 'utf8')).toBe('verified executable')
+    expect(await readFile(archive, 'utf8')).toBe('tampered cache')
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 const libraryWheel = Buffer.from('UEsDBAoAAAAAAASeLl0sYMPjDAAAAAwAAAAJAAAAc2FtcGxlLnB5c2FtcGxlID0gNDIKUEsBAh4DCgAAAAAABJ4uXSxgw+MMAAAADAAAAAkAAAAAAAAAAQAAAKSBAAAAAHNhbXBsZS5weVBLBQYAAAAAAQABADcAAAAzAAAAAAA=', 'base64')
@@ -169,6 +240,11 @@ it('keeps carrier pnpm versions aligned with the shared payload build', () => {
   const desktop = JSON.parse(readFileSync(new URL('../../apps/desktop/package.json', import.meta.url), 'utf8')) as {
     devDependencies: { pnpm: string }
   }
+  const native = JSON.parse(readFileSync(new URL('../../native/system/package.json', import.meta.url), 'utf8')) as {
+    packageManager: string
+  }
   expect(desktop.devDependencies.pnpm).toBe(root.devDependencies.pnpm)
   expect(root.packageManager).toBe(`pnpm@${root.devDependencies.pnpm}`)
+  expect(native.packageManager).toBe(root.packageManager)
+  expect(pnpmLock.version).toBe(root.devDependencies.pnpm)
 })

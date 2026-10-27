@@ -30,7 +30,7 @@ import {
   classifyNewNativeCandidates, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
   responseRecords, stableJson, stableSha256, submissionSemantics, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
-  referenceAudioUrls,
+  referenceAudioUrls, normalizedPrompt,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
@@ -411,7 +411,7 @@ function expectationOf(preview: NativeVideoPreview, beforeTaskIds: string[]): Na
   if (typeof prompt !== 'string' || !prompt) throw new JubianError('CONTRACT_CHANGED')
   return { scriptId: preview.scriptId, storyboardId: preview.storyboardId,
     ...nativeEpisodeScope(preview.payload),
-    expectedIdentity: expectedIdentity(preview), expectedModel, expectedPrompt: prompt,
+    expectedIdentity: expectedIdentity(preview), expectedModel, expectedPrompt: normalizedPrompt(prompt),
     expectedAudioUrls: referenceAudioUrls(storyboardMaterials(preview.payload).materials),
     beforeTaskIds }
 }
@@ -468,6 +468,48 @@ function projectRootOfPreview(previewPath: string): string {
   throw new JubianError('CONTRACT_CHANGED')
 }
 
+/** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
+function hasPromptSpeech(prompt: string): boolean {
+  const names = new Set<string>()
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) if (match[1] !== undefined) names.add(match[1].trim())
+  for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
+    if (match[1] !== undefined) names.add(match[1].trim())
+  }
+  for (const match of prompt.matchAll(/^[ \t]*(?:人物|角色|角色名|出镜人物)\s*[：:]\s*([^\n\r]+)/gmu)) {
+    for (const raw of (match[1] ?? '').split(/[、，,；;\/|]/u)) {
+      const entry = raw.trim()
+      if (/^(?:不要|不得|禁止|避免|排除|不出现)/u.test(entry)
+        || /[（(][^）)]*(?:不要|不得|禁止|避免|排除|不出现|不说话|不发声|无台词|没有台词)[^）)]*[）)]/u.test(entry)) continue
+      const name = entry.replace(/\s*[（(][^）)]*[）)]\s*$/u, '').trim()
+      if (/^[\p{L}\p{N}·][\p{L}\p{N}· .]{0,29}$/u.test(name)
+        && !/^(?:无|没有|暂无|none|null)$/iu.test(name)) names.add(name)
+    }
+  }
+  const fields = new Set(['场景', '场景名称', '核心场景', '镜头', '景别', '时长', '动作', '人物动作', '动作状态',
+    '人物', '角色', '角色名', '出镜人物', '说话人', '主体', '主体状态追踪', '道具', '关键道具',
+    '风格', '声音', '音效', '配乐', '字幕', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
+  const emptySpeech = /^(?:无(?:对白|台词|旁白|语音|声音)?|没有(?:台词|对白|旁白)?|暂无(?:台词|对白|旁白)?|不说话|不发声|none|null)[。.!！]?$/iu
+  for (const raw of prompt.split(/\r?\n/u)) {
+    const line = raw.trim()
+    if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
+    const speech = /(?:^|[\s；;])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/iu.exec(line)
+    if (speech?.[1] !== undefined) {
+      const before = line.slice(0, speech.index).trim()
+      const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
+      if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
+        && content !== '' && !emptySpeech.test(content)) return true
+    }
+    const named = /^([^：:]{1,30})\s*[：:]\s*(.+)$/u.exec(line)
+    if (named?.[1] === undefined || named[2] === undefined) continue
+    const speaker = named[1].trim().replace(/[（(]\s*(?:画外音|VO|OS)\s*[）)]\s*$/iu, '')
+    const content = named[2].trim()
+    if (!fields.has(speaker) && !/^(?:无(?:对白|台词|旁白|语音|声音|人物|角色)?$|没有|不要|禁止|避免|不得)/u.test(speaker)
+      && !emptySpeech.test(content)
+      && (names.has(speaker) || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
+  }
+  return false
+}
+
 /**
  * Prepare one storyboard-native video package without any remote write.
  * @param client - Jubian transport.
@@ -497,8 +539,17 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
     + '.storyboard-native.prepared.json')
   await atomicWriteJson(destination, preview)
   const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
+  const hasDialogue = hasPromptSpeech(String(modelConfig.prompt))
+  const voiceContinuityReview = hasDialogue
+    ? audio.length === 0
+      ? { status: 'dialogue_without_voice_reference',
+        message: '本卡有对白，但未绑定任何声线参考。首包可作为取样来源；若同一角色还会在后续包说话，先核对首包实际声线并绑定同一角色的认可参考，再提交后续包。仅重复文字描述不能保证跨包同音色。' }
+      : { status: 'voice_reference_present_unverified',
+        message: '本卡有音频参考，仍须逐角色核对实际说话人、引用身份及生成后的听感；存在参考不保证同音色。' }
+    : { status: 'no_dialogue_detected', message: '未从本卡提示词识别到明确对白；如实际有对白，请人工核对。' }
   return { ...preview, preview_path: destination, content_duration_ms: contentDurationMs,
     storyboard_duration_seconds: duration,
+    voice_continuity_review: voiceContinuityReview,
     ...promptRiskReview([{ storyboard_id: storyboardId,
       card_name: typeof preview.payload.storyboardName === 'string' ? preview.payload.storyboardName : null,
       prompt: String(modelConfig.prompt) }], review),
@@ -506,7 +557,9 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
       duration_seconds: material.audioDuration ?? null,
       duration_basis: material.audioDuration === undefined || material.audioDuration === null
         ? 'unavailable' : 'saved_metadata', duration_verified: false })),
-    next: '生成前请按系统提示词中的固定自检清单自主核对本次提交。'
+    next: (voiceContinuityReview.status === 'dialogue_without_voice_reference'
+      ? '本卡有对白但没有声线参考；跨包角色请先核对首包声音并绑定后续包。' : '')
+      + '生成前请按系统提示词中的固定自检清单自主核对本次提交。'
       + 'prepare 只写 preview：不 PUT、不创建任务、不收费。自主检查后调用 submit_video 或 submit_video_batch，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
 }
@@ -643,20 +696,28 @@ Record<string, unknown>[] {
     })
 }
 
-/** A recorded images-then-audio serializer key prevents a normalized preview from charging again. */
-async function recordedGroupedKey(ledger: JubianLedger, preview: NativeVideoPreview):
+/** Recorded compacted-prompt or images-then-audio requests prevent another charge after re-preparing. */
+async function recordedLegacyKey(ledger: JubianLedger, preview: NativeVideoPreview):
 Promise<{ key: string; outcome: string } | null> {
   const { materials } = storyboardMaterials(preview.payload)
   const grouped = [...materials.filter(row => row.materialType === 'image'),
     ...materials.filter(row => row.materialType === 'audio')]
-  if (stableJson(grouped) === stableJson(materials)) return null
   const config = object(JSON.parse(String(preview.payload.modelConfig)))
-  const payload = { ...preview.payload, storyboardMaterialList: grouped,
-    modelConfig: JSON.stringify({ ...config, materialList: grouped }) }
-  const key = stableSha256(submissionSemantics(payload))
-  const record = await ledger.find(key)
-  if (record === undefined || record.method !== 'storyboard_native_submit' || record.script_id !== preview.scriptId) return null
-  return { key, outcome: record.outcome ?? 'unknown' }
+  const seen = new Set([preview.idempotencyKey])
+  for (const order of [materials, grouped]) {
+    for (const prompt of [config.prompt, normalizedPrompt(config.prompt)]) {
+      const payload = { ...preview.payload, storyboardMaterialList: order,
+        modelConfig: JSON.stringify({ ...config, prompt, materialList: order }) }
+      const key = stableSha256(submissionSemantics(payload))
+      if (seen.has(key)) continue
+      seen.add(key)
+      const record = await ledger.find(key)
+      if (record !== undefined && record.method === 'storyboard_native_submit' && record.script_id === preview.scriptId) {
+        return { key, outcome: record.outcome ?? 'unknown' }
+      }
+    }
+  }
+  return null
 }
 
 /**
@@ -727,11 +788,11 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         + '后续用 jubian_video subtasks 回读该任务即可。' }
   }
 
-  const groupedRecord = await recordedGroupedKey(ledger, preview)
-  if (groupedRecord !== null) {
-    return { replayed: false, outcome: groupedRecord.outcome, status: 'reconcile_conflict', put_sent: false,
-      task_id: null, preview_path: previewPath, idempotency_key: key, original_idempotency_key: groupedRecord.key,
-      next: '相同提交的旧图片/音频分组 key 已有记录；本次未发送 PUT，也未新增预约。'
+  const legacyRecord = await recordedLegacyKey(ledger, preview)
+  if (legacyRecord !== null) {
+    return { replayed: false, outcome: legacyRecord.outcome, status: 'reconcile_conflict', put_sent: false,
+      task_id: null, preview_path: previewPath, idempotency_key: key, original_idempotency_key: legacyRecord.key,
+      next: '相同提交的旧提示词或图片/音频序列化 key 已有记录；本次未发送 PUT，也未新增预约。'
         + '保留原 preview，并用 original_idempotency_key 只读对账；旧文件缺失或远端任务暂未出现不允许换新 key 再付费。' }
   }
 
@@ -972,9 +1033,9 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
     if (existing.status !== 'none') {
       throw new JubianError('CONTRACT_CHANGED', `Storyboard ${item.preview.storyboardId} has a prior or ambiguous task`)
     }
-    const groupedRecord = await recordedGroupedKey(ledger, item.preview)
-    if (groupedRecord !== null) throw new JubianError('CONTRACT_CHANGED',
-      `Storyboard ${item.preview.storyboardId} has recorded original key ${groupedRecord.key}; keep its original preview for read-only reconciliation; no new reservation or PUT sent`)
+    const legacyRecord = await recordedLegacyKey(ledger, item.preview)
+    if (legacyRecord !== null) throw new JubianError('CONTRACT_CHANGED',
+      `Storyboard ${item.preview.storyboardId} has recorded original key ${legacyRecord.key}; keep its original preview for read-only reconciliation; no new reservation or PUT sent`)
   })))
   const secondRecords = await listAllVideoTasks(client, first.preview.scriptId)
   const firstIds = firstRecords.map(taskIdOf).sort()

@@ -67,7 +67,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     stat: (async (...args: Parameters<typeof actual.stat>) => {
       if (String(args[0]) === statFailure.path && statFailure.error !== undefined) throw statFailure.error
       const identity = await actual.stat(...args)
-      if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
+      if (String(args[0]) !== statRace.path || identity === undefined || !('mtimeNs' in identity)) return identity
       statRace.reads += 1
       if (statRace.mode === 'churn') return { ...identity, mtimeNs: identity.mtimeNs + BigInt(statRace.reads) }
       if (statRace.reads < 3) return identity

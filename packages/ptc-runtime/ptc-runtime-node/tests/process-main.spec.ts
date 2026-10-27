@@ -9,8 +9,8 @@ import { decodePtcJsonWire, encodePtcJsonWire } from '../src/json-wire.ts'
 function endpoints() {
   const first = new PassThrough()
   const second = new PassThrough()
-  const child = Duplex.from({ readable: first, writable: second })
-  const host = Duplex.from({ readable: second, writable: first })
+  const child = Reflect.apply(Reflect.get(Duplex, 'from'), Duplex, [{ readable: first, writable: second }]) as Duplex
+  const host = Reflect.apply(Reflect.get(Duplex, 'from'), Duplex, [{ readable: second, writable: first }]) as Duplex
   child.on('error', () => {})
   host.on('error', () => {})
   onTestFinished(() => { child.destroy(); host.destroy() })

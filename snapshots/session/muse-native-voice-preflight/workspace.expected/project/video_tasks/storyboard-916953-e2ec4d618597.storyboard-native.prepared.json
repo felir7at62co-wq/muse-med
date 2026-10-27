@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "e2ec4d6185973e820246d4ecf80b3b33b05307086adc5bde273e56598c2b3cb0",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 1,
+    "orderedAssets": [
+      {
+        "assetId": "asset-existing",
+        "materialAssetId": 11,
+        "materialKey": "lead",
+        "materialName": "Existing CG actor",
+        "imageUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "isGenerate": 1,
+    "storyboardName": "Offline horizontal test",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":10,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[Existing CG actor](lead)\\n旁白：雨停了。\",\"materialList\":[{\"assetId\":\"asset-existing\",\"materialAssetId\":11,\"fileName\":\"Existing CG actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-existing",
+        "materialAssetId": 11,
+        "fileName": "Existing CG actor",
+        "materialKey": "lead",
+        "materialType": "image",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。"
+}

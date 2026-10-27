@@ -16,6 +16,7 @@
 import { readFile } from 'node:fs/promises'
 import { assCanvas, buildAssHeader, escapeAssText, formatAssTime, WATERMARK_TEXT } from './delivery.ts'
 import { deliveryPolicyFor } from './delivery-policy.ts'
+import { activeSubtitleVisual } from './subtitle-visual.ts'
 import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
 
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
@@ -167,10 +168,14 @@ export function buildAssDocument(
   settings: Pick<RenderSettings, 'subtitleFontFamily' | 'watermarkFontFamily'>,
   policy: DeliveryPolicy = deliveryPolicyFor(),
 ): string {
+  const visual = activeSubtitleVisual(policy.delivery)
+  const canvas = assCanvas(policy.delivery)
+  const position = visual === undefined ? ''
+    : `{\\an5\\pos(${String(canvas.width / 2)},${String(Number((canvas.height * visual.center_y_ratio).toFixed(3)))})\\q2}`
   const events = cues.map((cue) => {
     return 'Dialogue: 0,'
       + `${formatAssTime(cue.startSeconds)},${formatAssTime(cue.endSeconds)},Default,,0,0,0,,`
-      + escapeAssText(cue.text)
+      + position + escapeAssText(cue.text)
   })
   if (policy.addWatermark) {
     const canvas = assCanvas(policy.delivery)

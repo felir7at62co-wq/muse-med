@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-native-voice-preflight
+profile: headless
+composition: muse-native-voice-preflight
+recording: authored
+header:
+  class: muse-native-voice-preflight
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-duration-fixture

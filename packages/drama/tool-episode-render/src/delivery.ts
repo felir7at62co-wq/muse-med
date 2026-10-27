@@ -8,6 +8,7 @@
  */
 
 import { escapeFilterPath } from './ffmpeg.ts'
+import { activeSubtitleVisual } from './subtitle-visual.ts'
 import type { AudioMixSpec, EndingEffectTiming, RenderSettings, ResolvedAudioMixProfile, SubtitleRenderStyle, TimelineDelivery } from './types.ts'
 
 /** Delivered picture width in pixels. */
@@ -119,7 +120,8 @@ export const FONT_FAMILY_PATTERN = /^(?=[^,\r\n]*\S)[^,\r\n]+$/u
  */
 export function deliveryRenderSettings(settings: RenderSettings, delivery: TimelineDelivery): RenderSettings {
   return { ...settings,
-    subtitleFontFamily: delivery.subtitle?.font_family ?? settings.subtitleFontFamily,
+    subtitleFontFamily: activeSubtitleVisual(delivery)?.font_family
+      ?? (activeSubtitleVisual(delivery) === undefined ? delivery.subtitle?.font_family : undefined) ?? settings.subtitleFontFamily,
     masterVolume: delivery.audio?.master_gain ?? settings.masterVolume,
     bgmVolume: delivery.audio?.bgm_gain ?? settings.bgmVolume }
 }
@@ -156,6 +158,18 @@ export function assOutline(targetPx: number, playResY: number, outputHeight: num
 export function subtitleRenderStyle(delivery: TimelineDelivery): SubtitleRenderStyle {
   const canvas = assCanvas(delivery)
   const scale = delivery.height / canvas.height
+  const visual = activeSubtitleVisual(delivery)
+  if (visual !== undefined) {
+    const referenceScale = delivery.height / visual.reference_height
+    const fontPx = visual.font_size_px * referenceScale
+    const outlinePx = visual.outline_px * referenceScale
+    return { design_width: canvas.width, design_height: canvas.height,
+      font_size_design: Number((fontPx / scale).toFixed(3)), spacing_design: 0,
+      outline_design: Number((outlinePx / scale).toFixed(3)), margin_bottom_design: 0,
+      font_size_output_px: Number(fontPx.toFixed(3)), outline_output_px: Number(outlinePx.toFixed(3)), margin_bottom_output_px: 0,
+      center_y_output_px: Number((delivery.height * visual.center_y_ratio).toFixed(3)),
+      max_width_output_px: Number((delivery.width * visual.max_width_ratio).toFixed(3)) }
+  }
   const outline = assOutline(SUBTITLE_OUTLINE_TARGET_PX * delivery.width / DELIVERY_WIDTH, canvas.height, delivery.height)
   const fontSize = delivery.subtitle?.font_size_px === undefined ? SUBTITLE_FONT_SIZE
     : Number((delivery.subtitle.font_size_px / scale).toFixed(3))
@@ -185,6 +199,9 @@ export function buildAssHeader(
   addWatermark = true,
 ): string {
   const style = subtitleRenderStyle(delivery)
+  const visual = activeSubtitleVisual(delivery)
+  const family = visual?.font_family ?? (visual === undefined ? delivery.subtitle?.font_family : undefined) ?? settings.subtitleFontFamily
+  const margin = visual === undefined ? 40 : Number((style.design_width * (1 - visual.max_width_ratio) / 2).toFixed(3))
   const watermarkStyle = addWatermark
     ? `Style: Watermark,${settings.watermarkFontFamily},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1\n`
     : ''
@@ -197,7 +214,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,${delivery.subtitle?.font_family ?? settings.subtitleFontFamily},${String(style.font_size_design)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,${String(style.spacing_design)},0,1,${String(style.outline_design)},0,2,40,40,${String(style.margin_bottom_design)},1
+Style: Default,${family},${String(style.font_size_design)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,${String(style.spacing_design)},0,1,${String(style.outline_design)},0,${visual === undefined ? '2' : '5'},${String(margin)},${String(margin)},${String(style.margin_bottom_design)},1
 ${watermarkStyle}
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text

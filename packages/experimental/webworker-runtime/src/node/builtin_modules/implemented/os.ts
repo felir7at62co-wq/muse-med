@@ -46,7 +46,7 @@ export function type(): string {
  * CPU architecture.
  * @returns always 'x64'.
  */
-export function arch(): string {
+export function arch(): 'x64' {
   return 'x64'
 }
 

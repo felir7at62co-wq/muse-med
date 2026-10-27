@@ -27,8 +27,11 @@ const mediaPython = process.env.DSH_TEST_MEDIA_PYTHON
 const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
 const runFile = promisify(execFile)
 
-it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealistic'] as const)(
-  'generates separate editable tracks through the native Host tool and packaged Python: %s', async (medium) => {
+it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
+  ['animation_3d', 'utf8'], ['animation_3d', 'utf8-bom'],
+  ['photorealistic', 'utf8'], ['photorealistic', 'utf8-bom'],
+] as const)(
+  'generates separate editable tracks through the native Host tool and packaged Python: %s with %s inputs', async (medium, encoding) => {
     if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
     const f = await fixture()
     try {
@@ -37,6 +40,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
       const bgm = join(f.root, 'music-only.wav')
       const subtitles = join(f.root, 'subtitles.srt')
       const timeline = join(f.root, 'timeline.json')
+      const prefix = encoding === 'utf8-bom' ? '\ufeff' : ''
       await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
         'color=blue:s=160x120:r=24:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
         '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video]).result
@@ -44,9 +48,9 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
         await f.startExternal(mediaFfmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i',
           `sine=frequency=${frequency}:duration=2`, '-ar', '48000', '-ac', '2', file]).result
       }
-      await writeFile(subtitles, '1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n')
-      await writeFile(timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
-        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24 } }))
+      await writeFile(subtitles, `${prefix}1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n`)
+      await writeFile(timeline, `${prefix}${JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
+        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24 } })}`)
       const photorealistic = medium === 'photorealistic'
       if (photorealistic) {
         await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ project_bible: {
@@ -58,7 +62,13 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
         name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, timeline,
         bgm, bgm_role: 'music_only', ...(photorealistic ? { ending_effect: video,
           ending_audio: resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3') } : {}) }
-      await writeFile(f.input.request_file, JSON.stringify(request))
+      await writeFile(f.input.request_file, `${prefix}${JSON.stringify(request)}`)
+      const inputs = [video, audio, bgm, subtitles, timeline, ...(photorealistic ? [
+        join(f.root, 'project_config.json'),
+        resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3'),
+      ] : [])]
+      const inputBytes = await Promise.all(inputs.map(file => readFile(file)))
+      const requestBytes = await readFile(f.input.request_file)
       await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
       const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
@@ -97,7 +107,10 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
         callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
       expect(repeated.isError).toBe(true)
       expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
-      await writeFile(f.input.request_file, JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' }))
+      expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(inputBytes)
+      expect(await readFile(f.input.request_file)).toEqual(requestBytes)
+      await writeFile(f.input.request_file, `${prefix}${JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' })}`)
+      const mixedRequestBytes = await readFile(f.input.request_file)
       const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
       expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
@@ -107,6 +120,8 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each(['animation_3d', 'photorealis
         tracks: { type: string }[]
       }
       expect(mixContent.tracks.filter((track: { type: string }) => track.type === 'audio')).toHaveLength(photorealistic ? 2 : 1)
+      expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(inputBytes)
+      expect(await readFile(f.input.request_file)).toEqual(mixedRequestBytes)
     } finally {
       await f.dispose()
     }

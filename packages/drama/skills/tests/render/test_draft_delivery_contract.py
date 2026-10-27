@@ -156,6 +156,85 @@ class DraftDeliveryContractTests(unittest.TestCase):
             request_module.generate_request(request, str(drafts))
         self.assertEqual(content_path.read_bytes(), saved)
 
+    def test_plain_and_bom_timelines_have_the_same_clock_without_rewriting_inputs(self):
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                original = timeline.read_bytes()
+                clips = self.module.load_edit_timeline(timeline)
+                plan = self.module.draft_ending_plan(timeline, clips, root)
+                self.assertEqual(plan['body_end_us'], 4_000_000)
+                self.assertEqual(timeline.read_bytes(), original)
+
+    def test_plain_and_bom_timelines_keep_verified_project_frame_clock(self):
+        results = []
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                timeline_data = self.delivery_timeline('animation_3d')
+                timeline_data['delivery']['fps'] = 24
+                root = self.build_root(timeline=timeline_data)
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text(json.dumps(timeline_data), encoding=encoding)
+                original = timeline.read_bytes()
+                draft_dir = self.generate(root)
+                clock = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['frame_clock']
+                self.assertEqual(clock['status'], 'verified_same_fps_cfr')
+                self.assertEqual(clock['fps'], 24)
+                self.assertEqual([clock['clips'][str(shot)]['source_frame_count'] for shot in (1, 2)], [48, 48])
+                self.assertEqual(timeline.read_bytes(), original)
+                self.assertEqual((root / 'materials/05_timeline/25.timeline.json').read_bytes(), original)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                results.append((clock['body_end_us'], clock['duration_us'], content['duration'],
+                                [segment['target_timerange'] for segment in self.segments(content, 'video')]))
+        self.assertEqual(results[0], results[1])
+
+    def test_real_request_retains_plain_and_bom_timeline_and_subtitle_bytes(self):
+        environment, module_path = dict(os.environ), list(sys.path)
+        with patch.dict(os.environ), patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+            spec = importlib.util.spec_from_file_location('bom_draft_request', SCRIPT.with_name('generate_draft_request.py'))
+            request_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(request_module)
+            for encoding in ('utf-8', 'utf-8-sig'):
+                with self.subTest(encoding=encoding):
+                    root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                    timeline, subtitle = root / '05_timeline/25.timeline.json', root / '03_subtitle/25.srt'
+                    timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                    subtitle.write_text(SRT, encoding=encoding)
+                    originals = {path: path.read_bytes() for path in (timeline, subtitle)}
+                    drafts = root / 'editor'
+                    drafts.mkdir()
+                    request = {'project': str(root), 'episode': 25, 'name_prefix': 'BOM-',
+                               'audio': str(root / '01_audio/25.wav'),
+                               'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
+                               'subtitle_srt': str(subtitle), 'timeline': str(timeline)}
+                    result = request_module.generate_request(request, str(drafts))
+                    self.assertTrue(result['success'], result)
+                    self.assertFalse(result['editor_open_verified'])
+                    saved = Path(result['drafts'][0]['path']) / 'draft_content.json'
+                    content = json.loads(saved.read_text(encoding='utf-8'))
+                    self.assertEqual(content['duration'], 4_000_000)
+                    self.assertEqual(len(self.texts(content)), 3)
+                    retained = Path(result['materials_dir'])
+                    self.assertEqual((retained / '05_timeline/25.timeline.json').read_bytes(), originals[timeline])
+                    self.assertEqual((retained / '03_subtitle/25.srt').read_bytes(), originals[subtitle])
+                    self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+        self.assertTrue(dict(os.environ) == environment, 'Draft request test must restore environment values')
+        self.assertEqual(sys.path, module_path)
+
+    def test_plain_and_bom_malformed_timeline_still_fails_without_rewriting_inputs(self):
+        for encoding in ('utf-8', 'utf-8-sig'):
+            with self.subTest(encoding=encoding):
+                root = self.build_root()
+                timeline = root / '05_timeline/25.timeline.json'
+                timeline.write_text('{not valid JSON', encoding=encoding)
+                original = timeline.read_bytes()
+                with self.assertRaisesRegex(self.module.DraftInputError, '读取失败'):
+                    self.module.load_edit_timeline(timeline)
+                self.assertEqual(timeline.read_bytes(), original)
+                self.assertFalse((root / 'jianying').exists())
+
     def all_retained_request(self):
         root = self.build_root(timeline=self.delivery_timeline('animation_3d'), srt='\n')
         drafts = root / 'editor'
@@ -607,36 +686,297 @@ class DraftDeliveryContractTests(unittest.TestCase):
                         str(root / '01_audio/25.wav')], check=True, timeout=30, creationflags=NO_WINDOW)
         return root, timeline
 
+    def test_shared_project_frame_clock_does_not_turn_seven_subframe_tails_into_seven_frames(self):
+        counts = [303, 304, 305, 306, 307, 308, 310]
+        shots = [1, 3, 6, 9, 12, 20, 31]
+        durations = [round(count / 24 * 1_000_000) + 25_761 for count in counts]
+        durations[-1] += 89_472_000 - sum(durations)
+        clips, cursor = [], 0
+        for shot, duration in zip(shots, durations):
+            clips.append({'shot': shot, 'start_us': cursor, 'duration_us': duration})
+            cursor += duration
+        timeline = {'clips': clips, 'body_end': 89.472,
+                    'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': 24}}
+        root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:01,000\n原声时钟\n')
+        media_dir = root / '02_media/25'
+        for old in media_dir.iterdir():
+            old.unlink()
+        observed_counts = []
+        for shot, count in zip(shots, counts):
+            video = media_dir / f'p{shot}.mp4'
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            'testsrc=size=48x64:rate=24', '-frames:v', str(count), '-pix_fmt', 'yuv420p',
+                            str(video)], check=True, timeout=30, creationflags=NO_WINDOW)
+            probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+                                    '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(video)],
+                                   check=True, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+            observed_counts.append(int(json.loads(probe.stdout)['streams'][0]['nb_read_frames']))
+        self.assertEqual(observed_counts, counts)
+        self.assertEqual(sum(observed_counts), 2143)
+        audio = root / '01_audio/25.wav'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'sine=frequency=440:duration=89.472', '-ar', '48000', str(audio)],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        inputs = [*media_dir.iterdir(), audio, root / '03_subtitle/25.srt', root / '05_timeline/25.timeline.json']
+        hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        holds = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
+        self.assertEqual(holds, [])
+        clock = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['frame_clock']
+        self.assertEqual(clock['status'], 'verified_same_fps_cfr')
+        self.assertGreater(sum(row['retimed'] for row in clock['clips'].values()), 0)
+        for segment in self.segments(content, 'video'):
+            span = segment['target_timerange']
+            for boundary in (span['start'], span['start'] + span['duration']):
+                frame = round(boundary * 24 / 1_000_000)
+                self.assertEqual(boundary, round(frame / 24 * 1_000_000))
+        self.assertEqual(content['duration'], 91_500_000)
+        watermark = next(track for track in content['tracks'] if track['name'] == 'AI内容标识')['segments'][0]
+        self.assertEqual(watermark['target_timerange'], {'start': 0, 'duration': 91_500_000})
+        self.assertEqual(self.segments(content, 'audio')[0]['target_timerange'], {'start': 0, 'duration': 89_472_000})
+        self.assertEqual(self.segments(content, 'text')[0]['target_timerange'], {'start': 0, 'duration': 1_000_000})
+        for segment in self.segments(content, 'video')[:-1]:
+            self.assertEqual(segment['volume'], 0)
+            self.assertGreater(segment['speed'], 0.95)
+            self.assertLessEqual(segment['speed'], 1.0)
+        self.assertEqual({path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}, hashes)
+
+    def test_project_frame_trim_uses_the_last_displayed_source_frame_for_the_ending(self):
+        timeline = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 2_030_000},
+                              {'shot': 2, 'start_us': 2_030_000, 'duration_us': 2_010_000}], 'body_end': 4.04,
+                    'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': 24}}
+        root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:01,000\n原声时钟\n')
+        source = root / '02_media/25/p2.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'testsrc=size=48x64:rate=24:duration=3', '-pix_fmt', 'yuv420p', str(source)],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'sine=duration=4.04', '-ar', '48000', str(root / '01_audio/25.wav')],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        draft_dir = self.generate(root)
+        clock = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['frame_clock']
+        row = clock['clips']['2']
+        self.assertEqual((row['source_frame_count'], row['video_frames'], row['hold_frames']), (49, 48, 0))
+        self.assertEqual(row['original_source_window_us'], 2_010_000)
+        self.assertEqual(row['source_window_us'], 2_000_000)
+        expected = self.module.decoded_frame_hashes(source, 2_000_000)[-1:]
+        self.assertNotEqual(expected, self.module.decoded_frame_hashes(source, 2_010_000)[-1:])
+        self.assertEqual(self.module.decoded_frame_hashes(draft_dir / 'Resources/last_video_tail_frame.png'), expected)
+
+    def test_real_vfr_sources_keep_the_legacy_path_and_a_visible_frame_adaptation_warning(self):
+        timeline = self.delivery_timeline('animation_3d')
+        timeline['delivery']['fps'] = 24
+        root = self.build_root(timeline=timeline)
+        source = root / '02_media/25/p2.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'testsrc=size=48x64:rate=24:duration=2', '-vf', 'select=not(eq(mod(n\\,3)\\,0))',
+                        '-fps_mode', 'vfr', '-pix_fmt', 'yuv420p', str(source)],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        draft_dir = self.generate(root)
+        evidence_path = draft_dir / 'body-tail-evidence.json'
+        if evidence_path.is_file():
+            self.assertNotIn('frame_clock', json.loads(evidence_path.read_text(encoding='utf-8')))
+        review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertTrue(any('未应用剪映项目帧级适配' in item for item in review['warnings']))
+
+    def test_project_frame_clock_preserves_legal_source_windows_at_24_25_30_60_fps(self):
+        for fps in (24, 25, 30, 60):
+            with self.subTest(fps=fps):
+                middle, end = round(50 / fps * 1_000_000), round(100 / fps * 1_000_000)
+                timeline = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': middle},
+                                      {'shot': 2, 'start_us': middle, 'duration_us': end - middle}],
+                            'body_end': end / 1e6,
+                            'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': fps}}
+                root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:00,500\n原声时钟\n')
+                first = root / '02_media/25/p1.mp4'
+                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc=size=48x64:rate={fps}',
+                                '-frames:v', '50', '-pix_fmt', 'yuv420p', str(first)],
+                               check=True, timeout=30, creationflags=NO_WINDOW)
+                shutil.copy2(first, root / '02_media/25/p2.mp4')
+                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                f'sine=frequency=440:duration={end / 1e6:.6f}', '-ar', '48000',
+                                str(root / '01_audio/25.wav')], check=True, timeout=30, creationflags=NO_WINDOW)
+                original_material = self.module.draft.VideoMaterial
+                reported = []
+                def millisecond_report(path, *args, **kwargs):
+                    material = original_material(path, *args, **kwargs)
+                    if Path(path).suffix.lower() == '.mp4':
+                        material.duration = min(material.duration, middle) // 1_000 * 1_000
+                        reported.append(material.duration)
+                    return material
+                # Only the external SDK's duration report is varied; decoding and draft generation remain real.
+                with patch.object(self.module.draft, 'VideoMaterial', side_effect=millisecond_report):
+                    draft_dir = self.generate(root)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+                self.assertGreaterEqual(len(reported), 2)
+                self.assertEqual(evidence['frame_clock']['clips']['1']['source_window_us'], min(middle, reported[0]))
+                self.assertEqual(evidence['holds'], [])
+                self.assertEqual(evidence['frame_clock']['status'], 'verified_same_fps_cfr')
+                self.assertEqual(evidence['frame_clock']['body_end_frame'], 100)
+                self.assertEqual(content['duration'], end + 2_000_000)
+                self.assertEqual([item['target_timerange'] for item in self.segments(content, 'video')[:-1]],
+                                 [{'start': 0, 'duration': middle}, {'start': middle, 'duration': end - middle}])
+                materials = {item['id']: item for item in content['materials']['videos']}
+                for item in self.segments(content, 'video')[:-1]:
+                    self.assertEqual(item['speed'], 1.0)
+                    self.assertLessEqual(item['source_timerange']['duration'], materials[item['material_id']]['duration'])
+                if fps in (24, 60):
+                    self.assertGreater(self.segments(content, 'video')[0]['target_timerange']['duration'],
+                                       self.segments(content, 'video')[0]['source_timerange']['duration'])
+                self.assertEqual(self.segments(content, 'video')[-1]['target_timerange'],
+                                 {'start': end, 'duration': 2_000_000})
+
+    def test_frame_probe_rejects_pts_jumps_even_with_matching_declared_rates_and_coarse_ticks(self):
+        for tick, pts, average, supported in (
+                ('1/24', [0, 1, 2, 3], '24/1', True),
+                ('1/24', [0, 1, 3, 4], '24/1', False),
+                ('1/24000', [0, 1000, 3000, 4000], '24/1', False),
+                ('1/24', [1, 2, 3, 4], '24/1', False),
+                ('1/24', [0, 1, 2, 3], '30/1', False),
+                ('1/12', [0, 1, 2, 3], '24/1', False)):
+            with self.subTest(tick=tick, pts=pts, average=average):
+                payload = {'streams': [{'time_base': tick, 'avg_frame_rate': average, 'r_frame_rate': average}],
+                           'frames': [{'best_effort_timestamp': value} for value in pts]}
+                response = subprocess.CompletedProcess([], 0, json.dumps(payload), '')
+                with patch.object(self.module.subprocess, 'run', return_value=response):
+                    observed = self.module.selected_project_frames(Path(self.media.name) / 'p1.mp4', 1_000_000, 24)
+                self.assertEqual(observed['status'] == 'verified_same_fps_cfr', supported)
+
+    def test_frame_probe_failures_do_not_turn_a_partial_pts_prefix_into_verified_coverage(self):
+        payload = {'streams': [{'time_base': '1/24', 'avg_frame_rate': '24/1'}],
+                   'frames': [{'best_effort_timestamp': value} for value in (0, 1, 2)]}
+        for label, response in (
+                ('stderr', subprocess.CompletedProcess([], 0, json.dumps(payload), 'decoder error ' * 100)),
+                ('nonzero', subprocess.CompletedProcess([], 7, json.dumps(payload), 'invalid packet')),
+                ('json', subprocess.CompletedProcess([], 0, '{', '')),
+                ('timeout', subprocess.TimeoutExpired('ffprobe', 1)),
+                ('oserror', OSError('probe unavailable'))):
+            with self.subTest(label=label):
+                mocked = (patch.object(self.module.subprocess, 'run', side_effect=response) if isinstance(response, Exception)
+                          else patch.object(self.module.subprocess, 'run', return_value=response))
+                with mocked:
+                    observed = self.module.selected_project_frames(Path(self.media.name) / 'p1.mp4', 1_000_000, 24)
+                self.assertEqual(observed['status'], 'unsupported')
+                if label in ('stderr', 'nonzero'):
+                    self.assertIn(f'exit={response.returncode}', observed['reason'])
+                    self.assertIn('error' if label == 'stderr' else 'invalid packet', observed['reason'])
+                    self.assertLess(len(observed['reason']), 460)
+                else:
+                    self.assertIn({'json': 'JSONDecodeError', 'timeout': 'TimeoutExpired', 'oserror': 'OSError'}[label],
+                                  observed['reason'])
+
+    def test_frame_probe_does_not_inherit_secrets_and_image_inputs_do_not_claim_pts_coverage(self):
+        response = subprocess.CompletedProcess([], 0, json.dumps({
+            'streams': [{'time_base': '1/24', 'avg_frame_rate': '24/1'}],
+            'frames': [{'best_effort_timestamp': value} for value in (0, 1, 2)]}), '')
+        with patch.dict(os.environ, {'FRAMECLOCK_TEST_TOKEN': 'synthetic-not-a-credential'}):
+            with patch.object(self.module.subprocess, 'run', return_value=response) as runner:
+                self.assertEqual(self.module.selected_project_frames(Path('p1.mp4'), 1_000_000, 24)['status'],
+                                 'verified_same_fps_cfr')
+            self.assertFalse('FRAMECLOCK_TEST_TOKEN' in runner.call_args.kwargs['env'])
+        plan = {'body_clips': {6: {'start_us': 0, 'duration_us': 2_000_000}},
+                'body_end_us': 2_000_000, 'policy': {'fps': 24, 'ending_duration_us': 0}}
+        with patch.object(self.module.draft, 'VideoMaterial') as material:
+            _materials, clock = self.module.prepare_project_frame_clock(plan, [Path('p6.png')], ['.mp4'])
+        material.assert_not_called()
+        self.assertEqual(clock['status'], 'unsupported')
+        self.assertIn('PTS', clock['reason'])
+
+    def test_unsupported_project_fps_keeps_legacy_microsecond_tails_and_reports_the_limit(self):
+        root, timeline = self.body_gap_root()
+        timeline['delivery']['fps'] = 25
+        (root / '05_timeline/25.timeline.json').write_text(json.dumps(timeline), encoding='utf-8')
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
+        video = self.segments(content, 'video')
+        self.assertEqual([item['target_timerange'] for item in video], [
+            {'start': 0, 'duration': 2_048_000}, {'start': 2_048_000, 'duration': 2_048_000}])
+        self.assertTrue(all(abs(item['speed'] - 2_042_000 / 2_048_000) < 1e-9 for item in video))
+        review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertTrue(any('未应用剪映项目帧级适配' in item and 'fps' in item for item in review['warnings']))
+
+    def test_legacy_path_checks_the_selected_source_window_and_speed(self):
+        for reason in ('fps_mismatch', 'variable_frame_rate'):
+            with self.subTest(reason=reason):
+                root, timeline = self.body_gap_root()
+                if reason == 'fps_mismatch':
+                    timeline['delivery']['fps'] = 25
+                else:
+                    source = root / '02_media/25/p2.mp4'
+                    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                    'testsrc=size=48x64:rate=24:duration=2', '-vf',
+                                    'select=not(eq(mod(n\\,3)\\,0))', '-fps_mode', 'vfr',
+                                    '-pix_fmt', 'yuv420p', str(source)],
+                                   check=True, timeout=30, creationflags=NO_WINDOW)
+                (root / '05_timeline/25.timeline.json').write_text(json.dumps(timeline), encoding='utf-8')
+                verifier = self.module.verify_draft_delivery
+                with patch.object(self.module, 'verify_draft_delivery', wraps=verifier) as observed:
+                    draft_dir = self.generate(root)
+                body_sources = observed.call_args.kwargs['body_sources']
+                self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips(timeline))
+                cues = self.module.parse_srt_cues(root / '03_subtitle/25.srt')
+                verifier(content, self.clips(timeline), 4_096_000, cues, plan, body_sources=body_sources)
+                for tamper in ('speed', 'source_start', 'source_path', 'source_type'):
+                    with self.subTest(reason=reason, tamper=tamper):
+                        bad = json.loads(json.dumps(content))
+                        segment = next(track for track in bad['tracks'] if track['name'] == '视频轨道')['segments'][0]
+                        if tamper == 'speed':
+                            segment['speed'] = 0.5
+                        elif tamper == 'source_start':
+                            segment['source_timerange']['start'] = 500_000
+                        else:
+                            material = next(item for item in bad['materials']['videos']
+                                            if item['id'] == segment['material_id'])
+                            if tamper == 'source_path':
+                                material['path'] = str(root / 'unselected' / 'p1.mp4')
+                            else:
+                                material['type'] = 'photo'
+                        with self.assertRaisesRegex(self.module.DraftInputError, '选定视频、源时窗或播放速度'):
+                            verifier(bad, self.clips(timeline), 4_096_000, cues, plan, body_sources=body_sources)
+
+    def test_zero_project_frame_shot_is_retained_on_the_legacy_path_with_a_warning(self):
+        timeline = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 1_000},
+                              {'shot': 2, 'start_us': 1_000, 'duration_us': 1_000}], 'body_end': .002,
+                    'delivery': {'visual_medium': 'animation_3d', 'width': 480, 'height': 854, 'fps': 24}}
+        root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:00,001\n原声\n')
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=duration=0.002',
+                        '-ar', '48000', str(root / '01_audio/25.wav')], check=True, timeout=30, creationflags=NO_WINDOW)
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        self.assertEqual([item['target_timerange'] for item in self.segments(content, 'video')],
+                         [{'start': 0, 'duration': 1_000}, {'start': 1_000, 'duration': 1_000}])
+        review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+        self.assertTrue(any('不足一帧' in item for item in review['warnings']))
+
     def test_small_sdk_video_tails_use_verified_frames_without_moving_body_audio_or_subtitles(self):
         for medium in ('animation_3d', 'photorealistic'):
             with self.subTest(medium=medium):
                 root, timeline = self.body_gap_root(medium=medium)
                 draft_dir = self.generate(root)
                 content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
-                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
-                self.assertEqual(len(evidence), 2)
+                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+                self.assertEqual(evidence['holds'], [])
                 video = self.segments(content, 'video')
-                self.assertEqual([segment['target_timerange'] for segment in video[:4]], [
-                    {'start': 0, 'duration': 2_042_000}, {'start': 2_042_000, 'duration': 6_000},
-                    {'start': 2_048_000, 'duration': 2_042_000}, {'start': 4_090_000, 'duration': 6_000}])
-                self.assertTrue(all(segment['speed'] == 1.0 and segment['volume'] == 0 for segment in video[:4]))
+                self.assertEqual([segment['target_timerange'] for segment in video[:2]], [
+                    {'start': 0, 'duration': 2_083_333}, {'start': 2_083_333, 'duration': 2_041_667}])
+                self.assertTrue(evidence['frame_clock']['clips']['1']['retimed'])
+                self.assertAlmostEqual(video[0]['speed'], 2_042_000 / 2_083_333)
+                self.assertTrue(all(segment['volume'] == 0 for segment in video[:2]))
                 self.assertEqual(self.segments(content, 'audio')[0]['target_timerange'], {'start': 0, 'duration': 4_096_000})
                 self.assertEqual(self.segments(content, 'text')[0]['target_timerange'], {'start': 0, 'duration': 1_000_000})
                 self.assertEqual(json.loads((root / '05_timeline/25.timeline.json').read_text(encoding='utf-8')), timeline)
-                for hold in evidence:
-                    source, image = Path(hold['source']), Path(hold['image'])
-                    self.assertEqual(hold['source_sha256'], hashlib.sha256(source.read_bytes()).hexdigest())
-                    self.assertEqual(hold['image_sha256'], hashlib.sha256(image.read_bytes()).hexdigest())
-                    expected = self.module.decoded_frame_hashes(source, hold['selected_duration_us'])[-1]
-                    self.assertEqual(self.module.decoded_frame_hashes(image), [expected])
-                    self.assertEqual(hold['frame_rgb_md5'], expected)
                 if medium == 'animation_3d':
-                    self.assertEqual(content['duration'], 4_096_000)
+                    self.assertEqual(content['duration'], 4_125_000)
                     self.assertFalse((draft_dir / 'ending-evidence.json').exists())
                     self.assertFalse({'片尾音', '片尾特效', 'AI内容标识'} & {track['name'] for track in content['tracks']})
                 else:
-                    self.assertEqual(video[-1]['target_timerange'], {'start': 4_096_000, 'duration': 2_000_000})
-                    self.assertEqual(content['duration'], 6_096_000)
+                    self.assertEqual(video[-1]['target_timerange'], {'start': 4_125_000, 'duration': 2_000_000})
+                    self.assertEqual(content['duration'], 6_125_000)
                 review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
                 self.assertFalse(any('视频段数' in warning or '时间范围' in warning for warning in review['warnings']))
 
@@ -647,56 +987,91 @@ class DraftDeliveryContractTests(unittest.TestCase):
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
         self.assertEqual(len(self.segments(content, 'video')), 2)
         self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
-        self.assertIn('超过容差；不自动补帧', '\n'.join(captured.output))
+        self.assertIn('不自动补定格帧', '\n'.join(captured.output))
         self.assertTrue((draft_dir / 'muse-review.json').exists())
 
-    def test_body_tail_tolerance_includes_200ms_but_does_not_extend_beyond_it(self):
+    def test_multiframe_gap_retimes_within_the_shared_frame_grid(self):
+        root, _timeline = self.body_gap_root(clip_duration_us=2_100_000)
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+        self.assertEqual(evidence['holds'], [])
+        self.assertEqual(evidence['frame_clock']['status'], 'verified_same_fps_cfr')
+        video = self.segments(content, 'video')
+        for shot, segment in enumerate(video, start=1):
+            row = evidence['frame_clock']['clips'][str(shot)]
+            self.assertTrue(row['retimed'])
+            self.assertEqual(segment['target_timerange'], {'start': row['start_us'], 'duration': row['duration_us']})
+            self.assertEqual(segment['source_timerange'], {'start': 0, 'duration': row['source_window_us']})
+            self.assertAlmostEqual(segment['speed'], row['source_window_us'] / row['duration_us'])
+            self.assertLessEqual(row['duration_us'] - row['source_window_us'], 200_000)
+            self.assertLessEqual(row['duration_us'] - row['source_window_us'], row['source_window_us'] * 0.05)
+        self.assertEqual(self.segments(content, 'audio')[0]['target_timerange'], {'start': 0, 'duration': 4_200_000})
+        self.assertEqual(self.segments(content, 'text')[0]['target_timerange'], {'start': 0, 'duration': 1_000_000})
+
+    def test_large_tail_never_inserts_a_freeze_or_claims_verified_frame_clock(self):
         for extra_us in (0, 1):
             with self.subTest(extra_us=extra_us):
                 root, _timeline = self.body_gap_root(clip_duration_us=2_242_000 + extra_us)
                 draft_dir = self.generate(root)
-                evidence_path = draft_dir / 'body-tail-evidence.json'
-                self.assertEqual(evidence_path.is_file(), extra_us == 0)
-                if evidence_path.is_file():
-                    holds = json.loads(evidence_path.read_text(encoding='utf-8'))['holds']
-                    self.assertEqual([hold['duration_us'] for hold in holds], [200_000, 200_000])
+                self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                self.assertEqual([segment['speed'] for segment in self.segments(content, 'video')], [1.0, 1.0])
+                review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
+                self.assertTrue(any('不自动补定格帧' in warning for warning in review['warnings']))
 
-    def test_unverified_body_tail_keeps_existing_segments_and_returns_a_review_warning(self):
-        root, _timeline = self.body_gap_root()
-        with patch.object(self.module, 'extract_draft_tail', side_effect=self.module.DraftInputError('frame mismatch')):
-            draft_dir = self.generate(root)
-        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
-        video = self.segments(content, 'video')
-        self.assertEqual([segment['target_timerange'] for segment in video], [
-            {'start': 0, 'duration': 2_042_000}, {'start': 2_048_000, 'duration': 2_042_000}])
-        self.assertFalse((draft_dir / 'body-tail-evidence.json').exists())
-        review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
-        self.assertEqual(len([warning for warning in review['warnings'] if 'frame mismatch' in warning]), 2)
-
-    def test_body_tail_records_do_not_excuse_missing_or_changed_source_segments(self):
+    def test_retime_verifier_rejects_missing_shifted_or_changed_source_and_speed(self):
         root, timeline = self.body_gap_root()
         draft_dir = self.generate(root)
         content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
-        holds = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))['holds']
+        evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+        self.assertEqual(evidence['holds'], [])
+        clock = evidence['frame_clock']
+        clock['clips'] = {int(shot): row for shot, row in clock['clips'].items()}
         plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips(timeline))
+        plan.update(frame_clock=clock, body_end_us=clock['body_end_us'], duration_us=clock['duration_us'])
         cues = self.module.parse_srt_cues(root / '03_subtitle/25.srt')
-        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan, body_tail_holds=holds)
-        for tamper in ('missing_source', 'missing_hold', 'changed_hold', 'undeclared_hold'):
+        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan)
+        for tamper in ('missing', 'shifted', 'source', 'speed'):
             with self.subTest(tamper=tamper):
                 bad = json.loads(json.dumps(content))
                 track = next(track for track in bad['tracks'] if track['name'] == '视频轨道')
-                records = holds
-                if tamper == 'missing_source':
+                if tamper == 'missing':
                     track['segments'].pop(0)
-                elif tamper == 'missing_hold':
-                    track['segments'].pop(1)
-                elif tamper == 'changed_hold':
-                    track['segments'][1]['target_timerange']['duration'] += 1
+                elif tamper == 'shifted':
+                    track['segments'][0]['target_timerange']['start'] += 1
+                elif tamper == 'source':
+                    track['segments'][0]['source_timerange']['duration'] -= 1
                 else:
-                    records = []
-                with self.assertRaisesRegex(self.module.DraftInputError, '视频段数|正文末帧补齐'):
+                    track['segments'][0]['speed'] = 1.0
+                with self.assertRaises(self.module.DraftInputError):
+                    self.module.verify_draft_delivery(bad, self.clips(timeline), 4_096_000, cues, plan)
+
+    def test_project_clock_verifier_rejects_extending_only_the_notice_or_effect(self):
+        root, timeline = self.body_gap_root(medium='photorealistic')
+        timeline['ending_effect_fit'] = 'stretch_to_window'
+        (root / '05_timeline/25.timeline.json').write_text(json.dumps(timeline), encoding='utf-8')
+        (root / '06_ending').mkdir()
+        shutil.copy2(SCRIPT.parents[2] / 'tweet-drama-background-render/assets/ending_effect.mp4',
+                     root / '06_ending/ending_effect.mp4')
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+        clock = evidence['frame_clock']
+        clock['clips'] = {int(key): value for key, value in clock['clips'].items()}
+        plan = self.module.draft_ending_plan(root / '05_timeline/25.timeline.json', self.clips(timeline))
+        plan.update(frame_clock=clock, body_end_us=clock['body_end_us'], duration_us=clock['duration_us'])
+        cues = self.module.parse_srt_cues(root / '03_subtitle/25.srt')
+        self.module.verify_draft_delivery(content, self.clips(timeline), 4_096_000, cues, plan,
+                                          body_tail_holds=evidence['holds'])
+        for track_name in ('AI内容标识', '片尾特效'):
+            with self.subTest(track_name=track_name):
+                bad = json.loads(json.dumps(content))
+                segment = next(track for track in bad['tracks'] if track['name'] == track_name)['segments'][0]
+                segment['target_timerange']['duration'] += 83_333
+                with self.assertRaisesRegex(self.module.DraftInputError, '标识|项目|片尾'):
                     self.module.verify_draft_delivery(bad, self.clips(timeline), 4_096_000, cues, plan,
-                                                       body_tail_holds=records)
+                                                      body_tail_holds=evidence['holds'])
 
     def test_punctuated_lines_become_single_line_cues_matching_the_draft(self):
         root = self.build_root()
@@ -887,7 +1262,8 @@ class DraftDeliveryContractTests(unittest.TestCase):
     def test_existing_two_second_ending_is_replaced_without_appending_a_second_ending(self):
         timeline = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 2_000_000},
                               {'shot': 2, 'start_us': 2_000_000, 'duration_us': 4_000_000}],
-                    'body_end': 4.0}
+                    'body_end': 4.0,
+                    'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': 24}}
         root = self.build_root(timeline=timeline)
         subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
                         'testsrc=size=160x120:rate=24:duration=2', '-vf',
@@ -957,9 +1333,11 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(len(self.segments(content, 'video')), 3)
 
     def test_explicit_stretch_uses_the_complete_effect_for_two_seconds_and_keeps_source_bytes(self):
-        for fit in ('source_once', 'stretch_to_window'):
-            with self.subTest(fit=fit):
+        for fps, fit in ((24, 'source_once'), (24, 'stretch_to_window'),
+                         (60, 'source_once'), (60, 'stretch_to_window')):
+            with self.subTest(fps=fps, fit=fit):
                 timeline = self.delivery_timeline('photorealistic', ending_effect_fit=fit)
+                timeline['delivery']['fps'] = fps
                 root = self.build_root(timeline=timeline)
                 (root / '06_ending').mkdir()
                 assets = SCRIPT.parents[2] / 'tweet-drama-background-render/assets'
@@ -975,7 +1353,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
                 ending_audio = next(item for item in content['tracks'] if item['name'] == '片尾音')
                 self.assertEqual([item['volume'] for item in ending_audio['segments']], [1])
                 self.assertEqual(segment['source_timerange'], {'start': 0, 'duration': 1_020_000})
-                target = 2_000_000 if fit == 'stretch_to_window' else 1_020_000
+                target = 2_000_000 if fit == 'stretch_to_window' else (1_041_667 if fps == 24 else 1_020_000)
                 speed = 0.51 if fit == 'stretch_to_window' else 1.0
                 self.assertEqual(segment['target_timerange'], {'start': 4_000_000, 'duration': target})
                 self.assertAlmostEqual(segment['speed'], speed)
@@ -1081,6 +1459,33 @@ class DraftDeliveryContractTests(unittest.TestCase):
         self.assertEqual(len(next(track for track in content['tracks'] if track['name'] == 'BGM轨道')['segments']), 1)
         for name in ('片尾音', '片尾特效', 'AI内容标识'):
             self.assertEqual(len([track for track in content['tracks'] if track['name'] == name]), 1)
+
+    def test_prepare_and_process_retains_plain_and_bom_timeline_bytes(self):
+        environment, module_path = dict(os.environ), list(sys.path)
+        with patch.dict(os.environ), patch.object(sys, 'path', list(sys.path)):
+            spec = importlib.util.spec_from_file_location('bom_draft_generator', SCRIPT.with_name('draft_generator.py'))
+            generator_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(generator_module)
+            for encoding in ('utf-8', 'utf-8-sig'):
+                with self.subTest(encoding=encoding):
+                    root = self.build_root(timeline=self.delivery_timeline('animation_3d'))
+                    timeline = root / '05_timeline/25.timeline.json'
+                    timeline.write_text(json.dumps(self.delivery_timeline('animation_3d')), encoding=encoding)
+                    original = timeline.read_bytes()
+                    generator = generator_module.DraftGenerator()
+                    materials = root / 'materials'
+                    generator.prepare_materials(str(root / '01_audio'), str(root / '02_media'), str(materials),
+                                                subtitle_dir=str(root / '03_subtitle'),
+                                                timeline_dir=str(root / '05_timeline'), project=str(root))
+                    drafts = root / 'jianying'
+                    drafts.mkdir()
+                    with patch.dict(sys.modules, {'jianying_draft': self.module}):
+                        result = generator.process(str(materials), str(drafts), name_prefix='BOM-', project=str(root))
+                    self.assertTrue(result['success'], result)
+                    self.assertEqual((materials / '05_timeline/25.timeline.json').read_bytes(), original)
+                    self.assertEqual(timeline.read_bytes(), original)
+        self.assertTrue(dict(os.environ) == environment, 'Draft material test must restore environment values')
+        self.assertEqual(sys.path, module_path)
 
     def generation_result(self, root, seq=None):
         shutil.copytree(root, root / 'materials')

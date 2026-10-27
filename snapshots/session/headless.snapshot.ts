@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
+import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -531,6 +532,20 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 }
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const path = join(expectedRoot, 'editing/01-sources.json')
+    const document = JSON.parse(await readFile(path, 'utf8')) as { shots: { video: string; audio: string }[] }
+    const actualCwd = await realpath(cwd)
+    for (const shot of document.shots) {
+      shot.video = join(actualCwd, 'source.mp4')
+      shot.audio = join(actualCwd, 'source.mp4')
+    }
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`)
+    return { expectedRoot }
+  },
   async 'drama-subtitle-overlay'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
     const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
@@ -679,6 +694,18 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   async 'muse-jianying-project-style-skill'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build'),
       join(cwd, '.dsh/skills/tweet-drama-draft-build'), { recursive: true })
+  },
+  async 'muse-prop-action-fit-skill'(cwd) {
+    for (const name of ['tweet-drama-core', 'tweet-drama-shot-asset-match', 'tweet-drama-asset-vision-check']) {
+      const target = join(cwd, '.dsh/skills', name, 'SKILL.md')
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(join(repoRoot, 'packages/drama/skills/skills', name, 'SKILL.md'), target)
+    }
+  },
+  async 'muse-project-evidence-inspection'(cwd) {
+    const target = join(cwd, '.dsh/skills/tweet-drama-project-inspect/SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-project-inspect/SKILL.md'), target)
   },
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
@@ -1475,6 +1502,7 @@ describe('headless recorded-session snapshots', () => {
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
+      let visualSpeechHash: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
@@ -1541,6 +1569,15 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'drama-subtitle-visual-review') {
+              const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
+              visualSpeechHash = expectedHash
+              visualSpeechRecords(actualLogs[0]!.content, expectedHash, true)
+              const tampered = visualSpeechRecords(actualLogs[0]!.content, '0'.repeat(64), false)
+                .map(row => JSON.stringify(row)).join('\n')
+              expect(() => visualSpeechRecords(tampered, expectedHash, true))
+                .toThrow('Speech evidence digest differs from independently derived inputs')
+            }
             if (retainedToolInput !== undefined) {
               verifyToolResultWriterParity(primaryFixture, actualLogs[0]!.content)
             }
@@ -1676,6 +1713,16 @@ describe('headless recorded-session snapshots', () => {
               expect(preview.payload.storyboardMaterialList).toEqual([{ ...receipt.selected_storyboard_references[0],
                 official: true, asset_status: 'confirmed' }])
             }
+            if (scenario.name === 'muse-shot-advisory') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const result = events.find(event => event.type === 'tool/result')
+              if (result?.type !== 'tool/result') throw new Error('Expected advisory shot preview')
+              const content = result.data.message.content[0]
+              if (content?.type !== 'text') throw new Error('Expected advisory shot report')
+              const report = JSON.parse(content.text) as { warnings: { code: string; shot: number }[] }
+              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'action_stages_missing', shot: 2 }))
+              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'performance_budget_missing', shot: 2 }))
+            }
             if (scenario.name === 'muse-shot-director-format') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
@@ -1758,6 +1805,8 @@ describe('headless recorded-session snapshots', () => {
               if (positive?.type !== 'text' || negative?.type !== 'text') throw new Error('Expected derived visual previews')
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
+              expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
+              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
               expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
                 .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
@@ -1835,11 +1884,11 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(preview.packages).toHaveLength(3)
               const identityPackage = preview.packages[0]
-              expect(identityPackage.material_keys).toEqual(['background', 'rain', 'snow'])
+              expect(identityPackage.material_keys).toEqual(['rain', 'snow', 'background'])
               expect(identityPackage.material_bindings).toEqual([
-                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
                 { material_key: 'rain', name: '温雨身份母版', type: '角色', official: true, asset_id: '71001', material_id: '81001', url: 'https://example.invalid/rain.png', reference_scope: 'identity' },
                 { material_key: 'snow', name: '温雪身份母版', type: '角色', official: true, asset_id: '71003', material_id: '81003', url: 'https://example.invalid/snow.png', reference_scope: 'identity' },
+                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
               ])
               expect(identityPackage.prompt).not.toContain('rain-repeat')
               expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
@@ -2077,13 +2126,17 @@ describe('headless recorded-session snapshots', () => {
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
-        const expectedRecords = scenario.name === 'session-reference-spill' && index === 0
+        let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
           ? sessionReferenceSpillExpected(
             actualRecords,
             expectedSnapshots[index] as string,
             sessionHeaderVersion(expected[index] as string, 'session-reference-spill fixture'),
           )
           : records(expectedSnapshots[index] as string)
+        if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
+          if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
+          expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
+        }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
       await verifyHeaders(scenario, actualLogs, actualContext)

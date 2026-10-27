@@ -1,4 +1,4 @@
-/** Exercise Host warning persistence and results with only external Python/library substituted, not acoustic verification. */
+/** Exercise Host warning persistence with external Python substituted; this does not verify Python input decoding, saved editor compatibility or acoustics. */
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
 
 const Draft = await importSnapshotModule(
@@ -22,7 +22,8 @@ export async function apply(ctx) {
     const target = path.join(process.argv[2], request.name_prefix + String(request.episode).padStart(2, '0'));
     fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
     const warnings = ['Subtitle cue 1 needs review; candidate preserved.',
-      '镜头 1 的源视频音量为 1.0，可能重复对白；保留独立对白轨并将该源视频静音。'];
+      '镜头 1 的源视频音量为 1.0，可能重复对白；保留独立对白轨并将该源视频静音。',
+      '剪映按 24fps 共用绝对帧边界：正文原时钟 89.472000 秒 → 89.500000 秒（差 28000 微秒）；源文件、音频及字幕时钟未改，打开、重开及导出仍须核对。'];
     const review = path.join(target, 'muse-review.json');
     fs.writeFileSync(review, JSON.stringify({status:'needs_review',warnings})+String.fromCharCode(10));
     const reportedTarget = target.split(path.sep).join('/'), reportedReview = review.split(path.sep).join('/');

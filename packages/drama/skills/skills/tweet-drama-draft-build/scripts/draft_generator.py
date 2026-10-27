@@ -83,7 +83,7 @@ class DraftGenerator:
             check_videos(project_root, videos)
         timeline_paths = sorted(Path(timeline_dir).glob('*.timeline.json')) if timeline_dir else []
         policies = [_delivery_policy.resolve_delivery(
-            json.loads(path.read_text(encoding='utf-8')), project_root) for path in timeline_paths]
+            json.loads(path.read_text(encoding='utf-8-sig')), project_root) for path in timeline_paths]
         if not policies:
             policies = [_delivery_policy.resolve_delivery({}, project_root)]
         include_ending = any(policy['ending_duration_us'] for policy in policies)

@@ -5,8 +5,8 @@ import { JsonChannel } from '../src/channel.ts'
 function pair() {
   const left = new PassThrough()
   const right = new PassThrough()
-  const a = Duplex.from({ readable: left, writable: right })
-  const b = Duplex.from({ readable: right, writable: left })
+  const a = Reflect.apply(Reflect.get(Duplex, 'from'), Duplex, [{ readable: left, writable: right }]) as Duplex
+  const b = Reflect.apply(Reflect.get(Duplex, 'from'), Duplex, [{ readable: right, writable: left }]) as Duplex
   // Duplex.from forwards peer destruction as ABORT_ERR; channel owners observe their own failures.
   a.on('error', () => {})
   b.on('error', () => {})

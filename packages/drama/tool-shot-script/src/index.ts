@@ -7,6 +7,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { installPreparedQualityReview } from './prepared-quality.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
@@ -25,7 +26,7 @@ import {
   writeAdvisoryReview,
 } from './episode.ts'
 import { buildReport } from './report.ts'
-import { parseShotScript } from './script.ts'
+import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
 import { registerProductionTool } from './production.ts'
 import type { ProductionConfig } from './production.ts'
 import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from './session-video.ts'
@@ -50,6 +51,8 @@ export interface Config {
   production?: ProductionConfig
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
+  /** Effective spoken characters per second used for estimates; defaults to eight. */
+  speechCharsPerSecond?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
   reviewMode?: DramaShotReviewMode
   /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */
@@ -65,6 +68,7 @@ export const Config: z<Config> = z.object({
     ledgerRoot: z.string(), pageSize: z.number(), pageLimit: z.number(), candidateLimit: z.number(),
     maxSourceBytes: z.number(), maxShots: z.number(), maxPackages: z.number() }),
   actionShotSeconds: z.number().step(1).min(1).max(4).default(DEFAULT_ACTION_SHOT_SECONDS),
+  speechCharsPerSecond: z.number().min(1).default(DEFAULT_SPEECH_CHARS_PER_SECOND),
   reviewMode: z.union(['strict', 'advisory']).default('strict'),
   sessionVideoSelection: z.boolean().default(false),
   selectionReviewMaxChars: z.number().step(1).min(400).default(2000),
@@ -74,6 +78,8 @@ export const Config: z<Config> = z.object({
 interface ResolvedConfig {
   /** Seconds charged to a silent shot without a complexity label. */
   actionShotSeconds: number
+  /** Validated speech-estimate rate shared by compiler and production packaging. */
+  speechCharsPerSecond: number
   /** Whether content diagnostics remain suggestions. */
   reviewMode: DramaShotReviewMode
   /** Whether session-owned video capabilities replace the old budget argument. */
@@ -263,6 +269,7 @@ async function runDramaShot(
   const delivery = await readProjectDelivery(call.script, call.project)
   const parsed = parseShotScript(scriptText, {
     actionShotSeconds: config.actionShotSeconds,
+    speechCharsPerSecond: config.speechCharsPerSecond,
     maxEffectiveChars: delivery?.maxEffectiveChars,
   })
   const manifestRead = call.assets === undefined ? undefined : await readManifest(call.assets)
@@ -381,7 +388,7 @@ const RESULT_SCHEMA = {
           effective_chars: { type: 'integer', required: true, description: '有效字：汉字/字母/数字，标点与空格不计。' },
           duration_seconds: { type: 'integer', required: true, description: '本镜计入打包预算的整秒数。' },
           duration_source: { type: 'string', required: true, enum: ['speech', 'declared', 'complexity', 'default'],
-            description: '时长来源：明确声明、8 有效字/秒估算、动作复杂度、或编译器默认值。' },
+            description: '时长来源：明确时长或完整表演预算、发声与动作复杂度的较长估算、无声动作复杂度、或编译器默认值。' },
           offscreen: { type: 'boolean', required: true, description: '是否是同场画外音。' },
           characters_field: { type: 'string', required: true, description: '出镜人物 字段原文；整行省略时为空串。' },
           scene: { type: 'string', required: true, description: '绑定到的正式场景名；空串表示没有绑定场景。' },
@@ -461,7 +468,9 @@ const STRICT_DESCRIPTION = '短剧镜头脚本的判定与编译（剧变流水�
   + 'compile=判定通过后写入 matched JSON（matches/<集号>.matched.json）与单集 package'
   + '（prompts/<集号>.txt、episode_packages/<集号>/），并回报每包的 content_duration_ms、'
   + '提交给剧变的整秒时长与素材键顺序。'
-  + '时长：N秒的正整数声明优先；省略时按 8 有效字/秒估算。超过 15 字写作阈值或内建 36 字建议、偏离估算仅警告，可保留长慢镜头；'
+  + '时长：N秒的正整数声明优先；省略时按配置语速估算，默认8 有效字/秒。'
+  + '可同时声明动作预算、发声预算、反应预算（非负整数秒）及表演顺序（同时/先动作后台词/先台词后动作）：同步取较长项，先后累加，再加反应；声明时长不足以容纳该预算时失败。'
+  + '超过 15 字写作阈值或内建 36 字建议、偏离语速估算仅警告，可保留长慢镜头；'
   + '但项目在 project_config.json 的 delivery.max_effective_chars_per_shot 里声明了每镜上限时，超过该上限判失败'
   + '（按原文语义拆镜，或改掉该项目的这条要求），不删字、不改顺序、不换说话人；'
   + '无发声镜必须写 发声类型：action，时长由 动作复杂度（简单/一般/较复杂/复杂 = 1/2/3/4 秒）决定，'
@@ -488,6 +497,7 @@ const ADVISORY_DESCRIPTION = '镜头脚本检查与分包建议（提示模式�
   + '所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。'
   + '以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。'
   + '保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。'
+  + '完整的动作预算、发声预算、反应预算与表演顺序用于同步/串行时间核算；缺项、算术冲突仍报告warning，不能据ok=true判断可行。'
   + '已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。'
   + '估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。'
   + 'ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。'
@@ -504,6 +514,7 @@ const ADVISORY_DESCRIPTION = '镜头脚本检查与分包建议（提示模式�
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved: ResolvedConfig = {
     actionShotSeconds: config.actionShotSeconds ?? DEFAULT_ACTION_SHOT_SECONDS,
+    speechCharsPerSecond: config.speechCharsPerSecond ?? DEFAULT_SPEECH_CHARS_PER_SECOND,
     reviewMode: config.reviewMode ?? 'strict',
     sessionVideoSelection: config.sessionVideoSelection ?? false,
     selectionReviewMaxChars: config.selectionReviewMaxChars ?? 2000,
@@ -555,10 +566,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
     })
     owner.tools.register(definition)
+    installPreparedQualityReview(owner, definition, resolved.actionShotSeconds, resolved.speechCharsPerSecond)
     if (resolved.sessionVideoSelection) installSessionReview(owner, definition, resolved.selectionReviewMaxChars)
   }
   if (resolved.sessionVideoSelection) ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)
   else register(ctx)
   if (config.productionPackaging) ctx.inject(['credentials', 'jubianVideoSelection'],
-    owner => registerProductionTool(owner, config.production ?? {}, resolved.actionShotSeconds))
+    owner => registerProductionTool(owner, config.production ?? {}, resolved.actionShotSeconds, resolved.speechCharsPerSecond))
 }

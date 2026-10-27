@@ -64,7 +64,7 @@ SD2.5（Seedance 2.5）默认使用通过内容审核的原片合成，不自动
 
 `drama_render` 支持在同一 `project_bible.delivery` 内保存项目已认可的 `subtitle: {font_family?, font_size_px?, margin_bottom_px?}` 和 `audio: {master_gain?, bgm_gain?}`。字号与底边距使用输出像素：字号是名义设计尺寸，不是实测字形高度；边距换算为 ASS 整数设计单位。字族须已可用，选择不会安装字体；增益是 0–8 的线性数值，零表示静音。prepare 将显式节保存到时间线。时间线某节存在（包括 `{}`）时整节优先，缺字段回落部署默认，不从当前项目补字段；没有该节才读取项目。变更项目设置后重新 prepare，抽帧、试听新候选。未配置的旧调用方保留原默认；Python `render_episode.py` 尚不读取这些项目字幕/增益字段，不用它冒充该能力已验证。剪映草稿读取同一显式音频节，但其未配置默认仍为 1/1，需要与正式成片一致时显式指定两项增益。
 
-当前 `drama_project.changes.delivery` 只接受画幅，不接受上述字幕/音频字段。先读取现有 `project_config.json`，用文件编辑工具仅增量加入这两节，保留 `schema_version`、`revision`、`history`、预算、远端绑定及其它已有字段；不得拿局部示例整份覆盖项目配置。随后重新 prepare 并核对预览。正常项目更新会保留已保存的两节，不需为此改动公共项目写入 API。
+当前 `drama_project.changes.delivery` 接受画幅、独立草稿样式和下面的共享视觉配置；旧 `subtitle`/`audio` 字段仍不通过该 API 写入。需要旧两节时，先读取现有 `project_config.json`，用文件编辑工具仅增量加入，保留 `schema_version`、`revision`、`history`、预算、远端绑定及其它已有字段；不得拿局部示例整份覆盖项目配置。随后重新 prepare 并核对预览。正常项目更新会保留已保存的节。
 
 字幕外观和混音响度以同一份 `drama_render` 正式候选为审查对象，审查与交付使用相同的 delivery、字体和增益。`ffmpeg_subtitle` 加 SRT 的临时预览只证明文字与时间，不能据此宣称正式样式或混音已验收。最终交付沿用用户实际试听观看的同一候选；修改样式、delivery 或增益时另存新候选重新听看，不覆盖旧批准文件。抽帧、离线信号分析和工具技术检查不能代替实际听看；这些是流程提示，不新增硬门禁或批准步骤。
 
@@ -76,7 +76,17 @@ SD2.5（Seedance 2.5）默认使用通过内容审核的原片合成，不自动
 - **片尾特效完整覆盖选项**：新建仿真人交付候选时，在 `prepare` 后的共享 timeline 显式写 `ending_effect_fit: "stretch_to_window"`，除非项目已经明确选择原速短特效。正式渲染和草稿均将完整特效源按实测时长变速覆盖 2 秒；1.020 秒源的播放速度为 0.51，音频仍原速取前 2 秒。此选项不循环、不补黑场，也不把黑尾冻结冒称仍有特效；报告源时长、目标时长与速度，预览片尾后再确定效果。省略字段按上面的 `source_once` 旧规则播放一次，保留旧调用；3D 动画仍不添加任何片尾。
 - **禁止**转场、额外音效、调色、滤镜、画面特效和花字；全片只有基础硬切与上述片尾特效。
 
-**字幕可读性建议两条路径保持一致**：建议去标点、按语义切分、单行、单条不超过 14 个有效字（空格按半个字计），文字取剧本原文。缺对齐、声文不符、样式或配乐问题只返回具体路径与原因，由 Muse 判断如何处理；不要求提示清零，也不新增批准步骤。草稿路径的 `normalize_subtitle_text` 写出独立 `.normalized.srt`；超长字幕保留原文与时间，不按字数猜切点。`drama_render subtitles` 有疑点时写 `.draft.srt` 并保留原字幕；`.review.txt` 与旧 `.blocked` 只作提醒，准备和渲染可继续。保存成功不表示已完成质量验收。**字幕外观两条路径分别配置**：成片按明确的项目正文样式或部署默认（默认字族 SimHei、ASS 字号 `40`、字间距 `-2`、描边按成片像素推导）；草稿用剪映系统默认黑体（`draft_content.json` 里不写 `font` 字段）、字号 `11`（UI）、字间距 `0`（UI）、描边 `20`（UI）。改一边不得联动另一边。
+**字幕可读性建议两条路径保持一致**：建议去标点、按语义切分、单行，文字以实际核听为准；14 个有效字只是初筛，不代表字形能放入画幅。缺对齐、声文不符、样式或配乐问题只返回具体路径与原因，由 Muse 判断如何处理；不要求提示清零，也不新增批准步骤。草稿路径的 `normalize_subtitle_text` 写出独立 `.normalized.srt`；超长字幕保留原文与时间，不按字数猜切点。`drama_render subtitles` 有疑点时写 `.draft.srt` 并保留原字幕；`.review.txt` 与旧 `.blocked` 只作提醒，准备和渲染可继续。保存成功不表示已完成质量验收。未启用 `subtitle_visual` 时，两条路径保持各自默认：成片按项目正文样式或部署默认（字族见下文「本地依赖与入口」、ASS 字号 `40`、字间距 `-2`、描边按成片像素推导）；草稿默认字族由编辑器选择（文件不写 `font`）、字号 `11`、字间距 `0`、描边 `20`，均为剪映 UI 单位。
+
+## 共享字幕视觉配置
+
+项目要求 MP4 和剪映字幕接近同一已认可样式时，通过 `drama_project` 的 preview/update 保存 `delivery.subtitle_visual`，再重新 prepare。完整节包含 `schema_version: 1`、参考画布 `reference_width/reference_height`、参考像素 `font_size_px/outline_px`、从上往下的文字框中心 `center_y_ratio`（0–1）和单行可用宽度 `max_width_ratio`（大于 0 且不大于 1），可选 `font_family` 仅请求已存在字体，不证明两边实际采用同一字族。名义字号不是实测字高，也不是剪映 UI 字号；不能直接复制两套渲染数值。该节只影响后加正文字幕，白字黑边、居中、统一字号，水印独立。没有新节时保留旧默认；时间线已保存的整节（含 `{}`）优先，空节恢复旧路径，只有缺节才继承项目。
+
+剪映的字号、描边和字族使用同一项目 `delivery.draft_style.subtitle` 的明确 UI 配置，不把名义像素再按草稿画布高度累乘。选中草稿样式节显式配置的 `transform_y` 保留为剪映独立校准位置；缺省时才由公共 `center_y_ratio` 换算，最大行宽和单行策略仍来自公共节。项目变更后重新 prepare，检查完整快照，不能让旧样式节遮住新校准值。缺少专属 UI 配置时保留旧值并在草稿审查记录中提示；不得宣称像素对齐或新增用户弹窗。关闭自动换行及写出 `max_line_width` 不是防裁边保证，必须看实际画幅预览。
+
+先用 `drama_render method=subtitle_layout`，传实际 timeline 和最终 `subtitle_srt`，获取 libass 真实 PNG、字形宽度、可用宽度和字体解析日志路径。正式 render 在显式新视觉模式下也测量并记录。描边余量明确为估算，不等于实测黑边；FFmpeg 能容纳不代表剪映一定相同。超宽、字体解析不足或探针失败只提示，不阻断整集，不偷偷缩小单条字幕。按真实字词时间作语义切分后再次预览；没有可靠切点就保留候选并说明，不用字符数均分时间。分别抽查短句、最长句、靠近切镜的字幕，并在剪映打开、播放、关闭、重开检查文字、位置、折行和可编辑性；效果示意不能替代真实渲染。
+
+最终交付前沿[字词与最终字幕双向核查](../tweet-drama-draft-build/SKILL.md#字幕交付样式)使用 `speech_coverage`：对所有同源识别字词逐项比最终完整显示 SRT，检查有声无字及有字无对应发声候选，尤其一两个字与剧本外额外发声。核听后补字或记录不加理由，MP4 和草稿复用同一最终文本与时间。识别匹配、SRT 合规及保存成功均不等于实际听看通过；普通发现给 Agent 处理，不新增用户逐项审批或付费调用。
 
 ## 配乐试听与反馈
 
@@ -94,7 +104,7 @@ BGM 授权信息交接：`match/download` 的 `intended_use` 与计划中本集�
 
 ## 本地依赖与入口
 
-本包包含维护源码和片尾这两份素材（本技能目录下的 `assets/ending_effect.mp4`、`assets/ending_audio.mp3`），不包含 BGM、字体或 FFmpeg 二进制。安装 FFmpeg/ffprobe（需字幕滤镜和所选编码器）；路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，兼容 `FFMPEG_PATH` / `FFPROBE_PATH`，否则使用 PATH。**字体只有这一处权威说法**：随包字体只存在于 muse-med Windows 产品——它捆绑 OFL 授权的 Noto Sans CJK SC，未配置项目正文覆盖时 ASS 正文 40、水印 44 及其余默认不变，Python 通过 `MUSE_FONTS_DIR` 和 `MUSE_FONT_FAMILY` 使用包内字体，正式 `drama_render` 由产品配置传入同一目录和字族；`background-render` 与 `draft-build` 的其余段落都不再另称 SimHei。非产品部署没有随包字体，字族回落为系统发现的 SimHei（正文）与 Microsoft YaHei（水印），即 `drama_render` 的默认值，或用 `DSH_FONTS_DIR` 指定已授权目录，需自行确认这两个字体可用且已获授权；选择 Noto Sans CJK SC 的理由是它可以随包再分发（OFL），SimHei 不行。脚本仅依赖 Python 标准库和相邻 `tweet-drama-core/scripts/video_bans.py`，建议 Python 3.11+，运行时用 `python -B`。
+本包包含维护源码和片尾这两份素材（本技能目录下的 `assets/ending_effect.mp4`、`assets/ending_audio.mp3`），不包含 BGM、字体或 FFmpeg 二进制。安装 FFmpeg/ffprobe（需字幕滤镜和所选编码器）；路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，兼容 `FFMPEG_PATH` / `FFPROBE_PATH`，否则使用 PATH。**字体只有这一处权威说法**：随包字体只存在于 muse-med Windows 产品；正式直出正文默认请求 `Zhuque Fangsong (technical preview)`，水印仍请求 OFL 授权的 Noto Sans CJK SC，未配置项目正文覆盖时 ASS 正文 40、水印 44 及其余默认不变。Python 通过 `MUSE_FONTS_DIR`、`MUSE_SUBTITLE_FONT_FAMILY` 与 `MUSE_WATERMARK_FONT_FAMILY` 使用包内字体，正式 `drama_render` 由产品配置传入同一目录及分别选定的字族；旧 `MUSE_FONT_FAMILY` 在对应专用变量缺失时仍作为两者的兼容回退。非产品部署没有随包字体，字族回落为系统发现的 SimHei（正文）与 Microsoft YaHei（水印），即 `drama_render` 的默认值，或用 `DSH_FONTS_DIR` 指定已授权目录，需自行确认字体可用且已获授权；字体名称与实际 FFmpeg 命中须分别核对。脚本仅依赖 Python 标准库和相邻 `tweet-drama-core/scripts/video_bans.py`，建议 Python 3.11+，运行时用 `python -B`。
 
 单集入口 `scripts/render_episode.py` 的旧调用仍需显式提供 `--bgm`（本集实际选择并试听的配乐音轨，不限定曲数）；无后加配乐或项目级混音使用当前 `drama_render` schema 支持的显式方案，不以静音文件假装已经选曲。仿真人及旧项目还必须提供 `--ending-audio` 和 `--ending-effect`，指向本技能 `assets/` 下的两份素材，缺失或字节不符都明确失败。3D 动画无需片尾参数，即使传入也不读取。批量入口 `scripts/render_batch.py` 使用 `--bgm-dir` 中逐集的 `NN.mp3`，每集独立执行同一媒介策略。选曲情绪与使用授权由项目分段记录和试听核验，脚本不从已混音文件推断曲目。生成规格服从当前模型目录与分镜，脚本按时间线 `delivery` 快照输出并校验尺寸和帧率，缺少快照时保留上面的旧版默认。
 

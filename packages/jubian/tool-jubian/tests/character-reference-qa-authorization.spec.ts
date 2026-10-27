@@ -178,6 +178,16 @@ describe('character-reference isolated QA authorization store', () => {
       .rejects.toMatchObject(expectCode('invalid-config'))
   })
 
+  it('rejects a SQLite sidecar path occupied by a directory on every platform', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'character-reference-qa-sidecar-'))
+    dirs.push(root)
+    const path = join(root, 'database', 'authorization.sqlite')
+    await mkdir(join(root, 'database'), { mode: 0o700 })
+    await mkdir(`${path}-wal`)
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path }))
+      .rejects.toMatchObject(expectCode('invalid-config'))
+  })
+
   it('persists the synthetic one-shot grant and protects grants and events from mutation', async () => {
     const { store, path } = await opened()
     const value = grant()
@@ -745,6 +755,15 @@ describe('character-reference isolated QA authorization store', () => {
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('unexpected: unexpected; missing: none')
   })
 
+  it('rejects a non-file SQLite sidecar on every platform', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'character-reference-qa-sidecar-'))
+    dirs.push(root)
+    const path = join(root, 'authorization.sqlite')
+    await mkdir(path + '-wal')
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path }))
+      .rejects.toThrow('real file')
+  })
+
   it('refuses non-file and symlink entries and insecure SQLite sidecars', async () => {
     const root = await mkdtemp(join(tmpdir(), 'reference-db-path-'))
     dirs.push(root)
@@ -752,6 +771,11 @@ describe('character-reference isolated QA authorization store', () => {
     await mkdir(path, { mode: 0o700 })
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
     await rm(path, { recursive: true })
+    await mkdir(path + '-wal', { mode: 0o700 })
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path }))
+      .rejects.toThrow('SQLite wal sidecar must be a real file')
+    await rm(path + '-wal', { recursive: true })
+    await rm(path)
     if (process.platform !== 'win32') {
       await symlink(join(root, 'elsewhere'), path)
       await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')

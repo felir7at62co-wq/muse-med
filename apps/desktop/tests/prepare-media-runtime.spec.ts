@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { zipSync } from 'fflate'
 import { expect, it } from 'vitest'
-import { assertMediaArchivePath, verifyMediaResource, validateMediaLock, verifyPreparedMediaRuntime, bgmDescriptorSection, REDISTRIBUTION_NOTICE, prepareMediaRuntime } from '../scripts/prepare-media-runtime.ts'
+import { assertMediaArchivePath, verifyMediaResource, validateMediaLock, verifyPreparedMediaRuntime, bgmDescriptorSection, REDISTRIBUTION_NOTICE, prepareMediaRuntime, extractSubtitleFont } from '../scripts/prepare-media-runtime.ts'
 import { validateBgmRuntimeLock } from '../scripts/prepare-bgm-runtime.ts'
 
 type Entry = { path: string; bytes: number; sha256: string }
@@ -21,17 +22,25 @@ it('rejects ZIP paths that can escape or alias Windows installation files', () =
 it('requires resource hashes and credentials-free HTTPS sources before download', () => {
   const resource = { filename: 'python.zip', url: 'https://www.python.org/python.zip', sha256: 'a'.repeat(64), bytes: 12 }
   const valid = { version: 1, pythonVersion: '3.12.10', python: resource, ffmpeg: resource, font: resource,
+    subtitleFontArchive: resource, subtitleFont: { filename: 'subtitle.ttf', sha256: 'b'.repeat(64), bytes: 11 },
     vcRedist: { ...resource, productVersion: '14.51.36247.0' }, peInspector: resource, wheels: [resource], notices: [resource] }
   expect(() => validateMediaLock(valid)).not.toThrow()
   for (const patch of [{ sha256: '' }, { bytes: 0 }, { url: 'https://secret@example.com/x' }, { filename: '../x' }]) {
     expect(() => validateMediaLock({ ...valid, python: { ...resource, ...patch } })).toThrow()
   }
+  expect(() => validateMediaLock({ ...valid, subtitleFontArchive: undefined })).toThrow(/resource/)
+  for (const font of [undefined, { ...valid.subtitleFont, sha256: '' },
+    { ...valid.subtitleFont, filename: '../subtitle.ttf' }, { ...valid.subtitleFont, filename: resource.filename }]) {
+    expect(() => validateMediaLock({ ...valid, subtitleFont: font })).toThrow()
+  }
 })
 
 const fontBytes = Buffer.from('fixture-font')
+const subtitleFontBytes = Buffer.from('fixture-subtitle-font')
 const releaseLock = validateMediaLock({
   ...JSON.parse(await readFile(new URL('../scripts/media-runtime.lock.json', import.meta.url), 'utf8')),
   font: { filename: 'test.otf', url: 'https://example.com/test.otf', bytes: fontBytes.length, sha256: digest(fontBytes) },
+  subtitleFont: { filename: 'subtitle.ttf', bytes: subtitleFontBytes.length, sha256: digest(subtitleFontBytes) },
 })
 it('ships document and media dependencies without a local ASR model or its exclusive wheels', () => {
   expect(releaseLock).not.toHaveProperty('model')
@@ -42,6 +51,7 @@ it('ships document and media dependencies without a local ASR model or its exclu
     expect(names).not.toContain(name)
   }
   expect(releaseLock.notices.some(notice => notice.filename.includes('Whisper'))).toBe(false)
+  expect(releaseLock.notices.some(notice => notice.filename === 'LICENSE-ZhuqueFangsong.txt')).toBe(true)
 })
 
 const bgmReleaseLock = validateBgmRuntimeLock(JSON.parse(await readFile(new URL('../scripts/bgm-runtime.lock.json', import.meta.url), 'utf8')))
@@ -58,20 +68,39 @@ async function writeBgmFixture(root: string): Promise<Entry[]> {
     index === 0 ? entry(path, lockText) : entry(path, payload))
 }
 
-/** Write a complete reusable payload: both locks, notices, font, emotion runtime and descriptor. */
+/** Write a complete reusable payload: both locks, both fonts, emotion runtime and descriptor. */
 async function writeMediaFixture(root: string): Promise<void> {
   const lockText = JSON.stringify(releaseLock)
   await writeFile(join(root, 'resources.lock.json'), lockText)
   await mkdir(join(root, 'fonts'), { recursive: true })
   await writeFile(join(root, 'fonts', releaseLock.font.filename), fontBytes)
+  await writeFile(join(root, 'fonts', releaseLock.subtitleFont.filename), subtitleFontBytes)
   const files = [...await writeBgmFixture(root), entry('resources.lock.json', lockText),
-    entry(`fonts/${releaseLock.font.filename}`, fontBytes)].sort((left, right) => left.path.localeCompare(right.path))
+    entry(`fonts/${releaseLock.font.filename}`, fontBytes),
+    entry(`fonts/${releaseLock.subtitleFont.filename}`, subtitleFontBytes)].sort((left, right) => left.path.localeCompare(right.path))
   await writeFile(join(root, 'media-runtime.json'),
     JSON.stringify({ version: 1, bgm: bgmDescriptorSection(bgmReleaseLock), files }))
 }
 
-it('requires a hash-locked CJK font resource', () => {
+it('requires a hash-locked CJK watermark font resource', () => {
   expect(() => validateMediaLock({ ...releaseLock, font: undefined })).toThrow(/resource/)
+})
+
+it('extracts only the expected subtitle TTF and verifies its content before installation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-media-subtitle-font-'))
+  try {
+    await mkdir(join(root, 'fonts'))
+    const archive = join(root, 'release.zip')
+    await writeFile(archive, zipSync({ [releaseLock.subtitleFont.filename]: subtitleFontBytes }))
+    await expect(extractSubtitleFont(archive, root, releaseLock.subtitleFont)).resolves.toBeUndefined()
+    expect(await readFile(join(root, 'fonts', releaseLock.subtitleFont.filename))).toEqual(subtitleFontBytes)
+    await rm(join(root, 'fonts', releaseLock.subtitleFont.filename))
+    await writeFile(archive, zipSync({ [releaseLock.subtitleFont.filename]: Buffer.from('wrong font') }))
+    await expect(extractSubtitleFont(archive, root, releaseLock.subtitleFont)).rejects.toThrow(/size|checksum/)
+    await writeFile(archive, zipSync({ [releaseLock.subtitleFont.filename]: subtitleFontBytes, 'extra.ttf': subtitleFontBytes }))
+    await expect(extractSubtitleFont(archive, root, releaseLock.subtitleFont)).rejects.toThrow(/only the locked TTF/)
+    await expect(readFile(join(root, 'fonts', releaseLock.subtitleFont.filename))).rejects.toThrow()
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 it('requires the offline Visual C++ redistributable and its exact product version', () => {
@@ -92,6 +121,11 @@ it('reuses only a complete unchanged inventory and rejects extra files or change
     await writeFile(join(root, 'fonts', releaseLock.font.filename), 'modified')
     await expect(verifyPreparedMediaRuntime(root, releaseLock, bgmReleaseLock)).rejects.toThrow(/CJK font.*fresh output/)
     await rm(join(root, 'fonts', releaseLock.font.filename))
+    await expect(verifyPreparedMediaRuntime(root, releaseLock, bgmReleaseLock)).rejects.toThrow(/CJK font.*fresh output/)
+    await writeFile(join(root, 'fonts', releaseLock.font.filename), fontBytes)
+    await writeFile(join(root, 'fonts', releaseLock.subtitleFont.filename), 'modified')
+    await expect(verifyPreparedMediaRuntime(root, releaseLock, bgmReleaseLock)).rejects.toThrow(/CJK font.*fresh output/)
+    await rm(join(root, 'fonts', releaseLock.subtitleFont.filename))
     await expect(verifyPreparedMediaRuntime(root, releaseLock, bgmReleaseLock)).rejects.toThrow(/CJK font.*fresh output/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

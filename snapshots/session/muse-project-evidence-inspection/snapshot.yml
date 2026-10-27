@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-project-evidence-inspection
+profile: headless
+composition: muse-project-evidence-inspection
+recording: authored
+header:
+  class: muse-project-evidence-inspection
+  pin: true
+workspace:
+  setup: muse-project-evidence-inspection
+writerOutput: true

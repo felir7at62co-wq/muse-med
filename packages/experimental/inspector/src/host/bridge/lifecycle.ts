@@ -22,8 +22,9 @@ export class InspectorWorkerLifecycle {
 
   constructor(private readonly worker: Worker) {
     worker.on('error', (error) => {
-      this.failure ??= error
-      this.failureResolution.resolve(error)
+      const failure = error instanceof Error ? error : new Error(String(error))
+      this.failure ??= failure
+      this.failureResolution.resolve(failure)
       this.notifyUnexpectedExit()
     })
     worker.once('exit', (code) => {

@@ -235,6 +235,8 @@ export interface RunProfileOptions {
   args: readonly string[]
   /** Application-owned package runtime, scoped to plugin package operations. */
   packageManager?: ProfileContext['packageManager']
+  /** Grace allowed for application teardown before forced exit; the launcher default is 5 seconds. */
+  shutdownTimeoutMs?: number
 }
 
 /**
@@ -273,7 +275,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       options.profile, options.patchFiles, options.fromDefaultProfile, options.resolvedProfile,
     )
     const appReady = createAppReady()
-    const shutdown = createProcessShutdown(dispose)
+    const shutdown = createProcessShutdown(dispose, undefined, undefined, options.shutdownTimeoutMs)
     const signalShutdown = new AbortController()
     const interrupt = (code: number): void => {
       signalShutdown.abort()

@@ -50,6 +50,16 @@ class RequiredSecondsTests(unittest.TestCase):
 
 
 class AlignTests(unittest.TestCase):
+    def test_local_word_keeps_measured_bounds_for_partial_character_review(self):
+        class Model:
+            def transcribe(self, *_args, **_kwargs):
+                return [SimpleNamespace(words=[SimpleNamespace(word='做饭', start=0.2, end=0.6)])], None
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(ALIGN, 'decode'):
+            characters = ALIGN.transcribe(Path(directory) / 'shot.mp4', Path(directory), Model())
+        self.assertEqual(ALIGN.unmapped_speech(['做'], ALIGN.anchor(['做'], characters), characters),
+                         [{'start': 0.2, 'end': 0.6, 'text': '饭'}])
+
     def test_reads_the_span_from_the_recognized_side_of_each_match(self):
         # The model heard one extra character before the line, so the match block
         # starts at candidate index 1 while the line's own index stays 0. Reading
@@ -114,12 +124,60 @@ class UnmappedSpeechTests(unittest.TestCase):
             self.assertEqual(result['shots'][0]['strategy'], 'missing_script_speech')
             self.assertEqual(result['shots'][0]['missing_script_speech'][0]['text'], '还把人推出去了')
 
-    def test_exact_line_and_short_asr_artifact_do_not_block(self):
-        for text in ('一样的嘴脸', '啊啊一样的嘴脸'):
+    def test_exact_line_has_no_unmapped_speech(self):
+        chars = timeline('一样的嘴脸', 0.0, 0.1)
+        anchors = ALIGN.anchor(['一样的嘴脸'], chars)
+        self.assertEqual(ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars), [])
+
+    def test_short_asr_artifact_is_retained_for_review(self):
+        chars = timeline('啊啊一样的嘴脸', 0.0, 0.1)
+        anchors = ALIGN.anchor(['一样的嘴脸'], chars)
+        self.assertEqual(ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars),
+                         [{'start': 0.0, 'end': 0.2, 'text': '啊啊'}])
+
+    def test_ep26_extra_zuofan_keeps_its_word_timestamps(self):
+        chars = [('做', 6.670, 6.910), ('饭', 6.910, 7.150)]
+        lines = ['是不是不给你饭吃', '真没有我现在都是自己做饭']
+        anchors = [(4.430, 5.470), (7.390, 9.310)]
+        self.assertEqual(ALIGN.unmapped_speech(lines, anchors, chars),
+                         [{'start': 6.670, 'end': 7.150, 'text': '做饭'}])
+
+    def test_ep26_single_character_extras_are_not_treated_as_silence(self):
+        for char, start, end in [('啦', 11.970, 12.050), ('哼', 5.730, 5.930)]:
+            with self.subTest(char=char):
+                self.assertEqual(ALIGN.unmapped_speech(['前一句'], [(0.230, 1.310)],
+                                                      [(char, start, end)]),
+                                 [{'start': start, 'end': end, 'text': char}])
+
+    def test_short_insertions_inside_an_anchor_are_reported(self):
+        chars = [('你', 0.2, 0.4), ('哼', 0.7, 0.9), ('好', 1.1, 1.5)]
+        self.assertEqual(ALIGN.unmapped_speech(['你好'], [(0.2, 1.5)], chars),
+                         [{'start': 0.7, 'end': 0.9, 'text': '哼'}])
+
+    def test_replacement_with_one_additional_character_is_reported(self):
+        chars = [('你', 0.2, 0.4), ('怎', 0.5, 0.6), ('么', 0.6, 0.9),
+                 ('得', 1.0, 1.2), ('对', 1.3, 1.6)]
+        self.assertEqual(ALIGN.unmapped_speech(['你说得对'], [(0.2, 1.6)], chars),
+                         [{'start': 0.5, 'end': 0.9, 'text': '怎么'}])
+
+    def test_one_to_three_missing_script_characters_require_review(self):
+        heard = '我现在都是自己做饭'
+        chars = timeline(heard, 0.0, 0.1)
+        for omitted in ('啦', '好吗', '真不错'):
+            with self.subTest(omitted=omitted):
+                line = heard + omitted
+                anchors = ALIGN.anchor([line], chars)
+                self.assertIsNotNone(anchors[0])
+                self.assertEqual(ALIGN.missing_script_speech([line], anchors, chars),
+                                 [{'line': 1, 'text': omitted}])
+
+    def test_short_speech_with_an_empty_plan_requires_review(self):
+        for text in ('哼', '做饭', '是我呀'):
             with self.subTest(text=text):
-                chars = timeline(text, 0.0, 0.1)
-                anchors = ALIGN.anchor(['一样的嘴脸'], chars)
-                self.assertEqual(ALIGN.unmapped_speech(['一样的嘴脸'], anchors, chars), [])
+                chars = timeline(text, 0.5, 0.2)
+                self.assertEqual(ALIGN.unmapped_speech([], [], chars),
+                                 [{'start': 0.5, 'end': round(0.5 + len(text) * 0.2, 3),
+                                   'text': text}])
 
     def test_extra_line_before_script_is_rejected(self):
         chars = timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1)
@@ -327,6 +385,14 @@ class OfflineSilentShotTests(unittest.TestCase):
         result = self.run_silent_shot(timeline('你怎么能推人', 0.0, 0.1))
         self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
 
+    def test_offline_short_speech_in_empty_plan_warns_without_blocking(self):
+        for text in ('哼', '做饭', '是我呀'):
+            with self.subTest(text=text):
+                result = self.run_silent_shot(timeline(text, 0.5, 0.2))
+                self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
+                self.assertEqual(result['shots'][0]['unmapped_speech'][0]['text'], text)
+                self.assertEqual(result['shots'][0]['cues'], [])
+
     def test_offline_model_checks_a_truly_silent_shot(self):
         result = self.run_silent_shot([])
         self.assertEqual(result['shots'][0]['strategy'], 'no_lines')
@@ -365,7 +431,13 @@ class CloudReceiptTests(unittest.TestCase):
             output = raw / 'shot-v1.json'
             output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好', 'words': [
                 {'start': 0.2, 'end': 0.5, 'text': '你'}, {'start': 0.8, 'end': 1.2, 'text': '好'}]}]), encoding='utf-8')
-            self.assertEqual(ALIGN.cloud_characters(video, receipt), [('你', 0.2, 0.5), ('好', 0.8, 1.2)])
+            self.assertEqual(ALIGN.cloud_characters(video, receipt),
+                             [('你', 0.2, 0.5, 0.2, 0.5), ('好', 0.8, 1.2, 0.8, 1.2)])
+            output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '做饭', 'words': [
+                {'start': 0.2, 'end': 0.6, 'text': '做饭'}]}]), encoding='utf-8')
+            characters = ALIGN.cloud_characters(video, receipt)
+            self.assertEqual(ALIGN.unmapped_speech(['做'], ALIGN.anchor(['做'], characters), characters),
+                             [{'start': 0.2, 'end': 0.6, 'text': '饭'}])
             output.write_text(json.dumps([{'start': 0, 'end': 2, 'text': '你好'}]), encoding='utf-8')
             with self.assertRaisesRegex(SystemExit, '字词时间戳'):
                 ALIGN.cloud_characters(video, receipt)

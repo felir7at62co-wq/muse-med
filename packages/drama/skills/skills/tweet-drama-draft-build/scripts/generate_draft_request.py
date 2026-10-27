@@ -49,7 +49,7 @@ def read_subtitle_overlay_report(request):
     if not isinstance(sources, list) or len(shots) != len(videos) or len(sources) != len(set(shots)):
         raise ValueError('Subtitle report requires the same ordered body sources as the timeline')
     actual = {}
-    for shot, video in zip(shots, videos):
+    for shot, video in zip(sorted(shots), videos):
         with Path(video).open('rb') as stream:
             actual[shot] = hashlib.file_digest(stream, 'sha256').hexdigest()
     for source in sources:
@@ -111,6 +111,15 @@ def generate_request(request, drafts_dir):
     for path in [*paths.values(), *video_paths]:
         if not path.is_absolute() or not path.is_file():
             raise ValueError(f'Input must be an existing absolute file: {path}')
+    timeline = json.loads(paths['timeline'].read_text(encoding='utf-8-sig'))
+    clips = timeline.get('clips') if isinstance(timeline, dict) else None
+    if not isinstance(clips, list):
+        raise ValueError('timeline shots and videos must match one-to-one; clips must be an array')
+    shots = [clip.get('shot') if isinstance(clip, dict) else None for clip in clips]
+    if (len(shots) != len(video_paths)
+            or any(isinstance(shot, bool) or not isinstance(shot, int) or shot < 1 for shot in shots)
+            or len(set(shots)) != len(shots)):
+        raise ValueError('timeline shots and videos must match one-to-one with distinct positive integer shot IDs')
     overlay = read_subtitle_overlay_report(request)
     # The generator resolves FFmpeg before importing the upstream media classes.
     from draft_generator import DraftGenerator
@@ -153,8 +162,9 @@ def generate_request(request, drafts_dir):
         if note.is_file():
             retain(note, f'03_subtitle/{seq}.srt{suffix}')
     retain(paths['timeline'], f'05_timeline/{seq}.timeline.json')
-    for index, path in enumerate(video_paths, 1):
-        retain(path, f'02_media/{seq}/shot_{index:03d}{path.suffix}')
+    # Request videos are in shot order; timeline rows may be in any order.
+    for shot, path in zip(sorted(shots), video_paths):
+        retain(path, f'02_media/{seq}/shot_{shot:03d}{path.suffix}')
     for field, relative in [('bgm', '04_bgm/bed'), ('ending_audio', '06_ending/ending_audio.mp3'),
                             ('ending_effect', '06_ending/ending_effect.mp4')]:
         if field in paths:

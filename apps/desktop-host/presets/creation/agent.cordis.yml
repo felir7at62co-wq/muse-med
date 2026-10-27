@@ -63,14 +63,15 @@
     reviewMode: advisory
     sessionVideoSelection: true
     productionPackaging: true
+    speechCharsPerSecond: 5
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'
 - id: tool-episode-render
   name: '@deepseek-ai/dsh-tool-episode-render'
   config:
     fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
-    subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'
-    watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
+    subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'
+    watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
 - id: perception-bgm
   name: '@deepseek-ai/dsh-perception-bgm'
   config:

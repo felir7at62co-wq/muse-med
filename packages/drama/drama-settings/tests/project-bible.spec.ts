@@ -19,6 +19,49 @@ async function bench() {
   ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
+it('persists a complete reference visual intent through the Loader and replaces it with an explicit reset', async () => {
+  const { ctx, home } = await bench()
+  const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854, font_size_px: 42,
+    outline_px: 2, center_y_ratio: 0.635, max_width_ratio: 0.9 }
+  const execute = async (args: object) => {
+    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('visual'),
+      arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
+    expect(outcome.isError).toBe(false)
+    const block = outcome.content[0]
+    if (block?.type !== 'text') throw new Error('Expected project visual JSON')
+    return JSON.parse(block.text) as { expected_revision: string; preview_fingerprint: string }
+  }
+  for (const selected of [subtitle_visual, {}]) {
+    const changes = { delivery: { subtitle_visual: selected } }
+    const preview = await execute({ action: 'preview', changes, reason: 'approved real preview' })
+    await execute({ action: 'update', changes, reason: 'approved real preview', expected_revision: preview.expected_revision,
+      preview_fingerprint: preview.preview_fingerprint })
+    expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8')))
+      .toMatchObject({ project_bible: { delivery: { subtitle_visual: selected } } })
+  }
+})
+
+it.each([null, [], { schema_version: 1 }, { schema_version: 2 },
+  { schema_version: 1, reference_width: 480, reference_height: 854, font_size_px: 42, outline_px: 2,
+    center_y_ratio: 0.635, max_width_ratio: 0 },
+].map(subtitle_visual => ({ subtitle_visual })))('rejects incomplete or invalid visual intent without writing: %j', async ({ subtitle_visual }) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { delivery: { subtitle_visual } }, 'invalid intent'))
+    .rejects.toThrow('subtitle_visual')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it.each([null, 7, '', '  ', 'A'.repeat(129), 'Arial,Noto', 'bad\nname'])(
+  'rejects an invalid requested subtitle font family without writing: %j', async (font_family) => {
+    const { ctx, home } = await bench()
+    const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854,
+      font_size_px: 42, outline_px: 2, center_y_ratio: 0.635, max_width_ratio: 0.9, font_family }
+    await expect(previewProjectBible(ctx.settings, home, { delivery: { subtitle_visual } }, 'invalid font'))
+      .rejects.toThrow('delivery.subtitle_visual.font_family')
+    await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  },
+)
+
 it('exposes project bible reads, previews and guarded updates through the real Loader', async () => {
   const { ctx, home } = await bench()
   const tool = ctx.tools.get('drama_project')

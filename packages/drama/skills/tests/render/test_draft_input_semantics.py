@@ -15,6 +15,44 @@ SPEC.loader.exec_module(INPUTS)
 
 
 class DraftInputSemanticsTests(unittest.TestCase):
+    def test_frame_clock_recognizes_serialized_fractional_microsecond_boundaries(self):
+        for time_us, frame in ((0, 0), (41_667, 1), (83_333, 2), (2_041_667, 49)):
+            with self.subTest(time_us=time_us):
+                self.assertEqual(INPUTS.project_frame_index(time_us, 24), frame)
+                self.assertEqual(INPUTS.frame_time_us(frame, 24), time_us)
+        self.assertEqual(INPUTS.project_frame_index(41_668, 24), 2)
+
+    def test_project_clock_uses_shared_absolute_boundaries_at_supported_integer_rates(self):
+        for fps in (24, 25, 30, 60, 240):
+            with self.subTest(fps=fps):
+                clips = {9: {'start_us': 0, 'duration_us': 1_001_000},
+                         31: {'start_us': 1_001_000, 'duration_us': 1_001_000}}
+                before = json.dumps(clips)
+                clock = INPUTS.project_frame_clock(clips, fps, 2_002_000, 2_000_000)
+                first, second = clock['clips'][9], clock['clips'][31]
+                self.assertEqual(first['start_us'] + first['duration_us'], second['start_us'])
+                self.assertEqual(second['start_us'] + second['duration_us'], clock['body_end_us'])
+                self.assertEqual(clock['body_end_frame'], 2 * fps + 1)
+                self.assertEqual(clock['total_frames'], 4 * fps + 1)
+                self.assertEqual(clock['duration_us'] - clock['body_end_us'], 2_000_000)
+                self.assertEqual(json.dumps(clips), before)
+
+    def test_already_aligned_project_clock_and_animation_duration_remain_exact(self):
+        clips = {6: {'start_us': 0, 'duration_us': 2_000_000}}
+        for fps in (24, 25, 30, 60):
+            clock = INPUTS.project_frame_clock(clips, fps, 2_000_000, 0)
+            self.assertEqual(clock['delta_us'], 0)
+            self.assertEqual(clock['body_end_us'], 2_000_000)
+            self.assertEqual(clock['duration_us'], 2_000_000)
+            self.assertEqual(clock['clips'][6]['duration_us'], 2_000_000)
+
+    def test_project_clock_does_not_invent_a_frame_for_a_collapsed_short_shot(self):
+        clips = {1: {'start_us': 0, 'duration_us': 1_000},
+                 6: {'start_us': 1_000, 'duration_us': 1_000}}
+        clock = INPUTS.project_frame_clock(clips, 24, 2_000, 0)
+        self.assertEqual(clock['status'], 'unsupported')
+        self.assertIn('镜头 6', clock['reason'])
+
     def test_missing_audio_settings_retain_legacy_sdk_unit_gains(self):
         for timeline in ({}, {'delivery': {}}, {'delivery': {'audio': {}}}):
             with self.subTest(timeline=timeline):

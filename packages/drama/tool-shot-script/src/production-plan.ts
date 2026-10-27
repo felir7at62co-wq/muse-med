@@ -1,8 +1,9 @@
 /** Source-preserving packaging and per-shot candidate comparison for Muse. */
 import { createHash } from 'node:crypto'
 import { stableSha256 } from '@deepseek-ai/dsh-jubian-api'
+import { materialFieldLabel } from './assets.ts'
 import { MIN_CONTENT_SECONDS, packEpisode } from './episode.ts'
-import { parseShotScript } from './script.ts'
+import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
 import type { CompiledShot, ShotIssue } from './types.ts'
 import type { ProductionAsset, ProductionChoice, ProductionKind, ProductionMatch, ProductionPlan,
   ProductionRequirement, ProductionWarning } from './production-types.ts'
@@ -18,7 +19,7 @@ export function productionHash(text: string | Uint8Array): string { return creat
  * @returns Normalized identity text, retaining distinct complete names.
  */
 export function productionName(name: string): string {
-  return name.replace(/@\[([^\]]+)\]\([^)]*\)/gu, '$1').split(/[｜|]/u).slice(-1).join('')
+  return materialFieldLabel(name).split(/[｜|]/u).slice(-1).join('')
     .replace(/[（(].*$/u, '').replace(/^(图片\d+\s*)/u, '').trim()
 }
 
@@ -31,8 +32,7 @@ export function requirementKey(value: ProductionRequirement): string {
 }
 
 function names(field: string): string[] {
-  const plain = field.replace(/@\[([^\]]+)\]\([^)]*\)/gu, '$1')
-  return [...new Set(plain.split(/[、,，;；]/u).map(productionName).filter(name => name && name !== '无'))]
+  return [...new Set(field.split(/[、,，;；]/u).map(productionName).filter(name => name && name !== '无'))]
 }
 
 function sameName(asset: ProductionAsset, req: ProductionRequirement): boolean {
@@ -91,11 +91,12 @@ function match(req: ProductionRequirement, assets: ProductionAsset[], choices: P
  * @param input - Actual source, session model, live inventory and optional per-shot decisions.
  * @param candidateLimit - Maximum ordinary candidates returned for each requirement.
  * @param actionShotSeconds - Estimated duration for unlabelled silent shots.
+ * @param speechCharsPerSecond - Resolved spoken-character rate shared with the compiler.
  * @returns All shots, candidate evidence, complete packages and advisory findings.
  */
 export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'operation' | 'matches' | 'packages' | 'warnings' | 'fingerprint'>,
-  candidateLimit: number, actionShotSeconds: number): ProductionPlan {
-  const parsed = parseShotScript(input.source, { actionShotSeconds })
+  candidateLimit: number, actionShotSeconds: number, speechCharsPerSecond = DEFAULT_SPEECH_CHARS_PER_SECOND): ProductionPlan {
+  const parsed = parseShotScript(input.source, { actionShotSeconds, speechCharsPerSecond })
   const warnings: ProductionWarning[] = parsed.issues.map(issue => ({ code: issue.code, shot: issue.shot || null, message: issue.message }))
   const requirements = new Map<string, ProductionRequirement>()
   for (const shot of parsed.shots) {
