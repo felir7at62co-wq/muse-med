@@ -250,7 +250,7 @@ export async function smokeDesktopRuntime(
     ...environment, MUSE_HOME: home, DSH_HOME: home, HOME: home, USERPROFILE: home,
     APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
   }, undefined, join(resourcesRuntime, 'primary-runtime'),
-  { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.cjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     createPluginProfile(profile)

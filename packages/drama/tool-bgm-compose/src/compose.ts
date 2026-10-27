@@ -139,8 +139,8 @@ async function requireProjectFile(project: string, path: ResolvedProjectPath, la
       : `${filesystem.code ?? '文件系统错误'}（${filesystem.message}）`
     const failure = new Error(`${label}${filesystem.code === 'ENOENT' ? '不存在' : '无法访问'}：`
       + `${pathContext(path, reason)}。`, { cause: error }) as NodeJS.ErrnoException
-    failure.code = filesystem.code
-    failure.path = filesystem.path
+    if (filesystem.code !== undefined) failure.code = filesystem.code
+    if (filesystem.path !== undefined) failure.path = filesystem.path
     throw failure
   }
   if (!info.isFile() || info.size === 0) {

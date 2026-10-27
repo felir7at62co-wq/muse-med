@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "BSD-3-Clause",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@12.5.1",
   "scripts": {
     "build": "pnpm build:ts",
     "build:ts": "tsc -b",
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/node-addon-system": "workspace:~",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.6.2",
     "tsx": "^4.20.6",
     "typescript": "^6.0.3"
   }
