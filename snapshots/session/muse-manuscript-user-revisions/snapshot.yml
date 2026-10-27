@@ -7,5 +7,6 @@ header:
   class: muse-manuscript-user-revisions
   pin: true
 writerOutput: true
+platform: posix
 workspace:
   final: true

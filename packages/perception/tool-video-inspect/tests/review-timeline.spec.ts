@@ -57,15 +57,49 @@ it('retains uncertain model notes, identifies stale event evidence, and changes 
   expect(changed.windows[0]?.event_notes[0]?.evidence_current).toBe(false)
 })
 
+it('orders same-time frames and same-path diagnostics deterministically', () => {
+  const review = source()
+  review.frames.unshift({ ...review.frames[0]!, id: 'F00000' })
+  const resolution: VideoTranscriptResolution = { kind: 'unavailable', same_source_verified: false,
+    diagnostics: [{ path: '/project/asr.json', status: 'unavailable', reason: 'read failed' },
+      { path: '/project/asr.json', status: 'valid' }] }
+  const timeline = buildVideoSourceTimeline(review, { windowSeconds: 2 }, undefined, undefined, resolution)
+  expect(timeline.windows[0]?.frames.map(frame => frame.frame_id)).toEqual(['F00000', 'F00001'])
+  expect(timeline.material_sha256).toMatch(/^[a-f0-9]{64}$/)
+})
+
 it('reports a partial source range and unavailable ASR without completing the episode or substituting speech', () => {
   const review = source(), unavailable = { reference: { path: 'missing.json', version: 'old', sha256: 'old-hash' },
-    reason: 'missing', notice: '未使用ASR。' }
+    current_version: 'changed', reason: 'missing', notice: '未使用ASR。' }
   const timeline = buildVideoSourceTimeline(review, { windowSeconds: 2, startSeconds: 1, endSeconds: 4 }, undefined, unavailable)
   expect(timeline.scope).toEqual({ start_seconds: 1, end_seconds: 4, full_episode: false, window_seconds: 2 })
   expect(timeline.windows.map(window => window.frames.map(frame => frame.frame_id))).toEqual([[], ['F00002']])
   expect(timeline.speech).toBeUndefined()
   expect(timeline.speech_unavailable).toEqual(unavailable)
   expect(review.frames.at(-1)?.observation).toBeUndefined()
+})
+
+it('keeps zero-duration ASR at an included boundary without borrowing it from the next window', () => {
+  const speech = reviewSpeech({ path: 'transcript.json', version: 'asr-v1', text: JSON.stringify([
+    { start: 1, end: 2, text: '好' }, { start: 3, end: 4, text: '爸' },
+  ]) }, 6)
+  speech.segments[0]!.start_seconds = 2
+  speech.segments[0]!.end_seconds = 2
+  speech.segments[1]!.start_seconds = 6
+  speech.segments[1]!.end_seconds = 6
+  const whole = buildVideoSourceTimeline(source(), { windowSeconds: 2 }, speech)
+  expect(whole.windows.map(window => window.speech_segment_ids)).toEqual([[], ['S00001'], ['S00002']])
+  const before = buildVideoSourceTimeline(source(), { windowSeconds: 2, endSeconds: 2 }, speech)
+  expect(before.windows[0]?.speech_segment_ids).toEqual([])
+  const after = buildVideoSourceTimeline(source(), { windowSeconds: 2, startSeconds: 2, endSeconds: 4 }, speech)
+  expect(after.windows[0]?.speech_segment_ids).toEqual(['S00001'])
+})
+
+it('keeps an unavailable ASR reference without an invented current version', () => {
+  const timeline = buildVideoSourceTimeline(source(), { windowSeconds: 2 }, undefined,
+    { reference: { path: 'missing.json', version: 'old', sha256: 'old-hash' }, reason: 'missing', notice: '未使用ASR。' })
+  expect(timeline.speech_unavailable?.current_version).toBeUndefined()
+  expect(timeline.material_sha256).toMatch(/^[a-f0-9]{64}$/)
 })
 
 it('keeps equivalent workspace-copy digests stable without replacing actual source identities or paths', () => {
@@ -128,7 +162,11 @@ it('retains current unavailable ASR revision and deterministic same-path diagnos
   expect(result.material_sha256).toMatch(/^[a-f0-9]{64}$/)
 })
 
-it.each([{ windowSeconds: 0 }, { windowSeconds: Infinity }, { windowSeconds: 2, startSeconds: -1 },
-  { windowSeconds: 2, startSeconds: 3, endSeconds: 3 }, { windowSeconds: 2, endSeconds: 7 }])('rejects invalid timeline ranges %j', (selection) => {
+it.each([{ windowSeconds: 0 }, { windowSeconds: -1 }, { windowSeconds: Infinity },
+  { windowSeconds: 2, startSeconds: -1 }, { windowSeconds: 2, startSeconds: Number.NaN },
+  { windowSeconds: 2, startSeconds: Infinity }, { windowSeconds: 2, startSeconds: 7 },
+  { windowSeconds: 2, endSeconds: Number.NaN }, { windowSeconds: 2, endSeconds: Infinity },
+  { windowSeconds: 2, endSeconds: -1 }, { windowSeconds: 2, startSeconds: 3, endSeconds: 3 },
+  { windowSeconds: 2, endSeconds: 7 }])('rejects invalid timeline ranges %j', (selection) => {
   expect(() => buildVideoSourceTimeline(source(), selection)).toThrow('VIDEO_TIMELINE_RANGE')
 })

@@ -17,7 +17,8 @@ const { FsVersion } = await importSnapshotPackage('@deepseek-ai/dsh-fs',
   new URL('../../../apps/desktop-host/package.json', import.meta.url))
 export const name = 'manuscript-fixture'
 export const inject = ['tools', 'fs', 'attachments', 'sandboxPolicy', 'sessionProjections']
-export async function apply(ctx) {
+export async function apply(ctx, { correctionTool = 'bash' } = {}) {
+  assert.ok(correctionTool === 'bash' || correctionTool === 'pwsh', 'correctionTool must be bash or pwsh')
   await ctx.plugin(video, { requireCompleteReview: true })
   await ctx.plugin(revisions)
   await ctx.plugin(present)
@@ -170,6 +171,9 @@ export async function apply(ctx) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
       assert.equal(result?.data.message.isError, false)
     }
+    const correction = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_manuscript_correct')
+    assert.equal(correction?.data.message.isError, false,
+      `The real shell correction must succeed: ${JSON.stringify(correction?.data.message)}`)
     const advisory = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-manuscript'
       && event.data.content.some(block => block.type === 'text' && block.text.includes('采用稿或来源出现新版本')))
     assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')
@@ -187,7 +191,7 @@ export async function apply(ctx) {
     assert.equal(mixed.findings[0].quote, '▲贺景川（眉头拧紧）：妈，你非要这么咄咄逼人吗？')
     assert.equal(mixed.findings[0].line, 8)
     const shell = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_correct')
-    assert.equal(shell?.data.name, 'bash')
+    assert.equal(shell?.data.name, correctionTool)
     assert.ok(advisory.at(-1).seq > shell.seq, 'Shell writes use the same actual-file reconciliation')
     assert.equal(events.filter(event => event.type === 'system/message').length, 1, 'Revision context must not replace the system prompt')
     const compare = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_compare')

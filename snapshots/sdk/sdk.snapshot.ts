@@ -12,7 +12,7 @@
 import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, dirname, join } from 'node:path'
+import { basename, delimiter, dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -679,7 +679,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
             event_id: 'door-opening', frame_ids: ['sdk-frame-1', 'sdk-frame-2'], actor: 'woman', action: 'opens the door',
             object: 'door', before: 'closed', after: 'open', uncertainty: '', start_seconds: 1, end_seconds: 2,
             observation_digest: expect.stringMatching(/^[a-f0-9]{64}$/u),
-          }], transcript_reference: { path: join(cwd, 'sdk-transcript.json'), version: 'fixture-transcript-version',
+          }], transcript_reference: { path: posix.join(cwd, 'sdk-transcript.json'), version: 'fixture-transcript-version',
             sha256: 'a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff' } })
           const notified = result.notifications.filter(notification => notification.method === 'session.event'
             && (notification.params.event as JsonObject | undefined)?.type === 'video/review')

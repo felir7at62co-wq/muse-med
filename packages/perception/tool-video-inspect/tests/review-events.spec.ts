@@ -44,6 +44,25 @@ it('orders simultaneous observations and events deterministically, then exposes 
     { frame_id: 'A', status: 'not_recorded' },
     { frame_id: 'B', time: 1, ...simultaneous[0]!.observation, status: 'recorded' },
   ])
+
+})
+
+it('orders tied sampled frames by identity and distinguishes missing from unobserved event evidence', () => {
+  const tied = [frames[1]!, { ...frames[0]!, time: 2 }]
+  const [event] = bindReviewEvents([note], tied)
+  expect(event?.frame_ids).toEqual(['F00001', 'F00002'])
+  expect(reviewEventCurrent(event!, tied.toReversed())).toBe(true)
+  expect(reviewEventCurrent(event!, [tied[0]!])).toBe(false)
+  expect(reviewEventEvidence({ ...event!, frame_ids: ['missing', 'F00003', 'F00001'] }, frames))
+    .toEqual([{ frame_id: 'missing', status: 'not_recorded' },
+      { frame_id: 'F00003', time: 3, status: 'not_recorded' },
+      { frame_id: 'F00001', time: 1, ...frames[0]!.observation, status: 'recorded' }])
+  const events = bindReviewEvents([
+    { ...note, event_id: 'later', frame_ids: ['F00002'] },
+    { ...note, event_id: 'long', frame_ids: ['F00001', 'F00002'] },
+    { ...note, event_id: 'short', frame_ids: ['F00001'] },
+  ], frames)
+  expect(events.map(value => value.event_id)).toEqual(['short', 'long', 'later'])
 })
 
 it('accepts a meaningful single-character Chinese action without imposing a writing-length quota', () => {

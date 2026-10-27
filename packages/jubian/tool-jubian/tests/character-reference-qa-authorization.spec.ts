@@ -771,6 +771,11 @@ describe('character-reference isolated QA authorization store', () => {
     await mkdir(path, { mode: 0o700 })
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
     await rm(path, { recursive: true })
+    await mkdir(path + '-wal', { mode: 0o700 })
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path }))
+      .rejects.toThrow('SQLite wal sidecar must be a real file')
+    await rm(path + '-wal', { recursive: true })
+    await rm(path)
     if (process.platform !== 'win32') {
       await symlink(join(root, 'elsewhere'), path)
       await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })).rejects.toThrow('real file')
