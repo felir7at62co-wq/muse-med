@@ -374,3 +374,34 @@ it.each([null, ' ', 'voice', 'unused'])('refuses missing, duplicated or unrefere
     modelConfig: { prompt: PROMPT + ' @[声音](voice)' } }, selections: SELECTIONS, subjectRows: ROWS, parentAssets: PARENTS }))
     .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
 })
+
+describe('explicitly unused subject history', () => {
+  it.each([0, ' 0 '])('ignores only explicitly unused flag %j before or after the current row', (flag) => {
+    const old = { ...ROWS[0]!, id: 99, isUsed: flag, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    for (const subjectRows of [[old, ...ROWS], [...ROWS, old]]) {
+      const plan = buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS, subjectRows, parentAssets: PARENTS })
+      expect(plan.payload.storyboardMaterialList).toMatchObject([
+        { assetId: 'asset-lead', materialAssetId: 81285, materialUrl: URL_LEAD },
+        { assetId: 'asset-guest', materialAssetId: 83670 },
+      ])
+      expect(plan.paidRequests).toBe(0)
+    }
+  })
+  it.each([
+    { isUsed: 1, hsAssetStatus: 'Pending' }, { isUsed: 1, hsAssetStatus: 'Active' },
+    { isUsed: null, hsAssetStatus: 'Active' }, { isUsed: false, hsAssetStatus: 'Active' },
+    { isUsed: 'unknown', hsAssetStatus: 'Active' }, { isUsed: 1, hsAssetStatus: null },
+  ])('refuses ambiguity when the second row is not explicitly unused: %j', (fields) => {
+    const other = { ...ROWS[0]!, id: 99, ...fields, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    expect(() => buildSubjectSelection({ storyboard: STORYBOARD, selections: SELECTIONS,
+      subjectRows: [other, ...ROWS], parentAssets: PARENTS })).toThrow()
+  })
+  it.each([
+    { label: 'wrong project', row: { ...ROWS[0]!, scriptId: 9999 }, parent: PARENTS[0]! },
+    { label: 'wrong URL', row: { ...ROWS[0]!, assetUrl: URL_GUEST }, parent: PARENTS[0]! },
+    { label: 'deleted parent', row: ROWS[0]!, parent: { ...PARENTS[0]!, delFlag: 1 } },
+  ])('keeps the $label check with an unused historical row', ({ row, parent }) => {
+    const old = { ...ROWS[0]!, id: 99, isUsed: 0 }
+    expect(() => buildSubjectSelection({ ...oneSubject(), subjectRows: [old, row], parentAssets: [parent] })).toThrow()
+  })
+})

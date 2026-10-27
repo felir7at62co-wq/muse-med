@@ -110,10 +110,9 @@ describe('readGeneratedImage', () => {
       .toEqual({ url: 'https://x/gen.png', material_id: 900 })
   })
 
-  it('takes the first row of a multi-row list', () => {
-    expect(readGeneratedImage([{ id: 901, assetUrl: 'https://x/first.png' },
-      { id: 900, assetUrl: 'https://x/second.png' }]))
-      .toEqual({ url: 'https://x/first.png', material_id: 901 })
+  it('rejects a multi-row list rather than choosing provider order', () => {
+    expect(() => readGeneratedImage([{ id: 901, assetUrl: 'https://x/first.png' },
+      { id: 900, assetUrl: 'https://x/second.png' }])).toThrow()
   })
 
   it('rejects a payload with no usable URL', () => {

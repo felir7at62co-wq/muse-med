@@ -126,7 +126,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
 
-`jubian_asset generated_image` 对可用图片返回 `{image: {url, material_id}}`。接口提供任务状态时，`generation` 保留原任务与结果 ID，区分生成中、成功、失败和未知状态。失败任务返回 `image: null`、分类后的 `error_code` 和已确认的参考图上限；供应商消息不会直接进入模型输入。KU_AI 最多接受五张参考图，单项与批量生成都会在付费写入前检查；批量会检查完所有项目再提交。生成失败不会抹掉账本中已受理的费用。
+`jubian_asset generated_image` 对可用图片返回 `{image: {url, material_id}}`。多行记录缺少唯一任务身份时，返回 `image: null`、`requires_review: true` 及 `unverified_candidates`，逐行列出可用的身份、状态和 URL（可能为空）。此读取操作不会选择、绑定或确认候选；旧的 Active／已用材质不能证明本次生成成功。后续单独调用的 `confirm_casting` 不受 `requires_review` 硬性拦截，调用方须先人工核对身份。接口提供任务状态时，`generation` 保留原任务与结果 ID，区分生成中、成功、失败和未知状态。失败任务返回 `image: null`、分类后的 `error_code` 和已确认的参考图上限；供应商消息不会直接进入模型输入。KU_AI 最多接受五张参考图，单项与批量生成都会在付费写入前检查；批量会检查完所有项目再提交。生成失败不会抹掉账本中已受理的费用。
 
 单张 `image_generate` 可选填 `image_aspect_ratio`，仅接受 `16:9`（保持原默认）或 `9:16`。工具在已选模型／平台的实时目录行中寻找匹配的 `videoStandardId`；`imageStandardId` 仍只锁定计价模型行，不选择画幅。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少匹配规格会在计费资产请求前被拒绝。`image_generate_batch` 暂不暴露此参数，批次项仍默认 16:9。远端是否受理 9:16 图片仍须另行验证。
 
@@ -321,7 +321,11 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 配置 `promptRiskReview` 后，`edit_preview`、`edit_batch_preview` 和 `prepare_video` 在正常成功结果中返回 `prompt_risk_review`，扫描完整的拟写入或已保存提示词，包括否定清单、备注和引号内文字。每条命中包含 `storyboard_id`、`card_name`、`term`、以 UTF-16 计数的 `offset` 和保留完整 Unicode 字符的 `context`。`total_matches` 包含未展示的命中；共享 `maxMatches` 限制截断明细时，`truncated` 为真。报告不修改提示词、指纹、保存权限或提交权限。字面命中不等于内容违规，也不能确认原台词；Agent 须对照来源，首次保留原台词，仅在确认生成失败与该词有关后最小修改对应词语。修正后重新预览编辑、核对保存回读，再重新准备视频。没有命中不代表完整审核通过。Muse 在 Desktop Host 配置中提供词表，其他部署没有隐含词表。
 
+选材和预检会排除明确标记 `isUsed=0` 的未使用历史记录；待处理、状态未知或多个已使用记录仍视为歧义。身份、项目与 URL 校验照常执行。
+
 已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。
+
+主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
@@ -370,7 +374,7 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 
 ### 计费生图路径
 
-图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key`、如有的提供方 `parent_asset_id`，以及显式重生目标 `requested_parent_asset_id` 供对账。`succeeded` 要求核实属于本次生成的图，不能用已有 Active 旧材质冒充；`asset_status: generated` 表示候选图仍需审图和确认出演，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。`jubian_asset generated_image` 对精确资产读取最新任务；额度不足时报告 `insufficient_credits`，不把旧材质当新结果。这些状态都不改变计费重试规则。
+图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key`、如有的提供方 `parent_asset_id`，以及显式重生目标 `requested_parent_asset_id` 供对账。`succeeded` 要求核实属于本次生成的图，不能用已有 Active 旧材质冒充；`asset_status: generated` 表示候选图仍需审图和确认出演，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。`jubian_asset generated_image` 沿用已有的最大正数任务 ID 排序：每行都有 ID 且最大值唯一时选该行，提供方的时序契约尚未核实；任务 ID 缺失或并列时只列待核对候选，不声称已找到最新图。额度不足时报告 `insufficient_credits`，不把旧材质当新结果。这些状态都不改变计费重试规则。
 
 `image_generate` 是「一次计费写 + 一次免费回读」，而它到底写在哪一行目录上，是部署决定而不是猜测：
 

@@ -27,7 +27,7 @@ import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/ds
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
-  classifyNewNativeCandidates, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
+  classifyNewNativeCandidates, isExplicitUnusedSubject, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
   responseRecords, stableJson, stableSha256, submissionSemantics, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
   referenceAudioUrls, normalizedPrompt,
@@ -109,7 +109,13 @@ export async function resolveGenerateMethod(ledger: JubianLedger, args: {
 }
 
 /** Read one paged envelope, refusing a page whose rows cannot be listed. */
-function pageOf(value: unknown): { rows: Record<string, unknown>[]; total: number | null } {
+function pageOf(response: JubianResponse): { rows: Record<string, unknown>[]; total: number | null } {
+  const value = response.data
+  // The transport unwraps a bare one-record array for singular endpoints.
+  if (response.envelope_layout === 'array-single') {
+    const record = object(value)
+    if (!Object.hasOwn(record, 'rows') && !Object.hasOwn(record, 'list')) return { rows: [record], total: null }
+  }
   if (Array.isArray(value)) return { rows: value.map(object), total: null }
   const record = object(value)
   const total = typeof record.total === 'number' && Number.isSafeInteger(record.total) ? record.total : null
@@ -136,7 +142,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
     const response = await client.request({ method: 'GET',
       path: `/admin/aigc/video/task/list?scriptId=${scriptId}&pageNum=${pageNum}&pageSize=${TASK_PAGE_SIZE}`
         + '&orderByColumn=createTime&orderBy=desc' })
-    const page = pageOf(response.data)
+    const page = pageOf(response)
     if (page.total !== null) {
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
@@ -175,7 +181,7 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
     const response = await client.request({ method: 'GET',
       path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=${pageNumber}`
         + `&pageNumber=${pageNumber}&pageSize=${SUBJECT_PAGE_SIZE}` })
-    const page = pageOf(response.data)
+    const page = pageOf(response)
     if (page.total !== null) {
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
@@ -287,6 +293,7 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
   rows ??= await preflightRead('subject_list_read', () => listAllSubjectMaterials(client, scriptId))
   const rowsByParent = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
+    if (isExplicitUnusedSubject(row.isUsed)) continue
     const parent = wireText(row.assetId)
     if (parent === null || parent === '') continue
     if (!byId.has(parent)) continue
@@ -329,7 +336,10 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
 
 /** The live catalogue of video-generation models. */
 async function videoCatalogue(client: JubianClient): Promise<unknown> {
-  return (await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=1' })).data
+  const response = await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=1' })
+  if (response.envelope_layout !== 'array-single') return response.data
+  const record = object(response.data)
+  return Object.hasOwn(record, 'rows') || Object.hasOwn(record, 'list') ? record : [record]
 }
 
 /** Build the exact preview from live provider state, without writing anything. */

@@ -14,6 +14,64 @@ import { MemoryCredentials } from '../../../credentials/credentials/tests/memory
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import * as Jubian from '../src/index.ts'
 
+it('passes ambiguous regenerated image rows through the real tool chain for manual review', async () => {
+  const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
+  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  const requests: { url: string; method: string }[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = input instanceof Request ? input.url : input.toString()
+    const method = init?.method ?? 'GET'
+    requests.push({ url, method })
+    if (method !== 'GET' || !url.endsWith('getGeneratedImageByAssetId?assetId=212497')) {
+      throw new Error('Unexpected provider request')
+    }
+    // Synthetic rows mirror the report's shape. Their material ids and statuses are not a live response.
+    return new Response(JSON.stringify({ code: 200, data: [
+      { assetId: 212497, id: null, assetUrl: null, taskId: null, resultStatus: 'pending', isUsed: 0 },
+      { assetId: 212497, id: 9001, assetUrl: 'https://media.example/older.png',
+        taskId: null, resultStatus: 'succeeded', hsAssetStatus: 'Active', isUsed: 1 },
+    ] }))
+  })
+  try {
+    await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false } })
+    await ctx.loader.await()
+    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('review-regenerated-image', 'jubian_asset', { method: 'generated_image', asset_id: 212497 }),
+      textResponse('The image records need human review; no generated image has been confirmed.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('multi-material-readback-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Read the existing generated image, without retrying or casting.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ isError: false })
+    const payload: unknown = JSON.parse(results[0]!.content.find(item => item.type === 'text')!.text)
+    expect(payload).toMatchObject({ image: null, requires_review: true, rows_observed: 2,
+      unverified_candidates: [
+        { material_id: null, url: null, result_status: 'pending' },
+        { material_id: 9001, url: 'https://media.example/older.png', is_used: true },
+      ] })
+    expect(results).toMatchSnapshot('regenerated image candidates without selected newest image')
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('GET')
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
 it('records an active candidate without confirming its casting or charging again', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },

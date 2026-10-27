@@ -40,6 +40,8 @@ kind: "package-reference"
 
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
+`readGeneratedImage(data)` 接受单个对象或仅有一行的列表。多行缺少已核实任务身份时属于歧义，不能按提供方行序选择。工具回读会核对所请求的父资产；只读的 `generated_image` 方法在多个任务并存时，仅选择任务 ID 唯一最大的记录。
+
 读取器接收剧变响应信封的 `data` 字段，即 `JubianResponse.data`；`readStoryboardPage(data, scriptId)` 还会逐行核对请求项目。它无需生成设置即可返回当前页身份行，缺失的总数和分集归属保留为 null，并接受空页。传输层把这个字段原样返回，而赋予它类型的就是本库。
 
 ### 最小可用调用
@@ -179,6 +181,8 @@ async function downloadVideo(row: VideoSubtask) {
 `assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID 或 URL 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。这些检查保留引用身份，不判断视觉相似度。
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
+
+明确标记 `isUsed=0` 的记录作为未使用历史排除；待处理、状态未知或多个已使用记录仍视为歧义，不得选用。同一判断导出为 `isExplicitUnusedSubject`。
 
 主体选源把远端已删除的父资产报告为 `PRE_PUT_ASSET_REMOVED`，即使主体列表已经排除了它的材质。已采用的有效材质缺失或不唯一时报告 `PRE_PUT_SUBJECT_UNAVAILABLE`。两种错误均发生在选源 PUT 之前；应刷新真实项目并选择有效的现有资产，不反复重试失效引用。提供方对已保存分镜（包括免费保存）也会存储 `isGenerate=1`，因此仅凭这个回读值不能判断是否已经生成视频。
 

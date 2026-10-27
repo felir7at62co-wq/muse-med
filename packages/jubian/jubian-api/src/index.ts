@@ -28,7 +28,7 @@ export { REFERENCE_ALIGNMENT, REFERENCE_OBJECT_PREFIX, alignReferenceEdge, align
   referenceMaterialItem, signTosObjectPut } from './reference.ts'
 export type { ReferenceFormat, ReferenceImage, ReferenceMaterialItem, TosPutRequest, TosSignedPut,
   TosUploadConfig } from './reference.ts'
-export { buildSubjectSelection, selectionState, trustedSubjectId, trustedSubjectKey,
+export { buildSubjectSelection, isExplicitUnusedSubject, selectionState, trustedSubjectId, trustedSubjectKey,
   verifySubjectSelection } from './selection.ts'
 export type { SelectionState, SubjectSelectionInput, SubjectSelectionPlan,
   SubjectSelectionRequest } from './selection.ts'

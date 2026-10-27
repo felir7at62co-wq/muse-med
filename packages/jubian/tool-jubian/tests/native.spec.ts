@@ -1,4 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -70,71 +73,119 @@ interface FakeProvider {
   onTaskRead?: (path: string) => void | Promise<void>
   taskPage?: (page: number) => unknown
   subjectPage?: (page: number) => unknown
+  rawSubjectPage?: (page: number) => unknown
+  rawTaskPage?: (page: number) => unknown
+  rawCatalogue?: unknown
   assets?: Record<string, unknown>
   parentFailureCode?: number
   modelFailureCode?: number
 }
 
 /** A client whose transport serves one in-memory project and records every call. */
+function transportFor(provider: FakeProvider): typeof fetch {
+  return async (url: string | URL | Request, init?: RequestInit) => {
+    const path = (url as URL).toString().replace('https://web.jubianai.net/prod-api', '')
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined
+    const method = String(init?.method)
+    provider.calls.push({ method, path, ...(body === undefined ? {} : { body }) })
+    const answer = (data: unknown): Response => new Response(JSON.stringify({ code: 200, data }), { status: 200 })
+    if (path.startsWith('/aigc/storyboard/') && method === 'GET') {
+      return answer(provider.storyboards?.[path.split('/').pop() ?? ''] ?? provider.storyboard)
+    }
+    if (path === '/aigc/storyboard' && method === 'PUT') {
+      const payload = body ?? {}
+      // The provider stores 1 on every storyboard it holds, whatever the PUT body carried.
+      const saved = { ...(provider.storyboards?.[String(payload.id)] ?? provider.storyboard),
+        ...payload, isGenerate: 1 }
+      provider.storyboard = saved
+      if (provider.storyboards) provider.storyboards[String(payload.id)] = saved
+      await provider.onPut?.(payload)
+      return provider.putResponse?.(payload) ?? answer(null)
+    }
+    if (path.startsWith('/aigc/asset/') && method === 'GET') {
+      if (provider.parentFailureCode !== undefined) {
+        return new Response(JSON.stringify({ code: provider.parentFailureCode, msg: 'private provider detail' }),
+          { status: 200 })
+      }
+      return answer((provider.assets ?? ASSETS)[path.split('/').pop() ?? ''] ?? null)
+    }
+    if (path.startsWith('/aigc/material/list')) {
+      if (provider.rawSubjectPage) return new Response(JSON.stringify(provider.rawSubjectPage(Number(new URL(`https://example.test${path}`).searchParams.get('pageNum')))), { status: 200 })
+      if (provider.subjectPage) return answer(provider.subjectPage(Number(new URL(`https://example.test${path}`).searchParams.get('pageNum'))))
+      return answer({ total: SUBJECT_ROWS.length, rows: SUBJECT_ROWS })
+    }
+    if (path.startsWith('/model/charge/getSelectList')) {
+      if (provider.rawCatalogue !== undefined) return new Response(JSON.stringify(provider.rawCatalogue), { status: 200 })
+      if (provider.modelFailureCode !== undefined) {
+        return new Response(JSON.stringify({ code: provider.modelFailureCode, msg: 'private provider detail' }),
+          { status: 200 })
+      }
+      return answer(CATALOGUE)
+    }
+    if (path.startsWith('/admin/aigc/video/task/list')) {
+      await provider.onTaskList?.()
+      await provider.onTaskRead?.(path)
+      const query = new URL(`https://example.test${path}`).searchParams
+      const page = Number(query.get('pageNum') ?? 1)
+      const size = Number(query.get('pageSize') ?? 100)
+      if (provider.rawTaskPage) return new Response(JSON.stringify(provider.rawTaskPage(page)), { status: 200 })
+      if (provider.taskPage) return answer(provider.taskPage(page))
+      return answer({ total: provider.tasks.length, rows: provider.tasks.slice((page - 1) * size, page * size) })
+    }
+    if (path.startsWith('/admin/aigc/video/task/sub/list')) {
+      await provider.onTaskRead?.(path)
+      return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
+    }
+    if (path.startsWith('/admin/aigc/video/task/') && method === 'GET') {
+      await provider.onTaskRead?.(path)
+      const id = path.split('/').pop()
+      return answer(provider.tasks.find(task => String(task.id) === id) ?? null)
+    }
+    return new Response(JSON.stringify({ code: 404, msg: 'unknown' }), { status: 404 })
+  }
+}
+
 function clientFor(provider: FakeProvider): JubianClient {
-  return new JubianClient({ credential: async () => 'token',
-    fetch: async (url: string | URL | Request, init?: RequestInit) => {
-      const path = (url as URL).toString().replace('https://web.jubianai.net/prod-api', '')
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined
-      const method = String(init?.method)
-      provider.calls.push({ method, path, ...(body === undefined ? {} : { body }) })
-      const answer = (data: unknown): Response => new Response(JSON.stringify({ code: 200, data }), { status: 200 })
-      if (path.startsWith('/aigc/storyboard/') && method === 'GET') {
-        return answer(provider.storyboards?.[path.split('/').pop() ?? ''] ?? provider.storyboard)
+  return new JubianClient({ credential: async () => 'token', fetch: transportFor(provider) })
+}
+
+async function localClientFor(provider: FakeProvider): Promise<{ client: JubianClient; baseUrl: string; close: () => Promise<void> }> {
+  const transport = transportFor(provider)
+  const errors: unknown[] = []
+  const serve = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    try {
+      request.setEncoding('utf8')
+      let body = ''
+      for await (const chunk of request) {
+        if (typeof chunk !== 'string') throw new TypeError('Invalid request body')
+        body += chunk
       }
-      if (path === '/aigc/storyboard' && method === 'PUT') {
-        const payload = body ?? {}
-        // The provider stores 1 on every storyboard it holds, whatever the PUT body carried.
-        const saved = { ...(provider.storyboards?.[String(payload.id)] ?? provider.storyboard),
-          ...payload, isGenerate: 1 }
-        provider.storyboard = saved
-        if (provider.storyboards) provider.storyboards[String(payload.id)] = saved
-        await provider.onPut?.(payload)
-        return provider.putResponse?.(payload) ?? answer(null)
-      }
-      if (path.startsWith('/aigc/asset/') && method === 'GET') {
-        if (provider.parentFailureCode !== undefined) {
-          return new Response(JSON.stringify({ code: provider.parentFailureCode, msg: 'private provider detail' }),
-            { status: 200 })
-        }
-        return answer((provider.assets ?? ASSETS)[path.split('/').pop() ?? ''] ?? null)
-      }
-      if (path.startsWith('/aigc/material/list')) {
-        if (provider.subjectPage) return answer(provider.subjectPage(Number(new URL(`https://example.test${path}`).searchParams.get('pageNum'))))
-        return answer({ total: SUBJECT_ROWS.length, rows: SUBJECT_ROWS })
-      }
-      if (path.startsWith('/model/charge/getSelectList')) {
-        if (provider.modelFailureCode !== undefined) {
-          return new Response(JSON.stringify({ code: provider.modelFailureCode, msg: 'private provider detail' }),
-            { status: 200 })
-        }
-        return answer(CATALOGUE)
-      }
-      if (path.startsWith('/admin/aigc/video/task/list')) {
-        await provider.onTaskList?.()
-        await provider.onTaskRead?.(path)
-        const query = new URL(`https://example.test${path}`).searchParams
-        const page = Number(query.get('pageNum') ?? 1)
-        const size = Number(query.get('pageSize') ?? 100)
-        if (provider.taskPage) return answer(provider.taskPage(page))
-        return answer({ total: provider.tasks.length, rows: provider.tasks.slice((page - 1) * size, page * size) })
-      }
-      if (path.startsWith('/admin/aigc/video/task/sub/list')) {
-        await provider.onTaskRead?.(path)
-        return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
-      }
-      if (path.startsWith('/admin/aigc/video/task/') && method === 'GET') {
-        await provider.onTaskRead?.(path)
-        const id = path.split('/').pop()
-        return answer(provider.tasks.find(task => String(task.id) === id) ?? null)
-      }
-      return new Response(JSON.stringify({ code: 404, msg: 'unknown' }), { status: 404 })
-    } })
+      if (request.method === undefined) throw new TypeError('Missing request method')
+      const result = await transport('https://web.jubianai.net/prod-api' + (request.url ?? ''),
+        { method: request.method, ...(body ? { body } : {}) })
+      response.writeHead(result.status, { 'Content-Type': 'application/json' })
+      response.end(await result.text())
+    } catch (error) {
+      errors.push(error)
+      response.writeHead(500)
+      response.end()
+    }
+  }
+  const server = createServer((request, response) => { void serve(request, response) })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve() })
+  })
+  const port = (server.address() as AddressInfo).port
+  const baseUrl = `http://127.0.0.1:${port}`
+  return { client: new JubianClient({ credential: async () => 'test-token', baseUrl }), baseUrl,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => server.close((error) => {
+        if (error) reject(error)
+        else resolve()
+      }))
+      if (errors.length) throw new AggregateError(errors, 'Local provider fixture failed')
+    } }
 }
 
 let root: string
@@ -2053,4 +2104,175 @@ it.each(['project', 'method', 'key', 'body'] as const)
   expect(result).toMatchObject({ submitted: 1 })
   expect(putCalls(fixture.provider)).toHaveLength(1)
   expect(await ledger.records()).toHaveLength(2)
+})
+
+
+describe('bare singleton list responses through the client', () => {
+  const onePrompt = '雨夜街头 @[陆沉舟](lead)'
+  const config = { ...MODEL_CONFIG, prompt: onePrompt, materialList: [] }
+  const board = { ...STORYBOARD, modelConfig: JSON.stringify(config), storyboardMaterialList: [] }
+  const selections = [{ material_key: 'lead', asset_id: 81285 }]
+
+  it.each([{ tasks: [] }, { tasks: [{ id: 9, scriptId: 2708, storyboardId: 999999 }] },
+    { tasks: [{ id: 9, scriptId: 2708, storyboardId: 999999 }, { id: 10, scriptId: 2708, storyboardId: 999999 }] }])
+  ('selects a subject with a bare singleton subject page and task list $tasks', async ({ tasks }) => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks, subtasks: {},
+      rawSubjectPage: () => [SUBJECT_ROWS[0]], rawTaskPage: () => tasks }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'single-list' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]!.body).toMatchObject({ isGenerate: 0 })
+  })
+
+  it('prepares one selected subject from a bare singleton subject page', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, rawSubjectPage: () => [SUBJECT_ROWS[0]],
+      storyboard: { ...board, modelConfig: JSON.stringify({ ...config, materialList: [MATERIALS[0]] }),
+        storyboardMaterialList: [MATERIALS[0]] } }
+    expect(await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+
+
+  it('selects then prepares through a real loopback HTTP server with singleton lists', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: () => [SUBJECT_ROWS[0]],
+      rawTaskPage: () => [{ id: 9, scriptId: 2708, storyboardId: 999999 }], rawCatalogue: CATALOGUE }
+    const local = await localClientFor(provider)
+    try {
+      expect(await selectAssetsMethod(local.client, ledger, { storyboard_id: 916953, selections,
+        idempotency_key: 'loopback-single' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+      expect(await prepareVideoMethod(local.client, ledger,
+        { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
+      expect(putCalls(provider)).toHaveLength(1)
+      expect(putCalls(provider)[0]!.body).toMatchObject({ isGenerate: 0 })
+    } finally { await local.close() }
+    await expect(fetch(local.baseUrl)).rejects.toThrow()
+  })
+
+
+  it('does not mistake a singleton catalogue page object for a model row', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      rawSubjectPage: () => [SUBJECT_ROWS[0]], rawCatalogue: [{ rows: CATALOGUE }],
+      storyboard: { ...board, modelConfig: JSON.stringify({ ...config, materialList: [MATERIALS[0]] }),
+        storyboardMaterialList: [MATERIALS[0]] } }
+    await expect(prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).rejects.toThrow()
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it('continues full bare pages and reads their singleton final page', async () => {
+    const extras = Array.from({ length: 99 }, (_, i) => ({ id: i + 2, assetId: i + 90000 }))
+    const firstTaskPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, scriptId: 2708, storyboardId: 999999 }))
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0], ...extras] : [{ id: 500, assetId: 500 }],
+      rawTaskPage: page => page === 1 ? firstTaskPage : [{ id: 101, scriptId: 2708, storyboardId: 999999 }] }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'paged-single' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+    expect(provider.calls.filter(call => call.path.includes('pageNum=2'))).toHaveLength(3)
+  })
+
+  it('retains a nonnumeric business code on a singleton subject row', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: () => [{ ...SUBJECT_ROWS[0], code: 'subject-code' }] }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'business-code' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+  })
+
+  it('accepts an unwrapped singleton page object rather than treating it as a row', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: () => [{ total: 1, rows: [SUBJECT_ROWS[0]] }] }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'page-object' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+  })
+
+  it('refuses an empty subject page without sending a PUT', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {}, rawSubjectPage: () => [] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'missing-list' })).rejects.toThrow()
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it('does not turn an error envelope code into a row', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: () => [{ ...SUBJECT_ROWS[0], code: 500 }] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'error-list' })).rejects.toThrow()
+    expect(putCalls(provider)).toEqual([])
+  })
+})
+
+describe('unused subject history in actual preparation and selection', () => {
+  it.each([null, 81285])('prepares numeric parent %s from current subject with unused history', async (parentId) => {
+    for (const flag of [0, ' 0 ']) {
+      for (const oldFirst of [true, false]) {
+        const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: flag, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+        const rows = oldFirst ? [old, ...SUBJECT_ROWS] : [...SUBJECT_ROWS, old]
+        const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+          storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: parentId }, MATERIALS[1]] },
+        subjectPage: () => ({ total: rows.length, rows }) }
+        const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project(2708, `project-${String(flag)}-${String(oldFirst)}`) })
+        expect(result).toMatchObject({ status: 'prepared', assetSummary: { orderedAssets: [{ assetId: 'asset-lead', materialAssetId: 81285, imageUrl: URL_LEAD }, { assetId: 'asset-guest', materialAssetId: 83670 }] } })
+        expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+        expect(await ledger.records()).toEqual([])
+      }
+    }
+  })
+  it.each([
+    { isUsed: 1, hsAssetStatus: 'Pending' }, { isUsed: 1, hsAssetStatus: 'Active' },
+    { isUsed: null, hsAssetStatus: 'Active' }, { isUsed: false, hsAssetStatus: 'Active' },
+    { isUsed: 'unknown', hsAssetStatus: 'Active' }, { isUsed: 1, hsAssetStatus: null },
+  ])('refuses unresolved history in free preparation %j', async (fields) => {
+    const other = { ...SUBJECT_ROWS[0], id: 99, ...fields, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    const rows = [other, ...SUBJECT_ROWS]
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: null }, MATERIALS[1]] },
+    subjectPage: () => ({ total: rows.length, rows }) }
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+  it('selects already applied current material without any PUT when an unused old row is returned', async () => {
+    const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: 0, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    const rows = [old, ...SUBJECT_ROWS]
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: MATERIALS }) },
+    subjectPage: () => ({ total: rows.length, rows }) }
+    const result = await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, idempotency_key: 'qa-existing',
+      selections: [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }] })
+    expect(result).toMatchObject({ status: 'already_applied' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+})
+
+describe('history preserves identity checks', () => {
+  it.each([
+    { label: 'foreign project', row: { ...SUBJECT_ROWS[0], scriptId: 999 }, asset: ASSETS['81285'] },
+    { label: 'mismatched official URL', row: { ...SUBJECT_ROWS[0], assetUrl: URL_GUEST }, asset: ASSETS['81285'] },
+    { label: 'deleted parent', row: SUBJECT_ROWS[0], asset: { ...ASSETS['81285'], delFlag: 1 } },
+    { label: 'mismatched parent URL', row: SUBJECT_ROWS[0], asset: { ...ASSETS['81285'], assetUrl: URL_GUEST } },
+    { label: 'conflicting identity', row: { ...SUBJECT_ROWS[0], hsAssetId: 'other' }, asset: ASSETS['81285'] },
+  ])('blocks $label with unused history before any paid request', async ({ row, asset }) => {
+    const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: 0, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    const rows = [old, row, SUBJECT_ROWS[1]]
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: null }, MATERIALS[1]] },
+    assets: { ...ASSETS, '81285': asset }, subjectPage: () => ({ total: rows.length, rows }) }
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+  it.each([{ isUsed: 1, hsAssetStatus: 'Pending' }, { isUsed: null, hsAssetStatus: 'Active' }])
+  ('selection rejects potentially current or unknown history %j before PUT', async (fields) => {
+    const other = { ...SUBJECT_ROWS[0], id: 99, ...fields, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
+    const rows = [other, ...SUBJECT_ROWS]
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: STORYBOARD,
+      subjectPage: () => ({ total: rows.length, rows }) }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, idempotency_key: 'qa-block',
+      selections: [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }] })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
 })

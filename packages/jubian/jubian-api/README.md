@@ -40,6 +40,8 @@ Pool rows expose `claim_leader_id` and `claim_member_id` when available. The cla
 
 `readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.
 
+`readGeneratedImage(data)` accepts one object or a one-row list. A multi-row list is ambiguous without a verified task identity and is rejected instead of selecting provider order. The tool readback checks the requested parent; its read-only `generated_image` method selects a unique highest task ID when several attempts exist.
+
 Readers take the `data` field of a Jubian response envelope, through `JubianResponse.data`; `readStoryboardPage(data, scriptId)` additionally checks each row against the requested project. It returns bounded identity rows without requiring generation settings, preserves missing totals and episode bindings as null, and accepts empty pages. The transport returns that field untouched, and this library is what gives it a type.
 
 ### Smallest working call
@@ -179,6 +181,8 @@ Native materials are matched by `materialKey` and numeric parent asset ID rather
 `assertImageReferenceConsistency()` compares saved images in `modelConfig.materialList` and `storyboardMaterialList` before preparation normalizes either source. Conflicting keys, subject identities, parent IDs or URLs produce `IMAGE_REFERENCE_CONFLICT`; diagnostics identify both sources and hash URLs rather than exposing their query strings. Missing or empty historical config lists do not establish an earlier image version. Explicit subject selection synchronizes both lists, and its no-op and readback checks require both to agree. These checks preserve reference identity, not visual likeness.
 
 Native subject-video preparation requires at least one selected image subject. `buildNativeVideoPreview()` rejects an empty or audio-only selection with `INVALID_ARGUMENT` instead of producing a prepared preview. `validateNativeVideoPreview()` rejects historical empty-subject previews with a local parameter diagnostic; that submission call has not entered the ledger or sent a remote paid request. Existing identity checks and submission fingerprints still apply.
+
+Rows explicitly marked `isUsed=0` are excluded as unused history. Pending, unknown or multiple used rows remain ambiguous and cannot be selected. The same predicate is exported as `isExplicitUnusedSubject`.
 
 Subject selection reports a remotely removed parent as `PRE_PUT_ASSET_REMOVED`, including when the picker has already excluded its material. A missing or ambiguous active confirmed material is `PRE_PUT_SUBJECT_UNAVAILABLE`. Both diagnostics precede any selection PUT; refresh the live project and choose a valid existing asset instead of retrying the same invalid reference. The provider stores `isGenerate=1` on saved storyboards, including free saves, so this read-back flag alone does not establish that generation occurred.
 

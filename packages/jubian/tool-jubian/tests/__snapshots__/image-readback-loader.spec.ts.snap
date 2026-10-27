@@ -24,6 +24,45 @@ exports[`logs a failed image task with its original identity instead of an envel
 ]
 `;
 
+exports[`passes ambiguous regenerated image rows through the real tool chain for manual review > regenerated image candidates without selected newest image 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "image": null,
+  "requires_review": true,
+  "unverified_candidates": [
+    {
+      "asset_id": 212497,
+      "material_id": null,
+      "url": null,
+      "task_id": null,
+      "result_status": "pending",
+      "asset_status": null,
+      "is_used": false
+    },
+    {
+      "asset_id": 212497,
+      "material_id": 9001,
+      "url": "https://media.example/older.png",
+      "task_id": null,
+      "result_status": "succeeded",
+      "asset_status": "active",
+      "is_used": true
+    }
+  ],
+  "rows_observed": 2,
+  "guidance": "该资产有多条生成图记录，缺少可唯一确定最新任务的 ID。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;
+
 exports[`records an active candidate without confirming its casting or charging again > unconfirmed active image candidate 1`] = `
 [
   {
