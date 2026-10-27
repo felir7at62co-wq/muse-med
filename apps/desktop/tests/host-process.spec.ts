@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
-import { DESKTOP_HOST_PROTOCOL_VERSION as HOST_PROTOCOL_VERSION } from '../../desktop-host/src/host-protocol.ts'
-import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError, QUIT_INSPECTION_DEADLINE_MS } from '../src/host-process.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from '../src/host-protocol.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION as HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS as HOST_SHUTDOWN_GRACE_MS } from '../../desktop-host/src/host-protocol.ts'
+import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError, DESKTOP_HOST_SHUTDOWN_DEADLINE_MS, QUIT_INSPECTION_DEADLINE_MS } from '../src/host-process.ts'
 
 const roots: string[] = []
 const hosts: DesktopHostProcess[] = []
@@ -77,7 +77,22 @@ afterEach(async () => {
 describe('desktop host process', () => {
   it('keeps Main and Host on one private protocol generation', () => {
     expect(HOST_PROTOCOL_VERSION).toBe(DESKTOP_HOST_PROTOCOL_VERSION)
+    expect(HOST_SHUTDOWN_GRACE_MS).toBe(DESKTOP_HOST_SHUTDOWN_GRACE_MS)
+    expect(DESKTOP_HOST_SHUTDOWN_DEADLINE_MS).toBeGreaterThan(HOST_SHUTDOWN_GRACE_MS)
   })
+
+  it('accepts an acknowledged Host teardown that takes longer than ten seconds', async () => {
+    const host = hostProcess(projectWithHost(`
+      process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:3080/' })
+      process.on('message', message => {
+        if (message.type === 'shutdown') setTimeout(() => {
+          process.send({ type: 'shutdown-complete' }, () => process.disconnect())
+        }, 11_000)
+      })
+    `))
+    await host.start()
+    await expect(host.stop(true)).resolves.toBeUndefined()
+  }, 40_000)
 
   it.each([undefined, 5, 7, '6'])('refuses a mismatched or absent Host ready protocol: %s', async (version) => {
     const host = hostProcess(projectWithHost(`process.send({ type: 'ready', hostProtocolVersion: ${JSON.stringify(version)}, url: 'http://127.0.0.1:3080/' })`))

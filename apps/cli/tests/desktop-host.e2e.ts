@@ -20,6 +20,14 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
     if (stubbed.has(name)) mkdirSync(destination)
     else symlinkSync(realpathSync(join(hostDirectory, 'node_modules', name)), destination, 'junction')
   }
+  for (const name of ['@xmanrui/dsh-im', '@wenbin_wb/dsh-bridge']) {
+    const directory = join(root, 'node_modules', name)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'package.json'), JSON.stringify({ name, type: 'module',
+      exports: { '.': './index.js', './remote': './remote.js' } }))
+    writeFileSync(join(directory, 'index.js'), 'export default {}\n')
+    writeFileSync(join(directory, 'remote.js'), 'export default {}\n')
+  }
   for (const [name, source] of [
     ['dsh-home-paths', `import { join } from 'node:path';
       export const resolveDshHome = () => ${JSON.stringify(root)};
@@ -41,7 +49,8 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
   writeFileSync(join(modules, 'dsh', 'profile-boot.js'), `
     import { writeFileSync } from 'node:fs';
     export function runProfile(options) {
-      process.send({ type: 'booting', packageManager: options.packageManager });
+      process.send({ type: 'booting', packageManager: options.packageManager,
+        shutdownTimeoutMs: options.shutdownTimeoutMs });
       return new Promise((resolve, reject) => process.once('disconnect', () => {
         if (${String(fail)}) { reject(new Error('fixture boot failure')); return; }
         resolve({ ctx: { plugin: async () => {}, effect: () => {}, on: () => {}, inject: () => {},
@@ -79,12 +88,14 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
   try {
     const boot = await new Promise<{
       packageManager: { command: string; args: string[]; env: Record<string, string> }
+      shutdownTimeoutMs: number
     }>((resolve, reject) => {
       child.once('message', resolve)
       child.once('error', reject)
       child.once('exit', (code) => { reject(new Error(`Host exited before booting: ${String(code)} ${stderr}`)) })
     })
     expect(boot.packageManager.command).toBe(process.execPath)
+    expect(boot.shutdownTimeoutMs).toBe(25_000)
     expect(boot.packageManager.args).toEqual(['--expose-internals', pnpm])
     expect(boot.packageManager.env.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(boot.packageManager.env.PATH).toBe(`${nodeBin}${delimiter}${process.env.PATH ?? ''}`)

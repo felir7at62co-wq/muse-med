@@ -108,6 +108,23 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
         },
       ]
     `)
+    await writeFile(script, speakingShot(1, '苏晚：等我回来。', [
+      '核心场景：后厨', '动作预算：6秒', '发声预算：3秒', '反应预算：2秒', '表演顺序：先动作后台词',
+    ]))
+    for (const undersized of [false, true]) {
+      if (undersized) await writeFile(script, (await readFile(script, 'utf8')) + '\n时长：4秒\n')
+      const result = await tools.execute({ signal: new AbortController().signal,
+        callId: ToolCallId(`performance-${String(undersized)}`), name: 'drama_shot',
+        arguments: { method: 'preview', script, assets, max_submit_seconds: 15 } })
+      const content = result.content[0]
+      if (content?.type !== 'text') throw new Error('Expected performance timing report')
+      const report = JSON.parse(content.text) as DramaShotReport
+      expect(report.ok).toBe(!undersized)
+      expect(report.shots[0]?.duration_seconds).toBe(undersized ? 4 : 11)
+      expect(report.packages.map(pack => pack.submit_seconds)).toEqual(undersized ? [] : [12])
+      expect(report.failures.map(issue => issue.code)).toEqual(undersized ? ['timing_plan_exceeds_duration'] : [])
+      expect(report.packages.every(pack => !pack.prompt.includes('动作预算'))).toBe(true)
+    }
     const assetOutcomes = []
     await writeFile(script, speakingShot(1, '阿舟：苏晚怎么还不来？', ['出镜人物：阿舟', '核心场景：后厨'])
       .replaceAll('苏晚站在', '阿舟站在').replaceAll('【苏晚】', '【阿舟】'))

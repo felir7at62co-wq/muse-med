@@ -41,6 +41,8 @@ it.each([false, true])('records erasure with an explicit estimate: %s', async (e
       data = { total: 1, rows: [{ id: 990, aigcVideoTaskId: 42, taskStatus: 'succeeded',
         duration: 13.5, firstResultId: 123, parentResultId: 456,
         resultList: [{ taskType: 1, tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
+    } else if (method === 'GET' && path === '/model/charge/getSelectList' && !estimated) {
+      return new Response(JSON.stringify({ code: 403, msg: 'private provider detail' }), { status: 200 })
     } else if (method === 'POST' && path === '/aigc/storyboard/subtitleEraser') {
       expect(estimated, 'no paid call may leave without an approved reservation').toBe(true)
       expect(body).toMatchObject({ scriptId: 2708, episodeId: 46744, firstResultId: 123,
@@ -112,7 +114,7 @@ it.each([false, true])('records erasure with an explicit estimate: %s', async (e
     expect(adapter.requests.at(-1)?.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(message => message.content))
     expect(calls.filter(call => call.path === '/aigc/storyboard/subtitleEraser')).toHaveLength(estimated ? 1 : 0)
-    expect(calls).toHaveLength(estimated ? 3 : 2)
+    expect(calls).toHaveLength(3)
     const row = [...ctx.loader.entries()].find(entry => entry.options.name === 'cordis:jubian')
     await row?.fiber?.dispose()
     expect(ctx.tools.get('jubian_storyboard')).toBeUndefined()

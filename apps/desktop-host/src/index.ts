@@ -24,7 +24,7 @@ import { attentionSoundForEvent } from './attention-sound.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from './host-protocol.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -141,6 +141,7 @@ async function main(): Promise<void> {
   const application = runProfile({
     environment: loadLayeredEnv('muse-med'),
     profile: 'desktop',
+    shutdownTimeoutMs: DESKTOP_HOST_SHUTDOWN_GRACE_MS,
     resolvedProfile: { profile, installAnchor, moduleOverrides },
     patchFiles: [overlayPath],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],

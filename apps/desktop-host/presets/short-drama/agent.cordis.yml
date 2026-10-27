@@ -103,6 +103,7 @@
     reviewMode: advisory
     sessionVideoSelection: true
     productionPackaging: true
+    speechCharsPerSecond: 5
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'
 - id: tool-episode-render

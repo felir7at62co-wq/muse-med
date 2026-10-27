@@ -4457,7 +4457,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:46`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:47`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4470,6 +4470,8 @@ export interface Config {
   production?: ProductionConfig
   /** Seconds charged to a silent shot without a complexity label, 1–4; defaults to 2. */
   actionShotSeconds?: number
+  /** Effective spoken characters per second used for estimates; defaults to eight. */
+  speechCharsPerSecond?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
   reviewMode?: DramaShotReviewMode
   /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */

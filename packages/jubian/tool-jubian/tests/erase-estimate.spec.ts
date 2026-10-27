@@ -14,7 +14,14 @@ const ESTIMATE = { estimated_cost_cny: '1.00',
 
 interface ProviderCall { method: string; path: string; body?: Record<string, unknown> }
 
-async function fixture(options: { limitCents?: number; approvedEstimate?: string; interrupted?: boolean } = {}) {
+async function fixture(options: {
+  limitCents?: number
+  approvedEstimate?: string
+  interrupted?: boolean
+  catalogue?: unknown
+  expectedQuote?: string
+  catalogueFailureCode?: number
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), 'jubian-erase-estimate-'))
   onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
   const ledger = new JubianLedger({ root, defaultLimitCents: () => options.limitCents ?? 400_000 })
@@ -37,10 +44,15 @@ async function fixture(options: { limitCents?: number; approvedEstimate?: string
           firstResultId: 123, parentResultId: 456,
           resultList: [{ taskType: 1, tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
       } else if (call.method === 'POST' && call.path === '/aigc/storyboard/subtitleEraser') {
-        expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ outcome: null, quoted_amount: '1.00',
+        expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ outcome: null,
+          quoted_amount: options.expectedQuote ?? '1.00',
           quote_unit: 'CNY', method: 'erase_subtitle', script_id: 2708 })
         if (options.interrupted) throw new Error('Offline submission interrupted')
         data = { taskId: 429001 }
+      } else if (call.method === 'GET' && call.path === '/model/charge/getSelectList?taskType=10') {
+        if (options.catalogue === undefined) return new Response(JSON.stringify({
+          code: options.catalogueFailureCode ?? 403, msg: 'private provider detail' }), { status: 200 })
+        data = options.catalogue
       } else throw new Error(`Unexpected offline request: ${call.method} ${call.path}`)
       return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
     } })
@@ -49,9 +61,57 @@ async function fixture(options: { limitCents?: number; approvedEstimate?: string
 }
 
 describe('caller-declared erasure reservations', () => {
-  it.each(MODELS)('keeps %s unpriced without an explicit or trusted operator estimate', async (model_id) => {
+  it.each(MODELS)('keeps %s unpriced when catalogue access is denied and no estimate is approved', async (model_id) => {
     const { client, ledger, paidCalls } = await fixture()
     await expect(storyboardMethod(client, ledger, { ...ARGS, model_id })).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    { model_id: MODELS[0], cataloguePrice: 0.505, unit: '元/分钟', expectedQuote: '0.51' },
+    { model_id: MODELS[1], cataloguePrice: 0, unit: '元/条', expectedQuote: '0.01' },
+  ])('uses the live catalogue for $model_id without a caller estimate', async ({ model_id,
+    cataloguePrice, unit, expectedQuote }) => {
+    const catalogue = [{ id: model_id === MODELS[0] ? 26 : 67,
+      platformId: model_id === MODELS[0] ? 'YU_DIAN' : 'AI_MEDIA_KIT', modelId: model_id,
+      unitPrice: cataloguePrice, unit, videoStandards: [] }]
+    const { client, ledger, root, calls, paidCalls } = await fixture({ catalogue, expectedQuote })
+    const args = { ...ARGS, model_id }
+    const result = await storyboardMethod(client, ledger, args)
+    expect(result).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001',
+      budget: { status: 'authorized' } })
+    expect(result.next).toContain('实际结算')
+    expect(paidCalls()).toHaveLength(1)
+    expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ quoted_amount: expectedQuote,
+      quote_unit: 'CNY', outcome: 'accepted' })
+    const count = calls.length
+    expect(await storyboardMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true })
+    expect(calls).toHaveLength(count)
+  })
+
+  it('refuses a malformed live price before recording an intent or sending', async () => {
+    const catalogue = [{ id: 26, platformId: 'YU_DIAN', modelId: MODELS[0],
+      unitPrice: -1, unit: '元/分钟', videoStandards: [] }]
+    const { client, ledger, paidCalls } = await fixture({ catalogue })
+    await expect(storyboardMethod(client, ledger, { ...ARGS, model_id: MODELS[0] }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not fall back to pinned selectors for an unknown model when catalogue access is denied', async () => {
+    const { client, ledger, paidCalls } = await fixture()
+    await expect(storyboardMethod(client, ledger, { ...ARGS, model_id: 'new-eraser', erase_mode: 'region' }))
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not mask a catalogue rate limit as an approved estimate', async () => {
+    const { client, ledger, paidCalls } = await fixture({ approvedEstimate: '1.00', catalogueFailureCode: 429 })
+    await expect(storyboardMethod(client, ledger, { ...ARGS, model_id: MODELS[0] }))
+      .rejects.toMatchObject({ code: 'RATE_LIMITED' })
     expect(paidCalls()).toEqual([])
     expect(await ledger.records()).toEqual([])
   })

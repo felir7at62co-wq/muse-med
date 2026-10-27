@@ -543,7 +543,7 @@ function promptOrderedVideoMaterials(materials: Record<string, unknown>[], promp
  * remains unverified. Submit re-reads the same saved fields before its paid PUT.
  * @param storyboard - The live storyboard snapshot.
  * @param assets - One parent asset per image, in any provider order.
- * @returns The enriched materials in complete prompt order, the normalized prompt and model config.
+ * @returns The enriched materials in complete prompt order, the trimmed prompt with internal formatting intact, and model config.
  * @throws {JubianError} `CONTRACT_CHANGED` when a bound identity or material order disagrees.
  * @throws {JubianError} `INVALID_ARGUMENT` when ordered Prompt markers disagree with bound materials.
  */
@@ -556,7 +556,7 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   if (typeof config.prompt !== 'string') {
     invalid('modelConfig.prompt is absent, so the ordered materials cannot be matched to it')
   }
-  const prompt = normalizedPrompt(config.prompt)
+  const prompt = config.prompt.trim()
   const scriptId = integer(storyboard.scriptId)
   const orderedMaterials = promptOrderedVideoMaterials(materials, prompt)
   const imageMaterials = orderedMaterials.filter(material => material.materialType === 'image')

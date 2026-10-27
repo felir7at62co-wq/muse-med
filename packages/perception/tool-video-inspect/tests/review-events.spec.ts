@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { bindReviewEvents, reviewEventCurrent, reviewEventNoteSchema } from '../src/review-events.ts'
+import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from '../src/review-events.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { reviewSpeech } from '../src/review-speech.ts'
 import { VideoReviewId } from '../src/review-state.ts'
@@ -28,6 +28,22 @@ it('refuses missing, unrecorded or duplicate frame references and duplicate even
     expect(() => bindReviewEvents([{ ...note, frame_ids: ids }], frames)).toThrow('VIDEO_EVENT_FRAME')
   }
   expect(() => bindReviewEvents([note, note], frames)).toThrow('VIDEO_EVENT_DUPLICATE')
+  expect(() => bindReviewEvents([{ ...note, frame_ids: [] }], frames)).toThrow('VIDEO_EVENT_FRAME')
+})
+
+it('orders simultaneous observations and events deterministically, then exposes stale evidence', () => {
+  const simultaneous = [{ ...frames[0]!, id: 'B', time: 1 }, { ...frames[1]!, id: 'A', time: 1 }]
+  const eventNotes = [{ ...note, event_id: 'later', frame_ids: ['B'] },
+    { ...note, event_id: 'tie', frame_ids: ['B', 'A'] },
+    { ...note, event_id: 'earlier', frame_ids: ['A'] }]
+  const events = bindReviewEvents(eventNotes, simultaneous)
+  expect(events.map(event => event.frame_ids)).toEqual([['B'], ['A', 'B'], ['A']])
+  expect(reviewEventCurrent(events[1]!, simultaneous)).toBe(true)
+  expect(reviewEventCurrent(events[1]!, [simultaneous[0]!])).toBe(false)
+  expect(reviewEventEvidence(events[1]!, [simultaneous[0]!])).toEqual([
+    { frame_id: 'A', status: 'not_recorded' },
+    { frame_id: 'B', time: 1, ...simultaneous[0]!.observation, status: 'recorded' },
+  ])
 })
 
 it('accepts a meaningful single-character Chinese action without imposing a writing-length quota', () => {

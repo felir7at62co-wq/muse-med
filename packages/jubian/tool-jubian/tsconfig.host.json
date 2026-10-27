@@ -16,6 +16,7 @@
     "src/image-continuity.ts",
     "src/methods.ts",
     "src/upscale-price.ts",
+    "src/subtitle-price.ts",
     "src/model-settings.ts",
     "src/storyboard-edit.ts",
     "src/storyboard-delete.ts",
