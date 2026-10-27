@@ -117,28 +117,47 @@ class PortabilityTests(unittest.TestCase):
 
     def test_product_font_documentation_names_both_renderer_inputs(self):
         text = (RENDER / 'SKILL.md').read_text(encoding='utf-8')
-        for term in ('MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY', 'Noto Sans CJK SC'):
+        for term in ('MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY',
+                     'MUSE_WATERMARK_FONT_FAMILY', 'Zhuque Fangsong (technical preview)', 'Noto Sans CJK SC'):
             self.assertIn(term, text)
 
-    def test_product_font_directory_and_family_reach_subtitle_and_watermark(self):
+    def test_product_font_directory_and_independent_families_reach_ass_styles(self):
         render = load('render_product_fonts_test', RENDER / 'scripts/render_episode.py')
         with tempfile.TemporaryDirectory() as temporary:
             srt, ass = Path(temporary) / 'a.srt', Path(temporary) / 'a.ass'
             srt.write_text('1\n00:00:00,000 --> 00:00:01,000\n简体字幕\n', encoding='utf-8')
-            with patch.dict(os.environ, {'MUSE_FONTS_DIR': '/product/fonts', 'MUSE_FONT_FAMILY': 'Noto Sans CJK SC'}, clear=True):
+            with patch.dict(os.environ, {'MUSE_FONTS_DIR': '/product/fonts', 'MUSE_FONT_FAMILY': 'Legacy Family',
+                                        'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)',
+                                        'MUSE_WATERMARK_FONT_FAMILY': 'Noto Sans CJK SC'}, clear=True):
                 render.write_ass(srt, ass)
                 self.assertIn("fontsdir='/product/fonts'", render.subtitle_filter(ass))
                 text = ass.read_text(encoding='utf-8')
-                self.assertIn('Style: Default,Noto Sans CJK SC,40,', text)
+                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),40,', text)
+                self.assertIn('Style: Watermark,Noto Sans CJK SC,44,', text)
+            with patch.dict(os.environ, {'MUSE_FONT_FAMILY': 'Legacy Family'}, clear=True):
+                render.write_ass(srt, ass)
+                text = ass.read_text(encoding='utf-8')
+                self.assertIn('Style: Default,Legacy Family,40,', text)
+                self.assertIn('Style: Watermark,Legacy Family,44,', text)
+            with patch.dict(os.environ, {'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)'}, clear=True):
+                render.write_ass(srt, ass)
+                text = ass.read_text(encoding='utf-8')
+                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),40,', text)
+                self.assertIn('Style: Watermark,Microsoft YaHei,44,', text)
+            with patch.dict(os.environ, {'MUSE_WATERMARK_FONT_FAMILY': 'Noto Sans CJK SC'}, clear=True):
+                render.write_ass(srt, ass)
+                text = ass.read_text(encoding='utf-8')
+                self.assertIn('Style: Default,SimHei,40,', text)
                 self.assertIn('Style: Watermark,Noto Sans CJK SC,44,', text)
             with patch.dict(os.environ, {}, clear=True):
                 render.write_ass(srt, ass)
                 text = ass.read_text(encoding='utf-8')
                 self.assertIn('Style: Default,SimHei,40,', text)
                 self.assertIn('Style: Watermark,Microsoft YaHei,44,', text)
-            with patch.dict(os.environ, {'MUSE_FONT_FAMILY': 'bad,style\n'}, clear=True):
-                with self.assertRaises(ValueError):
-                    render.write_ass(srt, ass)
+            for name in ('MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY'):
+                with self.subTest(name=name), patch.dict(os.environ, {name: 'bad,style\n'}, clear=True):
+                    with self.assertRaisesRegex(ValueError, name):
+                        render.write_ass(srt, ass)
 
     def test_single_episode_requires_ending_assets_only_for_legacy_and_photorealistic(self):
         import argparse
@@ -240,7 +259,7 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('os', text)
         self.assertNotIn('Optional actual_speech_start', text)
         render = (RENDER / 'SKILL.md').read_text(encoding='utf-8')
-        self.assertIn('多于一首', render)
+        self.assertIn('使用多首时', render)
         self.assertIn('按正文情绪分段选曲', render)
         self.assertNotIn('E:\\aa-manju', render)
 

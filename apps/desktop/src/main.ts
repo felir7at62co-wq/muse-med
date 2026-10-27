@@ -94,6 +94,8 @@ if (app.isPackaged) {
     process.env.PYTHONDONTWRITEBYTECODE = '1'
     process.env.MUSE_FONTS_DIR = join(media, 'fonts')
     process.env.MUSE_FONT_FAMILY = 'Noto Sans CJK SC'
+    process.env.MUSE_SUBTITLE_FONT_FAMILY = 'Zhuque Fangsong (technical preview)'
+    process.env.MUSE_WATERMARK_FONT_FAMILY = 'Noto Sans CJK SC'
   }
 }
 

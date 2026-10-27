@@ -12,8 +12,10 @@ import { shortStage } from './media-resources.ts'
 import { type BgmRuntimeLock, prepareBgmRuntime, smokeBgmRuntime, validateBgmRuntimeLock, verifyPreparedBgmRuntime } from './prepare-bgm-runtime.ts'
 import { extract } from 'tar'
 
-/** One public resource accepted only with the recorded size and SHA-256. */
-export interface MediaResource { filename: string; url: string; bytes: number; sha256: string }
+/** One payload file accepted only with the recorded size and SHA-256. */
+export interface MediaFile { filename: string; bytes: number; sha256: string }
+/** One public resource downloaded from a fixed HTTPS URL. */
+export interface MediaResource extends MediaFile { url: string }
 /** Audited Windows x64 inputs, including source-only zhconv and redistribution notices. */
 export interface MediaLock {
   version: 1
@@ -23,6 +25,8 @@ export interface MediaLock {
   vcRedist: MediaResource & { productVersion: string }
   peInspector: MediaResource
   font: MediaResource
+  subtitleFontArchive: MediaResource
+  subtitleFont: MediaFile
   zhconv?: MediaResource
   wheels: MediaResource[]
   notices: MediaResource[]
@@ -55,7 +59,7 @@ export function validateMediaLock(value: unknown): MediaLock {
   if (typeof vcVersion !== 'string' || !/^14\.\d+\.\d+\.\d+$/u.test(vcVersion)) {
     throw new Error('media lock: exact Visual C++ product version required')
   }
-  for (const resource of [lock.python, lock.ffmpeg, lock.vcRedist, lock.peInspector, lock.font,
+  for (const resource of [lock.python, lock.ffmpeg, lock.vcRedist, lock.peInspector, lock.font, lock.subtitleFontArchive,
     ...lock.wheels, ...lock.notices,
     ...(lock.zhconv === undefined ? [] : [lock.zhconv])]) {
     if (typeof resource !== 'object' || resource === null || typeof resource.filename !== 'string'
@@ -68,14 +72,23 @@ export function validateMediaLock(value: unknown): MediaLock {
       throw new Error('media lock: public HTTPS URL required')
     }
   }
+  const font = lock.subtitleFont
+  if (typeof font !== 'object' || font === null || typeof font.filename !== 'string'
+    || !Number.isSafeInteger(font.bytes) || font.bytes <= 0 || !/^[a-f0-9]{64}$/u.test(font.sha256)) {
+    throw new Error('media lock: invalid subtitle font')
+  }
+  assertMediaArchivePath(font.filename)
+  if (font.filename.includes('/') || !font.filename.endsWith('.ttf') || font.filename === lock.font.filename) {
+    throw new Error('media lock: subtitle font must be a distinct TTF basename')
+  }
   return lock
 }
 
-/** Check cached or downloaded bytes without modifying the file.
+/** Check downloaded or extracted bytes without modifying the file.
  * @param path - File to verify.
  * @param resource - Expected size and SHA-256.
  */
-export async function verifyMediaResource(path: string, resource: MediaResource): Promise<void> {
+export async function verifyMediaResource(path: string, resource: MediaFile): Promise<void> {
   if ((await stat(path)).size !== resource.bytes) throw new Error(`media size mismatch: ${resource.filename}`)
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk)
@@ -116,6 +129,26 @@ async function unzip(path: string, target: string): Promise<void> {
     if (names.has(key)) throw new Error('media archive: duplicate Windows member')
     names.add(key)
   } })
+}
+
+/** Install the one locked TTF from an authenticated release ZIP into the payload font directory.
+ * @param archive - Downloaded and verified ZIP path.
+ * @param root - Fresh media payload staging directory.
+ * @param font - Expected font member and content identity.
+ */
+export async function extractSubtitleFont(archive: string, root: string, font: MediaFile): Promise<void> {
+  const extracted = join(root, '_subtitle-font')
+  try {
+    await unzip(archive, extracted)
+    const members = await readdir(extracted)
+    if (members.length !== 1 || members[0] !== font.filename) {
+      throw new Error('media subtitle font: release archive must contain only the locked TTF')
+    }
+    const source = join(extracted, font.filename)
+    if (!(await lstat(source)).isFile()) throw new Error('media subtitle font: expected a regular TTF')
+    await verifyMediaResource(source, font)
+    await rename(source, join(root, 'fonts', font.filename))
+  } finally { await rm(extracted, { recursive: true, force: true }) }
 }
 
 function run(binary: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
@@ -178,9 +211,11 @@ export async function verifyPreparedMediaRuntime(root: string, lock: MediaLock, 
   if (typeof descriptor !== 'object' || descriptor === null || !('version' in descriptor) || descriptor.version !== 1
     || !('files' in descriptor) || !Array.isArray(descriptor.files)) throw new Error('media reuse: invalid inventory')
   const actual = (await inventory(root)).filter(file => file.path !== 'media-runtime.json')
-  const font = actual.find(file => file.path === `fonts/${lock.font.filename}`)
-  if (font?.bytes !== lock.font.bytes || font.sha256 !== lock.font.sha256) {
-    throw new Error('media reuse: locked CJK font missing or changed; select a fresh output')
+  for (const expected of [lock.font, lock.subtitleFont]) {
+    const font = actual.find(file => file.path === `fonts/${expected.filename}`)
+    if (font?.bytes !== expected.bytes || font.sha256 !== expected.sha256) {
+      throw new Error(`media reuse: locked CJK font ${expected.filename} missing or changed; select a fresh output`)
+    }
   }
   if (JSON.stringify(actual) !== JSON.stringify(descriptor.files)) throw new Error('media reuse: payload inventory or checksum changed')
   const bgm = (descriptor as { bgm?: unknown }).bgm
@@ -275,7 +310,7 @@ export async function prepareMediaRuntime(options: {
   const stage = await shortStage(output)
   try {
     const files = new Map<string, string>()
-    for (const resource of [lock.python, lock.ffmpeg, lock.vcRedist, lock.peInspector, lock.font,
+    for (const resource of [lock.python, lock.ffmpeg, lock.vcRedist, lock.peInspector, lock.font, lock.subtitleFontArchive,
       ...lock.wheels, ...lock.notices,
       ...(lock.zhconv === undefined ? [] : [lock.zhconv])]) {
       process.stdout.write(`media: verify ${resource.filename}\n`)
@@ -283,6 +318,7 @@ export async function prepareMediaRuntime(options: {
     }
     await mkdir(join(stage, 'fonts'))
     await cp(files.get(lock.font.filename)!, join(stage, 'fonts', lock.font.filename))
+    await extractSubtitleFont(files.get(lock.subtitleFontArchive.filename)!, stage, lock.subtitleFont)
     await mkdir(join(stage, 'prerequisites'))
     const vcInstaller = join(stage, 'prerequisites', lock.vcRedist.filename)
     await cp(files.get(lock.vcRedist.filename)!, vcInstaller)
