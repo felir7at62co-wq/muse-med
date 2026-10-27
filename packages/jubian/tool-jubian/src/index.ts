@@ -823,7 +823,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   registerJubianTool(defineTool({
     name: 'jubian_asset',
     description: '剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。'
-      + '只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。'
+      + '只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id；多条结果无已知 task_id 时返回候选待核。'
       + '生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；'
       + 'error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交，insufficient_credits 时请用户处理剧变生图通道额度；未知或等待中只续读原任务。'
       + '**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。'
@@ -860,6 +860,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           + 'create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；'
           + 'audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。' },
       script_id: ARGS.script_id, asset_id: ARGS.asset_id, material_id: ARGS.material_id,
+      task_id: { type: 'number', description: 'generated_image 可选：已知的原生图任务 ID；只匹配该任务，不能根据 ID 大小推断最新。' },
       page_num: ARGS.page_num, page_size: ARGS.page_size, idempotency_key: ARGS.idempotency_key,
       image_path: ARGS.image_path,
       character_reference: ARGS.character_reference,

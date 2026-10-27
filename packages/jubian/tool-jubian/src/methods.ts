@@ -793,10 +793,15 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       const scriptId = need(args.script_id)
       const result = await client.request({
         method: 'GET', path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=1&pageSize=1000` })
-      return { materials: readMaterialList(result.data) }
+      const data = result.data
+      const materialPage = Array.isArray(data) ? { rows: data }
+        : data && typeof data === 'object' && result.envelope_layout === 'array-single'
+          && !Object.hasOwn(data, 'rows') && !Object.hasOwn(data, 'list') ? { rows: [data] } : data
+      return { materials: readMaterialList(materialPage) }
     }
     case 'generated_image': {
       const assetId = need(args.asset_id)
+      const requestedTask = args.task_id === undefined ? null : positiveInteger(args.task_id)
       const result = await client.request({
         method: 'GET', path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })
       const rows = responseRecords(result.data)
@@ -804,18 +809,16 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       if (scoped.length !== rows.length || scoped.length === 0) {
         throw new JubianError('CONTRACT_CHANGED', 'Generated-image response has no verified target asset')
       }
-      // A regenerated parent retains older, already-used material rows. A unique
-      // highest task ID identifies the latest attempt; missing or tied IDs do not.
+      // A task ID identifies the caller's requested attempt; its magnitude does not establish recency.
       const taskId = (row: Record<string, unknown>): number => {
-        const parsed = Number(row.taskId)
+        const value = row.taskId
+        if (typeof value !== 'number' && (typeof value !== 'string' || !/^[0-9]+$/u.test(value.trim()))) return -1
+        const parsed = Number(value)
         return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : -1
       }
-      const sorted = [...scoped].sort((a, b) => taskId(b) - taskId(a))
-      // The empty case is rejected above, and sorting preserves the row count.
-      const latest = sorted[0] as Record<string, unknown>
-      const second = sorted[1]
-      if (second !== undefined && (scoped.some(row => taskId(row) < 1)
-        || taskId(latest) === taskId(second))) {
+      const matches = requestedTask === null ? scoped : scoped.filter(row => taskId(row) === requestedTask)
+      const [selected] = matches
+      if (matches.length !== 1 || selected === undefined) {
         const unverifiedCandidates = scoped.map((row) => {
           const rawMaterialId = row.id ?? row.materialId
           const parsedMaterialId = typeof rawMaterialId === 'number' || typeof rawMaterialId === 'string'
@@ -839,9 +842,9 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         })
         return { image: null, requires_review: true, unverified_candidates: unverifiedCandidates,
           rows_observed: scoped.length,
-          guidance: '该资产有多条生成图记录，缺少可唯一确定最新任务的 ID。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。' }
+          guidance: '该资产的生成图无法按已知任务 ID 唯一关联；任务 ID 大小不能确定新旧。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。' }
       }
-      const generation = readImageGeneration(latest)
+      const generation = readImageGeneration(selected)
       if (generation !== null && generation.status !== 'succeeded') {
         return { image: null, generation,
           guidance: generation.status === 'failed'
@@ -850,7 +853,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
               : '原任务已失败，保留原任务号与回执。修正已确认的原因后才可提交新的修订请求。'
             : '尚未确认可用图片，继续查询原资产；不要更换 key 重复付费。' }
       }
-      return { image: readGeneratedImage(latest), ...generation === null ? {} : { generation } }
+      return { image: readGeneratedImage(selected), ...generation === null ? {} : { generation } }
     }
     case 'confirm_casting': {
       requireKey(args.idempotency_key)

@@ -11,7 +11,7 @@ description: Generated-image reads expose task failures independently of image a
 
 `jubian_asset generated_image` 在接口提供时，以 `generation` 保留供应商任务与结果 ID。生成中、失败及未知任务返回 `image: null` 和分类后的失败信息，不再将缺少 URL 误报为信封错误。成功任务仍返回 `image.url` 和 `image.material_id`。仅含 URL 的旧回复保留原字段。供应商消息不会直接进入模型输入。
 
-同一父资产有多条材质记录，却没有唯一任务身份时，`generated_image` 不再按供应商列表顺序选一条；它返回 `image: null`、`requires_review: true` 和 `unverified_candidates`，其中也保留没有 URL 的行。读取本身不会选用或确认材质；后续单独调用的 `confirm_casting` 不受这个标记硬性拦截。
+同一父资产有多条材质记录时，`generated_image` 只选择调用方指定的 `task_id` 所唯一匹配的记录。没有唯一匹配时，不按任务 ID 大小或供应商列表顺序推断新旧；它返回 `image: null`、`requires_review: true` 和 `unverified_candidates`，其中也保留没有 URL 的行。读取本身不会选用或确认材质；后续单独调用的 `confirm_casting` 不受这个标记硬性拦截。
 
 KU_AI 在付费提交前拒绝超过五张的参考图。批量生成会检查完全部项目才开始提交。报告失败的已受理任务仍是账本中已受理、已计费的写入；该失败不授权重投结果未知的付费请求。
 

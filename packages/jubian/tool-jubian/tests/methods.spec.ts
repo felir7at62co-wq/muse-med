@@ -474,14 +474,14 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     expect(await ledger.records()).toEqual([])
   })
 
-  it('reports the newest failed regeneration rather than the older active material', async () => {
+  it('reports the requested failed regeneration rather than the older active material', async () => {
     const { client, calls } = stubClient(() => [
       { assetId: 156575, id: 160260, assetUrl: 'https://old.example/image.png', isUsed: 1,
         taskId: 527855, resultStatus: 'succeeded' },
       { assetId: 156575, id: null, assetUrl: null, taskId: 619422, resultId: 1180188,
         resultStatus: 'failed', resultMsg: '用户额度不足, 剩余额度: ＄-7.811628' },
     ])
-    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575 })
+    const result = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 156575, task_id: 619422 })
     expect(result).toMatchObject({ image: null, generation: { status: 'failed',
       task_id: 619422, error_code: 'insufficient_credits' } })
     expect(result.guidance).toContain('不要自动新建付费任务')
@@ -546,15 +546,61 @@ describe('jubian_asset reads and the side-effecting GET', () => {
     expect(await ledger.records()).toEqual([])
   })
 
-  it('reads the unique newer successful task even when an earlier row has no image', async () => {
+  it('reads the explicitly requested successful task even when another row has no image', async () => {
     const { client } = stubClient(() => [
       { assetId: 212497, id: null, assetUrl: null, taskId: 101, resultStatus: 'failed' },
       { assetId: 212497, id: 9002, assetUrl: 'https://media.example/current.png',
         taskId: 102, resultStatus: 'succeeded', hsAssetStatus: 'Active', isUsed: 0 },
     ])
-    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497 }))
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497, task_id: 102 }))
       .toMatchObject({ image: { material_id: 9002, url: 'https://media.example/current.png' },
         generation: { task_id: 102, status: 'succeeded' } })
+  })
+
+  it('does not infer the newest task from different numeric IDs or provider row order', async () => {
+    const rows = [
+      { assetId: 212497, id: 9001, assetUrl: 'https://media.example/old.png', taskId: 900, resultStatus: 'succeeded' },
+      { assetId: 212497, id: 9002, assetUrl: 'https://media.example/new.png', taskId: 100, resultStatus: 'succeeded' },
+    ]
+    for (const ordered of [rows, [...rows].reverse()]) {
+      const { client } = stubClient(() => ordered)
+      const review = await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497 })
+      expect(review).toMatchObject({ image: null, requires_review: true, rows_observed: 2 })
+      expect(review.guidance).toContain('任务 ID 大小不能确定新旧')
+      expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497, task_id: 100 }))
+        .toMatchObject({ image: { material_id: 9002 }, generation: { task_id: 100, status: 'succeeded' } })
+    }
+  })
+
+  it.each(['missing', 'duplicate'])('keeps an %s requested task unverified without selecting an image', async (caseName) => {
+    const rows = [
+      { assetId: 212497, id: 9001, assetUrl: 'https://media.example/a.png', taskId: 100, resultStatus: 'succeeded' },
+      { assetId: 212497, id: 9002, assetUrl: 'https://media.example/b.png', taskId: caseName === 'duplicate' ? 100 : 200,
+        resultStatus: 'succeeded' },
+    ]
+    const { client } = stubClient(() => rows)
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497,
+      task_id: caseName === 'missing' ? 300 : 100 }))
+      .toMatchObject({ image: null, requires_review: true, rows_observed: 2 })
+  })
+
+  it('does not associate a single legacy image with an unverified requested task', async () => {
+    const { client } = stubClient(() => [{ assetId: 212497, id: 9001, assetUrl: 'https://media.example/a.png' }])
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497, task_id: 100 }))
+      .toMatchObject({ image: null, requires_review: true, rows_observed: 1 })
+  })
+
+  it('does not coerce boolean provider task IDs into the requested integer', async () => {
+    const { client } = stubClient(() => [{ assetId: 212497, id: 9001,
+      assetUrl: 'https://media.example/a.png', taskId: true }])
+    expect(await assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497, task_id: 1 }))
+      .toMatchObject({ image: null, requires_review: true, unverified_candidates: [{ task_id: null }] })
+  })
+
+  it('rejects an invalid requested task before making a read', async () => {
+    const { client, calls } = stubClient(() => [])
+    await expect(assetMethod(client, ledger, { method: 'generated_image', asset_id: 212497, task_id: 0 })).rejects.toThrow()
+    expect(calls).toHaveLength(0)
   })
 
   it('records casting confirmation under the ledger even though the verb is GET', async () => {

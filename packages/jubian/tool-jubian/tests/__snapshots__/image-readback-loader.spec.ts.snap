@@ -53,7 +53,7 @@ exports[`passes ambiguous regenerated image rows through the real tool chain for
     }
   ],
   "rows_observed": 2,
-  "guidance": "该资产有多条生成图记录，缺少可唯一确定最新任务的 ID。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。"
+  "guidance": "该资产的生成图无法按已知任务 ID 唯一关联；任务 ID 大小不能确定新旧。图片仅供人工审图；不能把旧图当作本次新图，不能自动绑定或确认出演。"
 }",
         "type": "text",
       },

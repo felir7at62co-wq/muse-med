@@ -11,7 +11,7 @@ English | [中文](guide.zh.md)
 
 `jubian_asset generated_image` preserves provider task/result IDs in `generation` when available. Pending, failed and unknown tasks return `image: null` with classified failure information instead of a missing-URL envelope error. Successful tasks retain `image.url` and `image.material_id`. URL-only legacy responses keep their existing fields. Provider messages are not copied into model input.
 
-For a parent with several material rows but no unique task identity, `generated_image` no longer selects a row by provider order. It returns `image: null`, `requires_review: true` and `unverified_candidates`, including rows without a URL. The read does not select or confirm a material; a separate `confirm_casting` call is not blocked by this flag.
+For a parent with several material rows, `generated_image` selects a row only when the caller supplies a `task_id` that matches exactly one row. Without such a match, it does not infer recency from task IDs or provider order. It returns `image: null`, `requires_review: true` and `unverified_candidates`, including rows without a URL. The read does not select or confirm a material; a separate `confirm_casting` call is not blocked by this flag.
 
 KU_AI generation refuses more than five reference images before paid submission. Batch generation validates all items before submitting any. An accepted task that reports failure remains an accepted, charged write in the ledger; the failure does not authorize replaying an unknown paid outcome.
 
