@@ -1,0 +1,25 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: tool-episode-render
+      name: './renderer-fixture.mjs'
+      config:
+        ffmpegPath: subtitle-visual-fixture-ffmpeg
+        ffprobePath: subtitle-visual-fixture-ffprobe
+        preferNvenc: false
+        fontsDir: ''
+    - id: subtitle-visual-session-media-fixture
+      name: './media-fixture.mjs'
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: true
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true

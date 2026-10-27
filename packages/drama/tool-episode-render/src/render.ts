@@ -55,6 +55,7 @@ import { deliveryChecks } from './verify.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
 import type { EndingEffectTiming } from './types.ts'
+import { measureSubtitleLayout } from './subtitle-layout.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -276,6 +277,13 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   const cues = overlay?.cues ?? await readSubtitleCues(input.subtitleSrt)
   subtitleWarnings.push(...(overlay?.warnings ?? []), ...subtitleTextWarnings(cues))
+  const layout = policy.delivery.subtitle_visual?.schema_version === 1
+    ? await measureSubtitleLayout({ toolkit, settings: effectiveSettings, delivery: policy.delivery, cues, directory: paths.cacheDir })
+    : undefined
+  if (layout !== undefined) {
+    subtitleWarnings.push(...layout.warnings)
+    log.push(`subtitle_layout=${layout.report.report_path ?? '(not saved)'} status=${layout.report.status}`)
+  }
   const ass = resolve(paths.cacheDir, 'display.ass')
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
@@ -365,6 +373,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     method: 'render',
     bgmPlan,
     renderPreview: preview,
+    ...(layout === undefined ? {} : { subtitleLayout: layout.report }),
     ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
     ...(timeline.endingEffectFit === undefined || endingTiming === undefined ? {} : { endingEffect: endingTiming }),
     project: input.project,
@@ -372,7 +381,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
     sources,
     expectedDurationSeconds,
-    written: [input.output, ...(musicStem ? [musicStem] : []), sourceRecordPath, paths.renderLog, ...overlay?.written ?? []],
+    written: [input.output, ...(musicStem ? [musicStem] : []), sourceRecordPath, paths.renderLog,
+      ...overlay?.written ?? [], ...layout?.written ?? []],
     ...(profile === undefined ? {} : { audioMix: audioMixReport(profile, paths.masterAudio, bgm ?? '', musicStem) }),
     output: input.output,
     encoder: choice.encoder,

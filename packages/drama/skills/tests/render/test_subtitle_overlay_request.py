@@ -67,6 +67,22 @@ class SubtitleOverlayRequest(unittest.TestCase):
         self.assertIn('不可编辑', '\n'.join(result['warnings']))
         self.assertEqual(before, [sha(path) for path in (self.srt, self.video, self.timeline)])
 
+    def test_binds_shot_order_videos_when_timeline_rows_are_unsorted(self):
+        second = self.project / 'second.mp4'
+        second.write_bytes(b'second selected source')
+        self.request['videos'].append(str(second))
+        clips = [{'shot': 2, 'start_us': 4_000_000, 'duration_us': 1_000_000},
+                 {'shot': 1, 'start_us': 0, 'duration_us': 4_000_000}]
+        self.timeline.write_text(json.dumps({'clips': clips}), encoding='utf-8')
+        self.report['timeline_clips'] = clips
+        self.report['sources'] = [{'shot': 1, 'sha256': sha(self.video)},
+                                  {'shot': 2, 'sha256': sha(second)}]
+        self.save_report()
+        self.assertEqual(MODULE.read_subtitle_overlay_report(self.request)['retained_embedded_count'], 1)
+        self.request['videos'].reverse()
+        with self.assertRaisesRegex(ValueError, 'source bytes'):
+            MODULE.read_subtitle_overlay_report(self.request)
+
     def test_refuses_original_unfiltered_srt_or_modified_bytes(self):
         self.report['resolved_srt'] = str(self.project / 'other.srt')
         self.save_report()
