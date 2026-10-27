@@ -411,7 +411,8 @@ beforeEach(() => {
   vi.stubEnv('DSH_HOME', 'upstream-dsh-home')
   vi.stubEnv('MUSE_MED_HOME', undefined)
   for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'MUSE_HOME',
-    'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR', 'MUSE_FONT_FAMILY']) {
+    'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR',
+    'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY']) {
     vi.stubEnv(name, process.env[name])
   }
 })
@@ -881,6 +882,8 @@ describe('desktop main startup', () => {
     vi.stubEnv('PYTHONHOME', 'external-python')
     vi.stubEnv('PYTHONPATH', 'external-modules')
     vi.stubEnv('PYTHONDONTWRITEBYTECODE', '0')
+    vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'inherited subtitle')
+    vi.stubEnv('MUSE_WATERMARK_FONT_FAMILY', 'inherited watermark')
     await import('../src/main.ts')
     await harness.preparing.promise
     const media = join('desktop-test-resources', 'runtime', 'media')
@@ -896,7 +899,10 @@ describe('desktop main startup', () => {
     expect(process.env.PYTHONDONTWRITEBYTECODE).toBe('1')
     expect(process.env.MUSE_FONTS_DIR).toBe(join(media, 'fonts'))
     expect(process.env.MUSE_FONT_FAMILY).toBe('Noto Sans CJK SC')
-    expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'), MUSE_FONT_FAMILY: 'Noto Sans CJK SC' })
+    expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')
+    expect(process.env.MUSE_WATERMARK_FONT_FAMILY).toBe('Noto Sans CJK SC')
+    expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'), MUSE_FONT_FAMILY: 'Noto Sans CJK SC',
+      MUSE_SUBTITLE_FONT_FAMILY: 'Zhuque Fangsong (technical preview)', MUSE_WATERMARK_FONT_FAMILY: 'Noto Sans CJK SC' })
   })
 
   it('passes the explicit product home to the backend environment', async () => {

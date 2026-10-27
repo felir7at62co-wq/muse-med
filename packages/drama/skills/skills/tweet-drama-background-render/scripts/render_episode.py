@@ -181,6 +181,18 @@ def ass_outline(target_px: float = SUBTITLE_OUTLINE_TARGET_PX,
     return round(target_px * play_res_y / output_height)
 
 
+def ass_font_family(specific_name: str, fallback: str) -> str:
+    """Select a style-specific deployment font while accepting the legacy shared setting."""
+    for name in (specific_name, 'MUSE_FONT_FAMILY'):
+        family = os.environ.get(name)
+        if family is None:
+            continue
+        if not family.strip() or any(ord(char) < 32 or char in ',{}' for char in family):
+            raise ValueError(f'{name} must be a nonempty ASS font family without delimiters')
+        return family
+    return fallback
+
+
 def write_ass(srt: Path, ass: Path, add_watermark: bool = True,
               width: int = WIDTH, height: int = HEIGHT) -> None:
     """Write speech cues and only the delivery policy's requested AI notice."""
@@ -188,7 +200,9 @@ def write_ass(srt: Path, ass: Path, add_watermark: bool = True,
     design_width, design_height = (math.floor(value * scale + 0.5) for value in (width, height))
     margin_v = math.floor(design_height * SUBTITLE_MARGIN_V / DESIGN_HEIGHT + 0.5)
     outline_target = SUBTITLE_OUTLINE_TARGET_PX * width / WIDTH
-    watermark_style = ("Style: Watermark,Microsoft YaHei,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
+    subtitle_family = ass_font_family('MUSE_SUBTITLE_FONT_FAMILY', 'SimHei')
+    watermark_family = ass_font_family('MUSE_WATERMARK_FONT_FAMILY', 'Microsoft YaHei')
+    watermark_style = (f"Style: Watermark,{watermark_family},44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,"
                        "0,0,0,0,100,100,0,0,1,0,0,2,20,20,20,1") if add_watermark else ""
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -199,17 +213,12 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,SimHei,{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline(target_px=outline_target, play_res_y=design_height, output_height=height)},0,2,40,40,{margin_v},1
+Style: Default,{subtitle_family},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,-2,0,1,{ass_outline(target_px=outline_target, play_res_y=design_height, output_height=height)},0,2,40,40,{margin_v},1
 {watermark_style}
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 """
-    family = os.environ.get('MUSE_FONT_FAMILY')
-    if family is not None:
-        if not family.strip() or any(ord(c) < 32 or c in ',{}' for c in family):
-            raise ValueError('MUSE_FONT_FAMILY must be a nonempty ASS font family without delimiters')
-        header = header.replace('Default,SimHei,', f'Default,{family},').replace('Watermark,Microsoft YaHei,', f'Watermark,{family},')
     events = []
     for start, end, text in parse_srt(srt):
         def ass_time(value: str) -> str:
