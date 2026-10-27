@@ -522,6 +522,8 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+  /** Keep the route callable for saved Sessions while hiding it from new selections. */
+  selectable?: boolean
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
 }

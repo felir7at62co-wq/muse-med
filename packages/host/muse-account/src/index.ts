@@ -54,6 +54,13 @@ export interface Config {
   readonly excludedProviderIds: string[]
   /** Exact account provider IDs retained for saved Sessions but hidden from new model selections. */
   readonly hiddenProviderIds: string[]
+  /** Exact provider/model pairs selectable within otherwise hidden account providers. */
+  readonly visibleModels: {
+    /** Exact provider ID in the account gateway catalog. */
+    providerId: string
+    /** Exact model ID selectable only for the specified provider. */
+    modelId: string
+  }[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
@@ -89,6 +96,10 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   })).default([]),
   excludedProviderIds: Schema.array(Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/)).default([]),
   hiddenProviderIds: Schema.array(Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/)).default([]),
+  visibleModels: Schema.array(Schema.object({
+    providerId: Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/).required(),
+    modelId: Schema.string().min(1).max(200).required(),
+  })).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
@@ -124,6 +135,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
     excludedProviderIds: config.excludedProviderIds, hiddenProviderIds: config.hiddenProviderIds,
+    visibleModels: config.visibleModels,
     ...(config.modelRequestImageMaxBytes === undefined ? {} : { modelRequestImageMaxBytes: config.modelRequestImageMaxBytes }) })
   let remote: MuseDesktopRemote | undefined
   if (config.remoteAccess) {

@@ -5,6 +5,7 @@ import { LlmError, ReasoningEffortId, resolveImageAttachmentAccess } from '@deep
 import type {
   AdapterRegistrationHandle,
   LlmCallConfig,
+  LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
   PreparedAdapterCall,
@@ -70,6 +71,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly defaultEffort: (provider: string, model: string) => ReasoningEffortId | undefined,
     private readonly authorizationSignal: () => AbortSignal,
     private readonly providerSelectable: (provider: string) => boolean,
+    private readonly modelSelectable: (provider: string, model: string) => boolean,
     private readonly streamOverride: (provider: string, model: string) => DirectStream | undefined,
   ) {
     super(options)
@@ -78,6 +80,11 @@ class MusePiAiAdapter extends PiAiAdapter {
   override providerInfo(provider: string): LlmProviderInfo {
     const info = super.providerInfo(provider)
     return this.providerSelectable(provider) ? info : { ...info, selectable: false }
+  }
+
+  override async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return (await super.listModels(provider)).map(model => this.modelSelectable(provider, model.id)
+      ? model : { ...model, selectable: false })
   }
 
   override async resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
@@ -111,6 +118,7 @@ export interface MuseModelsOptions {
   readonly excludedModels?: readonly { providerId: string; modelId: string }[]
   readonly excludedProviderIds?: readonly string[]
   readonly hiddenProviderIds?: readonly string[]
+  readonly visibleModels?: readonly { providerId: string; modelId: string }[]
   /** Base64 image-byte budget resolved by the provider adapter; omission keeps its default. */
   readonly modelRequestImageMaxBytes?: number
 }
@@ -165,6 +173,7 @@ export class MuseModels {
     }
     this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
       () => this.authorization.signal, provider => this.providerSelectable(provider),
+      (provider, model) => this.modelSelectable(provider, model),
       (provider, model) => this.directStream(adapterOptions, provider, model))
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
@@ -389,7 +398,17 @@ export class MuseModels {
   }
 
   private providerSelectable(provider: string): boolean {
-    return !(this.options.hiddenProviderIds ?? []).some(id => provider === `muse-cloud-${id}`)
+    return !this.providerHidden(provider) || (this.options.visibleModels ?? [])
+      .some(model => provider === `muse-cloud-${model.providerId}`)
+  }
+
+  private providerHidden(provider: string): boolean {
+    return (this.options.hiddenProviderIds ?? []).some(id => provider === `muse-cloud-${id}`)
+  }
+
+  private modelSelectable(provider: string, model: string): boolean {
+    return !this.providerHidden(provider) || (this.options.visibleModels ?? [])
+      .some(item => provider === `muse-cloud-${item.providerId}` && item.modelId === model)
   }
 
   private async selectInitialDefault(providers: Record<string, PiAiProviderProfile>, revision: string): Promise<void> {
@@ -397,13 +416,18 @@ export class MuseModels {
     const section = settings?.describe().find(row => String(row.ns) === 'agent-default-model')
     if (!settings || !section) return
     const user = section.user as { provider?: string; model?: string }
-    const selectable = Object.fromEntries(Object.entries(providers).filter(([provider]) => this.providerSelectable(provider)))
+    const selectable: Record<string, PiAiProviderProfile> = {}
+    for (const [provider, profile] of Object.entries(providers)) {
+      const models = profile.models?.filter(model => this.modelSelectable(provider, model.id))
+      if (this.providerSelectable(provider) && models?.length) selectable[provider] = { ...profile, models }
+    }
     const matchingCloud = user.provider ? `muse-cloud-${user.provider}` : undefined
     if (user.provider && !user.provider.startsWith('muse-cloud-')
       && (!matchingCloud || !selectable[matchingCloud] || !await this.directRouteMissingCredential(user.provider))) return
     if (user.provider && selectable[user.provider]?.models?.some(model => model.id === user.model)) return
     const first = matchingCloud && selectable[matchingCloud]
-      ? [matchingCloud, selectable[matchingCloud]] as const : Object.entries(selectable)[0]
+      ? [matchingCloud, selectable[matchingCloud]] as const
+      : Object.entries(selectable).find(([provider]) => !this.providerHidden(provider)) ?? Object.entries(selectable)[0]
     const model = first?.[1].models?.find(model => model.id === user.model) ?? first?.[1].models?.[0]
     const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     if (this.stop.signal.aborted || current?.revision !== revision) return

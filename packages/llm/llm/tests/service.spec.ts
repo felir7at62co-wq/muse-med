@@ -674,6 +674,7 @@ describe('LlmRuntime', () => {
       id: 'fast',
       name: 'Fast',
       description: 'Low latency',
+      selectable: false,
       inputModalities: ['text'] as const,
     }
     ctx.llm.registerAdapter(['catalog'], new CatalogAdapter(provider, [model]))
@@ -690,7 +691,7 @@ describe('LlmRuntime', () => {
     model.name = 'source mutated'
     expect(ctx.llm.listProviders()).toEqual([{ id: 'catalog', name: 'Catalog Provider', selectable: false }])
     await expect(ctx.llm.listModels('catalog')).resolves.toEqual([{
-      provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency', inputModalities: ['text'],
+      provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency', selectable: false, inputModalities: ['text'],
     }])
   })
 
@@ -1253,6 +1254,7 @@ describe('LlmRuntime', () => {
     [{ provider: 'route', id: 'm', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'm', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'm', name: 'M', description: 1 }, 'non-string description'],
+    [{ provider: 'route', id: 'm', name: 'M', selectable: 'no' }, 'non-boolean selectable'],
   ] as const)('rejects invalid model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

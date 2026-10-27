@@ -53,7 +53,7 @@ test('official capacity and each selected model budget are explicit public metad
   assert.equal(model.maxTokens,model.id.startsWith('gemini-')?65536:128000);
   if(model.id.startsWith('gpt-'))assert.deepEqual(model.reasoningEfforts,{low:'low'});
   else assert.equal(model.reasoningEfforts,false);
-  assert.deepEqual(model.input,model.id.startsWith('claude-')||model.id==='glm-5.3-flash'?['text','image']:['text']);
+  assert.deepEqual(model.input,model.id.startsWith('claude-')||model.id==='glm-5.3-flash'||model.id==='gemini-3.1-pro'?['text','image']:['text']);
  }
  assert.equal(providers.yunying.models.at(-1).name,'GLM-5.3-Flash');
  assert.equal(providers.yunying.models.at(-1).reasoningEfforts,false);
@@ -110,6 +110,7 @@ test('fresh account catalog routes every selected model with only server credent
  await writeFile(file,JSON.stringify(prepared),{mode:0o600});const globalModels=await openGlobalModels(file);
  const safe=desktopModelCatalog(globalModels);
  assert.equal(safe.providers.flatMap(provider=>provider.models).length,11);
+ assert.deepEqual(safe.providers.find(provider=>provider.id==='yunying').models.find(model=>model.id==='gemini-3.1-pro').input,['text','image']);
  assert.doesNotMatch(JSON.stringify(safe),/synthetic-|API_KEY|wy6688\.token6688\.com|api\.deepseek|open\.bigmodel/);
  const store=await openStore(join(root,'accounts'));await store.create('editor','pw');
  const origin='https://muse.test',calls=[];
@@ -122,7 +123,8 @@ test('fresh account catalog routes every selected model with only server credent
  const response=await fetch(base+'/api/desktop-models/providers',{headers:{cookie}});assert.deepEqual(await response.json(),safe);
  for(const provider of safe.providers)for(const model of provider.models){
   const tools=[{type:'function',function:{name:'echo',parameters:{type:'object',properties:{}}}}];
-  const history=[{role:'assistant',content:null,reasoning_content:'saved-thinking',tool_calls:[{id:'tool-one',type:'function',function:{name:'echo',arguments:'{}'}}]},
+  const history=[...(provider.id==='yunying'&&model.id==='gemini-3.1-pro'?[{role:'user',content:[{type:'text',text:'Describe the image'},
+   {type:'image_url',image_url:{url:'data:image/png;base64,aW1hZ2U='}}]}]:[]),{role:'assistant',content:null,reasoning_content:'saved-thinking',tool_calls:[{id:'tool-one',type:'function',function:{name:'echo',arguments:'{}'}}]},
    {role:'tool',tool_call_id:'tool-one',content:'ok'}];
   const reply=await fetch(base+'/api/desktop-models/'+provider.id+'/chat/completions',{method:'POST',
    headers:{origin,authorization:'Bearer '+token,'content-type':'application/json'},

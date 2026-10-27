@@ -15,7 +15,7 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { mockServer, closeMockServers, textEvents } from '../../../llm/llm-pi-ai/tests/mock-server.ts'
 import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
-import { buildModelCatalog } from '../../../api/session-controller/src/catalog.ts'
+import { buildModelCatalog, modelAvailable } from '../../../api/session-controller/src/catalog.ts'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { directProviderFixture, oldSessionFixture as routingFixture, waitForIdle } from './model-routing-fixture.ts'
 
@@ -516,6 +516,53 @@ it('hides Yunying from new selections while retaining its route and the visible 
   expect(browser.failures.find(group => group.id === 'muse-cloud-yunying')).toBeUndefined()
 })
 
+it('exposes only the allowed Yunying model while retaining hidden model routes', async () => {
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  models = new MuseModels(ctx, {
+    baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    hiddenProviderIds: ['yunying'], visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }],
+    fetcher: async () => Response.json({ providers: [
+      { id: 'yunying', name: '云映', models: ['gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro']
+        .map(id => ({ ...entry, id, name: id })) },
+      suppliedCatalog.providers[1],
+    ] }),
+  })
+  await models.refresh()
+  const provider = 'muse-cloud-yunying'
+  expect(ctx.llm.listProviders().find(row => row.id === provider)).toEqual({ id: provider, name: 'Muse · 云映' })
+  expect(await ctx.llm.listModels(provider)).toEqual([
+    expect.objectContaining({ id: 'gpt-6-sol', selectable: false }),
+    expect.objectContaining({ id: 'claude-sonnet-5-5', selectable: false }),
+    expect.objectContaining({ id: 'gemini-3.1-pro' }),
+  ])
+  const browser = await buildModelCatalog(ctx, { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(browser.groups.find(group => group.id === provider)?.models.map(model => model.id)).toEqual(['gemini-3.1-pro'])
+  await expect(modelAvailable(ctx, { provider, model: 'gemini-3.1-pro' })).resolves.toBe(true)
+  await expect(modelAvailable(ctx, { provider, model: 'gpt-6-sol' })).resolves.toBe(false)
+  await expect(ctx.llm.resolveModelInfo(provider, 'gpt-6-sol')).resolves.toMatchObject({ provider, id: 'gpt-6-sol' })
+})
+
+it('streams Gemini and a saved hidden Yunying model through their original provider route', async () => {
+  const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  const provider = { id: 'yunying', name: '云映', models: ['gpt-6-sol', 'gemini-3.1-pro']
+    .map(id => ({ ...entry, id, name: id })) }
+  models = new MuseModels(ctx, {
+    baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    hiddenProviderIds: ['yunying'], visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }],
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { transport: 'direct', providers: [provider] }
+      : { transport: 'direct', providers: [{ ...provider, access: { baseURL: server.url + '/v1', apiKey: 'fixture-key' } }] }),
+  })
+  await models.refresh()
+  for (const model of ['gemini-3.1-pro', 'gpt-6-sol']) {
+    expect((await assemble(ctx, { provider: 'muse-cloud-yunying', model, messages: [] })).finish).toEqual({ kind: 'stop' })
+  }
+  expect(server.requests).toEqual([expect.objectContaining({ model: 'gemini-3.1-pro' }), expect.objectContaining({ model: 'gpt-6-sol' })])
+})
+
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {
   const fixture = await oldSessionFixture(false)
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])
@@ -883,6 +930,33 @@ it('moves a hidden Muse default to the first selectable account provider', async
     provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
   })
   expect((await fixture.ctx.llm.listModels('muse-cloud-yunying')).map(model => model.id)).toEqual(['gpt-6-sol'])
+})
+
+it('preserves an explicitly selected Gemini default without making it the fallback default', async () => {
+  const fixture = await directProviderFixture(false)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' })
+  await login()
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  let geminiName = 'gemini-3.1-pro'
+  models = new MuseModels(fixture.ctx, {
+    baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    hiddenProviderIds: ['yunying'], visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }],
+    fetcher: async () => Response.json({ providers: [
+      { id: 'yunying', name: '云映', models: ['gpt-6-sol', 'gemini-3.1-pro']
+        .map(id => ({ ...entry, id, name: id === 'gemini-3.1-pro' ? geminiName : id })) },
+      suppliedCatalog.providers[1],
+    ] }),
+  })
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({
+    provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+  })
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' })
+  geminiName = 'Gemini 3.1 Pro'
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({
+    provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro',
+  })
 })
 
 it('keeps a saved default when the supplied catalog contains no available model', async () => {

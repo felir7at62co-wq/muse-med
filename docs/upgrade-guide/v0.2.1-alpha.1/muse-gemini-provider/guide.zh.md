@@ -9,10 +9,10 @@ description: "Muse Desktop 隐藏独立 Gemini 账号提供方，保留云映 Ge
 
 ## 变更
 
-Muse Desktop 从模型目录排除独立账号提供方 `aa`，其本地注册标识为 `muse-cloud-aa`。已有对话若使用该提供方，须先选择可用模型再继续。`muse-cloud-yunying/gemini-3.1-pro`、其他云映供应模型、官方 DeepSeek 和个人提供方仍可使用。已有对话日志仍可读取；其模型选择与 Session 格式不会被重写。
+Muse Desktop 从模型目录排除独立账号提供方 `aa`，其本地注册标识为 `muse-cloud-aa`。已有对话若使用该提供方，须先选择可用模型再继续。网关提供 `muse-cloud-yunying/gemini-3.1-pro` 时，选择器显示该模型；其他云映模型仍不提供新选择，其已注册路由仍供保存的 Session 使用。已有对话日志仍可读取；其模型选择与 Session 格式不会被重写。
 
 ## 迁移
 
 1. 安装更新后的 Muse Desktop 并登录，打开受影响对话的模型选择器。
 2. 选择 **Muse · 云映 → gemini-3.1-pro** 或其他可用模型，然后继续。确认下一次记录的请求使用所选提供方和模型。
-3. 自定义部署可在 `@deepseek-ai/dsh-muse-account` 配置行中将 `excludedProviderIds` 设为精确的网关提供方 ID。插件默认值为 `[]`；桌面产品补丁设置 `['aa']`。不要改用 `gemini` 模型前缀过滤，否则也会移除云映 Gemini。
+3. 自定义部署可在 `@deepseek-ai/dsh-muse-account` 配置行中将 `excludedProviderIds` 设为精确的网关提供方 ID。插件默认值为 `[]`；桌面产品补丁设置 `['aa']`，通过 `hiddenProviderIds` 隐藏 `yunying`，并用 `visibleModels` 允许 `yunying/gemini-3.1-pro`。不要将 `aa` 排除改为 `gemini` 模型前缀过滤，否则也会移除云映 Gemini。

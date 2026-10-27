@@ -85,6 +85,28 @@ describe('ACP model configuration control', () => {
     })
   })
 
+  it('offers only selectable providers and models while retaining the current hidden route', async () => {
+    const control = new AcpModelControl(llmRuntime({
+      listProviders: () => [
+        { id: 'mock', name: 'Mock' },
+        { id: 'hidden-provider', name: 'Hidden provider', selectable: false },
+      ],
+      listModels: async (provider: string) => provider === 'mock' ? [
+        { provider, id: 'gemini', name: 'Gemini' },
+        { provider, id: 'hidden', name: 'Hidden', selectable: false },
+      ] : [{ provider, id: 'hidden', name: 'Hidden' }],
+    }), { provider: 'mock', model: 'hidden' })
+
+    const options = await control.options()
+    expect(options.find(option => option.id === 'model')).toMatchObject({
+      currentValue: '["mock","hidden"]',
+      options: [{ group: 'mock', options: [{ name: 'hidden' }, { name: 'Gemini' }] }],
+    })
+    await control.set('model', '["mock","gemini"]')
+    await expect(control.set('model', '["mock","hidden"]')).rejects.toThrow(/unknown model option/)
+    await expect(control.set('model', '["hidden-provider","hidden"]')).rejects.toThrow(/unknown model option/)
+  })
+
   it('rejects an unadvertised reasoning effort and accepts a later valid change', async () => {
     const control = new AcpModelControl(llmRuntime(), { provider: 'mock', model: 'mock' })
 

@@ -2391,6 +2391,13 @@ export interface Config {
   readonly excludedProviderIds: string[]
   /** Exact account provider IDs retained for saved Sessions but hidden from new model selections. */
   readonly hiddenProviderIds: string[]
+  /** Exact provider/model pairs selectable within otherwise hidden account providers. */
+  readonly visibleModels: {
+    /** Exact provider ID in the account gateway catalog. */
+    providerId: string
+    /** Exact model ID selectable only for the specified provider. */
+    modelId: string
+  }[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */

@@ -155,10 +155,10 @@ export class AcpModelControl {
       routeAvailable = false
     }
     const choices = new Map<SessionConfigValueId, ModelSelection>()
-    const groups = await Promise.all(this.llm.listProviders().map(async (provider) => {
+    const groups = await Promise.all(this.llm.listProviders().filter(provider => provider.selectable !== false).map(async (provider) => {
       try {
         const models = await this.llm.listModels(provider.id)
-        const entries = models.map((model) => {
+        const entries = models.filter(model => model.selectable !== false).map((model) => {
           const choice: ModelChoice = {
             value: modelValue(provider.id, model.id),
             selection: { provider: provider.id, model: model.id },
