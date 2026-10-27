@@ -89,10 +89,18 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
       episode: '01', intended_use: 'commercial', body_duration_seconds: 12,
       segments: [
         { track: 'cue', source: 'music/cue.mp3', start_seconds: 0, end_seconds: 6, reason: '开场',
+          valence: 5, arousal: 3, tags: ['family', 'gentle'],
+          story_context: '克制解释', dialogue_context: '话中保留误解',
           track_id: 'catalog-cue', license_info: { license: 'Project grant', commercial_use: true,
             source: 'https://music.example/license', attribution: 'Music provider', scope: 'Short drama distribution' } },
-        { track: 'tail', source: 'music/tail.mp3', start_seconds: 6, end_seconds: 12, reason: '收束' },
+        { track: 'tail', source: 'music/tail.mp3', start_seconds: 6, end_seconds: 12, reason: '收束',
+          valence: 8, arousal: 8, tags: ['epic'], transition_reason: '实际危机突然爆发' },
       ],
+    }] }))
+    await writeFile(join(root, 'editing', 'neighbor-plan.json'), JSON.stringify({ episodes: [{
+      episode: '02', body_duration_seconds: 12, segments: [{ track: 'same cue, renamed',
+        source: 'archive/old-cue.mp3', track_id: 'catalog-cue', start_seconds: 0, end_seconds: 12,
+        reason: '相邻集已用配乐' }],
     }] }))
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
@@ -100,6 +108,8 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
       "- name: '@deepseek-ai/dsh-tools'",
       "- name: '@deepseek-ai/dsh-subprocess-test'",
       "- name: '@deepseek-ai/dsh-tool-bgm-compose'",
+      '  config:',
+      '    maxSourceGainDb: -10',
       '',
     ].join('\n'))
     ctx.baseUrl = pathToFileURL(root).href + '/'
@@ -128,6 +138,7 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     const tool = ctx.tools.get('drama_bgm')
     expect(tool).toBeDefined()
     if (tool === undefined) throw new Error('missing drama_bgm')
+    expect(tool.description).toContain('-10 dB')
     const args = {
       method: 'preview', project: root, episode: 1,
       timeline: 'editing/01-timeline.json', plan: 'editing/bgm-plan.json',
@@ -137,19 +148,23 @@ it('loads the composer, previews public arguments, and removes its tool on dispo
     expect(validateJsonSchemaValue(tool.output.schema, report, '')).toEqual([])
     expect(report).toMatchObject({
       method: 'preview', episode: '01', body_duration_seconds: 12, crossfade_seconds: 1.5,
-      batch_episodes: ['01'], intended_use: 'commercial',
+      batch_episodes: ['01', '02'], intended_use: 'commercial',
       license_records: [
         { track_id: 'catalog-cue', license_info: { status: 'declared', commercial_use: true }, warnings: [] },
         { license_info: { status: 'unknown', commercial_use: 'unknown' }, warnings: ['音乐授权信息未知或不完整；不能据此认定已获使用授权。'] },
       ],
       segments: [
         { track: 'cue', source_start_seconds: 1.75, source_start_kind: 'onset',
-          source_mean_db: -20, applied_gain_db: 2.5, reason: '开场' },
+          source_mean_db: -20, applied_gain_db: -10, reason: '开场', tags: ['family', 'gentle'],
+          story_context: '克制解释', dialogue_context: '话中保留误解' },
         { track: 'tail', source_start_seconds: 1.75, source_start_kind: 'onset',
-          source_mean_db: -20, applied_gain_db: 2.5, reason: '收束' },
+          source_mean_db: -20, applied_gain_db: -10, reason: '收束' },
       ],
       media: { codec: '', sample_rate: 0, channels: 0, duration_seconds: 0, size_bytes: 0, sha256: '' },
     })
+    expect(report).toHaveProperty('policy_findings.0.rule', 'R6')
+    expect(report).toHaveProperty('policy_findings.1.rule', 'R7')
+    expect(report).toHaveProperty('policy_findings.0.detail', expect.stringContaining('实际危机突然爆发'))
     const rendered = tool.output.render(
       args, report as Parameters<typeof tool.output.render>[1],
     ) as { type: string; text: string }[]

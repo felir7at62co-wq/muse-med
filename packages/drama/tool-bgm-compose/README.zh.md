@@ -43,12 +43,19 @@ kind: "package-reference"
 | `maxEpisodesPerTrack` | `2` | 一首曲子在整批中最多出现的集数 |
 | `freshTracksPerEpisode` | `0` | 建议使用的、本批其它集未复用的曲目数 |
 | `boundaryToleranceSeconds` | `0.05` | 切点距离镜头包边界允许的秒数 |
+| `maxSourceGainDb` | `9` | 每段源曲归一化增益上限，−120 至 +9 dB；Muse 创作预设使用 −10 |
+| `maxEmotionStep` | `3` | 相接段落 V/A 绝对差之和的建议上限，0–16 |
+| `minTagOverlap` | `0.2` | 相接段落规范化标签集合交并比的建议下限，0–1 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-bgm-compose)是全部可用字段的完整来源。
 
 ### 计划与方法
 
 计划使用 `episodes[].segments[]`。选中集声明 `body_duration_seconds`、可选 `crossfade_seconds`，以及有序段落；每段包含 `track`、`source`、`start_seconds`、`end_seconds` 与非空 `reason`。段落可以冻结 `source_start_seconds` 和 `source_sha256`；`valence` 与 `arousal` 可保留候选实测值，但不会调用 `bgm_match`。
+
+可选 `tags`、`story_context`、`dialogue_context` 和 `transition_reason` 将实选标签、情节发展、对白含义及较大音乐变化的依据保留到分析段落与合成记录。R6 提醒实测情绪距离或标签差异超出配置的相接段落。缺少元数据不能证明衔接合格；剧情转折说明依据但不清除提示。无音乐间隔不视为直接换曲。这些检查不理解对白，也不认证听感适配。
+
+R7 提醒第 N 集与已加载批次中编号为 N−1 或 N+1 的集重复用曲，即使该曲总共只用于两集。它通过稳定曲库 ID 或源曲摘要识别改名副本；旧记录缺少可比较身份时回落到绝对路径。无配乐邻集不参与。优先选合适替代曲，真实连续场景或主题回扣仍可保留同曲并记录理由。R7 不阻止合成，缺少邻集计划不表示已核对无重复。
 
 显式 `music_decision` 必须附有非空 `decision_reason`。`music` 允许单曲，以及选定段落之前、之间或之后留白。段落仍须有序、不重叠且位于正文范围内；只有相接段落交叉淡化。省略决定保留连续完整覆盖正文及原有连续混音图。`none` 必须搭配 `segments: []`：所有方法均返回 `status: no_added_music`、空 `output` 和 `report`，无实测媒体事实或许可记录。它们不读取源曲，不伪造静音 WAV，不宣称音频验证通过，也不改已有文件。
 
@@ -62,9 +69,9 @@ kind: "package-reference"
 | `compose` | 48 kHz 双声道 `pcm_s16le` WAV 及相邻 `.generation.json` | 预检事实，加上实测媒体参数与输出 SHA-256 |
 | `verify` | 无 | 现有 WAV 的实测容器与音频参数；不读取原始源曲，`segments` 为空 |
 
-三个方法都会在 `policy_findings` 中返回曲目复用与切点位置建议，不要求必须改完才能交付；无配乐计划豁免。默认允许一首，不要求新曲；部署配置的更严格数量仍只是建议。复用或段内切点符合剧情和用户偏好时可以保留。批次是计划文件所在目录里所有含 `episodes` 数组的 JSON（`episodes/segments/<集>.json`），`batch_episodes` 说明核对了哪些集。无法读取或解析的批次文件会使调用失败；能解析但没有 `episodes` 数组的文件不属于计划。曲目身份按解析后的 `source` 路径判定；`track` 仅为展示名。时间线缺少 `clips` 时返回无法核对包边界的建议。无效媒体、项目路径和输出时长仍会在发布产物前使调用失败。
+三个方法都会在 `policy_findings` 中返回曲目复用与切点位置建议，不要求必须改完才能交付；无配乐计划豁免。默认允许一首，不要求新曲；部署配置的更严格数量仍只是建议。复用或段内切点符合剧情和用户偏好时可以保留。批次是计划文件所在目录里所有含 `episodes` 数组的 JSON（`episodes/segments/<集>.json`），`batch_episodes` 说明核对了哪些集。无法读取或解析的批次文件会使调用失败；能解析但没有 `episodes` 数组的文件不属于计划。R2–R4 按解析后的 `source` 路径判定曲目身份；R7 还使用稳定音频身份，`track` 仅为展示名。时间线缺少 `clips` 时返回无法核对包边界的建议。无效媒体、项目路径和输出时长仍会在发布产物前使调用失败。
 
-`compose` 以 `-17.5 dB` 为平均音量目标，自动提升最多 `+9 dB`，让交叉淡化以相接剧情边界为中心。每组连续有乐段开头淡入 1.5 秒，结尾 2.5 秒淡出，留白处不加音乐。它在无覆盖发布前暂存并探测两个产物；命令或校验失败会清除暂存文件，并保留已有目标不变。把实际生成的绝对 `output` 传给 `drama_render.bgm`，把绝对 `plan` 传给 `drama_render.bgm_plan`；不可将无配乐结果的空输出当作已生成文件。
+`compose` 以 `-17.5 dB` 为平均音量目标，受 `maxSourceGainDb` 上限约束（默认 `+9 dB`）。Muse 创作预设将每段源曲封顶 `−10 dB`，归一化不能补回衰减。后续渲染和原生草稿的增益上限 1 为新合成音乐床保留该衰减；旧音乐床及直接导入原曲需另行核验。交叉淡化以相接剧情边界为中心。每个连续音乐段开头淡入 1.5 秒，末尾 2.5 秒淡出，空白处不加音乐。工具在无覆盖发布前暂存并探测两个产物；失败清理暂存文件，保留已有目标。将生成的绝对 `output` 传给 `drama_render.bgm`，绝对 `plan` 传给 `drama_render.bgm_plan`；无音乐结果的空输出不是生成文件。
 
 `preview` 返回 `preview_notice`，区分 JSON 检查与试听。实际原声/配乐对照请使用 `drama_render.audio_preview`，并在正式渲染中沿用同一混音配置。合成增益及有效媒体参数本身不能证明对白清晰或创作审核通过。
 

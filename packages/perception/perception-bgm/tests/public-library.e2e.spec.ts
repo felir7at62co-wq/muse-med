@@ -15,7 +15,7 @@ it.skipIf(process.env.DSH_BGM_PUBLIC_SMOKE !== '1')('matches and downloads one p
     let tool: { execute(args: Record<string, unknown>, exec: { signal: AbortSignal }): Promise<unknown> } | undefined
     ctx.provide('tools', { register(value: typeof tool) { tool = value; return () => {} } })
     await ctx.plugin({ apply, inject, name: 'perception-bgm' }, {
-      catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/index.json',
+      catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/catalog.json',
       cacheDir: root, pythonExecutable: join(root, 'missing-python'),
     })
     if (!tool) throw new Error('Missing bgm_match')
@@ -24,8 +24,16 @@ it.skipIf(process.env.DSH_BGM_PUBLIC_SMOKE !== '1')('matches and downloads one p
       evaluated_tracks: number
       candidates: { track_id: string; name: string; path?: string }[]
     }
-    const chosen = match.candidates[0]
+    const storyMatch = await tool.execute({ method: 'match', valence: 5, arousal: 3, limit: 3,
+      story: { intent: '母女在真相揭示后克制和解，亲情是主意图，避免英雄凯旋或喜剧',
+        desired_tags: ['family', 'gentle'], avoid_tags: ['epic', 'comedy'], dialogue_density: 'dense' } }, exec) as {
+      candidates: { track_id: string; name: string; path?: string; story_fit: { title_matches: string[] } }[]
+      review_candidates: { name: string }[]
+    }
+    const chosen = storyMatch.candidates[0]
     if (!chosen) throw new Error('Public catalogue is empty')
+    expect(chosen.story_fit.title_matches).toContain('family')
+    expect(storyMatch.review_candidates.some(row => row.name.includes('史诗'))).toBe(true)
     expect(chosen.path).toBeUndefined()
     const downloaded = await tool.execute({ method: 'download', track_id: chosen.track_id }, exec) as {
       path: string
@@ -40,7 +48,7 @@ it.skipIf(process.env.DSH_BGM_PUBLIC_SMOKE !== '1')('matches and downloads one p
     expect(downloaded.cached).toBe(false)
     expect(start).not.toHaveBeenCalled()
     console.log('public BGM smoke', JSON.stringify({ tracks: match.evaluated_tracks,
-      name: chosen.name, bytes: bytes.length, sha256: downloaded.sha256 }))
+      emotionOnly: match.candidates[0]?.name, storyChoice: chosen.name, bytes: bytes.length, sha256: downloaded.sha256 }))
   } finally {
     start.mockRestore()
     await ctx.fiber.dispose()

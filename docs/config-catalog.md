@@ -2480,6 +2480,14 @@ export interface Config {
 ```ts config-catalog
 /** Deployment settings for track matching, downloads, and optional local emotion analysis. */
 export interface BgmConfig {
+  /** Require script and visual-review quotations before story-based recommendations; default false. */
+  requireStoryEvidence?: boolean
+  /** Distance penalty for a cue used by adjacent episodes; default 2, range 0–16. */
+  adjacentEpisodeRepeatPenalty?: number
+  /** Ordinary adjacent-cue emotion-distance ceiling; default 3 on the combined 1–9 axes. */
+  maxTransitionEmotionDistance?: number
+  /** Minimum adjacent tag-set Jaccard overlap; default 0.2. */
+  minTransitionTagOverlap?: number
   /** Absolute path to the Python interpreter that has the model's dependencies. */
   pythonExecutable?: string
   /** Directory holding `tag_list.npy`, `run_config.yaml` and the chord model. */
@@ -3976,6 +3984,12 @@ export interface Config {
 ```ts config-catalog
 /** Deployment-varying executable, subprocess limits, and batch policy. */
 export interface Config {
+  /** Largest source-window gain in dB; default 9, negative values require attenuation. */
+  readonly maxSourceGainDb?: number
+  /** Advisory adjacent emotion-distance ceiling; default 3. */
+  readonly maxEmotionStep?: number
+  /** Advisory adjacent tag-set overlap minimum; default 0.2. */
+  readonly minTagOverlap?: number
   /** FFmpeg executable or command name. */
   readonly ffmpegPath?: string
   /** ffprobe executable or command name. */
@@ -4056,6 +4070,8 @@ export interface Config {
   masterVolume?: number
   /** Gain applied to the BGM bed; defaults to 0.24. */
   bgmVolume?: number
+  /** Maximum final BGM multiplier; default 8, independent of original-dialogue gain. */
+  maxBgmVolume?: number
   /** Whether the GPU encoder is probed before each render; defaults to true. */
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */

@@ -45,6 +45,7 @@ Mount the plugin as one row of a short-drama preset; it needs only the tool regi
 | `ffprobePath` | `ffprobe` | The ffprobe executable to start |
 | `masterVolume` | `1.45` | Gain applied to the episode's own master audio; 0–8 |
 | `bgmVolume` | `0.24` | Gain applied to the BGM bed; 0–8 |
+| `maxBgmVolume` | `8` | Effective BGM gain ceiling after project/profile overrides; Muse creative presets use 1 |
 | `preferNvenc` | `true` | Whether the GPU encoder is probed at all |
 | `fontsDir` | `C:/Windows/Fonts` | Directory libass resolves the subtitle font from |
 | `subtitleFontFamily` | `SimHei` | ASS subtitle font family |
@@ -98,6 +99,8 @@ Every relative project input and output path resolves from `project`, including 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, a `source_once` effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
 
 Project-root aliases are accepted for audio paths; inputs and existing output parents must still resolve inside the real project. Explicit audio-profile gains in auditions and renders override project gains, which override deployment defaults; the render preview reports these same effective gains.
+
+`maxBgmVolume` caps the effective project, deployment or explicit-profile music gain in both previews and renders. It does not reduce original-audio gain. Muse creative presets use 1 with composer source gain at most −10 dB, so later mixing cannot boost a newly composed bed back above the source attenuation. This ceiling alone does not verify older beds or direct source imports; use a hash-matched composer receipt and the actual music gain for source-relative accounting.
 
 ### Explicit audio profiles and auditions
 

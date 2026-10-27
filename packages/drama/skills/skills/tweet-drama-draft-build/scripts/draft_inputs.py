@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 from pathlib import Path
 
 
@@ -86,7 +87,11 @@ def audio_gains(timeline: dict, project: Path | None = None) -> dict:
                         or not math.isfinite(gain) or not 0 <= gain <= 8):
                     raise ValueError(f'{label}.audio.{key} must be a finite number from 0 to 8')
     selected = snapshot['audio'] if 'audio' in snapshot else project_delivery.get('audio', {})
-    return {key: selected.get(key, 1.0) for key in ('master_gain', 'bgm_gain')}
+    ceiling = float(os.environ.get('DSH_BGM_MAX_GAIN', '8'))
+    if not math.isfinite(ceiling) or not 0 <= ceiling <= 8:
+        raise ValueError('DSH_BGM_MAX_GAIN must be a finite number from 0 to 8')
+    return {'master_gain': selected.get('master_gain', 1.0),
+            'bgm_gain': min(selected.get('bgm_gain', 1.0), ceiling)}
 
 
 def body_clock(timeline: dict, clip_end_us: int, tolerance_us: int, ending_us: int) -> dict:

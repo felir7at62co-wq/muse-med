@@ -82,6 +82,8 @@ export interface Config {
   masterVolume?: number
   /** Gain applied to the BGM bed; defaults to 0.24. */
   bgmVolume?: number
+  /** Maximum final BGM multiplier; default 8, independent of original-dialogue gain. */
+  maxBgmVolume?: number
   /** Whether the GPU encoder is probed before each render; defaults to true. */
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
@@ -98,6 +100,7 @@ export const Config: z<Config> = z.object({
   ffprobePath: z.string().default(DEFAULT_FFPROBE),
   masterVolume: z.number().min(0).max(8).default(DEFAULT_MASTER_VOLUME),
   bgmVolume: z.number().min(0).max(8).default(DEFAULT_BGM_VOLUME),
+  maxBgmVolume: z.number().min(0).max(8).default(8),
   preferNvenc: z.boolean().default(true),
   fontsDir: z.string().default(DEFAULT_FONTS_DIR),
   subtitleFontFamily: z.string().pattern(FONT_FAMILY_PATTERN).default(DEFAULT_SUBTITLE_FONT_FAMILY),
@@ -265,6 +268,7 @@ export function resolveSettings(config: Config = {}): RenderSettings {
     ffprobe: config.ffprobePath ?? DEFAULT_FFPROBE,
     masterVolume: config.masterVolume ?? DEFAULT_MASTER_VOLUME,
     bgmVolume: config.bgmVolume ?? DEFAULT_BGM_VOLUME,
+    maxBgmVolume: config.maxBgmVolume ?? 8,
     preferNvenc: config.preferNvenc ?? true,
     fontsDir: config.fontsDir ?? DEFAULT_FONTS_DIR,
     subtitleFontFamily: config.subtitleFontFamily ?? DEFAULT_SUBTITLE_FONT_FAMILY,

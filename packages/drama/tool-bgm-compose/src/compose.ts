@@ -37,6 +37,10 @@ const EMPTY_MEDIA: BgmMediaReport = {
 }
 
 const SegmentSchema = z.object({
+  tags: z.array(z.string().min(1).max(64)).max(16),
+  story_context: z.string().min(1).max(1200),
+  dialogue_context: z.string().min(1).max(1200),
+  transition_reason: z.string().min(1).max(1200),
   track: z.string().required(),
   source: z.string().required(),
   track_id: z.string(),
@@ -46,8 +50,8 @@ const SegmentSchema = z.object({
   reason: z.string().required(),
   source_start_seconds: z.number(),
   source_sha256: z.string(),
-  valence: z.number(),
-  arousal: z.number(),
+  valence: z.number().min(1).max(9),
+  arousal: z.number().min(1).max(9),
 })
 
 const EpisodeSchema = z.object({
@@ -66,6 +70,8 @@ const PlanSchema = z.object({
 
 /** Runtime settings after Cordis config and the subprocess service are resolved. */
 export interface DramaBgmSettings {
+  /** Source gain ceiling before fades; negative values enforce attenuation relative to source music. */
+  readonly maxSourceGainDb?: number
   /** FFmpeg executable or command name. */
   readonly ffmpegPath: string
   /** ffprobe executable or command name. */
@@ -319,6 +325,11 @@ async function analyzeSegments(
     }
     const mean = await media.meanVolume(source, start.seconds, segment.inputDurationSeconds, settings.signal)
     reports.push({
+      // SegmentSchema supplies an empty list when the plan omits tags.
+      tags: segment.tags as string[],
+      ...(segment.story_context === undefined ? {} : { story_context: segment.story_context }),
+      ...(segment.dialogue_context === undefined ? {} : { dialogue_context: segment.dialogue_context }),
+      ...(segment.transition_reason === undefined ? {} : { transition_reason: segment.transition_reason }),
       track: segment.track,
       ...(segment.track_id === undefined ? {} : { track_id: segment.track_id }),
       license_info: normalizeLicenseInfo(segment.license_info),
@@ -331,7 +342,7 @@ async function analyzeSegments(
       source_start_seconds: start.seconds,
       source_start_kind: start.kind,
       source_mean_db: mean,
-      applied_gain_db: appliedGain(mean),
+      applied_gain_db: appliedGain(mean, settings.maxSourceGainDb),
       ...(segment.valence === undefined ? {} : { valence: segment.valence }),
       ...(segment.arousal === undefined ? {} : { arousal: segment.arousal }),
     })

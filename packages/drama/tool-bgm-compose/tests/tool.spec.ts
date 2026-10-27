@@ -76,6 +76,7 @@ describe('Config', () => {
       terminationGraceMs: 5_000, outputMaxBytes: 1_048_576,
       minTracksPerEpisode: 1, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 0,
       boundaryToleranceSeconds: 0.05,
+      maxSourceGainDb: 9, maxEmotionStep: 3, minTagOverlap: 0.2,
     })
   })
 
@@ -83,5 +84,8 @@ describe('Config', () => {
     expect(() => Config({ commandTimeoutMs: 0 })).toThrow()
     expect(() => Config({ outputMaxBytes: 0 })).toThrow()
     expect(() => Config({ minTracksPerEpisode: 0 })).toThrow()
+    expect(() => Config({ maxSourceGainDb: 10 })).toThrow()
+    expect(() => Config({ maxEmotionStep: -1 })).toThrow()
+    expect(() => Config({ minTagOverlap: 1.1 })).toThrow()
   })
 })

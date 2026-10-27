@@ -563,6 +563,8 @@ export interface BgmPlanReport {
 
 /** The deployment-varying choices one render resolves. */
 export interface RenderSettings {
+  /** Deployment ceiling for the final BGM multiplier; omitted retains the legacy limit of 8. */
+  readonly maxBgmVolume?: number
   /** ffmpeg executable to start. */
   readonly ffmpeg: string
   /** ffprobe executable to start. */

@@ -1,4 +1,9 @@
-# Only the LLM is replayed; BGM tools read real scenario-local files.
+# Replay the LLM and cloud catalogue; BGM matching and composition remain real.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
   disabled: true
@@ -8,10 +13,12 @@
   disabled: true
 
 - insert:
+    - id: bgm-numbered-catalog-fixture
+      name: './catalog-fixture.mjs'
     - id: perception-bgm
       name: '@deepseek-ai/dsh-perception-bgm'
       config:
-        indexPath: !!js process.cwd() + '/index.json'
+        catalogUrl: https://bgm-snapshot.example/bgm/catalog.json
     - id: tool-bgm-compose
       name: '@deepseek-ai/dsh-tool-bgm-compose'
       config:
