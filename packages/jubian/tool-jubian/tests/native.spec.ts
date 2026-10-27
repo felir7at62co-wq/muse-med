@@ -309,8 +309,8 @@ it('preserves numeric official identity and a string use flag while ignoring unr
   const storyboard = { ...STORYBOARD, storyboardMaterialList: [{ ...MATERIALS[0], assetId: 11 }, MATERIALS[1]] }
   const provider: FakeProvider = { calls: [], storyboard, tasks: [], subtasks: {},
     assets: { ...ASSETS, '81285': { ...ASSETS['81285'], url: URL_LEAD } },
-    subjectPage: () => ({ rows: [{}, { assetId: '' }, { assetId: 999999 },
-      { ...SUBJECT_ROWS[0], hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] }) }
+    subjectPage: page => ({ rows: page === 1 ? [{}, { assetId: '' }, { assetId: 999999 },
+      { ...SUBJECT_ROWS[0], hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] : [] }) }
   expect(await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() }))
     .toMatchObject({ status: 'prepared' })
   expect(putCalls(provider)).toEqual([])
@@ -2117,7 +2117,7 @@ describe('bare singleton list responses through the client', () => {
     { tasks: [{ id: 9, scriptId: 2708, storyboardId: 999999 }, { id: 10, scriptId: 2708, storyboardId: 999999 }] }])
   ('selects a subject with a bare singleton subject page and task list $tasks', async ({ tasks }) => {
     const provider: FakeProvider = { calls: [], storyboard: board, tasks, subtasks: {},
-      rawSubjectPage: () => [SUBJECT_ROWS[0]], rawTaskPage: () => tasks }
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : [], rawTaskPage: page => page === 1 ? tasks : [] }
     expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
       idempotency_key: 'single-list' })).toMatchObject({ status: 'applied', paid_requests: 0 })
     expect(putCalls(provider)).toHaveLength(1)
@@ -2125,7 +2125,7 @@ describe('bare singleton list responses through the client', () => {
   })
 
   it('prepares one selected subject from a bare singleton subject page', async () => {
-    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, rawSubjectPage: () => [SUBJECT_ROWS[0]],
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : [],
       storyboard: { ...board, modelConfig: JSON.stringify({ ...config, materialList: [MATERIALS[0]] }),
         storyboardMaterialList: [MATERIALS[0]] } }
     expect(await prepareVideoMethod(clientFor(provider), ledger,
@@ -2137,8 +2137,8 @@ describe('bare singleton list responses through the client', () => {
 
   it('selects then prepares through a real loopback HTTP server with singleton lists', async () => {
     const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
-      rawSubjectPage: () => [SUBJECT_ROWS[0]],
-      rawTaskPage: () => [{ id: 9, scriptId: 2708, storyboardId: 999999 }], rawCatalogue: CATALOGUE }
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : [],
+      rawTaskPage: page => page === 1 ? [{ id: 9, scriptId: 2708, storyboardId: 999999 }] : [], rawCatalogue: CATALOGUE }
     const local = await localClientFor(provider)
     try {
       expect(await selectAssetsMethod(local.client, ledger, { storyboard_id: 916953, selections,
@@ -2154,7 +2154,7 @@ describe('bare singleton list responses through the client', () => {
 
   it('does not mistake a singleton catalogue page object for a model row', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
-      rawSubjectPage: () => [SUBJECT_ROWS[0]], rawCatalogue: [{ rows: CATALOGUE }],
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : [], rawCatalogue: [{ rows: CATALOGUE }],
       storyboard: { ...board, modelConfig: JSON.stringify({ ...config, materialList: [MATERIALS[0]] }),
         storyboardMaterialList: [MATERIALS[0]] } }
     await expect(prepareVideoMethod(clientFor(provider), ledger,
@@ -2166,16 +2166,55 @@ describe('bare singleton list responses through the client', () => {
     const extras = Array.from({ length: 99 }, (_, i) => ({ id: i + 2, assetId: i + 90000 }))
     const firstTaskPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, scriptId: 2708, storyboardId: 999999 }))
     const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
-      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0], ...extras] : [{ id: 500, assetId: 500 }],
-      rawTaskPage: page => page === 1 ? firstTaskPage : [{ id: 101, scriptId: 2708, storyboardId: 999999 }] }
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0], ...extras] : page === 2 ? [{ id: 500, assetId: 500 }] : [],
+      rawTaskPage: page => page === 1 ? firstTaskPage : page === 2 ? [{ id: 101, scriptId: 2708, storyboardId: 999999 }] : [] }
     expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
       idempotency_key: 'paged-single' })).toMatchObject({ status: 'applied', paid_requests: 0 })
     expect(provider.calls.filter(call => call.path.includes('pageNum=2'))).toHaveLength(3)
   })
 
+  it('reads singleton task and subject pages until the empty page', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : page === 2 ? [{ id: 99, assetId: 999 }] : [],
+      rawTaskPage: page => page <= 2 ? [{ id: page, scriptId: 2708, storyboardId: 999999 }] : [] }
+    expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'short-pages' })).toMatchObject({ status: 'applied', paid_requests: 0 })
+    expect(provider.calls.filter(call => call.path.includes('/aigc/material/list') && call.path.includes('pageNum=3'))).toHaveLength(1)
+    expect(provider.calls.filter(call => call.path.includes('/admin/aigc/video/task/list') && call.path.includes('pageNum=3')).length).toBeGreaterThan(0)
+  })
+
+  it('checks later short pages before accepting the subject inventory', async () => {
+    const conflicting = { ...SUBJECT_ROWS[0], id: 99, hsAssetId: 'another', assetUrl: 'https://example.test/other.jpg' }
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => page === 1 ? [SUBJECT_ROWS[0]] : page === 2 ? [conflicting] : [] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'short-conflict' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.some(call => call.path.includes('pageNum=2'))).toBe(true)
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['subject', 'task'])('refuses repeated $0 pages when the provider does not honor pagination', async (kind) => {
+    const task = { id: 9, scriptId: 2708, storyboardId: 999999 }
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => kind === 'subject' || page === 1 ? [SUBJECT_ROWS[0]] : [],
+      rawTaskPage: page => kind === 'task' || page === 1 ? [task] : [] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: `repeat-${kind}` })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['subject', 'task'])('refuses an unterminated $0 inventory at the page limit', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      rawSubjectPage: page => kind === 'subject' ? [{ ...SUBJECT_ROWS[0], id: page }] : page === 1 ? [SUBJECT_ROWS[0]] : [],
+      rawTaskPage: page => kind === 'task' ? [{ id: page, scriptId: 2708, storyboardId: 999999 }] : [] }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: `unterminated-${kind}` })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+  })
+
   it('retains a nonnumeric business code on a singleton subject row', async () => {
     const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
-      rawSubjectPage: () => [{ ...SUBJECT_ROWS[0], code: 'subject-code' }] }
+      rawSubjectPage: page => page === 1 ? [{ ...SUBJECT_ROWS[0], code: 'subject-code' }] : [] }
     expect(await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
       idempotency_key: 'business-code' })).toMatchObject({ status: 'applied', paid_requests: 0 })
   })

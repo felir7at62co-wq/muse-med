@@ -158,7 +158,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
       if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
       if (collected.length === knownTotal) return collected
       if (page.rows.length < TASK_PAGE_SIZE) throw new JubianError('CONTRACT_CHANGED')
-    } else if (page.rows.length < TASK_PAGE_SIZE) {
+    } else if (page.rows.length === 0) {
       return collected
     }
   }
@@ -176,6 +176,8 @@ async function listSubtasks(client: JubianClient, taskId: string): Promise<Recor
 /** Read every active subject-setting row of one project as one complete snapshot. */
 async function listAllSubjectMaterials(client: JubianClient, scriptId: number): Promise<Record<string, unknown>[]> {
   const collected: Record<string, unknown>[] = []
+  const seenRows = new Set<string>()
+  const seenIds = new Set<string>()
   let knownTotal: number | null = null
   for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
     const response = await client.request({ method: 'GET',
@@ -186,12 +188,27 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
     }
+    if (knownTotal === null) {
+      const pageRows = new Set<string>()
+      const pageIds = new Set<string>()
+      for (const row of page.rows) {
+        const digest = stableSha256(row)
+        const id = wireText(row.id ?? row.materialId)
+        if (seenRows.has(digest) || (id !== null && id !== '' && seenIds.has(id))) {
+          throw new JubianError('CONTRACT_CHANGED', 'Subject inventory repeated a row across pages')
+        }
+        pageRows.add(digest)
+        if (id !== null && id !== '') pageIds.add(id)
+      }
+      for (const digest of pageRows) seenRows.add(digest)
+      for (const id of pageIds) seenIds.add(id)
+    }
     collected.push(...page.rows)
     if (knownTotal !== null) {
       if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
       if (collected.length === knownTotal) return collected
       if (page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
-    } else if (page.rows.length < SUBJECT_PAGE_SIZE) {
+    } else if (page.rows.length === 0) {
       return collected
     }
   }
