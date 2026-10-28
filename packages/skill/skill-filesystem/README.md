@@ -57,7 +57,7 @@ Default roots are scanned in this provider's rank order:
 
 Each muse root ranks one step above its DSH counterpart, so a skill present under both resolves to the muse copy while the DSH roots keep working unchanged; `museHome` defaults to `$MUSE_HOME` or `~/.muse`, and `dshHome` to the [resolved harness home](../../util/home-paths/README.md) that `$MUSE_HOME`, `$DSH_HOME`, or the default decides. When both resolve to one directory — a deployment that sets only `MUSE_HOME` — that root is scanned once and reported as `user-muse`.
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user muse and DSH roots skip their `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user muse and DSH roots skip their `.system` child. `includeDefaultRoots: false` omits user rows and the `$DSH_BUNDLED_SKILL_DIR` default. Project discovery follows that value unless `includeProjectRoots` explicitly enables or disables it. Set `includeDefaultRoots: false` and `includeProjectRoots: true` to retain workspace skills without scanning shared user roots. `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -71,7 +71,8 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | Field | Default | Meaning |
 |---|---|---|
 | `providerName` | `filesystem` | Unique provider name registered on `ctx.skills` |
-| `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
+| `includeDefaultRoots` | `true` | Include user roots and the bundled environment default; default for project discovery |
+| `includeProjectRoots` | `includeDefaultRoots` | Include cwd-relative project roots independently of user roots |
 | `dshHome` | the resolved harness home | Harness config root; its `skills` subdirectory is scanned |
 | `museHome` | `$MUSE_HOME` or `~/.muse` | Muse home root; its `skills` subdirectory is scanned at rank 390 |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |

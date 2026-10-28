@@ -57,8 +57,10 @@ export const inject = ['skills']
 export interface Config {
   /** Unique provider name. Defaults to `filesystem`. */
   providerName?: string
-  /** Whether project and user roots are included around custom roots. */
+  /** Whether user roots and the bundled environment default are included; also defaults project discovery. */
   includeDefaultRoots?: boolean
+  /** Whether cwd-relative project roots are included. Defaults to includeDefaultRoots. */
+  includeProjectRoots?: boolean
   /** DeepSeek Harness config root. Defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default home. */
   dshHome?: string
   /** Muse home root. Defaults to `$MUSE_HOME` or `~/.muse`. */
@@ -90,6 +92,7 @@ export interface Config {
 export const Config: Schema<Config> = z.object({
   providerName: z.string().min(1).default('filesystem'),
   includeDefaultRoots: z.boolean().default(true),
+  includeProjectRoots: z.boolean(),
   dshHome: z.string(),
   museHome: z.string(),
   agentsHome: z.string(),
@@ -168,6 +171,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 export class FileSystemSkillProvider implements SkillProvider {
   readonly name: string
   private readonly includeDefaultRoots: boolean
+  private readonly includeProjectRoots: boolean
   private readonly dshHome: string
   private readonly museHome: string
   private readonly agentsHome: string
@@ -188,6 +192,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.discoveryTimeoutMs = config.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
     assertTimerDelay('discoveryTimeoutMs', this.discoveryTimeoutMs)
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
+    this.includeProjectRoots = config.includeProjectRoots ?? this.includeDefaultRoots
     this.dshHome = resolveDshHome(config.dshHome)
     this.museHome = resolveMuseHome(config.museHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
@@ -289,7 +294,7 @@ export class FileSystemSkillProvider implements SkillProvider {
 
   private async roots(cwd: string | undefined, signal: AbortSignal): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
-    if (this.includeDefaultRoots && cwd !== undefined) {
+    if (this.includeProjectRoots && cwd !== undefined) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx), signal)
       roots.push(
         { path: join(projectRoot, '.muse/skills'), source: 'project-muse', rank: PROJECT_MUSE_RANK, projectRoot },

@@ -136,6 +136,38 @@ beforeEach(async () => {
 })
 
 describe('skill-filesystem watcher failures', () => {
+  it('watches opted-in project roots without opening shared user roots', async () => {
+    const home = await tempDir('skill-project-watch-home')
+    const project = await tempDir('skill-project-watch')
+    await mkdir(join(project, '.git'), { recursive: true })
+    for (const directory of ['.muse', '.dsh', '.agents']) {
+      await mkdir(join(project, directory, 'skills'), { recursive: true })
+      await writeSkill(join(home, directory, 'skills'), 'shared-user-skill')
+    }
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false, includeProjectRoots: true,
+      dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'),
+    })
+    try {
+      expect(await ctx.skills.list({ cwd: project })).toEqual([])
+      const expected = (await Promise.all(['.muse', '.dsh', '.agents']
+        .map(directory => realpath(join(project, directory, 'skills'))))).sort()
+      expect(watcherHarness.watchers.map(watcher => watcher.path).sort()).toEqual(expected)
+      const root = await realpath(join(project, '.dsh/skills'))
+      await writeSkill(root, 'late-project-skill')
+      const watcher = watcherHarness.watchers.find(watcher => watcher.path === root)
+      if (watcher === undefined) throw new Error('Expected the project skill watcher')
+      const changed = Promise.withResolvers<undefined>()
+      ctx.on('skills/change', () => { changed.resolve(undefined) })
+      watcher.emitter.emit('add', join(root, 'late-project-skill/SKILL.md'))
+      await changed.promise
+      expect((await ctx.skills.list({ cwd: project })).map(skill => skill.name)).toEqual(['late-project-skill'])
+    } finally { await fiber.dispose() }
+    expect(watcherHarness.watchers.every(watcher => watcher.closeCalls === 1)).toBe(true)
+  })
+
   it('bounds missing readiness, closes the failed watcher, and reuses recovered hot catalogs', async () => {
     const root = await tempDir('skill-watch-ready-deadline')
     await writeSkill(root, 'ready-skill')

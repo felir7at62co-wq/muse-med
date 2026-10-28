@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
-import { bundledSkillDirectory, productSkillDirectory } from './bundled-skills.ts'
+import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
 import { bundledBridgeModules, verifyBundledImClient } from './bundled-bridge.ts'
 import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
@@ -65,6 +65,7 @@ async function desktopComposition(
     profile.patches,
     loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
+  const configuredSkillFilesystem = composeEntries(layers.slice(0, -1)).find(row => row.id === 'skill-filesystem')
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   if (rows.get('agent-preset-registry') === undefined) {
     throw new Error('muse-med: profile has no agent-preset-registry row')
@@ -100,12 +101,16 @@ async function desktopComposition(
   const productSkillDir = productSkillDirectory(fileURLToPath(new URL('..', import.meta.url)))
   const userSkillDir = dshHomePath('skills')
   mkdirSync(userSkillDir, { recursive: true })
+  const skillConfig: unknown = skillFilesystem.config ?? {}
+  if (typeof skillConfig !== 'object' || skillConfig === null || Array.isArray(skillConfig)) {
+    throw new Error('muse-med: skill-filesystem requires an object config')
+  }
   layers.push([{
     id: 'skill-filesystem',
     config: {
-      ...(skillFilesystem.config ?? {}) as Record<string, unknown>,
+      ...skillConfig,
       bundledSkillDir,
-      customSkillDirs: [productSkillDir, userSkillDir],
+      customSkillDirs: desktopSkillDirectories(productSkillDir, userSkillDir, configuredSkillFilesystem?.config),
     },
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.

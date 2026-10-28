@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import * as skillPaths from '../../desktop-host/src/bundled-skills.ts'
 
@@ -47,5 +47,21 @@ it('exports product skill scripts on the native filesystem outside ASAR', async 
     expect(() => productSkillDirectory(archivedPackage)).toThrow('product skills are missing')
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+it('retains normalized explicit skill directories without changing product and user precedence', () => {
+  const product = resolve('fixture/product')
+  const user = resolve('fixture/user')
+  const extra = resolve('fixture/extra')
+  const configured = [extra, 'fixture/../fixture/extra', user, product]
+  expect(skillPaths.desktopSkillDirectories(product, user, { customSkillDirs: configured })).toEqual([product, user, extra])
+  expect(configured).toEqual([extra, 'fixture/../fixture/extra', user, product])
+  expect(skillPaths.desktopSkillDirectories(product, user, undefined)).toEqual([product, user])
+  expect(skillPaths.desktopSkillDirectories(product, user, { customSkillDirs: [] })).toEqual([product, user])
+  expect(() => skillPaths.desktopSkillDirectories(product, user, false)).toThrow('object config')
+  for (const invalid of [null, false, 'skills', [42], [''], ['  ']]) {
+    expect(() => skillPaths.desktopSkillDirectories(product, user, { customSkillDirs: invalid })).toThrow('customSkillDirs')
   }
 })

@@ -231,6 +231,66 @@ describe('FileSystemSkillProvider', () => {
     expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('fallback-root')
   })
 
+  it('discovers all project roots while keeping shared user roots isolated', async () => {
+    const home = await tempDir('skill-isolated-home')
+    const project = await tempDir('skill-isolated-project')
+    const custom = await tempDir('skill-isolated-custom')
+    await mkdir(join(project, '.git'), { recursive: true })
+    for (const [directory, name] of [
+      ['.muse', 'project-muse-only'], ['.dsh', 'project-dsh-only'], ['.agents', 'project-agents-only'],
+    ] as const) {
+      await writeSkill(join(project, directory, 'skills'), name, name)
+      await writeSkill(join(home, directory, 'skills'), 'user-' + name, name)
+    }
+    await writeSkill(custom, 'explicit-custom', 'Explicitly configured skill')
+    const ctx = await setupLocal(home, {
+      includeDefaultRoots: false, includeProjectRoots: true,
+      museHome: join(home, '.muse'), customSkillDirs: [custom],
+    })
+    try {
+      expect((await ctx.skills.list({ cwd: project })).map(skill => skill.name)).toEqual([
+        'explicit-custom', 'project-agents-only', 'project-dsh-only', 'project-muse-only',
+      ])
+      expect((await ctx.skills.get('project-dsh-only', { cwd: project }))?.source).toBe('project-dsh')
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['explicit-custom'])
+      expect(await readFile(join(project, '.dsh/skills/project-dsh-only/SKILL.md'), 'utf8'))
+        .toContain('name: project-dsh-only')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it.each([false, true])('inherits project discovery from includeDefaultRoots=%s when unspecified', async (includeDefaultRoots) => {
+    const home = await tempDir('skill-default-project-home')
+    const project = await tempDir('skill-default-project')
+    await writeSkill(join(project, '.dsh/skills'), 'project-default', 'Project default')
+    await writeSkill(join(home, '.dsh/skills'), 'user-default', 'User default')
+    const ctx = await setupLocal(home, { includeDefaultRoots })
+    try {
+      expect((await ctx.skills.list({ cwd: project })).map(skill => skill.name))
+        .toEqual(includeDefaultRoots ? ['project-default', 'user-default'] : [])
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('can omit project roots while retaining default user roots', async () => {
+    const home = await tempDir('skill-user-roots-home')
+    const project = await tempDir('skill-user-roots-project')
+    await writeSkill(join(project, '.dsh/skills'), 'project-omitted', 'Project omitted')
+    await writeSkill(join(home, '.dsh/skills'), 'user-retained', 'User retained')
+    const ctx = await setupLocal(home, { includeProjectRoots: false })
+    try {
+      expect((await ctx.skills.list({ cwd: project })).map(skill => skill.name)).toEqual(['user-retained'])
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('leaves missing project skill directories untouched', async () => {
+    const home = await tempDir('skill-missing-project-home')
+    const project = await tempDir('skill-missing-project')
+    const ctx = await setupLocal(home, { includeDefaultRoots: false, includeProjectRoots: true })
+    try {
+      expect(await ctx.skills.list({ cwd: project })).toEqual([])
+      expect(await readdir(project)).toEqual([])
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('discovers muse project and user roots that outrank their dsh siblings', async () => {
     const home = await tempDir('skill-muse')
     const project = await tempDir('skill-muse-project')

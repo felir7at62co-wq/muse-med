@@ -3281,8 +3281,10 @@ export interface Config {
 export interface Config {
   /** Unique provider name. Defaults to `filesystem`. */
   providerName?: string
-  /** Whether project and user roots are included around custom roots. */
+  /** Whether user roots and the bundled environment default are included; also defaults project discovery. */
   includeDefaultRoots?: boolean
+  /** Whether cwd-relative project roots are included. Defaults to includeDefaultRoots. */
+  includeProjectRoots?: boolean
   /** DeepSeek Harness config root. Defaults to the resolved harness home: `$MUSE_HOME`, `$DSH_HOME`, or the default home. */
   dshHome?: string
   /** Muse home root. Defaults to `$MUSE_HOME` or `~/.muse`. */

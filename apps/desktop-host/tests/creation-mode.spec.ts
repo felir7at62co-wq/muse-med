@@ -66,9 +66,14 @@ async function fixture() {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFilesystem, { includeDefaultRoots: false, watch: false,
-      bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)),
-      customSkillDirs: [fileURLToPath(new URL('../../../packages/drama/skills/skills/', import.meta.url))] })
+    await mkdir(join(root, '.git'))
+    for (const [directory, name] of [[join(root, 'user-skills'), 'user-creative'], [join(root, '.dsh/skills'), 'project-creative']] as const) {
+      await mkdir(join(directory, name), { recursive: true })
+      await writeFile(join(directory, name, 'SKILL.md'), `---\nname: ${name}\ndescription: Persistent custom creative skill\n---\n${name} instructions\n`)
+    }
+    await ctx.plugin(SkillFilesystem, { includeDefaultRoots: false, includeProjectRoots: true, watch: false,
+      bundledSkillDir: fileURLToPath(new URL('../../../packages/drama/skills/skills/', import.meta.url)),
+      customSkillDirs: [fileURLToPath(new URL('../skills/', import.meta.url)), join(root, 'user-skills')] })
     ctx.skills.register({ name: 'hidden-authoring', description: 'Launch a team', source: 'runtime', content: 'hidden body' })
     await ctx.plugin(ToolSkill)
     await ctx.plugin(AgentPresets, { default: 'creation' })
@@ -222,19 +227,23 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 
-it('serves only approved skill names from an isolated Host-forwarded registry with complete resources', async () => {
+it('serves approved resources and user skills from an isolated Host-forwarded registry with complete resources', async () => {
   const f = await fixture()
   try {
     const skills = f.ctx.agentPresets.serviceFor(f.agent, 'skills')
     if (skills === undefined) throw new Error('Creation skill registry is missing')
     expect(skills).not.toBe(f.ctx.skills)
-    const names = (await skills.list({ scope: f.agent })).map(skill => skill.name)
+    const names = (await skills.list({ cwd: f.root, scope: f.agent })).map(skill => skill.name)
     expect(names).not.toContain('muse-creation')
     expect(names).toContain('audio-transcribe')
     expect(names).not.toContain('tweet-drama-pipeline')
     expect(names).not.toContain('muse-script-editing')
     expect(names).not.toContain('xiaohongshu-reference')
     expect(names).not.toContain('hidden-authoring')
+    for (const name of ['user-creative', 'project-creative']) {
+      expect(names).toContain(name)
+      expect((await skills.get(name, { cwd: f.root, scope: f.agent }))?.content).toContain(`${name} instructions`)
+    }
     expect(names).not.toContain('tweet-drama-key-manager')
     const removeOffice = f.ctx.skills.register({ name: 'office-docx', description: 'Late Office resource',
       source: 'bundled', content: 'Current Office instructions' })
@@ -266,6 +275,12 @@ it('serves only approved skill names from an isolated Host-forwarded registry wi
     expect(await skills.get('xiaohongshu-reference', { scope: f.agent })).toBeUndefined()
     expect(await f.ctx.skills.get('xiaohongshu-reference')).toBeUndefined()
     expect(await skills.get('hidden-authoring', { scope: f.agent })).toBeUndefined()
+    const removeOverride = f.ctx.skills.register({ name: 'user-creative', description: 'Runtime authoring override',
+      source: 'runtime', content: 'Do not forward runtime instructions' })
+    expect(await skills.get('user-creative', { cwd: f.root, scope: f.agent })).toBeUndefined()
+    removeOverride()
+    expect((await skills.get('user-creative', { cwd: f.root, scope: f.agent }))?.content).toContain('user-creative instructions')
+
     let value: unknown
     f.runtime.behavior = async (spec) => {
       const binding = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions.skill
