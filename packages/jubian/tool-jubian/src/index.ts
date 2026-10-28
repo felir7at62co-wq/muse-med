@@ -70,7 +70,6 @@ import type {
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
-import { registerVideoReuseAdvisory } from './video-reuse-advisory.ts'
 
 export { JubianToken } from './token.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
@@ -81,8 +80,6 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
-  /** Add one logged reminder for a new user request to extract or reuse existing video; defaults to true. */
-  existingVideoAdvisory?: boolean
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -541,9 +538,6 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  if (config.existingVideoAdvisory !== undefined && typeof config.existingVideoAdvisory !== 'boolean') {
-    throw new Error('existingVideoAdvisory must be a boolean')
-  }
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
   }
@@ -570,7 +564,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
   const videoSources = resolveVideoSourceOptions(config)
-  if (config.existingVideoAdvisory !== false) registerVideoReuseAdvisory(ctx)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   // Resolved once, here, so a blank separator or series label fails the mount

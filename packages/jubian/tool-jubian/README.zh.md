@@ -43,7 +43,7 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 `tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
-默认在真人新请求要求提取或复用视频／音频时，通过 pre-step Hook 追加一次已记录的 `jubian-video-reuse` 提示。Hook 不阻止工具、不改参数、不访问提供方，也不把旧请求意图带入后续新请求。设置 `existingVideoAdvisory: false` 可关闭。来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。查询、提示或缺少声线样本都不会发起付费请求。
+来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
 ### 会话视频模型选择
 

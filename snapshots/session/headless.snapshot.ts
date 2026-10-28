@@ -1940,7 +1940,7 @@ describe('headless recorded-session snapshots', () => {
               expect(JSON.parse(calls[0]!.arguments)).toEqual({ method: 'sources', script_id: 5542, storyboard_id: 2165139 })
               const notices = events.filter(event => event.type === 'user/message'
                 && event.data.source?.kind === 'jubian-video-reuse')
-              expect(notices).toHaveLength(1)
+              expect(notices).toHaveLength(0)
               const result = events.find(event => event.type === 'tool/result'
                 && event.data.message.toolCallId === 'call_existing_video_sources')
               if (result?.type !== 'tool/result') throw new Error('Missing existing video source result')

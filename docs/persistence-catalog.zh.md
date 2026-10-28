@@ -7128,7 +7128,7 @@ SHA-256: `3194254408aef09a9b01fab22f1e22f471120c65b432770992a2f445f74cb9fe`
 
 SHA-256: `5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9`
 
-来源：[`packages/jubian/tool-jubian/src/video-session-types.ts:63`](../packages/jubian/tool-jubian/src/video-session-types.ts)
+来源：[`packages/jubian/tool-jubian/src/video-session-types.ts:68`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

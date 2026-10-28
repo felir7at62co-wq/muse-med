@@ -4256,13 +4256,11 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:83`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:82`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
-  /** Add one logged reminder for a new user request to extract or reuse existing video; defaults to true. */
-  existingVideoAdvisory?: boolean
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */

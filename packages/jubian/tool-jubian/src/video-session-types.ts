@@ -1,6 +1,6 @@
 /** Session-owned video generation choices shared with the composer. */
 import type {} from '@deepseek-ai/dsh-session/types'
-import type {} from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-session-projection/types'
 import { z } from 'zod'
@@ -56,6 +56,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /**
+     * Historical extraction advice preserved as ordinary context; no current producer injects it.
+     * @persistenceAttribution
+     */
+    'jubian-video-reuse': { kind: 'jubian-video-reuse' } & ContextFormed
     /**
      * Video-model selection and related advisory checks; consumers preserve the text as ordinary context.
      * @persistenceAttribution
