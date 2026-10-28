@@ -2,13 +2,15 @@
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
 import { test } from 'node:test'
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile, rm } from 'node:fs/promises'
+import fsPromises, { chmod, mkdir, mkdtemp, readFile, readdir, writeFile, rm } from 'node:fs/promises'
 import { EventEmitter } from 'node:events'
 import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
+import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import chokidar from 'chokidar'
 import { McpManagerGateway } from './lib/mcp/gateway.js'
 import { mcpListResultSchema } from './lib/mcp/wire.js'
@@ -142,5 +144,153 @@ test('lists mounted knowledge-base tools separately from editable profile connec
   } finally {
     await ctx.fiber.dispose()
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+/** Exercise saved files through the shipped panel and filesystem registry, not an empty catalog stub. */
+async function skillFixture(options = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-skill-import-'))
+  const home = join(dir, 'muse')
+  const workspace = join(dir, 'workspace')
+  const previous = Object.fromEntries(['MUSE_HOME', 'DSH_HOME', 'DSH_AGENTS_HOME'].map(key => [key, process.env[key]]))
+  const contexts = []
+  const body = name => `---\nname: ${name}\ndescription: Synthetic retained import fixture.\n---\n${name} body\n`
+  const sentinel = join(home, 'skills', 'existing-user-skill', 'SKILL.md')
+  try {
+    process.env.MUSE_HOME = process.env.DSH_HOME = home
+    process.env.DSH_AGENTS_HOME = join(dir, 'shared-agents')
+    await mkdir(join(workspace, '.git'), { recursive: true })
+    await mkdir(join(sentinel, '..'), { recursive: true })
+    await writeFile(sentinel, body('existing-user-skill'))
+    const savedSentinel = await readFile(sentinel)
+    const open = async (includeProjectRoots = true) => {
+      const ctx = new Context()
+      contexts.push(ctx)
+      await ctx.plugin(SkillRegistry)
+      await ctx.plugin(SkillFilesystem, { includeDefaultRoots: false, includeProjectRoots,
+        customSkillDirs: [join(home, 'skills')], watch: true, watchUsePolling: true })
+      const manifests = []
+      ctx.provide('typert', { register: manifest => { manifests.push(manifest); return () => {} } })
+      ctx.provide('agents', { get: id => id === 'restricted' ? { id } : undefined })
+      ctx.provide('sessions', { list: () => [{ header: { cwd: workspace } }], get: () => ({ header: { cwd: workspace } }) })
+      ctx.provide('agentPresets', { serviceFor: () => ({ list: async () => [], get: async () => undefined }) })
+      apply(ctx)
+      await ctx.skills.list({ cwd: workspace })
+      const invocation = manifests[0].invocations.find(row => row.method === 'addSkill')
+      return { ctx, gateway: ctx.get('skillsViewer'), decode: value => invocation.result.create().parse(value) }
+    }
+    const initial = await open(options.includeProjectRoots ?? true)
+    const add = async (name, workspaceTarget, sessionId) => initial.decode(await initial.gateway.addSkill(sessionId, {
+      kind: 'bundle', files: [{ path: `${name}/SKILL.md`, base64: Buffer.from(body(name)).toString('base64') }],
+      ...(workspaceTarget ? { workspace: workspaceTarget } : {}),
+    }))
+    return { dir, home, workspace, sentinel, body, open, add, ...initial,
+      async close() {
+        try {
+          for (const ctx of contexts.reverse()) await ctx.fiber.dispose()
+          assert.deepEqual(await readFile(sentinel), savedSentinel, 'existing user Skill bytes survive every operation')
+        } finally {
+          for (const [key, value] of Object.entries(previous)) {
+            if (value === undefined) delete process.env[key]
+            else process.env[key] = value
+          }
+          await rm(dir, { recursive: true, force: true })
+        }
+      },
+    }
+  } catch (error) {
+    try { for (const ctx of contexts.reverse()) await ctx.fiber.dispose() }
+    finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      await rm(dir, { recursive: true, force: true })
+    }
+    throw error
+  }
+}
+
+test('imports global and project Skills and preserves both after registry restart', async () => {
+  const f = await skillFixture()
+  try {
+    const olderReceipt = { name: 'older-receipt', kind: 'bundle', scope: { kind: 'global' } }
+    assert.deepEqual(f.decode(olderReceipt), olderReceipt, 'additive fields keep older receipts decodable')
+    assert.deepEqual(await f.add('global-import'), { name: 'global-import', kind: 'bundle', scope: { kind: 'global' }, status: 'saved', discovery: 'ready' })
+    const project = await f.add('project-import', f.workspace)
+    assert.equal(project.status, 'saved')
+    assert.equal(project.discovery, 'ready')
+    await f.ctx.fiber.dispose()
+    const reopened = await f.open()
+    for (const name of ['global-import', 'project-import', 'existing-user-skill']) {
+      assert.ok(await reopened.ctx.skills.get(name, { cwd: f.workspace }), `${name} remains available after reopening`)
+    }
+    assert.match(await readFile(join(f.workspace, '.dsh', 'skills', 'project-import', 'SKILL.md'), 'utf8'), /project-import body/)
+  } finally { await f.close() }
+})
+
+test('retains saved project files when the configured provider does not discover that root', async () => {
+  const f = await skillFixture({ includeProjectRoots: false })
+  try {
+    const receipt = await f.add('pending-project-import', f.workspace)
+    assert.equal(receipt.status, 'saved')
+    assert.equal(receipt.discovery, 'pending')
+    const file = join(f.workspace, '.dsh', 'skills', 'pending-project-import', 'SKILL.md')
+    assert.match(await readFile(file, 'utf8'), /pending-project-import body/)
+    assert.equal(await f.ctx.skills.get('pending-project-import', { cwd: f.workspace }), undefined)
+    const reopened = await f.open(true)
+    assert.ok(await reopened.ctx.skills.get('pending-project-import', { cwd: f.workspace }))
+  } finally { await f.close() }
+})
+
+test('preserves a saved Skill when the current conversation filters it out', async () => {
+  const f = await skillFixture()
+  try {
+    const receipt = await f.add('other-conversation-import', undefined, 'restricted')
+    assert.equal(receipt.status, 'saved')
+    assert.equal(receipt.discovery, 'pending')
+    assert.ok(await f.ctx.skills.get('other-conversation-import', { cwd: f.workspace }))
+    assert.match(await readFile(join(f.home, 'skills', 'other-conversation-import', 'SKILL.md'), 'utf8'), /other-conversation-import body/)
+  } finally { await f.close() }
+})
+
+test('reports unavailable discovery without deleting saved files and rejects invalid formats before writes', async (t) => {
+  const f = await skillFixture()
+  try {
+    t.mock.method(f.ctx.skills, 'get', async () => { throw new Error('fixture discovery unavailable') })
+    const receipt = await f.add('unavailable-import')
+    assert.equal(receipt.status, 'saved')
+    assert.equal(receipt.discovery, 'unavailable')
+    assert.match(await readFile(join(f.home, 'skills', 'unavailable-import', 'SKILL.md'), 'utf8'), /unavailable-import body/)
+    await assert.rejects(f.gateway.addSkill(undefined, { kind: 'bundle', files: [
+      { path: 'invalid-format/SKILL.md', base64: Buffer.from('not a skill').toString('base64') },
+    ] }), /技能格式不符合要求/)
+    assert.equal((await readdir(join(f.home, 'skills'))).includes('invalid-format'), false)
+  } finally { await f.close() }
+})
+
+
+test('rolls back only newly written batch targets after a real filesystem write failure', async (t) => {
+  const f = await skillFixture()
+  const originalWrite = fsPromises.writeFile
+  let intercepted
+  try {
+    intercepted = t.mock.method(fsPromises, 'writeFile', async (path, ...args) => {
+      if (String(path).endsWith('second-broken.md')) throw new Error('fixture disk write failure')
+      return originalWrite(path, ...args)
+    })
+    syncBuiltinESMExports()
+    await assert.rejects(f.gateway.addSkill(undefined, { kind: 'flat', files: [
+      { path: 'first-new.md', base64: Buffer.from(f.body('first-new')).toString('base64') },
+      { path: 'second-broken.md', base64: Buffer.from(f.body('second-broken')).toString('base64') },
+    ] }), /写入技能文件失败（已回滚）.*fixture disk write failure/)
+    const saved = await readdir(join(f.home, 'skills'))
+    assert.equal(saved.includes('first-new.md'), false)
+    assert.equal(saved.includes('second-broken.md'), false)
+    assert.equal(saved.some(name => name.startsWith('.dsh-skill-staging-')), false)
+  } finally {
+    intercepted?.mock.restore()
+    syncBuiltinESMExports()
+    await f.close()
   }
 })

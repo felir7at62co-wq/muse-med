@@ -1,13 +1,13 @@
 /** Scope-isolated creative skill discovery, forwarding the Host's original resource locations. */
 import type { Context } from '@deepseek-ai/cordis'
-import { BUNDLED_SKILL_RANK, type SkillCandidate } from '@deepseek-ai/dsh-skill'
+import { BUNDLED_SKILL_RANK, type SkillCandidate, type SkillSummary } from '@deepseek-ai/dsh-skill'
 
 /** Cordis plugin identity. */
 export const name = 'muse-creation-skills'
 /** Isolated skill registry populated by this provider. */
 export const inject = ['skills']
 
-/** Reviewed creative and Office skills, with no runtime/plugin-authoring skill discovery. */
+/** Built-in creative and Office names; user-configured filesystem skills are also available. */
 export const CREATION_SKILL_NAMES: readonly string[] = [
   'anime-3d-assets',
   'audio-transcribe',
@@ -37,9 +37,16 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'wechat-shortdrama-harvest',
 ]
 const allowed = new Set(CREATION_SKILL_NAMES)
+const userSources = new Set(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
 const forwardingChanges = new WeakSet<Context>()
+
+/** Forward approved resources and skills selected by the user's configured directories. */
+function available(skill: Pick<SkillSummary, 'name' | 'source'>): boolean {
+  return allowed.has(skill.name) || userSources.has(skill.source)
+}
+
 /**
- * Populate only the isolated creation registry from the Host's approved resources.
+ * Forward approved built-in resources and user-configured skills into the isolated creation registry.
  * @param ctx - Context in the creation-skills isolated realm.
  */
 export function apply(ctx: Context): void {
@@ -55,15 +62,15 @@ export function apply(ctx: Context): void {
       name: 'muse-creation',
       async list(options) {
         const catalog = await source.snapshot({ cwd: options.cwd, signal: options.signal })
-        const candidates: SkillCandidate[] = catalog.skills.filter(skill => allowed.has(skill.name)).map(skill => ({
+        const candidates: SkillCandidate[] = catalog.skills.filter(available).map(skill => ({
           ...skill, provider: 'muse-creation', rank: BUNDLED_SKILL_RANK, locator: skill.name,
         }))
         return { candidates, complete: catalog.complete }
       },
       async get(candidate, options) {
-        if (!allowed.has(candidate.name)) return undefined
+        if (!available(candidate)) return undefined
         const skill = await source.get(candidate.name, { cwd: options.cwd, signal: options.signal })
-        if (skill === undefined) return undefined
+        if (skill === undefined || !available(skill)) return undefined
         return { ...skill, provider: 'muse-creation' }
       },
     }

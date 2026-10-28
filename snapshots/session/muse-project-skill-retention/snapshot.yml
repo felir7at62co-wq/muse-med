@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-project-skill-retention
+profile: headless
+composition: muse-project-skill-retention
+recording: authored
+writerOutput: true
+header:
+  class: skill
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+workspace:
+  setup: editing-cordis-skill

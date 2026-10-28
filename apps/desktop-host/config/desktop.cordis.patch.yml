@@ -50,6 +50,7 @@
   disabled: false
   config:
     includeDefaultRoots: false
+    includeProjectRoots: true
 
 # These optional settings providers are not part of the Muse product.
 - id: agent-notes

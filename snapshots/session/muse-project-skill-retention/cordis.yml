@@ -1,0 +1,10 @@
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    includeProjectRoots: true
+    customSkillDirs: []
+    watch: false
+
+# Skill replay does not consume generated remote contributors.
+- id: typert-loader
+  disabled: true

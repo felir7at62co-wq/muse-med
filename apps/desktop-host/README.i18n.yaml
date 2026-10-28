@@ -14,6 +14,9 @@
 /muse-desktop-host/returned-manuscript-comparisons:
   en: c8bc9062e60158df
   zh: 41a0c6f03bd2b79c
+/muse-desktop-host/user-skill-directories:
+  en: e70e4873e9a0c871
+  zh: 8935123c5f039a11
 /muse-desktop-host/bundled-bridge-selection:
   en: c066c96538781f87
   zh: fe8db08d76e8f5e0
@@ -24,8 +27,8 @@
   en: 25baf28273bb6608
   zh: ca24152874a2664d
 /muse-desktop-host/creation-mode:
-  en: 3899b2150b444a95
-  zh: f8cf272a3cc045c7
+  en: d1290459d6448c0f
+  zh: 59304c9bc614ae18
 /muse-desktop-host/compaction-defaults:
   en: db05203fbac26017
   zh: 7686d8ac1b15ce14
