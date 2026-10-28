@@ -96,8 +96,8 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     }
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
     expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
-    expect(prompt).toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')
-    expect(prompt).toContain('仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合')
+    expect(prompt).not.toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')
+    expect(prompt).not.toContain('仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合')
     expect(prompt).toContain('不套用人类面部与无面容三视图版式')
     expect(prompt).not.toContain('3–5个关键动作或场景切换')
     expect(prompt).not.toContain('以15秒视频包为参考')

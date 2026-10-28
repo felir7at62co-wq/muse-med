@@ -47,7 +47,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(persona?.prefix).toContain('视频包提示词默认不写时间轴')
     expect(persona?.prefix).toContain('多人或多主体的空间关系决定剧情动作且文字容易混淆')
     expect(persona?.prefix).toContain('单人近景或简单空间用文字即可')
-    expect(persona?.prefix).toContain('3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质')
+    expect(persona?.prefix).not.toContain('3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质')
     expect(presetRows.some(row => row.id === 'planning')).toBe(false)
     expect(presetRows.find(row => row.id === 'delegation')).toMatchObject({
       name: 'cordis:group', group: true, config: [
