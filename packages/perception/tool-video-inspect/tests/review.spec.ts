@@ -96,6 +96,166 @@ function reportPath(h: Awaited<ReturnType<typeof fixture>>): string {
   return z.object({ observation_report: z.string() }).parse(JSON.parse(block.text)).observation_report
 }
 
+it('rejects unknown review identities and observed frames whose original cache reference is absent', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1 }
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, VideoReviewId('missing'), options,
+    new AbortController().signal)).rejects.toThrow('VIDEO_TIMELINE_REVIEW')
+  const review = h.review(), frame = review.frames.find(value => value.observation !== undefined)!
+  const { image: _image, ...withoutCache } = frame
+  saveReview(h.ctx, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, review.id, { ...options, frameIds: [frame.id] },
+    new AbortController().signal)).rejects.toThrow('VIDEO_REVISIT_IMAGE_MISSING')
+})
+
+it.each([Error('ASR stat unavailable'), 'ASR stat unavailable'])(
+  'keeps cached pictures but drops speech when the final ASR freshness check rejects: %s', async (failure) => {
+    const h = await fixture(), transcript = join(h.root, 'final-asr.json')
+    await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '原台词。' }]))
+    await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+    const frame = h.review().frames.find(value => value.observation !== undefined)!
+    const readImage = h.ctx.attachments.readImage.bind(h.ctx.attachments), stat = vi.spyOn(h.ctx.fs, 'stat')
+    vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
+      const image = await readImage(...args)
+      stat.mockRejectedValueOnce(failure)
+      return image
+    })
+    const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
+      { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }, new AbortController().signal)
+    expect(result.timeline.speech).toBeUndefined()
+    expect(result.timeline.speech_unavailable?.reason).toBe('ASR stat unavailable')
+    expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
+  },
+)
+
+it.each(['video', 'observations'] as const)('refuses source material replaced during a cached image read: %s', async (change) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const frame = h.review().frames.find(value => value.observation !== undefined)!
+  const readImage = h.ctx.attachments.readImage.bind(h.ctx.attachments)
+  vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
+    const image = await readImage(...args)
+    if (change === 'video') await appendFile(h.input, 'changed source')
+    else saveReview(h.ctx, h.agent.session, { ...h.review(), frames: h.review().frames.map(value => value.id === frame.id
+      ? { ...value, observation: { visible: '这是更新后的画面观察记录。', change: '记录已经更新。', uncertainty: '' } } : value) })
+    return image
+  })
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
+    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
+    new AbortController().signal)).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
+})
+
+it('reports a non-Error cache failure without extracting replacement frames', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const frame = h.review().frames.find(value => value.observation !== undefined)!
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache unavailable')
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
+    { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
+    new AbortController().signal)).rejects.toThrow('cache unavailable')
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it('rejects a directory as explicit ASR and retains an implicit ASR provider failure as a diagnostic', async () => {
+  const h = await fixture(), directory = join(h.root, 'directory.json'), transcript = join(h.root, 'asr.json')
+  await mkdir(directory)
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '原台词。' }]))
+  await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
+  await h.run(h.call('status', { transcript_path: directory }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_TRANSCRIPT_SIZE')
+  vi.spyOn(h.ctx.fs, 'readBytes').mockRejectedValueOnce('ASR unavailable')
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.results().at(-1))).toContain('ASR unavailable')
+})
+
+it('returns the default whole-video timeline without requiring a transcript or explicit range', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  expect(Video.videoReviewSummaries(h.ctx, h.agent.session)[0]).not.toHaveProperty('transcript_reference')
+  await h.run(h.call('timeline'), undefined)
+  const block = h.results().at(-1)?.content.find(value => value.type === 'text')
+  if (block?.type !== 'text') throw Error('Missing source timeline')
+  expect(JSON.parse(block.text)).toMatchObject({ source_timeline: { scope: { full_episode: true } } })
+})
+
+it.each(['status', 'timeline'])('refuses video changes during an explicit ASR read for %s', async (method) => {
+  const h = await fixture(), transcript = join(h.root, 'asr.json')
+  await h.run(h.call('scan'), h.record, undefined)
+  await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '原台词。' }]))
+  const readBytes = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
+    const bytes = await readBytes(...args)
+    if (args[0].displayPath === transcript) await appendFile(h.input, 'changed video')
+    return bytes
+  })
+  await h.run(h.call(method, { transcript_path: transcript }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  expect(h.review().transcript_reference).toBeUndefined()
+})
+
+it.each(['reference', 'bytes'])('reports missing revisit cache without rescanning: %s', async (kind) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const review = h.review(), frame = review.frames.find(value => value.observation !== undefined)!
+  if (kind === 'reference') {
+    const { image: _image, ...withoutCache } = frame
+    saveReview(h.ctx, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
+  } else vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache missing')
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it.each(['events', 'revisit'])('does not publish %s after its source changes at the final read', async (method) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = JSON.stringify(h.review()), frame = h.review().frames.find(value => value.observation !== undefined)!
+  const stat = h.ctx.fs.stat.bind(h.ctx.fs)
+  let videoReads = 0
+  vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === h.input && ++videoReads === 2) await appendFile(h.input, 'changed video')
+    return await stat(...args)
+  })
+  const args = method === 'revisit' ? { frame_ids: [frame.id] } : { event_groups: [{ event_id: 'E1', frame_ids: [frame.id],
+    actor: '', action: '呈现红色背景', object: '', before: '', after: '', uncertainty: '' }] }
+  await h.run(h.call(method, args), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  expect(JSON.stringify(h.review())).toBe(before)
+})
+
+it('preserves required review output and compacts optional timeline metadata at exact byte budgets', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  await h.run(h.call('status'), undefined)
+  const block = h.results().at(-1)?.content.find(value => value.type === 'text')
+  if (block?.type !== 'text') throw Error('Missing review result')
+  const { source_timeline_index: _index, ...required } = z.object({ source_timeline_index: z.unknown().optional() })
+    .loose().parse(JSON.parse(block.text))
+  await h.plugin.dispose()
+  const limitedPlugin = h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2, reviewChunkSeconds: 2,
+    reviewCompareMaxBytes: Buffer.byteLength(JSON.stringify(required)) }))
+  await limitedPlugin.await()
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const limited = h.results().at(-1)?.content.find(value => value.type === 'text')
+  if (limited?.type !== 'text') throw Error('Missing bounded review result')
+  expect(JSON.parse(limited.text)).toEqual(required)
+  await limitedPlugin.dispose()
+  const { windows: _windows, ...summary } = z.object({ windows: z.array(z.unknown()) }).loose().parse(_index)
+  const compact = { ...required, source_timeline_index: { ...summary, index_omitted_for_budget: true } }
+  await h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2, reviewChunkSeconds: 2,
+    reviewCompareMaxBytes: Buffer.byteLength(JSON.stringify(compact)) })).await()
+  await h.run(h.call('status'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const reduced = h.results().at(-1)?.content.find(value => value.type === 'text')
+  if (reduced?.type !== 'text') throw Error('Missing compact review result')
+  expect(JSON.parse(reduced.text)).toEqual(compact)
+})
+
 it('finds cuts across the full episode, requires every image and observation, and preserves progress after reload', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)
@@ -257,7 +417,8 @@ it('returns same-directory successful-read ASR candidates and cached images when
   const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
       transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
-        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) }] } }, new AbortController().signal)
+        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) },
+      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal)
   expect(result.timeline.transcript_resolution).toMatchObject({ kind: 'successful_read_candidate', same_source_verified: false,
     reference: { path: transcript }, read_receipts: [{ readCallId: 'successful-read' }] })
   expect(result.timeline.speech?.segments[0]?.text).toBe('先放下茶杯。')
@@ -280,7 +441,8 @@ it.each(['explicit', 'candidate'])('drops %s ASR that changes while cached frame
   const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
       transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
-        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) }] } }, new AbortController().signal)
+        readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) },
+      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal)
   expect(result.timeline.speech).toBeUndefined()
   expect(result.timeline.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
   expect(result.timeline.transcript_resolution?.kind).toBe(association === 'explicit' ? 'explicit_reference' : 'unavailable')

@@ -17,6 +17,7 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(homes.splice(0).map(home => rm(home, { recursive: true, force: true })))
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 async function fixture(fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 })), requestTimeoutMs = 1000) {
@@ -41,6 +42,45 @@ function turn(session: Session, number: number): void {
   human(session)
   session.append('turn/end', { turn: number, reason: { kind: 'completed' } })
 }
+
+it('coalesces overlapping root turns while the account capture is pending', async () => {
+  const h = await fixture(), gate = Promise.withResolvers<undefined>()
+  const read = sessionStorage.readMuseSession
+  const spy = vi.spyOn(sessionStorage, 'readMuseSession').mockImplementation(async (...args) => {
+    await gate.promise
+    return await read(...args)
+  })
+  try {
+    turn(h.session, 1)
+    turn(h.ctx.sessions.create(SessionId('another-root')), 1)
+    expect(spy).toHaveBeenCalledOnce()
+    expect(h.fetcher).not.toHaveBeenCalled()
+  } finally { gate.resolve(undefined) }
+  await vi.waitFor(() => { expect(h.fetcher).toHaveBeenCalledOnce() })
+  await h.reporter.dispose()
+  expect(spy).toHaveBeenCalledTimes(2)
+})
+
+it('does not suppress activity indefinitely after the wall clock moves backwards', async () => {
+  let now = 100_000
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  const h = await fixture()
+  turn(h.session, 1)
+  await vi.waitFor(() => { expect(h.fetcher).toHaveBeenCalledOnce() })
+  now -= 1
+  turn(h.session, 2)
+  await vi.waitFor(() => { expect(h.fetcher).toHaveBeenCalledTimes(2) })
+})
+
+it('uses the deployment fetch implementation when no request adapter is supplied', async () => {
+  const h = await fixture()
+  h.detach()
+  vi.stubGlobal('fetch', h.fetcher)
+  const { fetcher: _fetcher, ...options } = h.options
+  mountMuseActivity(h.ctx, options)
+  turn(h.session, 1)
+  await vi.waitFor(() => { expect(h.fetcher).toHaveBeenCalledOnce() })
+})
 
 it('reports only a minimal authenticated same-origin marker and never content or client timestamps', async () => {
   const { session, reporter, fetcher } = await fixture()

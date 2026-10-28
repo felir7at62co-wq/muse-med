@@ -47,7 +47,8 @@ async function fixture(prefix = 'dsh-bgm-compose-run-'): Promise<Fixture> {
       episode: '05', body_duration_seconds: 58.508, crossfade_seconds: 1.5,
       segments: [
         { track: '轻松', source: 'music/light.mp3', start_seconds: 0, end_seconds: 26.5,
-          source_start_seconds: 1.5, reason: '入场', valence: 7.2, arousal: 4.1 },
+          source_start_seconds: 1.5, reason: '入场', valence: 7.2, arousal: 4.1,
+          tags: ['daily_life'], story_context: '人物入场', dialogue_context: '日常对白', transition_reason: '开场' },
         { track: '暧昧', source: 'music/romance.mp3', start_seconds: 26.5, end_seconds: 35.5,
           reason: '关系升温', valence: 6.8, arousal: 3.8 },
         { track: '挑衅', source: 'music/conflict.mp3', start_seconds: 35.5, end_seconds: 58.508,
@@ -235,6 +236,9 @@ describe('runDramaBgm', () => {
     ])
     expect(report.segments[1]).toMatchObject({ reason: '关系升温', valence: 6.8, arousal: 3.8,
       license_info: { status: 'unknown', commercial_use: 'unknown' } })
+    expect(report.segments[0]).toMatchObject({ tags: ['daily_life'], story_context: '人物入场',
+      dialogue_context: '日常对白', transition_reason: '开场' })
+    expect(report.segments[1]?.tags).toEqual([])
     expect(report.intended_use).toBe('unknown')
     expect(report.license_records).toHaveLength(3)
     await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })

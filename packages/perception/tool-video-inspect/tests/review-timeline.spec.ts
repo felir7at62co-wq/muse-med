@@ -170,3 +170,27 @@ it.each([{ windowSeconds: 0 }, { windowSeconds: -1 }, { windowSeconds: Infinity 
   { windowSeconds: 2, endSeconds: 7 }])('rejects invalid timeline ranges %j', (selection) => {
   expect(() => buildVideoSourceTimeline(source(), selection)).toThrow('VIDEO_TIMELINE_RANGE')
 })
+
+it('retains zero-duration speech at internal boundaries and the source closing timestamp', () => {
+  const speech = reviewSpeech({ path: 'asr.json', version: 'v1', text: JSON.stringify([
+    { start: 2, end: 2, text: '中间。' }, { start: 6, end: 6, text: '结尾。' },
+  ]) }, 6)
+  const timeline = buildVideoSourceTimeline(source(), { windowSeconds: 2 }, speech)
+  expect(timeline.windows.map(window => window.speech_segment_ids)).toEqual([[], ['S00001'], ['S00002']])
+})
+
+it('orders simultaneous frames and gives equivalent diagnostic permutations the same material identity', () => {
+  const review = source()
+  review.frames = [review.frames[1]!, { ...review.frames[0]!, time: 2 }, review.frames[2]!]
+  const diagnostics: VideoTranscriptResolution['diagnostics'] = [
+    { path: 'asr.json', status: 'not_current_task' }, { path: 'asr.json', status: 'unavailable' },
+  ]
+  const resolution: VideoTranscriptResolution = { kind: 'unavailable', same_source_verified: false, diagnostics }
+  const unavailable = { reference: { path: 'asr.json', version: 'old', sha256: 'old' }, current_version: 'new',
+    reason: 'changed', notice: 'The current file is not the recorded transcript.' }
+  const first = buildVideoSourceTimeline(review, { windowSeconds: 2 }, undefined, unavailable, resolution)
+  const second = buildVideoSourceTimeline(review, { windowSeconds: 2 }, undefined, unavailable,
+    { ...resolution, diagnostics: [...diagnostics].reverse() })
+  expect(first.windows[1]?.frames.map(frame => frame.frame_id)).toEqual(['F00001', 'F00002'])
+  expect(first.material_sha256).toBe(second.material_sha256)
+})

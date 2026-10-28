@@ -85,7 +85,7 @@ it('offers one unified Agent while keeping recorded editing sessions recoverable
       config: [{ id: 'tool-character-reference', name: '@deepseek-ai/dsh-tool-character-reference' }],
     })
     expect(rows.find(row => row.id === 'perception-bgm')?.config).toMatchObject({
-      catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/index.json',
+      catalogUrl: 'https://muse.tos-cn-beijing.volces.com/bgm/catalog.json',
     })
     expect(source).toContain("fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'")
     for (const preset of ['short-drama', 'creation']) {

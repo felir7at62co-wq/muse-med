@@ -70,6 +70,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       const inputBytes = await Promise.all(inputs.map(file => readFile(file)))
       const requestBytes = await readFile(f.input.request_file)
       await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+        ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
       const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-runtime'), signal: f.signal })
@@ -157,6 +158,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
     const inputs = [...videos, audio, subtitles, timeline, f.input.request_file]
     const sourceBytes = await Promise.all(inputs.map(file => readFile(file)))
     await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+      ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
       graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
     expect(f.ctx.tools.get('jianying_draft')).toBeDefined()
     const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
@@ -186,7 +188,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
   }
 }, 120000)
 
-async function fixture(maxInputBytes = 65536) {
+async function fixture(maxInputBytes = 65536, maxBgmGain = 8) {
   const root = await mkdtemp(join(tmpdir(), 'muse-jianying-draft-'))
   const ctx = new Context()
   const controller = new AbortController()
@@ -219,7 +221,8 @@ async function fixture(maxInputBytes = 65536) {
     await mkdir(input.drafts_dir)
     await writeFile(input.request_file, JSON.stringify({ episode: 95, name_prefix: 'candidate-' }))
     const config: Draft.Config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
-      graceMs: 100, maxInputBytes, maxOutputBytes: 65536 }
+      graceMs: 100, maxInputBytes, maxOutputBytes: 65536, maxBgmGain,
+      ffmpegPath: join(root, 'ffmpeg'), ffprobePath: join(root, 'ffprobe') }
     return { root, ctx, input, config, signal: controller.signal, startExternal, dispose }
   } catch (error) {
     await dispose()
@@ -265,7 +268,7 @@ it('cancels raw fixture children and awaits their exit before disposing the Host
 })
 
 it('runs the draft bridge directly with managed argv and removes its tool on disposal', async () => {
-  const f = await fixture()
+  const f = await fixture(65536, 1)
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   // Only the external Python/library is substituted; process collection and teardown are real.
   const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
@@ -280,6 +283,8 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
       drafts: [expect.objectContaining({ warnings: ['subtitle requires review'], review_path: join(f.input.drafts_dir, 'candidate-95/muse-review.json') })] })
     expect(await readFile(join(result.drafts[0]!.path, 'draft_content.json'), 'utf8')).toBe('{}\n')
     const request = spy.mock.calls[0]![0]
+    expect(request.env).toMatchObject({ DSH_BGM_MAX_GAIN: '1',
+      DSH_FFMPEG_PATH: join(f.root, 'ffmpeg'), DSH_FFPROBE_PATH: join(f.root, 'ffprobe') })
     expect(request.argv.slice(0, 2)).toEqual([process.execPath, '-B'])
     expect(request.argv[2]).toMatch(/generate_draft_request\.py$/u)
     expect(request.argv).not.toContain('pwsh')

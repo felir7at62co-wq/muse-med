@@ -23,6 +23,13 @@ async function root() {
 const settings = { masterVolume: 1.45, bgmVolume: 0.24 }
 const ducking = { threshold_db: -30, ratio: 8, attack_ms: 20, release_ms: 200, knee: 2 }
 
+it('keeps a profile from boosting an already attenuated BGM source above the deployment ceiling', async () => {
+  const project = await root()
+  const file = join(project, 'mix.json')
+  await writeFile(file, JSON.stringify({ schema_version: 1, mode: 'legacy', analysis_window_ms: 100, music_gain: 8 }))
+  expect(await loadAudioMixProfile(project, file, { ...settings, maxBgmVolume: 1 })).toMatchObject({ music_gain: 1 })
+})
+
 it('accepts a project directory alias while still resolving the owned audio and new output parent', async () => {
   const project = await root(), parent = await root()
   const alias = join(parent, 'project')

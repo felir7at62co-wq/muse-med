@@ -27,6 +27,7 @@
     "skills/tweet-drama-asset-vision-check/agents/openai.yaml",
     "skills/tweet-drama-asset-vision-check/references/io-contract.md",
     "skills/tweet-drama-background-render/SKILL.md",
+    "skills/tweet-drama-background-render/references/story-bgm-selection.md",
     "skills/tweet-drama-background-render/agents/openai.yaml",
     "skills/tweet-drama-background-render/assets/ending_audio.mp3",
     "skills/tweet-drama-background-render/assets/ending_effect.mp4",

@@ -11,13 +11,17 @@ import z from '@deepseek-ai/schemastery'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
+  /** Resolved FFmpeg executable forwarded to the managed Python generator. */
+  readonly ffmpegPath?: string
+  /** Resolved ffprobe executable forwarded to the managed Python generator. */
+  readonly ffprobePath?: string
+  /** Final BGM track gain ceiling; defaults to 8, while Muse office composition selects 1. */
+  readonly maxBgmGain?: number
   readonly source: string
   readonly pythonPath?: string
   readonly windowsPowerShellPath?: string
   readonly windowsCliPath?: string
   readonly windowsHostPath?: string
-  readonly ffmpegPath?: string
-  readonly ffprobePath?: string
   readonly windowsLandscapeSubtitleSize?: number
   readonly windowsLandscapeSubtitleY?: number
   readonly timeoutMs: number
@@ -28,9 +32,10 @@ export interface Config {
 
 /** Reject invalid process limits before the draft tool is registered. */
 export const Config: z<Config> = z.object({
+  ffmpegPath: z.string().min(1), ffprobePath: z.string().min(1),
+  maxBgmGain: z.number().min(0).max(8).default(8),
   source: z.string().min(1).required(), pythonPath: z.string().min(1),
   windowsPowerShellPath: z.string().min(1), windowsCliPath: z.string().min(1), windowsHostPath: z.string().min(1),
-  ffmpegPath: z.string().min(1), ffprobePath: z.string().min(1),
   windowsLandscapeSubtitleSize: z.number().min(0.01).max(100),
   windowsLandscapeSubtitleY: z.number().min(-16384).max(16384),
   timeoutMs: z.number().step(1).min(1).required(), graceMs: z.number().step(1).min(0).required(),
@@ -111,7 +116,9 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-drama-skills/package.json'))
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const script = join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', backend.script)
-  const env: Record<string, string | undefined> = { PYTHONUTF8: '1' }
+  const env: Record<string, string | undefined> = { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8) }
+  if (config.ffmpegPath !== undefined) env.DSH_FFMPEG_PATH = config.ffmpegPath
+  if (config.ffprobePath !== undefined) env.DSH_FFPROBE_PATH = config.ffprobePath
   if (backend.library === 'aa-jianying') {
     if (config.windowsPowerShellPath !== undefined) env.MUSE_JIANYING_POWERSHELL = config.windowsPowerShellPath
     if (config.windowsCliPath !== undefined) env.JY_CLI = config.windowsCliPath

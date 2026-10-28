@@ -123,7 +123,7 @@ export function deliveryRenderSettings(settings: RenderSettings, delivery: Timel
     subtitleFontFamily: activeSubtitleVisual(delivery)?.font_family
       ?? (activeSubtitleVisual(delivery) === undefined ? delivery.subtitle?.font_family : undefined) ?? settings.subtitleFontFamily,
     masterVolume: delivery.audio?.master_gain ?? settings.masterVolume,
-    bgmVolume: delivery.audio?.bgm_gain ?? settings.bgmVolume }
+    bgmVolume: Math.min(delivery.audio?.bgm_gain ?? settings.bgmVolume, settings.maxBgmVolume ?? 8) }
 }
 
 /**

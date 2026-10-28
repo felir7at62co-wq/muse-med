@@ -4,6 +4,14 @@ import type { BgmLicenseRecord, BgmUsage, LicenseInfo } from '@deepseek-ai/dsh-b
 
 /** One story interval assigned to one source track. */
 export interface BgmPlanSegment {
+  /** Selected candidate's audio/mood labels, copied with its source identity. */
+  readonly tags?: string[]
+  /** Actual plot development and intended audience response for this interval. */
+  readonly story_context?: string
+  /** Meaning of the actual dialogue, including subtext, irony or absence of speech. */
+  readonly dialogue_context?: string
+  /** Source-backed plot reason for an intentionally abrupt musical change. */
+  readonly transition_reason?: string
   /** Human-readable track name. */
   readonly track: string
   /** Source audio path; absolute or relative to the project. */
@@ -123,6 +131,14 @@ export interface DramaBgmArguments {
 
 /** One analyzed segment in a composer report. */
 export interface BgmSegmentReport {
+  /** Frozen selection labels and narrative notes; these are not independent listening approval. */
+  readonly tags?: string[]
+  /** Plot development and audience-response note retained from selection. */
+  readonly story_context?: string
+  /** Meaning of the real dialogue retained from selection. */
+  readonly dialogue_context?: string
+  /** Plot basis for a deliberately larger musical transition. */
+  readonly transition_reason?: string
   /** Stable catalog identity, when supplied by the plan. */
   readonly track_id?: string
   /** Normalized audio license declaration, not independently verified rights. */

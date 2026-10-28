@@ -1970,7 +1970,8 @@ describe('headless recorded-session snapshots', () => {
               for (const text of ['project_bible.bgm_feedback', '先 `drama_project action=read`', '时间来自该次明确用户反馈']) {
                 expect(bibleBlock.text).toContain(text)
               }
-              for (const text of ['可以只用一首，也可以不额外添加 BGM', '实际可播放 A/B 试听', '集中一次请求反馈', 'audio_preview']) {
+              for (const text of ['可以只用一首，也可以不额外添加 BGM', '实际可播放 A/B 试听', '集中一次请求反馈',
+                'audio_preview', 'bgm_match.story', 'references/story-bgm-selection.md', 'previous_track_id', '对白真实含义', '−10 dB']) {
                 expect(renderBlock.text).toContain(text)
               }
               const matchBlock = results[2]?.content.find(block => block.type === 'text')
@@ -1979,7 +1980,10 @@ describe('headless recorded-session snapshots', () => {
               const matched: unknown = JSON.parse(matchBlock.text)
               expect(matched).toMatchObject({ evaluated_tracks: 1, candidates: [], withheld_count: 1, music_optional: true,
                 project_preferences: { status: 'ready', feedback_count: 1, context_tags: ['family-conflict', 'dense-dialogue'] },
-                withheld_candidates: [{ source_sha256: `sha256:${'a'.repeat(64)}`, valence: 5, arousal: 5, distance: 0,
+                withheld_candidates: [{ track_id: `sha256:${'a'.repeat(64)}`, url: 'https://bgm-snapshot.example/bgm/tracks/1',
+                  valence: 5, arousal: 5, distance: 0,
+                  audio_profile: { source_sha256: `sha256:${'a'.repeat(64)}`, human_reviewed: false,
+                    sampled_seconds: 20, sample_count: 2, tags: [{ tag: 'family', similarity: 0.4 }, { tag: 'gentle', similarity: 0.35 }] },
                   project_preference: { decision: 'reject', feedback_id: 'explicit-user-24-1',
                     reason: 'The user rejected the instrumentation under this dense family dialogue.',
                     recorded_at: '2026-10-22T06:00:00Z', history_count: 1, history_truncated: false,

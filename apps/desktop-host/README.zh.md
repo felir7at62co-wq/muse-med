@@ -153,4 +153,6 @@ Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Pyth
 
 `jianying_draft` 通过受管子进程调用内置生成器，输入为有大小限制的单集 JSON 请求和已有剪映草稿根目录。Windows 请求指定 `audio_mode: "embedded"` 时选择随包 aa剪映适配器，保留视频原声，BGM 独立；仅 `9:16` 添加片尾，`16:9` 在正文结束。未声明模式或显式使用 `"independent"` 时沿用 pyJianYingDraft，Mac 的 embedded 请求明确报错。Windows 适配器探测已安装 CLI，不用 FFmpeg 渲染替代原生草稿创建。可选 `windowsPowerShellPath`、`windowsCliPath`、`windowsHostPath`、`ffmpegPath` 和 `ffprobePath` 配置已有部署可执行文件。`windowsLandscapeSubtitleSize` 和 `windowsLandscapeSubtitleY` 可覆盖 Windows 16:9 默认字号 7 与剪映界面 Y -879。完成、失败和取消均等待进程退出。启动失败未返回 JSON 时保留受限长度的进程诊断。字幕、配乐和轨道质量疑点通过 `warnings` 与逐稿 `review_path` 返回；技术失败仍拒绝。保存回读不代表原生编辑器打开、播放或声音已验收。
 
+原生草稿配置 `maxBgmGain` 默认 8（接受 0–8），Muse office 组合选择 1，通过托管子进程设置 `DSH_BGM_MAX_GAIN` 对项目/时间线的实际 BGM 增益封顶。原生草稿的 `ffmpegPath`、`ffprobePath` 将解析后的媒体工具路径传入托管 Python 环境。原声增益独立。独立 Python 生成器在缺少该设置时保留旧上限 8。增益上限 1 只能保留音乐床已有的源曲衰减，不能认证任意导入音频。 创作预设的 BGM 合成与成片渲染直接绑定 Host 已解析的 `DSH_FFMPEG_PATH`、`DSH_FFPROBE_PATH`，自带媒体工具无需加入系统 PATH。
+
 原生工具挂载期间，其常驻系统指导也传入续做会话：重新读取当前草稿技能，使用原生请求文件入口，不沿用历史绝对开发路径或 `DraftGenerator` Shell 方案。独立对白导入成功后才静音源视频，已有草稿不会自动迁移。这是 Agent 指导，不是 Shell 拦截、新增审批，也不能证明自主运行的模型始终遵循。

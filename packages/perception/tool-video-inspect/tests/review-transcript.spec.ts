@@ -13,6 +13,7 @@ import { VideoReviewId, type VideoReview } from '../src/review-state.ts'
 
 const fixtures: { ctx: Context; root: string; links: string[] }[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const { ctx, root, links } of fixtures.splice(0)) {
     try { await ctx.fiber.dispose() }
     finally {
@@ -23,6 +24,42 @@ afterEach(async () => {
       await rm(root, { recursive: true, force: true })
     }
   }
+})
+
+it('rejects directory candidates and references that disappear without replacing explicit associations', async () => {
+  const h = await fixture()
+  await mkdir(join(h.root, 'directory.json'))
+  const directory = await h.resolve([h.receipt('directory.json')])
+  expect(directory.resolution?.diagnostics[0]?.reason).toContain('VIDEO_TRANSCRIPT_SIZE')
+  h.review.transcript_reference = { path: join(h.root, 'missing.json'), version: 'gone', sha256: 'gone' }
+  const missing = await h.resolve([])
+  expect(missing.link.speech_unavailable).not.toHaveProperty('current_version')
+  expect(missing.resolution?.kind).toBe('explicit_reference')
+})
+
+it.each([Error('resolve denied'), 'resolve denied'])('retains provider resolution failures as candidate diagnostics: %s', async (failure) => {
+  const h = await fixture()
+  vi.spyOn(h.ctx.fs, 'resolve').mockRejectedValueOnce(failure)
+  const result = await h.resolve([h.receipt('asr.json')])
+  expect(result.resolution?.diagnostics[0]).toMatchObject({ status: 'unavailable', reason: 'resolve denied' })
+})
+
+it('omits candidate resolution when no read receipts were supplied and reports an empty receipt set explicitly', async () => {
+  const h = await fixture()
+  const none = await resolveReviewTranscript(h.ctx, h.review, h.source, { maxTranscriptBytes: 4096 }, h.root, new AbortController().signal)
+  expect(none).toEqual({ link: {} })
+  expect((await h.resolve([])).resolution?.kind).toBe('none')
+})
+
+it('discards a candidate that changes during its bounded read', async () => {
+  const h = await fixture(), path = await h.saved('asr.json')
+  const original = h.ctx.fs.readBytes.bind(h.ctx.fs)
+  vi.spyOn(h.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
+    const bytes = await original(...args)
+    await writeFile(path, 'changed source')
+    return bytes
+  })
+  expect((await h.resolve([h.receipt('asr.json')])).resolution?.diagnostics[0]?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
 })
 
 async function fixture() {

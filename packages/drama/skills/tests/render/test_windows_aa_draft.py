@@ -63,6 +63,14 @@ class AaDraftTests(unittest.TestCase):
     def plan(self):
         return aa.prepare_plan(self.request, str(self.drafts))
 
+    def test_bgm_ceiling_keeps_embedded_source_gain_independent(self):
+        timeline = json.loads(self.timeline.read_text())
+        timeline['delivery']['audio'] = {'master_gain': 0.8, 'bgm_gain': 3}
+        self.timeline.write_text(json.dumps(timeline))
+        with patch.dict(aa.os.environ, {'DSH_BGM_MAX_GAIN': '1'}):
+            plan, _ = self.plan()
+        self.assertEqual(plan['audio'], {'master_gain': 0.8, 'bgm_gain': 1})
+
     def saved(self, plan):
         rows = [{'id': 'draft', 'type': 'draft', 'attributes': {
             'width': plan['delivery']['width'], 'height': plan['delivery']['height']}}]

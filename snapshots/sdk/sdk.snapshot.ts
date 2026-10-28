@@ -672,7 +672,9 @@ async function runScenario(scenario: CorpusScenario): Promise<{
           ])
           const video = result.events.filter(event => event.type === 'video/review')
           expect(video).toHaveLength(2)
-          expect(video[0]?.data).toMatchObject({ kind: 'start', review: { frames: expect.any(Array) } })
+          expect(video[0]?.data).toMatchObject({ kind: 'start', review: {
+            path: `${cwd}/sdk-video.mp4`, frames: expect.any(Array),
+          } })
           expect(video[0]?.data['review']).not.toHaveProperty('event_groups')
           expect(video[0]?.data['review']).not.toHaveProperty('transcript_reference')
           expect(video[1]?.data).toMatchObject({ kind: 'update', event_groups: [{

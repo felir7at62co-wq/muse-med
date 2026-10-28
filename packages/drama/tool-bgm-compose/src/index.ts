@@ -21,6 +21,12 @@ export const inject = ['tools', 'subprocess']
 
 /** Deployment-varying executable, subprocess limits, and batch policy. */
 export interface Config {
+  /** Largest source-window gain in dB; default 9, negative values require attenuation. */
+  readonly maxSourceGainDb?: number
+  /** Advisory adjacent emotion-distance ceiling; default 3. */
+  readonly maxEmotionStep?: number
+  /** Advisory adjacent tag-set overlap minimum; default 0.2. */
+  readonly minTagOverlap?: number
   /** FFmpeg executable or command name. */
   readonly ffmpegPath?: string
   /** ffprobe executable or command name. */
@@ -43,6 +49,9 @@ export interface Config {
 
 /** Validate and default plugin configuration. */
 export const Config: z<Config> = z.object({
+  maxSourceGainDb: z.number().min(-120).max(9).default(9),
+  maxEmotionStep: z.number().min(0).max(16).default(3),
+  minTagOverlap: z.number().min(0).max(1).default(0.2),
   ffmpegPath: z.string().default('ffmpeg'),
   ffprobePath: z.string().default('ffprobe'),
   commandTimeoutMs: z.number().min(1).max(3_600_000).default(300_000),
@@ -58,6 +67,10 @@ export const Config: z<Config> = z.object({
 const SegmentSchema = {
   type: 'object', additionalProperties: false,
   properties: {
+    tags: { type: 'array', items: { type: 'string' }, description: '本段实际候选的音频/情绪标签。' },
+    story_context: { type: 'string', description: '实际情节推进与音乐目的。' },
+    dialogue_context: { type: 'string', description: '人物对白实际含义，含反讽、隐瞒或无对白状态。' },
+    transition_reason: { type: 'string', description: '明确剧情转折支持较大音乐变化的依据。' },
     track: { type: 'string', required: true, description: '计划里的曲目名。' },
     source: { type: 'string', required: true, description: '源曲绝对路径。' },
     track_id: { type: 'string', description: '计划可选：曲库稳定曲目 ID。' },
@@ -71,7 +84,7 @@ const SegmentSchema = {
     source_start_kind: { type: 'string', required: true, enum: ['explicit', 'onset'],
       description: 'explicit=计划指定；onset=在 1–5 秒窗口检测首个可听起音。' },
     source_mean_db: { type: 'number', required: true, description: '源窗口实测平均响度。' },
-    applied_gain_db: { type: 'number', required: true, description: '应用的响度增益，自动提升不超过 9 dB。' },
+    applied_gain_db: { type: 'number', required: true, description: '实际源曲增益，受部署 maxSourceGainDb 限制；负值表示相对源曲衰减。' },
     valence: { type: 'number', description: '计划可选：bgm_match 返回的实际愉悦度。' },
     arousal: { type: 'number', description: '计划可选：bgm_match 返回的实际能量。' },
   },
@@ -104,7 +117,7 @@ const RESULT_SCHEMA = {
     policy_findings: { type: 'array', required: true,
       description: '选曲与切点建议，每条含规则号、现状和建议；允许保留合适曲目或无配乐，不拦截调用。',
       items: { type: 'object', additionalProperties: false, properties: {
-        rule: { type: 'string', required: true, description: '规则号：R1 每集曲目数、R2 集内重复、R3 单曲集数、R4 全新曲目、R5 切点。' },
+        rule: { type: 'string', required: true, description: '规则号：R1 曲目数、R2 集内重复、R3 单曲集数、R4 新曲、R5 切点、R6 相邻音乐情绪/标签跳变、R7 相邻两集重复配乐。' },
         detail: { type: 'string', required: true, description: '这条规则现在违反成什么样。' },
         fix: { type: 'string', required: true, description: '可考虑的调整，不是交付门禁。' },
       } } },
@@ -126,7 +139,9 @@ const DESCRIPTION = '短剧整集 BGM 合成工具；只执行 Agent 已确认�
   + '可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。'
   + '计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。'
   + 'music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。'
-  + 'preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。'
+  + 'preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度，按目标 -17.5 dB 计算增益并受部署 maxSourceGainDb 限制，不写正式产物。'
+  + '计划段落记录 story_context、dialogue_context、tags 及实测 valence/arousal；结合前后情节和对白实际含义选曲，R6 复核相接段落的情绪距离和标签重叠。无依据的大跳变优先延续原曲或用相近片段，不每镜换曲，不把缺元数据当衔接已通过。'
+  + 'R7 提醒编号相邻两集重复同曲，优先用符合剧情与衔接的替代曲；确需跨集延续时可保留并在 reason 记录剧情依据，不要求提示清零。曲库 ID 或音频 SHA 相同视为同曲，旧计划缺身份时按源路径比较。'
   + '实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。'
   + 'compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；'
   + '先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。'
@@ -136,7 +151,7 @@ const DESCRIPTION = '短剧整集 BGM 合成工具；只执行 Agent 已确认�
   + '不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。'
   + '批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），'
   + '因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。'
-  + '同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。'
+  + 'R2–R4 按解析后的绝对 source 路径核对，track 只当展示名；R7 优先核对稳定曲库 ID 或音频 SHA。'
   + '阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。'
   + 'timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。'
   + 'compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。'
@@ -153,7 +168,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolvedConfig = Config(config) as Required<Config>
   ctx.tools.register(defineTool({
     name: 'drama_bgm',
-    description: DESCRIPTION,
+    description: DESCRIPTION + `本实例每段源曲增益上限为 ${String(resolvedConfig.maxSourceGainDb)} dB；后续混音不得补回所需衰减。`,
     parameters: {
       method: { type: 'string', required: true, enum: ['preview', 'compose', 'verify'],
         description: 'preview=预检且不发布；compose=合成并无覆盖发布；verify=核验已有 WAV。' },
@@ -172,6 +187,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       render: (_args, value): ContentBlock[] => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     execute: async (args, exec) => await runDramaBgm(args, {
+      maxSourceGainDb: resolvedConfig.maxSourceGainDb,
       ffmpegPath: resolvedConfig.ffmpegPath,
       ffprobePath: resolvedConfig.ffprobePath,
       channel: createSubprocessChannel(
@@ -183,6 +199,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       ),
       signal: exec.signal,
       policy: {
+        maxEmotionStep: resolvedConfig.maxEmotionStep,
+        minTagOverlap: resolvedConfig.minTagOverlap,
         minTracksPerEpisode: resolvedConfig.minTracksPerEpisode,
         maxEpisodesPerTrack: resolvedConfig.maxEpisodesPerTrack,
         freshTracksPerEpisode: resolvedConfig.freshTracksPerEpisode,

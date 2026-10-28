@@ -16,6 +16,10 @@ const EPSILON_SECONDS = 0.001
 
 /** Limits one batch of episode plans is held to. */
 export interface BgmBatchPolicy {
+  /** Advisory maximum adjacent valence/arousal distance; default 3. */
+  readonly maxEmotionStep?: number
+  /** Advisory minimum adjacent tag-set overlap; default 0.2. */
+  readonly minTagOverlap?: number
   /** Suggested distinct tracks per episode with music. */
   readonly minTracksPerEpisode: number
   /** Episodes one track may appear in across the whole batch. */
@@ -28,6 +32,8 @@ export interface BgmBatchPolicy {
 
 /** The policy the short-drama pipeline runs with. */
 export const DEFAULT_BGM_BATCH_POLICY: BgmBatchPolicy = {
+  maxEmotionStep: 3,
+  minTagOverlap: 0.2,
   minTracksPerEpisode: 1,
   maxEpisodesPerTrack: 2,
   freshTracksPerEpisode: 0,
@@ -41,7 +47,8 @@ export interface BgmBatchRow {
   /** Explicit no-music plans do not receive selection recommendations. */
   readonly music_decision?: 'music' | 'none'
   /** The episode's ordered segments. */
-  readonly segments: readonly Pick<BgmPlanSegment, 'track' | 'source' | 'start_seconds' | 'end_seconds'>[]
+  readonly segments: readonly Pick<BgmPlanSegment, 'track' | 'source' | 'start_seconds' | 'end_seconds'
+    | 'valence' | 'arousal' | 'tags' | 'story_context' | 'dialogue_context' | 'transition_reason' | 'track_id' | 'source_sha256'>[]
 }
 
 /** What the batch gate compares. */
@@ -70,6 +77,19 @@ export function trackIdentity(project: string, source: string): string {
   return isAbsolute(source) ? resolve(source) : resolve(project, source)
 }
 
+function stableTrackKey(segment: BgmBatchRow['segments'][number]): string | undefined {
+  const identity = segment.source_sha256 ?? segment.track_id
+  if (identity === undefined) return undefined
+  return /^(?:sha256:)?[a-f0-9]{64}$/iu.test(identity)
+    ? `hash:${identity.replace(/^sha256:/iu, '').toLowerCase()}` : `id:${identity}`
+}
+
+function sameTrack(project: string, left: BgmBatchRow['segments'][number], right: BgmBatchRow['segments'][number]): boolean {
+  const a = stableTrackKey(left), b = stableTrackKey(right)
+  if (a !== undefined && b !== undefined && a.split(':')[0] === b.split(':')[0]) return a === b
+  return trackIdentity(project, left.source) === trackIdentity(project, right.source)
+}
+
 /**
  * Audit one episode's plan against the batch rules.
  *
@@ -88,6 +108,25 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
   const limits = context.limits ?? DEFAULT_BGM_BATCH_POLICY
   const episode = selected.episode
   const findings: BgmPolicyFinding[] = []
+  for (const [index, next] of selected.segments.entries()) {
+    const previous = selected.segments[index - 1]
+    if (previous === undefined) continue
+    if (Math.abs(previous.end_seconds - next.start_seconds) > EPSILON_SECONDS) continue
+    const distance = previous.valence === undefined || previous.arousal === undefined
+      || next.valence === undefined || next.arousal === undefined ? undefined
+      : Math.abs(previous.valence - next.valence) + Math.abs(previous.arousal - next.arousal)
+    const left = new Set(previous.tags?.map(tag => tag.trim().toLowerCase()).filter(Boolean))
+    const right = new Set(next.tags?.map(tag => tag.trim().toLowerCase()).filter(Boolean))
+    const shared = [...left].filter(tag => right.has(tag)).length
+    const overlap = left.size && right.size ? shared / new Set([...left, ...right]).size : undefined
+    if ((distance !== undefined && distance > (limits.maxEmotionStep ?? 3))
+      || (overlap !== undefined && overlap < (limits.minTagOverlap ?? 0.2))) {
+      findings.push({ rule: 'R6', detail: `第 ${episode} 集 ${next.start_seconds.toFixed(3)}s 相邻配乐变化较大：`
+        + `情绪距离=${distance === undefined ? '未知' : distance.toFixed(2)}，标签重叠=${overlap === undefined ? '未知' : overlap.toFixed(2)}。`
+        + (next.transition_reason ? ` 剧情依据：${next.transition_reason}` : ''),
+      fix: '对照转折前后的剧情发展与对白含义；无明确转折时延续原曲或选情绪、配器相近的片段，试听切换两侧，不能只靠拉长淡化掩盖不合适选曲。' })
+    }
+  }
   const tracks = selected.segments.map(segment => trackIdentity(context.project, segment.source))
   const distinct = [...new Set(tracks)]
   if (distinct.length < limits.minTracksPerEpisode) {
@@ -104,6 +143,14 @@ export function auditBgmBatch(selected: BgmBatchRow, context: BgmBatchContext): 
   const users = new Map<string, Set<string>>()
   const members = new Map<string, BgmBatchRow>()
   for (const row of [...context.batch, selected]) members.set(row.episode.padStart(2, '0'), row)
+  for (const peer of members.values()) {
+    if (peer.music_decision === 'none' || Math.abs(Number(peer.episode) - Number(episode)) !== 1) continue
+    const shared = [...new Set(selected.segments.filter(segment => peer.segments.some(other => sameTrack(context.project, segment, other)))
+      .map(segment => segment.track))]
+    if (shared.length) findings.push({ rule: 'R7',
+      detail: `第 ${episode} 集与相邻第 ${peer.episode} 集重复配乐：${shared.join('、')}。`,
+      fix: '优先选择符合本段剧情、对白与情绪衔接的其他曲目；连续场景或主题回扣确需同曲时可保留，并在选曲 reason 中记录剧情依据，不新增门禁。' })
+  }
   for (const row of members.values()) {
     for (const segment of row.segments) {
       const id = trackIdentity(context.project, segment.source)
@@ -236,11 +283,15 @@ export function validateEpisodePlan(input: BgmEpisodePlan, bodyDurationSeconds: 
 /**
  * Calculate the source-window gain used before crossfading.
  * @param meanDb - Mean volume reported by FFmpeg volumedetect.
- * @returns Gain in decibels, capped at {@link MAX_BOOST_DB}.
+ * @param maximumGainDb - Deployment ceiling; negative values require source attenuation.
+ * @returns Gain in decibels, never above the deployment ceiling.
  */
-export function appliedGain(meanDb: number): number {
+export function appliedGain(meanDb: number, maximumGainDb = MAX_BOOST_DB): number {
   if (!Number.isFinite(meanDb)) throw new Error('BGM 源曲响度不是有效数值。')
-  return Number(Math.min(TARGET_MEAN_DB - meanDb, MAX_BOOST_DB).toFixed(1))
+  if (!Number.isFinite(maximumGainDb) || maximumGainDb < -120 || maximumGainDb > MAX_BOOST_DB) {
+    throw new Error('BGM 源曲增益上限必须在 -120 到 9 dB 之间。')
+  }
+  return Math.min(Number((TARGET_MEAN_DB - meanDb).toFixed(1)), maximumGainDb)
 }
 
 /**
@@ -265,7 +316,7 @@ export function buildMixFilter(
     || gainsDb.length !== inputDurations.length
     || (intervals !== undefined && intervals.length !== inputDurations.length)) throw new Error('BGM 混音参数数量不一致。')
   const starts = sourceStarts.map(start => start.toFixed(6))
-  const gains = gainsDb.map(gain => gain.toFixed(1))
+  const gains = gainsDb.map(gain => String(gain))
   const filters = inputDurations.map((duration, index) => {
     return `[${index}:a]atrim=start=${starts[index]}:duration=${duration.toFixed(6)},`
       + `asetpts=PTS-STARTPTS,volume=${gains[index]}dB[s${index}]`

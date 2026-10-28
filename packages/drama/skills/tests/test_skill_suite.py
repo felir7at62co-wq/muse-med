@@ -51,7 +51,9 @@ class SkillSuite(unittest.TestCase):
         self.assertIn("python -B scripts/pipeline_state.py", core)
 
     def test_bgm_guidance_uses_scoped_feedback_and_advisory_music_choices(self):
-        render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
+        directory = SKILLS / "tweet-drama-background-render"
+        render = (directory / "SKILL.md").read_text(encoding="utf-8")
+        render += (directory / "references/story-bgm-selection.md").read_text(encoding="utf-8")
         for required in ("先 `drama_project action=read`", "project_bible.bgm_feedback", "本项目相近语境",
                          "按正文情绪分段选曲", "对白密度", "配器", "切点", "valence/arousal",
                          "可以只用一首，也可以不额外添加 BGM", "policy_findings", "不要求提示清零",

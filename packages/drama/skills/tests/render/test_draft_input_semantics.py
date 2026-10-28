@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = (Path(__file__).resolve().parents[2]
@@ -52,6 +53,10 @@ class DraftInputSemanticsTests(unittest.TestCase):
         clock = INPUTS.project_frame_clock(clips, 24, 2_000, 0)
         self.assertEqual(clock['status'], 'unsupported')
         self.assertIn('镜头 6', clock['reason'])
+    def test_native_bgm_ceiling_preserves_source_attenuation_without_changing_dialogue(self):
+        with patch.dict('os.environ', {'DSH_BGM_MAX_GAIN': '1'}):
+            self.assertEqual(INPUTS.audio_gains({'delivery': {'audio': {'master_gain': 3, 'bgm_gain': 8}}}),
+                             {'master_gain': 3, 'bgm_gain': 1})
 
     def test_missing_audio_settings_retain_legacy_sdk_unit_gains(self):
         for timeline in ({}, {'delivery': {}}, {'delivery': {'audio': {}}}):

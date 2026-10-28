@@ -1,4 +1,5 @@
 import type { LicenseInfo } from '@deepseek-ai/dsh-bgm-license-info'
+import type { AudioProfile } from './audio-profile.ts'
 
 /** Public catalogue entries after validation; filenames never choose local paths. */
 export interface CatalogTrack {
@@ -10,6 +11,7 @@ export interface CatalogTrack {
   valence: number
   arousal: number
   moods: string[]
+  audio_profile?: AudioProfile
   license_info: LicenseInfo
   license_warnings: string[]
 }

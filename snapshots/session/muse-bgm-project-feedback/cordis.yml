@@ -1,9 +1,28 @@
 # Read project-scoped feedback through the real matching and composition tools.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+# Keep this music replay independent of the host's sandbox skill catalog.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+
 - insert:
+    - id: bgm-numbered-catalog-fixture
+      name: './catalog-fixture.mjs'
     - id: perception-bgm
       name: '@deepseek-ai/dsh-perception-bgm'
       config:
-        indexPath: !!js process.cwd() + '/index.json'
+        catalogUrl: https://bgm-snapshot.example/bgm/catalog.json
     - id: tool-bgm-compose
       name: '@deepseek-ai/dsh-tool-bgm-compose'
       config:

@@ -106,9 +106,9 @@ interface ToolArgsMap {
     /** start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。 */
     purpose?: "subtitles" | "screenplay";
   } & Record<string, JsonValue>;
-  /** 在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。选曲报告保留来源、许可、署名与范围；unknown 不表示可商用，declared 也不表示已核验授权。**返回的是候选排序，不是决定**——最终选哪首由你判断；每首附带的 valence/arousal 原值就是判断依据。选曲前传 project 读取 project_config.json/project_bible.bgm_feedback，并传当前剧情的 context_tags。只有反馈的全部场景标签命中才暂不推荐已否决曲目；其他场景仍展示历史供你判断，不是全局黑名单。用户明确改口应通过 drama_project 追加新反馈，不能把 Agent 的偏好写成用户意见。被暂不推荐的曲目仍在 withheld_candidates 中可审查；保留原情绪距离，不臆造语义相似度。根据对白密度、情绪、配器、切点与许可判断，一首或无后加配乐都是正常交付；低信心时集中一次试听反馈，不为凑数硬配乐。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**分析模型许可与曲目使用许可分别判断；match/download 不运行该分析模型，曲目授权也不能代替模型使用许可。 */
+  /** 在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。剧情配乐先读剧本与实际时间线，按情节转折分别传 story：intent 说明观众应感受到什么，desired_tags/avoid_tags 声明希望或避免的音乐气质，dialogue_density 声明对白密度。生产选曲给 story.evidence（requireStoryEvidence 部署开启时必需）：引用当前项目剧本中的真实对白/动作，以及实际画面检查记录里的原文。工具逐次读取文件核对引用，不接受凭空编造对白；缺依据或引用不符时先修正来源，不给正式选曲建议。人物嚣张发笑不代表观众应当觉得好笑；场景名称、题材和音乐标签不能替代本段情节。逐段检索，不把情绪不同的几场戏塞进同一次请求。intent 须综合前后情节推进、人物关系和对白真正含义，不能只按哭笑、打斗词或整集平均情绪选曲。连续情绪段传上一段实际采用的 previous_track_id；在符合本段主要剧情意图的候选中优先情绪/标签衔接平缓者，返回 continuity_fit。剧情有明确转折时可解释较大变化；先检查整条配乐序列和真实切点，不因每句台词或换镜头就换音乐。continuity_fit 是元数据建议，不是试听通过或新门禁。相邻两集尽量不用同一首：读取当前项目上一集及已制作下一集的真实配乐计划，传 adjacent_episode_track_ids。剧情与衔接条件相当时优先换曲；复用只增加公开的排序惩罚，保留实际情绪距离和候选，不封禁曲目。确需跨集延续时记录剧情依据。有 audio_profile 时先按已绑定音频摘要的抽样模型标签排序，再按曲名意图线索、宽泛 moods、原始情绪距离排序，同类证据按 desired_tags 先后优先；曲名冲突进入 review_candidates，音频/情绪标签冲突只提示。audio_profile 返回实际采样窗、音频标签、配器/人声推断、时长和估计节奏，human_reviewed=false 表示未人工试听；similarity 是原始相似度，不是置信度或适配保证。曲名和标签不能证明配器、人声或时代适配，须试听真实片段与混音。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。选曲报告保留来源、许可、署名与范围；unknown 不表示可商用，declared 也不表示已核验授权。**返回的是候选排序，不是决定**——最终选哪首由你判断；核对每首附带的 valence/arousal 原值与剧情证据。选曲前传 project 读取 project_config.json/project_bible.bgm_feedback，并传当前剧情的 context_tags。只有反馈的全部场景标签命中才暂不推荐已否决曲目；其他场景仍展示历史供你判断，不是全局黑名单。用户明确改口应通过 drama_project 追加新反馈，不能把 Agent 的偏好写成用户意见。被暂不推荐的曲目仍在 withheld_candidates 中可审查；保留原情绪距离，不臆造语义相似度。根据对白密度、情绪、配器、切点与许可判断，一首或无后加配乐都是正常交付；低信心时集中一次试听反馈，不为凑数硬配乐。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**分析模型许可与曲目使用许可分别判断；match/download 不运行该分析模型，曲目授权也不能代替模型使用许可。 */
   bgm_match: {
-    /** match=按坐标排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。 */
+    /** match=按情绪坐标与可选剧情意图排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。 */
     method: "match" | "index" | "inspect" | "download";
     /** match/download 可选：本次用途，默认 unknown；只影响授权风险提示，不声明或授予版权。 */
     intended_use?: "commercial" | "non_commercial" | "unknown";
@@ -128,6 +128,29 @@ interface ToolArgsMap {
     project?: string;
     /** match 可选：当前场景显式标签，例如堂屋、家庭冲突。复用项目反馈的相同标签；不是自动文本语义匹配。未提供时只展示反馈，不自动排除。 */
     context_tags?: string[];
+    /** match 连续配乐时提供：上一段实际采用的曲库 track_id 或本地 source_sha256。按同库实测情绪和音频标签比较，不编造上一段数值。换场不自动意味着情绪重置。 */
+    previous_track_id?: string;
+    /** match 可选：当前项目编号相邻两集（N−1 和已制作的 N+1）实际使用的曲库 track_id 或 source_sha256。尽量避免复用，同集上一段仍用 previous_track_id；不按曲名猜测，也不包含其他项目。 */
+    adjacent_episode_track_ids?: string[];
+    /** match 剧情配乐推荐提供：根据本段剧本与实际时间线明确音乐意图，不照搬台词里的动作词。省略则保留旧情绪距离排序。 */
+    story?: {
+      /** 1–600 字符：本段希望观众感受到什么、人物关系与情节目的；这是 Agent 的剧本解读记录，不是自动文本检索。 */
+      intent: string;
+      /** 1–8 个希望的音乐意图，按重要性从高到低排列：亲情为主、舒缓为辅用 family、gentle。克制争执可用 restrained；威胁未动手不自动选 action。 */
+      desired_tags: ("family" | "romance" | "comedy" | "suspense" | "danger" | "action" | "sadness" | "hope" | "daily_life" | "epic" | "restrained" | "gentle" | "solemn" | "energetic" | "playful" | "dark")[];
+      /** 0–8 个本段应避免的音乐意图，与 desired_tags 不重叠。 */
+      avoid_tags?: ("family" | "romance" | "comedy" | "suspense" | "danger" | "action" | "sadness" | "hope" | "daily_life" | "epic" | "restrained" | "gentle" | "solemn" | "energetic" | "playful" | "dark")[];
+      /** 本段实际对白密度；缺省 unknown，dense 提醒重点试听对白遮盖。 */
+      dialogue_density?: "none" | "sparse" | "dense" | "unknown";
+      /** 1–8 条项目内 UTF-8 依据。生产预设要求 script 和 visual_review；后者为 JSON，含 video、video_sha256、observations，先实际检查采用视频再记录。工具核验原文和视频版本，不冒充画面语义或试听验收。 */
+      evidence?: ({
+        kind: "script" | "transcript" | "visual_review";
+        /** 项目内文本路径，相对 project 或绝对路径。 */
+        file: string;
+        /** 1–8 段真实原文，每段最多 800 字符；无对白时引用真实动作。 */
+        quotes: string[];
+      })[];
+    };
   } & Record<string, JsonValue>;
   /** Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say "goal"; not for single-turn work. */
   create_goal: {
@@ -161,7 +184,7 @@ interface ToolArgsMap {
     /** dispose 可选但 status=ignored 时必填且非空：写清为什么这个资产不需要（例如是别的剧的备选、失败遗留、废弃版本）。 */
     note?: string;
   } & Record<string, JsonValue>;
-  /** 短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度并计算目标 -17.5 dB、最大 +9 dB 的增益，不写正式产物。实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。同一首曲子的身份按解析后的绝对 source 路径判定，track 只当展示名。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。 */
+  /** 短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度，按目标 -17.5 dB 计算增益并受部署 maxSourceGainDb 限制，不写正式产物。计划段落记录 story_context、dialogue_context、tags 及实测 valence/arousal；结合前后情节和对白实际含义选曲，R6 复核相接段落的情绪距离和标签重叠。无依据的大跳变优先延续原曲或用相近片段，不每镜换曲，不把缺元数据当衔接已通过。R7 提醒编号相邻两集重复同曲，优先用符合剧情与衔接的替代曲；确需跨集延续时可保留并在 reason 记录剧情依据，不要求提示清零。曲库 ID 或音频 SHA 相同视为同曲，旧计划缺身份时按源路径比较。实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。R2–R4 按解析后的绝对 source 路径核对，track 只当展示名；R7 优先核对稳定曲库 ID 或音频 SHA。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。本实例每段源曲增益上限为 -10 dB；后续混音不得补回所需衰减。 */
   drama_bgm: {
     /** preview=预检且不发布；compose=合成并无覆盖发布；verify=核验已有 WAV。 */
     method: "preview" | "compose" | "verify";
@@ -389,7 +412,7 @@ interface ToolArgsMap {
     /** Max wait in milliseconds with wait: true. Defaults to and is capped by configuration. */
     timeout_ms?: number;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id。生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交，insufficient_credits 时请用户处理剧变生图通道额度；未知或等待中只续读原任务。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_character_reference 是受控人物库上传**：普通 Muse 用户先调用 jubian_character_reference_authorize，在界面确认本人上传与本项目生图权利；Host 再重读当前项目角色与 Catalog 原图，核对一次性授权和 SHA 后上传；它不接受 Agent 路径、TOS key 或 URL，返回的 managed_reference_id 只可用于同一授权的一次 image_generate；pending_review 图及其衍生结果不得自动 confirm_casting、正式绑定、发布或跨项目复用。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务。register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
+  /** 剧变（Jubian）主体设定与资产的查询、确认出演与删除。get/list/materials/generated_image 只读。只读结果字段：get=asset；list=assets.rows；materials=materials.rows；generated_image=image.url/material_id；多条结果无已知 task_id 时返回候选待核。生成任务未就绪或失败时 image=null，generation.status 区分 pending/failed/unknown，并保留原 task_id/result_id；error_code=reference_limit 时先减少参考图，content_refused 时不要原样重复提交，insufficient_credits 时请用户处理剧变生图通道额度；未知或等待中只续读原任务。**confirm_casting 有副作用**：它用 GET 动词改变了远端状态，会使该材质被本次制作采用。它同样需要 idempotency_key，且不要重试。**remove 会不可恢复地删除一个父资产**（`DELETE /aigc/asset/removeAsset/{id}`，带 scriptId 与 isParent=1）：资产与其媒体版本会被移除，引用它的镜头匹配与已生成视频不会因此重建。**如果只是想取消"正式选用"，不要用 remove** —— 那是一个不同的动作。**create_folder / move / rename 会改变控制台里的组织方式**（都在 `/aigc/*` 上真实写入）：create_folder 建一个类别库里的文件夹，同名同级已存在时直接报告、不发请求；move 把材质行移进文件夹，目标文件夹不在该库里时同样只报告；rename 改资产的显示名称。三者都需要 idempotency_key，都不改图片、不改 id、不换类别。**批量改名或搬家前必须先取得用户明确同意**：这些是用户已经在控制台里看到的名字和位置。**upload_character_reference 是受控人物库上传**：普通 Muse 用户先调用 jubian_character_reference_authorize，在界面确认本人上传与本项目生图权利；Host 再重读当前项目角色与 Catalog 原图，核对一次性授权和 SHA 后上传；它不接受 Agent 路径、TOS key 或 URL，返回的 managed_reference_id 只可用于同一授权的一次 image_generate；pending_review 图及其衍生结果不得自动 confirm_casting、正式绑定、发布或跨项目复用。**upload_reference 免费**：把本地参考图（jpg/jpeg/png/webp）按剧变前端自身的上传配置送到它的对象存储，返回 HTTPS material_url —— gpt-image-2 的参考图只接受 URL。两条边必须是 16 的倍数：已合规的文件原样上传，不合规时调用本机 ffmpeg 重编码（可用 DSH_JUBIAN_FFMPEG/FFMPEG_PATH 指定二进制）；本机找不到 ffmpeg 时返回 alignment_required 并给出应有的尺寸，绝不上传不合规的图片。upload_audio 上传已裁好的 PCM WAV 声音参考，按真实样本验证不超过15秒；通常保留同角色2秒清晰独白。返回 audio materialUrl 和实测时长，不创建父资产或生成任务。register 支持 asset_type=4，把已上传音频登记到当前剧本音频类别；audio_list/audio_get 核对真实身份和地址，缺失时长不冒充实测。音频删除用 audio_delete_preview 核对身份和全部当前角色/分镜引用；audio_delete_apply 需要 checked_audio_asset_id 和 fingerprint，仍被引用时拒绝。删除音频不可恢复，不取消生成任务或退费。加载 tweet-drama-voice-continuity 技能制作和复用声线样本。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_asset: {
     /** get=单个资产（含 is_local/status）；list=项目资产分页；materials=主体设定材质；generated_image=该资产的生成图 URL；confirm_casting=确认出演（有副作用）；register=按指定类别登记已有图片或音频（有副作用、不生成）；remove=删除已检查的图片父资产，拒绝音频（不可恢复）；upload_reference=上传本地参考图并取回 material_url（免费）；upload_character_reference=按 Host 授权上传精确人物库原图，不回传 URL；upload_audio=上传短 PCM WAV 声音参考（免费）；create_folder=在某个类别库里建文件夹；move=把资产移动进文件夹；rename=给资产改名；audio_list/audio_get=只读当前剧本音频资产；audio_delete_preview=检查音频删除目标与引用；audio_delete_apply=删除已检查且无当前引用的音频资产（不可恢复）。 */
     method: "get" | "list" | "materials" | "generated_image" | "confirm_casting" | "register" | "remove" | "upload_reference" | "upload_character_reference" | "upload_audio" | "create_folder" | "move" | "rename" | "audio_list" | "audio_get" | "audio_delete_preview" | "audio_delete_apply";
@@ -399,6 +422,8 @@ interface ToolArgsMap {
     asset_id?: number;
     /** confirm_casting 必填：生成材质 ID（不是父资产、不是任务 ID）。 */
     material_id?: number;
+    /** generated_image 可选：已知的原生图任务 ID；只匹配该任务，不能根据 ID 大小推断最新。 */
+    task_id?: number;
     /** 页码，默认 1。 */
     page_num?: number;
     /** 每页条数，默认 20，上限 1000。 */
@@ -1392,6 +1417,14 @@ interface ToolOutputMap {
     body_duration_seconds: number;
     crossfade_seconds: number;
     segments: ({
+      /** 本段实际候选的音频/情绪标签。 */
+      tags?: string[];
+      /** 实际情节推进与音乐目的。 */
+      story_context?: string;
+      /** 人物对白实际含义，含反讽、隐瞒或无对白状态。 */
+      dialogue_context?: string;
+      /** 明确剧情转折支持较大音乐变化的依据。 */
+      transition_reason?: string;
       /** 计划里的曲目名。 */
       track: string;
       /** 源曲绝对路径。 */
@@ -1424,7 +1457,7 @@ interface ToolOutputMap {
       source_start_kind: "explicit" | "onset";
       /** 源窗口实测平均响度。 */
       source_mean_db: number;
-      /** 应用的响度增益，自动提升不超过 9 dB。 */
+      /** 实际源曲增益，受部署 maxSourceGainDb 限制；负值表示相对源曲衰减。 */
       applied_gain_db: number;
       /** 计划可选：bgm_match 返回的实际愉悦度。 */
       valence?: number;
@@ -1436,7 +1469,7 @@ interface ToolOutputMap {
     batch_episodes: string[];
     /** 选曲与切点建议，每条含规则号、现状和建议；允许保留合适曲目或无配乐，不拦截调用。 */
     policy_findings: {
-      /** 规则号：R1 每集曲目数、R2 集内重复、R3 单曲集数、R4 全新曲目、R5 切点。 */
+      /** 规则号：R1 曲目数、R2 集内重复、R3 单曲集数、R4 新曲、R5 切点、R6 相邻音乐情绪/标签跳变、R7 相邻两集重复配乐。 */
       rule: string;
       /** 这条规则现在违反成什么样。 */
       detail: string;
