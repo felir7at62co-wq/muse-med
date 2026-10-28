@@ -22,6 +22,9 @@ export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 /** Reviewed ChatGPT subscription provider and its local account settings. */
 export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
 
+/** Reviewed native team workspace supplied by the Muse application. */
+export const DESKTOP_MUSE_BOT_PACKAGE = 'ds-bot'
+
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -55,12 +58,15 @@ export const DESKTOP_DRAMA_SKILL_RUNTIME_FILES = [
   'skills/shot-script-creator-9-16/SKILL.md',
 ] as const
 
-/** Muse entry, native IM client and migration files required from the Feishu tarball. */
+/** Muse entry, native IM client and Session routing files required from the Feishu tarball. */
 export const DESKTOP_FEISHU_RUNTIME_FILES = [
   'lib/index.js',
   'lib/upstream.js',
   'lib/client.js',
   'lib/muse-im-migration.mjs',
+  'lib/muse-im-admission.mjs',
+  'lib/muse-im-workspace.mjs',
+  'lib/muse-im-team.mjs',
   'cordis.patch.yml',
   'SOURCE.json',
   'LICENSE',
@@ -73,9 +79,15 @@ export const DESKTOP_CODEX_RUNTIME_FILES = [
   'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
 ] as const
 
+/** Native team Host, browser module and attribution required from the Muse Bot tarball. */
+export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
+  'index.js', 'src/host/agents.js', 'src/host/store.js', 'src/host/parts.js', 'src/host/muse-config.js',
+  'client.js', 'cordis.patch.yml', 'SOURCE.json', 'LICENSE', 'NOTICE',
+] as const
+
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao',

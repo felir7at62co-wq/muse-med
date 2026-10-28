@@ -18,8 +18,8 @@ export function createMuseImAdmission(config, migration) {
     retentionMs: config.inboundClaimRetentionMs,
     maxEntries: config.inboundClaimMaxEntries,
   })
-  const admission = workspaces => ({
-    async message(event, state) {
+  const admission = workspaces => {
+    const allowed = (event, state) => {
       const message = event?.message
       const sender = event?.sender?.sender_id?.open_id
       const id = message?.message_id
@@ -29,12 +29,22 @@ export function createMuseImAdmission(config, migration) {
         const botOpenId = migration.botOpenId ?? policy.botOpenId
         if (!botOpenId || !message.mentions?.some(mention => (mention?.id?.open_id ?? mention?.open_id) === botOpenId)) return false
       } else if (message.chat_type !== 'p2p') return false
-      if (oldMessages.has(id) || state.hasSeen(id) || !claims.claim(id)) return false
-      if (message.chat_type === 'p2p') await bindMuseImDirectSession(config, {
-        chatId: message.chat_id, senderOpenId: sender,
+      return !oldMessages.has(id) && !state.hasSeen(id) && !claims.has(id)
+    }
+    const prepare = async (event, state) => {
+      if (event.message.chat_type === 'p2p') await bindMuseImDirectSession(config, {
+        chatId: event.message.chat_id, senderOpenId: event.sender.sender_id.open_id,
       }, state, workspaces)
-      return true
-    },
-  })
+    }
+    return {
+      allowed,
+      prepare,
+      async message(event, state) {
+        if (!allowed(event, state)) return false
+        await prepare(event, state)
+        return claims.claim(event.message.message_id)
+      },
+    }
+  }
   return { forBot: (botId, workspaces) => botId === migration.botId ? admission(workspaces) : undefined }
 }

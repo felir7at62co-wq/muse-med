@@ -277,9 +277,17 @@ function rejectedResult(project: string, file: string, receipt: Receipt, error: 
 
 function portableResult(result: AudioRunResult): AudioRunResult {
   const pending = ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
-  if (pending && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt') {
+  const lifetimeQuota = result.provider_diagnostic?.quota_type?.endsWith('_lifetime') === true
+  if (pending && lifetimeQuota) {
+    result = { ...result,
+      resume_status: { method: 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
+      polling_note: '原供应商应用的试用额度已用完，需要管理员在原应用恢复对应语音资源额度。恢复后沿此原收据 inspect 查询；不要重新 start、换应用或把额度耗尽当作普通排队。' }
+  } else if (pending && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt') {
     result = { ...result, resume_status: { method: result.recovery?.next_action === 'resume_upload' ? 'status' : 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
       polling_note: '本地收据是上次查询的快照，不会自行刷新。继续调用 audio_transcribe 的 resume_status 参数；inspect 可带 wait_seconds 等待并查询云端，完成后发布本地结果。不要用 Bash 循环读取收据代替查询，也不要重新 start。' }
+  }
+  if (pending && result.recovery?.retry_after !== undefined) {
+    result = { ...result, retry_after_seconds: result.recovery.retry_after }
   }
   const path = (value: string): string => value.replaceAll('\\', '/')
   return { ...result, receipt: path(result.receipt),
@@ -473,6 +481,7 @@ export async function finishAudioTranscription(
     let result = await finishReceipt(projectPath, receiptPath, account, signal, allowResumeUpload, options?.probe)
     while (options && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
       && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
+      if ((result.recovery?.retry_after ?? 0) * 1000 >= deadline - Date.now()) break
       await delay(Math.min(options.pollIntervalMs, deadline - Date.now()), undefined, { signal })
       signal?.throwIfAborted()
       result = await finishReceipt(projectPath, receiptPath, account, signal, false, options.probe)

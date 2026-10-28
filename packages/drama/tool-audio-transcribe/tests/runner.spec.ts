@@ -42,6 +42,41 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
 })
 
+it('reports exhausted provider allowance and later publishes the same original task without submitting again', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const metadata = { provider_diagnostic: { operation: 'query', http_status: 429, provider_code: '45000292', quota_type: 'audio_duration_lifetime' },
+    recovery: { capability: 'query_original_task', next_action: 'inspect_receipt', automatic_resubmit: false, retry_after: 300 } } as const
+  fixture.setJob({ id: first.job_id, status: 'uncertain', error_code: 'provider_rejected', ...metadata })
+  const blocked = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1, probe: media.probe })
+  expect(blocked).toMatchObject({ job_id: first.job_id, receipt: first.receipt, status: 'uncertain', retry_after_seconds: 300, ...metadata })
+  expect(blocked.polling_note).toContain('原供应商应用的试用额度已用完')
+  expect(blocked.resume_status).toMatchObject({ method: 'inspect', receipt: first.receipt })
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+  expect(JSON.parse(await readFile(first.receipt, 'utf8'))).toMatchObject({ id: first.job_id, ...metadata })
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '原任务已完成' }] })
+  const done = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false)
+  expect(done.status).toBe('complete')
+  expect(done.provider_diagnostic).toBeUndefined()
+  expect(done.recovery).toBeUndefined()
+  expect(done.job_id).toBe(first.job_id)
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 2 })
+  expect(await readFile(done.output_txt!, 'utf8')).toContain('原任务已完成')
+})
+
+it('returns the gateway delay instead of polling a pending original task before its next query', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  fixture.setJob({ id: first.job_id, status: 'processing', recovery: { capability: 'query_original_task', next_action: 'poll_original', automatic_resubmit: false, retry_after: 60 } })
+  const pending = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1, probe: media.probe })
+  expect(pending.retry_after_seconds).toBe(60)
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+})
+
 it.each([
   { ids: [undefined, undefined], status: 'not_provided', labelled: 0, groups: 0 },
   { ids: ['0', undefined], status: 'partial', labelled: 1, groups: 1 },

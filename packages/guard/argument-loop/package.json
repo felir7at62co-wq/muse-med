@@ -23,6 +23,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*"
   },
   "devDependencies": {

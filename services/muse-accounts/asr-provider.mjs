@@ -2,6 +2,7 @@
 import {readFile} from 'node:fs/promises';
 const endpoint='https://openspeech.bytedance.com/api/v3/auc/bigmodel';
 const resource='volc.bigasr.auc';
+const quotaTypes=new Set(['qps','concurrency','audio_duration','audio_duration_saas','audio_duration_lifetime','text_words_lifetime','tokens_lifetime']);
 const failureMessages={
  submit:{response:'ASR submit outcome unknown; retain the task ID and query it'},
  query:{response:'ASR query returned an unknown status; retain this task ID',transport:'ASR query failed; retry this task ID',http:'ASR query failed; retry this task ID',json:'ASR query returned invalid JSON',result:'ASR query failed; retry this task ID'},
@@ -10,7 +11,7 @@ const failureMessages={
 
 /**
  * Safe provider diagnostics. A rejection records a response, never a known charge outcome.
- * Only operation, reason, code, message, validated HTTP status, and numeric supplier code are retained.
+ * Only fixed messages, validated status fields and allowlisted query retry diagnostics are retained.
  */
 export class AsrProviderError extends Error{
  /**
@@ -26,6 +27,12 @@ export class AsrProviderError extends Error{
   if(Number.isInteger(response?.status)&&response.status>=100&&response.status<=599)this.httpStatus=response.status;
   const providerCode=response?.headers.get('X-Api-Status-Code');
   if(typeof providerCode==='string'&&/^\d{5,10}$/.test(providerCode))this.providerCode=providerCode;
+  if(operation==='query'){
+   const quota=/^quota exceeded for types: ([a-z_]+)$/i.exec(response?.headers.get('X-Api-Message')??'')?.[1]?.toLowerCase();
+   if(quotaTypes.has(quota))this.quotaType=quota;
+   const retry=response?.headers.get('Retry-After');
+   if(typeof retry==='string'&&/^\d{1,5}$/.test(retry)&&Number(retry)>0&&Number(retry)<=86400)this.retryAfterSeconds=Number(retry);
+  }
   this.code=['response','http'].includes(reason)&&!(this.httpStatus>=500)&&(this.httpStatus>=400||this.providerCode!==undefined)?'provider_rejected':'provider_unavailable';
  }
 }

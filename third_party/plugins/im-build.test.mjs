@@ -77,7 +77,7 @@ test('packs a reproducible native IM client and Muse migration entry without mod
     assert.deepEqual(manifest.dsh.bundle, upstream.dsh.bundle)
     assert.equal(member(archives[0], 'cordis.patch.yml').trim(), '[]')
     assert.equal(member(archives[0], 'LICENSE'), readFileSync(join(source, 'LICENSE'), 'utf8'))
-    for (const path of ['lib/index.js', 'lib/upstream.js', 'lib/client.js', 'lib/muse-im-migration.mjs', 'lib/muse-im-admission.mjs', 'lib/muse-im-workspace.mjs']) {
+    for (const path of ['lib/index.js', 'lib/upstream.js', 'lib/client.js', 'lib/muse-im-migration.mjs', 'lib/muse-im-admission.mjs', 'lib/muse-im-workspace.mjs', 'lib/muse-im-team.mjs']) {
       assert.ok(member(archives[0], path).trim(), `missing packaged ${path}`)
     }
     const entry = member(archives[0], 'lib/index.js')

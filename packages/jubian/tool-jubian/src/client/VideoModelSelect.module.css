@@ -15,3 +15,8 @@
 .cell:hover:not(:disabled), .cell:focus-visible { background: var(--dsw-alias-interactive-bg-hover); }
 .cell:disabled { opacity: 0.5; cursor: default; }
 .value { flex: 1; min-width: 0; color: var(--dsw-alias-label-tertiary); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.details { display: block; width: 100%; }
+.details .trigger { width: 100%; max-width: none; height: 48px; padding: 0 12px; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); border-radius: var(--dsw-radius-md); }
+.details .trigger > span:first-child { flex: 1; text-align: left; }
+.detailMenu { width: 100%; }

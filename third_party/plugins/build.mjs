@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
+import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
 import { applyFeishuDesktopCompatibility, finishFeishuDesktopCompatibility, feishuDesktopCompatibility } from './compatibility/feishu-desktop.mjs'
@@ -105,6 +106,10 @@ for (const name of values.only ? [values.only] : desktopSources) {
       applyImDesktopCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     }
+    if (name === 'ds-bot') {
+      applyMuseBotDesktopCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    }
     if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
     if (name === 'muse-hongguo-search') {
       applyHongguoHostCompatibility(directory)
@@ -142,6 +147,8 @@ export function codexFilesystemPath(value) {
       run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/codex-subscription-client.client.spec.tsx'], repository, {
         MUSE_CODEX_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
       })
+    } else if (name === 'ds-bot') {
+      run(['scripts/build-client.mjs'], directory)
     } else if (name === 'dsh-im') {
       run(['plugin-src/client/build.mjs'], directory, { NODE_ENV: 'production' })
       run(['plugin-src/host/build.mjs'], directory)
@@ -181,11 +188,11 @@ export function codexFilesystemPath(value) {
     }
     if (name === 'dsh-im') {
       cpSync(join(sourceRoot, 'checks/expected/im-host-transcript.json'), join(directory, 'expected/im-host-transcript.json'))
-      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-socket', 'im-files', 'im-workspace']) {
+      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-socket', 'im-files', 'im-workspace', 'im-team']) {
         cpSync(join(sourceRoot, 'checks', `${check}.mjs`), join(directory, `.muse-${check}.test.mjs`))
       }
       run(['--test', '--test-concurrency=1', '--test-timeout=30000',
-        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs'], directory)
+        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs', '.muse-im-team.test.mjs'], directory)
     }
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
@@ -213,6 +220,7 @@ export function codexFilesystemPath(value) {
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility
             : name === 'dsh-feishu' ? feishuDesktopCompatibility
               : name === 'dsh-im' ? imDesktopCompatibility
+                : name === 'ds-bot' ? museBotDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility
               : name === 'muse-hongguo-search' ? hongguoHostCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),

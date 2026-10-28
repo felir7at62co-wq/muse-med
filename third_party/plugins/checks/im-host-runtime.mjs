@@ -493,18 +493,24 @@ test('the built Runtime contains admission failures and drains replies when sock
   const state = await new StateStore(join(root, 'state.json')).load()
   const socket = Object.assign(new EventEmitter(), { readyState: 1 })
   let dispatcher
-  let replyStarted = false
-  let closeAttempted = false
+  let harnessCalls = 0
+  const receivedFailure = Promise.withResolvers()
+  const receivedVersion = Promise.withResolvers()
+  const closeAttempted = Promise.withResolvers()
+  const writes = []
+  const warnings = []
   const errors = []
   const unhandled = []
   const onUnhandled = error => unhandled.push(error)
   process.on('unhandledRejection', onUnhandled)
   t.after(() => process.off('unhandledRejection', onUnhandled))
   const reply = Promise.withResolvers()
-  const send = async () => {
-    replyStarted = true
+  const send = async request => {
+    writes.push(request)
+    if (request.path?.message_id === 'invalid-admission') receivedFailure.resolve(request)
+    if (request.path?.message_id === 'native-version') receivedVersion.resolve(request)
     await reply.promise
-    return { code: 0, data: { message_id: 'delayed-native-reply' } }
+    return { code: 0, data: { message_id: `reply-${request.path?.message_id}` } }
   }
   const lark = {
     Domain: { Feishu: 'feishu', Lark: 'lark' }, LoggerLevel: { info: 'info' },
@@ -515,7 +521,7 @@ test('the built Runtime contains admission failures and drains replies when sock
       wsConfig = { getWSInstance: () => socket }
       start() { this.options.onReady() }
       getConnectionStatus() { return { state: 'connected' } }
-      close() { closeAttempted = true; throw new Error('synthetic SDK close failure') }
+      close() { closeAttempted.resolve(); throw new Error('synthetic SDK close failure') }
     },
   }
   const runtime = new FeishuRuntime({ lark, appId: 'cli_synthetic', appSecret: 'synthetic-only',
@@ -524,7 +530,8 @@ test('the built Runtime contains admission failures and drains replies when sock
       if (event.message.message_id === 'invalid-admission') throw new Error('synthetic admission failure')
       return true
     } },
-    harness: { ensureRunning: async () => {} }, logger: { warn() {}, error: (...args) => errors.push(args), info() {} } })
+    harness: { ensureRunning: async () => { harnessCalls++ } },
+    logger: { warn: (...args) => warnings.push(args), error: (...args) => errors.push(args), info() {} } })
   t.after(async () => {
     reply.resolve()
     // The injected socket failure is asserted below; cleanup must still release the private files.
@@ -532,12 +539,27 @@ test('the built Runtime contains admission failures and drains replies when sock
     await rm(root, { recursive: true, force: true })
   })
   await runtime.start()
+  const readyHarnessCalls = harnessCalls
   dispatcher['im.message.receive_v1']({
     sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
     message: { message_id: 'invalid-admission', message_type: 'text', chat_type: 'p2p',
       chat_id: 'oc_private', content: JSON.stringify({ text: 'test admission failure' }) },
   })
-  await until(() => errors.some(entry => entry.some(value => value?.message === 'synthetic admission failure')), 'admission rejection is reported locally')
+  const failureReply = await receivedFailure.promise
+  const failure = runtime.status.lastMessageError
+  assert.equal(failure.code, 'INTERNAL_UNKNOWN')
+  assert.ok(failure.referenceId)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0][0], /Muse Bot routing failed/u)
+  assert.equal(warnings[0][1].code, failure.code)
+  assert.equal(warnings[0][1].referenceId, failure.referenceId)
+  assert.equal(failureReply.data.msg_type, 'text')
+  assert.match(JSON.parse(failureReply.data.content).text, /INTERNAL_UNKNOWN/u)
+  assert.ok(JSON.parse(failureReply.data.content).text.includes(failure.referenceId))
+  assert.doesNotMatch(failureReply.data.content, /synthetic admission failure/u)
+  assert.equal(harnessCalls, readyHarnessCalls, 'a routing failure never reaches the Harness')
+  assert.equal(state.hasSeen('invalid-admission'), false)
+  assert.deepEqual(errors, [])
   assert.equal(runtime.status.ready, true)
   assert.equal(unhandled.length, 0)
   dispatcher['im.message.receive_v1']({
@@ -545,19 +567,21 @@ test('the built Runtime contains admission failures and drains replies when sock
     message: { message_id: 'native-version', message_type: 'text', chat_type: 'p2p',
       chat_id: 'oc_private', content: JSON.stringify({ text: '/version' }) },
   })
-  await until(() => replyStarted, 'admitted reply entered the fake wire')
+  await receivedVersion.promise
   let stopped = false
   const stopping = runtime.stop().then(() => { stopped = true; return undefined }, error => { stopped = true; return error })
-  await until(() => closeAttempted, 'Runtime attempted socket shutdown')
-  assert.equal(stopped, false, 'a close failure cannot skip draining an already admitted reply')
+  await closeAttempted.promise
+  assert.equal(stopped, false, 'a close failure cannot skip draining routing-error or admitted replies')
   assert.equal(socket.listenerCount('close'), 0)
   assert.equal(socket.listenerCount('error'), 0)
   reply.resolve()
-  const failure = await stopping
-  assert.ok(failure instanceof AggregateError)
-  assert.ok(failure.errors.some(error => error.message === 'synthetic SDK close failure'))
+  const shutdownFailure = await stopping
+  assert.ok(shutdownFailure instanceof AggregateError)
+  assert.ok(shutdownFailure.errors.some(error => error.message === 'synthetic SDK close failure'))
   assert.equal(runtime.status.ready, false)
   assert.equal(state.hasSeen('native-version'), true)
+  assert.deepEqual(writes.map(request => request.path.message_id).sort(), ['invalid-admission', 'native-version'])
+  assert.deepEqual(errors, [])
   assert.equal(unhandled.length, 0)
 })
 

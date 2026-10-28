@@ -24,6 +24,7 @@ import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import {
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
+  DESKTOP_MUSE_BOT_PACKAGE,
   DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
   verifyDesktopCorePackageSet,
@@ -86,6 +87,7 @@ const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
+  DESKTOP_MUSE_BOT_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
@@ -183,7 +185,7 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
  * A profile stores the built-in bundle list of the release that wrote it, followed by its own
  * third-party bundles, so a release that appends a built-in bundle leaves the built-in list as a
  * true prefix of the stored list and the remainder is still that profile's third-party list. An
- * existing external Feishu or Codex subscription bundle is promoted into its built-in position. Other missing
+ * existing external Feishu, Codex subscription, or Muse Bot bundle is promoted into its built-in position. Other missing
  * middle bundles, reordered built-ins, and unknown bundles ahead of them remain invalid.
  *
  * @param stored - `dsh.profile.bundles` as an earlier release wrote it.
@@ -196,7 +198,7 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
   const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
   if (missingAt === -1) return undefined
   const tail = normalized.slice(missingAt)
-  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE])
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE])
   if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }

@@ -10,3 +10,5 @@ kind: "reference"
 ## Summary
 
 [`muse-accounts`](muse-accounts/README.zh.md) 收录账号网关的源码与测试。桌面构建不会启动它；发布时需将其与对应版本的 runtime 和 global 包一起复制到独立的服务器发布目录。
+
+[`muse-runtime`](muse-runtime/README.zh.md) 提供独立部署的工作间 broker 的优雅关闭入口。

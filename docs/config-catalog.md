@@ -429,13 +429,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-argument-loop`
 
 - `inject`: `llm`
-- `source`: [`packages/guard/argument-loop/src/index.ts:24`](../packages/guard/argument-loop/src/index.ts)
+- `source`: [`packages/guard/argument-loop/src/index.ts:25`](../packages/guard/argument-loop/src/index.ts)
 
 ```ts config-catalog
 /** Deployment policy; the package deliberately supplies no global threshold. */
 export interface Config {
   /** Occurrences of one decoded member name within one JSON object that stop a response. */
   repeatedPropertyLimit: number
+  /** Maximum fresh responses after local loop failures within one turn; zero disables recovery. */
+  recoveryAttempts?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-argument-loop -->

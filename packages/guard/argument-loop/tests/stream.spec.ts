@@ -77,6 +77,9 @@ describe('explicit configuration and request selection', () => {
     { repeatedPropertyLimit: -1 }, { repeatedPropertyLimit: 1.5 },
     { repeatedPropertyLimit: Number.NaN }, { repeatedPropertyLimit: Number.POSITIVE_INFINITY },
     { repeatedPropertyLimit: Number.MAX_SAFE_INTEGER + 1 }, { repeatedPropertyLimit: '64' },
+    { repeatedPropertyLimit: 64, recoveryAttempts: -1 }, { repeatedPropertyLimit: 64, recoveryAttempts: 0.5 },
+    { repeatedPropertyLimit: 64, recoveryAttempts: Number.NaN }, { repeatedPropertyLimit: 64, recoveryAttempts: Number.POSITIVE_INFINITY },
+    { repeatedPropertyLimit: 64, recoveryAttempts: Number.MAX_SAFE_INTEGER + 1 }, { repeatedPropertyLimit: 64, recoveryAttempts: '1' },
   ])('rejects a missing or unusable explicit threshold: %j', async (config) => {
     const ctx = new Context()
     contexts.add(ctx)

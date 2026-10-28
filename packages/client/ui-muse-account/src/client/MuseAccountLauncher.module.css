@@ -12,11 +12,6 @@
   grid-row: 1;
 }
 
-.root[data-settings-launcher-layout='inline'] > .trigger:last-child {
-  grid-column: -2 / -1;
-  grid-row: 1;
-}
-
 .trigger {
   display: flex;
   box-sizing: border-box;
@@ -38,12 +33,6 @@
 
 .trigger:hover {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.feedback {
-  width: 44px;
-  justify-content: center;
-  padding: 0;
 }
 
 .trigger[data-collapsed='true'] {

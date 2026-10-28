@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
+import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_MUSE_BOT_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopDramaSkillPackageFiles,
   assertDesktopCodexPackageFiles,
+  assertDesktopMuseBotPackageFiles,
   assertDesktopFeishuPackageFiles,
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
@@ -89,7 +90,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['ds-bot', 'dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -131,6 +132,14 @@ describe('desktop package-set selection', () => {
     expect(() => { assertDesktopCodexPackageFiles(files) }).not.toThrow()
     for (const file of files) {
       expect(() => { assertDesktopCodexPackageFiles(files.filter(value => value !== file)) }).toThrow(file.slice('package/'.length))
+    }
+  })
+
+  it('requires the Muse Bot Host, client and Apache attribution in the release tarball', () => {
+    const files = DESKTOP_MUSE_BOT_RUNTIME_FILES.map(file => `package/${file}`)
+    expect(() => { assertDesktopMuseBotPackageFiles(files) }).not.toThrow()
+    for (const file of files) {
+      expect(() => { assertDesktopMuseBotPackageFiles(files.filter(value => value !== file)) }).toThrow(file.slice('package/'.length))
     }
   })
 
@@ -216,12 +225,15 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('requires the IM Host, native client, migration helper, source record and license', () => {
+  it('requires the IM Host, native client, Session routing helpers, source record and license', () => {
     const files = [
       'package/lib/index.js',
       'package/lib/upstream.js',
       'package/lib/client.js',
       'package/lib/muse-im-migration.mjs',
+      'package/lib/muse-im-admission.mjs',
+      'package/lib/muse-im-workspace.mjs',
+      'package/lib/muse-im-team.mjs',
       'package/cordis.patch.yml',
       'package/LICENSE',
       'package/SOURCE.json',

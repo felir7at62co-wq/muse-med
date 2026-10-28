@@ -5,6 +5,34 @@ import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 describe('real app and Loader composition', () => {
+  it.each(['recover', 'prior-recover', 'exhausted'] as const)('bounds %s recovery without replaying completed effects or malformed calls', {
+    timeout: LOADER_SMOKE_TEST_TIMEOUT_MS,
+  }, async (scenario) => {
+    const fixture = new URL('./fixtures/', import.meta.url)
+    const prior = scenario === 'prior-recover'
+    const exhausted = scenario === 'exhausted'
+    const result = await runLoaderSmoke({
+      label: 'tool argument loop bounded recovery',
+      binScript: fileURLToPath(new URL('driver.ts', fixture)),
+      libBinScript: fileURLToPath(new URL('driver.ts', fixture)),
+      configPath: fileURLToPath(new URL('cordis.yml', fixture)),
+      binArgs: [fileURLToPath(new URL('cordis.yml', fixture)), scenario],
+      tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.base.json', import.meta.url)),
+      tempDirPrefix: 'dsh-argument-recovery-loader-',
+      inspect: async (cwd) => {
+        expect(JSON.parse(await readFile(join(cwd, 'result.json'), 'utf8'))).toMatchObject({
+          passed: true, requests: exhausted ? 2 : prior ? 4 : 3,
+          repeated_members_produced: exhausted ? 128 : 64,
+          successful_writes: prior ? 1 : 0, simulated_paid_calls: prior ? 1 : 0,
+          failed_response_tool_calls: 0, recovered_writes: exhausted ? 0 : 1,
+          retry_events: 0, raw_attempts: exhausted ? 2 : 1,
+          goal_phase: exhausted ? 'active' : 'blocked', goal_rounds_started: 1,
+          plugin_disposal_completed: true, actual_muse_defaults_loaded: true,
+        })
+      },
+    })
+    expect(result.stdout).toContain('"passed":true')
+  })
   it.each(['first', 'prior'] as const)('settles %s-response failure without provider retry, continuation, tool replay, or repeated cost', {
     timeout: LOADER_SMOKE_TEST_TIMEOUT_MS,
   }, async (scenario) => {

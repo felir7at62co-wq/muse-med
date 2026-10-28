@@ -31,11 +31,11 @@ Each opening verifies the saved login with the gateway before displaying account
 
 The signed-in account area shows **User management** only when the Host returns a verified administrator identity and an administration URL. Reverification immediately hides that entry until it succeeds again. Cached or ordinary identities never show it. The button opens the Host-validated administration URL without appending credentials.
 
-Set the required `feedbackUrl` to the product's HTTPS feedback page without URL credentials. Local gateways may use HTTP only on `localhost`, `127.0.0.1`, or `[::1]`, with an optional explicit port and a non-root page path. The sidebar **Feedback** button opens that page without appending credentials. Desktop configures `/feedback` on the Muse gateway; browser sign-in is separate from the saved desktop session.
+Existing Desktop compositions continue to supply the required `feedbackUrl` setting for compatibility. It accepts HTTPS pages without URL credentials; local gateways may use HTTP only on `localhost`, `127.0.0.1`, or `[::1]`, with an optional explicit port and a non-root page path. In **Muse Bot settings → Feedback**, open the native session feedback form and submit it after reviewing the content.
 
-In Muse Desktop this plugin also provides delivery for the existing message and task feedback dialogs through `museAccount.feedback`. Their submissions use the saved Desktop login, while the sidebar page uses browser sign-in. Both arrive in the same account opinion inbox. The [dialog package](../ui-message-feedback/README.md) owns the optional excerpt choice, retained drafts, and receipt acknowledgement. Missing Muse delivery never becomes a local-only success; other profiles retain their local feedback behavior.
+In Muse Desktop this plugin also provides delivery for the existing message and task feedback dialogs through `museAccount.feedback`. Their submissions use the saved Desktop login and arrive in the account opinion inbox. The [dialog package](../ui-message-feedback/README.md) owns the optional excerpt choice, retained drafts, and receipt acknowledgement. Missing Muse delivery never becomes a local-only success; other profiles retain their local feedback behavior.
 
-The expanded sidebar shows Account and Feedback on one row: Account fills the available space, and Feedback is a trailing paper-plane icon with a tooltip. Connection and update status appear between them when present. The collapsed sidebar uses compact icon buttons with tooltips.
+The sidebar shows one account button beside connection and update status. The expanded button includes its label; the collapsed button uses a compact icon with a tooltip.
 
 -----
 

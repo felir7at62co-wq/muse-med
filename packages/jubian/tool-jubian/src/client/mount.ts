@@ -8,11 +8,13 @@
  * artifact.
  */
 
+import { createElement, useSyncExternalStore, type ReactNode } from 'react'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import { VideoDirectory } from './video-directory.ts'
-import { VideoModelSelect } from './VideoModelSelect.tsx'
+import { VideoModelSelect, type VideoModelSelectProps } from './VideoModelSelect.tsx'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -35,6 +37,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Jubian token section copy. */
     'settings.jubian': JubianLocaleKey
+  }
+}
+
+/** Reuse the session video selector in the Bot details panel. */
+export interface JubianVideoUi {
+  /** Render the selected Session's video controls when its scope is available. */
+  render(sessionId: SessionId): ReactNode
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Client-side video selector for the specified Session. */
+    jubianVideoUi: JubianVideoUi
   }
 }
 
@@ -74,32 +89,49 @@ function registerSection(ctx: ClientContext): void {
   })
 
   ctx.inject(['sessions', 'remote.jubianVideoSelection'], (scope) => {
-    const directories = new WeakMap<object, VideoDirectory>()
+    const directories = new WeakMap<object, { directory: VideoDirectory; scope: object }>()
     const controller = new AbortController()
     scope.effect(() => () => { controller.abort() })
     scope.effect(async () => {
       const available = await scope.remote.jubianVideoSelection.available()
       if (controller.signal.aborted || !available.ok || !available.value) return () => undefined
+      const directoryFor = (sessionId: SessionId): VideoDirectory => {
+        const binding = scope.sessions.binding(sessionId)
+        const sessionScope = scope.sessions.scope(sessionId)
+        if (!binding || !sessionScope) throw new Error('Video selector requires a session scope')
+        const cached = directories.get(binding)
+        if (cached?.scope === sessionScope) return cached.directory
+        const directory = new VideoDirectory(scope.remote.jubianVideoSelection, sessionId,
+          binding.session.projections.faceOf('jubianVideoSelection'))
+        const entry = { directory, scope: sessionScope }
+        directories.set(binding, entry)
+        const release = scope.effect(() => () => directory.dispose())
+        sessionScope.effect(() => {
+          void directory.load()
+          return () => { if (directories.get(binding) === entry) directories.delete(binding); return release() }
+        })
+        return directory
+      }
+      const detail = ({ sessionId, selected }: { sessionId: SessionId; selected: VideoDirectory }): ReactNode => {
+        const useVideoState: VideoModelSelectProps['useVideoState'] = selector => useSyncExternalStore(
+          listener => selected.store.subscribe(listener), () => selector(selected.store.getSnapshot()))
+        return createElement(VideoModelSelect, { sessionId, useVideoState, t, variant: 'details',
+          load: () => selected.load(), select: (key: string) => selected.select(key) } as VideoModelSelectProps)
+      }
+      const releaseDetail = scope.provide('jubianVideoUi', {
+        render: (sessionId: SessionId) => {
+          if (!scope.sessions.binding(sessionId) || !scope.sessions.scope(sessionId)) return null
+          return createElement(detail, { sessionId, selected: directoryFor(sessionId) })
+        },
+      })
       const registration = scope.slots.inject('conversation.input.right', () => scope.slots.register({
         name: 'conversation.input.right', id: 'jubian-video-model', order: 80, locale: NS,
         inject: (sessionId) => {
-          const binding = scope.sessions.binding(sessionId)
-          const sessionScope = scope.sessions.scope(sessionId)
-          if (!binding || !sessionScope) throw new Error('Video selector requires a session scope')
-          let directory = directories.get(binding)
-          if (!directory) {
-            directory = new VideoDirectory(scope.remote.jubianVideoSelection, sessionId,
-              binding.session.projections.faceOf('jubianVideoSelection'))
-            directories.set(binding, directory)
-            const owned = directory
-            const release = scope.effect(() => () => owned.dispose())
-            sessionScope.effect(() => { void owned.load(); return () => release() })
-          }
-          const selected = directory
+          const selected = directoryFor(sessionId)
           return { hooks: { videoState: selected.store }, load: () => selected.load(), select: (key: string) => selected.select(key) }
         },
       }, VideoModelSelect))
-      return registration
+      return () => { registration(); releaseDetail() }
     })
   })
 

@@ -1,0 +1,26 @@
+{
+  "status": "uncertain",
+  "provider_diagnostic": {
+    "reason": "http",
+    "operation": "query",
+    "http_status": 429,
+    "provider_code": "45000292",
+    "quota_type": "audio_duration_lifetime"
+  },
+  "recovery": {
+    "capability": "query_original_task",
+    "next_action": "inspect_receipt",
+    "automatic_resubmit": false,
+    "retry_after": 300
+  },
+  "retry_after_seconds": 300,
+  "originalJobIdRetained": true,
+  "originalSupplierTaskIdRetained": true,
+  "accountSubmissions": 0,
+  "providerSubmissions": 0,
+  "providerQueries": 0,
+  "statusReads": 1,
+  "sourcePreserved": true,
+  "receiptPreserved": true,
+  "transcriptPublished": false
+}

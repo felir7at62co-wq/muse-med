@@ -15,14 +15,21 @@ afterEach(async () => {
   await closeMockServers()
 })
 
-it.each([{ status: 401, code: 'AUTH' }, { status: 400, code: 'INVALID_REQUEST' }])(
-  'keeps supplier credentials out of durable failure events for HTTP $status', async ({ status, code }) => {
+it.each([
+  { status: 401, code: 'AUTH', finishReason: undefined },
+  { status: 400, code: 'INVALID_REQUEST', finishReason: undefined },
+  { status: 200, code: 'CONTENT_FILTER', finishReason: 'content_filter' },
+  { status: 200, code: 'TRANSPORT', finishReason: 'network_error' },
+])(
+  'keeps supplier credentials out of durable $code failure events', async ({ status, code, finishReason }) => {
     const root = await mkdtemp(join(tmpdir(), 'muse-model-errors-session-'))
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     const owned = await oldSessionFixture(false, root)
     cleanup.push(() => owned.ctx.fiber.dispose())
     const key = 'synthetic-supplier-refusal-credential'
-    const server = await mockServer([{ status, body: JSON.stringify({ error: { message: `Request credential ${key}` } }) }])
+    const server = await mockServer([finishReason === undefined
+      ? { status, body: JSON.stringify({ error: { message: `Request credential ${key}` } }) }
+      : { events: [JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finishReason }] }), '[DONE]'] }])
     const baseUrl = 'https://muse.test'
     const sessionFile = join(root, 'session.json')
     await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=alice-session' })
@@ -43,6 +50,7 @@ it.each([{ status: 401, code: 'AUTH' }, { status: 400, code: 'INVALID_REQUEST' }
     expect(events.some(event => event.type === 'assistant/attempt')).toBe(true)
     const ending = events.find(event => event.type === 'turn/end')
     expect(ending?.data.reason).toMatchObject({ kind: 'error', error: { code } })
+    expect(server.paths).toEqual(['/chat/completions'])
     expect(JSON.stringify(events)).not.toContain(key)
     expect(JSON.stringify(events)).not.toContain('Request credential')
   })
