@@ -9,6 +9,7 @@ function fakePanels(): PanelActions {
     retainMainPanels: vi.fn(),
     setSidebar: vi.fn(),
     toggleSidebar: vi.fn(),
+    setSidebarRailRetained: vi.fn(),
     setViewportWidth: vi.fn(),
     setRightbar: vi.fn(),
     openRightbar: vi.fn(),
@@ -42,6 +43,32 @@ describe('LayoutController', () => {
 
     expect(panels.toggleSidebar).toHaveBeenCalledTimes(1)
     expect(panels.setSidebar).not.toHaveBeenCalled()
+  })
+
+  it('retains the compact rail for multiple owners and releases each owner only once', () => {
+    const panels = fakePanels()
+    const service = new LayoutController(panels, () => true, createSnapshotStore({ activePanelId: null }))
+    const first = service.retainSidebarRail()
+    const second = service.retainSidebarRail()
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledExactlyOnceWith(true)
+    first(); first()
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledTimes(1)
+    second(); second()
+    expect(panels.setSidebarRailRetained).toHaveBeenNthCalledWith(2, false)
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledTimes(2)
+    expect(panels.setSidebar).not.toHaveBeenCalled()
+    expect(panels.toggleSidebar).not.toHaveBeenCalled()
+  })
+
+  it('releases retained rails on layout disposal without later owner writes', () => {
+    const panels = fakePanels()
+    const service = new LayoutController(panels, () => true, createSnapshotStore({ activePanelId: null }))
+    const release = service.retainSidebarRail()
+    service.dispose()
+    service.dispose()
+    release()
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledTimes(2)
+    expect(panels.setSidebarRailRetained).toHaveBeenLastCalledWith(false)
   })
 
   it('forwards panel selection and returning to the Conversation without changing geometry', () => {

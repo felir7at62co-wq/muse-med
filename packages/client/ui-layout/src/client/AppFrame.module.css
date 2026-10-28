@@ -165,17 +165,16 @@
 
 /* The darwin closed sidebar has no rail: the centre reaches the window edge,
    where a separator would draw a seam against nothing. */
-:global([data-platform='darwin']) [data-sidebar-collapsed] .centerCol {
+:global([data-platform='darwin']) [data-sidebar-hidden] .centerCol {
   border-left: none;
 }
 
 /* Published while the shell.leading seat is mounted (same condition as the
-   TSX mount: darwin with the sidebar collapsed — the collapse that hides the
-   column entirely): the inline band the window chrome occupies, measured from
+   TSX mount: darwin with a zero-width sidebar column): the inline band the window chrome occupies, measured from
    the frame's left edge — traffic lights to x 68, controls at x 88
    (28 + 8 + 28), then 8px of air. Main panels whose content reaches the
    top-left corner pad by this. */
-:global([data-platform='darwin']) .frame[data-sidebar-collapsed] {
+:global([data-platform='darwin']) .frame[data-sidebar-hidden] {
   --dsh-frame-leading-clearance: 160px;
 }
 
@@ -184,7 +183,7 @@
    only the controls (12 + 28 + 8 + 28 + 8). The 12px start matches the
    expanded sidebar strip's inline padding (ui-sidebar .topStrip), so
    collapsing never shifts the toggle. */
-:global([data-platform='darwin'][data-fullscreen]) .frame[data-sidebar-collapsed] {
+:global([data-platform='darwin'][data-fullscreen]) .frame[data-sidebar-hidden] {
   --dsh-frame-leading-clearance: 84px;
 }
 

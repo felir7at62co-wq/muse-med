@@ -172,6 +172,7 @@ export function SidebarRoot({
   const buildVersion = localBuildVersion()
 
   const darwinDesktop = isDarwinDesktop()
+  const desktopRail = collapsed && width > 0 && (darwinDesktop || windowsTitlebar)
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
@@ -199,6 +200,7 @@ export function SidebarRoot({
   return (
     <div
       ref={column}
+      data-desktop-rail={desktopRail || undefined}
       className={clsx(
         css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
         collapsed && wide && css.fading, !pointerInside && css.quietBars,
@@ -212,7 +214,7 @@ export function SidebarRoot({
     >
       {/* macOS hiddenInset titlebar: the strip shares the row with the
           traffic lights and keeps the toggle at the sidebar's top-right. */}
-      {darwinDesktop && <div className={css.topStrip} data-window-drag>{toggle}</div>}
+      {darwinDesktop && <div className={css.topStrip} data-window-drag>{!desktopRail && toggle}</div>}
       <div className={css.logoRow} data-window-drag>
         {/* Expanded, the brand doubles as a New Session shortcut — except on
             macOS, where it stays part of the logo row's window-drag surface
@@ -252,7 +254,7 @@ export function SidebarRoot({
               </button>
             )
         })()}
-        {!darwinDesktop && toggle}
+        {(!darwinDesktop || desktopRail) && toggle}
       </div>
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}

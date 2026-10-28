@@ -259,6 +259,45 @@ it('keeps the macOS sidebar toggle in its top strip', () => {
   expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
 })
 
+it('places the retained macOS rail toggle below the traffic-light strip', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  const shell = mountShell({ collapsed: true, width: 56 })
+  const toggle = screen.getByRole('button', { name: 'Open sidebar' })
+  const column = toggle.closest('[data-desktop-rail]')
+  expect(column).not.toBeNull()
+  const dragRows = column!.querySelectorAll('[data-window-drag]')
+  expect(dragRows).toHaveLength(2)
+  expect(dragRows[0]!.contains(toggle)).toBe(false)
+  expect(dragRows[1]!.contains(toggle)).toBe(true)
+  expect(shell.regionOwner().wide).toBe(false)
+  expect(screen.getByTestId('settings-seat')).toBeTruthy()
+  fireEvent.click(toggle)
+  expect(shell.toggleSidebar).toHaveBeenCalledOnce()
+})
+
+it('keeps the zero-width macOS sidebar toggle in its existing chrome strip', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  mountShell({ collapsed: true, width: 0 })
+  const toggle = screen.getByRole('button', { name: 'Open sidebar' })
+  expect(toggle.closest('[data-desktop-rail]')).toBeNull()
+  expect(toggle.parentElement!.hasAttribute('data-window-drag')).toBe(true)
+  expect(toggle.parentElement!.nextElementSibling!.contains(toggle)).toBe(false)
+})
+
+it('marks only positive-width collapsed Windows sidebars as retained rails', () => {
+  document.documentElement.setAttribute('data-windows-titlebar', '')
+  try {
+    const shell = mountShell({ collapsed: true, width: 56 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).not.toBeNull()
+    shell.rerender({ width: 0 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).toBeNull()
+    shell.rerender({ collapsed: false, width: 300 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).toBeNull()
+  } finally {
+    document.documentElement.removeAttribute('data-windows-titlebar')
+  }
+})
+
 it('wires the shell.leading controls to the shared sidebar actions', () => {
   const toggleSidebar = vi.fn()
   const startSession = vi.fn()

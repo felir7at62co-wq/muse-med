@@ -127,6 +127,20 @@ describe('ui-layout client apply', () => {
     expect(pending.aborted).toBe(true)
   })
 
+  it('releases a shell rail request when its Cordis owner unloads', async () => {
+    const { ctx, slots } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const handle = slots.entries('root')[0]!.store as ReturnType<typeof createLayoutStore>
+    const instance = handle.create()
+    const consumer = ctx.plugin({ inject: ['layout'], apply: (scope) => {
+      scope.effect(() => scope.layout.retainSidebarRail(), 'fixture: compact rail')
+    } })
+    await consumer.await()
+    expect(instance.getSnapshot().layoutInfo.sidebarRailRetained).toBe(true)
+    await consumer.dispose()
+    expect(instance.getSnapshot().layoutInfo.sidebarRailRetained).toBe(false)
+  })
+
   it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {
     const { ctx } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })

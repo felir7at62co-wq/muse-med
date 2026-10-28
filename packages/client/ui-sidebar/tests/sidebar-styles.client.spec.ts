@@ -26,6 +26,19 @@ function declarations(selector: string): Map<string, string> | undefined {
 }
 
 describe('SidebarRoot.module.css', () => {
+  it('hides Windows navigation only when collapse removes the whole column', () => {
+    for (const child of ['.panelList', '.regionArea', '.footArea']) {
+      expect(declarations(`:global([data-windows-titlebar]) .collapsed:not([data-desktop-rail]) ${child}`)?.get('display')).toBe('none')
+      expect(declarations(`:global([data-windows-titlebar]) .collapsed ${child}`)).toBeUndefined()
+    }
+    expect(declarations(':global([data-windows-titlebar]) .root.collapsed:not([data-desktop-rail])')?.get('padding')).toBe('0')
+  })
+
+  it('removes the empty native chrome strip from retained fullscreen rails', () => {
+    expect(declarations(':global([data-fullscreen]) .root[data-desktop-rail] .topStrip')?.get('display')).toBe('none')
+    expect(declarations(':global([data-fullscreen]) .root[data-desktop-rail] .logoRow')?.get('margin-top')).toBe('0')
+  })
+
   it('shares and cancels the wide shell trailing padding structurally', () => {
     const root = declarations('.root')
     expect(root?.get('--dsh-sidebar-inline-padding')).toBe('12px')

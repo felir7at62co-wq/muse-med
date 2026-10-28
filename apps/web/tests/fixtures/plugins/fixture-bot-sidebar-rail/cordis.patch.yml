@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-bot-sidebar-rail
+      name: '@fixture/bot-sidebar-rail'

@@ -10,6 +10,7 @@ import type { MainPanelId, RightbarOwnerProps, SidebarOwnerProps } from '../src/
 import { createLayoutStore } from '../src/client/stores.ts'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { LayoutController } from '../src/client/service.ts'
 
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined })) as GlobalStandardProps['useResource']
 let selectedSession: SessionId | undefined
@@ -268,6 +269,51 @@ describe('AppFrame', () => {
     expect(queryByTestId('shell.leading-content')).toBeTruthy()
     act(() => { instance.actions.toggleSidebar() })
     expect(queryByTestId('shell.leading-content')).toBeNull()
+  })
+
+  it.each(['darwin', 'windows'] as const)('retains the compact rail in %s only while its shell owns it', (platform) => {
+    if (platform === 'darwin') document.documentElement.dataset.platform = 'darwin'
+    else document.documentElement.setAttribute('data-windows-titlebar', '')
+    try {
+      const { frame, instance, sidebarOwner, queryByTestId } = mountFrame()
+      const layout = new LayoutController(instance.actions, () => true, {
+        getSnapshot: () => instance.getSnapshot().panelInfo, subscribe: listener => instance.subscribe(listener),
+      })
+      act(() => { layout.toggleSidebar() })
+      expect(tracks(frame)[0]).toBe(0)
+      expect(frame.dataset.sidebarHidden).toBe('true')
+      let release = () => {}
+      act(() => { release = layout.retainSidebarRail() })
+      expect(tracks(frame)[0]).toBe(56)
+      expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+      expect(frame.dataset.sidebarRail).toBe('true')
+      expect(frame.hasAttribute('data-sidebar-hidden')).toBe(false)
+      expect(queryByTestId('shell.leading-content')).toBeNull()
+      expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
+      act(release)
+      expect(tracks(frame)[0]).toBe(0)
+      expect(frame.dataset.sidebarHidden).toBe('true')
+      expect(frame.hasAttribute('data-sidebar-rail')).toBe(false)
+      expect(Boolean(queryByTestId('shell.leading-content'))).toBe(platform === 'darwin')
+    } finally {
+      document.documentElement.removeAttribute('data-windows-titlebar')
+    }
+  })
+
+  it('keeps retained rail geometry across responsive collapse and preserves the expanded width preference', () => {
+    document.documentElement.dataset.platform = 'darwin'
+    const { frame, instance, queryByTestId } = mountFrame()
+    act(() => {
+      instance.actions.setSidebar(400)
+      instance.actions.setSidebarRailRetained(true)
+    })
+    expect(tracks(frame)[0]).toBe(400)
+    resize(800)
+    expect(tracks(frame)[0]).toBe(56)
+    expect(queryByTestId('shell.leading-content')).toBeNull()
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(400)
+    resize(1920)
+    expect(tracks(frame)[0]).toBe(400)
   })
 
   it('switches only the keyed main outlet when the active panel changes', () => {

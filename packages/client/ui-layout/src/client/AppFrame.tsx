@@ -163,11 +163,10 @@ export function AppFrame({
     ? 0
     : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
-  // Desktop reopen controls occupy the frame's shell.leading seat (macOS) or
-  // the Windows caption row; neither platform keeps an icon rail.
+  // Native desktop hides a closed sidebar unless its navigation shell retains the rail.
   const darwin = document.documentElement.dataset.platform === 'darwin'
-  const collapsedWidth = darwin
-    || document.documentElement.hasAttribute('data-windows-titlebar') ? 0 : SIDEBAR_COLLAPSED
+  const collapsedWidth = layoutInfo.sidebarRailRetained ? SIDEBAR_COLLAPSED
+    : darwin || document.documentElement.hasAttribute('data-windows-titlebar') ? 0 : SIDEBAR_COLLAPSED
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
   const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth)
@@ -251,9 +250,10 @@ export function AppFrame({
   // hidden sidebar column on macOS desktop leaves window chrome without a
   // home — the Windows zero-width collapse keeps its controls in the caption
   // row (ui-sidebar). AppFrame.module.css publishes the matching
-  // --dsh-frame-leading-clearance under the same collapsed condition.
+  // --dsh-frame-leading-clearance under the same hidden-column condition.
   const leading = useMemo(() => renderSlot('shell.leading', {}), [renderSlot])
-  const leadingMounted = darwin && sidebarCollapsed
+  const sidebarHidden = sidebarCollapsed && cols.sidebar === 0
+  const leadingMounted = darwin && sidebarHidden
 
   return (
     <div
@@ -266,6 +266,8 @@ export function AppFrame({
           `${cols.sidebar}px minmax(${cols.rightbar === 0 ? 0 : CENTER_MIN}px, 1fr) minmax(0px, ${rightbarMax}px)`,
       }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-sidebar-hidden={sidebarHidden || undefined}
+      data-sidebar-rail={sidebarCollapsed && cols.sidebar > 0 || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
       data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
       data-rightbar-instant={layoutInfo.rightbarInstant || undefined}
