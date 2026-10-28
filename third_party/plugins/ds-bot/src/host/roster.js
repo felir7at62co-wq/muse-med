@@ -5,6 +5,7 @@ import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { cleanResidentTools } from './tool-residency.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
@@ -44,6 +45,7 @@ export function install(rt) {
   const { ctx, defaults, state } = rt
 
   let bootstrapping = null
+  let specialistSetup = null
 
   // The team folder is Muse Bot's own: deleted, it is made again before a Session needs it.
   async function keepTeamFolder() {
@@ -67,9 +69,8 @@ export function install(rt) {
 
   // A Bot keeps the Muse preset it was created with; a missing preset is a setup
   // error rather than permission to start with unrelated coding tools.
-  async function botPreset() {
+  async function botPreset(wanted = rt.config.agentPreset) {
     const presets = ctx.get?.('agentPresets')
-    const wanted = rt.config.agentPreset
     if (presets === undefined) throw new Error(`Muse Bot needs the ${wanted} agent preset service`)
     const preset = (await presets.list()).find(preset => preset.id === wanted)
     if (preset === undefined || preset.broken !== undefined) throw new Error(`Muse Bot preset ${wanted} is unavailable${preset?.broken ? `: ${preset.broken}` : ''}`)
@@ -78,12 +79,12 @@ export function install(rt) {
 
   // An existing workspace owns new Sessions at its canonical path. A folder without a
   // registered workspace still starts by cwd and does not create a workspace implicitly.
-  async function createSession(title, { dir } = {}) {
+  async function createSession(title, { dir, agentPreset } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) throw new Error(readOnly)
-    const preset = await botPreset()
+    const preset = await botPreset(agentPreset)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const workspace = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
@@ -164,7 +165,9 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, preset, resident_tools }) {
+    const agentPreset = preset ?? (main ? rt.config.mainAgentPreset : rt.config.agentPreset)
+    const residentTools = cleanResidentTools(resident_tools ?? [])
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
@@ -176,7 +179,7 @@ export function install(rt) {
     const requestedEffort = effort ?? (inherited !== undefined && inherited.model === modelRef ? inherited.effort : defaultEffort)
     const effortId = modelRef === undefined ? undefined : await rt.resolveEffort(modelRef, requestedEffort)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
-    const id = await createSession(cleanName, { dir })
+    const id = await createSession(cleanName, { dir, agentPreset })
     try {
       state.bots[id] = {
         id,
@@ -193,6 +196,8 @@ export function install(rt) {
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
+        agentPreset,
+        resident_tools: residentTools,
       }
       if (main) state.mainBotIds.push(id)
       const creator = rt.botOf(createdBy)
@@ -268,12 +273,16 @@ export function install(rt) {
       effort: served ? bot.effort : undefined,
       workDir,
       copyOf: bot.id,
+      preset: bot.agentPreset,
+      resident_tools: bot.resident_tools,
     })
   }
 
   async function updateBot(id, patch, actorId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    const residentTools = patch.resident_tools === undefined ? undefined : cleanResidentTools(patch.resident_tools)
+    const agentPreset = patch.preset === undefined ? undefined : (await botPreset(patch.preset)).agentPreset
     const managingModel = patch.model !== undefined || patch.effort !== undefined
     const nativeSelection = bot.modelSource === 'session' && managingModel ? rt.sessionSelection((await rt.resolveAgent(rt.chatOf(id))).session) : undefined
     const nativeRef = nativeSelection === undefined ? undefined : `${nativeSelection.provider}/${nativeSelection.model}`
@@ -317,6 +326,8 @@ export function install(rt) {
       await ctx.sessionTitle.rename(agent.session, next)
       await followMemberNames(Object.values(state.rooms).filter(room => room.members.includes(id)))
     }
+    if (residentTools !== undefined) bot.resident_tools = residentTools
+    if (agentPreset !== undefined) bot.agentPreset = agentPreset
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false
@@ -356,6 +367,7 @@ export function install(rt) {
       else bot.workDir = workDir
     }
     await rt.save()
+    if (residentTools !== undefined) await rt.refreshResidentTools?.(bot.id)
     if (modelChanged) await rt.applyModel(bot, { force: true })
     if (moved) void rt.followFolder(bot.id)
     if (bot.model && bot.kickoff !== undefined) {
@@ -685,11 +697,20 @@ export function install(rt) {
   async function bootstrap() {
     await rt.load()
     void rt.syncModels()
-    if (state.mainBotIds.some(id => rt.botOf(id))) return
-    // Existing teams keep their chosen names and avatars.
-    bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'violet', avatar: { shape: 'muse-spider' } })
-      .finally(() => { bootstrapping = null })
-    await bootstrapping
+    if (!state.mainBotIds.some(id => rt.botOf(id))) {
+      // Existing teams keep their chosen names, conversations and avatars.
+      bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'violet', avatar: { shape: 'muse-spider' } })
+        .finally(() => { bootstrapping = null })
+      await bootstrapping
+    }
+    if (rt.config.ensureMuseSpecialist && !Object.values(state.bots).some(bot => !rt.isMain(bot.id)
+      && (bot.agentPreset === rt.config.agentPreset || bot.name === 'Muse'))) {
+      const main = state.mainBotIds.find(id => rt.botOf(id))
+      specialistSetup ??= createBot({ name: freshName('Muse'), role: '短剧编导', preset: rt.config.agentPreset,
+        createdBy: main, brief: '作为短剧编导执行团队交来的剧本与制作任务。', avatar: { shape: 'muse-spider' } })
+        .finally(() => { specialistSetup = null })
+      await specialistSetup
+    }
   }
 
   Object.assign(rt, {

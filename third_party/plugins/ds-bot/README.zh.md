@@ -14,7 +14,7 @@ Bot 在已注册的工作间中新开会话分段时，该分段也会出现在�
 
 关闭自动登记后，仍可从“设置 → Bots → 使用已有会话”将所选 Session 原地登记，并打开原来的对话；Bot 默认使用 Session 标题命名。用户可在同页赋予主 Bot 身份。主 Bot 负责协调，也能直接执行简单任务，按需要委派。所有主 Bot 在侧边栏顶部依次排列，每行最多三个；普通置顶仍留在列表中。无论窗口宽度如何，打开 Bot 或会话都会保留侧边栏当前的展开或收起状态。
 
-团队工作区使用 Muse 预装的短剧工具，设置中不提供通用插件和能力新增入口；底部账号区继续由 Muse 管理。Bot 仍可发现和加载已有技能、使用已挂接的能力，Host 工具、权限和保存的能力定义保持不变。“关于”页展示 Muse Bot，原项目署名放在默认收起的开源许可详情中。
+新团队的主 Bot 使用 `bot-coordinator` 预设中的 DS Bot Chief of Staff 协调职责，Muse 则作为独立的 `short-drama` 专业执行 Bot。已有 Bot 的身份、Session、预设和历史继续保留。共享团队工作区保留 Muse 预装的短剧工具，设置中不提供通用插件和能力新增入口；底部账号区继续由 Muse 管理。Bot 仍可发现和加载已有技能、使用已挂接的能力，Host 工具、权限和保存的能力定义保持不变。“关于”页展示 Muse Bot，原项目署名放在默认收起的开源许可详情中。
 
 从“设置 → 反馈”打开 Muse 原有的会话反馈表单，由用户选择内容并提交；打开表单不会发送反馈或诊断信息。同一页面仍可预览、复制和保存本地诊断。
 
@@ -36,6 +36,8 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
       name: ds-bot
       config:
         agentPreset: short-drama
+        mainAgentPreset: bot-coordinator
+        ensureMuseSpecialist: true
         contextManagement: host
         goals: host
         memoryReview: false
@@ -45,11 +47,13 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
         updateCheck: false
 ```
 
-`agentPreset` 为新 Bot 会话选择已注册的 Muse 预设。`contextManagement: host` 让当前 Host 管理上下文压缩。`goals: host` 保留 Host 的目标工具和续跑行为。`updateCheck: false` 关闭插件和 Harness 的独立更新提示；已审核插件随 Muse 应用更新提供。`github: false` 关闭可选的内置 GitHub MCP 连接器。该 bundle 不替换 profile 的网页搜索、模型路由、账号设置或权限策略。
+`agentPreset` 为新专业 Bot 会话选择已注册的 Muse 预设；`mainAgentPreset` 为新主 Bot 选择预设。`ensureMuseSpecialist` 会在没有专业成员时创建一个 Muse 执行 Bot，并保留已有专业成员的身份。所需预设必须可用，创建失败时不会改用其他预设。`contextManagement: host` 让当前 Host 管理上下文压缩。`goals: host` 保留 Host 的目标工具和续跑行为。`updateCheck: false` 关闭插件和 Harness 的独立更新提示；已审核插件随 Muse 应用更新提供。`github: false` 关闭可选的内置 GitHub MCP 连接器。该 bundle 不替换 profile 的网页搜索、模型路由、账号设置或权限策略。
 
 显式配置 `memoryReview: true` 可开启 Bot 协作笔记的后台复盘，默认不发起这类额外模型请求。已登记 Session 在模型目录刷新时保留原生选择；用户通过界面或 `update_bot` 明确修改模型或推理等级后，才由 Bot 配置管理该选择。
 
 `autoSessionBots: false` 关闭自动会话登记，仍保留手动入口。`sessionBotSyncIntervalMs` 按毫秒设置名单元数据的刷新间隔；原生 Session 变更会使缓存失效。新建 Bot 会话继续使用 `short-drama`，登记已有 Session 则保留其原有预设。
+
+`create_bot` 支持 `preset` 和 `resident_tools`，`update_bot` 可以替换这两项。预设变更用于未来新建的 Session，当前会话继续使用原预设。常驻工具按精确名称存入 Bot 记录。共享的 Harness `tool_search` 按能力查找工具，`tool_context` 负责加载、常驻、取消常驻和收起。各 Bot 的私聊、群聊和后续会话分段共用自己的常驻列表。能力目录共享，原有授权继续生效；加载名称不会增加权限。常驻配置保存失败时操作会报错，并恢复原 Bot 设置。收起工具后，历史工具结果仍保留在 Session 中。
 
 可选的 `home` 配置可指定其他 Bot 状态目录。模型和推理等级仍可在界面中选择；创建 Bot 或向其发送消息可能通过已配置的提供方发起正常模型请求。认证与提供方可用性由 Muse 原有服务管理。
 

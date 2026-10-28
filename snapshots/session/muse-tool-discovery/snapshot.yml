@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-tool-discovery
+profile: headless
+composition: muse-tool-discovery
+recording: authored
+writerOutput: true
+header:
+  class: muse-tool-discovery
+  pin: true
+  changes: 2

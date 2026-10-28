@@ -47,6 +47,7 @@
     "src/host/side.js",
     "src/host/steward.js",
     "src/host/store.js",
+    "src/host/tool-residency.js",
     "src/host/tools.js",
     "src/host/update.js",
     "src/host/usage.js"
@@ -64,6 +65,8 @@
     "Native Feishu groups route through stable team identities and preserve native Session selection",
     "Hindsight remains the preference store; Bot coordination memory defaults to no per-turn review",
     "Main Bots coordinate and execute directly when delegation adds no value",
-    "Feishu chat titles display beside unique Bot addresses without overriding user names"
+    "Feishu chat titles display beside unique Bot addresses without overriding user names",
+    "DS Bot coordinator preset and a separate Muse short-drama specialist for new teams",
+    "Per-Bot resident tool preferences connected to shared Harness tool discovery without granting additional permissions"
   ]
 }

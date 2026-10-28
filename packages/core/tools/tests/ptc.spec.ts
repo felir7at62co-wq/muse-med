@@ -163,6 +163,25 @@ describe('mode-aware wire contribution', () => {
     }
   })
 
+  it.each(['ptc', 'both'] as const)('filters %s presentation while keeping the transport and callable registry', async (mode) => {
+    const { ctx, systemPrompt } = await setup({ mode })
+    try {
+      const { scope, agent } = await mintAgentScope(ctx)
+      registerEcho(ctx, 'shown')
+      registerEcho(ctx, 'hidden')
+      scope.ctx.tools.presentOnly(name => name === 'shown')
+      const assembly = await systemPrompt.assemble({ scope: agent })
+      expect(assembly.tools.map(item => item.name)).toEqual(mode === 'ptc' ? [RUN_CODE_NAME] : [RUN_CODE_NAME, 'shown'])
+      const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+      expect(sdk).toContain('shown: {')
+      expect(sdk).not.toContain('hidden: {')
+      expect(ctx.tools.schemas(agent).map(item => item.name)).toContain('hidden')
+      expect(ctx.tools.get('hidden', agent)).toBeDefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it("mode 'native' contributes every schema, no run_code, no SDK section — and needs no runtime", async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'native', runtime: false })
     registerEcho(ctx)

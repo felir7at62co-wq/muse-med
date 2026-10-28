@@ -12,7 +12,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama]
+    selectablePresets: [short-drama, bot-coordinator]
 
 - id: sandbox-policy
   config:
@@ -180,3 +180,67 @@
       name: '@deepseek-ai/dsh-client-ui-muse-account'
       config:
         feedbackUrl: !!js new URL('/feedback', process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn').href
+
+- insert:
+    - id: tool-discovery
+      name: '@deepseek-ai/dsh-tool-discovery'
+      config:
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot]
+        maxResults: 8
+        maxDescriptionChars: 320
+        maxResultChars: 6000
+        k1: 1.2
+        b: 0.75
+        keywords:
+          video_inspect: [抽帧, 看视频, 查看画面, 切镜, 运镜, 动作观察]
+          audio_transcribe: [语音识别, 台词转写, 音频转文字, 听视频]
+          video_ocr: [字幕识别, 画面文字, 提取字幕]
+          drama_shot: [分镜, 镜头脚本, 对白核对, 来源证据]
+          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片]
+          jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
+          jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
+          drama_render: [剪辑, 成片, 渲染, 合成视频]
+          drama_bgm: [配乐, 背景音乐]
+          lvpaopao: [绿泡泡, 短剧选材, 剧目下载]
+
+        capabilities:
+          - id: workspace
+            title: 文件与工作间
+            description: 查找、读取、编辑项目文件并交付文档。
+            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present]
+          - id: video-understanding
+            title: 视频理解与转写
+            description: 查看视频画面、抽帧、识别对白和字幕。
+            tools: [video_inspect, audio_transcribe, video_ocr]
+          - id: screenplay
+            title: 剧本与分镜
+            description: 整理剧本、编写镜头脚本并对照来源证据。
+            tools: [drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
+          - id: assets
+            title: 角色场景与素材
+            description: 查询、整理和准备角色、场景、道具及参考素材。
+            tools: [drama_assets, 'drama_character_*', jubian_asset, 'jubian_character_*']
+          - id: production
+            title: 制作与生成
+            description: 处理项目视频卡、模型、预算、生成及任务状态。
+            tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
+          - id: editing-delivery
+            title: 剪辑配乐与交付
+            description: 匹配配乐、编辑视频、渲染和整理成片。
+            tools: [drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
+          - id: data-sourcing
+            title: 数据选材与下载
+            description: 查找剧目、榜单、小说和视频素材。
+            tools: ['hongguo_*', 'douyin_*', 'fanqie_*', lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
+          - id: knowledge
+            title: 知识与项目资料
+            description: 搜索、读取和整理已连接的知识库与项目资料。
+            tools: ['mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+          - id: coordination
+            title: 团队任务与跟进
+            description: 分配子任务、查看执行状态、安排定时跟进。
+            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', list_bots, message_bot, create_bot, update_bot, stop_bot]
+          - id: research
+            title: 搜索与技术分析
+            description: 搜索网页资料、读取网页和分析技术问题。
+            tools: ['web_*', 'reverse_*']

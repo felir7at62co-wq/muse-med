@@ -4025,6 +4025,46 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-bgm-compose -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-discovery -->
+<a id="deepseek-aidsh-tool-discovery"></a>
+
+## `@deepseek-ai/dsh-tool-discovery`
+
+- `inject`: `tools` · `agents` · `sessionProjections`
+- `source`: [`packages/core/tool-discovery/src/index.ts:23`](../packages/core/tool-discovery/src/index.ts)
+
+```ts config-catalog
+/** Deployment choices for tool discovery. */
+export interface Config {
+  /** Names whose definitions are available before a search; providers may register later. */
+  alwaysLoad: string[]
+  /** Maximum definitions loaded by one search. */
+  maxResults?: number
+  /** Maximum Unicode characters of each result description. */
+  maxDescriptionChars?: number
+  /** BM25 term frequency saturation. */
+  k1?: number
+  /** BM25 document-length normalization, between zero and one. */
+  b?: number
+  /** Additional searchable phrases keyed by exact registered tool name. */
+  keywords?: Record<string, string[]>
+  /** Overlapping capability groups; member patterns are exact names or trailing-star prefixes. */
+  capabilities?: Array<{
+    /** Unique capability id used by directory and filtered search requests. */
+    id: string
+    /** Short capability title included in directory entries and search metadata. */
+    title: string
+    /** Capability purpose shown in the directory. */
+    description: string
+    /** Exact tool names or prefixes with one trailing star; groups may overlap. */
+    tools: string[]
+  }>
+  /** Maximum characters of the complete serialized search result. */
+  maxResultChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-discovery -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
 <a id="deepseek-aidsh-tool-drama-assets"></a>
 

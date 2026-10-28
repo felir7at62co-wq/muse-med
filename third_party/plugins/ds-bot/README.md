@@ -14,7 +14,7 @@ When a Bot starts a new conversation part in a registered workspace, that part a
 
 Settings → Bots → Use an existing conversation remains available when automatic registration is disabled. It registers the selected Session in place and opens its original conversation; the Session title supplies its default Bot name. The user can assign the Main Bot role in the same settings page. A Main Bot coordinates the work and can execute simple tasks directly, delegating where useful. Main Bots appear in order at the top of the sidebar, with at most three per row; ordinary pinned Bots remain in the list. Opening a Bot or conversation preserves the sidebar's current expanded or collapsed state at every window width.
 
-The team workspace uses Muse's bundled short-drama tools. Its settings omit generic plugin and capability creation entries; the account footer remains owned by Muse. Bots can still discover and load their existing skills and use attached capabilities. Host tools, permissions and saved capability definitions are unchanged. The About page identifies Muse Bot and keeps upstream attribution inside a collapsed open-source license disclosure.
+New teams use the DS Bot Chief of Staff role in the `bot-coordinator` preset, with Muse as a separate `short-drama` specialist. Existing Bot identities and Sessions keep their current presets and history. The shared team workspace retains Muse's bundled short-drama tools. Its settings omit generic plugin and capability creation entries; the account footer remains owned by Muse. Bots can still discover and load their existing skills and use attached capabilities. Host tools, permissions and saved capability definitions are unchanged. The About page identifies Muse Bot and keeps upstream attribution inside a collapsed open-source license disclosure.
 
 Open Settings → Feedback to fill in Muse's existing Session feedback form. The user chooses the content and submits it; opening the form does not send feedback or diagnostics. The same page can preview, copy and save local diagnostics.
 
@@ -36,6 +36,8 @@ The bundled composition mounts one `muse-bot` row:
       name: ds-bot
       config:
         agentPreset: short-drama
+        mainAgentPreset: bot-coordinator
+        ensureMuseSpecialist: true
         contextManagement: host
         goals: host
         memoryReview: false
@@ -45,11 +47,13 @@ The bundled composition mounts one `muse-bot` row:
         updateCheck: false
 ```
 
-`agentPreset` chooses the registered Muse preset for new Bot Sessions. `contextManagement: host` leaves context compaction with the current Host. `goals: host` retains the Host goal tools and continuation behavior. `updateCheck: false` disables independent plugin and Harness update offers; Muse application updates supply the reviewed plugin. `github: false` disables the optional built-in GitHub MCP connector. The bundle does not replace the profile's web-search provider, model routes, account settings or permission policy.
+`agentPreset` chooses the registered Muse preset for new specialist Bot Sessions; `mainAgentPreset` chooses it for newly created Main Bots. `ensureMuseSpecialist` creates one Muse specialist when none is already configured, preserving existing specialist identities. All required presets must be available; creation never falls back to another preset. `contextManagement: host` leaves context compaction with the current Host. `goals: host` retains the Host goal tools and continuation behavior. `updateCheck: false` disables independent plugin and Harness update offers; Muse application updates supply the reviewed plugin. `github: false` disables the optional built-in GitHub MCP connector. The bundle does not replace the profile's web-search provider, model routes, account settings or permission policy.
 
 `memoryReview: true` explicitly enables background review of Bot coordination notes; the default does not issue that extra model request. Adopted Sessions keep their native model selection through catalog refreshes. An explicit model or effort change from the interface or `update_bot` makes that selection Bot-managed.
 
 `autoSessionBots: false` disables automatic Session registration while retaining the manual entry. `sessionBotSyncIntervalMs` sets the roster's metadata refresh interval in milliseconds; native Session changes invalidate the cached result. Newly created Bot Sessions continue to use `short-drama`; registration preserves an existing Session's preset.
+
+`create_bot` accepts `preset` and `resident_tools`; `update_bot` can replace both. A preset change applies to future new Sessions, while the current conversation keeps its existing preset. Resident tools are exact names saved on the Bot record. The shared Harness `tool_search` finds tools by capability; `tool_context` loads, pins, unpins or releases them. Each Bot's own chat, group chats and future conversation parts use its resident list. The capability catalog is shared, authorization still applies, and loading a name does not grant permission. Failed residency saves reject the operation and restore the previous Bot setting. Tool results remain in Session history after a release.
 
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
 
