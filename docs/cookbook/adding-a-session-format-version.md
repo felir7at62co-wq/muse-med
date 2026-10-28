@@ -93,6 +93,8 @@ Review the new generation, request sidecars, and protocol output together. Verif
 
 Keep cases older than the retained baseline explicit through `snapshot.yml`'s `sessionFormat.version` and supported `coverage` names; record and refresh leave pinned Session fixtures untouched. Update the [corpus policy](../../scripts/session-snapshot-corpus-policy.ts) for the current generation while retaining focused direct-edge, multi-hop, packed-row, retry/failure, and shipped-profile coverage. Check the corpus and both SDK projections; do not mass-refresh unrelated scenarios merely to silence a validation failure.
 
+Retired-tool recordings keep their canonical inputs and declare `retired-tools` coverage. The [corpus policy](../../scripts/session-snapshot-corpus-policy.ts) counts them within its retained-role budget without treating them as migration coverage; the [corpus test](../../scripts/session-snapshot-corpus.corpus.ts) pins each retained owner, generation, role count and coverage declaration.
+
 <a id="validate"></a>
 ## 6. Validate the integrated result
 

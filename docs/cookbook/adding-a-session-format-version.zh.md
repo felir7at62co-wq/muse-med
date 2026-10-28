@@ -93,6 +93,8 @@ pnpm run test:snapshot snapshots/sdk/sdk.snapshot.ts -t text-turn
 
 通过 `snapshot.yml` 的 `sessionFormat.version` 与受支持的 `coverage` 名称显式保留早于 baseline 的案例；record 和 refresh 不改动已 pin 的 Session fixture。更新[语料策略](../../scripts/session-snapshot-corpus-policy.ts)以采用当前代际，同时保留聚焦的直接迁移边、多跳、packed row、重试/失败及交付 profile 覆盖。检查语料和两个 SDK 投影；不要仅为消除校验失败而批量 refresh 无关场景。
 
+退休工具录制保留其规范输入，并声明 `retired-tools` 覆盖。[语料策略](../../scripts/session-snapshot-corpus-policy.ts)将它们计入保留角色预算，但不将其视为迁移覆盖；[语料测试](../../scripts/session-snapshot-corpus.corpus.ts)固定每个保留所有者、代际、角色数及覆盖声明。
+
 <a id="validate"></a>
 ## 6. 验证集成结果
 

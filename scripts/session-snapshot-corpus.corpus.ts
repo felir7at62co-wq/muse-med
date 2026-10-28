@@ -235,9 +235,22 @@ it('keeps V3 replay input plus bounded declared historical migration coverage', 
   })))
 
   const summary = assertSnapshotCorpusPolicy(inventory)
+  expect(inventory.filter(owner => owner.retained !== undefined).sort((a, b) => a.key.localeCompare(b.key)))
+    .toEqual([
+      { key: 'sdk/multi-turn', selectedVersions: [2], retained: { version: 2, coverage: ['adjacent-migration'] } },
+      { key: 'session/empty-response-retry', selectedVersions: [0], retained: { version: 0, coverage: ['retry-failure'] } },
+      { key: 'session/error-finish', selectedVersions: [0], retained: { version: 0, coverage: ['retry-failure'] } },
+      { key: 'session/muse-manuscript-user-revisions', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/muse-manuscript-user-revisions-pwsh', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/packed-chunks', selectedVersions: [0], retained: { version: 0, coverage: ['packed-row'] } },
+      { key: 'session/subagent-multi', selectedVersions: [0, 0, 0], retained: { version: 0, coverage: ['multi-hop', 'shipped-profile'] } },
+      { key: 'session/text-turn', selectedVersions: [1], retained: { version: 1, coverage: ['adjacent-migration'] } },
+      { key: 'web/cordis-tool-round', selectedVersions: [3], retained: { version: 3, coverage: ['retired-tools'] } },
+      { key: 'web/preset-migration', selectedVersions: [2, 2], retained: { version: 2, coverage: ['adjacent-migration'] } },
+    ])
   expect(summary.baselineRoles).toBeGreaterThan(0)
   expect(summary).toMatchObject({
-    retainedRoles: 11,
-    retainedScenarios: 8,
+    retainedRoles: 13,
+    retainedScenarios: 10,
   })
 })
