@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import { ToolSearchIndex } from './search.ts'
 import { capabilityMemberships, capabilitySummaries } from './capabilities.ts'
 import type { CapabilitySummary } from './capabilities.ts'
+import { discoveryGuidance } from './guidance.ts'
 import { ToolDiscoveryRuntime } from './residency.ts'
 
 export { ToolDiscoveryRuntime } from './residency.ts'
@@ -46,6 +47,8 @@ export interface Config {
   }>
   /** Maximum characters of the complete serialized search result. */
   maxResultChars?: number
+  /** Maximum characters of the initial authorized capability directory, excluding fixed guidance. */
+  maxDirectoryChars?: number
 }
 
 /** Loader-validated discovery settings. */
@@ -59,6 +62,7 @@ export const Config: z<Config> = z.object({
   capabilities: z.array(z.object({ id: z.string().required(), title: z.string().required(),
     description: z.string().required(), tools: z.array(z.string()).required() })).default([]),
   maxResultChars: z.natural().min(256).max(65536).default(6000),
+  maxDirectoryChars: z.natural().min(256).max(16384).default(2000),
 })
 
 const loadedTool = zod.object({ name: zod.string(), description: zod.string() })
@@ -147,6 +151,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const keywords = settings.keywords ?? {}
   const capabilities = settings.capabilities ?? []
   const maxResultChars = settings.maxResultChars ?? 6000
+  const maxDirectoryChars = settings.maxDirectoryChars ?? 2000
   const capabilityIds = new Set<string>()
   for (const capability of capabilities) {
     if (!capability.id.trim() || capabilityIds.has(capability.id)) throw new Error('Capability ids must be nonempty and unique')
@@ -196,7 +201,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const definition = defineTool({
     name: 'tool_search',
-    description: 'Discover tools by capability. With no arguments, list available capability groups without loading tools. Supply a query to search all tools by task or exact name; optionally narrow it with capability. Supply only capability to browse and load tools in that group. Matching definitions become available on your next step with full arguments. Groups can overlap and do not restrict permissions. If results are omitted, narrow your query. Search does not execute the discovered tools.',
+    description: 'Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.',
     parameters: {
       query: { type: 'string', description: 'Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities.' },
       capability: { type: 'string', description: 'Optional capability id from the directory. Omit to search across groups.' },
@@ -241,6 +246,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   ctx.tools.register(definition)
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembly = await next()
+    if (ctx.tools.get('tool_search', context.scope) !== definition) return assembly
+    const authorized = ctx.tools.schemas(context.scope).map(tool => tool.name)
+    const summaries = capabilitySummaries(capabilities, authorized)
+    return { ...assembly, sections: [...assembly.sections, { name: 'tools:discovery',
+      text: discoveryGuidance(summaries, maxDirectoryChars, maxDescriptionChars), interpolate: false }] }
+  })
   ctx.tools.register(defineTool({
     name: 'tool_context',
     description: 'Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.',

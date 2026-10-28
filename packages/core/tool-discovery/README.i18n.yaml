@@ -9,8 +9,8 @@
   en: ab93d55f28d332cc
   zh: d77264723198a18f
 /deepseek-ai-dsh-tool-discovery/summary:
-  en: 638a47b67e4d5e21
-  zh: 05346645019f8e48
+  en: 259daa90052fbbff
+  zh: 67f33fcde0f42a16
 /deepseek-ai-dsh-tool-discovery/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,8 +18,8 @@
   en: 4956cd21d9b1d9b7
   zh: 606957506ed787d6
 /deepseek-ai-dsh-tool-discovery/use-this-package/configure-constant-tools-and-capability-groups:
-  en: 14a1a1eb9605023f
-  zh: 974a5ff5a6c16297
+  en: d3e2bfd712a02be5
+  zh: 875ff6389d2772e1
 /deepseek-ai-dsh-tool-discovery/use-this-package/browse-capabilities-or-search-tools:
   en: e81e54e9e6e9baf3
   zh: 7046059a15833c37
@@ -30,11 +30,11 @@
   en: 3e9ccf3ecdc799a2
   zh: f8e4f14d8ccc3b19
 /deepseek-ai-dsh-tool-discovery/understand-the-implementation:
-  en: 9231eae4900e983a
-  zh: c4564716d9e8c678
+  en: a6a2a20e4c93dd1d
+  zh: 168e58875500f73f
 /deepseek-ai-dsh-tool-discovery/further-exploration:
-  en: bcde2ff9333d9bbe
-  zh: 9f9605a82d4589fd
+  en: 10980c4170743746
+  zh: d15e0439eadda745
 /deepseek-ai-dsh-tool-discovery/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -42,17 +42,17 @@
   en: 0dac4201ce157f53
   zh: 22d7cf982bf38fb1
 /deepseek-ai-dsh-tool-discovery/model-experience/search-tool-and-selected-definitions/what-the-model-sees:
-  en: 306c39e6a1182ae9
-  zh: 3043b975401134ba
+  en: 010562fbe4bb329b
+  zh: 92f5e3fd6cd333ad
 /deepseek-ai-dsh-tool-discovery/model-experience/search-tool-and-selected-definitions/token-effect:
-  en: c96e5aae0df3563c
-  zh: b642c7ca5143708d
+  en: 7499bc20972d5868
+  zh: 56c341bc6efddf73
 /deepseek-ai-dsh-tool-discovery/model-experience/search-tool-and-selected-definitions/kv-cache-effect:
-  en: e1b2d397a3fcf84c
-  zh: 035f875ccf1b5c84
+  en: 491e116b46648d65
+  zh: a7ecc3e66943cff9
 /deepseek-ai-dsh-tool-discovery/known-limitations-and-deferred-work:
-  en: 930807f5e8b7a81e
-  zh: e74c75af22499a49
+  en: c8c29211264fde8b
+  zh: 27ae1e8dc2f77ab8
 /deepseek-ai-dsh-tool-discovery/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

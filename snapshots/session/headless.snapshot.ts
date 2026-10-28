@@ -1593,8 +1593,14 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, true, false, false, false, false, false, false, false, false, false, false])
-              expect(JSON.stringify(results[1])).toContain('VIDEO_REVIEW_PENDING')
+              expect(results.map(result => result.isError)).toEqual([false, false, false, false, false, false, false, false, false, false, false, false])
+              const firstDelivery = events.findIndex(event => event.type === 'deliverables/presented')
+              const observationsBeforeDelivery = events.slice(0, firstDelivery)
+                .flatMap(event => event.type !== 'video/review' ? []
+                  : event.data.kind === 'start' ? event.data.review.frames : event.data.frames)
+                .filter(frame => frame.observation !== undefined)
+              expect(firstDelivery).toBeGreaterThan(0)
+              expect(observationsBeforeDelivery).toHaveLength(0)
               expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(7)
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
               const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')

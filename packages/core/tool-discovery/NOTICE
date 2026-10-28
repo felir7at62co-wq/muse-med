@@ -1,0 +1,15 @@
+OpenAI Codex
+Copyright 2025 OpenAI
+
+The tool discovery instructions are adapted from OpenAI Codex under Apache-2.0.
+Source revision: c6fce1caceaae6c4b2896e5c5ae456b5be3bf501
+Source: https://github.com/openai/codex
+Referenced files:
+  codex-rs/core/src/tools/handlers/tool_search_spec.rs
+  codex-rs/core/src/context/apps_instructions.rs
+  codex-rs/core/src/plugins/render.rs
+
+Local changes adapt deferred-tool guidance to capability groups, authorized
+DSH registries, and the existing native/PTC loading protocol. The Rust search
+implementation and Codex Responses API protocol are not included.
+The Apache-2.0 license is reproduced in LICENSE-Codex.

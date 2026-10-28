@@ -3033,7 +3033,7 @@ Source: [`packages/core/tool-discovery/src/index.ts`](../packages/core/tool-disc
 
 ### `tool_search`
 
-Discover tools by capability. With no arguments, list available capability groups without loading tools. Supply a query to search all tools by task or exact name; optionally narrow it with capability. Supply only capability to browse and load tools in that group. Matching definitions become available on your next step with full arguments. Groups can overlap and do not restrict permissions. If results are omitted, narrow your query. Search does not execute the discovered tools.
+Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.
 
 ```json
 {

@@ -33,9 +33,9 @@ export const inject = ['tools', 'fs', 'subprocess', 'attachments', 'sandboxPolic
 
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
-  /** Require complete-episode detection and observations before final delivery. */
+  /** Use complete-episode detection and durable per-frame observations. */
   requireCompleteReview: boolean
-  /** Maximum images per mandatory observation batch. */
+  /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number

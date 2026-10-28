@@ -23,9 +23,11 @@
   },
   "files": [
     "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "NOTICE",
+    "LICENSE-Codex"
   ],
-  "license": "MIT",
+  "license": "MIT AND Apache-2.0",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
     "zod": "^4.4.3"

@@ -22,7 +22,7 @@ import * as Media from '../src/media.ts'
 import sharp from 'sharp'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { scanReviewFrames, appearanceCandidates } from '../src/review-scan.ts'
-import { reviewsOf, installReviewState, reviewImage, saveReview, VideoReviewId } from '../src/review-state.ts'
+import { reviewsOf, installReviewState, reviewImage, saveReview, pendingReview, VideoReviewId } from '../src/review-state.ts'
 import { applyCompleteReview } from '../src/review.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { z } from 'zod'
@@ -256,7 +256,7 @@ it('preserves required review output and compacts optional timeline metadata at 
   expect(JSON.parse(reduced.text)).toEqual(compact)
 })
 
-it('finds cuts across the full episode, requires every image and observation, and preserves progress after reload', async () => {
+it('finds cuts across the full episode and preserves pending observations through delivery and reload', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)
   expect(h.results().filter(result => result.isError)).toEqual([])
@@ -264,8 +264,10 @@ it('finds cuts across the full episode, requires every image and observation, an
   expect(h.review().frames.some(frame => frame.reasons.includes('after_cut') && frame.time > 1.5)).toBe(true)
   expect(h.review().frames.some(frame => frame.reasons.includes('closing') && frame.time > 2.5)).toBe(true)
   expect(h.review().frames.filter(frame => frame.exposed)).toHaveLength(2)
+  const pending = JSON.stringify(h.review())
   await h.run({ name: 'screenplay_export_docx', args: {} }, undefined)
-  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.review())).toBe(pending)
   await h.run(h.record, undefined)
   const recorded = h.review().frames.filter(frame => frame.observation !== undefined).length
   expect(recorded).toBe(2)
@@ -279,8 +281,37 @@ it('finds cuts across the full episode, requires every image and observation, an
   expect(updates.length).toBeGreaterThan(2)
   await appendFile(h.input, 'source revision')
   await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  await h.run(h.call('status'), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
 }, 30_000)
+
+it.each([12, 125])('delivers unrelated parent-Session files without reading or changing an old EP47 review with %s recorded frames', async (recorded) => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const path = join(h.root, 'old-project', 'episodes', '0047', 'episode-0047.mp4')
+  const review = { ...h.review(), id: VideoReviewId('old-ep47'), episode: '47', path, source_version: 'old-video-version',
+    duration: 125, scanned_until: 125, frames: Array.from({ length: 125 }, (_, index) => ({
+      id: `F${String(index + 1).padStart(5, '0')}`, time: index, reasons: ['continuity'], exposed: index < recorded,
+      ...index < recorded ? { observation: { visible: '旧项目保存的具体画面观察。', change: '沿用旧项目观察记录。', uncertainty: '' } } : {},
+    })) }
+  saveReview(h.ctx, h.agent.session, review)
+  const before = JSON.stringify(reviewsOf(h.ctx, h.agent.session)), stat = h.ctx.fs.stat.bind(h.ctx.fs)
+  const reads: string[] = []
+  vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    reads.push(args[0].displayPath)
+    if (args[0].displayPath === path) throw Error('Old video is unavailable')
+    return stat(...args)
+  })
+  const session = h.agent.session.id
+  await h.run({ name: 'screenplay_export_docx', args: {} },
+    { name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(h.agent.session.id).toBe(session)
+  expect(reads).not.toContain(path)
+  expect(JSON.stringify(reviewsOf(h.ctx, h.agent.session))).toBe(before)
+  expect(pendingReview(reviewsOf(h.ctx, h.agent.session)[path]!)).toBe(125 - recorded)
+})
 
 it('refuses unseen frame claims, caller-selected frame budgets, and failed image requests', async () => {
   const h = await fixture()
@@ -1217,8 +1248,10 @@ it('adds bounded adjacent observations when a viewed frame remains uncertain', a
     visible: '画面是红色背景，没有可确认的人物或道具。', change: '初始画面。', uncertainty: '需要结合前后画面核实。' }] }), undefined)
   expect(h.review().frames.length).toBeGreaterThan(count)
   expect(h.review().frames.some(frame => frame.reasons.includes('uncertainty_context') && !frame.exposed)).toBe(true)
+  const pending = JSON.stringify(h.review())
   await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
-  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(JSON.stringify(h.review())).toBe(pending)
 }, 30_000)
 
 it.each([false, true])('records omitted uncertainty as an empty string without context expansion in ptc=%s', async (ptc) => {
@@ -1293,8 +1326,10 @@ it.each(['size', 'duration', 'pixels', 'candidates', 'scan_bytes'])('fails expli
     expect(h.review().scan_complete).toBe(false)
     await h.run(h.call('next'), undefined)
     expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_SCAN_INCOMPLETE')
+    const pending = JSON.stringify(h.review())
     await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
-    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_PENDING')
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(JSON.stringify(h.review())).toBe(pending)
   }
 })
 

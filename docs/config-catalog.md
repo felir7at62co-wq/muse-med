@@ -4029,7 +4029,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-discovery`
 
 - `inject`: `tools` · `agents` · `sessionProjections`
-- `source`: [`packages/core/tool-discovery/src/index.ts:23`](../packages/core/tool-discovery/src/index.ts)
+- `source`: [`packages/core/tool-discovery/src/index.ts:24`](../packages/core/tool-discovery/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for tool discovery. */
@@ -4059,6 +4059,8 @@ export interface Config {
   }>
   /** Maximum characters of the complete serialized search result. */
   maxResultChars?: number
+  /** Maximum characters of the initial authorized capability directory, excluding fixed guidance. */
+  maxDirectoryChars?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-discovery -->
@@ -4748,9 +4750,9 @@ export interface Config {
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
-  /** Require complete-episode detection and observations before final delivery. */
+  /** Use complete-episode detection and durable per-frame observations. */
   requireCompleteReview: boolean
-  /** Maximum images per mandatory observation batch. */
+  /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number

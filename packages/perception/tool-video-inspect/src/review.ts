@@ -1,4 +1,4 @@
-/** Complete-episode image observation, with durable progress and delivery enforcement. */
+/** Complete-episode image observation with durable, source-specific progress. */
 import { randomUUID, createHash } from 'node:crypto'
 import { dirname, relative } from 'node:path'
 import { z } from 'zod'
@@ -45,7 +45,7 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
     }),
     next: !review.scan_complete ? 'scan' : pending.length ? 'next' : 'complete',
     notice: '逐张记录画面中可见的人物、位置、动作、神态或道具，以及相对前后画面的变化；不清楚的内容写入uncertainty并定点补看。'
-      + '图片进入模型请求不代表语义判断正确。全部检测帧须实际呈现并留下观察记录后，才能正式导出或交付当前任务。'
+      + '图片进入模型请求不代表语义判断正确。待查看或未记录帧是当前视频的证据缺口，不代表已完成；不拦截Word导出或present。'
       + 'frames仅列本批；其余仍保留在完整清单，不能据此声称全片已看完。'
       + '画面变化候选不是人物身份或动作结论；独立画面交代、人物进出、位置变化、道具操作和无对白反应按实际先后写入▲，括注只交代这句台词的表演，不重复同一动作或按帧数凑行。'
       + '可用events将连续帧归为动作事件；transcript_path保留原ASR分段并列出连续发言候选。'
@@ -100,7 +100,7 @@ function content(serialized: string): ContentBlock[] {
 }
 
 /**
- * Register the Muse whole-episode video tool, actual image admission and final-delivery guard.
+ * Register the Muse whole-episode video tool and actual image admission.
  * @param ctx - Agent-scoped tools and Host observation services.
  * @param config - Validated product settings; model arguments cannot reduce coverage.
  * @param run - Existing lifecycle owner that bounds media work and waits for shutdown.
@@ -169,28 +169,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
     }
   })
 
-  const denial = (exec: Readonly<ToolExecution>): string | undefined => {
-    if (exec.name === 'video_contact_sheet') return 'VIDEO_REVIEW_REQUIRED: 本任务请使用 video_inspect；工具自动扫描整集，不能用概览取样替代逐图查看。'
-    if (!['screenplay_export_docx', 'present'].includes(exec.name) || exec.agent === undefined) return undefined
-    const incomplete = Object.values(reviewsOf(ctx, exec.agent.session)).filter(review => pendingReview(review) > 0)
-    if (!incomplete.length) return undefined
-    return 'VIDEO_REVIEW_PENDING: 尚不能正式导出或交付。' + incomplete.map(review =>
-      `${review.episode}：${review.scan_complete ? `${pendingReview(review)}张待查看或记录` : '整集扫描未完成'}；`
-      + `video_inspect file_path=${JSON.stringify(review.path)} method=${review.scan_complete ? 'next' : 'scan'}`).join('；')
-  }
-  ctx.tools.guard(denial)
-  ctx.on('tools/pre-execute', async (exec, next) => {
-    if (['present', 'screenplay_export_docx'].includes(exec.name) && exec.agent !== undefined) {
-      const policy = ctx.sandboxPolicy.resolve({ session: exec.agent.session })
-      for (const review of Object.values(reviewsOf(ctx, exec.agent.session))) {
-        const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal: exec.signal })
-        if ((await ctx.fs.stat(target, exec.signal))?.version !== review.source_version) {
-          return { kind: 'deny', reason: `VIDEO_REVIEW_SOURCE_CHANGED: ${review.episode}的视频已变化，请重新scan当前视频。` }
-        }
-      }
-    }
-    return next()
-  })
+  ctx.tools.guard(exec => exec.name === 'video_contact_sheet'
+    ? 'VIDEO_REVIEW_REQUIRED: 本任务请使用 video_inspect；工具自动扫描整集，不能用概览取样替代逐图查看。' : undefined)
 
   ctx.tools.register(defineTool({ name: 'video_inspect',
     description: '查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。'
@@ -198,7 +178,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
       + 'events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。'
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
-      + '所有检测帧进入图像模型并留下记录后才允许Word导出和present；中间稿可以保存。不把声学编号当角色身份，不凭单帧编造动作。',
+      + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。',
     parameters: { file_path: { type: 'string', required: true, description: '当前集实际完整视频路径。' },
       episode: { type: 'string', description: '首次scan时标记集号；省略则使用实际视频路径。' },
       method: { type: 'string', enum: ['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'timeline', 'compare'], description: '默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；timeline按时间并列画面记录、事件笔记与ASR；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。' },

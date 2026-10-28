@@ -142,6 +142,86 @@ async function manage(f: Awaited<ReturnType<typeof fixture>>, agent: Agent,
 }
 
 describe('Loader-composed tool discovery', () => {
+  it('includes authorized capability guidance in the first logged request without loading schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-guidance', { setup: (scope) => { scope.tools.restrict({ deny: ['secret_delete'] }) } })
+      f.responses.push(textResponse('Ready.'))
+      await send(agent)
+      const request = f.adapter.requests[0]
+      const system = request?.messages.filter(message => message.role === 'system').flatMap(message => message.content)
+        .filter(block => block.type === 'text').map(block => block.text).join('\n') ?? ''
+      expect(system).toContain('Some authorized tools are not loaded upfront')
+      expect(system).toContain('查看视频人物动作。')
+      expect(system).toContain('"id":"delivery"')
+      expect(system).not.toContain('"id":"danger"')
+      expect(system).not.toContain('受限工具。')
+      expect(system.match(/Available capability groups/g)).toHaveLength(1)
+      expect(request?.tools?.map(tool => tool.name).sort()).toEqual(['base_read', 'tool_context', 'tool_search'])
+      expect(request?.tools?.find(tool => tool.name === 'tool_search')?.description).not.toContain('查看视频人物动作。')
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      const logged = agent.session.snapshotEvents().filter(event => event.type === 'system/message')
+      expect(logged).toHaveLength(1)
+      expect(agent.session.deriveMessages().filter(message => message.role === 'system').flatMap(message => message.content))
+        .toEqual(request?.messages.filter(message => message.role === 'system').flatMap(message => message.content))
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('keeps the discovery section unchanged across loading and preferences and restores it on resume', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-resume-'))
+    const first = await fixture(root)
+    try {
+      first.adapter.systemPromptUpdate = 'in-history'
+      first.adapter.toolUpdate = 'addition-only'
+      const agent = await first.create('discovery-guidance-resume')
+      const before = (await first.ctx.systemPrompt.assemble({ agent, scope: agent })).sections
+        .find(section => section.name === 'tools:discovery')
+      await search(first, agent, 'video_inspect')
+      await manage(first, agent, 'pin', ['export_word'])
+      await manage(first, agent, 'release', ['video_inspect'])
+      const after = (await first.ctx.systemPrompt.assemble({ agent, scope: agent })).sections
+        .filter(section => section.name === 'tools:discovery')
+      expect(after).toEqual([before])
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'system/message')).toHaveLength(1)
+      await first.dispose()
+      const second = await fixture(root)
+      try {
+        const resumed = (await second.ctx.agents.resume({ resumeSessionId: SessionId('discovery-guidance-resume'),
+          agentOptions: { provider: 'mock', model: 'mock' } })).agent
+        const restored = await second.ctx.systemPrompt.assemble({ agent: resumed, scope: resumed })
+        expect(restored.sections.filter(section => section.name === 'tools:discovery')).toEqual([before])
+        expect(restored.tools.map(tool => tool.name).sort()).toEqual(['base_read', 'export_word', 'tool_context', 'tool_search'])
+      } finally { await second.dispose() }
+    } finally { await first.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('does not advertise discovery in scopes where the discovery tool is unavailable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-denied-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-guidance-denied', { setup: (scope) => { scope.tools.restrict({ deny: ['tool_search'] }) } })
+      const assembly = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+      expect(assembly.sections.some(section => section.name === 'tools:discovery')).toBe(false)
+      expect(assembly.tools.some(tool => tool.name === 'tool_search')).toBe(false)
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('preserves complete prompt overrides without suppressing tool discovery itself', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-complete-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-guidance-complete', { setup: (scope) => {
+        scope.systemPrompt.section({ name: 'complete-persona', order: 0, text: 'Only the explicit persona.', complete: true })
+      } })
+      const assembly = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+      expect(assembly.sections).toEqual([{ name: 'complete-persona', text: 'Only the explicit persona.' }])
+      expect(assembly.tools.find(tool => tool.name === 'tool_search')?.description).toContain('tools not loaded upfront')
+      await search(f, agent, 'video_inspect')
+      expect(await shown(f.ctx, agent)).toContain('video_inspect')
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
   it.each(['native', 'ptc'] as const)('retains bounded discovery JSON through the default spill policy in %s mode', async (mode) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-spill-'))
     const f = await fixture(root, { maxResults: 8, maxDescriptionChars: 2048, maxResultChars: 6000 })
@@ -336,12 +416,15 @@ describe('Loader-composed tool discovery', () => {
       await f.ctx.plugin(AssemblyRuntime)
       const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('both') } })
       const first = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+      const guidance = first.sections.find(section => section.name === 'tools:discovery')
+      expect(guidance?.text).toContain('"id":"video"')
       const firstSdk = first.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(firstSdk).toContain('tool_search')
       expect(firstSdk).not.toContain('video_inspect')
       expect(firstSdk).not.toContain('export_word')
       await search(f, agent, 'video_inspect')
       const next = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+      expect(next.sections.filter(section => section.name === 'tools:discovery')).toEqual([guidance])
       const nextSdk = next.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(nextSdk).toContain('video_inspect')
       expect(nextSdk).not.toContain('export_word')
@@ -554,7 +637,7 @@ describe('Loader-composed tool discovery', () => {
       expect(await shown(f.ctx, agent)).toEqual(['base_read', 'export_word', 'tool_context', 'tool_search'])
       const dispose = f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => [], write: async () => {} })
       await expect(f.ctx.toolDiscovery.refresh(agent)).rejects.toThrow('More than one')
-      dispose()
+      await dispose()
       await expect(f.ctx.toolDiscovery.refresh(agent)).resolves.toBeUndefined()
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })

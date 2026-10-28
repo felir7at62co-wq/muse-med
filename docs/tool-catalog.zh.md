@@ -3037,7 +3037,7 @@ A fixed foreground workflow starts one fresh structured child per round; the mod
 
 ### `tool_search`
 
-按能力发现工具。不传参数时列出可用能力分类，不加载工具。提供 query 可按任务或精确名称搜索全部工具，也可用 capability 缩小范围。仅提供 capability 时浏览并加载该分类的工具。匹配工具的完整参数定义在下一步可用。分类可以重叠，不限制权限。结果存在省略时应缩小查询范围。搜索不执行找到的工具。
+按任务或精确名称查找已获准但未预先加载的工具，匹配工具的完整定义在下一步可用。不传参数时列出能力分类，不加载工具。仅提供 capability 时浏览并加载分类，也可结合 query 缩小搜索范围。结果存在省略时应缩小查询范围。搜索不执行工具。
 
 ```json
 {

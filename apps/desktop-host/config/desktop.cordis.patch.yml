@@ -202,6 +202,11 @@
           drama_render: [剪辑, 成片, 渲染, 合成视频]
           drama_bgm: [配乐, 背景音乐]
           lvpaopao: [绿泡泡, 短剧选材, 剧目下载]
+          fanqie_search: [番茄小说, 搜小说, 搜书, 书名, 作者]
+          fanqie_download_info: [番茄小说, 小说详情, 目录, 章节]
+          fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]
+          screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
+          load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
 
         capabilities:
           - id: workspace
@@ -226,11 +231,11 @@
             tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
           - id: editing-delivery
             title: 剪辑配乐与交付
-            description: 匹配配乐、编辑视频、渲染和整理成片。
-            tools: [drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
+            description: 导出 Word 剧本、处理 Office 文档、匹配配乐、编辑视频与整理成片。
+            tools: [screenplay_export_docx, load_workspace_dependencies, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
           - id: data-sourcing
             title: 数据选材与下载
-            description: 查找剧目、榜单、小说和视频素材。
+            description: 搜索和下载番茄小说、剧目、榜单及视频素材。
             tools: ['hongguo_*', 'douyin_*', 'fanqie_*', lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
             title: 知识与项目资料

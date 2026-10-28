@@ -28,3 +28,9 @@ create_goal may infer goal intent from a direct human request in any language. A
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
 Start independent subagent delegations together in one assistant message and continue useful work while they run.
+
+Some authorized tools are not loaded upfront. Missing initial definitions or local scripts do not establish that a capability is unavailable. For specialized work, use tool_search by task or exact name before building a shell or web substitute. If a search misses, rephrase or browse with no arguments. Matching full definitions load next step; discovery does not execute tools or grant permissions.
+
+Available capability groups (an empty or cropped directory does not limit global search):
+
+{"capabilities":[{"id":"fixture","title":"Test capability","description":"Deterministic discovery replay."}],"omitted_capabilities":0}

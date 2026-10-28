@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Keep specialized tool definitions out of the initial request while letting agents find and load them when needed. Select constant tools, browse capability groups or search authorized metadata in Chinese or English, and expose matching definitions on the next step. Successful discoveries survive session restoration without granting additional permissions. Discovery adds a search step, and lexical matching does not guarantee that the most suitable capability will be found.
+Keep specialized tool definitions out of the initial request while showing agents a short authorized capability directory and discovery guidance. Select constant tools, browse groups or search metadata in Chinese or English, and expose matching definitions on the next step. Successful discoveries survive session restoration without granting additional permissions. Discovery adds a search step, and lexical matching does not guarantee that the most suitable capability will be found.
 
 ## Table of Contents
 
@@ -59,8 +59,9 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
 | `keywords` | `{}` | Additional searchable phrases keyed by exact tool name |
 | `capabilities` | `[]` | Overlapping groups with `id`, `title`, `description`, and tool-name patterns |
 | `maxResultChars` | `6000` | Complete serialized JSON result budget, from 256 to 65536 characters |
+| `maxDirectoryChars` | `2000` | Initial directory JSON budget, excluding fixed guidance, from 256 to 16384 characters |
 
-Each capability has a nonempty unique `id`. Its `tools` entries are exact names or prefixes with one trailing `*`; other wildcard positions are rejected. A tool may belong to several groups, as `video_inspect` does above. Groups describe capabilities rather than permission partitions: global search can cross them, and uncategorized authorized tools remain searchable. The directory omits groups with no currently authorized tools and counts each group's matching tools independently.
+Each capability has a nonempty unique `id`. Its `tools` entries are exact names or prefixes with one trailing `*`; other wildcard positions are rejected. A tool may belong to several groups, as `video_inspect` does above. Groups describe capabilities rather than permission partitions: global search can cross them, and uncategorized authorized tools remain searchable. The directory omits groups with no currently authorized tools and counts each group's matching tools independently. The initial discovery section lists ids, titles, and first-line description previews without loading tools. It preserves complete category names before sharing the remaining description budget and reports omitted categories. Global search still covers groups missing from a cropped directory.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-discovery) is the exhaustive configuration reference.
 
@@ -118,6 +119,7 @@ The MIT-licensed index independently implements standard BM25 in TypeScript. Chi
 | [`src/index.ts`](src/index.ts) | Search tool, configuration, durable loading projection, and scoped presentation |
 | [`src/search.ts`](src/search.ts) | Chinese and English tokenization, metadata indexing, and BM25 ranking |
 | [`src/capabilities.ts`](src/capabilities.ts) | Overlapping group membership and authorized directory summaries |
+| [`src/guidance.ts`](src/guidance.ts) | Stable discovery guidance and the bounded initial directory |
 | [`src/residency.ts`](src/residency.ts) | Per-agent preference service and optional Bot-owned persistence |
 
 </details>
@@ -131,7 +133,7 @@ The MIT-licensed index independently implements standard BM25 in TypeScript. Chi
 - [Session projections](../../session/session-projection/README.md) — rebuilding derived state from session events.
 - [LLM adapters](../../llm/llm/README.md) — provider-specific tool update behavior.
 - [Codex reference fork](https://github.com/felir7at62co-wq/codex) — upstream architecture reference, not a runtime dependency.
-- [Referenced Codex search handler](https://github.com/openai/codex/blob/7ac6081623928adead75caa2882e307444edad82/codex-rs/core/src/tools/handlers/tool_search.rs) — the inspected upstream implementation; this package does not vendor its Rust source.
+- [Referenced Codex discovery guidance](https://github.com/openai/codex/blob/c6fce1caceaae6c4b2896e5c5ae456b5be3bf501/codex-rs/core/src/tools/handlers/tool_search_spec.rs) — upstream reference for discovery instructions and source summaries; [NOTICE](NOTICE) records attribution.
 
 -----
 
@@ -142,15 +144,15 @@ The MIT-licensed index independently implements standard BM25 in TypeScript. Chi
 
 #### What the model sees
 
-The model initially sees authorized constant tools, `tool_search` and `tool_context`, whose definition explains capability browsing, cross-group queries, and next-step loading. Directory calls return group summaries; search or group browsing returns selected names, descriptions, and capability memberships with omission counts. Subsequent requests expose the loaded or pinned definitions alongside constant tools; management can release them again. Native schemas and generated PTC SDK declarations share the selection. Independent prompt sections remain unchanged.
+The model initially sees authorized constant tools, `tool_search`, `tool_context`, and one `tools:discovery` prompt section. The section explains deferred capabilities, recommends searching before building shell or web substitutes, and includes the bounded authorized directory. Missing definitions or local scripts do not establish capability absence. The tool definition describes query and browsing operations without repeating the directory. Search results select complete definitions for the next step; native schemas and generated PTC SDK declarations share that selection. Existing system-message logging preserves the section for replay. A complete prompt override can suppress this section.
 
 #### Token effect
 
-Unselected registry definitions are omitted from the current assembly. Each directory or discovery request adds a call and bounded JSON result; only discovery accumulates loaded definitions within the session. Selected tools retain their full argument schemas. Existing history is not erased by this plugin.
+Unselected registry definitions are omitted from the current assembly. Fixed guidance and a bounded directory appear before any discovery call. Each directory or discovery request adds a call and bounded JSON result; only discovery accumulates loaded definitions within the session. Selected tools retain their full argument schemas. Existing history is not erased by this plugin.
 
 #### KV Cache effect
 
-A stable selected set produces stable definitions, but discovery changes subsequent request headers. Cache reuse depends on the active model adapter's tool-update support; this plugin does not guarantee append-only updates or cache preservation across providers.
+Loading, pinning, and releasing tools leave the discovery section unchanged while the authorized catalog and configuration remain unchanged. Permission or capability-metadata changes can update that section. Selected definitions still change request headers; cache reuse depends on the model adapter, so this plugin does not guarantee append-only updates or cache preservation across providers.
 
 ## Known Limitations and Deferred Work
 
@@ -160,7 +162,7 @@ These limits distinguish discovery from access control and semantic task routing
 
 - **Registry projection only:** independently contributed system-prompt sections and tool-schema providers are not filtered, so tool discovery alone does not remove all unrelated guidance.
 - **Lexical retrieval:** Chinese segmentation, names, group metadata, and keywords improve matching but do not establish semantic relevance or task completion; an agent may need another query.
-- **Agent-driven selection:** loading persists until the agent releases it; no automatic task-stage classifier chooses tools for the agent. Cross-session Bot preferences require a registered persistence owner.
+- **Agent-driven selection:** guidance does not force search, block shell use, or establish task accuracy. Loading persists until the agent releases it; no automatic task-stage classifier chooses tools. Cross-session Bot preferences require a registered persistence owner.
 - **Provider-dependent caching:** smaller initial definitions do not establish lower total cost, latency, or better cache reuse for every model route.
 - **Metadata lifecycle:** restored names use current definitions; the projection does not freeze an older schema or revive removed tools.
 

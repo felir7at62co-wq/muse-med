@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-video-observation/guide.md
 /:
-  en: 82fa13967610e2b0
-  zh: f53a61bb57ba7797
+  en: b63bf69bf1cbfe63
+  zh: 881556c126bf8b66
 /muse-video-observation:
   en: 1b03f2eff2d4cfed
   zh: f12da5c04a552a1a
 /muse-video-observation/change:
-  en: 31b6d38f842de48b
-  zh: bf4dd47379825ce9
+  en: 561ed7828b7a1657
+  zh: be7f446c73a8cf67
 /muse-video-observation/migration:
-  en: 3ddd754c982f2dcb
-  zh: f288da59a2e688e1
+  en: 378b37528fac30d9
+  zh: 2b89fe4d1d27acd7
