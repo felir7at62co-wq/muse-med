@@ -1,0 +1,39 @@
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+                contextWindow: 1000000
+                defaultMaxTokens: 256000
+                reasoningEfforts: [off, low, high, max]
+                defaultReasoningEffort: max
+    - id: existing-video-fixture
+      name: ./existing-video-fixture.mjs
+    - id: tool-jubian
+      name: '../../../packages/jubian/tool-jubian/tests/snapshot-plugin.mjs'
+      config:
+        baseUrl: https://existing-video.invalid/prod-api
+        workspaceSecrets: false
+        videoSourcePageSize: 1
+        videoSourcePageLimit: 3
+        videoSourceTaskLimit: 3
+        videoSourceResultLimit: 3
+        ledgerRoot: !!js "process.cwd() + '/.dsh/jubian-existing-ledger'"
+
+# This source-only business-tool replay does not consume generated Typert endpoints.
+- id: typert-loader
+  disabled: true

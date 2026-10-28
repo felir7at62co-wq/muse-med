@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-existing-video-reuse
+profile: headless
+composition: muse-existing-video-reuse
+recording: authored
+header:
+  class: muse-existing-video-reuse
+  pin: true
+writerOutput: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-existing-video-fixture

@@ -1075,7 +1075,7 @@ describe('jubian_video', () => {
     const { client, calls } = stubClient(() => ({ total: 0, rows: [] }))
     await videoMethod(client, ledger, { method: 'subtasks', task_id: 335343 })
     expect(calls[0]!.method).toBe('POST')
-    expect(calls[0]!.path.endsWith('/admin/aigc/video/task/sub/list')).toBe(true)
+    expect(calls[0]!.path).toContain('/admin/aigc/video/task/sub/list?pageNum=1&pageSize=20')
     expect(calls[0]!.body).toEqual({ aigcVideoTaskId: 335343 })
   })
 

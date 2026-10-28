@@ -51,6 +51,8 @@ import { registerAudioAsset } from './audio-asset-register.ts'
 import { readUpscaleQuote } from './upscale-price.ts'
 import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
+import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
+import type { VideoSourceOptions } from './video-sources.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
@@ -288,6 +290,8 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Bounded read-only discovery of existing sources on an original card. */
+  videoSources?: VideoSourceOptions
   /** Foreground cancellation for image-reference reads and reservation. */
   signal?: AbortSignal
   /** Complete project inventory bounds for omitted character regeneration references. */
@@ -964,6 +968,20 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
+/** Explicit coverage for one page; an inferred total cannot establish the absence of other tasks. */
+function videoPageEvidence(data: unknown, total: number, returned: number, num: number, size: number) {
+  const reported = data !== null && typeof data === 'object' && !Array.isArray(data) && 'total' in data
+    && typeof data.total === 'number' && Number.isSafeInteger(data.total) && data.total >= 0
+  const actualSize = data !== null && typeof data === 'object' && !Array.isArray(data) && 'pageSize' in data
+    && typeof data.pageSize === 'number' && Number.isSafeInteger(data.pageSize) && data.pageSize >= 1
+    && returned <= data.pageSize ? data.pageSize : null
+  const hasMore = !reported ? null : num === 1 ? returned < total
+    : actualSize === null ? null : (num - 1) * actualSize + returned < total
+  return { queried_at: new Date().toISOString(), page_num: num, page_size: size, returned,
+    total_verified: reported, complete: reported && num === 1 && returned === total,
+    has_more: hasMore, next_page: hasMore === true || (hasMore === null && returned > 0) ? num + 1 : null }
+}
+
 /**
  * `jubian_video` — video task reads, the paid image generation and the upscale.
  * @param client - Jubian transport.
@@ -1003,27 +1021,37 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const result = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${need(args.task_id)}` })
       return { task: readTaskPage(result.data) }
     }
+    case 'sources':
+      return { sources: await readVideoSources(client, { script_id: need(args.script_id),
+        storyboard_id: need(args.storyboard_id) }, deps.videoSources ?? resolveVideoSourceOptions(), deps.signal) }
     case 'tasks': {
       const scriptId = need(args.script_id)
-      const num = args.page_num ?? 1
+      const { num, size } = pageSelection(args)
       const result = await client.request({
-        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}&taskType=1&pageNum=${num}` })
-      return { tasks: readTaskList(result.data) }
+        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}&taskType=1&pageNum=${num}&pageSize=${size}`,
+        ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
+      const tasks = readTaskList(result.data)
+      return { tasks: { ...tasks, ...videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size) },
+        guidance: 'tasks.rows 仅是本页；未读完所有页前，不能把未找到某集或某卡当作从未生成。'
+          + '提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。' }
     }
     case 'subtasks': {
       const taskId = need(args.task_id)
       // A POST that only reads: the query body carries the parent task id.
-      const result = await client.request({ method: 'POST', path: '/admin/aigc/video/task/sub/list',
-        body: { aigcVideoTaskId: taskId } })
+      const { num, size } = pageSelection(args)
+      const result = await client.request({ method: 'POST',
+        path: `/admin/aigc/video/task/sub/list?pageNum=${num}&pageSize=${size}`,
+        body: { aigcVideoTaskId: taskId }, ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
       const page = readSubtaskPage(result.data)
       const downloadable = page.rows.filter(row => row.parent_task_id === taskId && row.video_url !== null
         && (SUCCESS_STATUSES as readonly string[]).includes((row.status ?? '').trim().toLowerCase())).length
       // Resolution comparison is a hint, not authorization for paid processing.
       const target = args.delivery_resolution
       return {
-        subtasks: { ...page, rows: page.rows.map(row => ({ ...row,
-          needs_upscale: target === undefined ? null : needsUpscale(row, target),
-          delivery_resolution: target ?? null })) },
+        subtasks: { ...page, ...videoPageEvidence(result.data, page.total, page.rows.length, num, size),
+          rows: page.rows.map(row => ({ ...row,
+            needs_upscale: target === undefined ? null : needsUpscale(row, target),
+            delivery_resolution: target ?? null })) },
         guidance: `子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 ${downloadable} 项属于本任务、已成功且带 video_url 的结果。`
           + '逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。'
           + '其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。'
@@ -1518,7 +1546,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         const storyboard_id = need(args.storyboard_id, 'storyboard_id')
         const project_dir = need(args.project_dir, 'project_dir')
         return { ...await prepareVideoMethod(client, ledger, { storyboard_id, project_dir,
-          content_duration_ms: args.content_duration_ms }, deps.promptRiskReview), canonical_method: method }
+          content_duration_ms: args.content_duration_ms }, deps.promptRiskReview, deps.videoSources, deps.signal),
+        canonical_method: method }
       }
       requireKey(args.idempotency_key)
       return { ...await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
@@ -1534,7 +1563,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'prepare_video':
       // Free and read-only on the provider: the only write is the local preview.
       return await prepareVideoMethod(client, ledger, { storyboard_id: args.storyboard_id,
-        project_dir: args.project_dir, content_duration_ms: args.content_duration_ms }, deps.promptRiskReview)
+        project_dir: args.project_dir, content_duration_ms: args.content_duration_ms },
+      deps.promptRiskReview, deps.videoSources, deps.signal)
     case 'submit_video': {
       requireKey(args.idempotency_key)
       return await submitVideoMethod(client, ledger, { preview_path: args.preview_path,

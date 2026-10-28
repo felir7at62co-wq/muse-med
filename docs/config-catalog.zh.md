@@ -4256,11 +4256,23 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:81`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:83`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
+  /** Add one logged reminder for a new user request to extract or reuse existing video; defaults to true. */
+  existingVideoAdvisory?: boolean
+  /** Rows per read-only existing-video history page; integer 1..100, default 100. */
+  videoSourcePageSize?: number
+  /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
+  videoSourcePageLimit?: number
+  /** Maximum task details inspected for existing video; integer 1..100, default 50. */
+  videoSourceTaskLimit?: number
+  /** Maximum verified video sources returned per inspection; integer 1..100, default 20. */
+  videoSourceResultLimit?: number
+  /** Maximum JSON characters in one source result; integer 2048..1000000, default 12000. */
+  videoSourceMaxResultChars?: number
   /** Optional literal-term findings in free edit previews and video preparation; never blocks execution. */
   promptRiskReview?: PromptRiskReviewConfig
   /** Enable conversation-owned video choices; defaults to false outside Muse. */

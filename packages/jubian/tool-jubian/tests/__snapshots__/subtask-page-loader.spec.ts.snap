@@ -2,8 +2,46 @@
 
 exports[`exposes subtask rows in PTC output types while accepting other video-method results > video output type with paged subtask rows 1`] = `
 "{
+  sources?: {
+    script_id: number;
+    storyboard_id: number;
+    queried_at: string;
+    complete: boolean;
+    status: "available" | "pending" | "none_found" | "unknown";
+    sources: ({
+      task_id: number;
+      subtask_id: number;
+      first_result_id: number | null;
+      video_url: string;
+      status: string;
+    } & Record<string, JsonValue>)[];
+    issues: string[];
+    next: string;
+  } & Record<string, JsonValue>;
+  tasks?: {
+    queried_at: string;
+    page_num: number;
+    page_size: number;
+    returned: number;
+    total_verified: boolean;
+    /** 仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。 */
+    complete: boolean;
+    has_more: boolean | null;
+    next_page: number | null;
+    total: number;
+    rows: Record<string, JsonValue>[];
+  } & Record<string, JsonValue>;
   /** method=subtasks 的分页对象；子结果数组位于 subtasks.rows。 */
   subtasks?: {
+    queried_at: string;
+    page_num: number;
+    page_size: number;
+    returned: number;
+    total_verified: boolean;
+    /** 仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。 */
+    complete: boolean;
+    has_more: boolean | null;
+    next_page: number | null;
     /** 提供方报告的子结果总数；不是数组。 */
     total: number;
     /** 本页子结果；逐项核对 parent_task_id、status 和 video_url。 */
@@ -64,7 +102,15 @@ exports[`logs the actual failed child page and its download guidance into the ne
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }
-    ]
+    ],
+    "queried_at": "2026-10-28T00:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 1,
+    "total_verified": true,
+    "complete": false,
+    "has_more": true,
+    "next_page": 2
   },
   "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",
@@ -119,7 +165,15 @@ exports[`logs the actual running child page and its download guidance into the n
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }
-    ]
+    ],
+    "queried_at": "2026-10-28T00:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 1,
+    "total_verified": true,
+    "complete": false,
+    "has_more": true,
+    "next_page": 2
   },
   "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 0 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",
@@ -174,7 +228,15 @@ exports[`logs the actual succeeded child page and its download guidance into the
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }
-    ]
+    ],
+    "queried_at": "2026-10-28T00:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 1,
+    "total_verified": true,
+    "complete": false,
+    "has_more": true,
+    "next_page": 2
   },
   "guidance": "子结果数组位于 subtasks.rows，subtasks.total 是总数；本页有 1 项属于本任务、已成功且带 video_url 的结果。逐项核对 parent_task_id、status 和 video_url 后，用 jubian_media download 下载成功项。其他项以各自 status 为准：运行中继续读原任务，失败停止等待并报告；不要把分页对象当数组，也不要仅凭 URL 判成功。交付分辨率 480p。needs_upscale=true 仅提示实际分辨率低于交付尺寸，不是内容不可用判定，也不构成付费义务。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。已授权提交的去字幕与转高清都是异步任务，提交后先做别的，稍后再查。"
 }",

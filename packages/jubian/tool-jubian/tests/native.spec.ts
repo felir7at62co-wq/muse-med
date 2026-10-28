@@ -571,6 +571,36 @@ async function ready(promise: Promise<void>): Promise<void> {
 }
 
 describe('prepare_video', () => {
+  it('returns an older successful video as extraction evidence without changing the frozen preview', async () => {
+    const taskId = 335343
+    const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD),
+      tasks: [{ id: taskId, scriptId: 2708, storyboardId: 916953, taskStatus: 'succeeded' }],
+      subtasks: { [taskId]: [{ ...savedChild({ storyboard: STORYBOARD }), scriptId: 2708,
+        taskStatus: 'succeeded', modelId: 'older-model', resolution: '480p',
+        resultList: [{ firstResultId: 12, tosVideoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/old.mp4' }] }] } }
+    const directory = await project()
+    const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory })
+    expect(result).toMatchObject({ status: 'prepared', existing_video_sources: { status: 'available', complete: true,
+      sources: [{ task_id: taskId, subtask_id: 972949, model_id: 'older-model', resolution: '480p' }] } })
+    const saved = JSON.parse(await readFile(String(result.preview_path), 'utf8')) as NativeVideoPreview
+    expect(saved.idempotencyKey).toBe(stableSha256(submissionSemantics(saved.payload)))
+    expect(saved).not.toHaveProperty('existing_video_sources')
+    expect(putCalls(provider)).toEqual([])
+    expect(provider.calls.every(call => call.method === 'GET' || call.path.startsWith('/admin/aigc/video/task/sub/list')))
+      .toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('keeps preparation available when source-history reads fail', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {},
+      onTaskList: async () => { throw new Error('History unavailable') } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result).toMatchObject({ status: 'prepared', existing_video_sources: { status: 'unknown', complete: false } })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('keeps an unnamed legacy card compatible with the reference preflight', async () => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
       storyboard: { ...STORYBOARD, storyboardName: null } }
