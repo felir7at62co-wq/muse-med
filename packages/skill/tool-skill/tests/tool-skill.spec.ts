@@ -240,7 +240,7 @@ describe('dsh-tool-skill', () => {
     ctx.skills.register({
       name: 'z-skill',
       description: 'Long   description '.repeat(5),
-      whenToUse: 'Never render this routing hint.',
+      whenToUse: 'For shots.',
       source: 'secret-source',
       provider: 'runtime',
       resourceBase: { kind: 'directory', path: '/secret/path' },
@@ -300,7 +300,7 @@ describe('dsh-tool-skill', () => {
           entries: [
             { name: 'a-skill', description: 'Use {{placeholder}} <safely> & carefully.' },
             { name: 'model-only-skill', description: 'Model-only skill.' },
-            { name: 'z-skill', description: 'Long description Long description Long descript...' },
+            { name: 'z-skill', description: 'When to use: For shots. Description: Long descr...' },
           ],
         },
         content: [{
@@ -312,7 +312,7 @@ describe('dsh-tool-skill', () => {
             '<available_skills>',
             '- `a-skill`: Use {{placeholder}} &lt;safely&gt; &amp; carefully.',
             '- `model-only-skill`: Model-only skill.',
-            '- `z-skill`: Long description Long description Long descript...',
+            '- `z-skill`: When to use: For shots. Description: Long descr...',
             '</available_skills>',
             '',
             "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
@@ -329,6 +329,91 @@ describe('dsh-tool-skill', () => {
     expect(rendered).not.toContain('Secret body')
     expect(rendered).not.toContain('user-only-skill')
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/workspace') }))).not.toContain('<available_skills>')
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['whitespace', ' \n\t '],
+    ['duplicate', '  Write   shot lists.  '],
+  ])('keeps description-only catalog text for a %s routing hint', async (_label, whenToUse) => {
+    const home = await tempDir('tool-catalog-compatible-hint')
+    const ctx = await setup(home)
+    try {
+      ctx.skills.register({
+        name: 'shot-skill', description: 'Write shot lists.', source: 'runtime', content: 'Shot instructions.',
+        ...whenToUse === undefined ? {} : { whenToUse },
+      })
+      const prefix = await composePrefix(ctx, '/workspace')
+      expect(prefix[0]?.source).toMatchObject({
+        entries: [{ name: 'shot-skill', description: 'Write shot lists.' }],
+      })
+      expect(JSON.stringify(prefix[0]?.content)).toContain('- `shot-skill`: Write shot lists.')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('publishes escaped routing hints with the same unescaped text in durable entries', async () => {
+    const home = await tempDir('tool-catalog-routing-escape')
+    const ctx = await setup(home)
+    try {
+      await mkdir(join(home, '.muse/skills/shot-skill'), { recursive: true })
+      await writeFile(join(home, '.muse/skills/shot-skill/SKILL.md'), [
+        '---', 'name: shot-skill', 'description: Write shot lists.',
+        'whenToUse: "用户要写 <镜头脚本> & 核对\\n动作时序时使用。"', '---', 'Full shot instructions.',
+      ].join('\n'))
+      const prefix = await composePrefix(ctx, '/workspace')
+      expect(prefix[0]?.source).toMatchObject({
+        entries: [{
+          name: 'shot-skill',
+          description: 'When to use: 用户要写 <镜头脚本> & 核对 动作时序时使用。 Description: Write shot lists.',
+        }],
+      })
+      expect(JSON.stringify(prefix[0]?.content)).toContain('用户要写 &lt;镜头脚本&gt; &amp; 核对 动作时序时使用。')
+      expect(JSON.stringify(prefix[0]?.content)).not.toContain('Full shot instructions.')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it.each([3, 28])('caps the complete trigger-first summary at %i characters', async (cap) => {
+    const home = await tempDir('tool-catalog-routing-budget')
+    const ctx = await setup(home, { catalogDescriptionMaxLength: cap })
+    try {
+      ctx.skills.register({
+        name: 'shot-skill', description: 'Long description '.repeat(20), source: 'runtime', content: 'body',
+        whenToUse: '用户要求编写镜头脚本或检查动作时序时使用。'.repeat(20),
+      })
+      const prefix = await composePrefix(ctx, '/workspace')
+      expect(prefix[0]?.source).toMatchObject({
+        entries: [{ name: 'shot-skill', description: cap === 3 ? '...' : 'When to use: 用户要求编写镜头脚本或检...' }],
+      })
+      expect(JSON.stringify(prefix[0]?.content)).not.toContain('Long description')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('replaces a catalog when only its routing hint changes and retains unchanged history', async () => {
+    const home = await tempDir('tool-catalog-routing-update')
+    const ctx = await setup(home)
+    try {
+      const skill = { name: 'shot-skill', description: 'Write shot lists.', source: 'runtime', content: 'body' }
+      const dispose = ctx.skills.register({ ...skill, whenToUse: 'For vertical live-action shots.' })
+      const session = Session.create(SessionId('catalog-routing-update'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+      await fireStep(ctx, agent, 1, 1)
+      await fireStep(ctx, agent, 1, 2)
+      const first = catalogMessages(session)[0]
+      expect(catalogMessages(session)).toHaveLength(1)
+      dispose()
+      ctx.skills.register({ ...skill, whenToUse: 'For horizontal 3D shots.' })
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(session)).toHaveLength(2)
+      expect(catalogMessages(session)[0]).toBe(first)
+      expect(catalogMessages(session)[1]?.data.source).toMatchObject({
+        update: true,
+        entries: [{ name: 'shot-skill', description: 'When to use: For horizontal 3D shots. Description: Write shot lists.' }],
+      })
+      await fireStep(ctx, agent, 1, 4)
+      expect(catalogMessages(session)).toHaveLength(2)
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('does not inject a catalog when no model-invocable skills are available', async () => {

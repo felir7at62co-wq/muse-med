@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description.
+Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped routing summaries, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each summary.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Use it when agents should discover and load skills during a session. Skip it whe
 
 ### Mount and configure
 
-Load the plugin together with the skill registry and at least one provider. Configure the catalog description length and scoped-loader catalog ownership below.
+Load the plugin together with the skill registry and at least one provider. Configure the catalog summary length and scoped-loader catalog ownership below.
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -43,17 +43,19 @@ Load the plugin together with the skill registry and at least one provider. Conf
 
 | Field | Default | Meaning |
 |---|---|---|
-| `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
+| `catalogDescriptionMaxLength` | `500` | Maximum length of a normalized routing summary in the session catalog; minimum 3 |
 | `scopedCatalogOwner` | `false` | Let this scoped loader own its catalog across other tool-skill instances and recheck its visibility after discovery |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
+A skill with a distinct, nonblank `whenToUse` publishes `When to use: <whenToUse> Description: <description>` as its routing summary. Whitespace is normalized; a blank hint or one identical to the normalized description keeps the description alone. `catalogDescriptionMaxLength` caps the complete summary, so a long trigger can consume the budget and omit the description. Durable catalog entries record that same summary in their existing `description` field.
+
 ### What the model gets
 
-- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped description; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
+- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped routing summary; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
 - **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
 - **Explicit user invocation.** While this exact `skill` tool is visible, a `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
-- **Live catalog updates.** Later membership, description, or visibility changes append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
+- **Live catalog updates.** Later changes to membership, routing summaries, or visibility append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
 
 ### Observable success and failures
 
@@ -110,7 +112,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names. The template's closing sentence is the rule against double-loading: the user-explicit gesture boundary (the pre-step listener below) injects the same `renderSkillContent` output (shared from `@deepseek-ai/dsh-skill`) inline, and the catalog tells the model to follow that block instead of re-loading the skill through the tool; the replacement-catalog template carries the same anti-double-loading rule in both arms, including the emptied catalog.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later changes to membership, routing summaries, or visibility append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names. The template's closing sentence is the rule against double-loading: the user-explicit gesture boundary (the pre-step listener below) injects the same `renderSkillContent` output (shared from `@deepseek-ai/dsh-skill`) inline, and the catalog tells the model to follow that block instead of re-loading the skill through the tool; the replacement-catalog template carries the same anti-double-loading rule in both arms, including the emptied catalog.
 
 ##### Skill catalog template
 
@@ -119,7 +121,7 @@ If model-invocable skills exist and this exact `skill` tool is visible, the agen
 A skill is a reusable set of task-specific instructions. The following skills are available in this session:
 
 <available_skills>
-- `<name>`: <normalized-and-capped-description>
+- `<name>`: <normalized-and-capped-routing-summary>
 </available_skills>
 
 If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
@@ -240,11 +242,11 @@ Append-only; the injection lands after the reusable request prefix inside the st
 
 These limits define when the catalog or the loader is a poor fit. They are current package constraints, not a task backlog.
 
-- **The catalog omits `whenToUse`, source, and provider metadata** — routing is based only on name and a capped description; `whenToUse` remains provider metadata and is not rendered by the loaded wrapper either.
-- **Loaded instruction bodies have no size cap** — a provider can return a skill large enough to consume substantial next-step context; only catalog descriptions are truncated.
+- **The catalog omits source and provider metadata** — names and capped routing summaries do not identify the provider or resource location.
+- **Loaded instruction bodies have no size cap** — a provider can return a skill large enough to consume substantial next-step context; only catalog routing summaries are truncated.
 - **Resources are guidance, not attachments** — the tool reports a base directory/URL/opaque hint but neither enumerates nor fetches referenced files for the model.
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
-- **Catalog replacement is whole-list** — one changed name or description appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
+- **Catalog replacement is whole-list** — one changed name or routing summary appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
 - **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.
 
 <a id="dev-note"></a>

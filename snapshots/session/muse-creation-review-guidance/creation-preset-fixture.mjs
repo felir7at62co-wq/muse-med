@@ -28,6 +28,7 @@ export async function apply(ctx) {
         assert.ok(skill)
         assert.equal(value.available, true)
         assert.equal(value.skill.name, names[index])
+        assert.equal(value.skill.provider, 'muse-creation')
         assert.equal(value.skill.content, skill.content)
         assert.deepEqual(value.skill.resourceBase, {
           kind: 'directory', path: join(agent.session.header.cwd, '.dsh', 'skills', names[index]),

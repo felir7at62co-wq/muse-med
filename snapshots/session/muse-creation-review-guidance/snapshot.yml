@@ -1,5 +1,5 @@
 version: 1
-# Probe retired writing guides and retain explicit reads of historical workspace references.
+# Load workspace-provided writing guides and retain explicit reads of historical references.
 scenario: muse-creation-review-guidance
 profile: headless
 composition: muse-creation-review-guidance
