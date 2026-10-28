@@ -11,6 +11,7 @@
     "src/client/about.js",
     "src/client/capability-settings.js",
     "src/client/characters.js",
+    "src/client/composer.js",
     "src/client/diagnostics.js",
     "src/client/feedback.js",
     "src/client/i18n.js",
@@ -68,6 +69,7 @@
     "Feishu chat titles display beside unique Bot addresses without overriding user names",
     "DS Bot coordinator preset and a separate Muse short-drama specialist for new teams",
     "Per-Bot resident tool preferences connected to shared Harness tool discovery without granting additional permissions",
-    "Bot mode retains the shared 56px avatar rail on desktop and releases it on exit"
+    "Bot mode retains the shared 56px avatar rail on desktop and releases it on exit",
+    "Composer attachment menu keeps hook order stable while the Bot roster loads"
   ]
 }

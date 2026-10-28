@@ -9307,6 +9307,11 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  const place = (0, import_react16.useMemo)(() => {
+    if (!shown || !button.current) return null;
+    const rect = button.current.getBoundingClientRect();
+    return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
+  }, [shown, open, tick]);
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   if (sessionId === void 0 || target === void 0) return null;
   const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
@@ -9330,11 +9335,6 @@ function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
     actions.referenceChat(sessionId, inputActions?.captureInsertion?.());
   };
   const canReference = typeof inputActions?.captureInsertion === "function" && actions.canReferenceChat();
-  const place = (0, import_react16.useMemo)(() => {
-    if (!shown || !button.current) return null;
-    const rect = button.current.getBoundingClientRect();
-    return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
-  }, [shown, open, tick]);
   return (0, import_react16.createElement)(
     import_react16.Fragment,
     null,
