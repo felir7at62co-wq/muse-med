@@ -9,7 +9,8 @@
     "test:host": "node --test ../compatibility/host-runtime.test.mjs ../compatibility/bridge-desktop.test.mjs ../compatibility/codex-model-visibility.test.mjs ../compatibility/mcp-desktop.test.mjs",
     "test:feishu": "node --test ../feishu-build.test.mjs",
     "test:im": "node --test ../im-build.test.mjs",
-    "test:hongguo": "node --test ../hongguo-build.test.mjs"
+    "test:hongguo": "node --test ../hongguo-build.test.mjs",
+    "test:bot": "node --test ../compatibility/muse-bot-desktop.test.mjs ../muse-bot-build.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.85.1",

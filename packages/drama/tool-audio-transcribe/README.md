@@ -47,6 +47,8 @@ Local media commands reject timeout or excessive diagnostic output even when the
 | `chunkSeconds` | 600 | Maximum seconds per cloud job; source inputs remain bounded by `maxDurationSeconds`. |
 | `maxAudioBytes` | 100,000,000 | Maximum extracted audio chunk size; the server enforces its own limit. |
 
+Provider quota diagnostics distinguish ordinary polling from exhausted trial allowance. Known lifetime quotas return `inspect_receipt` and an operator notice to restore the original application's resource, while preserving the original task and receipt. `recovery.retry_after` is carried into `retry_after_seconds`; bounded waits do not poll before that delay. A later successful query clears obsolete failure fields and publishes the original task's result without another submission.
+
 ## Understand the implementation
 
 The Host account service reads its origin-bound saved session and sends the audio to `POST /api/asr/jobs`, then queries `GET /api/asr/jobs/:id` under the same account. It never returns the cookie, signed TOS URL, or provider keys to the model. The gateway owns account isolation, quota, provider execution, and temporary audio cleanup. Standard jobs use private TOS objects; flash jobs send private staged audio directly. Unknown submissions retain their IDs for readback. The server's configuration and release procedure live in [`services/muse-accounts`](../../../services/muse-accounts/README.md).

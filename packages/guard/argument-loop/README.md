@@ -1,5 +1,5 @@
 ---
-description: "Configure and diagnose a local stop for streamed tool arguments that repeat one JSON object member, without automatic retry or tool replay."
+description: "Configure and diagnose a local stop for streamed tool arguments that repeat one JSON object member, with bounded optional response recovery and no tool replay."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Stop a model response when one JSON object repeats the same member name at an explicitly configured count. Completed earlier work stays intact; no tool from the failing response executes, even a complete call preceding the looping call in that response. The existing raw attempt and structured `TOOL_ARGUMENT_LOOP` turn failure explain the stop. This package never retries, continues, or replays tools automatically. It does not repair model reasoning or detect every kind of loop.
+Stop a model response when one JSON object repeats the same member name at an explicitly configured count. Completed earlier work stays intact; no tool from the failing response executes, even a complete call preceding the looping call in that response. The existing raw attempt and structured `TOOL_ARGUMENT_LOOP` turn failure explain the stop. Optional `recoveryAttempts` resamples the unsettled request within a per-turn limit; it never replays completed tools. It does not repair model reasoning or detect every kind of loop.
 
 ## Table of Contents
 
@@ -38,17 +38,21 @@ Choose it to stop repeated member names inside a single streamed tool-argument o
   name: '@deepseek-ai/dsh-argument-loop'
   config:
     repeatedPropertyLimit: 64
+    recoveryAttempts: 1
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `repeatedPropertyLimit` | required | Safe integer ≥ 2: occurrences of one decoded member name in the same object that stop a response |
+| `recoveryAttempts` | `0` | Non-negative safe integer: maximum fresh responses after local argument-loop failures within one turn |
 
-The package has no implicit threshold. Muse explicitly selects 64: the reported incident repeated `page_num` about 18,000 times, while 64 occurrences of one member in one object cannot advance that ordinary tool call. This conservative stop is not a universal guarantee. The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-argument-loop) is the exhaustive accepted-field reference.
+The package has no implicit threshold. Muse explicitly selects 64: the reported incident repeated `page_num` about 18,000 times, while 64 occurrences of one member in one object cannot advance that ordinary tool call. Muse also explicitly permits one response recovery per turn. This conservative stop is not a universal guarantee. The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-argument-loop) is the exhaustive accepted-field reference.
 
 ### After a stop
 
-Inspect the retained `assistant/attempt`, `turn/end` error, completed tool results, and project artifacts. The guard throws a local `LlmError`, not a provider error finish, so even provider `retryPolicy: always`, output continuation, and an armed Goal Round do not restart it. A later human instruction is a new action: inspect existing remote task IDs, writes, and cost records first; do not repeat earlier successful or uncertain paid operations on the assumption that the whole turn failed.
+With recovery enabled, the guard closes the failed stream before the loop retains its raw `assistant/attempt` and requests a fresh response from the same current request. Earlier completed tool results stay in history, while partial calls and complete calls from the failed response never enter tool execution. The budget covers the whole turn and does not replenish after successful intervening steps. Cancellation and host pause stop recovery; unloading cancels and awaits any pending recovery. No instruction, model setting, goal revision, or content-safety policy is changed.
+
+When recovery is disabled or exhausted, the guard throws a local `LlmError` outside provider retry semantics, so even `retryPolicy: always` cannot restart it. Other provider errors, including content-safety failures, retain their existing policy. Inspect raw attempts, completed results, remote task IDs, writes, and cost records before a later human-authorized restart; a failed turn does not make earlier successful or uncertain paid operations safe to repeat.
 
 -----
 
@@ -58,7 +62,7 @@ Inspect the retained `assistant/attempt`, `turn/end` error, completed tool resul
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The `llm/stream` listener only wraps requests marked by the agent loop. Incremental lexical state counts decoded keys independently for each nested object and tool-call index, without retaining value strings. It follows the assembler's first-block-end contract and checks authoritative full arguments separately rather than appending them to deltas twice. The exact triggering chunk is yielded before the structured exception; the loop retains it and cannot dispatch tools from an unsettled response. The consumer owns cancellation, and iterator return awaits upstream cleanup; plugin disposal removes the registration without detached work.
+The `llm/stream` listener only wraps requests marked by the agent loop. Incremental lexical state counts decoded keys independently for each nested object and tool-call index, without retaining value strings. It follows the assembler's first-block-end contract and checks authoritative full arguments separately rather than appending them to deltas twice. The exact triggering chunk is retained before either the bounded recovery finish or terminal exception. The loop cannot dispatch tools from an unsettled response. Only an internally witnessed local failure bound to the current turn signal can use `agent/request-error` recovery; provider-supplied copies of the failure code do not qualify. Iterator return awaits upstream cleanup. Disposal drains pending recovery before removing listeners.
 
 | File | Purpose |
 |---|---|
@@ -80,7 +84,7 @@ The `llm/stream` listener only wraps requests marked by the agent loop. Incremen
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as this package stops a local response without adding model tools, prompts, or recovery requests.
+None, as no prompts or tool definitions are added; optional recovery resends retained history and consumes another model generation with its normal token usage.
 
 #### KV Cache effect
 

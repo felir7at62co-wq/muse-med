@@ -21,7 +21,7 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
-每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。上游清单与源码文件保持不变。
+每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
 
 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
@@ -58,6 +58,12 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 同一飞书机器人的私聊和群聊都使用其 IM 设置中选择的工作区。各聊天共享该目录的文件和素材，但分别保存 Session 历史。启动时会清除单个聊天的工作区覆盖，并解除 Session 工作目录与机器人工作区不同的绑定；目录匹配的绑定保留原 Session ID。后续对话命令不能重新建立私有目录覆盖，也不能绑定其他聊天当前使用的 Session。选择其他机器人工作区后，其所有聊天的后续工作都使用新目录。旧 Session 日志与文件留在原位置，适配层不会搬迁。
 
 Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence` 依赖，使工作区校验可以读取活跃或已持久化的 Session 头部信息。隔离 IM 检查以离线平台传输验证迁移、真实 Loader 和 Agent API、群提及、控制归属及原 Session 历史恢复。服务访问受限的 Cordis 插件通过真实 Host gateway 新建私聊和群聊 Session，验证两者使用同一所选工作区且历史独立；缺少依赖的反例会在请求模型前拒绝未声明的 Session 访问。构建检查比较两份完整 tarball，核对原生 Client 和许可证，并确认保留的上游文件未被改动。这些检查不认证真实机器人，也不能证明租户权限已配置。
+
+### Muse Bot
+
+[Muse Bot](ds-bot/README.zh.md)是固定源码的原生团队工作区。桌面 bundle 只添加一个 Bot 插件，保留 Muse 的模型路由、网页搜索、任务界面、上下文压缩和目标工具。受控构建重建其浏览器模块，并保留 Apache 许可证、上游署名与来源收据；不包含独立插件更新或上游独立应用。
+
+原生飞书群聊和私聊各按已登记应用与聊天 ID 绑定一个 Muse Bot，名称不参与路由。群名通过已认证的群信息接口读取；私聊使用入站发送者姓名，或复用已有消息读取接口，核对原消息、聊天和发送者后再采用姓名。成功取得的名称跨重启缓存；元数据暂不可用时保留 Session 标题，通道重启后再尝试，后续入站发送者姓名也可补齐缺失信息。不申请通讯录权限。团队服务分别保留真实聊天标题和可用于寻址的唯一 Bot 名称，保留用户手工改过的名字。原 Session、工作区、模型和目标保持不变，显式 `/new`、`/use` 延续同一 Bot 身份。第一版绑定记录兼容缺少聊天名称元数据的旧群记录，并原地补充元数据。
 
 ### 红果公开数据
 

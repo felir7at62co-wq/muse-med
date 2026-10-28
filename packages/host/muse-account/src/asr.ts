@@ -24,11 +24,14 @@ export interface MuseAsrMetadata {
     readonly operation?: 'submit' | 'query' | 'flash'
     readonly http_status?: number
     readonly provider_code?: string
+    readonly quota_type?: 'qps' | 'concurrency' | 'audio_duration' | 'audio_duration_saas' | 'audio_duration_lifetime' | 'text_words_lifetime' | 'tokens_lifetime'
   }
   readonly recovery?: {
     readonly capability: 'query_original_task' | 'no_query' | 'none'
     readonly next_action: 'poll_original' | 'wait' | 'inspect_receipt' | 'use_result' | 'resume_upload'
     readonly automatic_resubmit: false
+    /** Seconds before the gateway's next original-task query; does not authorize resubmission. */
+    readonly retry_after?: number
   }
 }
 
@@ -47,27 +50,31 @@ export function parseMuseAsrMetadata(row: Record<string, unknown>): MuseAsrMetad
   let diagnostic: MuseAsrMetadata['provider_diagnostic']
   if (provider_diagnostic !== undefined) {
     if (typeof provider_diagnostic !== 'object' || provider_diagnostic === null || Array.isArray(provider_diagnostic)) throw new MuseAsrError('response-invalid')
-    const { reason, operation, http_status, provider_code } = provider_diagnostic as Record<string, unknown>
+    const { reason, operation, http_status, provider_code, quota_type } = provider_diagnostic as Record<string, unknown>
     if ((reason !== undefined && (typeof reason !== 'string' || !['timeout', 'transport', 'http', 'response', 'json', 'result', 'audio'].includes(reason)))
       || (operation !== undefined && (typeof operation !== 'string' || !['submit', 'query', 'flash'].includes(operation)))
       || (http_status !== undefined && (typeof http_status !== 'number' || !Number.isInteger(http_status) || http_status < 100 || http_status > 599))
-      || (provider_code !== undefined && (typeof provider_code !== 'string' || !/^\d{5,10}$/.test(provider_code)))) throw new MuseAsrError('response-invalid')
+      || (provider_code !== undefined && (typeof provider_code !== 'string' || !/^\d{5,10}$/.test(provider_code)))
+      || (quota_type !== undefined && (typeof quota_type !== 'string' || !['qps', 'concurrency', 'audio_duration', 'audio_duration_saas', 'audio_duration_lifetime', 'text_words_lifetime', 'tokens_lifetime'].includes(quota_type)))) throw new MuseAsrError('response-invalid')
     diagnostic = {
       ...(reason === undefined ? {} : { reason: reason as NonNullable<NonNullable<MuseAsrMetadata['provider_diagnostic']>['reason']> }),
       ...(operation === undefined ? {} : { operation: operation as NonNullable<NonNullable<MuseAsrMetadata['provider_diagnostic']>['operation']> }),
       ...(http_status === undefined ? {} : { http_status }),
       ...(provider_code === undefined ? {} : { provider_code }),
+      ...(quota_type === undefined ? {} : { quota_type: quota_type as NonNullable<NonNullable<MuseAsrMetadata['provider_diagnostic']>['quota_type']> }),
     }
   }
   let instruction: MuseAsrMetadata['recovery']
   if (recovery !== undefined) {
     if (typeof recovery !== 'object' || recovery === null || Array.isArray(recovery)) throw new MuseAsrError('response-invalid')
-    const { capability, next_action, automatic_resubmit } = recovery as Record<string, unknown>
+    const { capability, next_action, automatic_resubmit, retry_after } = recovery as Record<string, unknown>
     if (typeof capability !== 'string' || !['query_original_task', 'no_query', 'none'].includes(capability)
       || typeof next_action !== 'string' || !['poll_original', 'wait', 'inspect_receipt', 'use_result', 'resume_upload'].includes(next_action)
-      || automatic_resubmit !== false) throw new MuseAsrError('response-invalid')
+      || automatic_resubmit !== false
+      || (retry_after !== undefined && (typeof retry_after !== 'number' || !Number.isSafeInteger(retry_after) || retry_after < 1 || retry_after > 86400))) throw new MuseAsrError('response-invalid')
     instruction = { capability: capability as NonNullable<MuseAsrMetadata['recovery']>['capability'],
-      next_action: next_action as NonNullable<MuseAsrMetadata['recovery']>['next_action'], automatic_resubmit }
+      next_action: next_action as NonNullable<MuseAsrMetadata['recovery']>['next_action'], automatic_resubmit,
+      ...(retry_after === undefined ? {} : { retry_after }) }
   }
   return {
     ...(service_version === undefined ? {} : { service_version: service_version as NonNullable<MuseAsrMetadata['service_version']> }),

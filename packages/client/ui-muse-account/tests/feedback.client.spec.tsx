@@ -8,16 +8,6 @@ import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
-it.each([true, false])('opens the configured Muse feedback page with wide=%s', (wide) => {
-  const open = vi.spyOn(window, 'open').mockReturnValue(null)
-  const feedbackUrl = 'https://muse.example/feedback'
-  const props = { wide, settingsOpen: false, openSettings: vi.fn(), openOnboarding: vi.fn(),
-    feedbackUrl, t: (key: string) => key } as ComponentProps<typeof MuseAccountLauncher>
-  render(<MuseAccountLauncher {...props} />)
-  fireEvent.click(screen.getByRole('button', { name: 'feedback' }))
-  expect(open).toHaveBeenCalledExactlyOnceWith(feedbackUrl, '_blank', 'noopener,noreferrer')
-})
-
 it('requires a feedback destination', () => {
   expect(() => FeedbackConfig({})).toThrow()
 })
@@ -44,14 +34,20 @@ it.each([
   expect(() => FeedbackConfig({ feedbackUrl })).toThrow()
 })
 
-it.each([true, false])('opens account settings with section navigation available=%s', (available) => {
+it.each([
+  { wide: true, available: true }, { wide: true, available: false },
+  { wide: false, available: true }, { wide: false, available: false },
+])('keeps only account navigation with wide=$wide and section navigation=$available', ({ wide, available }) => {
   const openSettings = vi.fn(), openSection = vi.fn()
   const props = {
     ...({} as GlobalStandardProps),
-    wide: true, settingsOpen: false, openSettings, openOnboarding: vi.fn(), ...(available ? { openSection } : {}),
+    wide, settingsOpen: false, openSettings, openOnboarding: vi.fn(), ...(available ? { openSection } : {}),
     feedbackUrl: 'https://muse.example/feedback', t: (key: string) => key,
   } as ComponentProps<typeof MuseAccountLauncher>
   render(<MuseAccountLauncher {...props} />)
+  expect(screen.getAllByRole('button')).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: 'feedback' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'nav' }).getAttribute('data-collapsed')).toBe(String(!wide))
   fireEvent.click(screen.getByRole('button', { name: 'nav' }))
   if (available) {
     expect(openSection).toHaveBeenCalledExactlyOnceWith('muse-account')

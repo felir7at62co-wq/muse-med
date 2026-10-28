@@ -8,6 +8,7 @@ const messages = {
   RATE_LIMIT: 'Upstream rate limit exceeded. Please retry later.',
   CONTEXT_WINDOW_EXCEEDED: 'Upstream context window exceeded. Please reduce the request context.',
   INVALID_REQUEST: 'Upstream rejected the model request. Please check the model parameters.',
+  CONTENT_FILTER: 'Upstream content safety refused this request. Repeating the same request will not resolve the refusal.',
   SERVER: 'Upstream model service failed. Please retry later.',
   TIMEOUT: 'Upstream model request timed out. Please retry later.',
   TRANSPORT: 'Upstream model connection interrupted. Please retry later.',
@@ -24,7 +25,9 @@ const messages = {
   INVALID_REPLAY_STATE: 'Muse model history cannot be replayed. Please select a compatible model.',
   IMAGE_OFFLOAD_REQUIRED: 'Muse model request requires image offloading.',
   MODEL_ACCESS_UNCERTAIN: 'Muse model access could not be confirmed. Please retry later or contact the Muse administrator.',
-  PI_AI_ERROR: 'Upstream model request failed. Please retry or contact the Muse administrator.',
+  MODEL_ACCESS_CHECK_FAILED: 'Muse model access check failed during the request. Check account access before continuing; do not automatically repeat the interrupted request.',
+  MODEL_REQUEST_DEADLINE: 'Muse model request reached its access deadline. Check its result before continuing; do not automatically repeat the interrupted request.',
+  PI_AI_ERROR: 'Upstream model ended with an unclassified error. Check provider diagnostics before repeating the request.',
   UNKNOWN: 'Muse model request failed. Please retry or contact the Muse administrator.',
 } as const
 

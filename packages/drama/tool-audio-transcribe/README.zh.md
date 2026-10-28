@@ -48,6 +48,8 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 | `chunkSeconds` | 600 | 每个云端任务的最长秒数；原素材仍受 `maxDurationSeconds` 限制。 |
 | `maxAudioBytes` | 100,000,000 | 单段提取音频的最大字节数；服务器另有独立上限。 |
 
+供应商额度诊断区分普通轮询与试用额度耗尽。确认 lifetime 额度耗尽时，返回 `inspect_receipt` 并提示管理员恢复原应用对应资源，保留原任务和收据。`recovery.retry_after` 同步到 `retry_after_seconds`，有界等待不会提前轮询；后续查询成功会清除过时错误字段，直接发布原任务结果，不再次提交。
+
 <a id="understand-the-implementation"></a>
 ## 实现说明
 

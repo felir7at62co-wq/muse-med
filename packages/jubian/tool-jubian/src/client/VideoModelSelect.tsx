@@ -13,13 +13,13 @@ export interface VideoModelSelectInjected {
   select: (key: string) => Promise<void>
 }
 /** Complete slot component props. */
-export type VideoModelSelectProps = PropsRuntime<'conversation.input.right'> & PropsLocale<'settings.jubian'> & InjectFace<VideoModelSelectInjected>
+export type VideoModelSelectProps = PropsRuntime<'conversation.input.right'> & PropsLocale<'settings.jubian'> & InjectFace<VideoModelSelectInjected> & { variant?: 'details' }
 /**
  * Render only supported live combinations; model and resolution stay separate rows.
  * @param props - Session-scoped selector facts and actions.
  * @returns Video choice trigger and viewport-fitting menu.
  */
-export function VideoModelSelect({ useVideoState, load, select, t }: VideoModelSelectProps) {
+export function VideoModelSelect({ useVideoState, load, select, t, variant }: VideoModelSelectProps) {
   const state = useVideoState(value => value)
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<'root' | 'model' | 'resolution'>('root')
@@ -41,12 +41,12 @@ export function VideoModelSelect({ useVideoState, load, select, t }: VideoModelS
     .map(option => ({ id: option.key, label: option.resolution })) : []
   const close = (): void => { setOpen(false); setPane('root'); setDetails(false) }
   useLayoutEffect(() => { if (open) trigger.current?.focus() }, [open, pane])
-  return <div className={css.root} onKeyDownCapture={(event) => {
+  return <div data-jubian-video-selector={variant === 'details' ? 'details' : 'composer'} className={`${css.root} ${variant === 'details' ? css.details : ''}`} onKeyDownCapture={(event) => {
     if (open && pane !== 'root' && event.key === 'ArrowLeft') {
       event.preventDefault(); event.stopPropagation(); setPane('root')
     }
   }}>
-    <Menu open={open} onClose={close} items={items} opaque
+    <Menu open={open} onClose={close} items={items} opaque className={variant === 'details' ? css.detailMenu : undefined}
       selectedIds={current ? [current.key, `family:${current.standardId}`] : undefined}
       align="end" side="top" portal listClassName={css.menu} onSelect={(key) => {
         const family = families.find(option => `family:${option.standardId}` === key)

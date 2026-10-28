@@ -10,3 +10,5 @@ English | [中文](README.zh.md)
 ## Summary
 
 [`muse-accounts`](muse-accounts/README.md) is the source and test record for the account gateway. The Desktop build does not launch it. A release copies it with the matching runtime and global packages into a separate server release directory.
+
+[`muse-runtime`](muse-runtime/README.md) provides graceful admission closure for the separately deployed workroom broker.

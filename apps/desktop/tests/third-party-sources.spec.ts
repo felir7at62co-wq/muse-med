@@ -24,7 +24,7 @@ it('retains pinned community source and licenses without installed runtime data'
     desktop?: boolean
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
+    'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
   ])
   expect(pins['dsh-codex-subscription']?.desktop).not.toBe(false)
   expect(pins['dsh-feishu']?.desktop).toBe(false)

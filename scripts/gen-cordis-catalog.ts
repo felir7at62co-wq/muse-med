@@ -196,6 +196,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   commandUi: 'client-side interface-typed browser service — packages/client/ui-commands/README.md owns the API',
   feedbackUi: 'client-side feedback dialog service — packages/client/ui-message-feedback/README.md owns the API',
   feedbackDelivery: 'client-side interface-typed account inbox delivery provider — packages/client/ui-message-feedback/README.md owns the API',
+  jubianVideoUi: 'client-side Session video selector for Bot details — packages/jubian/tool-jubian/README.md owns the API',
   jubianBudget: 'interface-typed project budget authority registered by the Jubian tool provider — packages/jubian/tool-jubian/README.md owns the API',
   conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the API',
   layout: 'client-side interface-typed browser service — packages/client/ui-layout/README.md owns the API',

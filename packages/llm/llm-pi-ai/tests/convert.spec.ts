@@ -946,6 +946,17 @@ describe('mapStopReason / mapUsage', () => {
   })
 
   it.each([
+    ['Provider finish_reason: content_filter', 'CONTENT_FILTER'],
+    ['Provider finish_reason: network_error', 'TRANSPORT'],
+    ['Provider finish_reason: unknown_error', 'PI_AI_ERROR'],
+    ['content_filter reported in unrelated provider text', 'PI_AI_ERROR'],
+    ['network_error reported in unrelated provider text', 'PI_AI_ERROR'],
+  ])('classifies only recognized SDK finish-reason labels: %s', (errorMessage, code) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { code } })
+  })
+
+  it.each([
     'other side closed',
     'HTTP2 request did not get a response',
     'WebSocket closed unexpectedly',

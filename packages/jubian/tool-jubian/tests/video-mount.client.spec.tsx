@@ -2,6 +2,7 @@
 /** Composer registration follows remote availability and owns each session directory until disposal. */
 import { Context } from '@deepseek-ai/cordis'
 import { expect, it, onTestFinished, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -36,8 +37,9 @@ async function bench(available: () => Promise<RemoteResult<boolean>>) {
     select: vi.fn<VideoSelectionClient['select']>(async () => ({ ok: true, value: { ...option, revision: 1 } })),
   }
   const sessionBindings = new Map([[SessionId('present'), binding], [SessionId('without-scope'), binding]])
+  const sessionScopes = new Map([[SessionId('present'), sessionScope]])
   ctx.provide('sessions', { binding: (id: SessionId) => sessionBindings.get(id),
-    scope: (id: SessionId) => id === SessionId('present') ? sessionScope : undefined } as never)
+    scope: (id: SessionId) => sessionScopes.get(id) } as never)
   ctx.provide('remote', { $mount: async () => async () => {},
     get jubianToken(): unknown { const namespace: unknown = ctx.get('remote.jubianToken'); return namespace },
     get jubianVideoSelection(): unknown { const namespace: unknown = ctx.get('remote.jubianVideoSelection'); return namespace },
@@ -47,7 +49,7 @@ async function bench(available: () => Promise<RemoteResult<boolean>>) {
   const slots = ctx.get('slots') as SlotRegistry
   slots.register({ name: 'root', children: { 'settings.section': { kind: 'list', scope: 'root' },
     'conversation.input.right': { kind: 'list', scope: 'session' } } } as never, () => null)
-  return { ctx, sessionScope, slots, remote, selection, unsubscribe, binding }
+  return { ctx, sessionScope, sessionScopes, slots, remote, selection, unsubscribe, binding }
 }
 
 it('shares a directory for a session binding and releases its projection before late reads publish', async () => {
@@ -85,4 +87,33 @@ it.each(['disabled', 'refused', 'disposed'] as const)('does not register a compo
   if (closing) await closing
   else await dispose()
   expect(b.remote.catalogue).not.toHaveBeenCalled()
+})
+
+
+it('reuses the Session selector in Bot details and survives a missing or replaced Session scope', async () => {
+  const b = await bench(async () => ({ ok: true, value: true }))
+  onTestFinished(cleanup)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  await vi.waitFor(() => { expect(b.ctx.get('jubianVideoUi')).toBeDefined() })
+  const service = b.ctx.jubianVideoUi
+  expect(service.render(SessionId('missing'))).toBeNull()
+  expect(service.render(SessionId('without-scope'))).toBeNull()
+  const view = render(service.render(SessionId('present')))
+  fireEvent.click(screen.getByRole('button', { name: 'Video model' }))
+  await screen.findByRole('menuitem', { name: /Model/ })
+  fireEvent.click(screen.getByRole('menuitem', { name: /Model/ }))
+  fireEvent.click(await screen.findByText('Fixture'))
+  await vi.waitFor(() => { expect(b.remote.select).toHaveBeenCalledWith(SessionId('present'), option.key, 0) })
+  view.unmount()
+  await b.sessionScope.fiber.dispose()
+  b.sessionScopes.delete(SessionId('present'))
+  expect(service.render(SessionId('present'))).toBeNull()
+  const replacement = new Context()
+  onTestFinished(async () => { await replacement.fiber.dispose() })
+  b.sessionScopes.set(SessionId('present'), replacement)
+  render(service.render(SessionId('present')))
+  fireEvent.click(screen.getByRole('button', { name: 'Video model' }))
+  await screen.findByRole('menuitem', { name: /Model/ })
+  expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
+  await dispose()
 })
