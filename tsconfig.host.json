@@ -9,6 +9,7 @@
   },
   "include": [
     "apps/web/product-isolation.ts",
+    "apps/web/tests/bot-sidebar-rail.e2e.ts",
     "apps/web/tests/muse-drama-modes.e2e.ts",
     "apps/web/tests/connection-recovery.e2e.ts",
     "apps/web/tests/server-restart.e2e.ts",

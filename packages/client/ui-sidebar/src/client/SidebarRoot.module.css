@@ -1,15 +1,14 @@
 /* Sidebar column (figma 133:7629): vertical stack, padding 12/6, sidebar
    fill + 1px right border painted by the layout column. Collapse is a
-   slide + crossfade, not a morph: the content holds its frozen expanded
-   layout (inline width set by the component) and fades in place (.fading)
-   while the sliding column (AppFrame grid tracks) clips it; the rail layout
-   (.collapsed) only applies after the fade settles, so nothing reflows
-   mid-slide. */
+   slide plus label crossfade: only the region keeps its expanded geometry
+   while the grid clips it. Window controls follow the column edge and stay
+   visible before the compact presentation settles. */
 
 .root {
   --dsh-sidebar-inline-padding: 12px;
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
   padding: 6px var(--dsh-sidebar-inline-padding);
   box-sizing: border-box;
@@ -50,7 +49,7 @@
   -webkit-app-region: no-drag;
 }
 
-:global([data-windows-titlebar]) .root.collapsed .logoRow {
+:global([data-windows-titlebar]) .root.collapsed:not([data-desktop-rail]) .logoRow {
   height: 0;
 }
 
@@ -70,7 +69,7 @@
   font-weight: 400;
 }
 
-:global([data-windows-titlebar]) .root.collapsed {
+:global([data-windows-titlebar]) .root.collapsed:not([data-desktop-rail]) {
   padding: 0;
 }
 
@@ -79,9 +78,9 @@
   margin-left: 0;
 }
 
-:global([data-windows-titlebar]) .collapsed .panelList,
-:global([data-windows-titlebar]) .collapsed .regionArea,
-:global([data-windows-titlebar]) .collapsed .footArea {
+:global([data-windows-titlebar]) .collapsed:not([data-desktop-rail]) .panelList,
+:global([data-windows-titlebar]) .collapsed:not([data-desktop-rail]) .regionArea,
+:global([data-windows-titlebar]) .collapsed:not([data-desktop-rail]) .footArea {
   display: none;
 }
 
@@ -131,9 +130,8 @@
   --dsh-scrollbar-thumb-hover: transparent;
 }
 
-/* Collapse phase 1: the whole frozen-width content fades out in place over
-   150ms; at settle the children unmount/snap to the rail layout. */
-.fading > * {
+/* Wide labels withdraw while icons and controls stay visible. */
+.fading .wide {
   opacity: 0;
   transition: opacity 150ms var(--ds-ease-in-out);
 }
@@ -147,8 +145,16 @@
   from { opacity: 0; }
 }
 
-/* At the 150ms rail settle, the upper controls enter from the former
-   rail right edge over the remaining 150ms of the AppFrame track transition.
+.wideIn {
+  animation: region-in 200ms var(--ds-ease-in-out) backwards;
+}
+
+@keyframes region-in {
+  from { opacity: 0.6; transform: translateX(-8px); }
+}
+
+/* At the 150ms rail settle, compact controls enter near their resting
+   positions over the remaining 150ms of the AppFrame track transition.
    The bottom-pinned settings seat shares their opacity timeline but stays
    horizontally fixed. Only a live collapse gets .railIn; a cold collapsed
    render stays static. */
@@ -165,13 +171,13 @@
 
 @keyframes rail-in {
   from {
-    opacity: 0;
-    transform: translateX(49px);
+    opacity: 0.6;
+    transform: translateX(8px);
   }
 }
 
 @keyframes rail-fade-in {
-  from { opacity: 0; }
+  from { opacity: 0.6; }
 }
 
 /* macOS hiddenInset titlebar: the strip spans the column's top edge (negative
@@ -180,6 +186,8 @@
    its own run is the column's draggable geometry and no frame band has to match
    the strip's height; the toggle inside subtracts via the base.css rule. */
 .topStrip {
+  position: relative;
+  z-index: 1;
   flex: none;
   display: flex;
   align-items: center;
@@ -193,10 +201,40 @@
   padding: 0 12px 2px;
 }
 
+.topStrip .toggle {
+  transition: transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.fading .topStrip .toggle {
+  transform: translateY(36px);
+}
+
+.root[data-sidebar-opening] .topStrip .toggle {
+  animation: toggle-rise var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+:global([data-sidebar-collapsed]:not([data-animating])) .fading .topStrip .toggle {
+  transition: none;
+}
+
+@keyframes toggle-rise {
+  from { transform: translateY(36px); }
+  to { transform: none; }
+}
+
 /* Window fullscreen hides the traffic lights (html[data-fullscreen], desktop
    preload): the toggle takes their spot at the strip's left edge. */
 :global([data-fullscreen]) .topStrip {
   justify-content: flex-start;
+}
+
+/* A retained rail puts its reopen control below window chrome; fullscreen needs no empty chrome strip. */
+:global([data-fullscreen]) .root[data-desktop-rail] .topStrip {
+  display: none;
+}
+
+:global([data-fullscreen]) .root[data-desktop-rail] .logoRow {
+  margin-top: 0;
 }
 
 /* The strip's full 52px foot leaves the wordmark too low; the content column
@@ -564,6 +602,10 @@
   overflow: hidden;
 }
 
+.fading .regionArea {
+  width: calc(var(--dsh-sidebar-expanded-width) - var(--dsh-sidebar-inline-padding));
+}
+
 .collapsed .regionArea {
   margin-left: 0;
   margin-right: 0;
@@ -602,7 +644,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wide,
-  .fading > *,
+  .wideIn,
+  .topStrip .toggle,
+  .root[data-sidebar-opening] .topStrip .toggle,
+  .fading .wide,
   .railIn .iconButton,
   .railIn .newSession,
   .railIn .panelList,
@@ -610,5 +655,9 @@
   .railIn .regionArea {
     transition: none;
     animation: none;
+  }
+
+  .fading .topStrip .toggle {
+    transform: none;
   }
 }

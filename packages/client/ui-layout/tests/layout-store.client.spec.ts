@@ -14,6 +14,7 @@ describe('createLayoutStore', () => {
       panelInfo: { activePanelId: null },
       layoutInfo: {
         sidebar: 280,
+        sidebarRailRetained: false,
         viewportWidth: 1920,
         narrowExpanded: false,
         rightbar: null,
@@ -51,6 +52,19 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().layoutInfo.sidebar).toBe(0)
     actions.toggleSidebar()
     expect(store.getSnapshot().layoutInfo.sidebar).toBe(280)
+  })
+
+  it('changes rail presentation without changing saved widths, expansion or current panel', () => {
+    const instance = createLayoutStore().create()
+    instance.actions.setSidebar(400)
+    instance.actions.setViewportWidth(980)
+    instance.actions.toggleSidebar()
+    const before = instance.getSnapshot()
+    instance.actions.setSidebarRailRetained(true)
+    expect(instance.getSnapshot().layoutInfo).toEqual({ ...before.layoutInfo, sidebarRailRetained: true })
+    expect(instance.getSnapshot().panelInfo).toBe(before.panelInfo)
+    instance.actions.setSidebarRailRetained(false)
+    expect(instance.getSnapshot().layoutInfo).toEqual(before.layoutInfo)
   })
 
   it('keeps the sidebar preference while toggling its narrow override', () => {

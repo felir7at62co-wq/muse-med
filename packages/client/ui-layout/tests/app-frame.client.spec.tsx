@@ -4,12 +4,14 @@ import type { GlobalStandardProps, RenderOpts } from '@deepseek-ai/dsh-client-ui
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { AppFrame } from '../src/client/AppFrame.tsx'
 import type { AppFrameProps } from '../src/client/AppFrame.tsx'
 import type { MainPanelId, RightbarOwnerProps, SidebarOwnerProps } from '../src/client/index.ts'
 import { createLayoutStore } from '../src/client/stores.ts'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { LayoutController } from '../src/client/service.ts'
 
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined })) as GlobalStandardProps['useResource']
 let selectedSession: SessionId | undefined
@@ -60,12 +62,13 @@ function resize(width: number): void {
   })
 }
 
-function mountFrame(windowWidth = frameWidth) {
+function mountFrame(windowWidth = frameWidth, sidebarContent?: () => ReactNode) {
   vi.stubGlobal('innerWidth', windowWidth)
   const instance = createLayoutStore().create()
   const slotCalls: { key: string; props: object; options: RenderOpts | undefined }[] = []
   const renderSlot: AppFrameProps['renderSlot'] = (key, owner, options) => {
     slotCalls.push({ key, props: owner, options })
+    if (key === 'sidebar' && sidebarContent !== undefined) return sidebarContent()
     return <div data-testid={`${key}-content`} data-entry-key={options?.entryKey} />
   }
   const useSessions: AppFrameProps['useSessions'] = sel => sel({
@@ -270,6 +273,51 @@ describe('AppFrame', () => {
     expect(queryByTestId('shell.leading-content')).toBeNull()
   })
 
+  it.each(['darwin', 'windows'] as const)('retains the compact rail in %s only while its shell owns it', (platform) => {
+    if (platform === 'darwin') document.documentElement.dataset.platform = 'darwin'
+    else document.documentElement.setAttribute('data-windows-titlebar', '')
+    try {
+      const { frame, instance, sidebarOwner, queryByTestId } = mountFrame()
+      const layout = new LayoutController(instance.actions, () => true, {
+        getSnapshot: () => instance.getSnapshot().panelInfo, subscribe: listener => instance.subscribe(listener),
+      })
+      act(() => { layout.toggleSidebar() })
+      expect(tracks(frame)[0]).toBe(0)
+      expect(frame.dataset.sidebarHidden).toBe('true')
+      let release = () => {}
+      act(() => { release = layout.retainSidebarRail() })
+      expect(tracks(frame)[0]).toBe(56)
+      expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+      expect(frame.dataset.sidebarRail).toBe('true')
+      expect(frame.hasAttribute('data-sidebar-hidden')).toBe(false)
+      expect(queryByTestId('shell.leading-content')).toBeNull()
+      expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
+      act(release)
+      expect(tracks(frame)[0]).toBe(0)
+      expect(frame.dataset.sidebarHidden).toBe('true')
+      expect(frame.hasAttribute('data-sidebar-rail')).toBe(false)
+      expect(Boolean(queryByTestId('shell.leading-content'))).toBe(platform === 'darwin')
+    } finally {
+      document.documentElement.removeAttribute('data-windows-titlebar')
+    }
+  })
+
+  it('keeps retained rail geometry across responsive collapse and preserves the expanded width preference', () => {
+    document.documentElement.dataset.platform = 'darwin'
+    const { frame, instance, queryByTestId } = mountFrame()
+    act(() => {
+      instance.actions.setSidebar(400)
+      instance.actions.setSidebarRailRetained(true)
+    })
+    expect(tracks(frame)[0]).toBe(400)
+    resize(800)
+    expect(tracks(frame)[0]).toBe(56)
+    expect(queryByTestId('shell.leading-content')).toBeNull()
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(400)
+    resize(1920)
+    expect(tracks(frame)[0]).toBe(400)
+  })
+
   it('switches only the keyed main outlet when the active panel changes', () => {
     selectedSessionTitle = 'Session title'
     const { instance, frame, slotCalls, getByTestId } = mountFrame()
@@ -434,6 +482,35 @@ describe('AppFrame right panel presentation', () => {
     act(() => {
       frame.dispatchEvent(Object.assign(new Event('transitionend'), { propertyName: 'grid-template-columns' }))
     })
+    expect(frame.dataset.animating).toBeUndefined()
+  })
+
+  it('arms both directions before a sidebar child measures the committed geometry', () => {
+    const measurements: { collapsed: boolean; animated: boolean }[] = []
+    function SidebarMeasure() {
+      const ref = useRef<HTMLDivElement>(null)
+      useLayoutEffect(() => {
+        const frame = ref.current!.parentElement!.parentElement!
+        frame.getBoundingClientRect()
+        measurements.push({ collapsed: frame.hasAttribute('data-sidebar-collapsed'), animated: frame.hasAttribute('data-animating') })
+      })
+      return <div ref={ref} />
+    }
+    const { frame, instance } = mountFrame(frameWidth, () => <SidebarMeasure />)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(measurements.at(-1)).toEqual({ collapsed: true, animated: true })
+    act(() => {
+      frame.dispatchEvent(Object.assign(new Event('transitionend'), { propertyName: 'grid-template-columns' }))
+    })
+    act(() => { instance.actions.toggleSidebar() })
+    expect(measurements.at(-1)).toEqual({ collapsed: false, animated: true })
+  })
+
+  it('stops track easing when the viewport changes during a toggle', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.dataset.animating).toBe('true')
+    resize(1600)
     expect(frame.dataset.animating).toBeUndefined()
   })
 

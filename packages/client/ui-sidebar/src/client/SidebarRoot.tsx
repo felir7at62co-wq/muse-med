@@ -1,11 +1,10 @@
 /**
  * Sidebar shell: column geometry and global panel navigation.
  * Collapse is a slide plus crossfade:
- * content freezes at its expanded width (inline style) and fades out in place
- * while the sliding column (AppFrame grid tracks) clips it — nothing reflows
- * mid-slide. At settle the wide-only content unmounts and the upper
- * controls enter the 56px rail from the same horizontal offset (one icon each,
- * same top-down order) on one fade that ends with the slide. The bottom-pinned
+ * the browsing region keeps its expanded width while the sliding column
+ * clips it; controls follow the column edge throughout the transition.
+ * Wide labels fade before the region switches to its compact presentation.
+ * The compact controls enter with a short, visible slide; the bottom-pinned
  * settings control only fades. The workspace/session browsing region between
  * global panel rows and the foot is the `sidebar.workspaces` registrant's,
  * and the foot holds `sidebar.settings` plus `sidebar.footer.action`; the shell
@@ -16,7 +15,7 @@
  * scrollbar indirection away while it is elsewhere, so a list the user is not
  * pointing at carries no bar.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import clsx from 'clsx'
 import {
   FishLogo, IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular, isDarwinDesktop, ShortcutKeys, Tooltip,
@@ -101,23 +100,21 @@ export function SidebarRoot({
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   const toggleLabel = collapsed ? t('toggle.open') : t('toggle.collapse')
-  // Wide content stays mounted while the collapse animates (fading via
-  // .collapsed .wide), unmounts at settle, and remounts right away on expand.
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  // Only the region retains wide geometry during collapse; window controls follow the live column.
   const [settled, setSettled] = useState(collapsed)
   useEffect(() => {
-    if (!collapsed) { setSettled(false); return }
+    if (!collapsed || reducedMotion) { setSettled(collapsed); return }
     const timer = window.setTimeout(() => { setSettled(true) }, COLLAPSE_SETTLE_MS)
     return () => { window.clearTimeout(timer) }
-  }, [collapsed])
+  }, [collapsed, reducedMotion])
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
-  const wide = windowsTitlebar ? !collapsed : !collapsed || !settled
+  const wide = windowsTitlebar || reducedMotion ? !collapsed : !collapsed || !settled
   // The Windows caption menus occupy the strip to the right of these controls
   // (that is what --dsh-windows-menu-start reserves), so a right-side bubble
   // lands under their text. Below the caption is the only clear side.
   const captionTooltipSide = windowsTitlebar ? 'bottom' : 'right'
-  // Freeze the content at its expanded width while it fades out (collapsed
-  // && wide): the sliding column then clips it instead of reflowing it. The
-  // rail layout (.collapsed styles) only applies once the fade settles.
+  // The region's expanded layout is clipped during collapse rather than reflowing its rows.
   const lastWideWidth = useRef(width)
   if (!collapsed) lastWideWidth.current = width
 
@@ -125,6 +122,8 @@ export function SidebarRoot({
   // collapsed state renders the rail statically (no delay-hidden icons).
   const everWide = useRef(!collapsed)
   if (!collapsed) everWide.current = true
+  const everCollapsed = useRef(collapsed)
+  if (collapsed) everCollapsed.current = true
 
   // Scrollbars in the column follow the pointer (.quietBars rebinds them
   // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
@@ -172,6 +171,7 @@ export function SidebarRoot({
   const buildVersion = localBuildVersion()
 
   const darwinDesktop = isDarwinDesktop()
+  const desktopRail = !wide && collapsed && width > 0 && (darwinDesktop || windowsTitlebar)
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
@@ -199,11 +199,13 @@ export function SidebarRoot({
   return (
     <div
       ref={column}
+      data-desktop-rail={desktopRail || undefined}
+      data-sidebar-opening={!collapsed && everCollapsed.current || undefined}
       className={clsx(
         css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
         collapsed && wide && css.fading, !pointerInside && css.quietBars,
       )}
-      style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+      style={collapsed && wide ? { '--dsh-sidebar-expanded-width': `${lastWideWidth.current}px` } as CSSProperties : undefined}
       onPointerEnter={() => {
         cancelLinger()
         setPointerInside(true)
@@ -212,7 +214,7 @@ export function SidebarRoot({
     >
       {/* macOS hiddenInset titlebar: the strip shares the row with the
           traffic lights and keeps the toggle at the sidebar's top-right. */}
-      {darwinDesktop && <div className={css.topStrip} data-window-drag>{toggle}</div>}
+      {darwinDesktop && <div className={css.topStrip} data-window-drag>{!desktopRail && toggle}</div>}
       <div className={css.logoRow} data-window-drag>
         {/* Expanded, the brand doubles as a New Session shortcut — except on
             macOS, where it stays part of the logo row's window-drag surface
@@ -252,7 +254,7 @@ export function SidebarRoot({
               </button>
             )
         })()}
-        {!darwinDesktop && toggle}
+        {(!darwinDesktop || desktopRail) && toggle}
       </div>
 
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
@@ -294,7 +296,7 @@ export function SidebarRoot({
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}
-      <div className={css.regionArea}>
+      <div className={clsx(css.regionArea, !collapsed && everCollapsed.current && css.wideIn)}>
         {renderSlot('sidebar.workspaces', {
           wide,
           expandSidebar: () => { if (collapsed) toggleSidebar() },

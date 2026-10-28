@@ -12,6 +12,7 @@ import type {
 } from '../src/client/contract/slots.ts'
 import { HeaderLeadingControls, type HeaderLeadingControlsProps } from '../src/client/HeaderLeadingControls.tsx'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
+import css from '../src/client/SidebarRoot.module.css'
 import { en } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 
@@ -25,6 +26,7 @@ afterEach(() => {
   cleanup()
   delete document.documentElement.dataset.platform
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 
@@ -217,6 +219,56 @@ describe('SidebarRoot shell', () => {
     const b = mountShell({ collapsed: true })
     expect(b.regionOwner().wide).toBe(false)
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+    expect(screen.getByTestId('region').parentElement!.classList).not.toContain(css.wideIn)
+  })
+
+  it('freezes only the browsing region during collapse and reveals it after a live expand', () => {
+    vi.useFakeTimers()
+    const shell = mountShell()
+    const region = screen.getByTestId('region').parentElement!
+    const column = region.parentElement!
+    expect(region.classList).not.toContain(css.wideIn)
+    shell.rerender({ collapsed: true, width: 56 })
+    expect(column.style.width).toBe('')
+    expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe('300px')
+    expect(shell.regionOwner().wide).toBe(true)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(shell.regionOwner().wide).toBe(false)
+    expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe('')
+    shell.rerender({ collapsed: false, width: 300 })
+    expect(shell.regionOwner().wide).toBe(true)
+    expect(region.classList).toContain(css.wideIn)
+  })
+
+  it('keeps the macOS toggle in its visible strip until the compact presentation settles', () => {
+    vi.useFakeTimers()
+    document.documentElement.dataset.platform = 'darwin'
+    const shell = mountShell()
+    shell.rerender({ collapsed: true, width: 56 })
+    const toggle = screen.getByRole('button', { name: 'Open sidebar' })
+    expect(toggle.parentElement!.classList).toContain(css.topStrip)
+    expect(toggle.closest('[data-desktop-rail]')).toBeNull()
+    fireEvent.click(toggle)
+    expect(shell.toggleSidebar).toHaveBeenCalledOnce()
+    act(() => { vi.advanceTimersByTime(75) })
+    shell.rerender({ collapsed: false, width: 300 })
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(shell.regionOwner().wide).toBe(true)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' }).parentElement!.classList).toContain(css.topStrip)
+  })
+
+  it('switches the region immediately when reduced motion is requested', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    const shell = mountShell()
+    shell.rerender({ collapsed: true, width: 56 })
+    expect(shell.regionOwner().wide).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    shell.rerender({ collapsed: false, width: 300 })
+    expect(shell.regionOwner().wide).toBe(true)
+    shell.rerender({ collapsed: true, width: 56 })
+    expect(shell.regionOwner().wide).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('shows only the badge bubble while the rail badge is hovered inside the toggle', () => {
@@ -257,6 +309,45 @@ it('keeps the macOS sidebar toggle in its top strip', () => {
   // New Session capsule starts a session.
   expect(screen.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
   expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
+})
+
+it('places the retained macOS rail toggle below the traffic-light strip', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  const shell = mountShell({ collapsed: true, width: 56 })
+  const toggle = screen.getByRole('button', { name: 'Open sidebar' })
+  const column = toggle.closest('[data-desktop-rail]')
+  expect(column).not.toBeNull()
+  const dragRows = column!.querySelectorAll('[data-window-drag]')
+  expect(dragRows).toHaveLength(2)
+  expect(dragRows[0]!.contains(toggle)).toBe(false)
+  expect(dragRows[1]!.contains(toggle)).toBe(true)
+  expect(shell.regionOwner().wide).toBe(false)
+  expect(screen.getByTestId('settings-seat')).toBeTruthy()
+  fireEvent.click(toggle)
+  expect(shell.toggleSidebar).toHaveBeenCalledOnce()
+})
+
+it('keeps the zero-width macOS sidebar toggle in its existing chrome strip', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  mountShell({ collapsed: true, width: 0 })
+  const toggle = screen.getByRole('button', { name: 'Open sidebar' })
+  expect(toggle.closest('[data-desktop-rail]')).toBeNull()
+  expect(toggle.parentElement!.hasAttribute('data-window-drag')).toBe(true)
+  expect(toggle.parentElement!.nextElementSibling!.contains(toggle)).toBe(false)
+})
+
+it('marks only positive-width collapsed Windows sidebars as retained rails', () => {
+  document.documentElement.setAttribute('data-windows-titlebar', '')
+  try {
+    const shell = mountShell({ collapsed: true, width: 56 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).not.toBeNull()
+    shell.rerender({ width: 0 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).toBeNull()
+    shell.rerender({ collapsed: false, width: 300 })
+    expect(screen.getByTestId('region').closest('[data-desktop-rail]')).toBeNull()
+  } finally {
+    document.documentElement.removeAttribute('data-windows-titlebar')
+  }
 })
 
 it('wires the shell.leading controls to the shared sidebar actions', () => {

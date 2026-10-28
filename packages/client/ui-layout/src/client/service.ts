@@ -42,6 +42,12 @@ export interface ILayout {
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void
   /**
+   * Keep the standard compact icon rail visible while a navigation shell is mounted.
+   * Multiple owners may retain it independently without changing the user's width or open state.
+   * @returns an idempotent disposer; the last release restores the platform's collapsed presentation.
+   */
+  retainSidebarRail(): () => void
+  /**
    * Report the right panel's presentation without changing its expanded state.
    * @param track - whether the normal panel width reserves a grid track,
    *   including beneath a fullscreen overlay.
@@ -56,6 +62,7 @@ export interface ILayout {
 /** Cross-plugin panel-action face (ctx.layout). */
 export class LayoutController implements ILayout {
   private navigation = new AbortController()
+  private readonly sidebarRailOwners = new Set<symbol>()
 
   /**
    * @param panels - actions of the instance shared with the root entry.
@@ -87,6 +94,21 @@ export class LayoutController implements ILayout {
   /** Invalidate pending navigations when the layout owner is unloaded. */
   dispose(): void {
     this.navigation.abort()
+    if (this.sidebarRailOwners.size > 0) {
+      this.sidebarRailOwners.clear()
+      this.panels.setSidebarRailRetained(false)
+    }
+  }
+
+  /** Retain the compact rail until this owner or the layout is disposed. */
+  retainSidebarRail(): () => void {
+    const owner = Symbol('sidebar rail')
+    this.sidebarRailOwners.add(owner)
+    if (this.sidebarRailOwners.size === 1) this.panels.setSidebarRailRetained(true)
+    return () => {
+      if (!this.sidebarRailOwners.delete(owner)) return
+      if (this.sidebarRailOwners.size === 0) this.panels.setSidebarRailRetained(false)
+    }
   }
 
   /** Toggle the sidebar panel (closed ⟷ contract default width). */

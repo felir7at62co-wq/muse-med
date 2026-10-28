@@ -26,6 +26,32 @@ function declarations(selector: string): Map<string, string> | undefined {
 }
 
 describe('SidebarRoot.module.css', () => {
+  it('moves the Mac toggle below native buttons before the column reaches the compact rail', () => {
+    expect(declarations('.topStrip')?.get('position')).toBe('relative')
+    expect(declarations('.topStrip')?.get('z-index')).toBe('1')
+    expect(declarations('.topStrip .toggle')?.get('transition'))
+      .toBe('transform var(--ds-transition-duration-slow) var(--ds-ease-in-out)')
+    expect(declarations('.fading .topStrip .toggle')?.get('transform')).toBe('translateY(36px)')
+    expect(declarations('.root[data-sidebar-opening] .topStrip .toggle')?.get('animation'))
+      .toBe('toggle-rise var(--ds-transition-duration-slow) var(--ds-ease-in-out)')
+    expect(declarations(':global([data-sidebar-collapsed]:not([data-animating])) .fading .topStrip .toggle')?.get('transition'))
+      .toBe('none')
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.fading \.topStrip \.toggle\s*\{\s*transform: none;/)
+  })
+
+  it('hides Windows navigation only when collapse removes the whole column', () => {
+    for (const child of ['.panelList', '.regionArea', '.footArea']) {
+      expect(declarations(`:global([data-windows-titlebar]) .collapsed:not([data-desktop-rail]) ${child}`)?.get('display')).toBe('none')
+      expect(declarations(`:global([data-windows-titlebar]) .collapsed ${child}`)).toBeUndefined()
+    }
+    expect(declarations(':global([data-windows-titlebar]) .root.collapsed:not([data-desktop-rail])')?.get('padding')).toBe('0')
+  })
+
+  it('removes the empty native chrome strip from retained fullscreen rails', () => {
+    expect(declarations(':global([data-fullscreen]) .root[data-desktop-rail] .topStrip')?.get('display')).toBe('none')
+    expect(declarations(':global([data-fullscreen]) .root[data-desktop-rail] .logoRow')?.get('margin-top')).toBe('0')
+  })
+
   it('shares and cancels the wide shell trailing padding structurally', () => {
     const root = declarations('.root')
     expect(root?.get('--dsh-sidebar-inline-padding')).toBe('12px')
@@ -40,7 +66,18 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.collapsed .regionArea')?.get('margin-right')).toBe('0')
   })
 
-  it('moves the four upper controls while the settings seat only fades', () => {
+  it('keeps controls visible while wide labels fade and only the browsing region freezes', () => {
+    expect(declarations('.root')?.get('width')).toBe('100%')
+    expect(declarations('.fading .wide')?.get('opacity')).toBe('0')
+    expect(declarations('.fading > *')).toBeUndefined()
+    expect(declarations('.fading .regionArea')?.get('width')).toBe(
+      'calc(var(--dsh-sidebar-expanded-width) - var(--dsh-sidebar-inline-padding))',
+    )
+    expect(declarations('.wideIn')?.get('animation')).toBe('region-in 200ms var(--ds-ease-in-out) backwards')
+    expect(declarations('.regionArea')?.get('animation')).toBeUndefined()
+  })
+
+  it('keeps compact controls inside the rail throughout their short entrance', () => {
     const animation = 'rail-in 150ms var(--ds-ease-in-out) backwards'
     for (const selector of [
       '.railIn .iconButton',
@@ -53,9 +90,9 @@ describe('SidebarRoot.module.css', () => {
       'rail-fade-in 150ms var(--ds-ease-in-out) backwards',
     )
     expect(css).toMatch(
-      /@keyframes rail-in\s*\{\s*from\s*\{\s*opacity: 0;\s*transform: translateX\(49px\);\s*}\s*}/,
+      /@keyframes rail-in\s*\{\s*from\s*\{\s*opacity: 0\.6;\s*transform: translateX\(8px\);\s*}\s*}/,
     )
-    expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
+    expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0\.6;\s*}\s*}/)
   })
 
   it('gives shell rail controls the same base anchor for their shared translation', () => {
