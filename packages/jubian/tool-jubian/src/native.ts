@@ -22,6 +22,8 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { promptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
+import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
+import type { VideoSourceOptions } from './video-sources.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
@@ -548,14 +550,17 @@ function hasPromptSpeech(prompt: string): boolean {
  * @param ledger - Account-local selection requirements from in-place edits.
  * @param args - `storyboard_id`, `project_dir` and an optional `content_duration_ms` cross-check.
  * @param review - Resolved optional literal-term review settings.
- * @returns The persisted preview, its path, advisory prompt findings and the next step.
+ * @param sourceOptions - Optional bounded existing-video scan settings, resolved before reading history.
+ * @param signal - Foreground cancellation for advisory history reads.
+ * @returns The persisted preview, its path and advisory findings; existing-video evidence is not part of its fingerprint.
  * @throws {JubianError} `CONTRACT_CHANGED` when any live identity or setting fails.
  */
 export async function prepareVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
   project_dir?: string | undefined
   content_duration_ms?: number | undefined
-}, review?: PromptRiskReviewOptions): Promise<Record<string, unknown>> {
+}, review?: PromptRiskReviewOptions, sourceOptions?: VideoSourceOptions,
+signal?: AbortSignal): Promise<Record<string, unknown>> {
   const storyboardId = positiveInteger(need(args.storyboard_id))
   const preview = await livePreview(client, storyboardId, new Date().toISOString())
   const binding = await validateProjectBinding(need(args.project_dir), preview.scriptId)
@@ -572,6 +577,8 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
   await atomicWriteJson(destination, preview)
   const audio = storyboardMaterials(preview.payload).materials.filter(material => material.materialType === 'audio')
   const hasDialogue = hasPromptSpeech(String(modelConfig.prompt))
+  const existingVideoSources = await readVideoSources(client,
+    { script_id: preview.scriptId, storyboard_id: storyboardId }, sourceOptions ?? resolveVideoSourceOptions(), signal)
   const voiceContinuityReview = hasDialogue
     ? audio.length === 0
       ? { status: 'dialogue_without_voice_reference',
@@ -580,6 +587,7 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
         message: '本卡有音频参考，仍须逐角色核对实际说话人、引用身份及生成后的听感；存在参考不保证同音色。' }
     : { status: 'no_dialogue_detected', message: '未从本卡提示词识别到明确对白；如实际有对白，请人工核对。' }
   return { ...preview, preview_path: destination, content_duration_ms: contentDurationMs,
+    existing_video_sources: existingVideoSources,
     storyboard_duration_seconds: duration,
     voice_continuity_review: voiceContinuityReview,
     ...promptRiskReview([{ storyboard_id: storyboardId,
@@ -591,7 +599,8 @@ export async function prepareVideoMethod(client: JubianClient, ledger: JubianLed
         ? 'unavailable' : 'saved_metadata', duration_verified: false })),
     next: (voiceContinuityReview.status === 'dialogue_without_voice_reference'
       ? '本卡有对白但没有声线参考；跨包角色请先核对首包声音并绑定后续包。' : '')
-      + '生成前请按系统提示词中的固定自检清单自主核对本次提交。'
+      + 'existing_video_sources 保留原卡历史成片；提取或复用时先采用已核实来源，查询未完成不等于没有成片。'
+      + '准备预览不代表用户要求新生成；仅在已授权制作范围内生成。生成前请按系统提示词中的固定自检清单自主核对本次提交。'
       + 'prepare 只写 preview：不 PUT、不创建任务、不收费。自主检查后调用 submit_video 或 submit_video_batch，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
 }

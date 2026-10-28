@@ -37,6 +37,14 @@ Mount the row in any preset that needs to read or change a Jubian production, th
 
 Choose this package when an agent must inspect or claim a screenplay from the account pool, resolve a screenplay name, organize assets, upload a reference image, save a subject selection, prepare and submit video, confirm casting, generate images, erase subtitles, upscale a clip, or download provider media. Mount it wherever the credential resolves. When the session does not use Jubian, omit the row because its schemas remain model-visible while mounted.
 
+### Extract or reuse existing video
+
+Use `jubian_video sources` with the exact `script_id` and original `storyboard_id` to find existing media before extracting voices or reusing footage. This read verifies the card, task and child-result identities, follows bounded history pages, and returns successful source URLs and original task/result IDs independently of the current model or resolution. `available` means verified media exists, `pending` means an original task or child is still running, `none_found` means a complete inspection found no successful media, and `unknown` preserves incomplete or unreadable evidence. These findings neither authorize generation nor judge the speaker or video content.
+
+`tasks` and `subtasks` honor `page_num` and `page_size` and report query time, returned count, `complete`, `has_more` and `next_page`. `complete` describes this response alone: a last page does not establish that earlier pages were inspected. A missing row in a partial query does not establish that a card was never generated. `prepare_video` also returns `existing_video_sources` as advice; those observations are excluded from the saved preview and its generation fingerprint. A failed history read leaves preparation usable and marks source coverage unknown.
+
+By default, a new human request to extract or reuse video/audio receives one logged `jubian-video-reuse` notice through the pre-step hook. The hook does not block tools, change parameters, contact the provider, or carry intent into a later request. Set `existingVideoAdvisory: false` to omit it. Source reads use `videoSourcePageSize` (100), `videoSourcePageLimit` (20), `videoSourceTaskLimit` (50), and `videoSourceResultLimit` (20), each within 1–100; `videoSourceMaxResultChars` bounds the complete result to 12000 JSON characters by default (2048–1000000). A reached limit preserves verified rows that fit, removes whole rows rather than truncating URLs, and reports incomplete coverage. No source lookup, reminder or missing voice sample creates a paid request.
+
 ### Conversation video selection
 
 In Bot mode, the current Bot conversation's video model and resolution are selected under its language model in the Bot details; classic conversations keep the composer menu. Both controls use the same conversation selection.

@@ -45,6 +45,8 @@
     "src/watch.ts",
     "src/video-session.ts",
     "src/video-session-types.ts",
+    "src/video-sources.ts",
+    "src/video-reuse-advisory.ts",
     "src/production.ts"
   ],
   "references": [
