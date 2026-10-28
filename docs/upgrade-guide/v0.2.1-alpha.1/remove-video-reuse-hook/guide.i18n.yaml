@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/remove-video-reuse-hook/guide.md
+/:
+  en: f8ff724af1d0c135
+  zh: 868a343986f5f3d6
+/remove-automatic-video-reuse-advice:
+  en: 2ae8aa0fd42a4a13
+  zh: ebbf77ae5c33ed85
+/remove-automatic-video-reuse-advice/change:
+  en: cd5efb2823fdfea3
+  zh: 0e1718d6c92ff7dd
+/remove-automatic-video-reuse-advice/migration:
+  en: 1067a4c9c800ff7b
+  zh: b4b8fdcc9efb4ce7

@@ -25052,7 +25052,7 @@
       "digest": "5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9",
       "names": [],
       "sources": [
-        "packages/jubian/tool-jubian/src/video-session-types.ts:63"
+        "packages/jubian/tool-jubian/src/video-session-types.ts:68"
       ]
     },
     {
