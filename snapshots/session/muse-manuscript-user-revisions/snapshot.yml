@@ -3,10 +3,12 @@ scenario: muse-manuscript-user-revisions
 profile: headless
 composition: muse-manuscript-user-revisions
 recording: authored
+sessionFormat:
+  version: 4
+  coverage: [retired-tools]
 header:
   class: muse-manuscript-user-revisions
   pin: true
-writerOutput: true
 platform: posix
 workspace:
   final: true

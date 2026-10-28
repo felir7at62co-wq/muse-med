@@ -3,10 +3,12 @@ scenario: muse-manuscript-user-revisions-pwsh
 profile: headless
 composition: muse-manuscript-user-revisions-pwsh
 recording: authored
+sessionFormat:
+  version: 4
+  coverage: [retired-tools]
 header:
   class: muse-manuscript-user-revisions-pwsh
   pin: true
-writerOutput: true
 platform: pwsh
 workspace:
   final: true

@@ -98,7 +98,7 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     assert.equal(firstSource.presentation_evidence.semantic_assessment, 'not_performed')
     const readRevision = firstSource.scenes[0].read_source_revision
     assert.equal(readRevision.status, 'compared')
-    assert.equal(readRevision.relationship, 'explicit_work_source_path')
+    assert.equal(readRevision.relationship, 'current_task_read_source_candidate')
     assert.equal(readRevision.adopted_authorization, 'not_inferred')
     assert.equal(readRevision.comparison_source.read_call_id, 'call_manuscript_source_read')
     const returnedText = await readFile(join(cwd, 'documents', 'user-returned.md'), 'utf8')
@@ -169,30 +169,23 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     assert.equal(firstSource.image_delivery, 'cached_blocks_returned_not_admission_or_understanding')
     for (const id of ['call_work_bind', 'call_work_scene', 'call_work_audit']) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
-      assert.equal(result?.data.message.isError, false)
+      assert.equal(result?.data.message.isError, true)
+      assert.deepEqual(result.data.message.content, [{ type: 'text', text: 'Error: unknown tool "manuscript_work"' }])
     }
     const correction = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_manuscript_correct')
     assert.equal(correction?.data.message.isError, false,
       `The real shell correction must succeed: ${JSON.stringify(correction?.data.message)}`)
     const advisory = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-manuscript'
       && event.data.content.some(block => block.type === 'text' && block.text.includes('采用稿或来源出现新版本')))
-    assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')
-    const advisoryText = advisory[0].data.content.find(block => block.type === 'text').text
-    const firstVersion = JSON.parse(advisoryText.slice(advisoryText.indexOf('\n') + 1))
-    assert.ok(firstVersion.presentation_summary.some(episode => episode.marker_status === 'not_found'),
-      'The missing ending marker is structural context, not a delivery rejection')
-    const structure = firstVersion.structure
-    assert.equal(structure.episode_heading_count, 2)
-    assert.equal(structure.unique_episode_label_count, 1)
-    assert.equal(structure.duplicate_episode_labels.length, 1, 'Repeated episode labels remain visible without blocking delivery')
-    assert.equal(firstVersion.screenplay_candidate_summary.mixed_action_dialogue_lines, 1)
-    const mixed = firstVersion.screenplay_candidates.mixed_action_dialogue_lines
-    assert.equal(mixed.total, 1)
-    assert.equal(mixed.findings[0].quote, '▲贺景川（眉头拧紧）：妈，你非要这么咄咄逼人吗？')
-    assert.equal(mixed.findings[0].line, 8)
+    assert.equal(advisory.length, 0, 'Retired work bindings must not inject manuscript context')
+    await assert.rejects(realpath(join(cwd, '.muse', 'manuscript-work')), { code: 'ENOENT' },
+      'Retired calls must not create a work ledger')
     const shell = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_correct')
     assert.equal(shell?.data.name, correctionTool)
-    assert.ok(advisory.at(-1).seq > shell.seq, 'Shell writes use the same actual-file reconciliation')
+    assert.ok(sourceNotices.some(message => message.content.some(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_video_evidence":')
+      && JSON.parse(block.text).manuscript_video_evidence.receipt.sha256
+        === delivered.sha256)), 'Shell writes retain saved-draft source materials')
     assert.equal(events.filter(event => event.type === 'system/message').length, 1, 'Revision context must not replace the system prompt')
     const compare = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_compare')
     assert.ok(compare)
@@ -211,29 +204,16 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     for (const id of ['call_manuscript_compare', 'call_manuscript_good_review', 'call_manuscript_present']) {
       assert.equal(results.find(message => message.toolCallId === id)?.isError, false)
     }
-    const sceneResult = results.find(message => message.toolCallId === 'call_work_scene')
-    const scene = JSON.parse(sceneResult.content.find(block => block.type === 'text').text)
-    assert.equal(scene.screenplay_candidates.mixed_action_dialogue_lines.total, 1)
-    const auditResult = results.find(message => message.toolCallId === 'call_work_audit')
-    const audit = JSON.parse(auditResult.content.find(block => block.type === 'text').text)
-    assert.equal(audit.screenplay_candidates.mixed_action_dialogue_lines.total, 0, 'Final corrected manuscript omits the format sample')
-    const bindResult = results.find(message => message.toolCallId === 'call_work_bind')
-    const bound = JSON.parse(bindResult.content.find(block => block.type === 'text').text)
-    for (const report of [bound, scene, audit]) {
-      assert.deepEqual(Object.keys(report.format_reference), ['action_line', 'parenthetical', 'dialogue', 'ending', 'source_scope'])
-      assert.ok(report.format_reference.action_line.includes('▲'))
-      assert.ok(report.format_reference.parenthetical.includes('人物名（括注）：台词'))
-      assert.ok(report.format_reference.ending.includes('【下集钩子】'))
-      assert.equal(report.presentation_evidence.advisory, true)
-      assert.equal(report.presentation_evidence.semantic_assessment, 'not_performed')
-    }
-    const presentation = audit.presentation_evidence.episodes[0]
+    const finalSource = sourceNotices.map(message => JSON.parse(message.content.find(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_video_evidence":')).text).manuscript_video_evidence)
+      .findLast(report => report.receipt.path === join(cwd, 'documents', 'candidate.md'))
+    assert.ok(finalSource, 'The corrected candidate retains ordinary source evidence without a work binding')
+    assert.equal(finalSource.format_reference, undefined)
+    const presentation = finalSource.presentation_evidence.episodes[0]
     const finalText = await readFile(join(cwd, 'documents', 'candidate.md'), 'utf8')
     assert.equal(presentation.ending.marker_status, 'not_found')
     assert.equal(presentation.ending.marker_count, 0)
     assert.equal(presentation.ending.suspense_assessment, 'not_performed')
-    assert.deepEqual(presentation.action_locations.findings.map(line => line.quote),
-      finalText.split('\n').filter(line => line.startsWith('▲')))
     for (const line of [...presentation.action_locations.findings, ...presentation.ending.last_scene_lines.findings]) {
       assert.equal(line.quote, finalText.split('\n')[line.line - 1])
     }
@@ -257,13 +237,14 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     const probe = { realSession: true, comparisonLoggedFromTool: true, systemMessageCount: 1,
       revertedCandidateRejected: false, revertedDeliveryRejected: false, correctedCandidateAccepted: true,
       correctedDeliveryAccepted: true, userReturnedFilePreserved: true, privateLedgerVerified: true,
-      restartVerifiedByThisScenario: false, shellWriteReconciled: true, duplicateHeadingAdvisoryVisible: true,
+      restartVerifiedByThisScenario: false, shellWriteSourceMaterialsLogged: true, retiredWorkToolUnavailable: true,
+      noWorkLedgerCreated: true, noWorkBindingContextReturned: true, currentTaskReadCandidateUsed: true,
       guidanceWriteAccepted: true, guidanceReadAttributed: true, guidanceUnsourcedCandidateVisible: true,
-      guidanceDidNotBlockDelivery: true, mixedActionDialogueCandidateVisible: true,
+      guidanceDidNotBlockDelivery: true,
       savedDraftSourceMaterialsLogged: true, cachedSourceImageReturned: true,
       successfulAsrReadCandidateUsed: true, explicitTranscriptReferenceRequired: false,
       completeReadSourceDiffLogged: true, readSourceAdoptionNotInferred: true,
-      screenplayFormatReferenceReturned: true, endingAndActionLocationsReturned: true,
+      endingAndActionLocationsReturned: true,
       missingEndingMarkerDidNotBlockDelivery: true, changedVisualLineSamplesBoundToCurrentDraft: true,
       endingCuePrecedesStructuredSourceEvidence: true, sourceTailImagesNotClaimedAsChangedLineCoverage: true }
     await writeFile(join(cwd, '_probe.json'), JSON.stringify(probe, null, 2) + '\n')
@@ -272,8 +253,6 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     const destination = join(process.env.DSH_HOME, '.runtime-ledgers')
     await mkdir(destination, { recursive: true, mode: 0o700 })
     await rename(ledgerDirectory, join(destination, 'manuscript-revisions'))
-    const workDirectory = join(cwd, '.muse', 'manuscript-work')
-    await rename(workDirectory, join(destination, 'manuscript-work'))
     await rm(join(cwd, '.muse', 'video-source-fixture'), { recursive: true })
     assert.equal(hash(await readFile(join(destination, 'manuscript-revisions', 'ledger.json'))), hash(ledgerBytes))
     await rmdir(join(cwd, '.muse'))
