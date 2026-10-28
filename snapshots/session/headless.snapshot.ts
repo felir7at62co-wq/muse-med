@@ -1933,7 +1933,7 @@ describe('headless recorded-session snapshots', () => {
                 duplicate_audio_groups: [{ asset_ids: [13, 14], preferred_asset_id: 13, delete_allowed: false }],
                 coverage: { historical_generation_tasks: false, other_computers_local_plans: false, atomic_remote_snapshot: false } })
             }
-            if (scenario.name === 'muse-existing-video-reuse') {
+            if (scenario.name === 'muse-existing-video-reuse' || scenario.name === 'muse-existing-video-inconsistent-history') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
               expect(calls.map(call => call.name)).toEqual(['jubian_video'])
@@ -1948,9 +1948,13 @@ describe('headless recorded-session snapshots', () => {
               const block = result.data.message.content.find(item => item.type === 'text')
               if (block?.type !== 'text') throw new Error('Missing existing video source output')
               expect(JSON.parse(block.text)).toMatchObject({ sources: { script_id: 5542, storyboard_id: 2165139,
-                status: 'available', complete: true, sources: [{ task_id: 681001, subtask_id: 1200001,
+                status: 'available', complete: scenario.name === 'muse-existing-video-reuse', sources: [{ task_id: 681001, subtask_id: 1200001,
                   model_id: 'older-video-model', resolution: '720p',
                   video_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing-ep07.mp4' }] } })
+              if (scenario.name === 'muse-existing-video-inconsistent-history') {
+                expect(JSON.parse(block.text)).toMatchObject({ sources: { issues: ['HISTORY_TASK_MISMATCH'],
+                  coverage: { history: 'project', tasks_checked: 1, results_found: 1 } } })
+              }
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
             if (scenario.name === 'muse-shared-voice-pending') {

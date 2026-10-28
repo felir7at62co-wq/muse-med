@@ -159,11 +159,12 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
   const linked = historyResponse === null ? null : page(historyResponse, true)
   let candidates: Row[] = linked?.rows ?? []
   const linkedComplete = linked !== null && linked.total !== null && linked.rows.length === linked.total
+  const ownerHints = new Map<number, number | null>()
   if (!linkedComplete) {
     result.coverage.history = 'project'
     const linkedCandidates = candidates
     candidates = []
-    const seen = new Set<number>()
+    const seen = new Map<number, Row>()
     let total: number | null = null, complete = false
     for (let num = 1; num <= options.pageLimit; num++) {
       const response = await read({ method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${args.script_id}`
@@ -177,22 +178,35 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
       for (const task of data.rows) {
         const id = identity(taskIdOf(task))
         if (id === null || seen.has(id) || !owned(task, args.script_id)) { issue('TASK_IDENTITY_MISMATCH'); repeated = true; continue }
-        seen.add(id)
+        seen.set(id, task)
         candidates.push(task)
       }
       if (repeated) break
       if (candidates.length === total) { complete = true; break }
       if (candidates.length > total || data.rows.length === 0) { issue('INCOMPLETE_TASK_PAGE'); break }
     }
-    if (!complete) {
-      issue('TASK_SCAN_INCOMPLETE')
-      for (const candidate of linkedCandidates) {
-        const id = identity(taskIdOf(candidate))
-        if (id !== null && !seen.has(id)) { seen.add(id); candidates.push(candidate) }
-      }
-    }
+    if (!complete) issue('TASK_SCAN_INCOMPLETE')
     else if (result.issues.every(code => ['UNREADABLE_HISTORY', 'CONTRACT_CHANGED'].includes(code))) {
       result.issues = []; result.complete = true
+    }
+    for (const candidate of linkedCandidates) {
+      const id = identity(taskIdOf(candidate))
+      if (id !== null && !seen.has(id)) {
+        if (complete) issue('HISTORY_TASK_MISMATCH')
+        seen.set(id, candidate); candidates.push(candidate)
+      } else if (id !== null) {
+        const projectOwner = identity(seen.get(id)?.storyboardId)
+        const linkedOwner = identity(candidate.storyboardId)
+        if ((projectOwner !== null && projectOwner !== args.storyboard_id)
+          || (linkedOwner !== null && linkedOwner !== args.storyboard_id)
+          || (candidate.scriptId !== undefined && identity(candidate.scriptId) !== args.script_id)) {
+          issue('HISTORY_TASK_MISMATCH')
+          // A disputed listing cannot supply card ownership or a fallback task status.
+          ownerHints.set(id, null)
+        } else if (linkedOwner === args.storyboard_id && !ownerHints.has(id)) {
+          ownerHints.set(id, linkedOwner)
+        }
+      }
     }
   }
   const ids = new Set<number>()
@@ -201,7 +215,8 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
     if (taskId === null || ids.has(taskId)) { issue('TASK_IDENTITY_MISMATCH'); continue }
     ids.add(taskId)
     if (candidate.scriptId !== undefined && identity(candidate.scriptId) !== args.script_id) { issue('TASK_IDENTITY_MISMATCH'); continue }
-    const listedOwner = identity(candidate.storyboardId)
+    const ownerHint = ownerHints.get(taskId)
+    const listedOwner = ownerHint === undefined ? identity(candidate.storyboardId) : ownerHint
     if (listedOwner !== null && listedOwner !== args.storyboard_id) {
       if (result.coverage.history === 'card') issue('LINKED_CARD_MISMATCH')
       continue
@@ -223,7 +238,7 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
     }
     const parentHasCard = owner === args.storyboard_id || listedOwner === args.storyboard_id
     let parentMatched = parentHasCard
-    const parentStatus = taskStatusOf(detail, candidate)
+    const parentStatus = taskStatusOf(detail, ownerHint === null ? {} : candidate)
     if (!parentStatus) issue('TASK_STATUS_UNKNOWN')
     const seenChildren = new Set<number>()
     let total: number | null = null, complete = false

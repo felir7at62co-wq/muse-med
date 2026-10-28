@@ -66,6 +66,64 @@ describe('card-bound existing source discovery', () => {
     })
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true })
   })
+  it.each([
+    { total: 0, rows: [] },
+    { total: 1, rows: [task(76, { storyboardId: 2165140 })] },
+  ])('retains a linked task absent from the complete project inventory with $total rows', async (inventory) => {
+    const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+      : path.includes('/task/list?') ? inventory : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: false,
+      sources: [{ task_id: 77, subtask_id: 88, video_url: 'https://media.example/old.mp4' }],
+      issues: ['HISTORY_TASK_MISMATCH'], coverage: { history: 'project', tasks_checked: 1, results_found: 1 } })
+    expect(calls.some(call => call.path.endsWith('/task/77'))).toBe(true)
+    expect(calls.some(call => call.path.endsWith('/task/76'))).toBe(false)
+  })
+  it('hydrates matching linked and project tasks only once', async () => {
+    const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+      : path.includes('/task/list?') ? { total: 1, rows: [task()] } : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true,
+      sources: [{ task_id: 77 }], issues: [], coverage: { tasks_found: 1, tasks_checked: 1 } })
+    expect(calls.filter(call => call.path.endsWith('/task/77'))).toHaveLength(1)
+  })
+  it('retains a nonconflicting linked card identity when the project task omits it', async () => {
+    const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+      : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: undefined })] }
+        : path.endsWith('/task/77') ? task(77, { storyboardId: undefined })
+          : path.includes('/sub/list?') ? { total: 1, rows: [child(88, { storyboardId: undefined })] } : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true,
+      sources: [{ task_id: 77, subtask_id: 88 }], issues: [] })
+  })
+  it.each([task(), { id: 77 }])('reconciles same-task owner conflicts through independent detail and child reads: %j', async (linkedTask) => {
+    const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [linkedTask] }
+      : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: 2165140 })] } : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: false,
+      sources: [{ task_id: 77, subtask_id: 88 }], issues: ['HISTORY_TASK_MISMATCH'] })
+    expect(calls.filter(call => call.path.endsWith('/task/77'))).toHaveLength(1)
+  })
+  it('keeps same-task owner conflicts unknown when the independent detail belongs to another card', async () => {
+    const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+      : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: 2165140 })] }
+        : path.endsWith('/task/77') ? task(77, { storyboardId: 2165140 }) : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
+      sources: [], issues: ['HISTORY_TASK_MISMATCH'] })
+    expect(calls.filter(call => call.path.endsWith('/task/77'))).toHaveLength(1)
+    expect(calls.some(call => call.path.includes('/sub/list?'))).toBe(false)
+  })
+  it.each([
+    child(88, { storyboardId: 2165140 }), child(88, { aigcVideoTaskId: 123 }), child(88, { scriptId: 9 }),
+  ])('rejects mismatched children after reconciling same-task owner conflicts: %j', async (result) => {
+    const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+      : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: 2165140 })] }
+        : path.includes('/sub/list?') ? { total: 1, rows: [result] } : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
+      sources: [], issues: expect.arrayContaining(['HISTORY_TASK_MISMATCH']) })
+  })
+  it('recovers complete coverage from a verified project inventory after unreadable linked history', async () => {
+    const { client } = fixture(path => path.includes('/byStoryboard/') ? null
+      : path.includes('/task/list?') ? { total: 1, rows: [task()] } : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true,
+      sources: [{ task_id: 77 }], issues: [], coverage: { history: 'project', tasks_checked: 1 } })
+  })
   it('keeps original running task identity and never asks for a new generation', async () => {
     const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { taskStatus: 'running' })
       : path.includes('/sub/list?') ? { total: 0, rows: [] } : undefined)
