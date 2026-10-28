@@ -1775,7 +1775,7 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
             raise AssertionError(f"advanced snapshot lost the observation revision: {groups}")
         transcript = video_events[1]["data"].get("transcript_reference")
         if transcript != {
-            "path": str(root / "sdk-transcript.json"), "version": "fixture-transcript-version",
+            "path": f"{root}/sdk-transcript.json", "version": "fixture-transcript-version",
             "sha256": "a6f13b0540bf60a5ec60048367f160c79e81995412ea7edf500fabea4e159bff",
         }:
             raise AssertionError(f"advanced snapshot changed the transcript reference: {transcript}")

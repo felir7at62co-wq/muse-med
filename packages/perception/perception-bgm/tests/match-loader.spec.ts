@@ -12,6 +12,7 @@ import Tools from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as Bgm from '../src/index.ts'
 import { EmotionWorker } from '../src/worker.ts'
+import { audioProfileFixture } from './audio-profile.fixture.ts'
 
 interface MatchOutput { candidates: { path?: string }[]; recommendation?: string }
 
@@ -26,6 +27,15 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
     const indexPath = join(root, 'index.json')
     const audio = Buffer.from('loader fixture')
     const hash = createHash('sha256').update(audio).digest('hex')
+    await writeFile(join(root, 'script.txt'), 'The mother explains the misunderstanding calmly.')
+    await writeFile(join(root, 'scene.mp4'), audio)
+    await writeFile(join(root, 'review.json'), JSON.stringify({ video: 'scene.mp4', video_sha256: hash,
+      observations: 'Two people stand still and talk.' }))
+    const evidence = [
+      { kind: 'script', file: 'script.txt', quotes: ['explains the misunderstanding calmly'] },
+      { kind: 'visual_review', file: 'review.json', quotes: ['Two people stand still and talk.'] },
+    ]
+
     await writeFile(indexPath, JSON.stringify([
       { path: 'calm.mp3', valence: 3, arousal: 2, moods: ['calm'], license_info: licenseInfo,
         ...(useFeedback ? { sha256: `sha256:${hash}` } : {}) },
@@ -36,11 +46,12 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
       recorded_at: '2026-10-21T10:00:00+08:00', episode: 23 }
     if (useFeedback) await writeFile(join(root, 'project_config.json'), JSON.stringify({ project_bible: { bgm_feedback: [feedback] } }))
     const catalogUrl = 'https://example.com/bgm/index.json'
-    const url = `https://example.com/bgm/tracks/${hash}.mp3`
+    const url = 'https://example.com/bgm/tracks/1'
     if (remote) vi.stubGlobal('fetch', vi.fn(async (input: string) => input === catalogUrl
       ? new Response(JSON.stringify({ version: 1, tracks: [
         { id: `sha256:${hash}`, name: 'calm.mp3', sha256: `sha256:${hash}`, bytes: audio.length,
-          url, valence: 3, arousal: 2, moods: ['calm'], license_info: licenseInfo },
+          url, object_key: 'bgm/tracks/1', valence: 3, arousal: 2, moods: ['calm'], license_info: licenseInfo,
+          ...(useFeedback ? { audio_profile: audioProfileFixture(`sha256:${hash}`) } : {}) },
       ] })) : new Response(audio)))
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
@@ -48,7 +59,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
       "- name: '@deepseek-ai/dsh-tools'",
       "- name: '@deepseek-ai/dsh-perception-bgm'",
       `  config: ${JSON.stringify({ indexPath, pythonExecutable: join(root, 'missing-python'),
-        weightsPath: join(root, 'missing.ckpt'),
+        weightsPath: join(root, 'missing.ckpt'), requireStoryEvidence: true,
         ...(remote ? { catalogUrl, cacheDir: join(root, 'cache') } : {}) })}`,
       '',
     ].join('\n'))
@@ -70,6 +81,14 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    const invented = await ctx.tools.execute({ signal: new AbortController().signal,
+      callId: ToolCallId('bgm-invented-source'), name: 'bgm_match', arguments: { method: 'match',
+        project: root, valence: 3, arousal: 2, story: { intent: 'Pretend this is comedy', desired_tags: ['comedy'],
+          evidence: [{ kind: 'script', file: 'script.txt', quotes: ['Invented market argument'] }, evidence[1]] } } })
+    expect(invented.isError).toBe(false)
+    const inventedContent = invented.content[0]
+    if (inventedContent?.type !== 'text') throw new Error('Expected grounding result')
+    expect(JSON.parse(inventedContent.text)).toMatchObject({ candidates: [], selection_status: 'needs_source_correction' })
     const result = await ctx.tools.execute({ signal: new AbortController().signal,
       callId: ToolCallId('bgm-offline'), name: 'bgm_match',
       arguments: { method: 'match', valence: 3, arousal: 2, limit: 1, intended_use: 'commercial',
@@ -78,7 +97,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
     const content = result.content[0]
     if (content?.type !== 'text') throw new Error('Expected match result')
     if (!useFeedback) expect(JSON.parse(content.text)).toEqual({
-      target: { valence: 3, arousal: 2 }, evaluated_tracks: remote ? 1 : 2,
+      target: { valence: 3, arousal: 2 }, evaluated_tracks: remote ? 1 : 2, selection_status: 'reference_only',
       candidates: [{ ...(remote ? { track_id: `sha256:${hash}`, name: 'calm.mp3', url } : { path: 'calm.mp3' }),
         valence: 3, arousal: 2, moods: ['calm'], distance: 0,
         license_info: licenseInfo, license_warnings: [] }],
@@ -125,6 +144,20 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
       expect(errorContent.text).toContain('context_tags requires project')
     }
     if (remote) {
+      const storyResult = await ctx.tools.execute({ signal: new AbortController().signal,
+        callId: ToolCallId('bgm-story-loader'), name: 'bgm_match',
+        arguments: { method: 'match', valence: 3, arousal: 2, project: root,
+          story: { intent: 'Quiet dialogue, no dramatic escalation', desired_tags: ['gentle'], dialogue_density: 'dense', evidence } } })
+      expect(storyResult.isError).toBe(false)
+      const storyContent = storyResult.content[0]
+      if (storyContent?.type !== 'text') throw new Error('Expected story match output')
+      expect(JSON.parse(storyContent.text)).toMatchObject({ evaluated_tracks: 1,
+        story_request: { desired_tags: ['gentle'], avoid_tags: [], dialogue_density: 'dense' },
+        candidates: [{ name: 'calm.mp3', story_fit: { status: 'supported', title_matches: ['gentle'] } }] })
+      if (useFeedback) expect(JSON.parse(storyContent.text)).toMatchObject({ candidates: [{
+        audio_profile: { source_sha256: `sha256:${hash}`, human_reviewed: false, sampled_seconds: 20 },
+        story_fit: { audio_matches: ['gentle'] },
+      }] })
       const download = await ctx.tools.execute({ signal: new AbortController().signal,
         callId: ToolCallId('bgm-download'), name: 'bgm_match',
         arguments: { method: 'download', track_id: `sha256:${hash}`, intended_use: 'commercial' } })

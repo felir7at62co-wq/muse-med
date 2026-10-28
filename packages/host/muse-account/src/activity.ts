@@ -14,7 +14,7 @@ export interface MuseActivityOptions {
   readonly fetcher?: typeof fetch
 }
 
-/** One pending account capture and one pending network request; failures never reject a user turn. */
+/** Coalesce root turns into one pending account capture and one pending request; failures never reject a user turn. */
 export class MuseActivityReporter {
   private readonly origin: string
   private readonly turns = new WeakMap<Session, boolean>()
@@ -43,7 +43,7 @@ export class MuseActivityReporter {
     if (this.capture !== undefined) return
     const capture = this.captureAccount()
     this.capture = capture
-    void capture.finally(() => { if (this.capture === capture) this.capture = undefined })
+    void capture.finally(() => { this.capture = undefined })
   }
 
   private async captureAccount(): Promise<void> {
@@ -64,7 +64,7 @@ export class MuseActivityReporter {
     const sending = this.send(session)
     this.sending = sending
     void sending.finally(() => {
-      if (this.sending === sending) this.sending = undefined
+      this.sending = undefined
       this.pump()
     })
   }

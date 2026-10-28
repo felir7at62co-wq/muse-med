@@ -127,7 +127,7 @@ export async function requireNewAudioOutput(project: string, output: string): Pr
  * @returns The validated profile with real path and effective gains.
  */
 export async function loadAudioMixProfile(
-  project: string, candidate: string, settings: Pick<RenderSettings, 'masterVolume' | 'bgmVolume'>,
+  project: string, candidate: string, settings: Pick<RenderSettings, 'masterVolume' | 'bgmVolume' | 'maxBgmVolume'>,
 ): Promise<ResolvedAudioMixProfile> {
   const file = await requireProjectAudioFile(project, candidate)
   if ((await stat(file)).size > 32_768) throw new Error('音频配置文件不能超过 32 KiB。')
@@ -141,7 +141,7 @@ export async function loadAudioMixProfile(
   }
   return { schema_version: 1, mode: profile.mode, analysis_window_ms: profile.analysis_window_ms,
     path: file, original_gain: profile.original_gain ?? settings.masterVolume,
-    music_gain: profile.mode === 'no_bgm' ? 0 : profile.music_gain ?? settings.bgmVolume,
+    music_gain: profile.mode === 'no_bgm' ? 0 : Math.min(profile.music_gain ?? settings.bgmVolume, settings.maxBgmVolume ?? 8),
     ...(ducking === undefined ? {} : { ducking }) }
 }
 

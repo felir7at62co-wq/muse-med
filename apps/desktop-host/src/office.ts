@@ -44,7 +44,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
   await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
   await ctx.plugin(jianyingDraft, { source: config.source, timeoutMs: 600_000, graceMs: 1000,
-    maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, ...config.jianyingDraft })
+    ffmpegPath: process.env.DSH_FFMPEG_PATH ?? 'ffmpeg', ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
+    maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })
   await ctx.plugin(screenplayDocx, { source: config.source,
     reviewMode: config.docxReviewMode ?? 'strict',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,

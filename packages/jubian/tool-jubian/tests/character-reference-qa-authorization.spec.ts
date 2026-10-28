@@ -765,6 +765,15 @@ describe('character-reference isolated QA authorization store', () => {
       .rejects.toMatchObject({ code: 'invalid-config', cause: { code: 'EEXIST' } })
   })
 
+  it.each(['-journal', '-shm', '-wal'])('refuses a directory at the SQLite %s sidecar path', async (suffix) => {
+    const root = await mkdtemp(join(tmpdir(), 'reference-db-sidecar-'))
+    dirs.push(root)
+    const path = join(root, 'authorization.sqlite')
+    await mkdir(path + suffix, { mode: 0o700 })
+    await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path }))
+      .rejects.toThrow('sidecar must be a real file')
+  })
+
   it('refuses malformed durable rows and inconsistent managed-reference evidence', async () => {
     const original = await opened()
     original.store.appendGrant(grant())

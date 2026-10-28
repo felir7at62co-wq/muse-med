@@ -26,6 +26,38 @@ const episode = {
   ],
 }
 
+it('keeps each source at least ten decibels lower when the deployment caps source gain at -10 dB', () => {
+  for (const mean of [-40, -21, -14, -3]) expect(appliedGain(mean, -10)).toBeLessThanOrEqual(-10)
+  expect(appliedGain(-40, -10)).toBe(-10)
+})
+
+it.each([NaN, Infinity, -121, 10])('rejects an invalid source-gain ceiling: %s', (ceiling) => {
+  expect(() => appliedGain(-20, ceiling)).toThrow('增益上限')
+})
+
+it('reports incompatible tags even when emotion measurements are absent, with caller-owned limits', () => {
+  const segments = [
+    { track: 'family', source: 'a.wav', start_seconds: 0, end_seconds: 5, tags: ['family'] },
+    { track: 'action', source: 'b.wav', start_seconds: 5, end_seconds: 10, tags: ['action'], transition_reason: '冲突升级' },
+  ]
+  const limits = { minTracksPerEpisode: 1, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 0, boundaryToleranceSeconds: 0.05 }
+  const output = auditBgmBatch({ episode: '01', segments }, { project: resolve('project'), batch: [], boundaries: [5], limits })
+  expect(output.find(row => row.rule === 'R6')?.detail).toContain('情绪距离=未知，标签重叠=0.00')
+  expect(output.find(row => row.rule === 'R6')?.detail).toContain('冲突升级')
+})
+
+it('reports abrupt adjacent emotion/tag changes without turning narrative review into a gate', () => {
+  const segments = [
+    { track: '亲情', source: 'a.wav', start_seconds: 0, end_seconds: 5, valence: 5, arousal: 2, tags: ['family', 'gentle'] },
+    { track: '史诗', source: 'b.wav', start_seconds: 5, end_seconds: 10, valence: 7, arousal: 8, tags: ['epic', 'action'] },
+  ]
+  const output = auditBgmBatch({ episode: '01', segments }, { project: resolve('project'), batch: [], boundaries: [5] })
+  expect(output.find(row => row.rule === 'R6')?.detail).toContain('情绪距离=8.00')
+  const gap = [{ ...segments[0]!, end_seconds: 4 }, segments[1]!]
+  expect(auditBgmBatch({ episode: '01', segments: gap }, { project: resolve('project'), batch: [], boundaries: [5] })
+    .some(row => row.rule === 'R6')).toBe(false)
+})
+
 describe('validateEpisodePlan', () => {
   it.each([
     [{ ...episode, crossfade_seconds: 0 }, '交叉淡化'],
@@ -131,7 +163,7 @@ describe('auditBgmBatch', () => {
       row('06', ['light.mp3', 'other-a.mp3']),
       row('07', ['light.mp3', 'other-b.mp3']),
     ))
-    expect(rules(findings)).toEqual(['R3'])
+    expect(rules(findings)).toEqual(['R3', 'R7'])
     expect(findings[0]?.detail).toContain('3 集')
     expect(findings[0]?.fix).toContain('07')
   })
@@ -140,7 +172,7 @@ describe('auditBgmBatch', () => {
     const findings = auditBgmBatch(selected, { ...context(
       row('06', ['light.mp3', 'romance.mp3', 'conflict.mp3', 'other-a.mp3']),
     ), limits: { minTracksPerEpisode: 1, maxEpisodesPerTrack: 2, freshTracksPerEpisode: 1, boundaryToleranceSeconds: 0.05 } })
-    expect(rules(findings)).toEqual(['R4'])
+    expect(rules(findings)).toEqual(['R4', 'R7'])
     expect(findings[0]?.fix).toContain('bgm_match')
   })
 
@@ -293,4 +325,24 @@ describe('resolveOutputPath', () => {
     expect(operation).toThrow(/resolved=".+outside\.json"/u)
     expect(operation).toThrow('reason=路径越出项目目录')
   })
+})
+
+it('reports shared source identity in immediate neighboring episodes even after renaming', () => {
+  const hash = 'a'.repeat(64)
+  const selected: BgmBatchRow = { episode: '02', segments: [
+    { track: 'current', source: 'new-name.mp3', track_id: `sha256:${hash}`, start_seconds: 0, end_seconds: 8 },
+  ] }
+  const previous: BgmBatchRow = { episode: '01', segments: [
+    { track: 'previous', source: 'old-name.mp3', source_sha256: hash, start_seconds: 0, end_seconds: 8 },
+  ] }
+  const following: BgmBatchRow = { episode: '03', segments: [
+    { track: 'next', source: 'another-copy.mp3', track_id: `sha256:${hash}`, start_seconds: 0, end_seconds: 8 },
+  ] }
+  const findings = auditBgmBatch(selected, { project: '/project', batch: [previous, selected, following], boundaries: [0] })
+  expect(findings.filter(row => row.rule === 'R7')).toHaveLength(2)
+  expect(findings.find(row => row.rule === 'R7')?.fix).toContain('剧情')
+  const distant = auditBgmBatch({ ...selected, episode: '05' }, {
+    project: '/project', batch: [previous, following], boundaries: [0],
+  })
+  expect(distant.some(row => row.rule === 'R7')).toBe(false)
 })

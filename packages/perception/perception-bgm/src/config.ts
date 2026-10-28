@@ -17,6 +17,14 @@ import type { CatalogConfig } from './types.ts'
 
 /** Deployment settings for track matching, downloads, and optional local emotion analysis. */
 export interface BgmConfig {
+  /** Require script and visual-review quotations before story-based recommendations; default false. */
+  requireStoryEvidence?: boolean
+  /** Distance penalty for a cue used by adjacent episodes; default 2, range 0–16. */
+  adjacentEpisodeRepeatPenalty?: number
+  /** Ordinary adjacent-cue emotion-distance ceiling; default 3 on the combined 1–9 axes. */
+  maxTransitionEmotionDistance?: number
+  /** Minimum adjacent tag-set Jaccard overlap; default 0.2. */
+  minTransitionTagOverlap?: number
   /** Absolute path to the Python interpreter that has the model's dependencies. */
   pythonExecutable?: string
   /** Directory holding `tag_list.npy`, `run_config.yaml` and the chord model. */

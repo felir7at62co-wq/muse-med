@@ -24,10 +24,21 @@ it('groups several recorded frames into one event and derives sampled timing wit
 })
 
 it('refuses missing, unrecorded or duplicate frame references and duplicate event identities', () => {
-  for (const ids of [['missing'], ['F00003'], ['F00001', 'F00001']]) {
+  for (const ids of [[], ['missing'], ['F00003'], ['F00001', 'F00001']]) {
     expect(() => bindReviewEvents([{ ...note, frame_ids: ids }], frames)).toThrow('VIDEO_EVENT_FRAME')
   }
   expect(() => bindReviewEvents([note, note], frames)).toThrow('VIDEO_EVENT_DUPLICATE')
+})
+
+it('orders simultaneous observations and overlapping events deterministically', () => {
+  const simultaneous = frames.map(frame => ({ ...frame, time: frame.id === 'F00002' ? 1 : frame.time }))
+  const early = { ...note, event_id: 'early', frame_ids: ['F00001'] }
+  const events = bindReviewEvents([note, early], frames)
+  expect(events.map(event => event.event_id)).toEqual(['early', 'E1'])
+  expect(bindReviewEvents([note], simultaneous)[0]?.frame_ids).toEqual(['F00001', 'F00002'])
+  const current = bindReviewEvents([note], simultaneous)[0]
+  if (!current) throw Error('Missing event fixture')
+  expect(reviewEventCurrent(current, simultaneous)).toBe(true)
 })
 
 it('accepts a meaningful single-character Chinese action without imposing a writing-length quota', () => {

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/bgm-story-evidence/guide.md
+/:
+  en: 0dae0391d9ff09f5
+  zh: ef2954e4dd998caf
+/ground-production-bgm-recommendations-in-source-evidence:
+  en: 76f5732a9c8124ad
+  zh: 40aaf1cb8df1d8bc
+/ground-production-bgm-recommendations-in-source-evidence/change:
+  en: cf8ba0332fb689a1
+  zh: 71f1286f5cdcc38e
+/ground-production-bgm-recommendations-in-source-evidence/migration:
+  en: a23a40eade9ace62
+  zh: c4b0a43d13dfd891

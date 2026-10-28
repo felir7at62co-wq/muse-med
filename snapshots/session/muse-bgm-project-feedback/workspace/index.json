@@ -17,6 +17,93 @@
       "attribution": "synthetic fixture author",
       "scope": "test fixture only"
     },
-    "license_warnings": []
+    "license_warnings": [],
+    "audio_profile": {
+      "version": 1,
+      "source_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "analysis_method": "sampled_clap_cosine_v1",
+      "model_id": "laion/clap-htsat-unfused",
+      "model_revision": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+      "recipe_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "human_reviewed": false,
+      "analyzed_at": "2026-10-27T06:00:00Z",
+      "duration_seconds": 60,
+      "sample_count": 2,
+      "sampled_seconds": 20,
+      "estimated_tempo_bpm": 80,
+      "rms_dbfs": -18,
+      "peak_dbfs": -1,
+      "tags": [
+        {
+          "tag": "family",
+          "similarity": 0.4
+        },
+        {
+          "tag": "gentle",
+          "similarity": 0.35
+        }
+      ],
+      "instruments": [
+        {
+          "tag": "piano",
+          "similarity": 0.5
+        }
+      ],
+      "vocals": [
+        {
+          "tag": "instrumental",
+          "similarity": 0.45
+        },
+        {
+          "tag": "singing",
+          "similarity": 0.1
+        },
+        {
+          "tag": "speech",
+          "similarity": 0.05
+        }
+      ],
+      "windows": [
+        {
+          "start_seconds": 0,
+          "end_seconds": 10,
+          "tags": [
+            {
+              "tag": "family",
+              "similarity": 0.4
+            }
+          ]
+        },
+        {
+          "start_seconds": 50,
+          "end_seconds": 60,
+          "tags": [
+            {
+              "tag": "gentle",
+              "similarity": 0.4
+            }
+          ]
+        }
+      ],
+      "tag_scores": {
+        "family": 0.4,
+        "romance": 0.2,
+        "comedy": 0.2,
+        "suspense": 0.2,
+        "danger": 0.2,
+        "action": 0.2,
+        "sadness": 0.2,
+        "hope": 0.2,
+        "daily_life": 0.2,
+        "epic": 0.2,
+        "restrained": 0.2,
+        "gentle": 0.35,
+        "solemn": 0.2,
+        "energetic": 0.2,
+        "playful": 0.2,
+        "dark": 0.2
+      },
+      "review_note": "Synthetic fixture; not an audio evaluation or human audition."
+    }
   }
 ]

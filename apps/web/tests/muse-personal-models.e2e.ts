@@ -39,6 +39,11 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
         response.end(JSON.stringify({ username: 'review-account' }))
         return
       }
+      if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+        response.writeHead(404, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'Unsupported fixture route' }))
+        return
+      }
       let body = ''
       request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
       request.once('end', () => {
@@ -88,7 +93,7 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
       Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1, productName: 'muse-med' } })
     })
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-    await page.getByRole('button', { name: 'MUSE 账号', exact: true }).click()
+    await page.getByRole('button', { name: 'MUSE', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置', exact: true })
     await dialog.getByRole('button', { name: '模型', exact: true }).click()
     await dialog.getByRole('button', { name: '添加模型提供商', exact: true }).click()

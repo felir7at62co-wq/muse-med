@@ -65,16 +65,24 @@
     productionPackaging: true
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'
+  config:
+    maxSourceGainDb: -10
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 - id: tool-episode-render
   name: '@deepseek-ai/dsh-tool-episode-render'
   config:
+    maxBgmVolume: 1
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
     fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
     subtitleFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'SimHei'
     watermarkFontFamily: !!js process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
 - id: perception-bgm
   name: '@deepseek-ai/dsh-perception-bgm'
   config:
-    catalogUrl: https://muse.tos-cn-beijing.volces.com/bgm/index.json
+    catalogUrl: https://muse.tos-cn-beijing.volces.com/bgm/catalog.json
+    requireStoryEvidence: true
     # The packaged product binds its own offline interpreter, model and caches;
     # a deployment without that payload keeps catalogue matching only.
     pythonExecutable: !!js >-

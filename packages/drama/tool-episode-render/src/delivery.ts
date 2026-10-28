@@ -121,7 +121,7 @@ export function deliveryRenderSettings(settings: RenderSettings, delivery: Timel
   return { ...settings,
     subtitleFontFamily: delivery.subtitle?.font_family ?? settings.subtitleFontFamily,
     masterVolume: delivery.audio?.master_gain ?? settings.masterVolume,
-    bgmVolume: delivery.audio?.bgm_gain ?? settings.bgmVolume }
+    bgmVolume: Math.min(delivery.audio?.bgm_gain ?? settings.bgmVolume, settings.maxBgmVolume ?? 8) }
 }
 
 /**

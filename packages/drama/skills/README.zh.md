@@ -26,7 +26,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-[后台成片技能](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清)指导已授权的 SeedVR2 / RunningHub 转高清。默认在指定分集和视频包内选最新生成结果，使用其当前处理后的视频，提交一次并后台观察受理任务。高清结果成功、归属匹配且有当前输出地址后直接采用；仅在另行要求时增加画面、音频和元数据检查。已有明确高清授权不逐条重复确认，仅有分辨率提示不授权付费。
+[后台成片技能](skills/tweet-drama-background-render/SKILL.md#剧变视频转高清)指导已授权的 SeedVR2 / RunningHub 转高清。默认在指定分集和视频包内选最新生成结果，使用其当前处理后的视频，提交一次并后台观察受理任务。高清结果成功、归属匹配且有当前输出地址后直接采用；仅在另行要求时增加画面、音频和元数据检查。已有明确高清授权不逐条重复确认，仅有分辨率提示不授权付费。其[剧情配乐指南](skills/tweet-drama-background-render/references/story-bgm-selection.md)根据采用视频的情节转折确定音乐意图，保留已有原声音乐和用户反馈，通过 `bgm_match.story` 查询候选，并区分曲名/标签证据与真实片段、混音试听。
 
 解析本包的 `package.json`，再把同级 `skills` 目录交给现有技能加载器。本资源包不注册 Service、Tool 或插件。仅安装 npm 包不会激活技能。参考图可来自用户文件或已有的网页搜索、抓取工具；技能目录不包含小红书客户端及服务配置流程。
 

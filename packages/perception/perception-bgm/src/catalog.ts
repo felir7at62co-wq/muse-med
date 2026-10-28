@@ -7,6 +7,7 @@ import {
   licenseRiskWarnings, normalizeLicenseInfo, type BgmUsage, type LicenseInfo,
 } from '@deepseek-ai/dsh-bgm-license-info'
 import type { CatalogConfig, CatalogTrack } from './types.ts'
+import { parseAudioProfile } from './audio-profile.ts'
 
 const AUDIO_EXTENSION = /^\.(?:mp3|wav|m4a|flac|aac|ogg|opus)$/
 const DIGEST = /^sha256:[a-f0-9]{64}$/
@@ -20,6 +21,7 @@ function parseCatalog(value: unknown, config: CatalogConfig): CatalogTrack[] {
   const catalog = object(value)
   if (catalog.version !== 1 || !Array.isArray(catalog.tracks)) throw new Error('Invalid BGM catalog version or tracks')
   const ids = new Set<string>()
+  const urls = new Set<string>()
   const origin = new URL(config.catalogUrl).origin
   return catalog.tracks.map((raw: unknown) => {
     const row = object(raw)
@@ -29,8 +31,14 @@ function parseCatalog(value: unknown, config: CatalogConfig): CatalogTrack[] {
       || /[\x00-\x1f\x7f/\\]/.test(row.name)) throw new Error('Invalid BGM catalog track name')
     const extension = extname(row.name).toLowerCase()
     if (!AUDIO_EXTENSION.test(extension)) throw new Error('Unsupported BGM catalog audio extension')
-    const expectedUrl = `${origin}/bgm/tracks/${row.sha256.slice(7)}${extension}`
-    if (row.url !== expectedUrl) throw new Error('BGM catalog track URL must be its same-origin content-addressed object')
+    const key = row.object_key === undefined ? `bgm/tracks/${row.sha256.slice(7)}${extension}` : row.object_key
+    if (typeof key !== 'string' || !/^bgm\/tracks\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/.test(key)) {
+      throw new Error('Invalid BGM catalog object_key')
+    }
+    const expectedUrl = `${origin}/${key}`
+    if (row.url !== expectedUrl || urls.has(expectedUrl)) {
+      throw new Error('BGM catalog track URL must be its unique same-origin declared object')
+    }
     if (typeof row.bytes !== 'number' || !Number.isSafeInteger(row.bytes) || row.bytes < 1
       || row.bytes > config.maxTrackBytes) throw new Error('BGM catalog track size exceeds byte limit')
     for (const key of ['valence', 'arousal'] as const) {
@@ -43,9 +51,12 @@ function parseCatalog(value: unknown, config: CatalogConfig): CatalogTrack[] {
       throw new Error('Invalid BGM catalog moods')
     }
     const licenseInfo = normalizeLicenseInfo(row.license_info)
+    const audioProfile = parseAudioProfile(row.audio_profile, row.sha256)
     ids.add(row.sha256)
+    urls.add(expectedUrl)
     return { id: row.sha256, sha256: row.sha256, name: row.name, bytes: row.bytes,
       url: expectedUrl, valence: row.valence as number, arousal: row.arousal as number, moods: row.moods as string[],
+      ...(audioProfile === undefined ? {} : { audio_profile: audioProfile }),
       license_info: licenseInfo, license_warnings: licenseRiskWarnings(licenseInfo, 'unknown') }
   })
 }
@@ -66,7 +77,7 @@ async function request(url: string, signal: AbortSignal, maximum: number): Promi
  * Fetch and validate one bounded catalogue; never fetch an audio candidate.
  * @param config - Resolved public-library settings.
  * @param signal - Operation cancellation and deadline.
- * @returns Catalogue measurements with validated content-addressed track URLs.
+ * @returns Catalogue measurements with validated same-origin track URLs and content IDs.
  */
 export async function loadCatalog(config: CatalogConfig, signal: AbortSignal): Promise<CatalogTrack[]> {
   const body = await request(config.catalogUrl, signal, config.maxCatalogBytes)

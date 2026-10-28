@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/index.ts'
 import { EmotionWorker } from '../src/worker.ts'
 import { resolveCatalogConfig } from '../src/config.ts'
+import { audioProfileFixture } from './audio-profile.fixture.ts'
 
 const catalogUrl = 'https://muse.tos-cn-beijing.volces.com/bgm/catalog.json'
 const audio = Buffer.from('fixture audio bytes')
@@ -73,6 +74,45 @@ it('matches public measurements without Python or downloading candidates', async
   await expect(readdir(cacheDir)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+it('exposes hash-bound audio evidence and its sampled windows without claiming human review', async () => {
+  const profile = audioProfileFixture(track.sha256)
+  transport({ version: 1, tracks: [{ ...track, name: 'opaque.mp3', audio_profile: profile }] })
+  const { run } = await mount()
+  expect(await run({ method: 'match', valence: 8, arousal: 7,
+    story: { intent: '克制亲情', desired_tags: ['family'], avoid_tags: ['epic'] } })).toMatchObject({
+    candidates: [{ audio_profile: profile, story_fit: { status: 'supported', audio_matches: ['family'], title_matches: [] } }],
+  })
+})
+
+it('rejects audio tags associated with different bytes instead of applying them to the current track', async () => {
+  transport({ version: 1, tracks: [{ ...track, audio_profile: audioProfileFixture(`sha256:${'f'.repeat(64)}`) }] })
+  const { run } = await mount()
+  await expect(run({ method: 'match', valence: 8, arousal: 7 })).rejects.toThrow('audio_profile')
+})
+
+it('compares audio-profile cues with the previous cue and retains audio evidence ahead of repeat preferences', async () => {
+  const secondHash = `sha256:${'b'.repeat(64)}`
+  const thirdHash = `sha256:${'c'.repeat(64)}`
+  const secondProfile = audioProfileFixture(secondHash)
+  secondProfile.tags = [{ tag: 'gentle', similarity: 0.35 }]
+  transport({ version: 1, tracks: [
+    { ...track, name: 'family-first.mp3', audio_profile: audioProfileFixture(track.sha256) },
+    { ...track, id: secondHash, sha256: secondHash, name: 'family-second.mp3',
+      url: `https://muse.tos-cn-beijing.volces.com/bgm/tracks/${secondHash.slice(7)}.mp3`, audio_profile: secondProfile },
+    { ...track, id: thirdHash, sha256: thirdHash, name: 'family-third.mp3',
+      url: `https://muse.tos-cn-beijing.volces.com/bgm/tracks/${thirdHash.slice(7)}.mp3`, audio_profile: audioProfileFixture(thirdHash) },
+  ] })
+  const { run } = await mount()
+  expect(await run({ method: 'match', valence: 8, arousal: 7, previous_track_id: track.id,
+    adjacent_episode_track_ids: [track.id], story: { intent: 'Family dialogue continues', desired_tags: ['family'] } }))
+    .toMatchObject({ continuity_reference: { status: 'ready', tags: ['family', 'gentle'] },
+      candidates: [{ track_id: thirdHash }, { track_id: track.id }, { track_id: secondHash }] })
+})
+
+it('rejects a non-boolean production evidence setting during load', async () => {
+  await expect(mount({ requireStoryEvidence: 'true' })).rejects.toThrow('requireStoryEvidence must be boolean')
+})
+
 it('downloads only the chosen ID, verifies bytes, and revalidates cached reuse', async () => {
   const fetch = transport()
   const { run, cacheDir } = await mount()
@@ -86,6 +126,39 @@ it('downloads only the chosen ID, verifies bytes, and revalidates cached reuse',
   expect(await run({ method: 'download', track_id: track.id })).toMatchObject({ cached: false })
   expect(await readFile(result.path)).toEqual(audio)
   expect(await readdir(cacheDir)).toEqual([`${hex}.mp3`])
+})
+
+it('matches and downloads a declared numbered object while caching by content hash', async () => {
+  const numbered = { ...track, object_key: 'bgm/tracks/1', url: 'https://muse.tos-cn-beijing.volces.com/bgm/tracks/1' }
+  const fetch = transport({ version: 1, tracks: [numbered] })
+  const { run, cacheDir } = await mount()
+  expect(await run({ method: 'match', valence: 8, arousal: 7 })).toMatchObject({
+    evaluated_tracks: 1, candidates: [{ track_id: track.id, name: track.name, url: numbered.url }],
+  })
+  expect(fetch).toHaveBeenCalledTimes(1)
+  const downloaded = await run({ method: 'download', track_id: track.id }) as { path: string }
+  expect(downloaded.path).toBe(join(cacheDir, `${hex}.mp3`))
+  expect(await readFile(downloaded.path)).toEqual(audio)
+  expect(fetch).toHaveBeenLastCalledWith(numbered.url, expect.objectContaining({ credentials: 'omit', redirect: 'error' }))
+})
+
+it.each([null, 1, '', 'bgm/tracks/', 'bgm/tracks/../1', 'bgm/tracks/%31', 'bgm/tracks/1?token=x',
+  'bgm/tracks/1#x', 'bgm/other/1', 'bgm/tracks/1/2', 'bgm/tracks/' + '1'.repeat(256)])(
+  'rejects invalid declared object key %j before downloading audio', async (object_key) => {
+    const fetch = transport({ version: 1, tracks: [{ ...track, object_key }] })
+    const { run } = await mount()
+    await expect(run({ method: 'download', track_id: track.id })).rejects.toThrow(/object_key/)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  },
+)
+
+it('rejects two content IDs declaring the same cloud object', async () => {
+  const numbered = { ...track, object_key: 'bgm/tracks/1', url: 'https://muse.tos-cn-beijing.volces.com/bgm/tracks/1' }
+  const other = { ...numbered, id: 'sha256:' + '0'.repeat(64), sha256: 'sha256:' + '0'.repeat(64) }
+  const fetch = transport({ version: 1, tracks: [numbered, other] })
+  const { run } = await mount()
+  await expect(run({ method: 'match', valence: 8, arousal: 7 })).rejects.toThrow(/unique same-origin/)
+  expect(fetch).toHaveBeenCalledTimes(1)
 })
 
 it.each([

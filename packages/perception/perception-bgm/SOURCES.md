@@ -43,6 +43,12 @@ SHA-256 hashes of the original normalized import; `vendored/mert.py` now differs
 
 ## External weights and trusted code
 
+### Sampled audio tag index
+
+The optional maintainer tag-index builder uses the official [laion/clap-htsat-unfused model](https://huggingface.co/laion/clap-htsat-unfused), whose model card declares Apache-2.0. It is separate from the non-commercial MERT analysis below. The pinned revision is `8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a`; `pytorch_model.bin` is 614,525,833 bytes with SHA-256 `1cd3c601bc4afe0fa87be3de4c13dd2cfadd249fac1e29acf74a9b296c3219bb`, as declared by the official model repository and checked before inference. Prepare that revision's processor/tokenizer files alongside the weights. The builder uses Transformers with local files only and does not enable remote model code. Weights and analysis environments are not packed. Retain upstream notices with any separately redistributed payload; this model's declaration grants no rights to music files. Raw audio/text similarity is an inference, not a confidence score or human listening evidence.
+
+### Music2Emotion analysis
+
 Obtain the emotion head `saved_models/J_all.ckpt` and BTC checkpoint `btc_model_large_voca.pt` through the Music2Emotion repository's download instructions, subject to their applicable rights. Verify the available copies against these SHA-256 values before deployment: `J_all.ckpt` = `deaceb291f7974deb688167d3639b7f6eb66eb0715824668618393777d1e07a5` (12,958,092 bytes); BTC = `1673d23f8f9a55ae7f9e8b80a51da616debb22675b8d8b67ea6ce0ef37b0ab51`. These are measured local artifact hashes, not a claim of an immutable upstream download URL. PyTorch loads these trusted checkpoints with `weights_only=False`; never accept untrusted replacements.
 
 The [m-a-p/MERT-v1-95M model](https://huggingface.co/m-a-p/MERT-v1-95M/tree/12af15fef9d0ac838c3f475bfbbf26d2060dd4f5) is **CC-BY-NC-4.0, non-commercial only**, not MIT. Preserve its attribution, model card and [license terms](https://creativecommons.org/licenses/by-nc/4.0/) with a prepared model payload. Both model and feature extractor use revision `12af15fef9d0ac838c3f475bfbbf26d2060dd4f5`, matching the recorded local Hugging Face cache. `trust_remote_code=True` executes that snapshot's Python; review the snapshot before preparing a release. Revision freezing is tested without downloading or running the model.

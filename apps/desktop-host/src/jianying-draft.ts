@@ -11,6 +11,12 @@ import z from '@deepseek-ai/schemastery'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
+  /** Resolved FFmpeg executable forwarded to the managed Python generator. */
+  readonly ffmpegPath?: string
+  /** Resolved ffprobe executable forwarded to the managed Python generator. */
+  readonly ffprobePath?: string
+  /** Final BGM track gain ceiling; defaults to 8, while Muse office composition selects 1. */
+  readonly maxBgmGain?: number
   readonly source: string
   readonly pythonPath?: string
   readonly timeoutMs: number
@@ -21,6 +27,8 @@ export interface Config {
 
 /** Reject invalid process limits before the draft tool is registered. */
 export const Config: z<Config> = z.object({
+  ffmpegPath: z.string().min(1), ffprobePath: z.string().min(1),
+  maxBgmGain: z.number().min(0).max(8).default(8),
   source: z.string().min(1).required(), pythonPath: z.string().min(1),
   timeoutMs: z.number().step(1).min(1).required(), graceMs: z.number().step(1).min(0).required(),
   maxInputBytes: z.number().step(1).min(1).required(), maxOutputBytes: z.number().step(1).min(1).required(),
@@ -73,7 +81,10 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
   const handle = subprocess.spawn({
     argv: [python, '-B', script, input.request_file, input.drafts_dir, String(config.maxInputBytes)],
-    cwd: dirname(input.request_file), env: { PYTHONUTF8: '1' }, signal: combined, graceMs: config.graceMs,
+    cwd: dirname(input.request_file), env: { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8),
+      ...(config.ffmpegPath === undefined ? {} : { DSH_FFMPEG_PATH: config.ffmpegPath }),
+      ...(config.ffprobePath === undefined ? {} : { DSH_FFPROBE_PATH: config.ffprobePath }) },
+    signal: combined, graceMs: config.graceMs,
     stdio: { stdin: 'ignore', stdout: { maxBytes: config.maxOutputBytes }, stderr: { maxBytes: config.maxOutputBytes } },
   })
   let outcome: SubprocessOutcome
