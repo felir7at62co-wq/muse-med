@@ -55,7 +55,7 @@ function catalogSourceEntries(
 ): SkillCatalogSource['entries'] {
   return skills.map(skill => ({
     name: skill.name,
-    description: catalogDescription(skill.description, descriptionMaxLength),
+    description: catalogDescription(skill, descriptionMaxLength),
   }))
 }
 
@@ -413,9 +413,14 @@ function catalogMessage(
   return undefined
 }
 
-function catalogDescription(value: string, maxLength: number): string {
-  const normalized = value.replaceAll(/\s+/g, ' ').trim()
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`
+/** Fit trigger guidance before the description within the existing per-skill budget. */
+function catalogDescription(skill: Pick<SkillSummary, 'description' | 'whenToUse'>, maxLength: number): string {
+  const description = skill.description.replaceAll(/\s+/g, ' ').trim()
+  const whenToUse = skill.whenToUse?.replaceAll(/\s+/g, ' ').trim()
+  const summary = whenToUse && whenToUse !== description
+    ? `When to use: ${whenToUse} Description: ${description}`
+    : description
+  return summary.length <= maxLength ? summary : `${summary.slice(0, maxLength - 3)}...`
 }
 
 function assertPositiveInteger(name: string, value: number, minimum = 1): void {

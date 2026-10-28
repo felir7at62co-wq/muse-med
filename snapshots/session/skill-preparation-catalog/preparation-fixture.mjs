@@ -19,6 +19,7 @@ export function apply(ctx) {
         options.signal.throwIfAborted()
       }
       return [{ name: 'sample-skill', description: 'Use for the sample task.',
+        whenToUse: 'The user requests the sample task without naming a skill.',
         invocation: { modelInvocable: true, userInvocable: true },
         provider: 'snapshot-preparation', source: 'custom', rank: 100, locator: 'sample' }]
     },
@@ -27,7 +28,7 @@ export function apply(ctx) {
   ctx.on('llm/stream', async function* (options, next) {
     assert.equal(mode, 'catalog', 'Incomplete or cancelled preparation never calls the model')
     const catalog = options.messages.find(message => message.content.some(block =>
-      block.type === 'text' && block.text.includes('`sample-skill`: Use for the sample task.')))
+      block.type === 'text' && block.text.includes('`sample-skill`: When to use: The user requests the sample task without naming a skill. Description: Use for the sample task.')))
     assert.ok(catalog, 'The prepared catalog is in the model request')
     yield* next()
   })

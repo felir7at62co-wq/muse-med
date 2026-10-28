@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`delivers current creative direction and full shot-writing skills > short-drama creative guidance 1`] = `
+exports[`keeps shot requirements resident and loads creative direction with skills > short-drama creative guidance 1`] = `
 {
   "loadedSkills": [
     "<skill_content name="anime-3d-assets">
@@ -673,8 +673,6 @@ Resolve relative paths mentioned by this skill against the base directory before
 </skill_content>",
   ],
   "persona": "你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。
-
-根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象、妆造、配色、用光和氛围，并贯穿资产图与视频包。3D 动漫默认使用“3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质”作为风格前缀，再补充适合本剧的风格修饰。仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合；温暖、祥瑞或轻喜剧项目体现相应的亲近感，不无依据地强化猎奇、血腥、阴森和攻击性。保留剧本规定的物种、关键外形、尺度、剧情动作与原台词。有依据的常规设计自主推进，仅对会显著改变用户已定方向且无法确定的取舍集中确认。
 
 以下镜头、素材和视频包要求用于视频制作；写作、改稿与转写按用户的任务要求执行。视频模型能在他上限的时长内发挥优秀的效果，镜头多，时间长不会乱，但不用一定打满时间上限。镜头脚本必须根据场景图写，没有对应的场景图需要先补齐场景图，同理缺少其他资产一样需要补全。
 

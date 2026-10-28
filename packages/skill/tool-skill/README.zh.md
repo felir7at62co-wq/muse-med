@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-agent 可以在会话期间发现并加载 skill。在首次请求前，如果存在模型可调用 skill 且 `skill` 工具可见，agent 会收到一份持久目录，列出可用 skill 的名称与有长度上限的描述，并可用 `skill` 工具加载完整指令。用户可以用 `/name` 调用某个用户可调用的 skill，把相同的指令注入该步骤。目录变更会追加一份完整替换，其中空目录会停用旧名称；可配置 `catalogDescriptionMaxLength` 来限制每条描述的长度。
+agent 可以在会话期间发现并加载 skill。在首次请求前，如果存在模型可调用 skill 且 `skill` 工具可见，agent 会收到一份持久目录，列出可用 skill 的名称与有长度上限的路由摘要，并可用 `skill` 工具加载完整指令。用户可以用 `/name` 调用某个用户可调用的 skill，把相同的指令注入该步骤。目录变更会追加一份完整替换，其中空目录会停用旧名称；可配置 `catalogDescriptionMaxLength` 来限制每条摘要的长度。
 
 ## 目录
 
@@ -33,7 +33,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 ### 挂载与配置
 
-与 skill 注册表和至少一个提供方一起加载该插件。下方配置项控制目录描述长度与作用域 loader 的目录所有权。
+与 skill 注册表和至少一个提供方一起加载该插件。下方配置项控制目录摘要长度与作用域 loader 的目录所有权。
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -43,17 +43,19 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `catalogDescriptionMaxLength` | `500` | 会话目录中渲染的规范化描述最大长度；最小为 3 |
+| `catalogDescriptionMaxLength` | `500` | 会话目录中渲染的规范化路由摘要最大长度；最小为 3 |
 | `scopedCatalogOwner` | `false` | 让本作用域 loader 在其他 tool-skill 实例存在时拥有自己的目录，并在发现结束后复核其可见性 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-skill)是每个受支持字段的穷尽式真源。
 
+技能的 `whenToUse` 非空且与描述不同时，路由摘要按 `When to use: <whenToUse> Description: <description>` 发布。两段文字都规范化空白；提示为空或与规范化描述相同时，只保留描述。`catalogDescriptionMaxLength` 限制整个摘要，因此过长的触发条件可以占满预算并省略描述。持久目录条目在原有 `description` 字段中记录同一摘要。
+
 ### 模型得到什么
 
-- **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出每个 skill 的名称与有长度上限的描述；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。
+- **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出每个 skill 的名称与有长度上限的路由摘要；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。
 - **加载工具。** 模型以精确的 skill 名称调用 `skill`，并收到完整指令正文以及规范的 `<skill_content>` 块中的资源指引；该结果作为普通工具历史保留。
 - **用户显式调用。** 本插件的精确 `skill` 工具可见时，直接用户输入中的 `/name` token 若指名某个用户可调用 skill，会把该 skill 的指令注入该步骤，而无需模型自行加载。
-- **实时目录更新。** 后续成员关系、描述或可见性变化会追加完整的替换目录；删除全部 skill 时会追加空目录，停用较早的名称。
+- **实时目录更新。** 后续成员关系、路由摘要或可见性变化会追加完整的替换目录；删除全部 skill 时会追加空目录，停用较早的名称。
 
 ### 可观察的成功与失败
 
@@ -110,7 +112,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 #### 模型看到什么
 
-如果存在模型可调用 skill，且可见的正是这个 `skill` 工具，agent 会在第一个请求之前收到下方目录模板，其中包含每个已排序 skill 的一条随数据而定的条目。该目录是一条持久的用户角色消息。后续成员关系、描述或可见性的变化会使用同一个 `<available_skills>` 信封追加完整替换；删除所有 skill 时，会追加一个空信封，并明确指示不得使用旧名称。模板的结尾一句是防止双重加载的规则：用户显式的手势边界（下文的 pre-step 监听器）会把同一份 `renderSkillContent` 输出（共享自 `@deepseek-ai/dsh-skill`）内联注入，目录则告诉模型遵循该块，而不是再经工具重新加载该 skill；替换目录模板的两个分支——包括清空后的目录——都携带同一条防双重加载规则。
+如果存在模型可调用 skill，且可见的正是这个 `skill` 工具，agent 会在第一个请求之前收到下方目录模板，其中包含每个已排序 skill 的一条随数据而定的条目。该目录是一条持久的用户角色消息。后续成员关系、路由摘要或可见性的变化会使用同一个 `<available_skills>` 信封追加完整替换；删除所有 skill 时，会追加一个空信封，并明确指示不得使用旧名称。模板的结尾一句是防止双重加载的规则：用户显式的手势边界（下文的 pre-step 监听器）会把同一份 `renderSkillContent` 输出（共享自 `@deepseek-ai/dsh-skill`）内联注入，目录则告诉模型遵循该块，而不是再经工具重新加载该 skill；替换目录模板的两个分支——包括清空后的目录——都携带同一条防双重加载规则。
 
 ##### Skill 目录模板
 
@@ -119,7 +121,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 A skill is a reusable set of task-specific instructions. The following skills are available in this session:
 
 <available_skills>
-- `<name>`: <normalized-and-capped-description>
+- `<name>`: <normalized-and-capped-routing-summary>
 </available_skills>
 
 If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
@@ -240,11 +242,11 @@ Load referenced resources only as needed.
 
 这些限制说明目录或加载器何时不合适。它们是当前包约束，不是任务积压。
 
-- **目录省略 `whenToUse`、来源和提供方元数据**——路由只基于名称和有长度上限的描述；`whenToUse` 仍是提供方元数据，加载后的包装层也不渲染它。
-- **已加载指令正文没有大小上限**——提供方可返回足以占用大量下一步上下文的 skill；只有目录描述会被截断。
+- **目录省略来源和提供方元数据**——名称和有长度上限的路由摘要不标识提供方或资源位置。
+- **已加载指令正文没有大小上限**——提供方可返回足以占用大量下一步上下文的 skill；只有目录路由摘要会被截断。
 - **资源是指引，而非附件**——工具报告基础目录/URL/不透明提示，但既不列举也不为模型获取引用文件。
 - **加载是一次性文本**——远程提供方缓慢或 skill 正文很大时，不提供部分内容、流式输出或缓存内容句柄。
-- **目录替换采用全量列表**——一个名称或描述发生变化，就会追加所有可见摘要；这样能显式停用陈旧名称，但 token 成本与目录大小成正比。
+- **目录替换采用全量列表**——一个名称或路由摘要发生变化，就会追加所有可见摘要；这样能显式停用陈旧名称，但 token 成本与目录大小成正比。
 - **正文不做版本化**——仅修改正文不会改变目录 digest，也不会通知模型；后续工具调用会读取提供方的当前内容，而先前工具结果仍是历史事实。
 
 <a id="dev-note"></a>

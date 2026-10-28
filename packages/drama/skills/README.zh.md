@@ -26,6 +26,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+镜头脚本技能的元数据说明创作、改写及原稿转分镜的适用任务，分别面向已确认的 9:16 竖屏仿真人与 16:9 横屏 3D CG 项目。媒介或画幅不明确时先核对已有项目设定；技能选择不改变这些设定，也不将镜头脚本指导用于普通分场剧本排版。
+
 [首轮制作流程](skills/tweet-drama-core/references/first-pass-production.md)让准备与审片使用同一套有原文依据的动作及道具要求，覆盖身体支撑阶段、素材适配、同场状态延续、实际准备提示词以及收费修复前的局部证据。它不保证随机生成器的首轮结果，也不替代实际听校和视觉审核。
 
 动作有争议时，巡检技能的`video_review_evidence.py`在新本地目录生成带现有音轨的连续区间、每页最多六帧的拼图，以及源文件和证据哈希。它依赖Pillow与本地FFmpeg/FFprobe，保留现有文件，不发起网络请求，媒体审核始终为待验。见其[输入输出规则](skills/tweet-drama-project-inspect/references/io-contract.md#motion-evidence-extraction)。
