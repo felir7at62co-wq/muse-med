@@ -16,9 +16,7 @@ import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCan
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
   planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
 
-const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
-  action: z.string().optional(), task_key: z.string().optional(), source_paths: z.array(z.string()).optional(),
-  candidate_paths: z.array(z.string()).optional(), mode: z.enum(['adapt', 'transcribe', 'edit']).optional() })
+const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional() })
 type CallArguments = z.infer<typeof callArguments>
 type DeclaredOutputs = ReturnType<typeof manuscriptDeclaredOutputs>
 interface MessageMaterialCache {
@@ -79,27 +77,20 @@ function declaredOutputs(message: Message, cwd: string, cache: MaterialCache): D
 
 function registeredPaths(messages: readonly Message[], cwd: string, cache: MaterialCache) {
   const calls = new Map<string, ToolCallBlock>(), paths = new Set<string>()
-  let bound: string[] | undefined
-  let sourceBinding: { task_key: string | undefined; paths: string[]; mode: CallArguments['mode'] } | undefined
   for (const message of messages) {
     if (message.role === 'assistant') for (const block of message.content) {
       if (block.type === 'tool-call') calls.set(block.id, block)
     }
     if (message.role !== 'tool' || message.isError) continue
     const call = calls.get(message.toolCallId)
-    if (!call || !['write', 'edit', 'video_inspect', 'manuscript_work'].includes(call.name)) continue
+    if (!call || !['write', 'edit', 'video_inspect'].includes(call.name)) continue
     const args = readArguments(call, cache)
     if (args === undefined) continue
-    if (call.name === 'manuscript_work' && args.action === 'bind') {
-      bound = args.candidate_paths?.filter(isManuscript).map(path => resolve(cwd, path))
-      sourceBinding = { task_key: args.task_key, paths: (args.source_paths ?? []).map(path => resolve(cwd, path)), mode: args.mode }
-    }
-    const selected = call.name === 'manuscript_work' && args.action === 'bind' ? args.candidate_paths ?? []
-      : call.name === 'video_inspect' ? args.draft_path === undefined ? [] : [args.draft_path]
-        : args.file_path === undefined ? [] : [args.file_path]
+    const selected = call.name === 'video_inspect' ? args.draft_path === undefined ? [] : [args.draft_path]
+      : args.file_path === undefined ? [] : [args.file_path]
     for (const path of selected) if (isManuscript(path)) paths.add(resolve(cwd, path))
   }
-  return { paths: bound ?? [...paths], explicitlyBound: bound !== undefined, sourceBinding }
+  return [...paths]
 }
 
 function receipts(messages: readonly Message[], cache: MaterialCache): Receipt[] {
@@ -231,7 +222,7 @@ function sourceLineChanges(before: ReturnType<typeof episodeReadLines>, after: R
 }
 
 async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited<ReturnType<typeof readManuscript>>,
-  scenes: readonly ManuscriptScene[], binding: ReturnType<typeof registeredPaths>['sourceBinding'], config: Config, signal: AbortSignal) {
+  scenes: readonly ManuscriptScene[], config: Config, signal: AbortSignal) {
   const snapshots = manuscriptTextReadSnapshots(ctx, agent.session), cwd = agent.session.header.cwd ?? ''
   const episodes = [...new Set(scenes.flatMap((scene) => {
     const episode = manuscriptEpisodeNumber(scene.episode)
@@ -247,10 +238,7 @@ async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited
       const selected = reads.find(read => read.status === 'complete') ?? reads.at(-1)
       return selected === undefined ? [] : [selected]
     })
-    const boundTextPaths = (binding?.paths ?? []).filter(path => /\.(?:md|txt)$/iu.test(path))
-    const explicitlyBound = sameEpisode.filter(read => boundTextPaths.includes(resolve(cwd, read.path)))
-    const preferred = boundTextPaths.length ? explicitlyBound : sameEpisode
-    const candidates = await Promise.all(preferred.map(async (read) => {
+    const candidates = await Promise.all(sameEpisode.map(async (read) => {
       let current: Awaited<ReturnType<typeof readManuscript>> | undefined, reason: string | undefined
       try { current = await readManuscript(read.path, cwd, config, signal) }
       catch (error) { signal.throwIfAborted(); reason = error instanceof Error ? error.message : String(error) }
@@ -272,14 +260,11 @@ async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited
     const after = episodeReadLines(manuscriptReadText(document.text), episode)
     const changes = selected === undefined || before.length > config.maxParagraphs || after.length > config.maxParagraphs
       ? undefined : sourceLineChanges(before, after, config.maxEditLength)
-    reports.push({ episode, relationship: boundTextPaths.length ? 'explicit_work_source_path' : 'current_task_read_source_candidate',
+    reports.push({ episode, relationship: 'current_task_read_source_candidate',
       adopted_authorization: 'not_inferred', source_truth: 'read_text_not_verified_video_facts',
       status: selected !== undefined ? changes === undefined ? 'diff_budget_exceeded' : 'compared'
         : candidates.length > 1 ? 'ambiguous' : candidates[0]?.current_status ?? 'no_matching_read_snapshot',
       candidates: candidates.map(({ snapshot: _snapshot, ...candidate }) => candidate),
-      bound_text_paths_without_matching_snapshot: (binding?.paths ?? []).filter(path => /\.(?:md|txt)$/iu.test(path)
-        && !(snapshots?.reads ?? []).some(read => resolve(cwd, read.path) === path
-          && read.episodeLabels.some(label => manuscriptEpisodeNumber(label) === episode))),
       omitted_read_snapshots: snapshots?.omitted ?? 0,
       current_document: { path: document.path, file_sha256: document.sha256 },
       normalization: 'native_read_line_text_crlf_normalized_final_newline_omitted_not_file_bytes',
@@ -288,11 +273,11 @@ async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited
         source_line_numbers: before.map(line => line.number) } },
       hunks: changes ?? [], semantic_assessment: 'not_performed' })
   }
-  const identity = { binding: binding === undefined ? null : {
-    task_key: binding.task_key, paths: binding.paths.map(identityPath), mode: binding.mode },
-  reports: reports.map(report => ({ episode: report.episode, relationship: report.relationship, status: report.status,
+  // Keep unbound-session hashes stable without reading historical tool bindings.
+  const identity = { binding: null, reports: reports.map(report => ({
+    episode: report.episode, relationship: report.relationship, status: report.status,
     omitted_read_snapshots: report.omitted_read_snapshots,
-    bound_text_paths_without_matching_snapshot: report.bound_text_paths_without_matching_snapshot.map(identityPath),
+    bound_text_paths_without_matching_snapshot: [],
     candidates: report.candidates.map(candidate => ({ path: identityPath(candidate.path),
       read_text_sha256: candidate.read_text_sha256, read_window_sha256: candidate.read_window_sha256,
       read_scope: candidate.read_scope, current_status: candidate.current_status,
@@ -548,8 +533,7 @@ export class ManuscriptVideoEvidence {
     const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache)
     const transcriptCandidates = manuscriptVideoReadCandidates(ctx, agent.session)
     const registered = registeredPaths(outputBoundary < 0 ? messages : messages.slice(outputBoundary), cwd, cache)
-    if (!sources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length
-      && registered.sourceBinding === undefined) return []
+    if (!sources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
     const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
     if (offloaded.length) {
@@ -562,7 +546,7 @@ export class ManuscriptVideoEvidence {
     const ambiguities = new Set<string>()
     const outputMessage = messages[outputBoundary]
     const declared = outputMessage === undefined ? [] : declaredOutputs(outputMessage, cwd, cache)
-    if (!registered.explicitlyBound) for (const declaration of declared) {
+    for (const declaration of declared) {
       const existing: string[] = []
       for (const candidate of declaration.candidates) {
         try { if ((await stat(candidate)).isFile()) existing.push(await realpath(candidate)) }
@@ -580,7 +564,7 @@ export class ManuscriptVideoEvidence {
           && message.content.some(block => block.type === 'text' && block.text === text))) output.push({ type: 'text', text })
       } else if (unique[0]) declarations.set(unique[0], declaration)
     }
-    const paths = registered.explicitlyBound ? [...registered.paths] : [...new Set([...registered.paths,
+    const paths = [...new Set([...registered,
       ...declarations.keys(), ...outputBoundary < 0 ? this.saved.get(agent) ?? [] : []])].filter(path => !ambiguities.has(path))
     if (paths.length > this.config.maxDocuments) throw Error('MANUSCRIPT_VIDEO_DOCUMENT_LIMIT: 已保存文稿路径超出配置，未扫描其他文件。')
     paths.sort((a, b) => (prior.findLast(entry => entry.path === a)?.returned_frames.length ?? 0)
@@ -596,7 +580,7 @@ export class ManuscriptVideoEvidence {
       }
       const scenes = manuscriptScenes(document.text)
       if (scenes.every(scene => scene.episode === 'unassigned')) continue
-      const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, registered.sourceBinding, this.config, signal)
+      const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, this.config, signal)
       const mutation = this.mutations.get(agent.session)?.get(document.path)
       const currentMutation = mutation?.sha256 === manuscriptTextHash(document.text.replaceAll('\r\n', '\n')) ? mutation : undefined
       const readChanges = readRevisions.reports.filter(report => report.status === 'compared')
@@ -804,13 +788,12 @@ export class ManuscriptVideoEvidence {
       const cue = manuscriptEndingCue(presentation, [...sourceEndings.values()].map(ending => ({
         episode: ending.episode, draft_path: ending.draft_path, last_asr: ending.last_recorded_asr,
         frames: ending.window.frame_refs })),
-      { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars }, registered.sourceBinding?.mode)
+      { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars })
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
         presentation_evidence: presentation,
         changed_line_selection: changedSelection,
-        output_association: declarations.get(document.path) ?? { basis: registered.explicitlyBound
-          ? 'explicit_manuscript_work_binding' : 'successful_tool_path' },
+        output_association: declarations.get(document.path) ?? { basis: 'successful_tool_path' },
         image_delivery: 'cached_blocks_returned_not_admission_or_understanding',
         image_route: imageCapable ? 'image_capable' : 'text_only_or_unknown_no_images_returned',
         changed_scenes: changed.length, returned_scenes: reports.length,
@@ -830,7 +813,7 @@ export class ManuscriptVideoEvidence {
       }
       const current = await readManuscript(path, cwd, this.config, signal)
       if (current.sha256 !== document.sha256) throw Error('MANUSCRIPT_VIDEO_DRAFT_CHANGED: 文稿在局部证据读取期间变化，请以新版本为准。')
-      const currentReadRevisions = await readSourceRevisions(ctx, agent, current, scenes, registered.sourceBinding, this.config, signal)
+      const currentReadRevisions = await readSourceRevisions(ctx, agent, current, scenes, this.config, signal)
       if (currentReadRevisions.identity !== readRevisions.identity) {
         throw Error('MANUSCRIPT_READ_SOURCE_CHANGED: 来源在原句差异读取期间变化，未返回过期对照或标记完成。')
       }

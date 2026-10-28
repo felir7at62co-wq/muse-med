@@ -44,7 +44,7 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
       - id: screenplay
         title: 剧本与分镜
         description: 编写剧本、核对动作与整理分镜
-        tools: [manuscript_work, drama_*, video_inspect]
+        tools: [manuscript_revision, drama_*, video_inspect]
 ```
 
 `alwaysLoad` contains exact tool names and may name providers that register later. `tool_search` and `tool_context` are always included. Only tools currently authorized for the calling agent are presented or searchable; naming a restricted tool here does not grant access.

@@ -13,7 +13,6 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { diffManuscript, validateManuscriptCandidate, type ManuscriptDiff } from './manuscript-diff.ts'
 import { isManuscript, readManuscript, type ManuscriptDocument } from './manuscript-document.ts'
 import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLength } from './manuscript-length.ts'
-import { ManuscriptWork } from './manuscript-work.ts'
 import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs } from './manuscript-video-evidence.ts'
 import { installManuscriptVideoReads } from './manuscript-video-reads.ts'
@@ -39,8 +38,6 @@ export interface Config {
   maxDocuments: number
   maxLedgerBytes: number
   lockWaitMs: number
-  repeatMinCharacters: number
-  actionRepeatMinCharacters: number
   maxRepeatFindings: number
   videoEvidenceWindowSeconds: number
   videoEvidenceMaxScenes: number
@@ -58,8 +55,6 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxDocuments: Schema.number().step(1).min(1).default(64),
   maxLedgerBytes: Schema.number().step(1).min(1).default(32 * 1024 * 1024),
   lockWaitMs: Schema.number().step(1).min(1).default(5000),
-  repeatMinCharacters: Schema.number().step(1).min(1).default(12),
-  actionRepeatMinCharacters: Schema.number().step(1).min(1).default(4),
   maxRepeatFindings: Schema.number().step(1).min(1).default(40),
   videoEvidenceWindowSeconds: Schema.number().min(1).default(8),
   videoEvidenceMaxScenes: Schema.number().step(1).min(1).default(4),
@@ -306,7 +301,6 @@ export class ManuscriptRevisions {
  */
 export function apply(ctx: Context, config: Config): void {
   const revisions = new ManuscriptRevisions(config)
-  const work = new ManuscriptWork(config)
   const videoEvidence = new ManuscriptVideoEvidence(config)
   ctx.on('session/event', (session, event) => { videoEvidence.observeReceipt(session, event) })
   let videoSourceContext: Context | undefined
@@ -317,54 +311,8 @@ export function apply(ctx: Context, config: Config): void {
       return () => { if (videoSourceContext === scope) videoSourceContext = undefined }
     })
   })
-  const workReadFailures = new WeakMap<Agent, string>()
   const videoReadFailures = new WeakMap<Agent, string>()
   const guidanceNotices = new WeakMap<Agent, string>()
-  ctx.tools.register(defineTool({
-    name: 'manuscript_work',
-    description: '文稿版本与场景工具。bind登记本轮明确采用稿和来源（输出可尚未创建），保留历史而不猜最新稿。scene返回完整当前场及前后场；propose_scene对照整场修改，返回普通edit参数，尚未写稿。audit回读实际文件与各集篇幅，列出正文/钩子、全剧的字面重复，以及连续同人同声源对白和相邻动作重叠候选；不能据此声称剧情全通过。event可记录有原句依据的事件与场末状态，属于模型笔记。保存后自动提示新版本，包括shell写稿；提示型，不要求审批、固定技能或审校流程。',
-    parameters: {
-      action: { type: 'string', required: true, enum: ['bind', 'scene', 'propose_scene', 'audit', 'event'] },
-      task_key: { type: 'string', description: 'bind：本任务稳定名称；不同任务重新bind，不按文件修改时间挑稿。' },
-      mode: { type: 'string', enum: ['adapt', 'transcribe', 'edit'], description: 'bind：换梗/改编adapt，忠实视频转写transcribe，已有稿修改edit；不会把换梗要求套给转写。' },
-      source_paths: { type: 'array', items: { type: 'string' }, description: 'bind：实际来源文本或Word路径，不覆盖源文件。' },
-      candidate_paths: { type: 'array', items: { type: 'string' }, description: 'bind：本轮采用的正文文件，按集排列，可登记尚未创建的文件。历史稿不混入；切换返稿时显式重新bind。' },
-      scene_id: { type: 'string', description: 'scene/propose_scene：audit返回的真实场景ID。' },
-      expected_sha256: { type: 'string', description: 'propose_scene：刚读取的完整场景sha256，防止用旧场景作修改建议。' },
-      replacement: { type: 'string', description: 'propose_scene：完整新场景，连同场次及原需保留的内容。不是统一塞在钩子前的补字块。' },
-      source_ranges: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
-        path: { type: 'string', required: true }, start_line: { type: 'integer', required: true },
-        end_line: { type: 'integer', required: true },
-      } }, description: 'scene/propose_scene：可选来源对应行范围（从1开始），与整场、前后场一起回读实际原文；由模型选择，不假称自动对齐。' },
-      event: { type: 'object', additionalProperties: false, properties: {
-        event_id: { type: 'string', required: true }, scene_id: { type: 'string', required: true },
-        quote: { type: 'string', required: true }, source_quote: { type: 'string', required: true },
-        source_path: { type: 'string', required: true },
-        purpose: { type: 'string', required: true, enum: ['advance', 'recap', 'flashback'] },
-        end_state: { type: 'string', required: true },
-      }, description: 'event：事件ID跨集一致；当前稿与来源的实际原句、用途、场末人物/道具状态。工具只核对引文存在，不把模型笔记当独立核实。' },
-    },
-    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-    async execute(args, exec) {
-      const agent = exec.agent, cwd = agent?.session.header.cwd
-      if (!agent || !cwd) throw Error('manuscript_work需要有工作区的Session。')
-      const result = await work.request(args, cwd, agent.id, exec.signal)
-      const fs = ctx.get('fs')
-      if (fs && (args.action === 'scene' || args.action === 'propose_scene')) {
-        const { current } = z.object({ current: z.object({ path: z.string(), file_sha256: z.string() }) }).parse(JSON.parse(result))
-        const target = await fs.resolve(current.path, { signal: exec.signal })
-        const info = await fs.stat(target, exec.signal)
-        if (!info || info.type !== 'file') throw Error('MANUSCRIPT_SCENE_STALE: 场景文件已变，请重新读取。')
-        const bytes = await fs.readBytes(target, exec.signal, config.maxFileBytes)
-        if (createHash('sha256').update(bytes).digest('hex') !== current.file_sha256) {
-          throw Error('MANUSCRIPT_SCENE_STALE: 场景读取后文件已变，请重新读取，不记为已观察版本。')
-        }
-        ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
-      }
-      return result
-    },
-    presentCall: () => ({ card: 'generic', title: 'Manuscript scenes and versions', kind: 'read' }),
-  }))
   ctx.tools.register(defineTool({
     name: 'manuscript_revision',
     description: '支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。',
@@ -390,18 +338,7 @@ export function apply(ctx: Context, config: Config): void {
     if (decision.kind !== 'enter') return decision
     const cwd = agent.session.header.cwd
     if (!cwd) return decision
-    let workNotice: string | undefined
-    try {
-      workNotice = await work.refresh(cwd, agent.id, signal, messages.some(message => message.source.kind === 'user'))
-      workReadFailures.delete(agent)
-    }
-    catch (error) {
-      signal.throwIfAborted()
-      const failure = `采用稿回读未完成：${error instanceof Error ? error.message : String(error)}。不代表剧情检查通过；本提示不阻止继续。`
-      if (workReadFailures.get(agent) !== failure) workNotice = failure
-      workReadFailures.set(agent, failure)
-    }
-    let entered = workNotice ? { ...decision, messages: [...decision.messages, context(workNotice, '采用稿实际版本与场景核对')] } : decision
+    let entered = decision
     try {
       const materials = videoSourceContext === undefined ? []
         : await videoEvidence.refresh(videoSourceContext, agent, signal, decision.messages)

@@ -44,7 +44,7 @@ kind: "package-reference"
       - id: screenplay
         title: 剧本与分镜
         description: 编写剧本、核对动作与整理分镜
-        tools: [manuscript_work, drama_*, video_inspect]
+        tools: [manuscript_revision, drama_*, video_inspect]
 ```
 
 `alwaysLoad` 使用精确工具名，可以列出提供方稍后才会注册的名称。`tool_search` 与 `tool_context` 始终包含在内。只有调用 agent 当前获准使用的工具才会被展示或搜索；在此列出受限工具不会授予访问权限。
