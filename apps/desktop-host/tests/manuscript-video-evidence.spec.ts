@@ -51,7 +51,7 @@ function literalSourceTimeline(rows: { start: number; end: number; text: string 
 const speechRowSchema = z.object({ segment_id: z.string(), text: z.string(), start_seconds: z.number(), end_seconds: z.number(),
   draft_line_refs: z.array(z.object({ scene_id: z.string(), line: z.number() })) })
 const readRevisionSchema = z.object({ status: z.string(), relationship: z.string(), adopted_authorization: z.string(),
-  normalization: z.string(), omitted_read_snapshots: z.number(), bound_text_paths_without_matching_snapshot: z.array(z.string()),
+  normalization: z.string(), omitted_read_snapshots: z.number(),
   candidates: z.array(z.object({ path: z.string(), read_text_sha256: z.string().optional(), current_status: z.string(),
     read_scope: z.object({ status: z.string() }) })),
   comparison_source: z.object({ path: z.string(), read_text_sha256: z.string(), read_call_id: z.string() }).optional(),
@@ -167,6 +167,16 @@ async function fixture(script = [textResponse('已完成。')], config: Partial<
       return remaining.success ? remaining.data.manuscript_source_speech.original_asr_remaining : []
     }) : [])
   return { root, ctx, agent, adapter, addReview, run, evidence, evidenceContent, endingCues, sourceRows, image }
+}
+
+/** Emit a legacy tool call in the test log without installing the removed product tool. */
+function installLegacyBinding(f: Awaited<ReturnType<typeof fixture>>) {
+  f.agent.ctx.tools.register(defineTool({ name: 'manuscript_work', description: 'Legacy session fixture', parameters: {
+    action: { type: 'string' }, task_key: { type: 'string' }, mode: { type: 'string' },
+    source_paths: { type: 'array', items: { type: 'string' } },
+    candidate_paths: { type: 'array', items: { type: 'string' } },
+  }, output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'Legacy receipt.' }] },
+  execute: async () => true }))
 }
 
 async function replaceTranscript(f: Awaited<ReturnType<typeof fixture>>, source: { path: string; transcript: string },
@@ -311,9 +321,8 @@ it.each(['partial', 'changed', 'ambiguous'] as const)('keeps %s source reads out
 })
 
 it('returns native edit changed visual lines and their source samples without replaying unchanged scenes or long dialogue', async () => {
-  const f = await fixture([toolCallResponse('read-draft', 'read', { file_path: 'draft.md' }),
-    toolCallResponse('bind-edit', 'manuscript_work', { action: 'bind', task_key: 'native-edit', mode: 'transcribe',
-      source_paths: ['source.md'], candidate_paths: ['draft.md'] }),
+  const f = await fixture([toolCallResponse('write-prior', 'write', { file_path: 'draft.md', content: visualBefore }),
+    toolCallResponse('read-draft', 'read', { file_path: 'draft.md' }),
     toolCallResponse('edit-visual', 'edit', { file_path: 'draft.md', old_string: visualBefore, new_string: visualAfter }),
     textResponse('自主首次交付。')], { videoEvidenceMaxFrames: 6 })
   await addChangedVisualSource(f)
@@ -423,8 +432,6 @@ it('logs the ending cue before the large source report and actually returns inde
 it('rejects a native mutation after hash mismatch and falls back to the actual complete read source difference', async () => {
   const external = visualAfter.replace('▲乙把碗推向桌边。', '▲乙把碗移到椅子上。')
   const f = await fixture([toolCallResponse('read-source', 'read', { file_path: 'source.md' }),
-    toolCallResponse('bind-edit', 'manuscript_work', { action: 'bind', task_key: 'native-race', mode: 'edit',
-      source_paths: ['source.md'], candidate_paths: ['draft.md'] }),
     toolCallResponse('edit-visual', 'edit', { file_path: 'draft.md', old_string: visualBefore, new_string: visualAfter }),
     textResponse('仍然交付。')])
   await addChangedVisualSource(f)
@@ -442,30 +449,26 @@ it('rejects a native mutation after hash mismatch and falls back to the actual c
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('仍然交付')
 })
 
-it('changes the source format mode only after a successful explicit bind and refreshes a mode-only change once', async () => {
+it('ignores legacy bind mode changes without refreshing an unchanged saved draft', async () => {
   const bind = (mode: 'transcribe' | 'adapt') => ({ action: 'bind', task_key: 'mode-only', mode,
     source_paths: ['source.md'], candidate_paths: ['draft.md'] })
   const f = await fixture([
     toolCallResponse('write-draft', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：你好。' }),
-    toolCallResponse('failed-bind', 'manuscript_work', { ...bind('transcribe'), source_paths: ['missing.md'] }), textResponse('第一次交付。'),
-    toolCallResponse('bind-transcribe', 'manuscript_work', bind('transcribe')), textResponse('忠实转写。'),
+    textResponse('第一次交付。'), toolCallResponse('bind-transcribe', 'manuscript_work', bind('transcribe')), textResponse('忠实转写。'),
     toolCallResponse('bind-adapt', 'manuscript_work', bind('adapt')), textResponse('获准改编。'),
   ])
+  installLegacyBinding(f)
   await f.addReview('第4集'); await writeFile(join(f.root, 'source.md'), '第4集\n4-1 家 日 内\n甲：你好。')
   await f.run()
   expect(f.evidence()).toHaveLength(1)
   expect(f.evidence()[0]?.format_reference).toBeUndefined()
   expect(f.endingCues()[0]).toContain('格式整理不授权新增或改写原片事实')
-  const failed = f.agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'failed-bind')
-  expect(failed?.type === 'tool/result' && failed.data.message.isError).toBe(true)
   await f.run('继续。')
-  expect(f.evidence()).toHaveLength(2)
-  expect(f.endingCues()[1]).toContain('忠实转写')
+  expect(f.evidence()).toHaveLength(1)
   await f.run('继续。')
-  expect(f.evidence()).toHaveLength(3)
-  expect(f.endingCues()[2]).toContain('改编')
+  expect(f.evidence()).toHaveLength(1)
   await f.run('继续。')
-  expect(f.evidence()).toHaveLength(3)
+  expect(f.evidence()).toHaveLength(1)
 })
 
 it('matches a native CRLF edit by normalized after text while retaining the exact file-byte receipt', async () => {
@@ -618,14 +621,19 @@ it('never marks a changed source or an oversized material return as reviewed', a
   expect(JSON.stringify(f.adapter.requests[1])).toContain('不阻止继续')
 })
 
-it('tracks a registered future path written outside the file tools without assuming a shell command is a draft', async () => {
+it('ignores a legacy future path until a normal write registers the draft', async () => {
   const f = await fixture([toolCallResponse('bind-future', 'manuscript_work', { action: 'bind', task_key: 'video', mode: 'transcribe',
-    source_paths: ['source.txt'], candidate_paths: ['future.md'] }), textResponse('登记完成。')])
+    source_paths: ['source.txt'], candidate_paths: ['future.md'] }), textResponse('登记完成。'), textResponse('继续。'),
+  toolCallResponse('write-future', 'write', { file_path: 'future.md', content: '第4集\n4-1 家 日 内\n甲：你好。' }),
+  textResponse('已保存。')])
+  installLegacyBinding(f)
   await writeFile(join(f.root, 'source.txt'), '原始来源材料。')
   await f.addReview('第4集')
   await f.run()
   expect(f.evidence()).toHaveLength(0)
   await writeFile(join(f.root, 'future.md'), '第4集\n4-1 家 日 内\n甲：你好。')
+  await f.run('继续。')
+  expect(f.evidence()).toHaveLength(0)
   await f.run('继续。')
   expect(f.evidence()[0]?.receipt.path).toBe(join(f.root, 'future.md'))
   expect(f.evidence()[0]?.scenes[0]?.manuscript.current.text).toContain('甲：你好。')
@@ -1167,27 +1175,27 @@ it('automatically returns actual complete-read before and after lines for a new 
   expect(manuscriptTextReadSnapshots(f.ctx, resumed)).toEqual(snapshots)
 })
 
-it('refreshes an unchanged saved body once when a subsequent successful bind supplies its actual source relation', async () => {
+it('does not refresh an unchanged saved body after a legacy bind', async () => {
   const f = await fixture([toolCallResponse('read-original', 'read', { file_path: 'source.md' }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：改过。' }),
     toolCallResponse('bind-later', 'manuscript_work', { action: 'bind', task_key: 'same-episode-edit', mode: 'edit',
       source_paths: ['source.md'], candidate_paths: ['draft.md'] }), textResponse('完成。')])
+  installLegacyBinding(f)
   await writeFile(join(f.root, 'source.md'), '第4集\n4-1 家 日 内\n甲：原句。')
   await f.run('精修后保存为draft.md。')
-  expect(f.evidence()).toHaveLength(2)
+  expect(f.evidence()).toHaveLength(1)
   expect(f.evidence()[0]?.scenes[0]?.read_source_revision?.relationship).toBe('current_task_read_source_candidate')
-  expect(f.evidence()[1]?.scenes[0]?.read_source_revision?.relationship).toBe('explicit_work_source_path')
-  expect(f.evidence()[0]?.receipt.read_source_identity_sha256).not.toBe(f.evidence()[1]?.receipt.read_source_identity_sha256)
   await f.run('继续。')
-  expect(f.evidence()).toHaveLength(2)
+  expect(f.evidence()).toHaveLength(1)
 })
 
 it('keeps multiple same-episode read sources ambiguous without selecting the earliest read or a filename', async () => {
   const f = await fixture([toolCallResponse('read-one', 'read', { file_path: 'first.md' }),
     toolCallResponse('read-two', 'read', { file_path: 'second.md' }),
     toolCallResponse('bind-two', 'manuscript_work', { action: 'bind', task_key: 'ambiguous-sources', mode: 'edit',
-      source_paths: ['first.md', 'second.md'], candidate_paths: ['draft.md'] }),
+      source_paths: ['first.md'], candidate_paths: ['draft.md'] }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('照常交付。')])
+  installLegacyBinding(f)
   await writeFile(join(f.root, 'first.md'), '第4集\n4-1 家 日 内\n甲：第一份。')
   await writeFile(join(f.root, 'second.md'), '第4集\n4-1 家 日 内\n甲：第二份。')
   await f.run('精修后保存为draft.md。')
@@ -1211,23 +1219,22 @@ it.each(['partial', 'truncated'])('does not treat a %s native read as a complete
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('正常交付')
 })
 
-it('reports an unread bound source without substituting another complete same-episode read', async () => {
+it('ignores an unread legacy bound source and retains the actual complete same-episode read', async () => {
   const f = await fixture([toolCallResponse('read-other', 'read', { file_path: 'other.md' }),
     toolCallResponse('bind-unread', 'manuscript_work', { action: 'bind', task_key: 'unread-source', mode: 'edit',
-      source_paths: ['source.md'], candidate_paths: ['draft.md'] }),
+      source_paths: ['source.md'], candidate_paths: ['unrelated.md'] }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('完成。')])
+  installLegacyBinding(f)
   await writeFile(join(f.root, 'source.md'), '第4集\n4-1 家 日 内\n甲：指定来源。')
   await writeFile(join(f.root, 'other.md'), '第4集\n4-1 家 日 内\n甲：其他读稿。')
   await f.run('精修后保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
-  expect(report?.status).toBe('no_matching_read_snapshot')
-  expect(report?.relationship).toBe('explicit_work_source_path')
-  expect(report?.candidates).toEqual([])
-  expect(report?.comparison_source).toBeUndefined()
-  expect(report?.hunks).toEqual([])
+  expect(report?.status).toBe('compared')
+  expect(report?.relationship).toBe('current_task_read_source_candidate')
+  expect(report?.comparison_source?.path).toBe(join(f.root, 'other.md'))
+  expect(report?.candidates.map(candidate => candidate.path)).toEqual([join(f.root, 'other.md')])
   const context = JSON.stringify(f.agent.session.deriveMessages())
-  expect(context).toContain('bound_text_paths_without_matching_snapshot')
-  expect(report?.bound_text_paths_without_matching_snapshot).toContain(join(f.root, 'source.md'))
+  expect(context).not.toContain('bound_text_paths_without_matching_snapshot')
 })
 
 it('retains an explicit diagnostic when complete read text exceeds the configured snapshot allowance', async () => {

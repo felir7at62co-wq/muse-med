@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/tests/README.md
 /desktop-local-update-verification:
-  en: 5a74f97a9a7d6244
-  zh: 48705ec167acd464
+  en: e20f945e2b6eed39
+  zh: ad5d49f8fc72e682
 /desktop-local-update-verification/installed-hongguo-downloads:
   en: 7b25ccdbc4b29822
   zh: d2f379cd50e7461e

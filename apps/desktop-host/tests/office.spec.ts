@@ -53,7 +53,7 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx') })
     expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
     expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
-    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_work', 'manuscript_revision', 'jianying_draft', 'screenplay_export_docx'])
+    expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_revision', 'jianying_draft', 'screenplay_export_docx'])
     const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
     expect(description).toContain(reviewMode === 'advisory' ? '不要求独立审校' : '严格候选验收')
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')

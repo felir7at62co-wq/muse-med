@@ -7,7 +7,6 @@ interface Location { path: string; episode: string; scene: string; line: number;
 interface Material extends Location { kind: 'action_line' | 'dialogue'; parentheticals: string[] }
 interface Group<T> { findings: T[]; total: number; omitted: number; budget_omitted: number }
 interface Limits { maximumFindings: number; maxTextCharacters: number }
-type Mode = 'adapt' | 'transcribe' | 'edit' | 'unknown'
 interface SourceEnding {
   episode: string
   draft_path?: string
@@ -17,20 +16,15 @@ interface SourceEnding {
 
 /**
  * Describe screenplay notation without imposing a creative workflow or a count requirement.
- * @param mode - Explicit work mode, when selected; an absent mode does not imply permission to adapt.
  * @returns Brief format references, with source fidelity distinct from authorized adaptation.
  */
-export function manuscriptFormatReference(mode: Mode = 'unknown') {
+export function manuscriptFormatReference() {
   return {
     action_line: '▲写观众需要看懂的画面事件：进出、走位、物品交接、无对白反应，以及改变局面的动作过程和结果。按剧情作用区分，不按动作长短或是否同步说话机械拆分。',
     parenthetical: '人物名（括注）：台词。括注服务于这句话怎样说，写语气、神态或局部伴随表现；重要事件不靠括注代替。同一动作不重复写，每句不必都有括注。',
     dialogue: '同一人连续表达同一层意思，不因ASR分段机械拆行；保留真实的插话、转折和动作节拍。',
     ending: '本集已有留悬内容时，【下集钩子】只是格式标注，不改变剧情；标在原有末段之前，下接正常动作或对白，不另抄一遍末段。标识存在不证明悬念有效，缺少标识不证明剧情有错；完全收束或大结局不强编悬念。',
-    source_scope: mode === 'transcribe'
-      ? '忠实转写只整理原片已有的结尾信息，不新增事实、不提前搬入下一集；原片完全收束或大结局时如实保留，不强编悬念。'
-      : mode === 'adapt'
-        ? '改编可在用户已授权的故事材料内调整结尾落点；没有来源支持的动作、事实和人物表现不凭空补写。'
-        : '依用户当前任务区分忠实转写与改编；格式整理不授权新增或改写原片事实。',
+    source_scope: '依用户当前任务区分忠实转写与改编；格式整理不授权新增或改写原片事实。',
   }
 }
 
@@ -150,13 +144,12 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
  * @param presentation - Current-file ending evidence, including actual line locations and structural marker status.
  * @param sourceEndings - Exact episode source candidates; the last ASR and last cached frame need not coincide.
  * @param limits - Existing entry and total-text limits; a budget too small for a notice returns only an omission symbol.
- * @param mode - Explicit work mode, without inferring adaptation permission from an editing request.
  * @returns Bounded advisory text; it does not certify suspense, invent a hook, modify text or require another step.
  */
 export function manuscriptEndingCue(presentation: ReturnType<typeof manuscriptPresentationEvidence>,
-  sourceEndings: readonly SourceEnding[], limits: Limits, mode: Mode = 'unknown'): string {
+  sourceEndings: readonly SourceEnding[], limits: Limits): string {
   const entries: { text: string; fallback?: string }[] = [], episodes = presentation.episodes.slice(0, limits.maximumFindings)
-  const reference = manuscriptFormatReference(mode)
+  const reference = manuscriptFormatReference()
   for (const episode of episodes) {
     const ending = episode.ending, current = ending.last_scene_lines.findings
     entries.push({ text: `第${episode.episode}集当前结尾：${ending.marker_status === 'not_found'

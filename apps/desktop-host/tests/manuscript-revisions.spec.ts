@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
@@ -207,7 +207,7 @@ it('bounds the number of requested files and validates an explicitly supplied to
     candidate_paths: ['returned.md'], max_growth_percent: -1 }, f.agent, signal)).rejects.toThrow()
 })
 
-it('makes a real scene read usable by the ordinary guarded edit tool without another full-file read', async () => {
+it('uses ordinary read and guarded edit without the removed manuscript work tool', async () => {
   const f = await fixture()
   await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
   await f.ctx.plugin(FsPolicy)
@@ -217,12 +217,27 @@ it('makes a real scene read usable by the ordinary guarded edit tool without ano
   const call = (name: string, args: object) => f.ctx.tools.execute({ signal,
     callId: ToolCallId(`scene-observation-${++serial}`), name, arguments: args, agent: f.agent })
   expect((await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })).isError).toBe(true)
-  expect((await call('manuscript_work', { action: 'bind', task_key: '返稿', mode: 'edit',
-    source_paths: ['baseline.md'], candidate_paths: ['returned.md'] })).isError).toBe(false)
-  expect((await call('manuscript_work', { action: 'scene', scene_id: 'file-1/1:body' })).isError).toBe(false)
+  expect(f.ctx.tools.schemas(f.agent).map(tool => tool.name)).not.toContain('manuscript_work')
+  expect((await call('read', { file_path: 'returned.md' })).isError).toBe(false)
   const result = await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })
   expect(result.isError).toBe(false)
   expect(await readFile(join(f.root, 'returned.md'), 'utf8')).toContain('乙：先听我说。')
+})
+
+it('ignores retained manuscript work records when a new user turn starts', async () => {
+  const f = await fixture()
+  const directory = join(f.root, '.muse', 'manuscript-work', createHash('sha256').update(f.agent.id).digest('hex'))
+  await mkdir(directory, { recursive: true })
+  const record = join(directory, 'state.json')
+  await writeFile(record, '{"retired_record":"preserve this file"}\n')
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续按当前要求写作。' }] }))
+  await f.agent.whenIdle()
+  expect(await readFile(record, 'utf8')).toBe('{"retired_record":"preserve this file"}\n')
+  const request = JSON.stringify(f.adapter.requests.at(-1)?.messages)
+  expect(request).not.toContain('采用稿实际版本与场景核对')
+  expect(request).not.toContain('采用稿回读未完成')
+  expect(request).not.toContain('本轮沿用已登记的实际采用稿')
 })
 
 it.each([
