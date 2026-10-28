@@ -42,6 +42,7 @@
 | `@deepseek-ai/dsh-tool-schedule` | `schedule_create`, `schedule_delete`, `schedule_list`, `schedule_update` | `ctx.tools`, `ctx.schedule` | `tool/call`, `Schedule storage domain create, update, or delete`, `tool/result` | - | 由预设或 Agent 作用域装载；预设决定哪些 Agent 可使用四个管理工具。每次调用操作调用方 Agent 的会话。支持 after_seconds、明确的绝对时间 at、有界的固定间隔 every_seconds、明确 IANA 时区中的每日与每周时间，以及五字段 cron 表达式。任务由 Host 存储，到期消息恢复原会话。 |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
+| `@deepseek-ai/dsh-tool-discovery` | `tool_context`, `tool_search` | `ctx.tools`, `ctx.agents`, `ctx.sessionProjections` | `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt`、`用于模型发现和所选路由校验的 ctx.llm` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的委派工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述默认 schema 关闭模型选择，而发现 schema 则展示为已启用 Session 中可用的固定配套工具。Web preset 会在每个新顶层 Session 创建时读取插件页偏好，并为其子 Session 保留该决定；`subagent_fork` 始终使用固定路由。每个实例通过 `modelSelectionSettings`、`backgroundMode` 与 `enableRunInBackground` 独立控制是否读取模型选择设置及其后台行为。 |
@@ -2994,6 +2995,71 @@ Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only
 来源： [`packages/workflow/tool-ralph/src/index.ts`](../packages/workflow/tool-ralph/src/index.ts)
 
 A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.
+
+<a id="deepseek-aidsh-tool-discovery"></a>
+
+## `@deepseek-ai/dsh-tool-discovery`
+
+### `tool_context`
+
+管理自己的工具定义。status 列出当前加载和常驻工具；load 为当前会话加载工具；pin 同时保存 Bot 后续会话的常驻偏好（有持久化支持时）；release 收起并取消常驻；unpin 取消常驻且保留当前加载。基础工具、tool_search 和 tool_context 不能收起。调整用于下次模型请求，历史定义与结果仍保留。已收起工具可以再次搜索加载。此操作不增加权限，也不改变其他 Bot。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "operation": {
+      "type": "string",
+      "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+      "enum": [
+        "status",
+        "load",
+        "pin",
+        "release",
+        "unpin"
+      ]
+    },
+    "tools": {
+      "type": "array",
+      "description": "Exact tool names; required for changes. Use tool_search to find names.",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "operation"
+  ]
+}
+```
+
+源码： [`packages/core/tool-discovery/src/index.ts`](../packages/core/tool-discovery/src/index.ts)
+
+### `tool_search`
+
+按能力发现工具。不传参数时列出可用能力分类，不加载工具。提供 query 可按任务或精确名称搜索全部工具，也可用 capability 缩小范围。仅提供 capability 时浏览并加载该分类的工具。匹配工具的完整参数定义在下一步可用。分类可以重叠，不限制权限。结果存在省略时应缩小查询范围。搜索不执行找到的工具。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+    },
+    "capability": {
+      "type": "string",
+      "description": "Optional capability id from the directory. Omit to search across groups."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum matching tools to load, from 1 to 8; defaults to 8."
+    }
+  }
+}
+```
+
+源码： [`packages/core/tool-discovery/src/index.ts`](../packages/core/tool-discovery/src/index.ts)
 
 <a id="deepseek-aidsh-tool-skill"></a>
 

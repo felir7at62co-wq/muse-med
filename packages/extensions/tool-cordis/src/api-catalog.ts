@@ -3585,6 +3585,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'toolDiscovery',
+    summary: 'Host service for optional durable Bot preferences and session-derived selections.',
+    description: 'Host service for optional durable Bot preferences and session-derived selections.',
+    methods: [
+      {
+        signature: 'registerResidency(provider: ToolResidencyProvider): () => Promise<void>',
+        description: 'Register one Bot preference owner; overlapping owners fail when an agent is resolved.',
+        parameters: [{ name: 'provider', description: 'Provider matching only the agents it owns.' }],
+        returns: 'reversible registration disposer.',
+      },
+      {
+        signature: 'async refresh(agent: Agent): Promise<void>',
+        description: 'Refresh stored Bot selections before first assembly or after an external preference edit.',
+        parameters: [{ name: 'agent', description: 'Agent whose owner may have saved preferences.' }],
+        returns: 'fulfillment after preferences have been read.',
+      },
+      {
+        signature: 'state(agent: Agent): ToolContextState',
+        description: 'Read detached current session selections without exposing unavailable tool names.',
+        parameters: [{ name: 'agent', description: 'Agent whose current selection is requested.' }],
+        returns: 'authorized loaded and preferred names, excluding constant tools.',
+      },
+      {
+        signature: 'selected(agent: Agent, name: string): boolean',
+        description: 'Test presentation membership without rebuilding authorized schemas for every definition.',
+        parameters: [{ name: 'agent', description: 'Agent whose selection is being assembled.' }, { name: 'name', description: 'Already-authorized definition being considered by the registry.' }],
+        returns: 'whether session loading or the Bot\'s preferences select the definition.',
+      },
+      {
+        signature: 'async save(agent: Agent, operation: \'pin\' | \'release\' | \'unpin\', names: readonly string[]): Promise<void>',
+        description: 'Save a preference edit to its Bot owner while preserving dormant stored names.',
+        parameters: [{ name: 'agent', description: 'Agent performing the change.' }, { name: 'operation', description: 'Whether to add or remove preferred names.' }, { name: 'names', description: 'Validated exact tool names affected by the edit.' }],
+        returns: 'fulfillment after the external save, when an owner is registered.',
+      },
+    ],
+  },
+  {
     key: 'toolResultPruner',
     summary: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
     description: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
@@ -3618,13 +3655,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
-    description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.',
+    description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; authorization resolves before optional model-presentation filtering.',
     methods: [
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => Promise<void>',
         description: 'Present the calling scope\'s tools in `mode` instead of the deployment default. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it.\n\nScoped only, and one declaration per scope: this is how an agent preset composes PTC mode agents beside native ones in the same process, and a process-global override would be the `mode` config field instead.',
         parameters: [{ name: 'mode', description: 'the presentation the covered agents\' models see.' }],
         returns: 'the exact asynchronous disposer that restores the deployment default.',
+      },
+      {
+        signature: 'presentOnly(predicate: (name: string, scope?: ScopeKey) => boolean): () => void',
+        description: 'Filter model-facing definitions without changing callable capabilities. Predicates across the scope ancestry intersect and are read on every assembly. The reserved `run_code` transport remains presented. Registry enumeration, lookup, execution, and existing authorization are unchanged.',
+        parameters: [{ name: 'predicate', description: 'selection over each authorized tool name and the viewing scope.' }],
+        returns: 'the exact disposer that removes this presentation filter.',
+        throws: ['When called without a scoped context.'],
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',
@@ -3652,7 +3696,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'schemas(scope?: ScopeKey): ToolSchema[]',
-        description: 'Project visible definitions onto the allowlisted model-facing schema fields, excluding execution and presentation callbacks.',
+        description: 'Enumerate authorized definitions as schemas, including tools omitted by `presentOnly`. Execution and presentation callbacks are excluded.',
         parameters: [{ name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
         returns: 'one deep-cloned schema per visible tool.',
       },
@@ -8374,6 +8418,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ToolCallView = GenericCallView | TerminalCallView | DiffCallView;',
   },
   {
+    name: 'ToolContextState',
+    declaration: 'export interface ToolContextState {\n    loaded: string[];\n    pinned: string[];\n}',
+  },
+  {
     name: 'ToolDefinition',
     declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
@@ -8450,6 +8498,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolRemovalBlock {\n    type: \'tool-removal\';\n    toolName: string;\n}',
   },
   {
+    name: 'ToolResidencyProvider',
+    declaration: 'export interface ToolResidencyProvider {\n    matches(agent: Agent): boolean;\n    read(agent: Agent): Promise<readonly string[]>;\n    write(agent: Agent, names: readonly string[]): Promise<void>;\n}',
+  },
+  {
     name: 'ToolRestriction',
     declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly futureAllow?: readonly string[];\n    readonly deny?: readonly string[];\n    readonly futureDeny?: readonly string[];\n    readonly includeOwn?: boolean;\n}',
   },
@@ -8471,7 +8523,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => Promise<void>;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => Promise<void>;\n    presentOnly(predicate: (name: string, scope?: ScopeKey) => boolean): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

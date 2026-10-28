@@ -85,7 +85,8 @@
     "fflate": "^0.8.3",
     "koffi": "^3.1.0",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-tool-discovery": "workspace:*"
   },
   "exports": {
     ".": "./lib/index.js",

@@ -28,6 +28,7 @@ Use the core packages to build or extend an agent that records durable session h
 | [`session/`](session/README.md) | The append-only session event log every agent's history derives from | `ctx.sessions` |
 | [`system-prompt/`](system-prompt/README.md) | System-prompt assembly from ordered sections, tool schemas, and variables | `ctx.systemPrompt` |
 | [`tools/`](tools/README.md) | The tool registry and guarded execution pipeline the loop dispatches through | `ctx.tools` |
+| [`tool-discovery/`](tool-discovery/README.md) | Capability grouping, on-demand discovery, and session-restored presentation of authorized tools | no ctx key |
 | [`agent-tool-presentation/`](agent-tool-presentation/README.md) | Per-agent tool-presentation selector for presets | no ctx key |
 | [`agent/`](agent/README.md) | The `Agent` handle plugins program against, plus its live registry and events | `ctx.agents` |
 | [`agent-default-model/`](agent-default-model/README.md) | The deployment default model selection entry points apply to fresh agents | `ctx.agentDefaultModel` |

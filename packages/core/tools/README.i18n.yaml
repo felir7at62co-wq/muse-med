@@ -9,14 +9,14 @@
   en: bb2af1250bfefe4b
   zh: 893e3ab2e563a8a5
 /deepseek-ai-dsh-tools/summary:
-  en: 19679f9c1953baaf
-  zh: 65dec1ccab4e532b
+  en: ee59d8d77578960f
+  zh: 6d27d84b46446bb5
 /deepseek-ai-dsh-tools/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-tools/use-this-package:
-  en: 6e722ebac4878621
-  zh: 0946eb94f78b7029
+  en: c63e895c7f233626
+  zh: 7d6d6cb3c160ebee
 /deepseek-ai-dsh-tools/use-this-package/register-a-tool:
   en: 8c7fa441769d0ef9
   zh: 9ed80b2323ccd064
@@ -24,8 +24,11 @@
   en: 0683fd9db8b276bc
   zh: b1bc0ab47f279fea
 /deepseek-ai-dsh-tools/use-this-package/restrict-tools-per-agent:
-  en: e0a042940c3ce47a
-  zh: 4f72a4cfe395a331
+  en: ed7f699198c7f797
+  zh: 26f696b366112c68
+/deepseek-ai-dsh-tools/use-this-package/select-model-facing-definitions:
+  en: 6da2a7e05d64c902
+  zh: 7761bb9cf2a5ca32
 /deepseek-ai-dsh-tools/use-this-package/enforce-policy-on-calls:
   en: cbfe8317565ac62d
   zh: 1e71c66941e50881
@@ -48,8 +51,8 @@
   en: 57d088544df19dd3
   zh: 92e289d2ece3171c
 /deepseek-ai-dsh-tools/understand-the-implementation/extension-points:
-  en: c2a14d6f22bc9428
-  zh: 89c1414fca465931
+  en: 85dc493174b0a798
+  zh: 6d35024050f9aa3b
 /deepseek-ai-dsh-tools/further-exploration:
   en: d8e2dfcfef2a2284
   zh: b33111cbc20dc498
@@ -60,14 +63,14 @@
   en: 483b01d9bb2cb49a
   zh: 1d95095e76fb0996
 /deepseek-ai-dsh-tools/model-experience/normal-tool-schemas/what-the-model-sees:
-  en: beda295a874b30a1
-  zh: 253c4cf007c4db3f
+  en: 2e3e8c034eac8064
+  zh: ca2fc1c81c92a71a
 /deepseek-ai-dsh-tools/model-experience/normal-tool-schemas/token-effect:
-  en: d594b71ff5e4cc87
-  zh: dcec1ea0dd2a0fa6
+  en: 3d3af5862863bda1
+  zh: 98193b1db7b9101b
 /deepseek-ai-dsh-tools/model-experience/normal-tool-schemas/kv-cache-effect:
-  en: 7c5e75964e020b2c
-  zh: d50d0402d15232d9
+  en: 447083e1f33bef5e
+  zh: a8b1c5c420778638
 /deepseek-ai-dsh-tools/model-experience/ptc-mode-schema-and-system-prompt:
   en: eaefd7303f22977d
   zh: 9c425f9501128224
@@ -78,8 +81,8 @@
   en: 3a8df15e4ae32f9e
   zh: fc4a800ba363e835
 /deepseek-ai-dsh-tools/model-experience/ptc-mode-schema-and-system-prompt/token-effect:
-  en: 12296fcafc14562c
-  zh: f8e9351bb8c6437d
+  en: 8391ab812ed98a78
+  zh: a95ee912bc6e19ef
 /deepseek-ai-dsh-tools/model-experience/ptc-mode-schema-and-system-prompt/kv-cache-effect:
   en: 78906628d634441f
   zh: 492f133aea50cfe3

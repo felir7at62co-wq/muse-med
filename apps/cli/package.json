@@ -104,7 +104,8 @@
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
     "@deepseek-ai/dsh-experimental-voice-input-bundle": "workspace:*",
     "@deepseek-ai/dsh-experimental-auto-review": "workspace:*",
-    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*"
+    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
+    "@deepseek-ai/dsh-tool-discovery": "workspace:*"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "1.4.0",

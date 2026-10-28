@@ -44,7 +44,7 @@ function start({ presets } = {}) {
     },
     sessionTitle: { rename: async () => {} },
   })
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false, agentPreset: 'standard', ensureMuseSpecialist: false })
   const relay = ctx.listeners.get('llm/stream').find(listener => /relayOrPass/.test(String(listener)))
   const stop = async () => {
     await ctx.dispose()
@@ -77,13 +77,13 @@ test('a new Bot Session is made with the standard preset when DSH serves it', as
   assert.deepEqual(created, [{ workspaceId: 'w1', agentPreset: 'standard' }])
 })
 
-test('without a usable standard preset a Bot Session keeps DSH\'s default', async (t) => {
+test('without its configured preset a Bot Session reports the unavailable preset before creation', async (t) => {
   for (const presets of [undefined, [{ id: 'ptc' }], [{ id: 'standard', broken: 'failed to start' }]]) {
     const { rt, created, stop } = start({ presets })
     t.after(stop)
     await rt.load()
-    await rt.createSession('Chief')
-    assert.deepEqual(created, [{ workspaceId: 'w1' }])
+    await assert.rejects(rt.createSession('Chief'), /standard.*(?:service|unavailable)/)
+    assert.deepEqual(created, [])
   }
 })
 

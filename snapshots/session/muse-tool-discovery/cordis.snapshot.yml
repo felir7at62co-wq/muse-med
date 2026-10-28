@@ -1,0 +1,33 @@
+- id: llm-deepseek
+  disabled: true
+
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+                toolUpdate: in-history
+                defaultMaxTokens: 256000
+                reasoningEfforts: [off, low, high, max]
+                defaultReasoningEffort: high
+    - id: discovery
+      name: '../../../packages/core/tool-discovery/tests/snapshot-plugin.mjs'
+      config:
+        alwaysLoad: [read]
+        maxResults: 1
+        maxDescriptionChars: 80
+        capabilities:
+          - id: fixture
+            title: Test capability
+            description: Deterministic discovery replay.
+            tools: [snapshot_ping]
+    - id: discovery-capability
+      name: '../../../packages/core/tool-discovery/tests/snapshot-capability.ts'
+
+# The headless case does not consume generated Typert endpoints.
+- id: typert-loader
+  disabled: true

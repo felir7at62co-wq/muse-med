@@ -4,6 +4,7 @@
       name: ds-bot
       config:
         agentPreset: short-drama
+        mainAgentPreset: bot-coordinator
         contextManagement: host
         goals: host
         memoryReview: false

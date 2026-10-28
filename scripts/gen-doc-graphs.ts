@@ -108,6 +108,15 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'toolDiscovery',
+    pkg: 'tool-discovery',
+    title: 'Per-agent tool discovery and residency',
+    mode: 'core',
+    implementations: [],
+    consumers: ['tool-discovery'],
+    note: 'Selects authorized tool definitions and records session loading; optional Bot adapters own durable preferred names.',
+  },
+  {
     key: 'characterLibrary',
     pkg: 'character-library',
     title: 'Read-only character reference catalog',

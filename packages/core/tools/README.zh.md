@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、并行安全属性和可选 UI 展示。模型会看到每个获准工具声明的名称、描述与参数 schema；按 agent 设置的限制可缩小该可见集合。
+使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、并行安全属性和可选 UI 展示。模型会看到所选获准工具声明的名称、描述与参数 schema；按 agent 设置的限制控制访问，展示筛选可进一步缩小定义集合。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在任何 agent 调用工具的地方挂载 `dsh-tools`：它提供 `ctx.tools`，即每个工具插件注册进去、循环分发所经过的注册表。注册一个工具就足以让它可见——注册表会自动把其 schema 送入系统提示词组装。
+在任何 agent 调用工具的地方挂载 `dsh-tools`：它提供 `ctx.tools`，即每个工具插件注册进去、循环分发所经过的注册表。注册表会自动把工具 schema 送入系统提示词组装，并应用调用方的授权与展示筛选。
 
 ### 注册工具
 
@@ -82,7 +82,14 @@ ctx.tools.register(defineTool({
 
 ### 按 agent 限制工具
 
-`ctx.tools.restrict(filter)` 过滤 agent 从全局层和祖先层继承的工具；限制取交集，并在 dispose（资源释放）时解除。自身作用域的注册默认保持可见。设置 `includeOwn: true` 后也过滤自身注册，包括后代作用域中的自身注册。`allow` 和 `deny` 拒绝尚未在继承层注册的名称。`futureAllow` 和 `futureDeny` 接受提供方可能稍后注册的名称；同时提供 `allow` 和 `futureAllow` 时两者取交集。保留的 `run_code` 传输工具不受过滤。`ctx.tools.get(name, scope)` 按一个作用域的视角解析工具。Host 本地展示转换器传入发起调用的 agent，以匹配实际执行的定义。`ctx.tools.schemas(scope)` 返回可见 schema，不含执行函数。
+`ctx.tools.restrict(filter)` 过滤 agent 从全局层和祖先层继承的工具；限制取交集，并在 dispose（资源释放）时解除。自身作用域的注册默认保持可见。设置 `includeOwn: true` 后也过滤自身注册，包括后代作用域中的自身注册。`allow` 和 `deny` 拒绝尚未在继承层注册的名称。`futureAllow` 和 `futureDeny` 接受提供方可能稍后注册的名称；同时提供 `allow` 和 `futureAllow` 时两者取交集。保留的 `run_code` 传输工具不受过滤。`ctx.tools.get(name, scope)` 按一个作用域的视角解析工具。Host 本地展示转换器传入发起调用的 agent，以匹配实际执行的定义。`ctx.tools.schemas(scope)` 返回获准工具的 schema，不含执行函数。
+
+<a id="select-model-facing-definitions"></a>
+### 筛选模型可见定义
+
+`agent.ctx.tools.presentOnly(predicate)` 从获准工具中筛选模型定义，不改变查找与执行。它筛选原生 schema 以及 `ptc`／`both` 的生成 SDK；保留的 `run_code` 传输入口始终保留。`schemas(scope)` 仍枚举所有获准工具，包括未向模型展示的工具，因此发现服务可以继续建立完整索引。该方法要求有作用域的 context，并返回用于移除筛选的资源释放函数；拥有它的作用域释放时也会移除筛选。
+
+谓词接收工具名称与当前查看作用域，作用域祖先链上的所有谓词取交集。每次组装都重新求值，因此已加载工具集合更新后，下一次组装即可反映变化。只想影响单个 agent 时，对其他查看作用域返回 `true`，避免把父 agent 的已加载集合施加给子 agent。筛选不会重写独立提示词段，也不影响绕过工具注册表单独贡献的 schema。
 
 ### 对调用实施策略
 
@@ -138,7 +145,7 @@ ctx.tools.register(defineTool({
 <a id="extension-points"></a>
 ### 扩展点
 
-工具插件调用 `ctx.tools.register()`，其 schema 会自动流入提示词组装。`tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略；`tools/execute` 为超时、重试或指标包装规范化后的规范分发；`tools/post-execute` 可以替换内容或值、通过反馈阻止，或附加有序上下文；`tools/result` 观测不可变的最终结果。MCP 服务器发现工具后，用服务器的 schema 调用 `ctx.tools.register()`。
+工具插件调用 `ctx.tools.register()`，获准且被选中展示的 schema 会流入提示词组装。`tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略；`tools/execute` 为超时、重试或指标包装规范化后的规范分发；`tools/post-execute` 可以替换内容或值、通过反馈阻止，或附加有序上下文；`tools/result` 观测不可变的最终结果。MCP 服务器发现工具后，用服务器的 schema 调用 `ctx.tools.register()`。
 
 </details>
 
@@ -165,15 +172,15 @@ ctx.tools.register(defineTool({
 
 #### 模型看到什么
 
-在普通模式下，模型会看到每个可见定义的确切名称、描述与 JSON Schema；已交付定义记录在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tools)中。agent 作用域的限制、遮蔽与扩展注册会改变该 agent 的最终工具集合。
+在普通模式下，模型会看到每个所选获准定义的确切名称、描述与 JSON Schema；已交付定义记录在生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tools)中。agent 作用域的限制、遮蔽与扩展注册决定获准工具，`presentOnly` 再选择展示哪些定义。
 
 #### Token 影响
 
-每次请求的固定成本与可见定义成正比。隐藏工具的限制会为该 agent 移除其全部 schema 成本。
+每次请求的固定成本与展示的定义成正比。授权限制或 `presentOnly` 可在当前组装中省去未选工具的 schema 成本；既有历史仍由会话管理。
 
 #### KV Cache 影响
 
-只要可见定义及其顺序不变，前缀就保持稳定。注册、dispose 或作用域限制可能从第一个改变的 schema token 起使复用失效。
+只要展示的定义及其顺序不变，前缀就保持稳定。注册、dispose、授权限制或展示选择变化可能改变 schema；实际复用取决于模型适配器的工具更新支持。
 
 ### PTC mode schema 与系统提示词
 
@@ -202,7 +209,7 @@ Program-only SDK bindings:
 
 #### Token 影响
 
-每次请求的固定成本与可见定义成正比。PTC mode 使用生成的 SDK 文本加一个传输 schema 取代最终工具 schema，但不承诺普遍减少成本。
+每次请求的固定成本与可见定义成正比。`presentOnly` 同样缩小生成的 SDK。PTC mode 使用生成的 SDK 文本加一个传输 schema 取代最终工具 schema，但不承诺普遍减少成本。
 
 #### KV Cache 影响
 
