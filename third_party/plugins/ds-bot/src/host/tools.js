@@ -306,6 +306,8 @@ export function install(rt) {
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
+      preset: { type: 'string', description: 'Registered agent preset for the new Bot. Defaults to short-drama for Muse specialist work; bot-coordinator supplies general coordination.' },
+      resident_tools: { type: 'array', items: { type: 'string' }, description: 'Exact tool names to keep resident for this Bot. Tools remain subject to its existing permissions; it can later search, pin or release them with tool_search and tool_context.' },
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
       effort: { type: 'string', description: 'Thinking level for the model, as list_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
@@ -341,6 +343,8 @@ export function install(rt) {
       name: { type: 'string', description: 'New name' },
       role: { type: 'string', description: 'New role label' },
       instructions: { type: 'string', description: 'Replacement instructions' },
+      preset: { type: 'string', description: 'Registered preset for future new Sessions of this Bot. Its current conversation and preset remain intact.' },
+      resident_tools: { type: 'array', items: { type: 'string' }, description: 'Replacement exact-name resident tools. An empty list clears residency; existing permissions still apply. Use tool_context to adjust your own active tools.' },
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the Bot's character again.` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
@@ -357,7 +361,7 @@ export function install(rt) {
       if (bot === undefined) return `No Bot named ${args.bot}.`
       if (bot.id !== caller.id && !rt.isMain(self)) return 'Only a Main Bot can change another Bot. Leave out bot to change yourself, or ask a Main Bot with message_bot.'
       try {
-        const { name: newName, role, instructions, color, model, effort } = args
+        const { name: newName, role, instructions, color, model, effort, preset, resident_tools } = args
         let image
         if (args.avatar !== undefined) {
           const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
@@ -370,7 +374,7 @@ export function install(rt) {
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self)
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, preset, resident_tools, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self)
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`

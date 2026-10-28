@@ -34,7 +34,7 @@ function team({ group = false } = {}) {
 async function start(seed) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-messages-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services: { agentPresets: { list: async () => [{ id: 'short-drama' }] } } })
   const agents = new Map()
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
@@ -88,7 +88,7 @@ async function start(seed) {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  apply(ctx, { home, contextManagement: 'bot', goals: 'disabled', ensureMuseSpecialist: false })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {

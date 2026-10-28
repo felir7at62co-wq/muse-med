@@ -117,6 +117,127 @@ describe('scoped tool registration', () => {
   })
 })
 
+describe('presentOnly()', () => {
+  it('changes native assembly without removing allowed lookup, enumeration, or execution', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'discovery')
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('video'))
+    const selected = new Set(['read'])
+    scope.ctx.tools.presentOnly(name => selected.has(name))
+
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['read'])
+    expect(ctx.tools.schemas(key).map(item => item.name)).toEqual(['read', 'video'])
+    expect(ctx.tools.get('video', key)).toBeDefined()
+    expect(await run(ctx, 'video', key)).toBe('ran:video')
+    selected.add('video')
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['read', 'video'])
+    expect((await ctx.systemPrompt.assemble()).tools.map(item => item.name)).toEqual(['read', 'video'])
+  })
+
+  it('filters scoped shadows, own registrations, and tools registered after selection', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'late')
+    ctx.tools.register(tool('shadow', 'global-shadow'))
+    const selected = new Set<string>()
+    scope.ctx.tools.presentOnly(name => selected.has(name))
+    scope.ctx.tools.register(tool('shadow', 'scoped-shadow'))
+    scope.ctx.tools.register(tool('own'))
+    ctx.tools.register(tool('late'))
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools).toEqual([])
+    expect(ctx.tools.schemas(key).map(item => item.name).sort()).toEqual(['late', 'own', 'shadow'])
+    expect(await run(ctx, 'shadow', key)).toBe('scoped-shadow')
+    selected.add('shadow')
+    selected.add('late')
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['late', 'shadow'])
+  })
+
+  it('keeps registered names valid in configured tool order when their definitions are not presented', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { toolOrder: ['hidden', '<unlisted-tools>'] })
+    await ctx.plugin(ToolRuntime)
+    const { scope, key } = await mintAgentScope(ctx, 'ordered')
+    ctx.tools.register(tool('hidden'))
+    ctx.tools.register(tool('shown'))
+    scope.ctx.tools.presentOnly(name => name === 'shown')
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['shown'])
+  })
+
+  it('leaves independent prompt sections and schema providers unchanged', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'independent')
+    ctx.tools.register(tool('registered'))
+    ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'external', description: 'External definition', parameters: {} }] }))
+    ctx.systemPrompt.section({ name: 'independent', order: 1, text: 'Independent guidance.' })
+    scope.ctx.tools.presentOnly(() => false)
+    const assembly = await ctx.systemPrompt.assemble({ scope: key })
+    expect(assembly.tools.map(item => item.name)).toEqual(['external'])
+    expect(assembly.sections.find(section => section.name === 'independent')?.text).toBe('Independent guidance.')
+  })
+
+  it('keeps authorization restrictions when presentation selects every name', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'restricted')
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('video'))
+    scope.ctx.tools.restrict({ deny: ['video'] })
+    scope.ctx.tools.presentOnly(() => true)
+
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['read'])
+    expect(ctx.tools.schemas(key).map(item => item.name)).toEqual(['read'])
+    expect(await run(ctx, 'video', key)).toBe('Error: unknown tool "video"')
+  })
+
+  it('intersects ancestry predicates and restores each selection when disposed', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'parent')
+    const child = await mintAgentScope(ctx, 'child')
+    bindScopeParent(child.key, parent.key)
+    for (const name of ['a', 'b', 'c']) ctx.tools.register(tool(name))
+    const liftParent = parent.scope.ctx.tools.presentOnly(name => name !== 'c')
+    const liftChild = child.scope.ctx.tools.presentOnly(name => name !== 'a')
+
+    expect((await ctx.systemPrompt.assemble({ scope: child.key })).tools.map(item => item.name)).toEqual(['b'])
+    expect((await ctx.systemPrompt.assemble({ scope: parent.key })).tools.map(item => item.name)).toEqual(['a', 'b'])
+    liftChild()
+    expect((await ctx.systemPrompt.assemble({ scope: child.key })).tools.map(item => item.name)).toEqual(['a', 'b'])
+    liftParent()
+    expect((await ctx.systemPrompt.assemble({ scope: child.key })).tools.map(item => item.name)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('supplies the viewing scope so discovery selections can stay agent-local', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'parent')
+    const child = await mintAgentScope(ctx, 'child')
+    bindScopeParent(child.key, parent.key)
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('video'))
+    parent.scope.ctx.tools.presentOnly((name, viewer) => viewer !== parent.key || name === 'read')
+    child.scope.ctx.tools.presentOnly(name => name === 'video')
+    expect((await ctx.systemPrompt.assemble({ scope: parent.key })).tools.map(item => item.name)).toEqual(['read'])
+    expect((await ctx.systemPrompt.assemble({ scope: child.key })).tools.map(item => item.name)).toEqual(['video'])
+  })
+
+  it('unwinds presentation when its owning scope is disposed', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'disposable')
+    ctx.tools.register(tool('read'))
+    const changed = vi.fn()
+    ctx.on('tools/change', changed)
+    scope.ctx.tools.presentOnly(() => false)
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools).toEqual([])
+    expect(changed).toHaveBeenCalledTimes(1)
+    await scope.dispose()
+    expect((await ctx.systemPrompt.assemble({ scope: key })).tools.map(item => item.name)).toEqual(['read'])
+    expect(changed).toHaveBeenCalledTimes(2)
+  })
+
+  it('requires a scoped owner', async () => {
+    const ctx = await mount()
+    expect(() => ctx.tools.presentOnly(() => true)).toThrow(/requires a scoped context/)
+  })
+})
+
 describe('restrict()', () => {
   it('masks global tools, merges scope-local tools afterward, and keeps assembly with execution', async () => {
     const ctx = await mount()

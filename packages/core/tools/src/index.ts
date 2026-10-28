@@ -742,6 +742,7 @@ class ToolLayer implements ScopeLayer {
   readonly tools: NamedEntries<ToolDefinition>
   readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
   readonly guards = new AnonymousEntries<ToolGuard>()
+  readonly presentationFilters = new AnonymousEntries<(name: string, scope?: ScopeKey) => boolean>()
   /**
    * Presentation this scope's agent declared for itself, shadowing the
    * deployment default. One cell rather than an entry table: two answers to
@@ -758,7 +759,7 @@ class ToolLayer implements ScopeLayer {
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
     return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
-      && this.mode === undefined
+      && this.presentationFilters.isEmpty() && this.mode === undefined
   }
 
   /** Whether this layer's restrictions admit an inherited or own-scope tool name. */
@@ -810,7 +811,7 @@ function resolveMaxParallelSubCalls(value: number | undefined): number {
 
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
- * one visibility resolver feeds presentation, lookup, and dispatch.
+ * authorization resolves before optional model-presentation filtering.
  */
 export class ToolRuntime extends Service {
   static inject = ['systemPrompt']
@@ -1009,6 +1010,33 @@ export class ToolRuntime extends Service {
   }
 
   /**
+   * Filter model-facing definitions without changing callable capabilities.
+   * Predicates across the scope ancestry intersect and are read on every
+   * assembly. The reserved `run_code` transport remains presented. Registry
+   * enumeration, lookup, execution, and existing authorization are unchanged.
+   * @param predicate - selection over each authorized tool name and the viewing scope.
+   * @returns the exact disposer that removes this presentation filter.
+   * @throws When called without a scoped context.
+   */
+  presentOnly(predicate: (name: string, scope?: ScopeKey) => boolean): () => void {
+    if (scopeOf(this.ctx) === undefined) {
+      throw new Error('tools.presentOnly() requires a scoped context (agent.ctx)')
+    }
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.presentationFilters.append(predicate),
+      { label: 'tools.presentOnly()' },
+    )
+  }
+
+  /** Resolve model-facing definitions after authorization and presentation selection. */
+  private presentedDefinitions(scope: ScopeKey | undefined, view = this.view(scope)): ToolDefinition[] {
+    const filters = this.layers.chainLayers(scope).flatMap(layer => [...layer.presentationFilters.values()])
+    return [...view.visible.values()].filter(definition => definition.name === RUN_CODE_NAME
+      || filters.every(predicate => predicate(definition.name, scope)))
+  }
+
+  /**
    * Build one scope's wire schemas and names for prompt-order validation.
    * Restrictions do not make known tools invalid, but a mode collapse does.
    */
@@ -1016,7 +1044,7 @@ export class ToolRuntime extends Service {
     const view = this.view(scope)
     const mode = this.modeFor(scope)
     if (mode === 'native') {
-      const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
+      const schemas = this.presentedDefinitions(scope, view).map(definition => this.schemaOf(definition, false))
       return { schemas, knownNames: [...view.knownNames] }
     }
     // Validate the runtime language BEFORE projecting schemas: schemaOf reads
@@ -1025,7 +1053,7 @@ export class ToolRuntime extends Service {
     // renderer-table rejection the canonical assembly-time error for a
     // language with no SDK renderer.
     this.requirePtcRuntime(mode)
-    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
+    const schemas = this.presentedDefinitions(scope, view).map(definition => this.schemaOf(definition, false))
     if (mode === 'ptc') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
@@ -1265,8 +1293,8 @@ export class ToolRuntime extends Service {
   }
 
   /**
-   * Project visible definitions onto the allowlisted model-facing schema fields,
-   * excluding execution and presentation callbacks.
+   * Enumerate authorized definitions as schemas, including tools omitted by
+   * `presentOnly`. Execution and presentation callbacks are excluded.
    * @param scope - the viewing scope (the agent); omitted = the global view.
    * @returns one deep-cloned schema per visible tool.
    */
@@ -1274,9 +1302,9 @@ export class ToolRuntime extends Service {
     return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
   }
 
-  /** Project visible callable tools onto the generated PTC mode SDK contract. */
+  /** Project selected authorized tools onto the generated PTC mode SDK declarations. */
   private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
-    return [...this.view(scope).visible.values()]
+    return this.presentedDefinitions(scope)
       .filter(definition => definition.name !== RUN_CODE_NAME)
       .map((definition): ToolSdkSchema => {
         const output = snapshotJsonValue(definition.output.schema)

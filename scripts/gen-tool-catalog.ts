@@ -61,6 +61,7 @@ import type ScheduleService from '@deepseek-ai/dsh-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import * as ToolDiscovery from '@deepseek-ai/dsh-tool-discovery'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import BrowserUseRegistry from '@deepseek-ai/dsh-browser-use'
@@ -559,6 +560,17 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-discovery',
+    dir: 'tool-discovery',
+    source: 'packages/core/tool-discovery/src/index.ts',
+    requires: ['ctx.tools', 'ctx.agents', 'ctx.sessionProjections'],
+    writes: ['tool/result'],
+    mount: async (ctx) => {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(ToolDiscovery, { alwaysLoad: [] })
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',

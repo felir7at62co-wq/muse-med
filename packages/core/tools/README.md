@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, parallel-safety, and optional UI presentation. Models see each permitted tool's declared name, description, and parameter schema; per-agent restrictions can narrow that visible set.
+Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, parallel-safety, and optional UI presentation. Models see selected permitted tools' names, descriptions, and parameter schemas; per-agent restrictions control access, and presentation filters can narrow the definitions further.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce 
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount `dsh-tools` wherever agents call tools: it provides `ctx.tools`, the registry every tool plugin registers into and the loop dispatches through. Registering a tool is enough to make it visible — the registry feeds its schemas into the system-prompt assembly automatically.
+Mount `dsh-tools` wherever agents call tools: it provides `ctx.tools`, the registry every tool plugin registers into and the loop dispatches through. The registry feeds tool schemas into system-prompt assembly automatically, applying the caller's authorization and presentation selection.
 
 ### Register a tool
 
@@ -82,7 +82,14 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Restrict tools per agent
 
-`ctx.tools.restrict(filter)` filters tools an agent inherits from the global and ancestor layers; restrictions intersect and lift when disposed. Own-scope registrations stay visible by default. Set `includeOwn: true` to filter them too, including own registrations in descendant scopes. `allow` and `deny` reject names not already registered in inherited layers. `futureAllow` and `futureDeny` accept names whose providers may register later; `allow` and `futureAllow` intersect when both are supplied. The reserved `run_code` transport stays outside filtering. `ctx.tools.get(name, scope)` resolves a tool as one scope sees it. A Host-local presenter passes the calling agent to match the definition that executed. `ctx.tools.schemas(scope)` returns visible schemas without execution functions.
+`ctx.tools.restrict(filter)` filters tools an agent inherits from the global and ancestor layers; restrictions intersect and lift when disposed. Own-scope registrations stay visible by default. Set `includeOwn: true` to filter them too, including own registrations in descendant scopes. `allow` and `deny` reject names not already registered in inherited layers. `futureAllow` and `futureDeny` accept names whose providers may register later; `allow` and `futureAllow` intersect when both are supplied. The reserved `run_code` transport stays outside filtering. `ctx.tools.get(name, scope)` resolves a tool as one scope sees it. A Host-local presenter passes the calling agent to match the definition that executed. `ctx.tools.schemas(scope)` returns authorized tool schemas without execution functions.
+
+<a id="select-model-facing-definitions"></a>
+### Select model-facing definitions
+
+`agent.ctx.tools.presentOnly(predicate)` selects model definitions from authorized tools without changing lookup or execution. It filters native schemas and the generated SDK under `ptc` or `both`; the reserved `run_code` transport remains presented. `schemas(scope)` still enumerates all authorized tools, including omitted definitions, so discovery services can index the complete set. The method requires a scoped context and returns a disposer that removes its selection; disposing the owning scope also removes it.
+
+Predicates receive the tool name and current viewing scope, and all predicates along the scope ancestry intersect. Every assembly reevaluates them, so changes to a loaded-tool set appear in the next assembly. To select for one agent only, return `true` for other viewing scopes rather than applying the parent's loaded set to children. Selection does not rewrite independent prompt sections or schemas contributed outside the tool registry.
 
 ### Enforce policy on calls
 
@@ -138,7 +145,7 @@ Successful image-bearing subcall results become deferred user-message context wi
 <a id="extension-points"></a>
 ### Extension points
 
-Tool plugins call `ctx.tools.register()` and their schemas flow into prompt assembly automatically. `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it; `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics; `tools/post-execute` may replace content or value, block with feedback, or attach ordered contexts; `tools/result` observes the immutable final outcome. MCP servers discover tools and register them with the server's schemas.
+Tool plugins call `ctx.tools.register()`; authorized schemas selected for presentation flow into prompt assembly. `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it; `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics; `tools/post-execute` may replace content or value, block with feedback, or attach ordered contexts; `tools/result` observes the immutable final outcome. MCP servers discover tools and register them with the server's schemas.
 
 </details>
 
@@ -165,15 +172,15 @@ The package-level contract is enough for most consumers; read these when you nee
 
 #### What the model sees
 
-In normal mode the model sees each visible definition's exact name, description, and JSON Schema; the shipped definitions are recorded in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tools). Agent-scoped restrictions, shadows, and extension registrations change that agent's end-tool set.
+In normal mode the model sees each selected authorized definition's exact name, description, and JSON Schema; the shipped definitions are recorded in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tools). Agent-scoped restrictions, shadows, and extension registrations determine authorized tools; `presentOnly` selects which definitions are presented.
 
 #### Token effect
 
-Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+Fixed per-request cost proportional to presented definitions. Authorization restrictions or `presentOnly` omit unselected schema cost from the current assembly; existing history remains session-managed.
 
 #### KV Cache effect
 
-Prefix-stable while visible definitions and their order are unchanged. Registration, disposal, or scoped restriction may invalidate reuse from the first changed schema token.
+Prefix-stable while presented definitions and their order are unchanged. Registration, disposal, authorization restrictions, or presentation selection may change schemas; actual reuse depends on the model adapter's tool-update support.
 
 ### PTC mode schema and system prompt
 
@@ -202,7 +209,7 @@ Program-only SDK bindings:
 
 #### Token effect
 
-Fixed per-request cost proportional to the visible definitions. PTC mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+Fixed per-request cost proportional to the visible definitions. `presentOnly` also narrows the generated SDK. PTC mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
 
 #### KV Cache effect
 

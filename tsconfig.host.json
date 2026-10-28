@@ -363,6 +363,7 @@
     { "path": "./packages/experimental/auto-review" },
     { "path": "./packages/experimental/claude-code-mods" },
     { "path": "./packages/core/tools" },
+    { "path": "./packages/core/tool-discovery" },
     { "path": "./packages/core/agent-tool-presentation" },
     { "path": "./packages/skill/skill" },
     { "path": "./packages/skill/skill-badge" },

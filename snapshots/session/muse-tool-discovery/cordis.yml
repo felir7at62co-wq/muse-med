@@ -1,0 +1,24 @@
+- id: llm-deepseek
+  config:
+    models:
+      - id: deepseek-v4-flash
+        toolUpdate: in-history
+
+- insert:
+    - id: discovery
+      name: '../../../packages/core/tool-discovery/tests/snapshot-plugin.mjs'
+      config:
+        alwaysLoad: [read]
+        maxResults: 1
+        maxDescriptionChars: 80
+        capabilities:
+          - id: fixture
+            title: Test capability
+            description: Deterministic discovery replay.
+            tools: [snapshot_ping]
+    - id: discovery-capability
+      name: '../../../packages/core/tool-discovery/tests/snapshot-capability.ts'
+
+# The headless case does not consume generated Typert endpoints.
+- id: typert-loader
+  disabled: true

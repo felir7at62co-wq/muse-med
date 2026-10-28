@@ -14,7 +14,7 @@ const team = () => ({
   rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {},
 })
 
-function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama' }, { id: 'standard' }], services = {} } = {}) {
+function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama' }, { id: 'standard' }, { id: 'bot-coordinator' }], services = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'muse-bot-host-'))
   if (initial !== null) writeFileSync(join(home, 'state.json'), JSON.stringify(initial))
   const selected = []
@@ -76,7 +76,7 @@ function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = options => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, diagnosticsFile: false, ...config })
+  const rt = createRuntime(ctx, { home, diagnosticsFile: false, ensureMuseSpecialist: false, ...config })
   t.after(async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
@@ -89,8 +89,8 @@ function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama
 }
 
 test('Muse defaults retain native goals and context management and reject incompatible settings', () => {
-  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: false, autoSessionBots: true, sessionBotSyncIntervalMs: 30000 })
-  for (const input of [null, [], { agentPreset: '../editing' }, { contextManagement: 'unknown' }, { goals: true }, { contextManagement: 'bot' }, { updateCheck: true }, { autoSessionBots: 'yes' }, { sessionBotSyncIntervalMs: 0 }, { sessionBotSyncIntervalMs: 1.5 }]) {
+  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', ensureMuseSpecialist: true, contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: false, autoSessionBots: true, sessionBotSyncIntervalMs: 30000 })
+  for (const input of [null, [], { agentPreset: '../editing' }, { mainAgentPreset: '../standard' }, { ensureMuseSpecialist: 'yes' }, { contextManagement: 'unknown' }, { goals: true }, { contextManagement: 'bot' }, { updateCheck: true }, { autoSessionBots: 'yes' }, { sessionBotSyncIntervalMs: 0 }, { sessionBotSyncIntervalMs: 1.5 }]) {
     assert.throws(() => resolveMuseConfig(input), TypeError)
   }
   assert.equal(resolveMuseConfig({ contextManagement: 'bot', goals: 'disabled' }).contextManagement, 'bot')
@@ -339,4 +339,39 @@ test('restored folder settings cannot automatically move a live native goal into
   assert.equal(goal.phase, 'paused')
   assert.equal(created.length, 0)
   assert.equal([...rt.switchJobs()].length, 0)
+})
+
+
+test('a fresh team separates its coordinator and Muse specialist without changing the chosen model', async (t) => {
+  const { call, rt, created } = start(t, { initial: null, config: { ensureMuseSpecialist: true } })
+  const result = await call('state')
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.deepEqual(created.map(request => request.agentPreset), ['bot-coordinator', 'short-drama'])
+  const coordinator = result.value.bots.find(bot => bot.name === 'Muse Bot')
+  const muse = result.value.bots.find(bot => bot.name === 'Muse')
+  assert.ok(rt.isMain(coordinator.id))
+  assert.equal(rt.isMain(muse.id), false)
+  assert.equal(muse.role, '短剧编导')
+  assert.equal(muse.model, coordinator.model)
+  assert.equal(muse.effort, coordinator.effort)
+  await call('state')
+  assert.equal(created.length, 2)
+})
+
+test('each new Bot stores its preset and initial resident tools while future preset changes preserve the current Session', async (t) => {
+  const { rt, created } = start(t)
+  await rt.load()
+  const bot = await rt.createBot({ name: 'Source editor', preset: 'standard', resident_tools: ['video_inspect', 'read', 'read'] })
+  assert.equal(created[0].agentPreset, 'standard')
+  assert.equal(bot.agentPreset, 'standard')
+  assert.deepEqual(bot.resident_tools, ['read', 'video_inspect'])
+  await rt.updateBot(bot.id, { preset: 'short-drama', resident_tools: [] })
+  assert.equal(bot.agentPreset, 'short-drama')
+  assert.deepEqual(bot.resident_tools, [])
+  assert.equal(created.length, 1)
+  assert.equal(created[0].agentPreset, 'standard')
+  const before = created.length
+  await assert.rejects(rt.createBot({ name: 'Invalid names', resident_tools: ['not exact'] }), /resident_tools/)
+  await assert.rejects(rt.createBot({ name: 'Invalid preset', preset: 'missing' }), /missing.*unavailable/)
+  assert.equal(created.length, before)
 })

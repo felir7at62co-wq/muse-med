@@ -507,11 +507,56 @@ The full presentation field docs live in [`packages/core/tools/src/presentation.
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxtooldiscovery--tooldiscoveryruntime"></a>
+
+### `ctx.toolDiscovery` — `ToolDiscoveryRuntime`
+
+Host service for optional durable Bot preferences and session-derived selections.
+
+```ts cordis-catalog
+/** Register one Bot preference owner; overlapping owners fail when an agent is resolved.
+ * @param provider - Provider matching only the agents it owns.
+ * @returns reversible registration disposer.
+ */
+registerResidency(provider: ToolResidencyProvider): () => Promise<void>
+
+/** Refresh stored Bot selections before first assembly or after an external preference edit.
+ * @param agent - Agent whose owner may have saved preferences.
+ * @returns fulfillment after preferences have been read.
+ */
+async refresh(agent: Agent): Promise<void>
+
+/** Read detached current session selections without exposing unavailable tool names.
+ * @param agent - Agent whose current selection is requested.
+ * @returns authorized loaded and preferred names, excluding constant tools.
+ */
+state(agent: Agent): ToolContextState
+
+/** Test presentation membership without rebuilding authorized schemas for every definition.
+ * @param agent - Agent whose selection is being assembled.
+ * @param name - Already-authorized definition being considered by the registry.
+ * @returns whether session loading or the Bot's preferences select the definition.
+ */
+selected(agent: Agent, name: string): boolean
+
+/** Save a preference edit to its Bot owner while preserving dormant stored names.
+ * @param agent - Agent performing the change.
+ * @param operation - Whether to add or remove preferred names.
+ * @param names - Validated exact tool names affected by the edit.
+ * @returns fulfillment after the external save, when an owner is registered.
+ */
+async save(agent: Agent, operation: 'pin' | 'release' | 'unpin', names: readonly string[]): Promise<void>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/core/tool-discovery/src/residency.ts`](../../packages/core/tool-discovery/src/residency.ts)
+
 <a id="ctxtools--toolruntime"></a>
 
 ### `ctx.tools` — `ToolRuntime`
 
-Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
+Tool registry and execution pipeline. Scoped registrations shadow globals; authorization resolves before optional model-presentation filtering.
 
 ```ts cordis-catalog
 /**
@@ -526,6 +571,17 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
  * @returns the exact asynchronous disposer that restores the deployment default.
  */
 presentAs(mode: ToolPresentationMode): () => Promise<void>
+
+/**
+ * Filter model-facing definitions without changing callable capabilities.
+ * Predicates across the scope ancestry intersect and are read on every
+ * assembly. The reserved `run_code` transport remains presented. Registry
+ * enumeration, lookup, execution, and existing authorization are unchanged.
+ * @param predicate - selection over each authorized tool name and the viewing scope.
+ * @returns the exact disposer that removes this presentation filter.
+ * @throws When called without a scoped context.
+ */
+presentOnly(predicate: (name: string, scope?: ScopeKey) => boolean): () => void
 
 /**
  * Register globally or in the calling agent scope. Scoped tools shadow
@@ -569,8 +625,8 @@ guard(guard: ToolGuard): () => void
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 
 /**
- * Project visible definitions onto the allowlisted model-facing schema fields,
- * excluding execution and presentation callbacks.
+ * Enumerate authorized definitions as schemas, including tools omitted by
+ * `presentOnly`. Execution and presentation callbacks are excluded.
  * @param scope - the viewing scope (the agent); omitted = the global view.
  * @returns one deep-cloned schema per visible tool.
  */

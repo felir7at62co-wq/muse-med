@@ -1,0 +1,243 @@
+{
+  "initial": [
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "tool_context",
+      "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+            "enum": [
+              "status",
+              "load",
+              "pin",
+              "release",
+              "unpin"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "description": "Exact tool names; required for changes. Use tool_search to find names.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      }
+    },
+    {
+      "name": "tool_search",
+      "description": "Discover tools by capability. With no arguments, list available capability groups without loading tools. Supply a query to search all tools by task or exact name; optionally narrow it with capability. Supply only capability to browse and load tools in that group. Matching definitions become available on your next step with full arguments. Groups can overlap and do not restrict permissions. If results are omitted, narrow your query. Search does not execute the discovered tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+          },
+          "capability": {
+            "type": "string",
+            "description": "Optional capability id from the directory. Omit to search across groups."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum matching tools to load, from 1 to 1; defaults to 1."
+          }
+        }
+      }
+    }
+  ],
+  "changes": [
+    [
+      {
+        "name": "read",
+        "description": "Read a UTF-8 text file and return line-numbered content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to read, resolved by the filesystem backend."
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based first line to return. Defaults to 1."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to return. Defaults to 2000."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "snapshot_ping",
+        "description": "Return pong.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "tool_context",
+        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "enum": [
+                "status",
+                "load",
+                "pin",
+                "release",
+                "unpin"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "description": "Exact tool names; required for changes. Use tool_search to find names.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Discover tools by capability. With no arguments, list available capability groups without loading tools. Supply a query to search all tools by task or exact name; optionally narrow it with capability. Supply only capability to browse and load tools in that group. Matching definitions become available on your next step with full arguments. Groups can overlap and do not restrict permissions. If results are omitted, narrow your query. Search does not execute the discovered tools.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+            },
+            "capability": {
+              "type": "string",
+              "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum matching tools to load, from 1 to 1; defaults to 1."
+            }
+          }
+        }
+      }
+    ],
+    [
+      {
+        "name": "read",
+        "description": "Read a UTF-8 text file and return line-numbered content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to read, resolved by the filesystem backend."
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based first line to return. Defaults to 1."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to return. Defaults to 2000."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "tool_context",
+        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "enum": [
+                "status",
+                "load",
+                "pin",
+                "release",
+                "unpin"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "description": "Exact tool names; required for changes. Use tool_search to find names.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Discover tools by capability. With no arguments, list available capability groups without loading tools. Supply a query to search all tools by task or exact name; optionally narrow it with capability. Supply only capability to browse and load tools in that group. Matching definitions become available on your next step with full arguments. Groups can overlap and do not restrict permissions. If results are omitted, narrow your query. Search does not execute the discovered tools.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+            },
+            "capability": {
+              "type": "string",
+              "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum matching tools to load, from 1 to 1; defaults to 1."
+            }
+          }
+        }
+      }
+    ]
+  ]
+}

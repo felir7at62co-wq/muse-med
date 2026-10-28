@@ -86,7 +86,7 @@ function start(t, { plain = false } = {}) {
   let route
   const register = ctx.connection.fetch.register.bind(ctx.connection.fetch)
   ctx.connection.fetch.register = options => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, diagnosticsFile: false })
+  const rt = createRuntime(ctx, { home, diagnosticsFile: false, ensureMuseSpecialist: false })
   t.after(async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
