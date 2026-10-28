@@ -4,6 +4,7 @@ import type { GlobalStandardProps, RenderOpts } from '@deepseek-ai/dsh-client-ui
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { AppFrame } from '../src/client/AppFrame.tsx'
 import type { AppFrameProps } from '../src/client/AppFrame.tsx'
 import type { MainPanelId, RightbarOwnerProps, SidebarOwnerProps } from '../src/client/index.ts'
@@ -61,12 +62,13 @@ function resize(width: number): void {
   })
 }
 
-function mountFrame(windowWidth = frameWidth) {
+function mountFrame(windowWidth = frameWidth, sidebarContent?: () => ReactNode) {
   vi.stubGlobal('innerWidth', windowWidth)
   const instance = createLayoutStore().create()
   const slotCalls: { key: string; props: object; options: RenderOpts | undefined }[] = []
   const renderSlot: AppFrameProps['renderSlot'] = (key, owner, options) => {
     slotCalls.push({ key, props: owner, options })
+    if (key === 'sidebar' && sidebarContent !== undefined) return sidebarContent()
     return <div data-testid={`${key}-content`} data-entry-key={options?.entryKey} />
   }
   const useSessions: AppFrameProps['useSessions'] = sel => sel({
@@ -480,6 +482,35 @@ describe('AppFrame right panel presentation', () => {
     act(() => {
       frame.dispatchEvent(Object.assign(new Event('transitionend'), { propertyName: 'grid-template-columns' }))
     })
+    expect(frame.dataset.animating).toBeUndefined()
+  })
+
+  it('arms both directions before a sidebar child measures the committed geometry', () => {
+    const measurements: { collapsed: boolean; animated: boolean }[] = []
+    function SidebarMeasure() {
+      const ref = useRef<HTMLDivElement>(null)
+      useLayoutEffect(() => {
+        const frame = ref.current!.parentElement!.parentElement!
+        frame.getBoundingClientRect()
+        measurements.push({ collapsed: frame.hasAttribute('data-sidebar-collapsed'), animated: frame.hasAttribute('data-animating') })
+      })
+      return <div ref={ref} />
+    }
+    const { frame, instance } = mountFrame(frameWidth, () => <SidebarMeasure />)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(measurements.at(-1)).toEqual({ collapsed: true, animated: true })
+    act(() => {
+      frame.dispatchEvent(Object.assign(new Event('transitionend'), { propertyName: 'grid-template-columns' }))
+    })
+    act(() => { instance.actions.toggleSidebar() })
+    expect(measurements.at(-1)).toEqual({ collapsed: false, animated: true })
+  })
+
+  it('stops track easing when the viewport changes during a toggle', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.dataset.animating).toBe('true')
+    resize(1600)
     expect(frame.dataset.animating).toBeUndefined()
   })
 

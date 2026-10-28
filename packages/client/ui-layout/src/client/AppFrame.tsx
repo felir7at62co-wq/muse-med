@@ -185,7 +185,7 @@ export function AppFrame({
   // detach the column edge from the pointer (AppFrame.module.css).
   const [dragging, setDragging] = useState(false)
   // Track easing is scoped to a discrete open/close toggle: data-animating
-  // goes up when the collapse state or the rightbar track flips and comes down
+  // accompanies the new track sizes in the same commit and comes down
   // at transition end (timeout as the reduced-motion/covered-frame fallback).
   // Steady-state viewport updates stay instant (AppFrame.module.css), and so
   // does a toggle arriving together with a viewport change — that is the
@@ -196,13 +196,16 @@ export function AppFrame({
   const trackToggle = `${sidebarCollapsed}:${layoutInfo.rightbarTrack}`
   const previousToggle = useRef(trackToggle)
   const previousViewport = useRef(viewport)
+  const viewportChanged = previousViewport.current !== viewport
+  const togglePending = previousToggle.current !== trackToggle
+  const animateTracks = !viewportChanged && (togglePending || animating > 0)
   useLayoutEffect(() => {
     const viewportChanged = previousViewport.current !== viewport
     previousViewport.current = viewport
-    if (previousToggle.current === trackToggle) return
+    const toggled = previousToggle.current !== trackToggle
     previousToggle.current = trackToggle
-    if (viewportChanged) return
-    setAnimating(token => token + 1)
+    if (viewportChanged) { setAnimating(0); return }
+    if (toggled) setAnimating(token => token + 1)
   }, [trackToggle, viewport])
   useEffect(() => {
     if (animating === 0) return
@@ -272,7 +275,7 @@ export function AppFrame({
       data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
       data-rightbar-instant={layoutInfo.rightbarInstant || undefined}
       data-dragging={dragging || undefined}
-      data-animating={animating > 0 || undefined}
+      data-animating={animateTracks || undefined}
     >
       <DocumentTitle
         productTitle={productTitle}

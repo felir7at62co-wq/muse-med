@@ -16,6 +16,29 @@ import { REPO_ROOT } from './support.ts'
 const SOURCE = fileURLToPath(new URL('./fixtures/plugins/fixture-bot-sidebar-rail/', import.meta.url))
 const ARTIFACTS = join(REPO_ROOT, '.artifacts', 'sidebar-rail')
 
+async function markPlatform(page: Page, platform: 'web' | 'darwin' | 'windows'): Promise<void> {
+  await page.addInitScript(({ value, snapshot }) => {
+    if (value !== 'web') {
+      Object.assign(window, { dshDesktop: { protocolVersion: 1,
+        keyboard: { subscribe: () => () => {}, closeWindow: async () => {} },
+        shortcuts: { get: async () => ({ ...snapshot, status: 'ready' }),
+          subscribe: () => () => {}, recording: async () => {},
+          edit: async () => ({ status: 'not-ready', snapshot }) },
+      } })
+    }
+    const mark = () => {
+      if (value === 'darwin') document.documentElement.dataset.platform = 'darwin'
+      if (value === 'windows') {
+        document.documentElement.dataset.platform = 'win32'
+        document.documentElement.setAttribute('data-windows-titlebar', '')
+        document.documentElement.style.setProperty('--dsh-windows-titlebar-height', '40px')
+      }
+    }
+    if (document.documentElement === null) document.addEventListener('DOMContentLoaded', mark, { once: true })
+    else mark()
+  }, { value: platform, snapshot: initialShortcutConfig() })
+}
+
 async function fixturePackage(): Promise<string> {
   const target = await mkdtemp(join(tmpdir(), 'dsh-bot-rail-client-'))
   try {
@@ -94,6 +117,159 @@ async function collapse(page: Page): Promise<void> {
   await expect.poll(async () => (await geometry(page)).buttonHit).toBe(true)
 }
 
+/** Read browser layout on successive painted frames, including interrupted transitions. */
+async function sampleMotion(page: Page, toggles: number[] = []) {
+  return page.evaluate(async (interruptAt) => {
+    const sidebar = document.querySelector('[data-slot="sidebar"]')!.parentElement!
+    const frame = sidebar.parentElement!
+    const main = document.querySelector('[data-slot="main"]')!.parentElement!
+    const started = performance.now()
+    const snapshots: Array<{
+      time: number
+      width: number
+      mainLeft: number
+      visibleControls: number
+      toggleHit: boolean
+      toggleDetails: string[]
+      transition: string
+      duration: string
+      animating: boolean
+    }> = []
+    let interrupted = 0
+    let settled = 0
+    const clickToggle = () => {
+      const selector = 'button[aria-label="Open sidebar"],button[aria-label="Collapse sidebar"]'
+      const buttons = [...sidebar.querySelectorAll<HTMLButtonElement>(selector)]
+      const button = buttons.find(candidate => candidate.getBoundingClientRect().width > 0)
+      if (button === undefined) throw new Error('Sidebar toggle is not mounted')
+      button.click()
+    }
+    const snapshot = (now: number) => {
+      const bounds = sidebar.getBoundingClientRect()
+      const opacityOf = (element: Element) => {
+        let opacity = 1
+        for (let node: Element | null = element; node !== null && node !== frame; node = node.parentElement) {
+          const style = getComputedStyle(node)
+          if (style.visibility === 'hidden' || style.display === 'none') return 0
+          opacity *= Number(style.opacity)
+        }
+        return opacity
+      }
+      const visibleButtons = [...sidebar.querySelectorAll('button')].filter((button) => {
+        const box = button.getBoundingClientRect()
+        if (box.width === 0 || box.height === 0 || box.right <= bounds.left || box.left >= bounds.right
+          || box.bottom <= bounds.top || box.top >= bounds.bottom) return false
+        return opacityOf(button) > .04
+      })
+      const toggleHit = visibleButtons.some((button) => {
+        if (!['Open sidebar', 'Collapse sidebar'].includes(button.getAttribute('aria-label') ?? '')) return false
+        const box = button.getBoundingClientRect()
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+        return hit !== null && button.contains(hit)
+      })
+      const style = getComputedStyle(frame)
+      const toggleDetails = toggleHit ? [] : [...sidebar.querySelectorAll('button')]
+        .filter(button => ['Open sidebar', 'Collapse sidebar'].includes(button.getAttribute('aria-label') ?? ''))
+        .map((button) => {
+          const box = button.getBoundingClientRect()
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+          return JSON.stringify({ label: button.getAttribute('aria-label'), x: box.x, y: box.y, width: box.width, height: box.height,
+            alpha: opacityOf(button), hit: hit?.tagName, hitLabel: hit?.getAttribute('aria-label'), hitClass: hit?.getAttribute('class') })
+        })
+      snapshots.push({ time: Math.round(now - started), width: Math.round(bounds.width * 100) / 100,
+        mainLeft: Math.round(main.getBoundingClientRect().left * 100) / 100,
+        visibleControls: visibleButtons.length, toggleHit, toggleDetails,
+        transition: style.transitionProperty, duration: style.transitionDuration,
+        animating: frame.hasAttribute('data-animating') })
+    }
+    snapshot(started)
+    clickToggle()
+    await new Promise<void>((resolve, reject) => {
+      const paint = (now: number) => {
+        snapshot(now)
+        if (interrupted < interruptAt.length && now - started >= interruptAt[interrupted]!) {
+          clickToggle()
+          interrupted += 1
+          settled = 0
+        }
+        const active = frame.getAnimations({ subtree: true }).some(animation => animation.playState === 'running')
+        if (interrupted === interruptAt.length && !active && !frame.hasAttribute('data-animating')) settled += 1
+        else settled = 0
+        if (settled >= 4) resolve()
+        else if (now - started > 5000) reject(new Error('Sidebar motion did not settle'))
+        else requestAnimationFrame(paint)
+      }
+      requestAnimationFrame(paint)
+    })
+    return snapshots
+  }, toggles)
+}
+
+it.each(['web', 'darwin', 'windows'] as const)(
+  'eases Bot sidebar width and keeps a visible control through collapse and reversal on %s', async (platform) => {
+    const packageDir = await fixturePackage()
+    let scaffold: Awaited<ReturnType<typeof launchWebScaffold>> | undefined
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
+    try {
+      scaffold = await launchWebScaffold({ profile: { hmr: false, packages: [{ dir: packageDir, enabled: true }] },
+        extraOverlayPath: fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)) })
+      browser = await chromium.launch()
+      await mkdir(ARTIFACTS, { recursive: true })
+      const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: 'en-US', reducedMotion: 'no-preference' })
+      try {
+        await markPlatform(page, platform)
+        const tripwire = watchConsole(page)
+        await page.goto(scaffold.authenticatedUrl)
+        await page.locator('.bt-side').waitFor()
+        const collapseSamples = await sampleMotion(page)
+        const expandSamples = await sampleMotion(page)
+        const interruptedSamples = await sampleMotion(page, [100, 180])
+        const expandedWidth = collapseSamples[0]!.width
+        await page.getByRole('button', { name: 'Open sidebar', exact: true }).filter({ visible: true }).click()
+        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(expandedWidth)
+        await page.evaluate(() => {
+          const sidebar = document.querySelector('[data-slot="sidebar"]')!.parentElement!
+          const frame = sidebar.parentElement!
+          document.documentElement.dataset.resizeTrackTransition = 'false'
+          frame.addEventListener('transitionrun', (event) => {
+            if (event instanceof TransitionEvent && event.target === frame && event.propertyName === 'grid-template-columns') {
+              document.documentElement.dataset.resizeTrackTransition = 'true'
+            }
+          })
+        })
+        await page.setViewportSize({ width: 390, height: 600 })
+        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(56)
+        expect(await page.locator('html').getAttribute('data-resize-track-transition'), 'responsive collapse stays immediate').toBe('false')
+        await page.emulateMedia({ reducedMotion: 'reduce' })
+        await page.setViewportSize({ width: 1280, height: 800 })
+        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(expandedWidth)
+        await collapse(page)
+        const reducedExpand = await sampleMotion(page)
+        const reducedCollapse = await sampleMotion(page)
+        await writeFile(join(ARTIFACTS, `motion-${platform}-trace.json`),
+          JSON.stringify({ collapseSamples, expandSamples, interruptedSamples, reducedExpand, reducedCollapse }, null, 2))
+        for (const samples of [collapseSamples, expandSamples]) {
+          expect(samples.some(sample => sample.width > 57 && sample.width < expandedWidth - 1), platform).toBe(true)
+        }
+        expect(collapseSamples.at(-1)!.width).toBe(56)
+        expect(expandSamples.at(-1)!.width).toBe(expandedWidth)
+        expect(interruptedSamples.at(-1)!.width).toBe(56)
+        const all = [...collapseSamples, ...expandSamples, ...interruptedSamples, ...reducedExpand, ...reducedCollapse]
+        expect(all.every(sample => sample.visibleControls > 0), platform).toBe(true)
+        expect(all.every(sample => Math.abs(sample.mainLeft - sample.width) <= 1), platform).toBe(true)
+        if (platform === 'darwin') expect(all.every(sample => sample.toggleHit), 'macOS reopen remains clickable').toBe(true)
+        expect(reducedExpand.slice(1).every(sample => sample.width === expandedWidth), 'reduced-motion expand is immediate').toBe(true)
+        expect(reducedCollapse.slice(1).every(sample => sample.width === 56), 'reduced-motion collapse is immediate').toBe(true)
+        expect(tripwire.pageErrors).toEqual([])
+        expect(tripwire.warnings).toEqual([])
+      } finally { await page.close() }
+    } finally {
+      try { await browser?.close() }
+      finally { try { await scaffold?.close() } finally { await rm(packageDir, { recursive: true, force: true }) } }
+    }
+  },
+)
+
 it('retains painted desktop rails and restores classic presentation when the shell releases them', async () => {
   const packageDir = await fixturePackage()
   let scaffold: Awaited<ReturnType<typeof launchWebScaffold>> | undefined
@@ -109,26 +285,7 @@ it('retains painted desktop rails and restores classic presentation when the she
         const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: 'en-US', colorScheme,
           reducedMotion: 'reduce' })
         try {
-          await page.addInitScript(({ value, snapshot }) => {
-            if (value !== 'web') {
-              Object.assign(window, { dshDesktop: { protocolVersion: 1,
-                keyboard: { subscribe: () => () => {}, closeWindow: async () => {} },
-                shortcuts: { get: async () => ({ ...snapshot, status: 'ready' }),
-                  subscribe: () => () => {}, recording: async () => {},
-                  edit: async () => ({ status: 'not-ready', snapshot }) },
-              } })
-            }
-            const mark = () => {
-              if (value === 'darwin') document.documentElement.dataset.platform = 'darwin'
-              if (value === 'windows') {
-                document.documentElement.dataset.platform = 'win32'
-                document.documentElement.setAttribute('data-windows-titlebar', '')
-                document.documentElement.style.setProperty('--dsh-windows-titlebar-height', '40px')
-              }
-            }
-            if (document.documentElement === null) document.addEventListener('DOMContentLoaded', mark, { once: true })
-            else mark()
-          }, { value: platform, snapshot: initialShortcutConfig() })
+          await markPlatform(page, platform)
           const tripwire = watchConsole(page)
           await page.goto(scaffold.authenticatedUrl)
           await page.locator('.bt-side').waitFor()
