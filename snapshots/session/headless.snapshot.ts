@@ -1933,6 +1933,26 @@ describe('headless recorded-session snapshots', () => {
                 duplicate_audio_groups: [{ asset_ids: [13, 14], preferred_asset_id: 13, delete_allowed: false }],
                 coverage: { historical_generation_tasks: false, other_computers_local_plans: false, atomic_remote_snapshot: false } })
             }
+            if (scenario.name === 'muse-existing-video-reuse') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['jubian_video'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ method: 'sources', script_id: 5542, storyboard_id: 2165139 })
+              const notices = events.filter(event => event.type === 'user/message'
+                && event.data.source?.kind === 'jubian-video-reuse')
+              expect(notices).toHaveLength(1)
+              const result = events.find(event => event.type === 'tool/result'
+                && event.data.message.toolCallId === 'call_existing_video_sources')
+              if (result?.type !== 'tool/result') throw new Error('Missing existing video source result')
+              expect(result.data.message.isError).toBe(false)
+              const block = result.data.message.content.find(item => item.type === 'text')
+              if (block?.type !== 'text') throw new Error('Missing existing video source output')
+              expect(JSON.parse(block.text)).toMatchObject({ sources: { script_id: 5542, storyboard_id: 2165139,
+                status: 'available', complete: true, sources: [{ task_id: 681001, subtask_id: 1200001,
+                  model_id: 'older-video-model', resolution: '720p',
+                  video_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing-ep07.mp4' }] } })
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
             if (scenario.name === 'muse-shared-voice-pending') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

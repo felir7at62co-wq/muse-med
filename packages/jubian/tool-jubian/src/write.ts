@@ -154,6 +154,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_video.task': ['task_id'],
   'jubian_video.tasks': ['script_id'],
   'jubian_video.subtasks': ['task_id'],
+  'jubian_video.sources': ['script_id', 'storyboard_id'],
   'jubian_video.image_generate': ['script_id', 'asset_name', 'prompt'],
   'jubian_video.image_generate_batch': ['script_id', 'items'],
   'jubian_video.upscale': ['task_id'],

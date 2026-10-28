@@ -69,6 +69,8 @@ import type {
   CharacterReferenceQaUploadRequest,
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
+import { resolveVideoSourceOptions } from './video-sources.ts'
+import { registerVideoReuseAdvisory } from './video-reuse-advisory.ts'
 
 export { JubianToken } from './token.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
@@ -79,6 +81,18 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
+  /** Add one logged reminder for a new user request to extract or reuse existing video; defaults to true. */
+  existingVideoAdvisory?: boolean
+  /** Rows per read-only existing-video history page; integer 1..100, default 100. */
+  videoSourcePageSize?: number
+  /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
+  videoSourcePageLimit?: number
+  /** Maximum task details inspected for existing video; integer 1..100, default 50. */
+  videoSourceTaskLimit?: number
+  /** Maximum verified video sources returned per inspection; integer 1..100, default 20. */
+  videoSourceResultLimit?: number
+  /** Maximum JSON characters in one source result; integer 2048..1000000, default 12000. */
+  videoSourceMaxResultChars?: number
   /** Optional literal-term findings in free edit previews and video preparation; never blocks execution. */
   promptRiskReview?: PromptRiskReviewConfig
   /** Enable conversation-owned video choices; defaults to false outside Muse. */
@@ -336,9 +350,35 @@ const OUTPUT = {
     [{ type: 'text', text: JSON.stringify(value, null, 2) }],
 } as const
 
+/** Read coverage belongs to the current response, rather than to remembered earlier pages. */
+const VIDEO_PAGE_FIELDS = {
+  queried_at: { type: 'string', required: true },
+  page_num: { type: 'integer', required: true }, page_size: { type: 'integer', required: true },
+  returned: { type: 'integer', required: true }, total_verified: { type: 'boolean', required: true },
+  complete: { type: 'boolean', required: true, description: '仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。' },
+  has_more: { required: true, oneOf: [{ type: 'boolean' }, { type: 'null' }] },
+  next_page: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+} as const
+
+/** Verified media identities and bounded coverage for extraction; never a generation decision. */
+const VIDEO_SOURCES_SCHEMA = {
+  type: 'object', additionalProperties: true, properties: {
+    script_id: { type: 'integer', required: true }, storyboard_id: { type: 'integer', required: true },
+    queried_at: { type: 'string', required: true }, complete: { type: 'boolean', required: true },
+    status: { type: 'string', required: true, enum: ['available', 'pending', 'none_found', 'unknown'] },
+    sources: { type: 'array', required: true, items: { type: 'object', additionalProperties: true, properties: {
+      task_id: { type: 'integer', required: true }, subtask_id: { type: 'integer', required: true },
+      first_result_id: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+      video_url: { type: 'string', required: true }, status: { type: 'string', required: true },
+    } } },
+    issues: { type: 'array', items: { type: 'string' }, required: true }, next: { type: 'string', required: true },
+  },
+} as const
+
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
 const STORYBOARD_OUTPUT = {
   schema: { type: 'object', additionalProperties: true, properties: {
+    existing_video_sources: VIDEO_SOURCES_SCHEMA,
     original_idempotency_key: { type: 'string',
       description: '旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。' },
     prompt_risk_review: { type: 'object', additionalProperties: false,
@@ -363,9 +403,16 @@ const STORYBOARD_OUTPUT = {
 /** Video methods keep their existing result fields; subtask reads expose the paged rows to PTC callers. */
 const VIDEO_OUTPUT = {
   schema: { type: 'object', additionalProperties: true, properties: {
+    sources: VIDEO_SOURCES_SCHEMA,
+    tasks: { type: 'object', additionalProperties: true, properties: {
+      ...VIDEO_PAGE_FIELDS,
+      total: { type: 'number', required: true },
+      rows: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },
+    } },
     subtasks: { type: 'object', additionalProperties: false,
       description: 'method=subtasks 的分页对象；子结果数组位于 subtasks.rows。',
       properties: {
+        ...VIDEO_PAGE_FIELDS,
         total: { type: 'number', required: true, description: '提供方报告的子结果总数；不是数组。' },
         rows: { type: 'array', required: true, description: '本页子结果；逐项核对 parent_task_id、status 和 video_url。',
           items: { type: 'object', additionalProperties: true, properties: {
@@ -411,7 +458,7 @@ function guarded<A = MethodArgs>(
 
 const QA_READ_METHODS = {
   jubian_asset: new Set(['get', 'list', 'materials', 'generated_image']),
-  jubian_video: new Set(['task', 'tasks', 'subtasks', 'unresolved']),
+  jubian_video: new Set(['task', 'tasks', 'subtasks', 'sources', 'unresolved']),
 } as const
 
 function methodArgument(args: Record<string, unknown>): string | undefined {
@@ -494,6 +541,9 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  if (config.existingVideoAdvisory !== undefined && typeof config.existingVideoAdvisory !== 'boolean') {
+    throw new Error('existingVideoAdvisory must be a boolean')
+  }
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
   }
@@ -519,6 +569,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const deletionTaskScan = resolveDeletionTaskScanOptions(config)
   const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
+  const videoSources = resolveVideoSourceOptions(config)
+  if (config.existingVideoAdvisory !== false) registerVideoReuseAdvisory(ctx)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   // Resolved once, here, so a blank separator or series label fails the mount
@@ -1061,7 +1113,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
       return await guarded('jubian_storyboard', input => storyboardMethod(client, ledger, input, {
-        naming, videoBatch, storyboardBatch, deletionTaskScan, ...(promptRiskReview ? { promptRiskReview } : {}),
+        naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: exec.signal,
+        ...(promptRiskReview ? { promptRiskReview } : {}),
         ...(assertVideoModel ? { assertVideoModel } : {}),
       }))(args)
     },
@@ -1069,7 +1122,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   registerJubianTool(defineTool({
     name: 'jubian_video',
-    description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks 只读'
+    description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读'
+      + '。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。'
+      + '任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。'
       + '（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，'
       + 'result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。'
       + '费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。'
@@ -1110,13 +1165,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
-        enum: ['task', 'tasks', 'subtasks', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
-        description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页；'
+        enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
+        description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页（带查询完整性与下一页）；'
+          + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
           + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
-      task_id: ARGS.task_id, script_id: ARGS.script_id, page_num: ARGS.page_num,
+      task_id: ARGS.task_id, script_id: ARGS.script_id, storyboard_id: ARGS.storyboard_id,
+      page_num: ARGS.page_num, page_size: ARGS.page_size,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
       items: ARGS.items,
@@ -1146,7 +1203,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           return await bridge.prepareGeneration(exec.agent.session,
             characterReferenceGenerationRequest(input), exec.signal)
         })()
-      return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, signal: exec.signal, naming,
+      return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, videoSources,
+        signal: exec.signal, naming,
         ...(characterReferenceGeneration === undefined ? {} : { characterReferenceGeneration }) })
     })(args),
   }))

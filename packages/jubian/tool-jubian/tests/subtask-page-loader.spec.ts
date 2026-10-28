@@ -1,5 +1,5 @@
 /** Video page paths and readiness reach native model requests and generated PTC output types. */
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -40,10 +40,12 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
     expect(sdk).toContain('interface ToolOutputMap')
     expect(sdk).toContain('subtasks?: {')
     expect(sdk).toContain('result.subtasks.rows')
-    expect(validateJsonSchemaValue(schema, { subtasks: { total: 1, rows: [{
-      subtask_id: 901, parent_task_id: 42, status: 'succeeded', video_url: 'https://media.example/video.mp4',
-      resolution: '480p',
-    }] }, guidance: 'read rows' }, '')).toEqual([])
+    expect(validateJsonSchemaValue(schema, { subtasks: { total: 1,
+      queried_at: '2026-10-28T00:00:00.000Z', page_num: 1, page_size: 20, returned: 1,
+      total_verified: true, complete: true, has_more: false, next_page: null, rows: [{
+        subtask_id: 901, parent_task_id: 42, status: 'succeeded', video_url: 'https://media.example/video.mp4',
+        resolution: '480p',
+      }] }, guidance: 'read rows' }, '')).toEqual([])
     expect(validateJsonSchemaValue(schema, { task: { task_id: 42, status: 'running' } }, '')).toEqual([])
     expect(validateJsonSchemaValue(schema, { outcome: 'accepted', parent_asset_id: 12 }, '')).toEqual([])
     expect(validateJsonSchemaValue(schema, { subtasks: [] }, '')).not.toEqual([])
@@ -53,6 +55,8 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
 })
 
 it.each(['succeeded', 'running', 'failed'])('logs the actual %s child page and its download guidance into the next model request', async (status) => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-28T00:00:00.000Z') })
+  onTestFinished(() => { vi.useRealTimers() })
   const requests: { method: string; path: string; body: unknown }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())
