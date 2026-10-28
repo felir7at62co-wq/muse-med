@@ -323,7 +323,7 @@ export function holdShellShortcuts(shortcuts) {
 }
 
 // Muse keeps ownership of its account launcher and Settings shell. Use that
-// launcher's accessible entry, then the registered Models navigation button.
+// launcher's locale-independent marker, then the registered Models navigation button.
 export function openHarnessSettings() {
   return new Promise(resolve => {
     requestAnimationFrame(() => {
@@ -332,7 +332,7 @@ export function openHarnessSettings() {
       if (!opened) {
         if (openShellSettings) openShellSettings()
         else {
-          const trigger = document.querySelector('button[aria-label="MUSE 账号"],button[aria-label="MUSE account"]')
+          const trigger = document.querySelector('button[data-muse-account-launcher]')
           if (trigger) trigger.click()
           else pressSettingsShortcut()
         }

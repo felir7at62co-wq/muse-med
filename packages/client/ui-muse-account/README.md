@@ -44,6 +44,8 @@ The sidebar shows one account button beside connection and update status. The ex
 
 The Host and Client compile through `tsconfig.host.json` and `tsconfig.client.json`; the package root config only combines these programs. The browser bundle mounts the generated `museAccount` Remote contribution, then registers locale copy, the Settings section, the sidebar launcher, and the first-run sign-in panel. It only exposes bounded status and error codes from the Host; saved cookies and KB bearers remain in the Host process. No runtime invariant companion is published because these registrations are visible through their owning slot and Remote registries, with no separate state to reconcile.
 
+The sidebar account button exposes `data-muse-account-launcher` for Muse Bot to open native Settings without depending on its localized label.
+
 -----
 
 <a id="further-exploration"></a>

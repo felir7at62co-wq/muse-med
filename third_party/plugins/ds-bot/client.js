@@ -8644,7 +8644,7 @@ function openHarnessSettings() {
       if (!opened) {
         if (openShellSettings) openShellSettings();
         else {
-          const trigger = document.querySelector('button[aria-label="MUSE 账号"],button[aria-label="MUSE account"]');
+          const trigger = document.querySelector("button[data-muse-account-launcher]");
           if (trigger) trigger.click();
           else pressSettingsShortcut();
         }

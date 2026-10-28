@@ -80,8 +80,9 @@ for (const language of ['en', 'zh']) {
   test(`model management reaches the actual Muse account launcher and Models navigation in ${language}`, async () => {
     const app = surface({ language, panelDelay: 2 })
     try {
-      const account = app.document.querySelector(`button[aria-label="${language === 'zh' ? 'MUSE 账号' : 'MUSE account'}"]`)
+      const account = app.document.querySelector('button[data-muse-account-launcher]')
       assert.ok(account, app.document.body.innerHTML)
+      assert.equal(account.getAttribute('aria-label'), 'MUSE')
       const opened = app.ui.openHarnessSettings()
       await app.flush()
       assert.equal(await opened, true)
@@ -92,6 +93,18 @@ for (const language of ['en', 'zh']) {
     } finally { app.close() }
   })
 }
+
+test('native Settings navigation does not depend on the account button label', async () => {
+  const app = surface({ language: 'zh' })
+  try {
+    app.document.querySelector('button[data-muse-account-launcher]').setAttribute('aria-label', '团队账号')
+    const opened = app.ui.openHarnessSettings()
+    await app.flush()
+    assert.equal(await opened, true)
+    assert.deepEqual(app.events, ['muse-account', 'models'])
+    assert.equal(app.keyboard(), 0)
+  } finally { app.close() }
+})
 
 test('an existing native Settings dialog opens Models without reopening the account panel', async () => {
   const app = surface({ mounted: true })
@@ -112,6 +125,7 @@ test('a missing Muse Settings launcher does not click a legacy DeepSeek login or
     const legacy = app.document.createElement('button')
     legacy.dataset.signedOut = 'true'
     legacy.setAttribute('aria-haspopup', 'menu')
+    legacy.setAttribute('aria-label', 'MUSE account')
     let clicked = 0
     legacy.onclick = () => clicked++
     app.document.body.append(legacy)
