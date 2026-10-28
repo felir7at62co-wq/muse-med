@@ -52,8 +52,9 @@ test('choosing a Bot model leaves the user\'s DSH default model as it was', asyn
   const ctx = {
     llm: { listProviders: () => [], listModels: async () => [] },
     get: name => (name === 'agentDefaultModel' ? defaults : undefined),
-    // Like DSH: the selection is also saved as the default, in the background.
-    sessionController: { selectModel: async ({ provider, model }) => { void defaults.saveSelection({ provider, model }) } },
+    sessionController: { selectModel: async ({ provider, model, saveDefault }) => {
+      if (saveDefault !== false) await defaults.saveSelection({ provider, model })
+    } },
   }
   const rt = { ctx, state: { bots: {} }, warn() {} }
   install(rt)
@@ -63,7 +64,38 @@ test('choosing a Bot model leaves the user\'s DSH default model as it was', asyn
     rt.selectSessionModel('s3', { provider: 'ollama', model: 'kimi-k3' }),
   ])
   assert.deepEqual(current, { provider: 'ollama', model: 'kimi-k3' })
-  assert.deepEqual(writes, ['deepseek/deepseek-v4-pro', 'ollama/kimi-k3', 'deepseek/deepseek-v4.1-flash', 'ollama/kimi-k3', 'ollama/kimi-k3'])
+  assert.deepEqual(writes, [])
+})
+
+test('a native default changed during a Bot model selection remains the default', async () => {
+  const initial = { provider: 'native', model: 'A', reasoningEffort: 'off' }
+  const newer = { provider: 'native', model: 'C', reasoningEffort: 'high' }
+  let current = initial
+  const entered = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const writes = []
+  const defaults = {
+    currentSelection: () => ({ ...current }),
+    saveSelection: async selection => { current = { ...selection }; writes.push(selection) },
+  }
+  const ctx = {
+    get: name => name === 'agentDefaultModel' ? defaults : undefined,
+    sessionController: { selectModel: async ({ sessionId, saveDefault, ...selection }) => {
+      entered.resolve()
+      await release.promise
+      if (saveDefault !== false) await defaults.saveSelection(selection)
+      return { selected: selection }
+    } },
+  }
+  const rt = { ctx, state: { bots: {} }, warn() {} }
+  install(rt)
+  const selecting = rt.selectSessionModel('bot-session', { provider: 'native', model: 'B', reasoningEffort: 'max' })
+  await entered.promise
+  await defaults.saveSelection(newer)
+  release.resolve()
+  assert.deepEqual(await selecting, { selected: { provider: 'native', model: 'B', reasoningEffort: 'max' } })
+  assert.deepEqual(current, newer)
+  assert.deepEqual(writes, [newer])
 })
 
 test('a Bot with no model yet changes nothing until the user picks one', async () => {
@@ -92,9 +124,9 @@ function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fa
       resolveModelInfo: async (provider, model) => reasoning[`${provider}/${model}`] ?? {},
     },
     sessionController: {
-      selectModel: async ({ sessionId, provider, model, reasoningEffort }) => {
+      selectModel: async ({ sessionId, provider, model, reasoningEffort, saveDefault }) => {
         selected.push(`${sessionId}:${provider}/${model}${reasoningEffort === undefined ? '' : `:${reasoningEffort}`}`)
-        current = { provider, model }
+        if (saveDefault !== false) current = { provider, model }
       },
     },
   }
@@ -178,9 +210,9 @@ test('a greeting waits for the provider of its Bot model to register', async () 
 test('a Bot on the default model with its own thinking level leaves the default level as it was', async () => {
   const fallback = { provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'high' }
   const { rt, current } = bench({ fallback, reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } } } })
-  rt.ctx.sessionController.selectModel = async ({ provider, model, reasoningEffort }) => {
+  rt.ctx.sessionController.selectModel = async ({ provider, model, reasoningEffort, saveDefault }) => {
     const selected = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
-    await rt.ctx.get('agentDefaultModel').saveSelection(selected)
+    if (saveDefault !== false) await rt.ctx.get('agentDefaultModel').saveSelection(selected)
     return { selected }
   }
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })

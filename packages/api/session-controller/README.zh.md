@@ -90,7 +90,7 @@ Client 的首次 `follow`、重连首屏与 `loadOlder()` 至少请求 50 条以
 
 GUI 模型选择要求确切提供方／模型对出现在可用目录中；不可用的选择以 `session/model-unavailable` 拒绝。元数据设为 `selectable: false` 的已注册提供方和模型不进入该目录，也不能成为新的 GUI 选择。提示词准入保留已保存的路由，不按目录可用性阻断发送，因此已有 Session 可继续显示并执行其持久选择，由请求执行报告凭据缺失或模型不可用。`initializeDefaultModel()` 在账号登录后、其他提供方均未配置 API key 时，将第一个可用账号模型保存为默认模型；凭据检查使用已配置的引用，不依赖模型是否可用。提供方没有可用模型时，初始化以 `session/provider-models-unavailable` 拒绝。可用性变化不会替换模型或改写会话选择。
 
-`selectModel` 成功返回表示会话级模型选择已生效，不等待默认 profile 设置保存。默认设置在后台按提交顺序保存；保存失败会记录警告，并保留会话选择。新会话读取最近一次成功保存的默认值。
+`selectModel` 成功返回表示会话级模型选择已生效，不等待默认 profile 设置保存。默认设置在后台按提交顺序保存；保存失败会记录警告，并保留会话选择。新会话读取最近一次成功保存的默认值。 设置 `saveDefault: false` 时，只校验并安装会话选择，不写入共享 profile 默认值，适用于 Bot 专属模型选择。
 
 Host 消费方可用 `selectModelIfCurrent(request, expected)` 替换已观察到的选择，同时保留用户较新的选择。它在 Session 的模型选择队列内比较提供方、模型与推理等级。不匹配时返回 `undefined`，不写入；匹配时沿用 `selectModel` 的校验与记录路径。该 Host 方法不作为 Remote 方法暴露。Agent loop 会在下一次请求的 header 中记录实际使用的提供方与模型。
 

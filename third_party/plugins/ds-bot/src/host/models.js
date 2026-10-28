@@ -136,30 +136,13 @@ export function install(rt) {
     throw new Error(`Thinking level ${wanted} is not available for ${ref}. Available: ${efforts.map(effort => effort.name).join(', ')}`)
   }
 
-  // DSH's selectModel also saves the selection as the profile default model, in the
-  // background. A Bot's model is its own, so the user's default is written back after
-  // it. Selections run one at a time and wait for the write-back: profile writes land in
-  // submission order, so the next one reads the user's default, not a Bot's.
-  let selecting = Promise.resolve()
+  // A Bot owns its Session selection without writing the user's profile default.
   function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
-    const run = selecting.then(async () => {
-      const defaults = ctx.get?.('agentDefaultModel')
-      const before = defaults?.currentSelection?.()
-      const result = await ctx.sessionController.selectModel({
-        sessionId, provider, model,
-        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-      })
-      const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
-      if (before?.provider && before?.model && !sameSelection(before, saved)) {
-        await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
-      }
-      return result
+    return ctx.sessionController.selectModel({
+      sessionId, provider, model, saveDefault: false,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     })
-    selecting = run.catch(() => {})
-    return run
   }
-
-  const sameSelection = (a, b) => a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 
   // Match the native Session Controller: pending choice, last admitted request,
   // then the profile default. Reading never selects a model or writes a default.

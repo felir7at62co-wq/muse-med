@@ -8,7 +8,7 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
@@ -704,6 +704,45 @@ describe('Web session model selection', () => {
       expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model })
     }
     expect(saves).toHaveLength(2)
+  })
+
+  it('keeps a newer profile default while a Session-only selection resolves', async () => {
+    const { ctx, sessionId } = await harness()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const resolveConfig = ctx.llm.resolveCallConfig.bind(ctx.llm)
+    const resolving = vi.spyOn(ctx.llm, 'resolveCallConfig').mockImplementation(async (options) => {
+      entered.resolve(undefined)
+      await release.promise
+      return resolveConfig(options)
+    })
+    let stored: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: ReasoningEffortId('off') }
+    const save = vi.fn(async (selection: ModelSelection) => { stored = selection })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => stored,
+      saveDefaultModelSelection: save,
+      cwd: '/tmp',
+    })
+    const operation = remote.selectModel({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: ReasoningEffortId('high'),
+      saveDefault: false,
+    })
+    onTestFinished(async () => {
+      release.resolve(undefined)
+      await operation
+      resolving.mockRestore()
+      await ctx.fiber.dispose()
+    })
+    await entered.promise
+    const newer = { provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: ReasoningEffortId('max') }
+    await ctx.agentDefaultModel.saveSelection(newer)
+    release.resolve(undefined)
+    expectValue(await operation)
+    expect(currentSelection(ctx, sessionId)).toEqual({
+      provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'high',
+    })
+    expect(save).toHaveBeenCalledExactlyOnceWith(newer)
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual(newer)
   })
 
   it('saves an accepted selection as the default and survives a storage failure', async () => {

@@ -298,6 +298,8 @@ export interface SessionCreateValue {
 /** Session model-selection request. */
 export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
+  /** Save the selection as the profile default; omitted or true preserves the native picker behavior. */
+  readonly saveDefault?: boolean
 }
 
 /** Accepted model selection after Host resolution. */
