@@ -276,6 +276,21 @@ describe('checkBudget', () => {
     expect(decision.reason).toContain('没有报价')
   })
 
+  it('allows only internally verified zero-priced subtitle erasure without project budget setup', async () => {
+    const { ledger, authorizationPath } = await fixture()
+    const free = { ledger, scriptId: 2708, authorizationPath, quote: { amount: '0.00', unit: 'CNY' },
+      verifiedFreeSubtitleErase: true } as const
+    expect(await checkBudget({ ...free, method: 'erase_subtitle' })).toMatchObject({ status: 'authorized', chargedAmount: '0.00' })
+    expect((await checkBudget({ ...free, method: 'image_generate' })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', verifiedFreeSubtitleErase: false })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', quote: undefined })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', quote: { amount: '0.01', unit: 'CNY' } })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', quote: { amount: '0.00', unit: 'USD' } })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', scriptId: undefined })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', scriptId: 1.5 })).status).toBe('refused')
+    expect((await checkBudget({ ...free, method: 'erase_subtitle', scriptId: 0 })).status).toBe('refused')
+  })
+
   it.each(['accepted', 'unknown', 'none'] as const)('refuses an unquoted paid record with outcome %s', async (settle) => {
     const { ledger, authorizationPath } = await fixture(AUTHORIZED)
     await record(ledger, { key: 'a', scriptId: 2708, settle })

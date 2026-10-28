@@ -44,6 +44,8 @@ import { storyboardDeleteMethod } from './storyboard-delete.ts'
 import { resolveDeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
 import type { DeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
 import { storyboardAudioMethod } from './storyboard-audio.ts'
+import { estimateEraseRate, isFreeFireErase } from './erase-price.ts'
+import type { EraseRateEstimate } from './erase-price.ts'
 import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
 import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
@@ -1487,6 +1489,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       // budget gate, which cannot ask for a project the caller never states.
       let projectId: number | undefined
       let estimate: ReturnType<typeof estimatedCostReservation>
+      let rateEstimate: EraseRateEstimate | undefined
+      let freeFireErase = false
       const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
@@ -1496,12 +1500,17 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
           const modelId = need(args.model_id, 'model_id')
-          const selected = SUBTITLE_ERASE_MODELS.some(id => id === modelId) && args.platform_id === undefined
-            ? undefined : resolvePostProcessModel((await client.request({ method: 'GET',
-              path: '/model/charge/getSelectList?taskType=10' })).data, { modelId,
-              ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-            })
-          return buildSubtitleEraseRequest(modelId, {
+          const knownRoute = SUBTITLE_ERASE_MODELS.some(id => id === modelId) && args.platform_id === undefined
+          let catalogue: unknown
+          if (!knownRoute) {
+            catalogue = (await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=10' })).data
+          } else if (args.estimated_cost_cny === undefined && args.estimate_basis === undefined) {
+            try { catalogue = (await client.request({ method: 'GET', path: '/model/charge/getSelectList?taskType=10' })).data }
+            catch (_error) { /* Existing trusted estimates remain usable when the optional catalogue read fails. */ }
+          }
+          const selected = knownRoute ? undefined : resolvePostProcessModel(catalogue, { modelId,
+            ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }) })
+          const body = buildSubtitleEraseRequest(modelId, {
             ...media,
             taskName: args.task_name
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-去字幕`,
@@ -1509,16 +1518,26 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
             videoHeight: need(args.video_height),
             ...(args.subtitle_box === undefined ? {} : { subtitleBox: args.subtitle_box }),
           }, selected, args.erase_mode)
+          rateEstimate = estimateEraseRate(catalogue, body)
+          freeFireErase = isFreeFireErase(catalogue, body)
+          return body
         },
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
         () => {
-          estimate = estimatedCostReservation(args)
-          return { ...estimate, scriptId: projectId as number }
+          estimate = estimatedCostReservation(args) ?? rateEstimate
+          return freeFireErase && estimate === undefined
+            ? { amount: '0.00', unit: 'CNY', verifiedFreeSubtitleErase: true, scriptId: projectId as number,
+              observedAt: new Date().toISOString(), standardId: 67 }
+            : { ...estimate, scriptId: projectId as number }
         })
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
-          + (!result.replayed && estimate !== undefined
-            ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '') }
+          + (!result.replayed && freeFireErase && estimate === undefined
+            ? ' 本次实时目录显示火山去字幕 0 元/条；最终结算以供应商账单为准。'
+            : !result.replayed && estimate !== undefined
+              ? rateEstimate !== undefined && estimate === rateEstimate
+                ? ` 本次依据实时目录 ${rateEstimate.rate} 元/分钟和源时长 ${rateEstimate.durationSeconds} 秒，按 ${rateEstimate.assumedMinutes} 整分钟向上估算并预留 ${estimate.amount} CNY；这不是供应商报价或实际结算，实际计费规则及费用仍待核对。`
+                : ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '') }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

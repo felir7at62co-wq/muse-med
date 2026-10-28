@@ -200,7 +200,7 @@ The registered tools are the whole model-facing surface. This package publishes 
 | | `select_assets` | Free and forced to `isGenerate=0`; needs `idempotency_key` |
 | | `prepare_video` | Free; may synchronize the conversation model with `isGenerate=0`, then writes a local preview |
 | | `generate` | Compatibility alias: new calls prepare free without a preview, submit paid with one; recorded legacy keys only read the ledger |
-| | `submit_video`, `erase_subtitle` | Billable and irreversible; need `idempotency_key` |
+| | `submit_video`, `erase_subtitle` | Create remote tasks; the exact free fire eraser needs no spend authorization; both need `idempotency_key` |
 | | `submit_video_batch` | Billable per storyboard; each `video_previews` item needs its own fingerprint key |
 | `jubian_video` | `task`, `tasks`, `subtasks` | Read-only, no charge |
 | | `image_generate`, `upscale` | Billable and irreversible; need `idempotency_key` |
@@ -425,7 +425,7 @@ An intent line without a settle line is the unknown state a timeout leaves behin
 
 Cost reports separate submission estimates, ledger accounting and provider task-row `real_cost` observations. Ledger `settled` and `reserved` amounts use the submitted quote or estimate, not an official provider invoice. Unreported costs, including ASR fees, remain unknown rather than zero; known task-row totals do not establish an episode's complete official charge.
 
-`erase_subtitle` also accepts the existing `estimated_cost_cny` and `estimate_basis` fields: a positive caller-calculated CNY reservation supported by current pricing or comparable actual cost. Both fields are required when supplying an estimate. The estimate stays inside the ledger budget check; it is not sent to the provider, does not raise the project cap and is not a provider quote or actual billed cost. Replaying the same key sends no new request. Without an explicit estimate, the existing trusted authorization estimate can still apply; without either, an unquoted request remains refused. This does not infer a free operation from a zero catalogue price or calculate a per-minute charge without the provider's billing rules.
+`erase_subtitle` accepts the existing `estimated_cost_cny` and `estimate_basis` fields: a positive caller-calculated CNY reservation supported by current pricing or comparable actual cost. Both fields are required when supplying an estimate. Without an explicit estimate, a unique matching live model row with a positive `元/分钟` rate supplies an estimate using the source duration rounded up to whole minutes and the rate rounded up to cents; the result reports the rate, duration and assumptions. Provider minimums and rounding remain unverified, so this estimate is not a guaranteed upper bound. The estimate stays inside the ledger budget check, is not sent to the provider, does not raise the project cap and is not a provider quote or actual billed cost. The confirmed fire eraser is recorded as free only when its exact live row uniquely shows zero `元/条`; other zero or unsupported rates are not inferred to be free. A trusted authorization estimate may still apply, otherwise an unpriced request remains refused. Replaying the same key sends no new request; actual billing remains the provider's record.
 
 <a id="errors"></a>
 ### Errors

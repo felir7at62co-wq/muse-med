@@ -202,7 +202,7 @@ inherited process environment (read-only, highest)
 | | `select_assets` | 免费，强制 `isGenerate=0`；需要 `idempotency_key` |
 | | `prepare_video` | 免费；可用 `isGenerate=0` 同步会话模型，再写入本地预览 |
 | | `generate` | 兼容别名：新调用无预览时免费准备，有预览时付费提交；旧 key 仅只读账本 |
-| | `submit_video`、`erase_subtitle` | 计费且不可撤销；需要 `idempotency_key` |
+| | `submit_video`、`erase_subtitle` | 创建远端任务；精确匹配免费的火山去字幕无需消费授权；均需 `idempotency_key` |
 | | `submit_video_batch` | 每个分镜可能计费；`video_previews` 各项需要自己的 fingerprint key |
 | `jubian_video` | `task`、`tasks`、`subtasks` | 只读，不产生费用 |
 | | `image_generate`、`upscale` | 计费且不可撤销；需要 `idempotency_key` |
@@ -427,7 +427,7 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 费用报告分列提交估算、账本占账与提供方任务行 `real_cost` 观测。账本 `settled` 和 `reserved` 金额采用提交报价或估算，不是提供方官方账单。包括 ASR 在内的未返回费用保持未知，不当作零；已知任务行合计不代表整集官方总实扣。
 
-`erase_subtitle` 同样接受已有的 `estimated_cost_cny` 和 `estimate_basis` 字段：由调用方根据当前价格或可比实际费用计算的正额人民币预留。提供估算时两个字段均必填。估算只进入账本预算检查，不发送给提供方，不提高项目预算上限，也不是供应商报价或实际结算金额。同一 key 回放不会发出新请求。未提供显式估算时，仍可沿用现有可信授权文件中的估算；两者都没有时，没有报价的请求仍被拒绝。此改动不会从目录零价推断操作免费，也不会在缺少提供方计费规则时计算按分钟费用。
+`erase_subtitle` 接受已有的 `estimated_cost_cny` 和 `estimate_basis` 字段：由调用方根据当前价格或可比实际费用计算的正额人民币预留，提供时两个字段均必填。未提供显式估算时，如果实时目录中精确匹配的唯一模型行有正数 `元/分钟` 单价，则将源视频时长向上取整到分钟、单价向上取整到分，计算预留估算，并在结果中说明单价、时长和假设。提供方最低消费和取整规则尚未核实，此估算不保证是费用上限。估算只进入账本预算检查，不发送给提供方，不提高项目预算上限，也不是供应商报价或实际结算金额。已确认的火山去字幕只有在实时目录精确匹配的唯一行显示零 `元/条` 时才按免费记录；其他零价或不支持的单位不自动认定为免费。可沿用可信授权文件中的估算，否则没有报价的请求仍被拒绝。同一 key 回放不会发出新请求；实际结算以提供方记录为准。
 
 <a id="errors"></a>
 ### 错误

@@ -41,6 +41,9 @@ export async function apply(ctx) {
         data = { total: 1, rows: [{ id: 990, aigcVideoTaskId: 42, taskStatus: 'succeeded',
           duration: 13.5, firstResultId: 123, parentResultId: 456,
           resultList: [{ taskType: 1, tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
+      } else if (method === 'GET' && path === '/model/charge/getSelectList') {
+        data = [{ id: 67, modelId: 'ark-erase-video-subtitle-pro', platformId: 'AI_MEDIA_KIT',
+          unit: '元/条', videoStandards: [] }]
       } else if (method === 'POST' && path === '/aigc/storyboard/subtitleEraser') {
         const payload = JSON.parse(init.body)
         assert.equal(payload.scriptId, 2708); assert.equal(payload.episodeId, 46744)
@@ -118,7 +121,7 @@ export async function apply(ctx) {
     assert.equal(await ledger.find('offline-erase-unestimated'), undefined)
     assert.equal(paidPosts, 1); assert.equal(reservationBeforePaid, true)
     assert.equal(replayHttpRequests, 0); assert.equal(missingEstimatePaidRequests, 0)
-    assert.equal(calls.length, 5)
+    assert.equal(calls.length, 6)
     const expectedIds = ['call_erase_submit', 'call_erase_replay', 'call_erase_unpriced']
     assert.deepEqual([...modelResults].sort(), expectedIds.sort())
     const proof = { budgetSource: budget.source, budgetLimitCents: budget.limit_cents,

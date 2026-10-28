@@ -1594,7 +1594,7 @@ describe('jubian_storyboard', () => {
     expect(calls).toEqual([])
   })
 
-  it('compiles the erasure body without any catalogue read', async () => {
+  it('compiles the erasure body without a catalogue read when the caller supplies an estimate', async () => {
     const { client, calls } = stubClient(request => request.path.includes('sub/list')
       ? { total: 1, rows: [{ id: 972949, aigcVideoTaskId: 428322, taskStatus: 'succeeded', duration: 13,
         modelId: 'doubao-seedance-2-0-260128', resolution: '720p',
@@ -1603,10 +1603,11 @@ describe('jubian_storyboard', () => {
       : { id: 428322, taskType: 1, taskStatus: 'succeeded', episodeId: 46734, episodeCount: 1,
         taskName: 'null-第1集' })
     const result = await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6',
-      task_id: 428322, script_id: 2708, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
+      task_id: 428322, script_id: 2708, model_id: 'quzimuToB', video_width: 720, video_height: 1280,
+      estimated_cost_cny: '1.00', estimate_basis: 'test estimate' })
     expect(result.next).toContain('subtitle_erased=true')
     expect(result.next).not.toContain('last_task_type=10')
-    // Two reads then one submit — the selectors are pinned, so no catalogue call.
+    // The selectors are pinned and the caller supplied an estimate.
     expect(calls.length).toBe(3)
     expect(calls.some(call => call.path.includes('getSelectList'))).toBe(false)
     expect(calls[2]!.path.endsWith('/aigc/storyboard/subtitleEraser')).toBe(true)
@@ -1630,9 +1631,10 @@ describe('jubian_storyboard', () => {
         episodeCount: 1, taskName: 'null-第1集' })
     await storyboardMethod(client, ledger, { method: 'erase_subtitle', idempotency_key: 'k-6b',
       task_id: 428322, model_id: 'quzimuToB', video_width: 720, video_height: 1280 })
-    expect(calls.length).toBe(3)
-    expect(calls[2]!.path.endsWith('/aigc/storyboard/subtitleEraser')).toBe(true)
-    expect(calls[2]!.body).toMatchObject({ scriptId: 2708 })
+    expect(calls.length).toBe(4)
+    expect(calls[2]!.path).toContain('getSelectList?taskType=10')
+    expect(calls[3]!.path.endsWith('/aigc/storyboard/subtitleEraser')).toBe(true)
+    expect(calls[3]!.body).toMatchObject({ scriptId: 2708 })
   })
 
   it('uses an explicit subtitle rectangle and task fallback name for a nameless parent', async () => {
@@ -1643,9 +1645,9 @@ describe('jubian_storyboard', () => {
       task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720,
       subtitle_box: { zimuLeft: 0, zimuTop: 600, zimuWidth: 1279, zimuHeight: 100 } }))
       .toMatchObject({ outcome: 'accepted' })
-    expect(calls[2]?.body).toMatchObject({ taskName: 'task-42-去字幕',
+    expect(calls[3]?.body).toMatchObject({ taskName: 'task-42-去字幕',
       zimuLeft: 0, zimuTop: 600, zimuWidth: 1279, zimuHeight: 100 })
-    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'POST'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'POST'])
   })
 
   it('refuses an erasure with no model rather than defaulting to one', async () => {

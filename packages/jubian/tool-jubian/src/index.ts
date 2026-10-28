@@ -959,7 +959,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。'
       + 'delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。'
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
-      + '**erase_subtitle、submit_video 及 generate 的提交阶段会真实计费且不可撤销**。'
+      + '**submit_video 与 generate 的提交阶段会真实计费；erase_subtitle 会创建远端异步任务**。'
+      + '已确认免费的火山去字幕模型仅在实时目录精确显示 0 元/条时无需单次估价或预算授权；其他模型照实时价格计费。'
       + 'generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，'
       + '必须给 storyboard_id 与 project_dir；先核对返回预览，再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
       + '旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。'
@@ -995,7 +996,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
-          + 'erase_subtitle=去字幕（计费、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
+          + 'erase_subtitle=去字幕（异步；火山模型实时零价时免费）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,

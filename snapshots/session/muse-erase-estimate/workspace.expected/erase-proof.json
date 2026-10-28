@@ -4,7 +4,7 @@
   "manualAuthorizationPresent": false,
   "reservationBeforePaidRequest": true,
   "paidMockPosts": 1,
-  "totalProviderRequests": 5,
+  "totalProviderRequests": 6,
   "replayHttpRequests": 0,
   "missingEstimatePaidRequests": 0,
   "ledgerRecords": 1,
