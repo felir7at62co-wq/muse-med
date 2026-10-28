@@ -1110,12 +1110,16 @@ interface ToolOutputMap {
       operation?: "submit" | "query" | "flash";
       http_status?: number;
       provider_code?: string;
+      /** 供应商明确返回的额度种类；lifetime 表示试用额度耗尽，需在原应用恢复额度，不能当作普通排队。 */
+      quota_type?: "qps" | "concurrency" | "audio_duration" | "audio_duration_saas" | "audio_duration_lifetime" | "text_words_lifetime" | "tokens_lifetime";
     };
     /** 按原任务实际恢复能力行动。no_query+inspect_receipt 表示该极速任务不能再向提供方查询，不继续盲等、不自动重投；客户端网络错误仍先回读服务端原任务。 */
     recovery?: {
       capability: "query_original_task" | "no_query" | "none";
       next_action: "poll_original" | "wait" | "inspect_receipt" | "use_result" | "resume_upload";
       automatic_resubmit: false;
+      /** 网关下次查询原任务前的等待秒数；不授权重新提交，额度耗尽时先恢复原应用额度。 */
+      retry_after?: number;
     };
     /** 安全错误类别；provider_rate 是服务额度或提交频率限制，按等待秒数恢复；daily_quota 先处理账号日额度，sign-in-required 先登录，idempotency_conflict 先核对原任务，不直接重投。 */
     error_code?: string;

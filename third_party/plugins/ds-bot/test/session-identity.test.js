@@ -41,7 +41,7 @@ async function drain(stream) {
 // `ctx.llm.stream` runs the plugin's `llm/stream` listeners in order, as DSH does,
 // and then a route that turns down a request without a Session. `respond` gives the
 // text of each answer the route lets through.
-function start() {
+function start(runtimeConfig = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-session-identity-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const bench = { tokens: 0, compacted: 0, respond: () => '', requests: [] }
@@ -95,7 +95,7 @@ function start() {
     sessions: { messageProjections: [] },
     workspaceRegistry: { archiveSession: async () => {} },
   })
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home, ...runtimeConfig })
   const hook = pattern => ctx.listeners.get('llm/stream').find(listener => pattern.test(String(listener)))
   const stop = async () => {
     await ctx.dispose()
@@ -110,7 +110,7 @@ function start() {
 
 for (const sessionId of ['b2', 'g3']) {
   test(`the context steward names the Session it decides for (${sessionId}), and the part is condensed in place`, async (t) => {
-    const { ctx, bench, stop } = start()
+    const { ctx, bench, stop } = start({ contextManagement: 'bot', goals: 'disabled' })
     t.after(stop)
     bench.tokens = 95_000
     bench.respond = () => '{"action":"compact"}'
