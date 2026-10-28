@@ -60,7 +60,7 @@ export function desktopSkillDirectories(productDirectory: string, userDirectory:
     : 'customSkillDirs' in configured ? configured.customSkillDirs : undefined
   const required = [resolve(productDirectory), resolve(userDirectory)]
   if (isExpression(configuredDirectories)) {
-    return { __jsExpr: `(() => { const dirs = (${configuredDirectories.__jsExpr}); if (dirs !== undefined && !Array.isArray(dirs)) throw new Error('muse-med: customSkillDirs must be an array'); return [...${JSON.stringify(required)}, ...(dirs ?? [])]; })()` }
+    return { __jsExpr: `((dirs) => { if (dirs !== undefined && !Array.isArray(dirs)) throw new Error('muse-med: customSkillDirs must be an array'); return [...${JSON.stringify(required)}, ...(dirs ?? [])]; })((${configuredDirectories.__jsExpr}))` }
   }
   let directories: readonly (string | SkillDirectoryExpression)[] = []
   if (configuredDirectories !== undefined) {

@@ -26,7 +26,7 @@ import { desktopSkillDirectories } from '../../desktop-host/src/bundled-skills.t
 const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
 const patch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it.each(['literal', 'item-expression', 'array-expression', 'config-expression'])('an actual Agent retains %s custom roots without shared environment roots shadowing them', async (mode) => {
+it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 'context-expression', 'context-config-expression'])('an actual Agent retains %s custom roots without shared environment roots shadowing them', async (mode) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-skill-isolation-'))
   const ctx = new Context()
   try {
@@ -37,6 +37,7 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression'])
     const user = join(root, 'muse', 'skills')
     const product = join(root, 'product')
     const custom = join(root, 'custom')
+    ctx.provide('dirs', [custom])
     await mkdir(join(workspace, '.git'), { recursive: true })
     await mkdir(product, { recursive: true })
     for (const [directory, name] of [[user, 'user-creative'], [custom, 'custom-creative'],
@@ -59,8 +60,10 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression'])
     const hostProvider = loadOverlayPatches('muse-med', patch).find(row => row.id === 'skill-filesystem')
     expect(hostProvider).toMatchObject({ disabled: false, config: { includeDefaultRoots: false, includeProjectRoots: true } })
     const profileConfig = mode === 'config-expression' ? { __jsExpr: JSON.stringify({ customSkillDirs: [custom] }) }
-      : { customSkillDirs: mode === 'array-expression' ? { __jsExpr: JSON.stringify([custom]) }
-        : mode === 'item-expression' ? [{ __jsExpr: JSON.stringify(custom) }] : [custom] }
+      : mode === 'context-config-expression' ? { __jsExpr: '({ customSkillDirs: dirs })' }
+        : { customSkillDirs: mode === 'context-expression' ? { __jsExpr: 'dirs' }
+          : mode === 'array-expression' ? { __jsExpr: JSON.stringify([custom]) }
+            : mode === 'item-expression' ? [{ __jsExpr: JSON.stringify(custom) }] : [custom] }
     const profileRows = [{ insert: [{ id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', config: profileConfig }] }]
     const configuredSkillProvider = composeEntries([profileRows]).find(row => row.id === 'skill-filesystem')
     const protectedRows = composeEntries([profileRows, hostProvider === undefined ? [] : [hostProvider]])
