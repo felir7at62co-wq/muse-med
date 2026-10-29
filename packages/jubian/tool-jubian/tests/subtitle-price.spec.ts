@@ -13,9 +13,26 @@ describe('conservative subtitle-erasure reservations', () => {
       unit: '元/分钟' }], regional, duration)).toMatchObject({ amount, unit: 'CNY' })
   })
 
-  it('reserves a cent for a displayed zero per-clip price', () => {
+  it('identifies the exact live free Fire model without a positive reservation', () => {
     expect(readSubtitleEraseQuote([{ ...automatic, id: 67, unitPrice: 0,
-      unit: '元/条' }], automatic, 58)).toMatchObject({ amount: '0.01', unit: 'CNY' })
+      unit: '元/条' }], automatic, 58)).toMatchObject({ amount: '0.00', unit: 'CNY', verifiedFreeSubtitleErase: true })
+  })
+
+  it.each([
+    { ...automatic, platformId: 'OTHER' },
+    { ...automatic, standardId: 68 },
+  ])('keeps an unverified zero-price route subject to a positive reservation: %j', (selected) => {
+    const quote = readSubtitleEraseQuote([{ ...selected, id: selected.standardId, unitPrice: 0,
+      unit: '元/条' }], selected, 58)
+    expect(quote).toMatchObject({ amount: '0.01', unit: 'CNY' })
+    expect(quote).not.toHaveProperty('verifiedFreeSubtitleErase')
+  })
+
+  it('does not infer free evidence from other zero prices or numeric strings', () => {
+    expect(readSubtitleEraseQuote([{ ...regional, id: 26, unitPrice: 0,
+      unit: '元/分钟' }], regional, 58)).not.toHaveProperty('verifiedFreeSubtitleErase')
+    expect(() => readSubtitleEraseQuote([{ ...automatic, id: 67, unitPrice: '0',
+      unit: '元/条' }], automatic, 58)).toThrow()
   })
 
   it.each([

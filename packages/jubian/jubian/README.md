@@ -108,6 +108,8 @@ Without a matching project authorization or a mounted drama default budget, paid
 
 Storyboard video batches use `checkBudget(..., count)` inside `beginManyChecked` to compare the full batch estimate before any provider PUT and append each original key's priced intent together. Every paid method requires a per-call quote or estimate of at least 0.01 in its authorized currency; a positive fractional-cent amount that rounds to zero cannot authorize spending. A rejected budget or existing key appends no new intents. The same-process queue also serializes this reservation with single paid writes; separate processes remain outside that queue.
 
+A tool-owned `verifiedFreeSubtitleErase` flag permits only `erase_subtitle` with the exact `0.00 CNY` quote and a valid project ID to proceed without a spending allowance. The tool must obtain this evidence from the unique current catalogue row for the known free Fire model; a caller-supplied zero estimate does not qualify. The request still writes an ordinary zero-priced intent under its original idempotency key before dispatch. Other methods and quotes retain their positive reservation requirement.
+
 ### Recording a write in two phases
 
 `JubianLedger` answers the one question a timeout leaves open: did that charge actually happen? Write an intent line before the request leaves, and a settle line after the response is read.

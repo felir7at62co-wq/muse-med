@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-erase-free
+profile: headless
+composition: muse-erase-free
+recording: authored
+header:
+  class: muse-erase-free
+  pin: true
+  systemPromptSource: muse-upscale-pricing
+  toolSchemasSource: muse-upscale-pricing
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-erase-free-fixture

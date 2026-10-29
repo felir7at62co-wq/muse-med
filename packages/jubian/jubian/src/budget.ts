@@ -199,7 +199,7 @@ function summarise(records: readonly JubianLedgerRecord[], scriptId: number): {
 }
 
 /**
- * Decide whether one paid call may be sent.
+ * Decide whether a paid call or an internally verified free subtitle erasure may be sent.
  * @param input - The ledger, the method about to run, its project, and the quote observed for it.
  * @returns The decision, with the amounts it was made from.
  * @throws {Error} When the authorization file is invalid or the automatic CNY limit is malformed.
@@ -209,6 +209,8 @@ export async function checkBudget(input: {
   readonly method: JubianLedgerMethod
   readonly scriptId?: number | undefined
   readonly quote?: { amount?: string | undefined; unit?: string | undefined } | undefined
+  /** Tool-owned evidence from one exact live zero-priced Fire subtitle-erasure catalogue row. */
+  readonly verifiedFreeSubtitleErase?: boolean | undefined
   /** Identically priced requests reserved together before any is sent. */
   readonly count?: number | undefined
   readonly authorizationPath?: string | undefined
@@ -219,6 +221,12 @@ export async function checkBudget(input: {
   const scriptId = input.scriptId ?? null
   const empty = { settledCents: 0, reservedCents: 0 }
   if (!SPENDING_METHODS.has(input.method)) return { status: 'authorized', reason: '', ...empty }
+
+  if (input.method === 'erase_subtitle' && input.verifiedFreeSubtitleErase === true
+    && input.quote?.amount === '0.00' && input.quote.unit === 'CNY'
+    && scriptId !== null && Number.isSafeInteger(scriptId) && scriptId > 0) {
+    return { status: 'authorized', reason: '', ...empty, chargedAmount: '0.00', chargedUnit: 'CNY' }
+  }
 
   const path = input.authorizationPath ?? authorizationPathFor(input.ledger.root)
   const authorization = await readAuthorization(path)

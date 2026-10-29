@@ -1,0 +1,26 @@
+{
+  "budgetSource": "default",
+  "budgetLimitCents": 0,
+  "manualAuthorizationPresent": false,
+  "zeroIntentBeforeProviderRequest": true,
+  "acceptedMockPosts": 1,
+  "totalProviderRequests": 7,
+  "cataloguePricesObserved": [
+    0,
+    0.5
+  ],
+  "replayHttpRequests": 0,
+  "repricedSubmissionRequests": 0,
+  "ledgerRecords": 1,
+  "originalIdempotencyKey": "offline-erase-free",
+  "quoteAmount": "0.00",
+  "quoteUnit": "CNY",
+  "quoteStandardId": 67,
+  "quoteObservedAtRecorded": true,
+  "providerQuoteObserved": true,
+  "actualBilledCostObserved": false,
+  "settledCents": 0,
+  "reservedCents": 0,
+  "modelSawEveryToolResult": true,
+  "realProviderRequests": 0
+}

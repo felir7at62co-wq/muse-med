@@ -49,6 +49,37 @@ async function record(ledger: JubianLedger, input: {
 
 const AUTHORIZED = { version: 1, projects: { '2708': { limit: '10.00', unit: 'CNY', note: '用户授权' } } }
 
+describe('verified free subtitle erasure', () => {
+  it('requires no authorization or automatic allowance for the verified zero quote', async () => {
+    const { ledger } = await fixture()
+    expect(await checkBudget({ ledger, method: 'erase_subtitle', scriptId: 2708,
+      quote: { amount: '0.00', unit: 'CNY' }, verifiedFreeSubtitleErase: true }))
+      .toMatchObject({ status: 'authorized', chargedAmount: '0.00', chargedUnit: 'CNY' })
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    { verifiedFreeSubtitleErase: false },
+    { method: 'image_generate' as const },
+    { quote: { amount: '0.00', unit: 'USD' } },
+    { quote: { amount: '0.01', unit: 'CNY' } },
+    { scriptId: 0 },
+    { scriptId: undefined },
+  ])('keeps invalid free evidence subject to ordinary budget checks: %j', async (extra) => {
+    const { ledger } = await fixture()
+    expect(await checkBudget({ ledger, method: 'erase_subtitle', scriptId: 2708,
+      quote: { amount: '0.00', unit: 'CNY' }, verifiedFreeSubtitleErase: true, ...extra }))
+      .toMatchObject({ status: 'refused' })
+  })
+
+  it('retains positive integer batch validation before the free exception', async () => {
+    const { ledger } = await fixture()
+    await expect(checkBudget({ ledger, method: 'erase_subtitle', scriptId: 2708,
+      quote: { amount: '0.00', unit: 'CNY' }, verifiedFreeSubtitleErase: true, count: 0 }))
+      .rejects.toThrow('positive safe integer')
+  })
+})
+
 describe('readAuthorization', () => {
   it('propagates an unreadable authorization path instead of treating it as absent', async () => {
     const { authorizationPath } = await fixture()
