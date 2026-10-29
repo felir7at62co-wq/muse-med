@@ -51,7 +51,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: apps/desktop/scripts/ffmpeg-source-build
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: muse-ffmpeg-win-x64
           path: ${{ runner.temp }}/ffmpeg-artifacts
