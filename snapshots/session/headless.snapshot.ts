@@ -850,6 +850,11 @@ function pinOf(scenario: HeadlessScenario): HeadlessScenario {
   return pin
 }
 
+function supportedHeaderPinFormat(retained: SnapshotManifest['sessionFormat']): boolean {
+  return retained === undefined || (retained.coverage.length === 1 && retained.coverage[0] === 'retired-tools'
+    && Number.isSafeInteger(retained.version) && retained.version >= 0 && retained.version <= SESSION_FORMAT_VERSION)
+}
+
 function spillReferenceSource(events: readonly JsonObject[], label: string): JsonObject {
   const messages = events.filter((event) => {
     const source = (event.data as JsonObject | undefined)?.source as JsonObject | undefined
@@ -1204,7 +1209,21 @@ describe('headless recorded-session snapshots', () => {
   it('gives every composition and header class exactly one current-writer pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
-      expect(pinOf(scenario).manifest.sessionFormat, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      expect(supportedHeaderPinFormat(pinOf(scenario).manifest.sessionFormat), `${scenario.name}: current-writer header pin`).toBe(true)
+    }
+  })
+
+  it('allows retained header pins only for explicit retired-tool recordings within supported formats', () => {
+    expect(supportedHeaderPinFormat(undefined)).toBe(true)
+    for (const version of [0, SESSION_FORMAT_VERSION]) {
+      expect(supportedHeaderPinFormat({ version, coverage: ['retired-tools'] })).toBe(true)
+    }
+    for (const retained of [
+      { version: SESSION_FORMAT_VERSION - 1, coverage: ['adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION, coverage: ['retired-tools', 'adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION + 1, coverage: ['retired-tools'] },
+    ] satisfies NonNullable<SnapshotManifest['sessionFormat']>[]) {
+      expect(supportedHeaderPinFormat(retained)).toBe(false)
     }
   })
 

@@ -51,11 +51,6 @@ var ZH = {
   "Muse blue": "Muse 蓝",
   Muse: "Muse",
   "Updates come with Muse.": "随 Muse 一起更新",
-  "Open-source licenses": "开源软件许可",
-  "View license notices": "查看许可说明",
-  "Muse repository": "Muse 仓库",
-  "Muse license": "Muse 许可证",
-  "Upstream license notices": "上游许可说明",
   "Open feedback form": "填写反馈",
   "Use an existing conversation": "使用已有会话",
   "Keep its history, workspace and current model.": "保留会话历史、工作间和当前模型",
@@ -67,7 +62,6 @@ var ZH = {
   "Open the Muse feedback form. You choose what to include and submit.": "打开 Muse 反馈表单，由你选择附带内容并提交",
   "Open a conversation before filling in feedback.": "请先打开一个对话，再填写反馈",
   "Feedback is unavailable in this Muse session.": "当前会话的反馈暂不可用",
-  "Upstream project and license": "上游项目与许可证",
   "Save or copy diagnostics to share with the Muse administrator.": "保存或复制诊断信息后，可交给 Muse 管理员排查",
   "What you did, what you expected, and what happened instead.": "你做了什么、期望的效果，以及实际发生的情况",
   // Shared
@@ -14748,24 +14742,6 @@ function AboutPage({ useUpdate, actions, run: run2, Section, Row: Row3 }) {
       Section,
       { key: "links", title: t("Links") },
       (0, import_react37.createElement)(Row3, { label: t("Report a problem") }, (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("feedback") }, t("Open")))
-    ),
-    (0, import_react37.createElement)(
-      Section,
-      { key: "credits", title: t("Open-source licenses") },
-      (0, import_react37.createElement)(Row3, { label: t("Muse repository") }, (0, import_react37.createElement)("a", { className: "bt-soft bt-soft-sm", href: "https://github.com/felir7at62co-wq/muse-med", target: "_blank", rel: "noopener noreferrer" }, t("Open"))),
-      (0, import_react37.createElement)(Row3, { label: t("Muse license") }, (0, import_react37.createElement)("a", { className: "bt-soft bt-soft-sm", href: "https://github.com/felir7at62co-wq/muse-med/blob/main/LICENSE", target: "_blank", rel: "noopener noreferrer" }, t("View license notices"))),
-      (0, import_react37.createElement)(
-        "details",
-        { className: "bt-about-licenses" },
-        (0, import_react37.createElement)("summary", null, t("Upstream license notices")),
-        (0, import_react37.createElement)(
-          "div",
-          { className: "bt-about-license-copy" },
-          (0, import_react37.createElement)("span", null, "DS Bot · Fei2411 and contributors"),
-          (0, import_react37.createElement)("span", { className: "bt-set-hint" }, "Apache-2.0"),
-          (0, import_react37.createElement)("a", { className: "bt-about-link", href: "https://github.com/Fei2411/DS-Bot", target: "_blank", rel: "noopener noreferrer" }, t("Upstream project and license"))
-        )
-      )
     )
   ];
 }
@@ -14779,12 +14755,6 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:500}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.bt-about-licenses{font-size:13px;line-height:20px;color:var(--bt-ink)}
-.bt-about-licenses>summary{padding:14px 16px;cursor:pointer;border-radius:12px}
-.bt-about-licenses>summary:hover{background:var(--bt-hover)}
-.bt-about-licenses>summary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-about-license-copy{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 16px 16px;overflow-wrap:anywhere}
-.bt-about-link{color:var(--bt-accent);text-decoration:underline;text-underline-offset:3px}
 .bt-fb-primary:disabled{opacity:.6;cursor:default;filter:none}
 `;
 
