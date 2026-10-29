@@ -115,3 +115,35 @@ for(const code of ['45000006','45000092','55001010']){
   assert.deepEqual(result,{status:'failed',providerCode:code});assert.equal(calls,1);
  });
 }
+
+for(const [operation,invoke] of Object.entries(operations)){
+ test(`${operation} classifies an observed account channel denial separately from a request rejection`,async()=>{
+  let calls=0;
+  const error=await rejected(invoke(async()=>{calls++;return new Response('secret-response',{status:403,headers:{'X-Api-Status-Code':'45000030','X-Api-Message':'secret-response'}});}));
+  assert.equal(error.code,'account_channel_blocked');
+  assert.equal(error.operation,operation);assert.equal(error.httpStatus,403);assert.equal(error.providerCode,'45000030');
+  assert.match(error.message,/account channel blocked/i);
+  // Retrying cannot resolve a credential denial, so the adapter makes exactly one request.
+  assert.equal(calls,1);
+  for(const representation of [String(error),JSON.stringify(error),inspect(error)])assert.doesNotMatch(representation,/fixture-secret|secret-response/);
+ });
+
+ test(`${operation} keeps an unobserved 4xxxxxxx code as an ordinary rejection`,async()=>{
+  // Only observed account denials are classified; an unlisted sibling code must not be inferred.
+  for(const code of ['45000030x','45000031','45000029']){
+   const error=await rejected(invoke(async()=>new Response('secret-response',{status:403,headers:{'X-Api-Status-Code':code}})));
+   assert.equal(error.code,'provider_rejected');
+   assert.notEqual(error.code,'account_channel_blocked');
+  }
+ });
+}
+
+test('account channel denial stays rejected even when the supplier reports HTTP success',async()=>{
+ const error=await rejected(provider.queryAsr(config,input.id,async()=>new Response('secret-response',{headers:{'X-Api-Status-Code':'45000030'}})));
+ assert.equal(error.code,'account_channel_blocked');assert.equal(error.httpStatus,200);assert.equal(error.providerCode,'45000030');
+});
+
+test('server failure with the account code stays unavailable rather than claiming a denial',async()=>{
+ const error=await rejected(provider.queryAsr(config,input.id,async()=>new Response('secret-response',{status:500,headers:{'X-Api-Status-Code':'45000030'}})));
+ assert.equal(error.code,'provider_unavailable');assert.equal(error.httpStatus,500);
+});

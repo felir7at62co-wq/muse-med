@@ -186,6 +186,28 @@ it('accepts a complete sentence with no word timing array', async () => {
   expect((await setup.client.get(id)).segments).toEqual(segments)
 })
 
+it('keeps an account channel denial distinguishable from an ordinary supplier rejection', async () => {
+  const id = randomUUID()
+  const denied = await fixture(async () => Response.json({
+    id,
+    status: 'uncertain',
+    error_code: 'account_channel_blocked',
+    provider_diagnostic: { reason: 'http', operation: 'query', http_status: 403, provider_code: '45000030' },
+    recovery: { capability: 'query_original_task', next_action: 'poll_original', automatic_resubmit: false, account_channel_blocked: true },
+  }))
+  expect(await denied.client.get(id)).toMatchObject({
+    error_code: 'account_channel_blocked',
+    provider_diagnostic: { reason: 'http', operation: 'query', http_status: 403, provider_code: '45000030' },
+    recovery: { capability: 'query_original_task', next_action: 'poll_original', automatic_resubmit: false, account_channel_blocked: true },
+  })
+  // An unreviewed error code, and a non-true blocked marker, stay rejected rather than guessed.
+  for (const invalid of [{ error_code: 'account_channel_blocked_v2' },
+    { error_code: 'account_channel_blocked', recovery: { capability: 'none', next_action: 'wait', automatic_resubmit: false, account_channel_blocked: 'yes' } }]) {
+    const bad = await fixture(async () => Response.json({ id, status: 'uncertain', ...invalid }))
+    await expect(bad.client.get(id)).rejects.toMatchObject({ code: 'response-invalid' })
+  }
+})
+
 it('does not dispatch pre-cancelled uploads or queries', async () => {
   const transport = vi.fn<typeof fetch>(async () => Response.json({ id: randomUUID(), status: 'processing' }))
   const f = await fixture(transport), controller = new AbortController(), reason = new Error('cancelled')

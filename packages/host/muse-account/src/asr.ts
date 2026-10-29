@@ -18,7 +18,7 @@ export type MuseAsrJob = MuseAsrMetadata & {
 export interface MuseAsrMetadata {
   readonly service_version?: 'flash' | 'standard-v1' | 'standard-v2'
   readonly queued?: boolean
-  readonly error_code?: 'provider_rejected' | 'provider_unavailable' | 'storage_unavailable'
+  readonly error_code?: 'provider_rejected' | 'provider_unavailable' | 'storage_unavailable' | 'account_channel_blocked'
   readonly provider_diagnostic?: {
     readonly reason?: 'timeout' | 'transport' | 'http' | 'response' | 'json' | 'result' | 'audio'
     readonly operation?: 'submit' | 'query' | 'flash'
@@ -29,6 +29,8 @@ export interface MuseAsrMetadata {
     readonly capability: 'query_original_task' | 'no_query' | 'none'
     readonly next_action: 'poll_original' | 'wait' | 'inspect_receipt' | 'use_result' | 'resume_upload'
     readonly automatic_resubmit: false
+    /** The supplier denied the whole credential: retrying cannot resolve it. */
+    readonly account_channel_blocked?: true
   }
 }
 
@@ -41,7 +43,7 @@ export function parseMuseAsrMetadata(row: Record<string, unknown>): MuseAsrMetad
   const { service_version, queued, error_code, provider_diagnostic, recovery } = row
   if ((service_version !== undefined && (typeof service_version !== 'string' || !['flash', 'standard-v1', 'standard-v2'].includes(service_version)))
     || (queued !== undefined && typeof queued !== 'boolean')
-    || (error_code !== undefined && (typeof error_code !== 'string' || !['provider_rejected', 'provider_unavailable', 'storage_unavailable'].includes(error_code)))) {
+    || (error_code !== undefined && (typeof error_code !== 'string' || !['provider_rejected', 'provider_unavailable', 'storage_unavailable', 'account_channel_blocked'].includes(error_code)))) {
     throw new MuseAsrError('response-invalid')
   }
   let diagnostic: MuseAsrMetadata['provider_diagnostic']
@@ -62,12 +64,14 @@ export function parseMuseAsrMetadata(row: Record<string, unknown>): MuseAsrMetad
   let instruction: MuseAsrMetadata['recovery']
   if (recovery !== undefined) {
     if (typeof recovery !== 'object' || recovery === null || Array.isArray(recovery)) throw new MuseAsrError('response-invalid')
-    const { capability, next_action, automatic_resubmit } = recovery as Record<string, unknown>
+    const { capability, next_action, automatic_resubmit, account_channel_blocked: blocked } = recovery as Record<string, unknown>
     if (typeof capability !== 'string' || !['query_original_task', 'no_query', 'none'].includes(capability)
       || typeof next_action !== 'string' || !['poll_original', 'wait', 'inspect_receipt', 'use_result', 'resume_upload'].includes(next_action)
-      || automatic_resubmit !== false) throw new MuseAsrError('response-invalid')
+      || automatic_resubmit !== false
+      || (blocked !== undefined && blocked !== true)) throw new MuseAsrError('response-invalid')
     instruction = { capability: capability as NonNullable<MuseAsrMetadata['recovery']>['capability'],
-      next_action: next_action as NonNullable<MuseAsrMetadata['recovery']>['next_action'], automatic_resubmit }
+      next_action: next_action as NonNullable<MuseAsrMetadata['recovery']>['next_action'], automatic_resubmit,
+      ...(blocked === undefined ? {} : { account_channel_blocked: true as const }) }
   }
   return {
     ...(service_version === undefined ? {} : { service_version: service_version as NonNullable<MuseAsrMetadata['service_version']> }),

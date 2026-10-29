@@ -7,6 +7,17 @@ const failureMessages={
  query:{response:'ASR query returned an unknown status; retain this task ID',transport:'ASR query failed; retry this task ID',http:'ASR query failed; retry this task ID',json:'ASR query returned invalid JSON',result:'ASR query failed; retry this task ID'},
  flash:{response:'ASR flash outcome unknown; automatic resubmission is disabled',json:'ASR flash response is invalid; automatic resubmission is disabled',result:'ASR flash response is invalid; automatic resubmission is disabled'},
 };
+/** Supplier codes observed denying every operation (submit, query and flash) for one credential set.
+ * A denied credential cannot be repaired by retrying, resubmitting or switching resource ID, so these
+ * stay distinguishable from an ordinary per-request rejection. Only observed codes are listed; an
+ * unobserved 4xxxxxxx code keeps the ordinary rejection classification. */
+const accountChannelCodes=new Set(['45000030']);
+/** Guidance for a credential-level denial: no retry, resubmit or resource change resolves it. */
+function accountChannelMessage(operation){
+ return operation==='submit'?'ASR account channel blocked the submission; no charge outcome was returned and resubmission cannot succeed until the speech service is restored'
+  :operation==='flash'?'ASR account channel blocked this request; automatic resubmission is disabled until the speech service is restored'
+  :'ASR account channel blocked this query; the original task is retained and retrying cannot resolve the denial';
+}
 
 /**
  * Safe provider diagnostics. A rejection records a response, never a known charge outcome.
@@ -19,14 +30,20 @@ export class AsrProviderError extends Error{
   * @param {Response} [response] Supplier response supplying only status fields.
   */
  constructor(operation,reason,response){
-  super(failureMessages[operation][reason]??failureMessages[operation].response);
+  // Read the supplier status before choosing the message: an account denial gets its own guidance.
+  const httpStatus=Number.isInteger(response?.status)&&response.status>=100&&response.status<=599?response.status:undefined;
+  const rawCode=response?.headers.get('X-Api-Status-Code');
+  const providerCode=typeof rawCode==='string'&&/^\d{5,10}$/.test(rawCode)?rawCode:undefined;
+  const rejected=['response','http'].includes(reason)&&!(httpStatus>=500)&&(httpStatus>=400||providerCode!==undefined);
+  // A known account/channel denial outranks the ordinary rejection: retrying cannot resolve it.
+  const blocked=rejected&&accountChannelCodes.has(providerCode);
+  super(blocked?accountChannelMessage(operation):failureMessages[operation][reason]??failureMessages[operation].response);
   // Stack frames contain gateway paths; durable diagnostics retain only the allowed fields.
   delete this.stack;
   this.operation=operation;this.reason=reason;
-  if(Number.isInteger(response?.status)&&response.status>=100&&response.status<=599)this.httpStatus=response.status;
-  const providerCode=response?.headers.get('X-Api-Status-Code');
-  if(typeof providerCode==='string'&&/^\d{5,10}$/.test(providerCode))this.providerCode=providerCode;
-  this.code=['response','http'].includes(reason)&&!(this.httpStatus>=500)&&(this.httpStatus>=400||this.providerCode!==undefined)?'provider_rejected':'provider_unavailable';
+  if(httpStatus!==undefined)this.httpStatus=httpStatus;
+  if(providerCode!==undefined)this.providerCode=providerCode;
+  this.code=blocked?'account_channel_blocked':rejected?'provider_rejected':'provider_unavailable';
  }
 }
 

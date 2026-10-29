@@ -106,6 +106,8 @@ kind: "package-reference"
 
 标准查询返回 45000006（来源音频下载失败）、45000092（任务不存在）或 55001010（任务超时）时，只有连续 terminalQueryConfirmations 次相同响应才记为 failed。保留原回执和任务 ID，已提交的失败 key 不再提交，已预留的计费额度仍保留；这不证明退款或实际收费结果。其他未知响应继续查询原任务。调度在每个账号内选择当前可用资源，避免被堵住的标准任务阻止该账号的快速转写。
 
+已被观察到的“同一凭据下所有操作都被拒”的供应商业务码（目前是 45000030，submit、query、flash 均返回 HTTP 403）记为 account_channel_blocked，而不是 provider_rejected，回执带 recovery.account_channel_blocked: true。这类拒绝不是单次请求被拒：重试、重新提交或更换 resource ID 都无法解决，因为凭据本身已失去语音服务访问权。需要运维恢复网关的语音服务账号（开通状态、欠费、额度或密钥状态）后，才能继续 inspect 保留的回执。未被观察到这种行为的其他业务码保持原有拒绝分类；服务不按数字前缀推断类别，因此 45000001 及其同段业务码仍为 provider_rejected。携带同一业务码的 HTTP 5xx 仍为 provider_unavailable。
+
 ### ASR 应用资源池
 
 资源／组 ID 为稳定的小写 ASCII 标识；应用 ID 接受 ASCII 字母、数字、下划线与连字符，不允许前后空白。服务为 `flash`（`volc.bigasr.auc_turbo`）、`standard-v1`（`volc.bigasr.auc`）及 `standard-v2`（`volc.seedasr.auc`）。容量按 `(appId, resourceId)` 识别，同一组合的两个 key 须声明同组及同并发，key 不扩大组容量。只有供应商独立授予的资源组才扩大可用线程容量。标准版可在多个应用间共享一个保守资源组，该组上限与全局上限由部署显式配置；服务行数及 key 数量不证明独立的供应商额度。

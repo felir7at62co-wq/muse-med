@@ -159,6 +159,16 @@ test('supplier refusal remains uncertain and writes only approved diagnostic fie
  assert.equal(result.poolId,undefined);assert.equal(result.appId,undefined);assert.equal(result.quotaGroup,undefined);
 });
 
+test('account channel denial is recorded with its own code and an explicit recovery marker',async t=>{
+ const env=await fixture(t,async()=>{throw new AsrProviderError('flash','http',new Response('synthetic-secret-body',{status:403,headers:{'X-Api-Status-Code':'45000030'}}));});
+ const job=await env.submit();await env.service.idle();const result=await env.service.get('alice',job.id),saved=(await receipts(env.root))[0].job;
+ assert.equal(result.status,'uncertain');assert.equal(result.error_code,'account_channel_blocked');
+ assert.equal(result.recovery.account_channel_blocked,true);assert.equal(result.recovery.automatic_resubmit,false);
+ assert.deepEqual(result.provider_diagnostic,{reason:'http',operation:'flash',http_status:403,provider_code:'45000030'});
+ assert.deepEqual(saved.providerFailure,{code:'account_channel_blocked',operation:'flash',reason:'http',httpStatus:403,providerCode:'45000030'});
+ assert.doesNotMatch(JSON.stringify({result,saved}),/synthetic-secret-body|accessToken|apiKey|stack|cause/);
+});
+
 test('restart validates all application bindings before changing any submitting receipt',async t=>{
  const env=await fixture(t,async()=>({status:'silent'}));await env.submit('alice');await env.submit('bob');await env.service.idle();
  const jobs=await receipts(env.root);jobs[0].job.status='submitting';jobs[1].job.poolId='missing';
