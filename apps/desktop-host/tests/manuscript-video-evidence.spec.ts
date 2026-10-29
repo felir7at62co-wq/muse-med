@@ -1274,13 +1274,14 @@ it('keeps multiple same-episode read sources ambiguous without selecting the ear
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('照常交付')
 })
 
-it.each(['partial', 'truncated'])('does not treat a %s native read as a complete baseline', async (kind) => {
-  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...kind === 'partial' ? { limit: 2 } : {} }),
+it.each(['partial', 'truncated', 'column'])('does not treat a %s native read as a complete baseline', async (kind) => {
+  const options = kind === 'partial' ? { limit: 2 } : kind === 'column' ? { column: 2 } : {}
+  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...options }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('正常交付。')])
   await writeFile(join(f.root, 'source.md'), `第4集\n4-1 家 日 内\n甲：${kind === 'truncated' ? '长'.repeat(12_000) : '原句'}。\n`)
   await f.run('精修后保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
-  expect(report?.status).toBe(kind)
+  expect(report?.status).toBe(kind === 'column' ? 'partial' : kind)
   expect(report?.hunks).toEqual([])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads[0]?.text).toBeUndefined()
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('正常交付')
