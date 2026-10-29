@@ -31,7 +31,7 @@ const output = resolve(values.out)
 mkdirSync(output, { recursive: true })
 
 function run(args, cwd, environment = {}) {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_|^NODE_PATH$/iu.test(key)))
   Reflect.deleteProperty(env, 'MUSE_HOME')
   Reflect.deleteProperty(env, 'MUSE_MED_HOME')
   Object.assign(env, environment)

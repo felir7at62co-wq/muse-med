@@ -19,7 +19,7 @@ pnpm --dir third_party/plugins/toolchain run test:build
 pnpm --dir third_party/plugins/toolchain run test:im
 ```
 
-[build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
+[build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量和继承的 `NODE_PATH`，避免包管理器启动脚本将仅存在于工作区的依赖暴露给产物验收。启动器和 preload 选项保持不变。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
 

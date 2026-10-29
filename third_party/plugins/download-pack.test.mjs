@@ -19,8 +19,9 @@ const embeddedSourceRoots = {
 function lifecycleEntrypoint(pnpm) {
   const directory = mkdtempSync(join(tmpdir(), 'pnpm-lifecycle-entry-'))
   try {
+    writeFileSync(join(directory, 'probe.mjs'), "process.stdout.write(process.env.npm_execpath ?? '')\n")
     writeFileSync(join(directory, 'package.json'), JSON.stringify({ private: true,
-      scripts: { probe: `"${process.execPath.replaceAll('\\', '/')}" -p "process.env.npm_execpath"` } }))
+      scripts: { probe: 'node probe.mjs' } }))
     const result = spawnSync(process.execPath, [pnpm, '--silent', '--dir', directory, 'run', 'probe'], {
       encoding: 'utf8', timeout: 15000,
     })
