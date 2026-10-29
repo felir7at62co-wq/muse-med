@@ -134,7 +134,7 @@ jobs:
           MUSE_FANQIE_LIVE_AUTHOR: 倒荷
         run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
       - name: Upload installers, update metadata and build identity
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-${{ github.sha }}
           path: |
@@ -149,7 +149,7 @@ jobs:
           retention-days: 30
       - name: Retain native installer acceptance evidence
         if: always() && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
           path: |
@@ -164,7 +164,7 @@ jobs:
           retention-days: 30
       - name: Retain packaging diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
           path: apps/desktop/.desktop-build/packaging-runs/
@@ -172,7 +172,7 @@ jobs:
           retention-days: 14
       - name: Retain Windows installer UI evidence
         if: always() && matrix.target == 'win-x64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: muse-win-x64-installer-ui-${{ github.sha }}
           path: apps/desktop/.desktop-build/installer-tests/
