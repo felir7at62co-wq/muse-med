@@ -1,5 +1,5 @@
 /**
- * Model-facing UTF-8 read. It performs one provider stat for type, routing, and observed version,
+ * Model-facing UTF-8 read. It checks provider metadata before and after reading,
  * streams large or size-unknown files, renders a bounded window, then emits the observation.
  * @module @deepseek-ai/dsh-tool-fs/src/read
  */
@@ -36,6 +36,7 @@ export interface ReadToolCaps {
 interface ReadInput {
   filePath: string
   offset: number
+  column: number
   limit: number
 }
 
@@ -52,12 +53,13 @@ function parsePositiveInteger(value: number, name: string): number {
  * @param maxLimit - the configured line cap: both the default `limit` and the largest one accepted.
  * @returns the validated input with `offset` defaulted to 1 and `limit` to `maxLimit`.
  */
-export function parseReadArgs(args: { file_path: string; offset?: number; limit?: number }, maxLimit: number): ReadInput {
+export function parseReadArgs(args: { file_path: string; offset?: number; column?: number; limit?: number }, maxLimit: number): ReadInput {
   if (args.file_path.trim().length === 0) throw new Error('file_path must be a non-empty string')
   const offset = args.offset === undefined ? 1 : parsePositiveInteger(args.offset, 'offset')
+  const column = args.column === undefined ? 1 : parsePositiveInteger(args.column, 'column')
   const limit = args.limit === undefined ? maxLimit : parsePositiveInteger(args.limit, 'limit')
   if (limit > maxLimit) throw new Error(`limit must be less than or equal to ${maxLimit}`)
-  return { filePath: args.file_path, offset, limit }
+  return { filePath: args.file_path, offset, column, limit }
 }
 
 /**
@@ -80,6 +82,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to read, resolved by the filesystem backend.' },
       offset: { type: 'number', description: '1-based first line to return. Defaults to 1.' },
+      column: { type: 'number', description: '1-based Unicode code point column in the first line. Use the continuation cursor for a partial line.' },
       limit: { type: 'number', description: `Maximum number of lines to return. Defaults to ${caps.limit}.` },
     },
     output: {
@@ -89,6 +92,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         properties: {
           path: { type: 'string', required: true },
           offset: { type: 'integer', required: true },
+          column: { type: 'integer' },
           lines: {
             type: 'array',
             required: true,
@@ -102,6 +106,11 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
             },
           },
           totalLines: { type: 'integer', required: true },
+          continuation: { type: 'object', additionalProperties: false, properties: {
+            offset: { type: 'integer', required: true }, column: { type: 'integer', required: true },
+          } },
+          versionBefore: { type: 'string' },
+          versionAfter: { type: 'string' },
         },
       },
       render: (args, value) => {
@@ -112,8 +121,12 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
           type: 'text',
           text: formatReadOutput(value.path, {
             offset: value.offset,
+            column: input.column,
             lines: value.lines,
             totalLines: value.totalLines,
+            ...value.continuation === undefined ? {} : { continuation: value.continuation },
+            ...value.versionBefore === undefined ? {} : { versionBefore: value.versionBefore,
+              ...value.versionAfter === undefined ? { versionUnavailable: true as const } : { versionAfter: value.versionAfter } },
             ...truncatedByBytes ? { truncatedByBytes: true } : {},
           }),
         }]
@@ -121,13 +134,18 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       // Project the structured window into persisted `meta` so a UI's read card
       // survives replay: the raw canonical output object is not on the wire, only
       // the model-facing text, from which the line/lang data cannot be recovered.
-      presentationMeta: (_args, value) => {
+      presentationMeta: (args, value) => {
+        const input = parseReadArgs(args, caps.limit)
         const lang = langFromPath(value.path)
         return {
           path: value.path,
           offset: value.offset,
           lines: value.lines.map(({ number, text }) => ({ number, text })),
           totalLines: value.totalLines,
+          ...input.column === 1 ? {} : { column: input.column },
+          ...value.continuation === undefined ? {} : { continuation: value.continuation },
+          ...value.versionBefore === undefined ? {} : { versionBefore: value.versionBefore,
+            ...value.versionAfter === undefined ? { versionUnavailable: true } : { versionAfter: value.versionAfter } },
           ...lang === undefined ? {} : { lang },
         }
       },
@@ -136,7 +154,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const input = parseReadArgs(args, caps.limit)
-      // One stat: absence observation OR type check + size routing + present version.
+      // Resolve and stat for absence, type check, size routing, and the observed version.
       // A concurrent write can only make a later guarded mutation fail stale and require reread.
       const { target, info } = await resolveRegularReadTarget(ctx, exec, input.filePath)
 
@@ -147,15 +165,27 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         : [await ctx.fs.readText(target, exec.signal)]
       const window = await buildWindow(
         chunks,
-        { offset: input.offset, limit: input.limit, maxLineLength: caps.maxLineLength, maxBytes: caps.maxBytes },
+        { offset: input.offset, column: input.column, limit: input.limit, maxLineLength: caps.maxLineLength, maxBytes: caps.maxBytes },
         target.displayPath,
       )
 
+      let after: typeof info | undefined
+      try {
+        after = await ctx.fs.stat(target, exec.signal)
+      } catch (error: unknown) {
+        if (exec.signal.aborted) throw error
+        ctx.logger.warn(`read: unable to check version after reading ${target.displayPath}`)
+      }
+      const reportVersion = input.offset > 1 || input.column > 1 || window.continuation !== undefined
+        || (window.lines.at(-1)?.number ?? 0) < window.totalLines || after?.version !== info.version
       const outcome = {
         path: target.displayPath,
         offset: input.offset,
+        ...input.column === 1 ? {} : { column: input.column },
         lines: window.lines,
         totalLines: window.totalLines,
+        ...window.continuation === undefined ? {} : { continuation: window.continuation },
+        ...reportVersion ? { versionBefore: info.version, ...after === undefined ? {} : { versionAfter: after.version } } : {},
       }
       // Record the present observation (a no-op when no policy plugin listens). The
       // read already succeeded; an fs/observed listener is contractually a
@@ -174,6 +204,12 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       if (result.isError) return undefined
       const meta = readMetaFromMeta(result.meta)
       if (meta === undefined) return undefined
+      const metadata = result.meta as Record<string, unknown>
+      const endLine = meta.lines.at(-1)?.number ?? Math.max(0, meta.offset - 1)
+      const versionsKnown = typeof metadata.versionBefore === 'string' && typeof metadata.versionAfter === 'string'
+      if (metadata.continuation !== undefined || (typeof metadata.column === 'number' && metadata.column > 1)
+        || metadata.versionUnavailable === true || (versionsKnown && (metadata.versionBefore !== metadata.versionAfter
+          || meta.offset > 1 || endLine < meta.totalLines))) return undefined
       const only = result.content.length === 1 ? result.content[0] : undefined
       const text = only?.type === 'text' ? only.text : undefined
       if (text === undefined) return undefined

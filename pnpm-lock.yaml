@@ -971,6 +971,9 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:*
         version: link:../../packages/boot/cmdline
+      '@deepseek-ai/dsh-compaction':
+        specifier: workspace:*
+        version: link:../../packages/compaction/compaction
       '@deepseek-ai/dsh-deepseek-account':
         specifier: workspace:*
         version: link:../../packages/credentials/deepseek-account
@@ -1025,6 +1028,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../../packages/session/session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:*
+        version: link:../../packages/session-query/session-query
       '@deepseek-ai/dsh-skill':
         specifier: workspace:*
         version: link:../../packages/skill/skill

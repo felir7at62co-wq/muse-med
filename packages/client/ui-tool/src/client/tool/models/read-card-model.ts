@@ -31,7 +31,7 @@ interface ReadMeta {
   lang?: string
 }
 
-/** Whether a model-supplied argument is a 1-based line position or count: an integer of at least 1. */
+/** Whether a model-supplied argument is a 1-based position or count. */
 function positiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1
 }
@@ -39,16 +39,21 @@ function positiveInteger(value: unknown): value is number {
 function validReadCall(block: ToolCallBlock): boolean {
   const call = parsedToolCall(block)
   if (call?.name !== 'read') return false
-  const { file_path: path, offset, limit } = call.args
+  const { file_path: path, offset, column, limit } = call.args
   if (typeof path !== 'string' || path.trim() === '') return false
   if (offset !== undefined && !positiveInteger(offset)) return false
+  if (column !== undefined && !positiveInteger(column)) return false
   if (limit !== undefined && !positiveInteger(limit)) return false
   return true
 }
 
 function readMeta(meta: unknown): ReadMeta | null {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return null
-  const { path, offset, lines, totalLines, lang } = meta as Record<string, unknown>
+  const {
+    path, offset, column, continuation, versionBefore, versionAfter, versionUnavailable, lines, totalLines, lang,
+  } = meta as Record<string, unknown>
+  if (column !== undefined && column !== 1) return null
+  if (continuation !== undefined || versionUnavailable === true) return null
   if (typeof path !== 'string' || typeof offset !== 'number' || !Number.isInteger(offset) || offset < 1) return null
   if (typeof totalLines !== 'number' || !Number.isInteger(totalLines) || totalLines < 0 || !Array.isArray(lines)) return null
   if (lang !== undefined && typeof lang !== 'string') return null
@@ -62,6 +67,8 @@ function readMeta(meta: unknown): ReadMeta | null {
     previous = number
     narrowed.push({ number, text })
   }
+  if (typeof versionBefore === 'string' && typeof versionAfter === 'string'
+    && (versionBefore !== versionAfter || offset > 1 || previous < totalLines)) return null
   return {
     path,
     offset,
@@ -90,7 +97,8 @@ export function readCallLine(block: ToolCallBlock): number | undefined {
 
 /**
  * Derive a settled root read card after validating its persisted metadata and
- * model-facing read envelope.
+ * model-facing read envelope. Partial lines and version notices retain the
+ * full result text through the generic path; legacy metadata stays supported.
  * @param block - running or settled Tool block.
  * @param sessionCwd - the session workspace root; a workspace-rooted absolute
  *   path label displays relative to it. Absent leaves the path as authored.
@@ -104,6 +112,8 @@ export function readCardModel(
 ): ReadCardModel | null {
   if (block.parentCallId !== undefined || !('kind' in block) || block.isError) return null
   if (!validReadCall(block)) return null
+  const { column } = parsedToolCall(block)?.args ?? {}
+  if (column !== undefined && column !== 1) return null
   const meta = readMeta(block.meta)
   if (meta === null) return null
   const text = singleResultText(block)

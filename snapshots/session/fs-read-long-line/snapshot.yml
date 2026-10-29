@@ -1,0 +1,11 @@
+version: 1
+scenario: fs-read-long-line
+profile: headless
+composition: fs-read-long-line
+recording: authored
+writerOutput: true
+header:
+  class: fs-read-long-line
+  pin: true
+workspace:
+  final: true

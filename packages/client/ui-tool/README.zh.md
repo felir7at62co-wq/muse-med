@@ -81,7 +81,7 @@ Tool Definition 拥有[懒计算参数视图](../../util/values/README.zh.md)。
 ### 卡片
 
 
-每张卡片都直接在调用树中查看；选中调用后不会再显示第二个全高视图。行 renderer 为 terminal、read、diff、search 和 web 卡片各复用同一个纯 card model，image 卡片的图库经由工具自有 `tool.call.images` slot 渲染。这些 model 校验原始调用参数、结果内容、失败状态、持久 metadata、PTC dispatch 的 `parentCallId` 与会话路径信息。不受支持或格式错误的输入使用压平的工具结果文本。文件路径摘要经属主的 `openFile` 打开文件，chat 视图把它路由到右侧 Sidebar 的文本预览；`inspect` 打开轨迹视图；该视图不可用时不提供此回调，卡片随之隐藏 Inspect。terminal、diff、read、search 与 web 卡片的上限与 fallback 规则仍由 [ui-primitives README](../ui-primitives/README.zh.md) 负责；image 卡片的 fallback 规则由本包内的 card model 自行承载。
+每张卡片都直接在调用树中查看；选中调用后不会再显示第二个全高视图。行 renderer 为 terminal、read、diff、search 和 web 卡片各复用同一个纯 card model，image 卡片的图库经由工具自有 `tool.call.images` slot 渲染。这些 model 校验原始调用参数、结果内容、失败状态、持久 metadata、PTC dispatch 的 `parentCallId` 与会话路径信息。不受支持或格式错误的输入使用压平的工具结果文本。带有行内续读游标、版本警告或分页版本信息的 read 结果也保留完整文本及续读说明；使用旧版 metadata 的普通读取仍显示卡片。文件路径摘要经属主的 `openFile` 打开文件，chat 视图把它路由到右侧 Sidebar 的文本预览；`inspect` 打开轨迹视图；该视图不可用时不提供此回调，卡片随之隐藏 Inspect。terminal、diff、read、search 与 web 卡片的上限与 fallback 规则仍由 [ui-primitives README](../ui-primitives/README.zh.md) 负责；image 卡片的 fallback 规则由本包内的 card model 自行承载。
 
 Chat diff 卡片在折叠前保留九行，足以容纳文件标题、一对删除与新增行及两侧各三行上下文。工具行显示原语提供的精确或粗粒度替换统计；展开卡片包含差异正文，不显示底部统计。悬停工具标题行时，新增数量显示绿色、删除数量显示红色；卡片展开期间保留这两种颜色。
 

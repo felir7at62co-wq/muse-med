@@ -130,7 +130,7 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory',
-    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_inspect', 'video_ocr',
+    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_inspect', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
@@ -264,7 +264,7 @@ it('rejects a shared Muse skill missing from the packaged Host', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'screenplay_export_docx', 'jubian_budget', 'video_inspect', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'jubian_budget', 'video_inspect', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'

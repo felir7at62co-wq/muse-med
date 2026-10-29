@@ -1,0 +1,12 @@
+OpenAI Codex context-output handling
+Copyright 2025 OpenAI
+
+Muse adapts metadata-first tool-output budgeting from OpenAI Codex.
+Upstream: https://github.com/openai/codex
+Revision: a07c8ebd57feedc4cf5dfe854c8e9101de54186b
+Source: codex-rs/core/src/tools/context.rs, ExecCommandToolOutput::response_text
+License: Apache License 2.0 (see LICENSE in this directory).
+
+Modifications: TypeScript implementation for paginated recovery of retained
+Session tool text, JSON serialization budgets, Unicode offsets, and complete
+recovery metadata. Muse does not incorporate the Codex agent loop or compactor.
