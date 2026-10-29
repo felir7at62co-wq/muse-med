@@ -108,6 +108,8 @@ settled spend + in-flight reservations + this call's quote <= the project's limi
 
 分镜视频批次在 `beginManyChecked` 内调用 `checkBudget(..., count)`，先检查整批估算金额，再一次登记各个原 key 的计价 intent，随后才允许发送任何提供方 PUT。每种计费方法的单笔报价或估算至少须为授权币种的 0.01；舍入后为零的不足一分金额不能授权消费。预算拒绝或 key 已存在时不新增 intent。同进程的队列会把这次预约与单项计费写入串行处理；不同进程仍不受该队列保护。
 
+工具内部的 `verifiedFreeSubtitleErase` 证据仅允许带精确 `0.00 CNY` 报价和有效项目 ID 的 `erase_subtitle` 不依赖消费额度继续。工具必须从当前唯一匹配的已知免费火山模型目录行取得该证据，调用方提供的零价估算不符合条件。请求仍在发送前以原幂等 key 写入普通零价 intent，其他方法和报价仍要求正额预留。
+
 ### 以两个阶段记录一次写入
 
 `JubianLedger` 回答超时留下的唯一问题：那笔扣费究竟发生了吗？在请求离开前写入 intent 行，在响应读完后写入 settle 行。

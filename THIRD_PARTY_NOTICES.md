@@ -158,6 +158,10 @@ pnpm applies local patches to the following packages at install time, so shipped
 
 The optional experimental Inspector distributes a locally compiled copy of [chrome-devtools-frontend 1.0.1638082](https://www.npmjs.com/package/chrome-devtools-frontend/v/1.0.1638082), from upstream revision [0e1186138ed519d9659c1874bf6375eca4483c72](https://chromium.googlesource.com/devtools/devtools-frontend/+/0e1186138ed519d9659c1874bf6375eca4483c72). The build includes the Chromium [BSD-3-Clause license](packages/experimental/inspector/assets/devtools/LICENSE) and the third-party license and notice files supplied by the npm source. The Chromium root license does not replace those dependencies' licenses.
 
+## Codex recovery-output budgeting
+
+The Desktop Host adapts metadata-first tool-output budgeting from [OpenAI Codex](https://github.com/openai/codex) under Apache-2.0. The distribution retains the [license](apps/desktop-host/licenses/codex-context-recovery/LICENSE), [upstream source and modification notice](apps/desktop-host/licenses/codex-context-recovery/NOTICE), and source comments beside the adapted recovery-page serializer.
+
 
 ## Official Claude Code platform payloads
 

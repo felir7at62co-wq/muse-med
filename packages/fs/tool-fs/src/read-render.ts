@@ -17,9 +17,11 @@ export const READ_MAX_BYTES = 50 * 1024
 export interface ReadWindow {
   /** 1-based first line to return. */
   offset: number
+  /** 1-based Unicode code-point column in the first requested line. */
+  column?: number
   /** Maximum number of lines to return. */
   limit: number
-  /** Maximum characters returned for a single line; overflow is truncated with a suffix. */
+  /** Maximum Unicode code points returned from one line before continuation. */
   maxLineLength: number
   /** Maximum bytes of selected output; overflow stops the scan and marks `truncatedByBytes`. */
   maxBytes: number
@@ -41,106 +43,130 @@ export interface WindowResult {
   totalLines: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes: boolean
+  /** Cursor for a partially returned line, or a line that did not fit. */
+  continuation?: { offset: number; column: number }
 }
 
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
 export interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
+  /** First-line code-point column for this response. */
+  column?: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Exact total line count in the file. */
   totalLines: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
-}
-
-interface WindowAccumulator {
-  lines: FileTextLine[]
-  totalLines: number
-  outputBytes: number
-  truncatedByBytes: boolean
-}
-
-function newAccumulator(): WindowAccumulator {
-  return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false }
-}
-
-function truncateLine(line: string, maxLineLength: number): string {
-  return line.length > maxLineLength ? `${line.substring(0, maxLineLength)}... (line truncated to ${maxLineLength} chars)` : line
-}
-
-function lineByteSize(line: string, currentLineCount: number): number {
-  return Buffer.byteLength(line, 'utf8') + (currentLineCount > 0 ? 1 : 0)
-}
-
-function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindow): void {
-  acc.totalLines += 1
-  if (acc.truncatedByBytes || acc.totalLines < request.offset || acc.lines.length >= request.limit) return
-
-  const text = truncateLine(rawLine, request.maxLineLength)
-  const bytes = lineByteSize(text, acc.lines.length)
-  if (acc.outputBytes + bytes > request.maxBytes) {
-    acc.truncatedByBytes = true
-    return
-  }
-  acc.outputBytes += bytes
-  acc.lines.push({ number: acc.totalLines, text })
-}
-
-function stripCarriageReturn(line: string): string {
-  return line.endsWith('\r') ? line.slice(0, -1) : line
-}
-
-function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string): WindowResult {
-  if (!acc.truncatedByBytes && request.offset > acc.totalLines && !(acc.totalLines === 0 && request.offset === 1)) {
-    throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${acc.totalLines} lines)`, 'FS_NOT_FOUND')
-  }
-  return { lines: acc.lines, totalLines: acc.totalLines, truncatedByBytes: acc.truncatedByBytes }
+  /** Cursor for remaining text on a line. */
+  continuation?: { offset: number; column: number }
+  /** Filesystem metadata before and after the read, when available. */
+  versionBefore?: string
+  versionAfter?: string
+  /** True when the post-read provider version could not be observed. */
+  versionUnavailable?: true
 }
 
 /**
- * Build one window from streamed or whole-file chunks, enforcing line and byte caps while still
- * scanning to an exact total line count, and throwing `FS_NOT_FOUND` when the requested offset is
- * past EOF.
- * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
- * @param request - the resolved window; the caller has already applied its defaults and caps.
- * @param displayPath - the caller-facing path used in the offset-out-of-range error.
- * @returns the numbered window lines, the total line count seen, and the byte-cap truncation flag.
+ * Build a bounded window without buffering whole lines. Columns count Unicode code points.
+ * @param chunks - decoded text chunks in file order.
+ * @param request - line and character limits for this read.
+ * @param displayPath - path used in range errors.
+ * @returns numbered lines, total lines, and a continuation for partial lines.
  */
 export async function buildWindow(
   chunks: AsyncIterable<string> | Iterable<string>,
   request: ReadWindow,
   displayPath: string,
 ): Promise<WindowResult> {
-  const acc = newAccumulator()
-  // One char past the truncation point is enough to prove a line overflows.
-  const lineBufferCap = request.maxLineLength + 1
-  let lineBuffer = ''
+  const lines: FileTextLine[] = []
+  let totalLines = 0
+  let outputBytes = 0
+  let truncatedByBytes = false
+  let continuation: { offset: number; column: number } | undefined
+  let position = 0
+  let selected = ''
+  let selectedCount = 0
+  let pendingCR = false
+  let carry = ''
+  const lineHasInput = { value: false }
+  const initialColumn = request.column ?? 1
 
-  function appendToLineBuffer(segment: string): void {
-    if (lineBuffer.length >= lineBufferCap) return
-    lineBuffer += segment
-    if (lineBuffer.length > lineBufferCap) lineBuffer = lineBuffer.slice(0, lineBufferCap)
+  function append(char: string): void {
+    position += 1
+    lineHasInput.value = true
+    const number = totalLines + 1
+    if (number < request.offset || lines.length >= request.limit || continuation !== undefined) return
+    const start = number === request.offset ? initialColumn : 1
+    if (position < start) return
+    const size = Buffer.byteLength(char, 'utf8')
+    const separator = selectedCount === 0 && lines.length > 0 ? 1 : 0
+    if (selectedCount >= request.maxLineLength || outputBytes + separator + size > request.maxBytes) {
+      truncatedByBytes = outputBytes + separator + size > request.maxBytes
+      if (selectedCount === 0 && lines.length === 0) {
+        throw new FsError(`cannot read "${displayPath}": byte cap too small for one character`, 'FS_IO_ERROR')
+      }
+      continuation = { offset: number, column: position }
+      return
+    }
+    outputBytes += separator + size
+    selected += char
+    selectedCount += 1
   }
 
-  function flushLine(): void {
-    consumeLine(acc, stripCarriageReturn(lineBuffer), request)
-    lineBuffer = ''
+  function finishLine(): void {
+    totalLines += 1
+    if (totalLines === request.offset && initialColumn > Math.max(position, 1)) {
+      throw new FsError(`column ${initialColumn} is out of range for line ${totalLines} of "${displayPath}"`, 'FS_NOT_FOUND')
+    }
+    if (totalLines >= request.offset && lines.length < request.limit && (continuation === undefined || selectedCount > 0)) {
+      if (selectedCount === 0 && lines.length > 0) {
+        if (outputBytes + 1 > request.maxBytes) {
+          truncatedByBytes = true
+          continuation = { offset: totalLines, column: 1 }
+        } else {
+          outputBytes += 1
+          lines.push({ number: totalLines, text: selected })
+        }
+      } else {
+        lines.push({ number: totalLines, text: selected })
+      }
+    }
+    position = 0
+    selected = ''
+    selectedCount = 0
+    lineHasInput.value = false
+  }
+
+  function consume(char: string): void {
+    if (char === '\n') {
+      pendingCR = false
+      finishLine()
+      return
+    }
+    if (pendingCR) append('\r')
+    pendingCR = char === '\r'
+    if (!pendingCR) append(char)
+    else lineHasInput.value = true
   }
 
   for await (const chunk of chunks) {
-    let startPos = 0
-    let newlinePos: number
-    while ((newlinePos = chunk.indexOf('\n', startPos)) !== -1) {
-      appendToLineBuffer(chunk.slice(startPos, newlinePos))
-      flushLine()
-      startPos = newlinePos + 1
+    let value = carry + chunk
+    carry = ''
+    const last = value.charCodeAt(value.length - 1)
+    if (last >= 0xd800 && last <= 0xdbff) {
+      carry = value.slice(-1)
+      value = value.slice(0, -1)
     }
-    appendToLineBuffer(chunk.slice(startPos))
+    for (const char of value) consume(char)
   }
-  if (lineBuffer.length > 0) flushLine()
-  return finish(acc, request, displayPath)
+  if (carry) consume(carry)
+  if (lineHasInput.value) finishLine()
+  if (request.offset > totalLines && !(totalLines === 0 && request.offset === 1)) {
+    throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${totalLines} lines)`, 'FS_NOT_FOUND')
+  }
+  return { lines, totalLines, truncatedByBytes, ...continuation === undefined ? {} : { continuation } }
 }
 
 /**
@@ -152,13 +178,24 @@ export async function buildWindow(
 export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
   const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
   let footer: string
-  if (outcome.truncatedByBytes) {
+  if (outcome.continuation !== undefined) {
+    footer = `(Output capped. Continue with offset=${outcome.continuation.offset}, column=${outcome.continuation.column}.)`
+  } else if (outcome.truncatedByBytes) {
     footer = `(Output capped. Showing lines ${outcome.offset}-${endLine}. Use offset=${endLine + 1} to continue.)`
   } else if (endLine < outcome.totalLines) {
     footer = `(Showing lines ${outcome.offset}-${endLine} of ${outcome.totalLines}. Use offset=${endLine + 1} to continue.)`
   } else {
     footer = `(End of file - total ${outcome.totalLines} lines)`
   }
+  if (outcome.versionUnavailable) {
+    footer += '\n(File version unavailable after read; consistency is unknown.)'
+  } else if (outcome.versionBefore !== undefined && outcome.versionAfter !== undefined
+    && (outcome.versionBefore !== outcome.versionAfter || outcome.offset > 1 || (outcome.column ?? 1) > 1
+      || outcome.continuation !== undefined || endLine < outcome.totalLines)) {
+    footer += `\n(File version before: ${JSON.stringify(outcome.versionBefore)}; after: ${JSON.stringify(outcome.versionAfter)}. Metadata only; compare across pages.)`
+    if (outcome.versionBefore !== outcome.versionAfter) footer += '\n(File changed during read; returned text may not represent a single version.)'
+  }
+  if ((outcome.column ?? 1) > 1) footer += `\n(First line begins at column ${outcome.column}.)`
   const body = outcome.lines.length > 0
     ? `${outcome.lines.map(line => `${line.number}: ${line.text}`).join('\n')}\n\n${footer}`
     : footer

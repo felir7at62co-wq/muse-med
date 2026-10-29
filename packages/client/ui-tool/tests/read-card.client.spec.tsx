@@ -75,6 +75,52 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => {
   }
 }
 
+const readNotices = [
+  {
+    label: 'a partial line',
+    meta: { ...readMeta(), continuation: { offset: 43, column: 6 } },
+    notice: '(Output capped. Continue with offset=43, column=6.)',
+  },
+  {
+    label: 'a continued line in metadata',
+    meta: { ...readMeta(), column: 6 },
+    notice: '(First line begins at column 6.)',
+  },
+  {
+    label: 'a continued line with legacy metadata',
+    meta: readMeta(),
+    argsRaw: '{"file_path":"src/a.ts","offset":41,"column":6}',
+    notice: '(First line begins at column 6.)',
+  },
+  {
+    label: 'a file changed during read',
+    meta: { ...readMeta(), versionBefore: 'v1', versionAfter: 'v2' },
+    notice: '(File changed during read; returned text may not represent a single version.)',
+  },
+  {
+    label: 'an unavailable after-read version',
+    meta: { ...readMeta(), versionBefore: 'v1', versionUnavailable: true },
+    notice: '(File version unavailable after read; consistency is unknown.)',
+  },
+  {
+    label: 'a paged read with version metadata',
+    meta: { ...readMeta(), offset: 1, lines: [{ number: 1, text: 'export const a = 1' }], versionBefore: 'v1', versionAfter: 'v1' },
+    argsRaw: '{"file_path":"src/a.ts","offset":1}',
+    notice: '(File version before: "v1"; after: "v1". Metadata only; compare across pages.)',
+  },
+  {
+    label: 'the last page with version metadata',
+    meta: { ...readMeta(), totalLines: 43, versionBefore: 'v1', versionAfter: 'v1' },
+    notice: '(File version before: "v1"; after: "v1". Metadata only; compare across pages.)',
+  },
+]
+
+const noticeResult = (sample: typeof readNotices[number]): ToolResultNode => settled({
+  meta: sample.meta,
+  call: { name: 'read', argsRaw: sample.argsRaw ?? ARGS },
+  content: [{ type: 'text', text: readContent(`export const a = 1\n${sample.notice}`) }],
+})
+
 describe('readCardModel', () => {
   it('derives the card from settled read metadata and its raw envelope', () => {
     expect(readCardModel(settled())).toEqual({
@@ -87,6 +133,24 @@ describe('readCardModel', () => {
     expect(model?.lines).toEqual(sampleLines)
     expect(model?.lines).not.toBe(sampleLines)
     expect(model?.lines[0]).not.toBe(sampleLines[0])
+  })
+
+  it('keeps complete reads with equal version metadata on the read card', () => {
+    expect(readCardModel(settled({
+      meta: { ...readMeta(), offset: 1, column: 1, lines: [{ number: 1, text: 'export const a = 1' }],
+        totalLines: 1, versionBefore: 'v1', versionAfter: 'v1' },
+      call: { name: 'read', argsRaw: '{"file_path":"src/a.ts","offset":1,"column":1}' },
+    })))
+      .not.toBeNull()
+  })
+
+  it('keeps legacy pagination with only a before-read version on the read card', () => {
+    expect(readCardModel(settled({ meta: { ...readMeta(), column: 1, versionBefore: 'v1' } })))
+      .not.toBeNull()
+  })
+
+  it.each(readNotices)('keeps $label on the full-text path', (sample) => {
+    expect(readCardModel(noticeResult(sample))).toBeNull()
   })
 
   it('relativizes a workspace-rooted path label, and leaves others as authored', () => {
@@ -138,6 +202,9 @@ describe('readCardModel', () => {
     ['blank file_path', '{"file_path":" "}'],
     ['non-number offset', '{"file_path":"src/a.ts","offset":"41"}'],
     ['non-positive offset', '{"file_path":"src/a.ts","offset":0}'],
+    ['non-number column', '{"file_path":"src/a.ts","column":"2"}'],
+    ['non-positive column', '{"file_path":"src/a.ts","column":0}'],
+    ['fractional column', '{"file_path":"src/a.ts","column":1.5}'],
     ['fractional limit', '{"file_path":"src/a.ts","limit":1.5}'],
   ])('keeps malformed recognized read args generic: %s', (_label, argsRaw) => {
     expect(readCardModel(settled({ call: { name: 'read', argsRaw } }))).toBeNull()
@@ -192,6 +259,14 @@ describe('GenericToolCard read body', () => {
     expect(contentTexts(view.container)).toContain('export const a = 1')
     // The gutter keeps the file's own line numbers.
     expect(view.getByText('41')).toBeTruthy()
+  })
+
+  it.each(readNotices)('shows the original notice for $label', (sample) => {
+    const view = render(<GenericToolCard {...ownerProps(noticeResult(sample))} />)
+    toggleRow(view)
+    expect(view.container.querySelector('[data-read]')).toBeNull()
+    expect(view.container.textContent).toContain(sample.notice)
+    expect(view.container.textContent).toContain('<content>')
   })
 
   it('a non-read tool renders the bare row with no read card', () => {
@@ -256,6 +331,14 @@ describe('ReadRow keyed toolview', () => {
     // view resolves the path against the cwd before this callback opens it, so
     // the arg path is what arrives.
     expect(openFile).toHaveBeenCalledWith('src/a.ts', { line: 41 })
+  })
+
+  it.each(readNotices)('preserves the original result for $label', (sample) => {
+    const view = render(<ReadRow {...rowProps(noticeResult(sample))} />)
+    toggleRow(view)
+    expect(view.container.querySelector('[data-read]')).toBeNull()
+    expect(view.container.textContent).toContain(sample.notice)
+    expect(view.container.textContent).toContain('<content>')
   })
 
   it('a running read renders the summary row alone, and its state', () => {

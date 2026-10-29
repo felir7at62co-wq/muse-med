@@ -21,11 +21,11 @@
   en: eb21d89a3ecbd2d4
   zh: f05ccbb1e7515f32
 /deepseek-ai-dsh-tool-fs/use-this-package/the-tools:
-  en: 29a1d47e9677f2a3
-  zh: 0ae3c794cc7c54db
+  en: 68e749992246e100
+  zh: 865a5921bdc0e7df
 /deepseek-ai-dsh-tool-fs/use-this-package/configuration:
-  en: 7eb705e3b132fcba
-  zh: 883207b13d381f9e
+  en: 6d24e3aaf5aaa7a8
+  zh: 19f889b12567e0dc
 /deepseek-ai-dsh-tool-fs/use-this-package/policy-and-sandbox-behavior:
   en: 53d4ac2db089ef39
   zh: 214ea051ed56f500
@@ -36,14 +36,14 @@
   en: e30f7038c28e93f8
   zh: a3868dbd90367b13
 /deepseek-ai-dsh-tool-fs/understand-the-implementation/design-concept:
-  en: 454b5291db9ba847
-  zh: 9fe7081dfb416c93
+  en: bc43bd07a7639ad0
+  zh: 49dcb065e5c7c48c
 /deepseek-ai-dsh-tool-fs/understand-the-implementation/source-map:
-  en: e8220ed04480aadc
-  zh: 1cc5f9a505953102
+  en: 6d4512fa7276a39d
+  zh: a4c6fb2efda45833
 /deepseek-ai-dsh-tool-fs/understand-the-implementation/per-tool-flow:
-  en: d741e01be9fddb76
-  zh: 7aa1d7ca719a4aac
+  en: 3dfe7ff6becae1a4
+  zh: fe9d67efbfc8f233
 /deepseek-ai-dsh-tool-fs/understand-the-implementation/observation-and-concurrency:
   en: 665d437dc35bf05f
   zh: 8004334d6a3246b4
@@ -90,8 +90,8 @@
   en: ebd38733c0490428
   zh: b45101c325efe784
 /deepseek-ai-dsh-tool-fs/model-experience/read-result/what-the-model-sees:
-  en: 06e250bd8788248a
-  zh: e00d36b48068909a
+  en: ed14ea62f1c6eb27
+  zh: 7fe9fc505bebda50
 /deepseek-ai-dsh-tool-fs/model-experience/read-result/token-effect:
   en: 4269b4368622ec2f
   zh: f4df80c1fb6972f1

@@ -1623,7 +1623,9 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
         () => {
           estimate = estimatedCostReservation(args)
-          return { ...(catalogueQuote ?? estimate), scriptId: projectId as number }
+          return { ...(catalogueQuote ?? estimate), scriptId: projectId as number,
+            ...catalogueQuote?.verifiedFreeSubtitleErase === true
+              ? { standardId: 67, observedAt: new Date().toISOString() } : {} }
         })
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'

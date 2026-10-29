@@ -85,7 +85,7 @@ it.each([
 
 it('keeps native delivery, project and memory tools deferred while giving each a capability', () => {
   for (const name of ['drama_draft_dir', 'drama_project', 'jianying_draft', 'screenplay_export_docx',
-    'load_workspace_dependencies', 'manuscript_revision', 'hindsight_memory']) {
+    'load_workspace_dependencies', 'manuscript_revision', 'source_recover', 'hindsight_memory']) {
     expect(config.alwaysLoad).not.toContain(name)
     expect(capabilityMemberships(name, config.capabilities ?? []).length).toBeGreaterThan(0)
     expect(config.keywords?.[name]?.length).toBeGreaterThan(0)

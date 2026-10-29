@@ -199,6 +199,7 @@
           drama_shot: [分镜, 镜头脚本, 对白核对, 来源证据]
           drama_project: [项目设定, 项目圣经, 人物关系, 画幅, 分辨率]
           manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对]
+          source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
           jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片]
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
@@ -250,7 +251,7 @@
           - id: knowledge
             title: 知识与项目资料
             description: 搜索、读取和整理已连接的知识库与项目资料。
-            tools: [hindsight_memory, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            tools: [source_recover, hindsight_memory, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
           - id: coordination
             title: 团队任务与跟进
             description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。

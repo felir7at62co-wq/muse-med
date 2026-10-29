@@ -269,13 +269,13 @@ describe('default deployment (with dsh-fs-observation-policy)', () => {
   })
 
   describe('stat budget', () => {
-    it('read stats once; write and edit never stat in the tool (the gate stats zero too)', async () => {
+    it('read stats before and after; write and edit do not stat in the tool', async () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')
       const statSpy = vi.spyOn(ctx.fs, 'stat')
 
-      // read: exactly one stat (type + size routing + observed version).
+      // read checks the provider version before and after the content read.
       await call('read', { file_path: 'a.txt' })
-      expect(statSpy).toHaveBeenCalledTimes(1)
+      expect(statSpy).toHaveBeenCalledTimes(2)
 
       // edit (guarded, after the read): the gate supplies vObserved; the tool
       // does not stat to manufacture a basis. CAS happens in editText's lock.

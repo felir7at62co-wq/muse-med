@@ -7,6 +7,7 @@ import { runtimeArchivePath } from './office-engine.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import * as screenplayDocx from './screenplay-docx.ts'
 import * as manuscriptRevisions from './manuscript-revisions.ts'
+import * as sourceRecovery from './source-recovery.ts'
 import * as jianyingDraft from './jianying-draft.ts'
 import * as officeSkills from '@deepseek-ai/dsh-skill-office'
 import * as workspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
@@ -31,6 +32,8 @@ export interface Config {
   readonly docxReviewMode?: screenplayDocx.Config['reviewMode']
   /** Optional manuscript revision budgets; source snapshots remain workspace-local. */
   readonly manuscriptRevisions?: Partial<manuscriptRevisions.Config>
+  /** Optional historical read recovery limits; false disables the recovery tool and notices. */
+  readonly sourceRecovery?: false | Partial<sourceRecovery.Config>
   /** Optional interpreter override and limits for the bundled editable-draft builder. */
   readonly jianyingDraft?: Partial<Omit<jianyingDraft.Config, 'source'>>
 }
@@ -43,6 +46,7 @@ export interface Config {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(workspaceDependencies, config)
   await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
+  if (config.sourceRecovery !== false) await ctx.plugin(sourceRecovery, config.sourceRecovery ?? {})
   await ctx.plugin(jianyingDraft, { source: config.source, timeoutMs: 600_000, graceMs: 1000,
     ffmpegPath: process.env.DSH_FFMPEG_PATH ?? 'ffmpeg', ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
     maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })

@@ -43,7 +43,7 @@ The policy plugin is optional: without it the tools run against the bare provide
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer; `offset` is 1-based and `limit` defaults to and caps at the configured `readLimit` |
+| `read` | `file_path`, `offset?`, `column?`, `limit?` | Line-numbered UTF-8 content with a pagination footer; `offset` and the first-line Unicode code point `column` are 1-based, and `limit` defaults to and caps at `readLimit` |
 | `read_image` | `file_path` | Reads and persists a PNG/JPEG/WebP/GIF source; an extension-less path (normalized attachment object paths included) is identified from its file signature; normalization can downscale it before the next model request, so the model need not create a thumbnail first |
 | `write` | `file_path`, `content` | Creates or fully replaces a file; with the policy plugin, overwriting requires a prior `read` at the unchanged version, creating does not |
 | `edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Literal replacement requiring a unique match unless `replace_all` is true; with the policy plugin, requires a prior `read` and an unchanged file |
@@ -57,7 +57,7 @@ All keys are optional; the defaults are the shipped read caps.
 | Key | Default | Meaning |
 |---|---|---|
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call |
-| `readMaxLineLength` | `2000` | Characters kept per line before truncation |
+| `readMaxLineLength` | `2000` | Unicode code points kept per line segment before continuation |
 | `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a capped footer |
 | `readStreamMinSize` | `10485760` | Files at or above this size (or of unknown size) stream instead of loading whole into memory |
 
@@ -85,14 +85,14 @@ This section explains the design decisions behind the tool suite and points at t
 
 ### Design concept
 
-The tools are the executor; policy is an event gate. The tools inject no policy service and inspect no cache — each mutation asks the single intent slot for its guard through `ctx.waterfall`, and each operation emits `fs/observed` only after it succeeded. Reads do exactly one provider `stat` (type and size routing plus the observed version); mutations do none, because the guard comes from the intent slot and the provider re-checks under its lock.
+The tools are the executor; policy is an event gate. The tools inject no policy service and inspect no cache — each mutation asks the single intent slot for its guard through `ctx.waterfall`, and each operation emits `fs/observed` only after it succeeded. `read` checks provider metadata before and after reading; `read_image` checks once. Mutations do not stat in the tool, because the guard comes from the intent slot and the provider re-checks under its lock.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, tool composition, `read_image` attachments gate |
-| [`src/read.ts`](src/read.ts) | `read` executor: one stat, streaming decision, window build, observation |
+| [`src/read.ts`](src/read.ts) | `read` executor: before/after metadata, streaming decision, window build, observation |
 | [`src/read-image.ts`](src/read-image.ts) | `read_image` executor: route and media-type gates, bounded bytes, attachment save |
 | [`src/write.ts`](src/write.ts) | `write` executor: intent waterfall, atomic write, observation |
 | [`src/edit.ts`](src/edit.ts) | `edit` executor: intent waterfall, literal edit, observation |
@@ -102,7 +102,7 @@ The tools are the executor; policy is an event gate. The tools inject no policy 
 
 ### Per-tool flow
 
-All four tools share one flow shape: resolve the path with the calling session's cwd, run the applicable gate, perform exactly one provider operation, and emit `fs/observed` only after success. `read` and `read_image` pay one `stat` for type and size routing; `write` and `edit` pay none because their guard comes from the intent slot, and provider failures surface as typed `FsError` results. The per-tool executors live in `src/read.ts`, `src/read-image.ts`, `src/write.ts`, and `src/edit.ts`.
+All four tools resolve the path with the calling session's cwd, run applicable policy, access the provider, and emit `fs/observed` only after success. `read` checks metadata before and after its content read; `read_image` stats once for routing. `write` and `edit` do not stat in the tool because their guard comes from the intent slot; provider failures surface as typed `FsError` results. The per-tool executors live in `src/read.ts`, `src/read-image.ts`, `src/write.ts`, and `src/edit.ts`.
 
 ### Observation and concurrency
 
@@ -179,7 +179,7 @@ Prefix-stable while the visible tool definitions and order are unchanged. Regist
 
 #### What the model sees
 
-A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered lines as `<lineNumber>: <text>`, a blank line, one footer, and `</content>`. The footer is exactly `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. A long line ends exactly `... (line truncated to <max> chars)`. A missing read still returns `FS_NOT_FOUND`, but it records confirmed absence for the calling session; after an externally deleted file is re-read, a retried `write` can safely recreate it through the provider's no-replace guard.
+A successful read returns a path, line-numbered content and a footer. Follow `offset` for later lines, or both `offset` and `column` when a long line or byte cap leaves part of a line unread. A byte cap too small for the next code point fails instead of returning a non-advancing cursor. Pagination, changed files and unavailable final metadata expose provider versions observed before and after the read; compare them across pages. An unchanged complete read from the start retains its existing result fields and text. These values are provider metadata, not content hashes or an atomic snapshot, and unchanged metadata cannot guarantee unchanged content. A missing read still returns `FS_NOT_FOUND` and records confirmed absence for the calling session; after an externally deleted file is re-read, a retried `write` can safely recreate it through the provider's no-replace guard.
 
 #### Token effect
 
