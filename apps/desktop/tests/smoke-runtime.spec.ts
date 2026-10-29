@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
-import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
+import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -62,6 +62,7 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
+  const layout = prepareDesktopSmokeSkills(home)
   const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
@@ -78,15 +79,13 @@ function fixture(packaged = false) {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    return { name, path, invocation: { modelInvocable: true } }
+    return { name, path, source: 'bundled', invocation: { modelInvocable: true } }
   })
-  const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
-  mkdirSync(dirname(customPath), { recursive: true })
-  writeFileSync(customPath, '# fixture')
-  skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
+  skills.push(...layout.selected.map(skill => ({ ...skill, invocation: { modelInvocable: true } })))
   const cordisSkill = {
     name: 'editing-cordis-compositions',
     path: unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md')),
+    source: 'bundled',
     invocation: { modelInvocable: true },
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
@@ -95,7 +94,7 @@ function fixture(packaged = false) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
   const exporter = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/office-support/export_docx.py'))
   mkdirSync(dirname(exporter), { recursive: true })
@@ -123,9 +122,9 @@ function fixture(packaged = false) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
+  const creationSkills = [...skills]
   const selected = new Set<string>()
   const agent = { preset: 'short-drama', id: 'smoke-agent', session: {
     append: vi.fn((type: string, data: { message?: { content: readonly { type: string; text?: string }[] } }) => {
@@ -209,6 +208,7 @@ function fixture(packaged = false) {
       list: vi.fn(async (options: { scope: { preset: string } }): Promise<{
         name: string
         path?: string
+        source?: string
         invocation: { modelInvocable: boolean }
       }[]> =>
         options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills),
@@ -233,7 +233,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, home, root }
+    accountMcpNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -257,9 +257,9 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: f.agent, scope: f.agent })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.layout.cwd })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.layout.cwd })
   expect(f.dispose).toHaveBeenCalledTimes(14)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
@@ -411,9 +411,16 @@ it.each(['office-docx', 'office-xlsx', 'office-pptx'])('rejects creation without
   await expect(f.apply(f.ctx)).rejects.toThrow('missing creation skill ' + name)
 })
 
+it.each(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+('accepts additional creation skills from supported source %s', async (source) => {
+  const f = fixture()
+  f.creationSkills.push({ name: 'additional-user-skill', path: '', source, invocation: { modelInvocable: true } })
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+})
+
 it.each(['desktop-user-skill', 'editing-cordis-compositions', 'unreviewed-runtime-skill'])('rejects creation exposing %s', async (name) => {
   const f = fixture()
-  f.creationSkills.push({ name, path: '', invocation: { modelInvocable: true } })
+  f.creationSkills.push({ name, path: '', source: 'runtime', invocation: { modelInvocable: true } })
   await expect(f.apply(f.ctx)).rejects.toThrow('creation skill registry exposes unreviewed skills')
 })
 
@@ -512,15 +519,36 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
   const f = fixture()
   const custom = f.skills.find(skill => skill.name === 'desktop-user-skill')!
   if (kind === 'missing') f.skills.splice(f.skills.indexOf(custom), 1)
-  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-legacy-only' })
+  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-shared-only' })
   else {
     const path = join(f.home, '.agents/skills/desktop-user-skill/SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# legacy')
     custom.path = path
   }
-  await expect(f.apply(f.ctx)).rejects.toThrow('product custom skills missing or legacy skills discovered')
+  await expect(f.apply(f.ctx)).rejects.toThrow(kind === 'legacy-only'
+    ? 'excluded shared user skill was discovered' : 'custom or project skill selection differs')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['short-drama', 'creation'])('rejects missing or unreadable custom/project skills in %s', async (preset) => {
+  const f = fixture()
+  if (preset === 'creation') f.creationSkills.splice(f.creationSkills.findIndex(skill => skill.name === 'desktop-project-muse'), 1)
+  else {
+    const get = f.ctx.skills.get.getMockImplementation()!
+    f.ctx.skills.get.mockImplementation(async name => name === 'desktop-project-muse' ? undefined : get(name))
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow(preset === 'creation'
+    ? 'custom or project skill selection differs in creation: desktop-project-muse'
+    : 'custom or project skill could not load in short-drama: desktop-project-muse')
+})
+
+it.each(['source', 'priority'])('rejects incorrect project skill %s', async (change) => {
+  const f = fixture()
+  const skill = f.skills.find(skill => skill.name === 'desktop-project-priority')!
+  if (change === 'source') skill.source = 'custom'
+  else skill.path = join(f.layout.cwd, '.dsh/skills/desktop-project-priority/SKILL.md')
+  await expect(f.apply(f.ctx)).rejects.toThrow('custom or project skill selection differs in short-drama: desktop-project-priority')
 })
 
 it('refuses a roster with additional presets before creating an agent', async () => {
@@ -744,7 +772,7 @@ it('rejects an editing mode that loses a standard video tool', async () => {
 it.each(['directory', 'registry'])('rejects XHS in the product %s and disposes the created agent', async (source) => {
   const f = fixture()
   if (source === 'directory') mkdirSync(join(f.skillRoot, 'xiaohongshu-reference'))
-  else f.skills.push({ name: 'xiaohongshu-reference', path: '', invocation: { modelInvocable: false } })
+  else f.skills.push({ name: 'xiaohongshu-reference', path: '', source: 'runtime', invocation: { modelInvocable: false } })
   await expect(f.apply(f.ctx)).rejects.toThrow('XHS must not ship')
   expect(f.dispose).toHaveBeenCalledTimes(2)
 })
@@ -825,7 +853,7 @@ it('loads default transcription, writing and shot-writing skills through the sco
   await f.apply(f.ctx)
   for (const name of [...defaultHostSkills,
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.layout.cwd })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)

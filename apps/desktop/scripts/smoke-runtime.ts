@@ -19,9 +19,55 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
   tools: Record<string, string>
 }
 
+/** Isolated smoke roots with product-home skills separate from project discovery. */
+export interface DesktopSmokeSkillLayout {
+  /** Repository-marked workspace used by every mounted Agent. */
+  cwd: string
+  /** Expected winners after product and project root precedence is applied. */
+  selected: Array<{ name: string; path: string; source: string }>
+}
+
+/** Describe product user roots, three project roots and their same-name precedence.
+ * @param home - Private smoke product home.
+ * @returns Expected filesystem selections without creating any files.
+ */
+export function desktopSmokeSkillLayout(home: string): DesktopSmokeSkillLayout {
+  const cwd = join(home, 'workspace')
+  return { cwd, selected: [
+    { name: 'desktop-user-skill', path: join(home, 'skills/desktop-user-skill/SKILL.md'), source: 'custom' },
+    ...(['muse', 'dsh', 'agents'] as const).map(kind => ({
+      name: 'desktop-project-' + kind,
+      path: join(cwd, '.' + kind, 'skills/desktop-project-' + kind + '/SKILL.md'), source: 'project-' + kind,
+    })),
+    { name: 'desktop-project-priority', path: join(cwd, '.muse/skills/desktop-project-priority/SKILL.md'), source: 'project-muse' },
+  ] }
+}
+
+/** Create independent project roots and excluded shared-root sentinels for the real Host smoke.
+ * @param home - Private smoke product home.
+ * @returns Workspace and expected selected skill paths.
+ */
+export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout {
+  const layout = desktopSmokeSkillLayout(home)
+  mkdirSync(join(layout.cwd, '.git'), { recursive: true })
+  const files = [...layout.selected,
+    ...['.dsh', '.agents'].flatMap(directory => [
+      { name: 'desktop-user-skill', path: join(home, directory, 'skills/desktop-user-skill/SKILL.md') },
+      { name: 'desktop-shared-only', path: join(home, directory, 'skills/desktop-shared-only/SKILL.md') },
+      { name: 'desktop-project-priority', path: join(layout.cwd, directory, 'skills/desktop-project-priority/SKILL.md') },
+    ]),
+    { name: 'desktop-project-priority', path: join(home, 'skills/desktop-project-priority/SKILL.md') },
+  ]
+  for (const { name, path } of files) {
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, `---\nname: ${name}\ndescription: Isolated Desktop smoke fixture.\n---\n# ${name}\n`)
+  }
+  return layout
+}
+
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
- * @param home - Disposable smoke home and workspace.
+ * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
  */
@@ -37,8 +83,11 @@ export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
+  const skillLayout = ${JSON.stringify(desktopSmokeSkillLayout(home))}
+  const cwd = skillLayout.cwd
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
+  const creationUserSources = new Set(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
@@ -62,7 +111,7 @@ export function apply(ctx) {
   try {
     for (let index = 0; index < 2; index++) {
       handles.push(await ctx.agents.create({
-        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: home, agentPreset: id },
+        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
     }
@@ -154,14 +203,14 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
-    const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
+    const skills = await skillRegistry.list({ scope: handle.agent, cwd })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
       }
-      if (skills.some(skill => !creationSkillNames.has(skill.name))) {
+      if (skills.some(skill => !creationSkillNames.has(skill.name) && !creationUserSources.has(skill.source))) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
     }
@@ -187,7 +236,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
@@ -223,12 +272,20 @@ export function apply(ctx) {
         throw new Error('desktop runtime: cordis authoring skill is not mounted')
       }
     }
-    const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
-      || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
-      throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
-        + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
-        + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))
+    for (const expected of skillLayout.selected) {
+      const skill = skills.find(skill => skill.name === expected.name)
+      if (!skill?.path || !skill.invocation.modelInvocable || skill.source !== expected.source
+        || realpathSync.native(skill.path) !== realpathSync.native(expected.path)) {
+        throw new Error('desktop runtime: custom or project skill selection differs in ' + id + ': ' + expected.name
+          + '; actual=' + (skill?.path ?? 'missing') + '; expected=' + expected.path)
+      }
+      const loaded = await skillRegistry.get(expected.name, { scope: handle.agent, cwd })
+      if (!loaded?.path || !loaded.content?.trim() || realpathSync.native(loaded.path) !== realpathSync.native(expected.path)) {
+        throw new Error('desktop runtime: custom or project skill could not load in ' + id + ': ' + expected.name)
+      }
+    }
+    if (skills.some(skill => skill.name === 'desktop-shared-only')) {
+      throw new Error('desktop runtime: excluded shared user skill was discovered in ' + id)
     }
     const bundled = realpathSync.native(join(root, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
       .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2'))
@@ -249,7 +306,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -289,21 +346,15 @@ export async function smokeDesktopRuntime(
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
   const host = new DesktopHostProcess(node, root, profile, undefined, {
-    ...environment, MUSE_HOME: home, DSH_HOME: home, HOME: home, USERPROFILE: home,
+    ...environment, MUSE_HOME: home, DSH_HOME: home, DSH_AGENTS_HOME: join(home, '.agents'),
+    HOME: home, USERPROFILE: home,
     APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
   }, undefined, join(resourcesRuntime, 'primary-runtime'),
   { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     createPluginProfile(profile)
-    for (const [directory, name] of [
-      ['skills', 'desktop-user-skill'], ['.agents/skills', 'desktop-user-skill'],
-      ['.agents/skills', 'desktop-legacy-only'], ['.dsh/skills', 'desktop-legacy-only'],
-    ] as const) {
-      const skill = join(home, directory, name)
-      mkdirSync(skill, { recursive: true })
-      writeFileSync(join(skill, 'SKILL.md'), `---\nname: ${name}\ndescription: Isolated Desktop smoke fixture.\n---\n# ${name}\n`)
-    }
+    prepareDesktopSmokeSkills(home)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(profile, 'node_modules', pluginName)
     mkdirSync(plugin, { recursive: true })
