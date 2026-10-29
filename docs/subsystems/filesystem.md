@@ -221,19 +221,28 @@ interface FsObservationActor {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The result the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` directly with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
+A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues so `totalLines` remains exact. `continuation` locates unread content by line and Unicode code-point column; pagination and version anomalies carry provider metadata without promising an atomic snapshot. Mutation authorization uses version freshness rather than the amount read: the tool emits a present `fs/observed` with the pre-read stat version, so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
 interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
+  /** First-line code-point column for this response. */
+  column?: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Exact total line count in the file. */
   totalLines: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
+  /** Cursor for remaining text on a line. */
+  continuation?: { offset: number; column: number }
+  /** Filesystem metadata before and after the read, when available. */
+  versionBefore?: string
+  versionAfter?: string
+  /** True when the post-read provider version could not be observed. */
+  versionUnavailable?: true
 }
 ```
 

@@ -226,10 +226,10 @@ describe('registration', () => {
 })
 
 describe('read tool', () => {
-  it('formats line-numbered content with a footer', async () => {
+  it.each([{}, { offset: 1, column: 1 }])('keeps a complete stable read identical to the legacy result: %j', async (window) => {
     const { ctx, fs } = await setup()
     fs.files.set('key:a.txt', 'hello\nworld')
-    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    const result = await call(ctx, 'read', { file_path: 'a.txt', ...window })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected read success')
     expect(result.value).toEqual({
@@ -238,6 +238,7 @@ describe('read tool', () => {
       lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
       totalLines: 2,
     })
+    expect(result.meta).toEqual(result.value)
     expect(text(result)).toBe(`<path>/abs/a.txt</path>
 <type>file</type>
 <content>
@@ -254,7 +255,76 @@ describe('read tool', () => {
     const result = await call(ctx, 'read', { file_path: 'empty.txt' })
     if (result.isError) throw new Error('expected empty read success')
     expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(result.meta).toEqual(result.value)
     expect(text(result)).toContain('(End of file - total 0 lines)')
+  })
+
+  it.each([
+    { offset: 1, limit: 1 },
+    { offset: 2 },
+    { column: 2 },
+  ])('retains both provider versions for a paged read: %j', async (window) => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'hello\nworld')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', ...window })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected paged read success')
+    expect(result.value).toMatchObject({ versionBefore: 'v1', versionAfter: 'v1' })
+    expect(result.meta).toMatchObject({ versionBefore: 'v1', versionAfter: 'v1' })
+    expect(text(result)).toContain('File version before: "v1"; after: "v1".')
+    expect(text(result)).not.toContain('File version unavailable')
+  })
+
+  it('reports a provider version change observed during the read', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'hello')
+    vi.spyOn(fs, 'stat').mockResolvedValueOnce({ version: FsVersion('v1'), type: 'file', size: 5 })
+      .mockResolvedValueOnce({ version: FsVersion('v2'), type: 'file', size: 5 })
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('File changed during read')
+    expect(result.meta).toMatchObject({ versionBefore: 'v1', versionAfter: 'v2' })
+    expect(ctx.tools.get('read')?.presentResult?.({ file_path: 'a.txt' }, result)).toBeUndefined()
+  })
+
+  it('reports an unavailable post-read version without losing successful content', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'hello')
+    vi.spyOn(fs, 'stat').mockResolvedValueOnce({ version: FsVersion('v1'), type: 'file', size: 5 })
+      .mockRejectedValueOnce(new Error('metadata unavailable'))
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('1: hello')
+    expect(text(result)).toContain('File version unavailable after read')
+    expect(result.meta).toMatchObject({ versionBefore: 'v1', versionUnavailable: true })
+  })
+
+  it('keeps cancellation during the post-read check from authorizing a successful read', async () => {
+    const { ctx, fs } = await setup(), controller = new AbortController(), observed = vi.fn()
+    fs.files.set('key:a.txt', 'hello')
+    ctx.on('fs/observed', observed)
+    vi.spyOn(fs, 'stat').mockResolvedValueOnce({ version: FsVersion('v1'), type: 'file', size: 5 })
+      .mockImplementationOnce(async () => {
+        const error = new Error('cancelled during metadata check')
+        controller.abort(error)
+        throw error
+      })
+    const result = await ctx.tools.execute({ signal: controller.signal, callId: ToolCallId('cancel-read'),
+      name: 'read', arguments: { file_path: 'a.txt' } })
+    expect(result.isError).toBe(true)
+    expect(controller.signal.aborted).toBe(true)
+    expect(text(result)).toBe('Error: cancelled during metadata check')
+    expect(observed).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid columns rather than silently changing the cursor', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'hello')
+    for (const column of [0, 1.5, -1]) {
+      const result = await call(ctx, 'read', { file_path: 'a.txt', column })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('column must be a positive integer')
+    }
   })
 
   it('rejects a non-positive offset via arg validation', async () => {
@@ -520,6 +590,38 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })
   })
 
+  it('read: partial lines and changed versions keep the generic result envelope visible', async () => {
+    const base = { path: '/tmp/a.ts', offset: 1, lines: [{ number: 1, text: 'hello' }], totalLines: 1 }
+    for (const extra of [
+      { continuation: { offset: 1, column: 6 } }, { column: 6 },
+      { versionBefore: 'v1', versionAfter: 'v2' }, { versionUnavailable: true },
+      { totalLines: 2, versionBefore: 'v1', versionAfter: 'v1' },
+    ]) {
+      const result = { content: [{ type: 'text' as const, text: 'full envelope with continuation' }], isError: false, meta: { ...base, ...extra } }
+      expect(await presentResult('read', { file_path: 'a.ts' }, result)).toBeUndefined()
+    }
+  })
+
+  it('read: legacy metadata and explicit first column keep the complete read card', async () => {
+    const base = { path: '/tmp/a.ts', offset: 1, lines: [{ number: 1, text: 'hello' }], totalLines: 1 }
+    for (const extra of [{ column: 1 }, { versionBefore: 'v1' }, { totalLines: 2 }]) {
+      const result = { content: [{ type: 'text' as const,
+        text: '<path>/tmp/a.ts</path>\n<type>file</type>\n<content>\n1: hello\n</content>' }],
+      isError: false, meta: { ...base, ...extra } }
+      expect(await presentResult('read', { file_path: 'a.ts' }, result)).toMatchObject({ card: 'read' })
+    }
+  })
+
+  it('read: an empty file keeps its EOF text and zero-line read card', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:empty.txt', '')
+    const result = await call(ctx, 'read', { file_path: 'empty.txt' })
+    expect(ctx.tools.get('read')?.presentResult?.({ file_path: 'empty.txt' }, result)).toEqual({
+      card: 'read', path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0,
+      content: [{ type: 'text', text: '(End of file - total 0 lines)' }],
+    })
+  })
+
   it('read: completed presentation is a read card carrying the structured window with the envelope stripped', async () => {
     // The structured line data rides on persisted meta (the raw output object is
     // not on the wire); presentResult narrows it and appends the stripped text as
@@ -740,7 +842,11 @@ describe('read caps are plugin config', () => {
     const { ctx, fs } = await setupWith({ readMaxLineLength: 4 })
     fs.files.set('key:a.txt', 'abcdefgh')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
-    expect(text(result)).toContain('1: abcd... (line truncated to 4 chars)')
+    expect(text(result)).toContain('1: abcd')
+    expect(text(result)).toContain('offset=1, column=5')
+    const next = await call(ctx, 'read', { file_path: 'a.txt', offset: 1, column: 5 })
+    expect(text(next)).toContain('1: efgh')
+    expect(text(next)).toContain('End of file')
   })
 
   it('a configured readMaxBytes caps the window at the configured bytes', async () => {

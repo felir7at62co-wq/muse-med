@@ -22,7 +22,9 @@
     "lib/manuscript-source-review.js",
     "lib/jianying-draft.js",
     "lib/hindsight.js",
-    "lib/feishu-migration.js"
+    "lib/feishu-migration.js",
+    "lib/source-recovery.js",
+    "licenses"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -86,7 +88,9 @@
     "koffi": "^3.1.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3",
-    "@deepseek-ai/dsh-tool-discovery": "workspace:*"
+    "@deepseek-ai/dsh-tool-discovery": "workspace:*",
+    "@deepseek-ai/dsh-session-query": "workspace:*",
+    "@deepseek-ai/dsh-compaction": "workspace:*"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -99,7 +103,8 @@
     "./manuscript-revisions": "./lib/manuscript-revisions.js",
     "./hindsight": "./lib/hindsight.js",
     "./feishu-migration": "./lib/feishu-migration.js",
-    "./manuscript-source-review": "./lib/manuscript-source-review.js"
+    "./manuscript-source-review": "./lib/manuscript-source-review.js",
+    "./source-recovery": "./lib/source-recovery.js"
   },
   "dsh": {
     "bundle": {

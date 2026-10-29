@@ -2226,6 +2226,10 @@ Read a UTF-8 text file and return line-numbered content.
       "type": "number",
       "description": "1-based first line to return. Defaults to 1."
     },
+    "column": {
+      "type": "number",
+      "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+    },
     "limit": {
       "type": "number",
       "description": "Maximum number of lines to return. Defaults to 2000."

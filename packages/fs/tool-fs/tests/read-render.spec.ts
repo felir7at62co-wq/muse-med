@@ -46,9 +46,77 @@ describe('buildWindow', () => {
     expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
   })
 
+  it('preserves embedded carriage returns while removing only line-ending carriage returns', async () => {
+    const result = await buildWindow(chunked('a\rb\r\r\nc\r', 1), READ_ALL, 'f')
+    expect(result.lines).toEqual([{ number: 1, text: 'a\rb\r' }, { number: 2, text: 'c' }])
+    expect(result.totalLines).toBe(2)
+  })
+
+  it('retains an unpaired final UTF-16 unit supplied by a decoded-text provider', async () => {
+    const source = `tail${String.fromCharCode(0xd83d)}`
+    const result = await buildWindow(chunked(source, 1), READ_ALL, 'f')
+    expect(result.lines).toEqual([{ number: 1, text: source }])
+    expect(result.continuation).toBeUndefined()
+  })
+
   it('truncates an over-long line', async () => {
     const result = await buildWindow(whole('x'.repeat(3000)), READ_ALL, 'f')
-    expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+    expect(result.lines[0]?.text).toHaveLength(READ_MAX_LINE_LENGTH)
+    expect(result.continuation).toEqual({ offset: 1, column: READ_MAX_LINE_LENGTH + 1 })
+  })
+
+  it('continues long Unicode lines across split surrogates and CRLF without gaps', async () => {
+    const source = '开😀头甲😀尾\r\n下一行\n'
+    let offset = 1, column = 1
+    const parts: string[] = []
+    for (let page = 0; page < 10; page++) {
+      const result = await buildWindow(chunked(source, 1), { offset, column, limit: 20, maxLineLength: 2, maxBytes: 16 }, 'f')
+      for (const line of result.lines) parts.push(`${line.number}:${line.text}`)
+      if (result.continuation === undefined) break
+      ;({ offset, column } = result.continuation)
+    }
+    expect(parts).toEqual(['1:开😀', '1:头甲', '1:😀尾', '2:下一', '2:行'])
+  })
+
+  it('returns a byte-limited prefix and advances the column', async () => {
+    const result = await buildWindow(whole('a😀b'), { offset: 1, limit: 2, maxLineLength: 10, maxBytes: 5 }, 'f')
+    expect(result.lines).toEqual([{ number: 1, text: 'a😀' }])
+    expect(result.continuation).toEqual({ offset: 1, column: 3 })
+    expect(result.truncatedByBytes).toBe(true)
+    const next = await buildWindow(whole('a😀b'), { offset: 1, column: 3, limit: 2, maxLineLength: 10, maxBytes: 5 }, 'f')
+    expect(next.lines).toEqual([{ number: 1, text: 'b' }])
+    expect(next.continuation).toBeUndefined()
+  })
+
+  it('keeps empty lines when their separator fits the byte limit', async () => {
+    const result = await buildWindow(whole('a\n\nb'), { ...READ_ALL, maxBytes: 2 }, 'f')
+    expect(result.lines).toEqual([{ number: 1, text: 'a' }, { number: 2, text: '' }])
+    expect(result.continuation).toEqual({ offset: 3, column: 1 })
+    expect(result.totalLines).toBe(3)
+    expect(result.truncatedByBytes).toBe(true)
+  })
+
+  it('advances past an empty line on the next page when its separator did not fit', async () => {
+    const source = 'a\n\nb', caps = { ...READ_ALL, maxBytes: 1 }
+    const first = await buildWindow(whole(source), caps, 'f')
+    expect(first.lines).toEqual([{ number: 1, text: 'a' }])
+    expect(first.continuation).toEqual({ offset: 2, column: 1 })
+    const second = await buildWindow(whole(source), { ...caps, offset: 2 }, 'f')
+    expect(second.lines).toEqual([{ number: 2, text: '' }])
+    expect(second.continuation).toEqual({ offset: 3, column: 1 })
+    const third = await buildWindow(whole(source), { ...caps, offset: 3 }, 'f')
+    expect(third.lines).toEqual([{ number: 3, text: 'b' }])
+    expect(third.continuation).toBeUndefined()
+  })
+
+  it('rejects a byte cap too small for the first code point instead of looping', async () => {
+    await expect(buildWindow(whole('😀'), { offset: 1, limit: 1, maxLineLength: 10, maxBytes: 1 }, 'f'))
+      .rejects.toThrow('byte cap too small for one character')
+  })
+
+  it('rejects a column beyond the requested line', async () => {
+    await expect(buildWindow(whole('abc'), { offset: 1, column: 4, limit: 1, ...DEFAULT_CAPS }, 'f'))
+      .rejects.toThrow('column 4 is out of range')
   })
 
   it('caps output bytes and reports truncatedByBytes', async () => {
@@ -81,7 +149,8 @@ describe('buildWindow', () => {
   describe('caps are per-request (the plugin config reaches the window)', () => {
     it('truncates lines at a custom maxLineLength and names it in the suffix', async () => {
       const result = await buildWindow(whole('abcdefghij'), { offset: 1, limit: 10, maxLineLength: 5, maxBytes: READ_MAX_BYTES }, 'f')
-      expect(result.lines[0]?.text).toBe('abcde... (line truncated to 5 chars)')
+      expect(result.lines[0]?.text).toBe('abcde')
+      expect(result.continuation).toEqual({ offset: 1, column: 6 })
     })
 
     it('caps output at a custom maxBytes', async () => {
@@ -101,7 +170,8 @@ describe('buildWindow', () => {
 
     it('caps a newline-free giant line split across chunks without unbounded buffering', async () => {
       const result = await buildWindow(chunked('z'.repeat(5000), 256), READ_ALL, 'f')
-      expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+      expect(result.lines[0]?.text).toHaveLength(READ_MAX_LINE_LENGTH)
+      expect(result.continuation).toEqual({ offset: 1, column: READ_MAX_LINE_LENGTH + 1 })
     })
 
     it('caps output bytes mid-stream', async () => {
