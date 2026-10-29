@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 import { museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const source = join(import.meta.dirname, 'ds-bot')
@@ -23,7 +24,7 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
   const before = readFileSync(join(source, 'client.js'))
   try {
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
-    environment.npm_execpath = process.env.npm_execpath ?? join(root, 'node_modules/pnpm/bin/pnpm.cjs')
+    environment.npm_execpath = resolvePnpmEntrypoint(join(root, 'node_modules/pnpm/package.json'))
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', 'ds-bot', '--out', output], {
       cwd: root, env: environment, encoding: 'utf8', timeout: 110_000, maxBuffer: 8 * 1024 * 1024,
     })
