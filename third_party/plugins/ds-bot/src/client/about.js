@@ -51,12 +51,14 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
     h(Section, { key: 'links', title: t('Links') },
       h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
     h(Section, { key: 'credits', title: t('Open-source licenses') },
+      h(Row, { label: t('Muse repository') }, h('a', { className: 'bt-soft bt-soft-sm', href: 'https://github.com/felir7at62co-wq/muse-med', target: '_blank', rel: 'noopener noreferrer' }, t('Open'))),
+      h(Row, { label: t('Muse license') }, h('a', { className: 'bt-soft bt-soft-sm', href: 'https://github.com/felir7at62co-wq/muse-med/blob/main/LICENSE', target: '_blank', rel: 'noopener noreferrer' }, t('View license notices'))),
       h('details', { className: 'bt-about-licenses' },
-        h('summary', null, t('View license notices')),
+        h('summary', null, t('Upstream license notices')),
         h('div', { className: 'bt-about-license-copy' },
           h('span', null, 'DS Bot · Fei2411 and contributors'),
           h('span', { className: 'bt-set-hint' }, 'Apache-2.0'),
-          h('a', { className: 'bt-about-link', href: 'https://github.com/Fei2411/DS-Bot', target: '_blank', rel: 'noopener noreferrer' }, t('Original project and license'))))),
+          h('a', { className: 'bt-about-link', href: 'https://github.com/Fei2411/DS-Bot', target: '_blank', rel: 'noopener noreferrer' }, t('Upstream project and license'))))),
   ]
 }
 

@@ -10,7 +10,7 @@ import { installLocale, t, hostText } from '../src/client/i18n.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { outputFiles } = await build({
-  stdin: { contents: "export { BrandName, BrandMark, BotReturn, TeamSidebar } from './src/client/sidebar.js'; export { AboutPage } from './src/client/about.js'; export { ModelChoiceDock, DeepSeekSignIn } from './src/client/model-menu.js'; export { FeedbackPage, openMuseFeedback } from './src/client/feedback.js'; export { CharacterGrid } from './src/client/bot-settings.js'", resolveDir: root },
+  stdin: { contents: "export { BrandName, BrandMark, BotReturn, TeamSidebar } from './src/client/sidebar.js'; export { AboutPage } from './src/client/about.js'; export { ModelChoiceDock, DeepSeekSignIn } from './src/client/model-menu.js'; export { FeedbackPage, openMuseFeedback } from './src/client/feedback.js'; export { CharacterGrid } from './src/client/bot-settings.js'; export { installLocale } from './src/client/i18n.js'", resolveDir: root },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -66,6 +66,10 @@ test('English and Chinese product copy use Muse Bot without rewriting user or pr
     assert.equal(t('About DS Bot'), '关于 Muse Bot')
     assert.equal(t('Muse Bot'), 'Muse Bot')
     assert.equal(t('Muse Spider'), 'Muse 小蜘蛛')
+    assert.equal(t('Muse repository'), 'Muse 仓库')
+    assert.equal(t('Muse license'), 'Muse 许可证')
+    assert.equal(t('Upstream license notices'), '上游许可说明')
+    assert.equal(t('Upstream project and license'), '上游项目与许可证')
     assert.equal(t('No models are set up in DeepSeek Harness yet.'), 'Muse 里还没有设置模型。')
   } finally { off() }
 })
@@ -90,14 +94,44 @@ test('about does not offer the upstream updater or GitHub issue flow even with u
   assert.equal(find(tree, node => node.props?.className === 'bt-about-name')[0].children[0], 'Muse Bot')
   assert.equal(find(tree, node => node.props?.className === 'bt-about-version').length, 0, 'plugin version is not the Muse application version')
   assert.deepEqual(find(tree, node => node.type === 'button').map(node => textOf(node)), ['Open'])
-  assert.equal(find(tree, node => node.props?.href).length, 1, 'the sole repository link belongs to explicit third-party credits')
+  const links = find(tree, node => node.props?.href)
+  assert.deepEqual(links.map(node => node.props.href), [
+    'https://github.com/felir7at62co-wq/muse-med',
+    'https://github.com/felir7at62co-wq/muse-med/blob/main/LICENSE',
+    'https://github.com/Fei2411/DS-Bot',
+  ])
+  for (const link of links) {
+    assert.equal(link.props.target, '_blank')
+    assert.equal(link.props.rel, 'noopener noreferrer')
+  }
   assert.match(textOf(tree), /DS Bot · Fei2411 and contributors Apache-2.0/)
   const notices = find(tree, node => node.type === 'details')
   assert.equal(notices.length, 1)
   assert.equal(notices[0].props.open, undefined, 'source attribution stays available in a disclosure that starts closed')
-  assert.equal(textOf(notices[0].children[0]), 'View license notices')
+  assert.equal(textOf(notices[0].children[0]), 'Upstream license notices')
   assert.match(textOf(notices[0]), /DS Bot · Fei2411 and contributors Apache-2.0/)
+  assert.equal(textOf(find(notices[0], node => node.props?.href)[0]), 'Upstream project and license')
+  const outsideNotices = tree.filter(node => node.props?.title !== 'Open-source licenses')
+  assert.doesNotMatch(textOf(outsideNotices), /DS Bot|Fei2411|Apache-2.0/)
+  assert.equal(find(outsideNotices, node => node.props?.href).length, 0, 'repository links are owned by the license card')
+  const licenseSection = find(tree, node => node.props?.title === 'Open-source licenses')[0]
+  const licenseRows = licenseSection.children.filter(node => node.type === 'row')
+  assert.match(textOf(licenseRows), /Muse repository.*Muse license/)
+  assert.doesNotMatch(textOf(licenseRows), /DS Bot|Fei2411|Apache-2.0/)
+  assert.deepEqual(find(licenseRows, node => node.props?.href).map(node => node.props.href), links.slice(0, 2).map(node => node.props.href))
   assert.deepEqual(calls, [])
+})
+
+test('the Chinese About page distinguishes Muse links from retained upstream attribution', () => {
+  const off = ui.installLocale(chineseLocale())
+  try {
+    const tree = ui.AboutPage({ useUpdate: read => read({}), actions: {}, run: read => read, Section: 'section', Row: 'row' })
+    assert.match(textOf(tree), /Muse 仓库.*Muse 许可证/)
+    const notices = find(tree, node => node.type === 'details')[0]
+    assert.equal(textOf(notices.children[0]), '上游许可说明')
+    assert.match(textOf(notices), /DS Bot · Fei2411 and contributors Apache-2.0.*上游项目与许可证/)
+    assert.equal(find(notices, node => node.props?.href)[0].props.href, 'https://github.com/Fei2411/DS-Bot')
+  } finally { off() }
 })
 
 test('Muse app update status remains actionable through its own app actions', () => {

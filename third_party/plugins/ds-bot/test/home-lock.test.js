@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { homeLock } from '../src/host/home-lock.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const tempHome = (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-lock-'))
@@ -123,14 +123,14 @@ const TEAM = {
 }
 
 function start(t, home) {
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  apply(ctx, legacyConfig({ home }))
   t.after(() => ctx.dispose())
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   call.ctx = ctx

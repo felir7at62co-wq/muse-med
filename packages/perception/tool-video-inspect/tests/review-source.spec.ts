@@ -48,12 +48,33 @@ function fixture(linkTranscript = false) {
 
 it('lists explicit ASR associations but refuses an unknown or changed video revision', async () => {
   const h = fixture(true)
-  expect(videoReviewSummaries(h.ctx, h.session)).toMatchObject([{ review_id: 'review-1',
+  expect(videoReviewSummaries(h.ctx, h.session)).toMatchObject([{ review_id: 'review-1', follow_up: { status: 'active' },
     transcript_reference: h.reference }])
   await expect(readVideoSourceTimeline(h.ctx, h.session, VideoReviewId('other'),
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1 },
     new AbortController().signal)).rejects.toThrow('VIDEO_TIMELINE_REVIEW')
   h.setSourceVersion('video-v2')
+  await expect(h.read()).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
+})
+
+it('keeps closed sources explicitly readable with their real missing observations', async () => {
+  const h = fixture()
+  const review: VideoReview = { ...h.review, duration: 125, scanned_until: 125,
+    follow_up: { status: 'closed', reason: '本任务不再继续查看。' },
+    frames: Array.from({ length: 125 }, (_, index) => ({ id: `F${String(index + 1).padStart(5, '0')}`,
+      time: index, reasons: ['appearance_change'], exposed: index < 12,
+      ...index < 12 ? { observation: observed } : {} })) }
+  h.setReview(review)
+  const saved = JSON.stringify(review)
+  expect(videoReviewSummaries(h.ctx, h.session)).toMatchObject([{ review_id: review.id,
+    follow_up: { status: 'closed', reason: '本任务不再继续查看。' } }])
+  const result = await h.read()
+  expect(result.timeline.source.follow_up).toEqual(review.follow_up)
+  const frames = result.timeline.windows.flatMap(window => window.frames)
+  expect(frames).toHaveLength(125)
+  expect(frames.filter(frame => frame.observation_source === 'not_recorded')).toHaveLength(113)
+  expect(JSON.stringify(review)).toBe(saved)
+  h.setSourceVersion('changed-source')
   await expect(h.read()).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
 })
 

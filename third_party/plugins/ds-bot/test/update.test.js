@@ -143,7 +143,7 @@ test('a linked checkout, an unversioned git install, or a disabled check never a
     const view = await rt.updateCheck()
     assert.equal(view.available, false)
     assert.deepEqual(fetched, [])
-    assert.throws(() => rt.updateStart(), /No DS Bot update/)
+    assert.throws(() => rt.updateStart(), /No Muse Bot update/)
   }
   const { rt, fetched } = start({ source: `${PKG.name}@^${PKG.version}`, config: { updateCheck: false } })
   assert.equal((await rt.updateCheck({ fresh: true })).available, false)
@@ -158,7 +158,7 @@ test('in the desktop app, which updates as a whole, it never asks the network an
   assert.equal(view.source, 'app')
   assert.equal(view.available, false)
   assert.deepEqual(fetched, [])
-  assert.throws(() => rt.updateStart(), /No DS Bot update/)
+  assert.throws(() => rt.updateStart(), /No Muse Bot update/)
 })
 
 test('the star count comes from the repository, is kept for an hour, and survives a failed answer', async () => {
@@ -204,7 +204,7 @@ test('a check that finds nothing clears the version a check before it found', as
   const linked = await rt.updateCheck({ fresh: true })
   assert.equal(linked.available, false)
   assert.equal(linked.latest, null)
-  assert.throws(() => rt.updateStart(), /No DS Bot update/)
+  assert.throws(() => rt.updateStart(), /No Muse Bot update/)
   // Back on the registry with no copy answering: the offer stays cleared.
   delete answers[latest]
   setSource(`^${PKG.version}`)

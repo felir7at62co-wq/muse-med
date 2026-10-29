@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { apply } from '../index.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 // A Main Bot and a Bot, with the Bot in the group Ops through its group Session 'gb'.
 const TEAM = {
@@ -43,7 +43,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   const created = []
   const cwds = new Map()
   const agents = new Map()
@@ -100,7 +100,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  apply(ctx, legacyConfig({ home }))
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
@@ -195,13 +195,13 @@ test('a new Bot with a folder starts its Session there; others start in the team
   t.after(stop)
   const made = (await call('create-bot', { name: 'Builder', workDir: project })).value
   assert.equal(made.workDir, project)
-  assert.deepEqual(created.at(-1), { cwd: project })
+  assert.deepEqual(created.at(-1), { cwd: project, agentPreset: 'standard' })
   assert.equal(state().bots[made.id].workDir, project)
   await call('create-bot', { name: 'Plain' })
-  assert.deepEqual(created.at(-1), { workspaceId: 'w1' })
+  assert.deepEqual(created.at(-1), { workspaceId: 'w1', agentPreset: 'standard' })
   // A copy works in the same folder.
   await call('duplicate-bot', { id: made.id })
-  assert.deepEqual(created.at(-1), { cwd: project })
+  assert.deepEqual(created.at(-1), { cwd: project, agentPreset: 'standard' })
 })
 
 test('an idle Bot\'s own chat moves to its new folder at once, and back', async (t) => {
@@ -212,7 +212,7 @@ test('an idle Bot\'s own chat moves to its new folder at once, and back', async 
   // comes first: the fake agent takes its cwd when it is first looked up.
   await until(() => state().bots.b.sessionId === 's1')
   await until(() => handoffOf(agentOf('s1')) !== undefined)
-  assert.deepEqual(created, [{ cwd: project }])
+  assert.deepEqual(created, [{ cwd: project, agentPreset: 'standard' }])
   assert.deepEqual(state().bots.b.segments.map(segment => [segment.sessionId, segment.fallback]), [['b', 'whole']])
   const moved = handoffOf(agentOf('s1'))
   assert.match(moved, new RegExp(`part 2, because your working folder changed to ${escapeRegExp(project)}\\.`))
@@ -222,7 +222,7 @@ test('an idle Bot\'s own chat moves to its new folder at once, and back', async 
   assert.equal((await call('update-bot', { id: 'b', workDir: '' })).ok, true)
   await until(() => state().bots.b.sessionId === 's2')
   await until(() => handoffOf(agentOf('s2')) !== undefined)
-  assert.deepEqual(created.at(-1), { workspaceId: 'w1' })
+  assert.deepEqual(created.at(-1), { workspaceId: 'w1', agentPreset: 'standard' })
   assert.match(handoffOf(agentOf('s2')), new RegExp(`because your working folder changed to ${escapeRegExp(team)}\\.`))
 })
 
@@ -241,7 +241,7 @@ test('a running Bot moves at its next step and carries that step\'s input along'
   const input = { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Now build it' }], source: { kind: 'user' } }
   assert.deepEqual(await preStep('b', [input]), { kind: 'reject' })
   await until(() => state().bots.b.sessionId === 's1')
-  assert.deepEqual(created, [{ cwd: project }])
+  assert.deepEqual(created, [{ cwd: project, agentPreset: 'standard' }])
   await until(() => agentOf('s1').calls.length >= 2)
   assert.deepEqual(agentOf('s1').calls.map(([kind, message]) => [kind, message.source.role ?? textOf(message)]), [['followup', 'handoff'], ['followup', 'Now build it']])
   // The fresh part is where it should be, so its steps go on.
@@ -272,7 +272,7 @@ test('a folder outside the team workspace needs the user\'s approval', async (t)
   const third = await start({ services: allowed.services })
   t.after(third.stop)
   assert.equal(await third.tool('create_bot', { name: 'Builder', role: 'Build', instructions: 'Build', work_dir: third.project }, 'a'), `Created Builder, working in ${third.project}. It is greeting the user now.`)
-  assert.deepEqual(third.created, [{ cwd: third.project }])
+  assert.deepEqual(third.created, [{ cwd: third.project, agentPreset: 'standard' }])
   assert.match(await third.tool('list_bots', {}, 'a'), new RegExp(`- Builder \\(Build, works in ${escapeRegExp(third.project)}\\)`))
 })
 
@@ -294,7 +294,7 @@ test('a group\'s folder holds for every member there; only the user or a Main Bo
   assert.deepEqual(created, [])
   assert.deepEqual(await preStep('gb'), { kind: 'reject' })
   await until(() => state().rooms.r1.sessions.b === 's1')
-  assert.deepEqual(created, [{ cwd: project }])
+  assert.deepEqual(created, [{ cwd: project, agentPreset: 'standard' }])
   assert.equal(state().bots.b.sessionId, 'b')
 
   // A Main Bot clears it without asking; setting it asks the user once for every member.
@@ -559,7 +559,7 @@ test('a Bot whose folder is gone changes to the team folder before DSH checks it
   const input = { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Still there?' }], source: { kind: 'user' } }
   assert.deepEqual(await preStep('s1', [notice, input]), { kind: 'reject' })
   await until(() => state().bots.b.sessionId === 's2')
-  assert.deepEqual(created.at(-1), { workspaceId: 'w1' })
+  assert.deepEqual(created.at(-1), { workspaceId: 'w1', agentPreset: 'standard' })
   await until(() => agentOf('s2').calls.length >= 2)
   assert.deepEqual(agentOf('s2').calls.map(([kind, message]) => [kind, message.source.role ?? textOf(message)]), [['followup', 'handoff'], ['followup', 'Still there?']])
   // A folder that is there is left as it is.
@@ -584,7 +584,7 @@ test('a team copied from another DSH_HOME moves on to a fresh part in the folder
   assert.deepEqual(await preStep('b', [input]), { kind: 'reject' })
   await until(() => state().bots.b.sessionId === 's1')
   assert.equal(state().workspaceId, 'w-new')
-  assert.deepEqual(created, [{ workspaceId: 'w-new' }])
+  assert.deepEqual(created, [{ workspaceId: 'w-new', agentPreset: 'standard' }])
   assert.equal(agentOf('s1').session.header.cwd, root)
   await until(() => agentOf('s1').calls.length >= 2)
   assert.deepEqual(agentOf('s1').calls.map(([kind, message]) => [kind, message.source.role ?? textOf(message)]), [['followup', 'handoff'], ['followup', 'Hello again']])
@@ -602,7 +602,7 @@ test('the user moves the team workspace, and Bots without a folder of their own 
   assert.deepEqual(await preStep('b', [input]), { kind: 'reject' })
   await until(() => state().bots.b.sessionId !== 'b')
   assert.equal(agentOf(state().bots.b.sessionId).session.header.cwd, moved)
-  assert.deepEqual(created.at(-1), { workspaceId: 'w-new' })
+  assert.deepEqual(created.at(-1), { workspaceId: 'w-new', agentPreset: 'standard' })
   // A Bot with a folder of its own stays where it works.
   assert.equal(state().bots.a.workDir, project)
 })
@@ -744,7 +744,7 @@ test('a Bot that changes to a folder outside its working folder makes it its wor
   const input = { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Now build it' }], source: { kind: 'user' } }
   assert.deepEqual(await preStep('b', [input]), { kind: 'reject' })
   await until(() => state().bots.b.sessionId === 's1')
-  assert.deepEqual(created, [{ cwd: project }])
+  assert.deepEqual(created, [{ cwd: project, agentPreset: 'standard' }])
   await until(() => handoffOf(agentOf('s1')) !== undefined)
   assert.match(handoffOf(agentOf('s1')), new RegExp(`because your working folder changed to ${escapeRegExp(project)}\\.`))
 })

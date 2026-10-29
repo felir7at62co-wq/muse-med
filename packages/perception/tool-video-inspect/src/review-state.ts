@@ -18,6 +18,7 @@ import type { ReviewTranscriptReference } from './review-speech.ts'
 
 const imageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
   bytes: z.number(), width: z.number(), height: z.number(), name: z.string().optional() })
+const followUpSchema = z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() })
 /** Persisted frame, encoded image reference and optional grounded observation. */
 export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), reasons: z.array(z.string()),
   decode: z.object({ start_seconds: z.number().nonnegative(), frame_index: z.number().int().nonnegative() }).optional(),
@@ -25,6 +26,7 @@ export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), re
   observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string() }).optional() })
 const reviewSchema = z.object({ id: z.string().transform(VideoReviewId), episode: z.string(), path: z.string(), source_version: z.string(),
   duration: z.number(), scanned_until: z.number(), scan_complete: z.boolean(), frames: z.array(reviewFrameSchema),
+  follow_up: followUpSchema.optional(),
   event_groups: z.array(reviewEventSchema).optional(),
   transcript_reference: z.object({ path: z.string(), version: z.string(), sha256: z.string() }).optional() })
 
@@ -49,6 +51,7 @@ declare module '@deepseek-ai/dsh-session/types' {
       frame_count: number
       scanned_until: number
       scan_complete: boolean
+      follow_up?: VideoReview['follow_up']
       event_groups?: ReviewEvent[]
       transcript_reference?: ReviewTranscriptReference
     }
@@ -80,6 +83,7 @@ export function installReviewState(ctx: Context): void {
         return frame
       })
       return { ...state, [update.path]: { ...old, frames, scanned_until: update.scanned_until, scan_complete: update.scan_complete,
+        ...update.follow_up === undefined ? {} : { follow_up: update.follow_up },
         ...update.event_groups === undefined ? {} : { event_groups: update.event_groups },
         ...update.transcript_reference === undefined ? {} : { transcript_reference: update.transcript_reference } } }
     },
@@ -99,7 +103,7 @@ export function reviewsOf(ctx: Context, session: Session): VideoReviews {
 }
 
 /**
- * Commit changed frames and scan progress before returning them to the model.
+ * Commit changed evidence and explicit follow-up intent; omitted intent retains the saved value.
  * @param ctx - Projection registry supplying the previous state.
  * @param session - Owning Session.
  * @param review - New per-video state.
@@ -107,12 +111,15 @@ export function reviewsOf(ctx: Context, session: Session): VideoReviews {
 export function saveReview(ctx: Context, session: Session, review: VideoReview): void {
   const old = reviewsOf(ctx, session)[review.path]
   if (old === undefined || old.id !== review.id) { session.append('video/review', { kind: 'start', review }); return }
+  const followUp = review.follow_up ?? old.follow_up
   const frames = review.frames.filter((frame, index) => JSON.stringify(old.frames[index]) !== JSON.stringify(frame))
   if (!frames.length && old.frames.length === review.frames.length && old.scanned_until === review.scanned_until
     && old.scan_complete === review.scan_complete && JSON.stringify(old.event_groups) === JSON.stringify(review.event_groups)
+    && JSON.stringify(old.follow_up) === JSON.stringify(followUp)
     && JSON.stringify(old.transcript_reference) === JSON.stringify(review.transcript_reference)) return
   session.append('video/review', { kind: 'update', path: review.path, id: review.id, frames,
     frame_count: review.frames.length, scanned_until: review.scanned_until, scan_complete: review.scan_complete,
+    ...followUp === undefined ? {} : { follow_up: followUp },
     ...review.event_groups === undefined ? {} : { event_groups: review.event_groups },
     ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference } })
 }

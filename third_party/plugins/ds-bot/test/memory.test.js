@@ -9,7 +9,7 @@ import {
   looksSecret, matchEntries, parseAsk, parseMemory, parseReview, reviewEntries, removeLink, splitMeta, writtenIn,
 } from '../src/host/memory.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 import { resolveMuseConfig } from '../src/host/muse-config.js'
 
 test('entries carry their metadata at the end of the line, as Agent Memory Repo writes it', () => {
@@ -122,10 +122,10 @@ const ownChat = [
 // of a Session, oldest first; each own chat has one user message, at seq 10, unless
 // it says otherwise. `requireSession` turns down a request without a Session, as
 // some routes do.
-function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false } = {}) {
+function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false, useMuseReviewDefault = false } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const services = defaultModel === undefined ? {} : { agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: defaultModel }) } }
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   const requests = []
   Object.assign(ctx, {
     llm: {
@@ -160,7 +160,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     route = options
     return register(options)
   }
-  apply(ctx, { home, ...config })
+  apply(ctx, { ...legacyConfig({ home }), ...(useMuseReviewDefault ? { memoryReview: undefined } : {}), ...config })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -1161,7 +1161,7 @@ test('Muse memory review is opt-in and rejects non-boolean deployment settings',
 
 test('default and explicit review-off preserve Bot notes without background model calls', async (t) => {
   for (const config of [{}, { memoryReview: false }]) {
-    const { ctx, home, call, tool, read, section, requests, stop } = start({ config: { ...config, memoryReviewDelayMs: 0 } })
+    const { ctx, home, call, tool, read, section, requests, stop } = start({ config: { ...config, memoryReviewDelayMs: 0 }, useMuseReviewDefault: true })
     t.after(() => stop())
     assert.equal(ctx.calls.includes('effect ds-bot: memory review'), false)
     await tool('remember', { text: 'Writer gathers sources; Coder handles export integration' }, 'b2')

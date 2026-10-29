@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { trimToolBoundary } from '../src/host/btw.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const assistant = (...blocks) => ({ role: 'assistant', content: blocks })
@@ -112,7 +112,7 @@ async function setup({ state = team(), messages, seq = 4, events, foreignLock = 
   const sessions = new Map([[session.id, session]])
   const requests = []
   const services = {}
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   services.sessionProjections = projectionRegistry(ctx)
   ctx.llm = {
     listProviders: () => [],
@@ -142,7 +142,7 @@ async function setup({ state = team(), messages, seq = 4, events, foreignLock = 
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, legacyConfig({ home, github: false, diagnosticsFile: false }))
   let notices = 0
   const saved = rt.stateSaved
   rt.stateSaved = () => { notices += 1; saved?.() }
@@ -222,7 +222,7 @@ test('a restart marks an aside that was still answering as failed', async (t) =>
   t.after(() => env.stop())
   const [live, old] = cardsOf(env.rt)
   assert.equal(live.status, 'failed')
-  assert.equal(live.error, 'DS Bot restarted before this answer finished.')
+  assert.equal(live.error, 'Muse Bot restarted before this answer finished.')
   assert.equal(typeof live.finishedAt, 'number')
   assert.equal(live.question, 'Still going?')
   assert.equal(old.status, 'done')
@@ -230,7 +230,7 @@ test('a restart marks an aside that was still answering as failed', async (t) =>
   assert.equal(old.finishedAt, 11)
   const file = cardsFile(env.home)
   assert.equal(file[0].status, 'failed')
-  assert.equal(file[0].error, 'DS Bot restarted before this answer finished.')
+  assert.equal(file[0].error, 'Muse Bot restarted before this answer finished.')
   assert.equal(file[1].status, 'done')
   const saved = JSON.parse(readFileSync(join(env.home, 'state.json'), 'utf8'))
   assert.equal('btwCards' in saved, false)
@@ -326,7 +326,7 @@ test('an earlier part page carries that part\'s cards, read from its file', asyn
   assert.equal(page.value.btw[0].id, 'there')
   // The owning host's lazy read still records the restart this file kept.
   assert.equal(page.value.btw[1].status, 'failed')
-  assert.equal(page.value.btw[1].error, 'DS Bot restarted before this answer finished.')
+  assert.equal(page.value.btw[1].error, 'Muse Bot restarted before this answer finished.')
   const file = cardsFile(env.home, 'b1', 's-old')
   assert.equal(file[1].status, 'failed')
 })

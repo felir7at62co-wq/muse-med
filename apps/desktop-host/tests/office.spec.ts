@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -10,6 +10,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { Config as DiscoveryConfig } from '@deepseek-ai/dsh-tool-discovery'
+import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
 import { expect, it } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
 
@@ -54,6 +57,21 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
     expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['load_workspace_dependencies', 'manuscript_revision', 'jianying_draft', 'screenplay_export_docx'])
+    const discovery = loadOverlayPatches('desktop-office-discovery', fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url)))
+      .flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-discovery')
+    if (!discovery) throw new Error('Missing Desktop tool-discovery row')
+    const raw: unknown = discovery.config
+    if (!raw || typeof raw !== 'object' || !('alwaysLoad' in raw)
+      || !Array.isArray(raw.alwaysLoad) || !raw.alwaysLoad.every((value: unknown): value is string => typeof value === 'string')) {
+      throw new Error('Missing resident tool names')
+    }
+    const searchConfig = DiscoveryConfig({ ...raw, alwaysLoad: raw.alwaysLoad })
+    const index = new ToolSearchIndex(ctx.tools.schemas().map(schema => ({ ...schema, keywords: searchConfig.keywords?.[schema.name] })),
+      { k1: searchConfig.k1 ?? 1.2, b: searchConfig.b ?? 0.75 })
+    for (const [query, tool] of [['生成可编辑草稿', 'jianying_draft'], ['导出剧本Word', 'screenplay_export_docx'],
+      ['找工作间依赖', 'load_workspace_dependencies'], ['精修核对原稿对照', 'manuscript_revision']]) {
+      expect(index.search(query, 1).map(result => result.name)).toEqual([tool])
+    }
     const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
     expect(description).toContain(reviewMode === 'advisory' ? '不要求独立审校' : '严格候选验收')
     const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')

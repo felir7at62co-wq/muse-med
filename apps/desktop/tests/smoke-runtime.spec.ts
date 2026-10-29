@@ -33,9 +33,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
   'muse-llm-wiki', 'muse-project-participation',
-  'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
-  'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
+  'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
   'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
+const defaultHostSkills = ['audio-transcribe', 'muse-script-doctor', 'novel-to-script',
+  'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']
 
 /**
  * Write the primary-runtime payload the smoke reads before it starts the Host.
@@ -89,7 +90,7 @@ function fixture(packaged = false) {
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe']) {
+  for (const name of defaultHostSkills) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
@@ -256,11 +257,11 @@ it('rejects a Cordis authoring skill served from the virtual ASAR path', async (
   await expect(f.apply(f.ctx)).rejects.toThrow('cordis authoring skill is not mounted')
 })
 
-it('rejects a shared Muse skill missing from the packaged Host', async () => {
+it.each(defaultHostSkills)('rejects shared Muse skill %s missing from the packaged Host', async (name) => {
   const f = fixture()
-  const index = f.skills.findIndex(skill => skill.name === 'audio-transcribe')
+  const index = f.skills.findIndex(skill => skill.name === name)
   if (index >= 0) f.skills.splice(index, 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill audio-transcribe')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -640,7 +641,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   expect(f.dispose).toHaveBeenCalledTimes(12)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects required packaged skill %s without a filesystem path', async (name) => {
   const f = fixture()
   const list = f.ctx.skills.list.getMockImplementation()!
@@ -650,14 +651,14 @@ it.each(['audio-transcribe',
     ? 'missing product skill ' + name : 'missing shared Muse skill ' + name)
 })
 
-it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format'])('rejects re-enabling retired Host skill %s', async (name) => {
+it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import'])('rejects re-enabling retired Host skill %s', async (name) => {
   const f = fixture()
   const path = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
   writeFileSync(path, '# enabled old resource')
   await expect(f.apply(f.ctx)).rejects.toThrow('retired Host skill is enabled: ' + name)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a disabled file pretending to be active skill %s', async (name) => {
   const f = fixture()
   const skill = f.skills.find(value => value.name === name)!
@@ -667,19 +668,19 @@ it.each(['audio-transcribe',
   await expect(f.apply(f.ctx)).rejects.toThrow('disabled skill is model-invocable')
 })
 
-it.each(['audio-transcribe', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
+it.each([...defaultHostSkills, 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
   const f = fixture()
   const get = f.ctx.skills.get.getMockImplementation()!
   f.ctx.skills.get.mockImplementation(async target => target === name ? undefined : get(target))
-  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'audio-transcribe'
-    ? 'shared skill did not load from the packaged Host: ' + name
-    : 'shot-writing skill did not load from its packaged resource: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow(name.startsWith('shot-script-creator-')
+    ? 'shot-writing skill did not load from its packaged resource: ' + name
+    : 'shared skill did not load from the packaged Host: ' + name)
 })
 
-it('loads the transcription and shot-writing skills through the scoped registry', async () => {
+it('loads default transcription, writing and shot-writing skills through the scoped registry', async () => {
   const f = fixture()
   await f.apply(f.ctx)
-  for (const name of ['audio-transcribe',
+  for (const name of [...defaultHostSkills,
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
     expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
   }

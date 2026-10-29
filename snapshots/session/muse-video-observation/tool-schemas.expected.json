@@ -500,13 +500,21 @@
     },
     {
       "name": "video_inspect",
-      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
       "parameters": {
         "type": "object",
         "properties": {
           "file_path": {
             "type": "string",
-            "description": "当前集实际完整视频路径。"
+            "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+          },
+          "review_id": {
+            "type": "string",
+            "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
           },
           "episode": {
             "type": "string",
@@ -514,7 +522,7 @@
           },
           "method": {
             "type": "string",
-            "description": "默认scan；next查看下一批，revisit按frame_ids重显已记录原图，observe逐图记录，events保存当前视频的完整动作事件表，status读取进度；timeline按时间并列画面记录、事件笔记与ASR；compare对照已记录画面、事件与当前稿；metadata不建立已查看记录。",
+            "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
             "enum": [
               "scan",
               "next",
@@ -524,7 +532,9 @@
               "status",
               "metadata",
               "timeline",
-              "compare"
+              "compare",
+              "close",
+              "reopen"
             ]
           },
           "timeline_start_seconds": {
@@ -548,7 +558,7 @@
           },
           "transcript_path": {
             "type": "string",
-            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。任何method均可附带。"
+            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
           },
           "event_groups": {
             "type": "array",
@@ -627,10 +637,7 @@
               ]
             }
           }
-        },
-        "required": [
-          "file_path"
-        ]
+        }
       }
     },
     {

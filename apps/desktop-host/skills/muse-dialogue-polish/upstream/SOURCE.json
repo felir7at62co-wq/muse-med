@@ -1,0 +1,22 @@
+{
+    "repository":  "https://github.com/ur-grue/autopunk-media-skills",
+    "revision":  "39e119bfef25957223d6c44fccab0329e936d2f6",
+    "license":  "MIT",
+    "files":  [
+                  {
+                      "source":  "skills/screenwriting/scripting/dialogue-polisher/SKILL.md",
+                      "local":  "dialogue-polisher.md",
+                      "sha256":  "92c2b8cd18ae06fb5374e52bdb15edce198a4112d6ed16dd89f36a2c425c076c"
+                  },
+                  {
+                      "source":  "skills/screenwriting/revision/script-notes-writer/SKILL.md",
+                      "local":  "script-notes-writer.md",
+                      "sha256":  "60fcaadd8549dc3724845d0cc92a82b424e7e587f2b41252f7fae77b7dca8b4b"
+                  },
+                  {
+                      "source":  "LICENSE",
+                      "local":  "LICENSE",
+                      "sha256":  "262a837bb724e50e13ce9026767131996a98e660d0ce6fac3bac64512c73f150"
+                  }
+              ]
+}

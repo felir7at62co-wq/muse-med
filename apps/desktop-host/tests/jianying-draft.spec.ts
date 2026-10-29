@@ -220,9 +220,9 @@ async function fixture(maxInputBytes = 65536, maxBgmGain = 8) {
     const input = { request_file: join(root, 'request.json'), drafts_dir: join(root, 'drafts') }
     await mkdir(input.drafts_dir)
     await writeFile(input.request_file, JSON.stringify({ episode: 95, name_prefix: 'candidate-' }))
-    const config: Draft.Config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
+    const config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
       graceMs: 100, maxInputBytes, maxOutputBytes: 65536, maxBgmGain,
-      ffmpegPath: join(root, 'ffmpeg'), ffprobePath: join(root, 'ffprobe') }
+      ffmpegPath: join(root, 'ffmpeg'), ffprobePath: join(root, 'ffprobe') } satisfies Draft.Config
     return { root, ctx, input, config, signal: controller.signal, startExternal, dispose }
   } catch (error) {
     await dispose()

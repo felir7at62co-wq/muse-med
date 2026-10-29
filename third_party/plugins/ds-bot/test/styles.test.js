@@ -12,6 +12,7 @@ const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const harness = process.env.DSH_HARNESS ?? join(PLUGIN, '..', 'deepseek-harness')
 const requireHarness = createRequire(join(harness, 'package.json'))
 const { JSDOM } = requireHarness('jsdom')
+const requireWebProfile = createRequire(join(harness, 'packages/bundle/web-app/package.json'))
 
 // The style helpers and the CSS they ship, bundled once with a minimal React for
 // motion.js; they run in each test's jsdom document through the vm context.
@@ -43,7 +44,7 @@ const clientModules = (() => {
   globalThis.window = window
   window.__ModuleLoader__ = { load: (record) => { registration = record } }
   try {
-    requireHarness('@deepseek-ai/dsh-client-modules/client')
+    requireWebProfile('@deepseek-ai/dsh-client-modules/client')
   } finally {
     globalThis.window = previousWindow
   }

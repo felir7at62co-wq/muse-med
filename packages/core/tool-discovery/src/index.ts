@@ -7,7 +7,7 @@ import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { ToolSearchIndex } from './search.ts'
-import { capabilityMemberships, capabilitySummaries } from './capabilities.ts'
+import { capabilityMemberships, capabilitySummaries, discoverableCapabilities, UNCATEGORIZED_CAPABILITY } from './capabilities.ts'
 import type { CapabilitySummary } from './capabilities.ts'
 import { discoveryGuidance } from './guidance.ts'
 import { ToolDiscoveryRuntime } from './residency.ts'
@@ -113,11 +113,20 @@ interface SearchResult {
   matched: number
   omitted: number
   omitted_capabilities: number
+  search_scope: 'directory' | 'capability' | 'global'
+  global_fallback: boolean
+  next_offset?: number
 }
 
 /** Keep each name and category intact and account for JSON wrappers in the complete result. */
-function boundedResult(loaded: LoadedTool[], capabilities: CapabilitySummary[], matched: number, budget: number): SearchResult {
-  const result: SearchResult = { loaded: [], capabilities: [], matched, omitted: matched, omitted_capabilities: capabilities.length }
+function boundedResult(
+  loaded: LoadedTool[], capabilities: CapabilitySummary[], matched: number, budget: number,
+  searchScope: SearchResult['search_scope'] = 'directory', globalFallback = false, offset = 0,
+): SearchResult {
+  const result: SearchResult = { loaded: [], capabilities: [], matched, omitted: matched,
+    omitted_capabilities: capabilities.length, search_scope: searchScope, global_fallback: globalFallback }
+  if (offset < matched) result.next_offset = matched
+
   for (const capability of capabilities) {
     result.capabilities.push(capability)
     result.omitted_capabilities--
@@ -135,6 +144,12 @@ function boundedResult(loaded: LoadedTool[], capabilities: CapabilitySummary[], 
     if (JSON.stringify(result).length <= budget) continue
     result.loaded.pop()
     result.omitted++
+    break
+  }
+  if (result.next_offset !== undefined) {
+    const nextOffset = offset + result.loaded.length
+    if (!result.loaded.length || nextOffset >= matched) delete result.next_offset
+    else result.next_offset = nextOffset
   }
   return result
 }
@@ -154,7 +169,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const maxDirectoryChars = settings.maxDirectoryChars ?? 2000
   const capabilityIds = new Set<string>()
   for (const capability of capabilities) {
-    if (!capability.id.trim() || capabilityIds.has(capability.id)) throw new Error('Capability ids must be nonempty and unique')
+    if (!capability.id.trim() || capability.id === UNCATEGORIZED_CAPABILITY || capabilityIds.has(capability.id)) throw new Error('Capability ids must be nonempty, unique, and not the reserved uncategorized id')
     capabilityIds.add(capability.id)
     if (capability.tools.some(pattern => !pattern || pattern.slice(0, -1).includes('*'))) {
       throw new Error(`Capability ${capability.id} members must be exact names or trailing-star prefixes`)
@@ -201,10 +216,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const definition = defineTool({
     name: 'tool_search',
-    description: 'Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.',
+    description: 'Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.',
     parameters: {
       query: { type: 'string', description: 'Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities.' },
       capability: { type: 'string', description: 'Optional capability id from the directory. Omit to search across groups.' },
+      offset: { type: 'integer', description: 'Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero.' },
       limit: { type: 'integer', description: `Maximum matching tools to load, from 1 to ${maxResults}; defaults to ${maxResults}.` },
     },
     output: {
@@ -217,6 +233,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           id: { type: 'string', required: true }, title: { type: 'string', required: true },
           description: { type: 'string', required: true }, tool_count: { type: 'integer', required: true },
         } } },
+        search_scope: { type: 'string', required: true, enum: ['directory', 'capability', 'global'] },
+        global_fallback: { type: 'boolean', required: true },
+        next_offset: { type: 'integer', description: 'Offset for the next page of the same request; absent after the last match or when the result budget cannot fit an entry.' },
         matched: { type: 'integer', required: true },
         omitted: { type: 'integer', required: true }, omitted_capabilities: { type: 'integer', required: true },
       } },
@@ -230,19 +249,29 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const limit = args.limit ?? maxResults
       if (limit < 1 || limit > maxResults) throw new Error(`limit must be between 1 and ${maxResults}`)
       const tools = ctx.tools.schemas(exec.agent).filter(tool => tool.name !== 'tool_search' && tool.name !== 'tool_context' && tool.name !== 'run_code')
-      const summaries = capabilitySummaries(capabilities, tools.map(tool => tool.name))
-      const available = capability ? tools.filter(tool => capabilityMemberships(tool.name, capabilities).includes(capability)) : tools
-      if ((!query && !capability) || (capability && !capabilityIds.has(capability))) {
+      const offset = args.offset ?? 0
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset must be a nonnegative safe integer')
+      const groups = discoverableCapabilities(capabilities, tools.map(tool => tool.name), core)
+      const summaries = capabilitySummaries(groups, tools.map(tool => tool.name))
+      const knownCapability = capability !== undefined && groups.some(group => group.id === capability)
+      const available = knownCapability ? tools.filter(tool => capabilityMemberships(tool.name, groups).includes(capability)) : tools
+      if ((!query && !capability) || (capability && !knownCapability)) {
         return Promise.resolve(boundedResult([], summaries, 0, maxResultChars))
       }
-      const matches = query ? indexFor(available).search(query, available.length)
-        : available.map(tool => ({ name: tool.name, score: 0 }))
-      const loaded = matches.slice(0, limit).flatMap((match) => {
+      let matches = query ? indexFor(available).search(query, available.length)
+        : available.map(tool => ({ name: tool.name, score: 0 })).sort((left, right) => left.name.localeCompare(right.name, 'en'))
+      const availableNames = new Set(available.map(tool => tool.name))
+      const explicitOutside = query && knownCapability
+        && indexFor(tools).explicitNames(query).some(tool => !availableNames.has(tool))
+      const globalFallback = Boolean(query && knownCapability && (matches.length === 0 || explicitOutside))
+      if (globalFallback) matches = indexFor(tools).search(query, tools.length)
+      const loaded = matches.slice(offset, offset + limit).flatMap((match) => {
         const tool = tools.find(item => item.name === match.name)
         return tool ? [{ name: tool.name, description: Array.from(tool.description).slice(0, maxDescriptionChars).join(''),
-          capabilities: capabilityMemberships(tool.name, capabilities) }] : []
+          capabilities: capabilityMemberships(tool.name, groups) }] : []
       })
-      return Promise.resolve(boundedResult(loaded, [], matches.length, maxResultChars))
+      return Promise.resolve(boundedResult(loaded, [], matches.length, maxResultChars,
+        knownCapability && !globalFallback ? 'capability' : 'global', globalFallback, offset))
     },
   })
   ctx.tools.register(definition)
@@ -250,7 +279,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const assembly = await next()
     if (ctx.tools.get('tool_search', context.scope) !== definition) return assembly
     const authorized = ctx.tools.schemas(context.scope).map(tool => tool.name)
-    const summaries = capabilitySummaries(capabilities, authorized)
+    const summaries = capabilitySummaries(discoverableCapabilities(capabilities,
+      authorized.filter(tool => tool !== 'run_code'), core), authorized)
     return { ...assembly, sections: [...assembly.sections, { name: 'tools:discovery',
       text: discoveryGuidance(summaries, maxDirectoryChars, maxDescriptionChars), interpolate: false }] }
   })
