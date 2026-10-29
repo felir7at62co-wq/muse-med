@@ -80,10 +80,11 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
         throw new Error('Missing resident tool names')
       }
       const searchConfig = DiscoveryConfig({ ...raw, alwaysLoad: raw.alwaysLoad })
-      const index = new ToolSearchIndex(ctx.tools.schemas().map(schema => ({ ...schema, keywords: searchConfig.keywords?.[schema.name] })),
+      const documents = ctx.tools.schemas().map(schema => ({ ...schema, keywords: searchConfig.keywords?.[schema.name] ?? [] }))
+      const index = new ToolSearchIndex(documents,
         { k1: searchConfig.k1 ?? 1.2, b: searchConfig.b ?? 0.75 })
       for (const [query, tool] of [['生成可编辑草稿', 'jianying_draft'], ['导出剧本Word', 'screenplay_export_docx'],
-        ['找工作间依赖', 'load_workspace_dependencies'], ['精修核对原稿对照', 'manuscript_revision']]) {
+        ['找工作间依赖', 'load_workspace_dependencies'], ['精修核对原稿对照', 'manuscript_revision']] as const) {
         expect(index.search(query, 1).map(result => result.name)).toEqual([tool])
       }
       const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description

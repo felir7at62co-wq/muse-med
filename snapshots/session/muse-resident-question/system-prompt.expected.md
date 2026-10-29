@@ -31,4 +31,4 @@ Some authorized tools are not loaded upfront. Missing initial definitions or loc
 
 Available capability groups (an empty or cropped directory does not limit global search):
 
-{"capabilities":[{"id":"workspace","title":"文件与工作间","description":"查找、读取、编辑项目文件并交付文档。"},{"id":"coordination","title":"团队任务与跟进","description":"分配子任务、查看执行状态、安排定时跟进。"},{"id":"research","title":"搜索与技术分析","description":"搜索网页资料、读取网页和分析技术问题。"},{"id":"uncategorized","title":"Other authorized tools","description":"Browse authorized tools not assigned to another capability."}],"omitted_capabilities":0}
+{"capabilities":[{"id":"workspace","title":"文件与工作间","description":"查找、读取、编辑项目文件并交付文档。"},{"id":"coordination","title":"团队任务与跟进","description":"分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。"},{"id":"research","title":"搜索与技术分析","description":"搜索网页资料、读取网页和分析技术问题。"}],"omitted_capabilities":0}

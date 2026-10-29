@@ -402,6 +402,7 @@ describe('Loader-composed tool discovery', () => {
         const first = await discover(f, agent, { ...args, limit: 8 })
         expect(first.value.loaded.map(tool => tool.name)).toEqual(names.slice(0, 8))
         expect(first.value).toMatchObject({ matched: 11, omitted: 3, next_offset: 8 })
+        if (first.value.next_offset === undefined) throw new Error('First page did not return a continuation offset')
         const last = await discover(f, agent, { ...args, offset: first.value.next_offset, limit: 8 })
         expect(last.value.loaded.map(tool => tool.name)).toEqual(names.slice(8))
         expect(last.value).toMatchObject({ matched: 11, omitted: 8 })

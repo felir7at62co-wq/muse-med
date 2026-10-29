@@ -78,7 +78,7 @@ it.each([
   ['找一下背景音乐', 'drama_bgm'],
 ])('finds %s from actual registered descriptions and configured aliases', (query, expected) => {
   const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
-  const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] })),
+  const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
     { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
   expect(index.search(query, config.maxResults ?? 8).map(result => result.name)).toContain(expected)
 })
