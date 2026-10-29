@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
@@ -125,7 +126,22 @@ function fixture(packaged = false) {
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
   const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
-  const agent = { preset: 'short-drama' }
+  const selected = new Set<string>()
+  const agent = { preset: 'short-drama', id: 'smoke-agent', session: {
+    append: vi.fn((type: string, data: { message?: { content: readonly { type: string; text?: string }[] } }) => {
+      if (type === 'tool/result') {
+        const result = JSON.parse(data.message!.content.map(block => block.text ?? '').join('')) as {
+          operation: string
+          tools: string[]
+        }
+        for (const name of result.tools) {
+          if (result.operation === 'load') selected.add(name)
+          else if (result.operation === 'release') selected.delete(name)
+        }
+      }
+      return { seq: 1 }
+    }),
+  } }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
@@ -166,17 +182,19 @@ function fixture(packaged = false) {
       await options.setup(agentCtx)
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
-    tools = { schemas: vi.fn((key?: { preset: string }) => {
+    toolDiscovery = { state: vi.fn(() => ({ loaded: [...selected], pinned: [] })) }
+    tools = { execute: vi.fn(async (input: { name: string; arguments: { operation: string; tools: string[] } }) => ({
+      isError: false, content: [{ type: 'text', text: JSON.stringify(input.arguments) }],
+    })), schemas: vi.fn((key?: { preset: string }): { name: string; description?: string }[] => {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames]
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...accountMcpNames, 'tool_search', 'tool_context']
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
-            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
-              : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
-                : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
-                  : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+          : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+            'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
+            : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
+              : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
+                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'short-drama'
@@ -184,7 +202,7 @@ function fixture(packaged = false) {
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
         : [],
       tools: context.scope.preset === 'short-drama'
-        ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
+        ? this.tools.schemas(context.scope).filter(tool => ['read', 'skill', 'tool_search', 'tool_context'].includes(tool.name) || selected.has(tool.name))
         : [],
     })) }
     skills = {
@@ -202,7 +220,8 @@ function fixture(packaged = false) {
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
-    Context: TestContext, existsSync, realpathSync, writeFileSync, join, relative, isAbsolute, process: { platform: process.platform },
+    Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
+    join, relative, isAbsolute, process: { platform: process.platform },
   }) as (ctx: TestContext) => void
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
@@ -214,7 +233,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, skills, creationSkills, cordisSkill, skillRoot, home, root }
+    accountMcpNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, home, root }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -237,7 +256,7 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   await f.apply(f.ctx)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
-  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
+  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: f.agent, scope: f.agent })
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
   expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
@@ -617,15 +636,101 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('loads deferred account definitions through committed context receipts and restores initial visibility', async () => {
+  const f = fixture()
+  await f.apply(f.ctx)
+  expect(f.ctx.tools.execute.mock.calls.map(([call]) => call.arguments.operation)).toEqual(['load', 'release', 'load', 'release'])
+  expect(f.agent.session.append.mock.calls.map(([type]) => type)).toEqual([
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+  ])
+  expect([...f.selected]).toEqual([])
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a missing authorized account definition %s', async (missing) => {
+  const f = fixture()
+  f.accountMcpNames.splice(f.accountMcpNames.indexOf(missing), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a changed authorized description for %s', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => schemas(key).map(tool => tool.name === name
+    ? { ...tool, description: 'Generic read.' } : tool))
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing authorized tool description changed: ' + name)
+})
+
+it('rejects account definitions exposed before discovery', async () => {
+  const f = fixture()
+  f.selected.add('mcp__muse-account__muse_account_status')
+  await expect(f.apply(f.ctx)).rejects.toThrow('account tools must remain deferred before discovery')
+})
+
+it.each(['read', 'skill', 'tool_search', 'tool_context'])('rejects missing initial resident definition %s', async (name) => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== name)
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing resident tool ' + name)
+})
+
+it.each(['load', 'release'])('rejects unsuccessful tool_context %s', async (operation) => {
+  const f = fixture()
+  const execute = f.ctx.tools.execute.getMockImplementation()!
+  f.ctx.tools.execute.mockImplementation(async input => input.arguments.operation === operation
+    ? { isError: true, content: [{ type: 'text', text: JSON.stringify(input.arguments) }] } : execute(input))
+  await expect(f.apply(f.ctx)).rejects.toThrow('tool_context ' + operation + ' failed')
+})
+
+it.each(['load', 'release'])('rejects successful %s without an applied context receipt', async (operation) => {
+  const f = fixture()
+  const append = f.agent.session.append.getMockImplementation()!
+  f.agent.session.append.mockImplementation((type, data) => {
+    if (type === 'tool/result' && data.message!.content.some(block => block.text?.includes('"operation":"' + operation + '"'))) return { seq: 1 }
+    return append(type, data)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(operation === 'load'
+    ? 'editing model tool description changed after loading:' : 'releasing account tools did not restore initial model tools')
+})
+
+it('rejects a loaded definition omitted from the assembled model request', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== 'mcp__muse-account__muse_account_status')
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: mcp__muse-account__muse_account_status')
+})
+
+it('rejects a released definition that remains in model input despite cleared selections', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let count = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (++count === 3) result.tools.push({ name: 'mcp__muse-account__muse_account_status', description: editingModelInput.tools['mcp__muse-account__muse_account_status']! })
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('releasing account tools did not restore initial model tools')
+})
+
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'short-drama') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
+    const tool = result.tools.find(tool => tool.name === name)
+    if (context.scope.preset === 'short-drama' && tool) tool.description = 'Generic read.'
     return result
   })
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 

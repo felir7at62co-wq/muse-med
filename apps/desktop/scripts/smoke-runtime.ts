@@ -28,9 +28,10 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
 import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
-export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount']
+export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
@@ -100,10 +101,49 @@ export function apply(ctx) {
       if (!delivery?.includes('默认使用 Word（.docx）') || !delivery.includes('screenplay_export_docx')) {
         throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
+      const accountTools = Object.keys(editingModelInput.tools)
+      const authorized = ctx.tools.schemas(handle.agent)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
-        if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
-          throw new Error('desktop runtime: editing model tool description changed: ' + name)
+        const tool = authorized.find(tool => tool.name === name)
+        if (!tool) throw new Error('desktop runtime: missing product tool ' + name + ' in short-drama')
+        if (tool.description !== description) {
+          throw new Error('desktop runtime: editing authorized tool description changed: ' + name)
         }
+      }
+      for (const name of ['read', 'skill', 'tool_search', 'tool_context']) {
+        if (!assembly.tools.some(tool => tool.name === name)) {
+          throw new Error('desktop runtime: missing resident tool ' + name)
+        }
+      }
+      const initialNames = assembly.tools.map(tool => tool.name).sort()
+      if (accountTools.some(name => initialNames.includes(name))) {
+        throw new Error('desktop runtime: account tools must remain deferred before discovery')
+      }
+      const manage = async operation => {
+        const callId = ToolCallId(handle.agent.id + ':desktop-smoke-' + operation)
+        const args = { operation, tools: accountTools }
+        const call = handle.agent.session.append('tool/call', {
+          turn: 1, step: 1, callId, name: 'tool_context', arguments: JSON.stringify(args),
+        })
+        const result = await ctx.tools.execute({ name: 'tool_context', arguments: args,
+          agent: handle.agent, callId, signal: AbortSignal.timeout(30_000) })
+        handle.agent.session.append('tool/result', {
+          turn: 1, step: 1, message: createToolResultMessage({ callId, content: result.content, isError: result.isError }),
+        }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+        if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
+      }
+      await manage('load')
+      const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      for (const [name, description] of Object.entries(editingModelInput.tools)) {
+        if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
+          throw new Error('desktop runtime: editing model tool description changed after loading: ' + name)
+        }
+      }
+      await manage('release')
+      const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
+        || accountTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
+        throw new Error('desktop runtime: releasing account tools did not restore initial model tools')
       }
     }
     if ((id === 'ptc' || id === 'creation') && (!names.has('run_code') || names.has('workflow'))) {
@@ -333,7 +373,8 @@ export function apply(ctx) {
     mkdirSync(productPlugin, { recursive: true })
     writeFileSync(join(productPlugin, 'package.json'), JSON.stringify({
       name: productPluginName, version: '1.0.0', type: 'module', exports: './index.js',
-      peerDependencies: { '@deepseek-ai/cordis': cordis.version }, dsh: { bundle: { patch: './bundle.yml' } },
+      peerDependencies: { '@deepseek-ai/cordis': cordis.version, '@deepseek-ai/dsh-llm': runtime.release.version },
+      dsh: { bundle: { patch: './bundle.yml' } },
     }))
     writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home))
     writeFileSync(join(productPlugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-product-smoke-plugin\n      name: desktop-runtime-product-smoke-plugin\n')
