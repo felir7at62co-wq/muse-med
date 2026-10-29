@@ -40,10 +40,10 @@ export function apply(ctx) {
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'creation']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
+    throw new Error('desktop runtime: product preset roster differs; expected ' + ids.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
@@ -79,7 +79,10 @@ export function apply(ctx) {
           'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
           'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
           'mcp__muse-account__muse_kb_ingest_script']
-        : ['read', 'skill', shell, 'subagent']
+        : id === 'bot-coordinator' ? ['read', 'write', 'edit', 'glob', 'grep', 'skill', shell, 'present',
+          'web_search', 'web_fetch', 'ask_user_question', 'todo_write', 'todo_update', 'subagent',
+          'tool_search', 'tool_context', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']
+          : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)
     if (id === 'minimal') {
