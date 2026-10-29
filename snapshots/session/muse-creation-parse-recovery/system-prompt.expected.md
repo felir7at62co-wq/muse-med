@@ -14,6 +14,8 @@ You are an AI agent powered by DeepSeek Harness.
 
 以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。专业技能按当前制作任务加载，用户明确的项目要求优先。
 
+为角色、场景和道具编写生图提示词时，默认使用项目或用户交流的语言，中文项目默认中文；用户指定语言时遵循指定。用户要求原文作为提示词时保留原文，不擅自翻译或改写，仅按授权补充必要的角色、服装和参考信息。模型或平台确有语言要求时说明并遵循；不要仅因猜测英文效果更好就切换语言。语言选择是创作指导，不拦截生图。
+
 视频任务成功并下载后，主动加载tweet-drama-voice-continuity，保留同人物同时期的已确认声线，为缺声线人物／时期提取并登记本地候选，不能等用户另提音频提取。首个视频包无参考音频时仍按已有制作授权生成，成功后再建立声线；儿童与成年用同一character_id下不同voice_period_id，不能按换装或集数猜时期。不同Muse账号协作同一剧变项目时，登记前与登记后读取共享音频库，已有同人物同时期声线先核实复用，自己的重复候选归档且保留来源，不覆盖既有默认。完整视频的长音轨供剪辑/转写，人物参考默认截实际讲话的2秒，可保留背景声；同一视频包全部参考音频实测时长之和不超过15秒，发声角色核对后按制作授权上传和选用。用drama_assets usage_preview查询当前资产在包、镜头和声音中的引用位置，新资产或妆造变化以稳定角色ID和真实材质核对，不按名字或列表顺序套用。
 
 配速指视频包内部的对白、动作、停顿与切镜快慢。首次制作按内容设计各包；只有用户明确要求调整相关视频包或视频任务卡的时长、节奏时，才修改已有包的配速。目标包、修改范围或含义不清楚时，保留当前稿与时长，先澄清；已明确授权的范围自主执行，不逐包追加审批。 单集原始总时长由实际采用的视频包时长相加，成片另扣实际裁切与转场重叠；历史版本、重复卡和未采用包不重复计入，计划预算与实测时长分别报告。单集目标、最低集长或汇总差额不授权重新分配视频包时长，不反推包内配速。例如三个12秒包共36秒，用户只说单集最好不低于40秒时，报告差4秒并澄清处理方式，不能自行改成三包各15秒，也不新增空镜、延长停顿或追加“不急着切”来凑集长。这是操作指导，不新增工具门禁。
@@ -941,6 +943,8 @@ interface ToolArgsMap {
     file_path: string;
     /** 1-based first line to return. Defaults to 1. */
     offset?: number;
+    /** 1-based Unicode code point column in the first line. Use the continuation cursor for a partial line. */
+    column?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
   } & Record<string, JsonValue>;
@@ -2572,11 +2576,18 @@ interface ToolOutputMap {
   read: {
     path: string;
     offset: number;
+    column?: number;
     lines: {
       number: number;
       text: string;
     }[];
     totalLines: number;
+    continuation?: {
+      offset: number;
+      column: number;
+    };
+    versionBefore?: string;
+    versionAfter?: string;
   };
   read_image: {
     path: string;
