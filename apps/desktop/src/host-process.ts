@@ -3,6 +3,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import type { ComputerUseState } from './computer-use-overlay.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import { parseDouyinRequest, parseDouyinDataRequest } from './douyin-policy.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
@@ -260,6 +261,7 @@ export class DesktopHostProcess {
     private readonly onDouyinRequest?: (request: DouyinDesktopRequest) => Promise<DouyinDesktopResult>,
     private readonly onDouyinDisconnect?: () => void | Promise<void>,
     private readonly onDouyinDataRequest?: (request: DouyinDesktopDataRequest) => Promise<DouyinDesktopDataResult>,
+    private readonly onComputerUseState?: (state: ComputerUseState) => Promise<void>,
   ) {}
 
   /**
@@ -295,6 +297,21 @@ export class DesktopHostProcess {
     })
     child.stdout?.pipe(process.stdout)
     child.on('message', (message: unknown) => {
+      if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'computer-use-state'
+        && 'requestId' in message && Number.isSafeInteger(message.requestId) && 'state' in message
+        && (message.state === 'active' || message.state === 'paused' || message.state === 'idle')) {
+        const { requestId, state } = message
+        void (async () => {
+          let ok = false
+          try {
+            if (this.onComputerUseState === undefined || this.stopping) throw new Error('Computer-use indicator unavailable')
+            await this.onComputerUseState(state)
+            ok = true
+          } catch (error) { console.warn('Computer-use indicator failed:', error) }
+          if (child.connected) child.send({ type: 'computer-use-state-ready', requestId, ok })
+        })()
+        return
+      }
       const dataRequest = parseDouyinDataRequest(message)
       if (dataRequest !== undefined) {
         void (async () => {

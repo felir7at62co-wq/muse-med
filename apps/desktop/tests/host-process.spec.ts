@@ -94,7 +94,7 @@ describe('desktop host process', () => {
     await expect(host.stop(true)).resolves.toBeUndefined()
   }, 40_000)
 
-  it.each([undefined, 5, 7, '6'])('refuses a mismatched or absent Host ready protocol: %s', async (version) => {
+  it.each([undefined, DESKTOP_HOST_PROTOCOL_VERSION - 1, DESKTOP_HOST_PROTOCOL_VERSION + 1, String(DESKTOP_HOST_PROTOCOL_VERSION)])('refuses a mismatched or absent Host ready protocol: %s', async (version) => {
     const host = hostProcess(projectWithHost(`process.send({ type: 'ready', hostProtocolVersion: ${JSON.stringify(version)}, url: 'http://127.0.0.1:3080/' })`))
     await expect(host.start()).rejects.toThrow('invalid IPC event')
   })
@@ -306,4 +306,29 @@ it.each([undefined, '', 7])('rejects malformed Platform account identity %s on p
   await expect(host.start()).rejects.toThrow('invalid IPC event')
   expect(changed.mock.calls).toEqual([[null]])
   await host.stop()
+})
+
+it('acknowledges computer-use state only after the shell indicator settles', async () => {
+  const project = projectWithHost(`
+    process.send({ type: 'computer-use-state', requestId: 1, state: 'active' })
+    process.on('message', message => {
+      if (message.type === 'computer-use-state-ready') {
+        if (message.requestId !== 1 || message.ok !== true) process.exit(2)
+        process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:3080/' })
+      }
+      if (message.type === 'shutdown') process.send({ type: 'shutdown-complete' }, () => process.disconnect())
+    })
+  `)
+  const displayed: PromiseWithResolvers<void> = Promise.withResolvers()
+  const show = vi.fn(async () => displayed.promise)
+  const host = new DesktopHostProcess(process.execPath, project, project, undefined, process.env,
+    undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, show)
+  hosts.push(host)
+  let ready = false
+  const started = host.start().then((value) => { ready = true; return value })
+  await vi.waitFor(() => { expect(show).toHaveBeenCalledWith('active') })
+  expect(ready).toBe(false)
+  displayed.resolve()
+  await started
+  expect(ready).toBe(true)
 })

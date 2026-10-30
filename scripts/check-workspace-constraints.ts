@@ -69,6 +69,8 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/hindsight.js', 'lib/feishu-migration.js',
+    'lib/source-recovery.js', 'licenses', 'lib/computer-use.js',
+    'lib/computer-input-worker.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -174,6 +176,7 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
   // Statically linked client libraries keep their stylesheets next to the emitted
@@ -562,7 +565,8 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference)) {
+    const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
+    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }
