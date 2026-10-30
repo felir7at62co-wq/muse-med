@@ -76,8 +76,12 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('视频包之间不共享上下文')
     expect(system).toContain('同一时空内衔接清楚的连续段落')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
-    expect(system).toContain('人物角色资产图优先遵循当前项目已定画幅与交付用途')
-    expect(system).not.toContain('人物角色资产图固定为16:9横版')
+    for (const requirement of ['人物角色资产图：16:9横版白底', '五官清晰的面部特写',
+      '完整保留头部、发型和双脚', '仅将右侧可见脸部覆盖为纯白', '背面保留后脑与发型', '严禁无头、截头']) {
+      expect(system).toContain(requirement)
+    }
+    expect(system).not.toContain('未指定时可用16:9横版白底设定板')
+    expect(system).not.toContain('不强套横版拼贴和三视图')
     expect(system).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')
     expect(system).not.toContain('drama_shot')
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
@@ -94,6 +98,11 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
+    expect(bodies[0]).toContain('左侧为正面平视的面部特写')
+    for (const requirement of ['完整保留头部、发型和从头到脚的身体', '右侧可见的脸部区域覆盖纯白',
+      '只遮脸，不覆盖整个头或头发', '背面保留完整后脑与发型', '严禁无头、截头或裁掉脚部']) {
+      expect(bodies[0]).toContain(requirement)
+    }
     const summaries = await ctx.skills.list()
     for (const name of ['shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
       const summary = summaries.find(skill => skill.name === name)
