@@ -442,8 +442,10 @@ export interface VerifyInput {
  * @throws {Error} When the delivered file cannot be probed or a detection pass fails.
  */
 export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderReport> {
-  const timeline = await readTimeline(input.timelinePath)
-  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  const timeline = await readTimeline(input.timelinePath, input.settings.enforceSubtitleVisual)
+  const policy = await resolveDeliveryPolicy(
+    input.project, timeline.delivery, input.settings.defaultSubtitleVisual, input.settings.enforceSubtitleVisual,
+  )
   assertBodyOnlyAnimation(timeline, policy)
   const expectedDurationSeconds = Number((timeline.bodyEndSeconds + policy.endingSeconds).toFixed(6))
   const probed = await probeMedia(input.toolkit, input.output)

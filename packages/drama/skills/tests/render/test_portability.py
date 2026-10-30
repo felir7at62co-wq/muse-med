@@ -27,6 +27,145 @@ def load(name, path):
 
 
 class PortabilityTests(unittest.TestCase):
+    def test_python_render_uses_preset_visual_and_normalizes_without_retiming(self):
+        render = load('python_preset_subtitle_render', RENDER / 'scripts/render_episode.py')
+        policy_module = load('python_preset_subtitle_policy', RENDER / 'scripts/delivery_policy.py')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            project = Path(temporary)
+            srt, ass = project / 'a.srt', project / 'a.ass'
+            original = '1\n00:00:00,120 --> 00:00:01,230\n你好，世界！\n数字 3.14\n'
+            srt.write_text(original, encoding='utf-8')
+            with patch.dict(os.environ, {'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual),
+                                        'MUSE_NORMALIZE_SUBTITLE_TEXT': '1',
+                                        'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)'}, clear=True):
+                timeline = {'delivery': {'width': 480, 'height': 854, 'fps': 60}}
+                delivery = policy_module.resolve_delivery(timeline, project)
+                self.assertEqual(delivery['subtitle_visual'], visual)
+                render.write_ass(srt, ass, False, 480, 854, delivery)
+                text = ass.read_text(encoding='utf-8-sig')
+                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),108.028,', text)
+                self.assertIn(',100,100,0,0,1,4.501,0,5,54.0,54.0,0,1', text)
+                self.assertIn(r'{\an5\pos(540,1416.028)\q2}你好 世界 数字 3.14', text)
+                self.assertIn('Dialogue: 0,0:00:00.12,0:00:01.23', text)
+                self.assertEqual(srt.read_text(encoding='utf-8'), original)
+                self.assertEqual(render.normalize_subtitle_display('……'), '')
+
+    def test_python_subtitle_sections_inherit_like_main_renderer(self):
+        policy = load('python_subtitle_inheritance_policy', RENDER / 'scripts/delivery_policy.py')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            project = Path(temporary)
+            with patch.dict(os.environ, {'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
+                project_config = {'project_bible': {'delivery': {'subtitle': {'font_size_px': 40}}}}
+                (project / 'project_config.json').write_text(json.dumps(project_config), encoding='utf-8')
+                timeline = {'delivery': {'width': 480, 'height': 854, 'fps': 60}}
+                selected = policy.resolve_delivery(timeline, project)
+                self.assertEqual(selected['subtitle'], {'font_size_px': 40})
+                self.assertNotIn('subtitle_visual', selected)
+                timeline['delivery']['subtitle'] = {}
+                self.assertEqual(policy.resolve_delivery(timeline, project)['subtitle'], {})
+                timeline['delivery']['subtitle_visual'] = {}
+                self.assertEqual(policy.resolve_delivery(timeline, project)['subtitle_visual'], {})
+                del timeline['delivery']['subtitle']
+                project_config['project_bible']['delivery']['subtitle_visual'] = visual
+                (project / 'project_config.json').write_text(json.dumps(project_config), encoding='utf-8')
+                selected = policy.resolve_delivery(timeline, project)
+                self.assertEqual(selected['subtitle_visual'], {})
+                self.assertEqual(selected['subtitle'], {'font_size_px': 40})
+                timeline['delivery']['subtitle_visual'] = {'schema_version': 1}
+                with self.assertRaisesRegex(ValueError, 'reference_width'):
+                    policy.resolve_delivery(timeline, project)
+
+    def test_product_visual_overrides_old_project_and_timeline_without_writing_them(self):
+        policy = load('python_forced_subtitle_policy', RENDER / 'scripts/delivery_policy.py')
+        render = load('python_forced_subtitle_render', RENDER / 'scripts/render_episode.py')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            project = Path(temporary)
+            config_path = project / 'project_config.json'
+            config = {'project_bible': {'delivery': {'subtitle': {'font_family': 'Old', 'font_size_px': 90},
+                                                      'subtitle_visual': {'schema_version': 1}}}}
+            original_config = json.dumps(config)
+            config_path.write_text(original_config, encoding='utf-8')
+            timeline = {'delivery': {'width': 480, 'height': 854, 'fps': 60,
+                                     'subtitle': {'font_family': 'Older', 'font_size_px': 96},
+                                     'subtitle_visual': {'schema_version': 1}}}
+            original_timeline = json.dumps(timeline)
+            srt, ass = project / 'a.srt', project / 'a.ass'
+            srt.write_text('1\n00:00:00,120 --> 00:00:01,230\n你好，世界！\n', encoding='utf-8')
+            with patch.dict(os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                        'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual),
+                                        'MUSE_NORMALIZE_SUBTITLE_TEXT': '1',
+                                        'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)'}, clear=True):
+                selected = policy.resolve_delivery(timeline, project)
+                self.assertEqual(selected['subtitle_visual'], visual)
+                self.assertNotIn('subtitle', selected)
+                render.write_ass(srt, ass, False, 480, 854, selected)
+                text = ass.read_text(encoding='utf-8-sig')
+                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),108.028,', text)
+                self.assertIn(r'{\an5\pos(540,1416.028)\q2}你好 世界', text)
+            self.assertEqual(config_path.read_text(encoding='utf-8'), original_config)
+            self.assertEqual(json.dumps(timeline), original_timeline)
+
+    def test_product_force_without_configured_default_keeps_explicit_legacy_style(self):
+        policy = load('python_force_missing_default_policy', RENDER / 'scripts/delivery_policy.py')
+        timeline = {'delivery': {'width': 480, 'height': 854, 'fps': 60,
+                                 'subtitle': {'font_family': 'Old', 'font_size_px': 90}}}
+        for flag in ('1', '0'):
+            with self.subTest(flag=flag), patch.dict(os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': flag}, clear=True):
+                self.assertEqual(policy.resolve_delivery(timeline)['subtitle'], timeline['delivery']['subtitle'])
+
+    def test_product_force_follows_actual_output_aspect_not_project_geometry(self):
+        policy = load('python_force_output_geometry_policy', RENDER / 'scripts/delivery_policy.py')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        old_style = {'font_family': 'Old', 'font_size_px': 40}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            project = Path(temporary)
+            config_path = project / 'project_config.json'
+            with patch.dict(os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                        'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
+                for project_size, actual_size, expected_forced in (
+                        ((480, 854), (854, 480), False),
+                        ((480, 854), (600, 600), False),
+                        ((854, 480), (480, 854), True)):
+                    with self.subTest(project=project_size, actual=actual_size):
+                        config_path.write_text(json.dumps({'project_bible': {'delivery': {
+                            'width': project_size[0], 'height': project_size[1], 'fps': 60,
+                            'subtitle': old_style}}}), encoding='utf-8')
+                        for timeline_style in (None, {'font_family': 'Timeline', 'font_size_px': 50}):
+                            timeline_delivery = {'width': actual_size[0], 'height': actual_size[1], 'fps': 60}
+                            if timeline_style is not None:
+                                timeline_delivery['subtitle'] = timeline_style
+                            selected = policy.resolve_delivery({'delivery': timeline_delivery}, project)
+                            if expected_forced:
+                                self.assertEqual(selected['subtitle_visual'], visual)
+                                self.assertNotIn('subtitle', selected)
+                            else:
+                                self.assertEqual(selected['subtitle'], timeline_style or old_style)
+                                self.assertNotIn('subtitle_visual', selected)
+
+    def test_product_portrait_default_does_not_change_unstyled_landscape_or_square(self):
+        policy = load('python_force_unstyled_geometry_policy', RENDER / 'scripts/delivery_policy.py')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        for width, height in ((1920, 1080), (600, 600), (480, 854)):
+            for flag in ('1', '0'):
+                with self.subTest(width=width, height=height, force=flag), patch.dict(
+                        os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': flag,
+                                     'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
+                    for timeline in ({'canvas': {'width': width, 'height': height}},
+                                     {'delivery': {'width': width, 'height': height, 'fps': 60}}):
+                        selected = policy.resolve_delivery(timeline)
+                        if flag == '1' and height <= width:
+                            self.assertNotIn('subtitle_visual', selected)
+                        else:
+                            self.assertEqual(selected['subtitle_visual'], visual)
+
     def test_model_cache_uses_writable_harness_home_not_skill_resources(self):
         paths = load('draft_model_paths_test', DRAFT / 'scripts/paths.py')
         with tempfile.TemporaryDirectory() as temporary:
@@ -202,6 +341,13 @@ class PortabilityTests(unittest.TestCase):
         policy = load('render_fit_policy_test', RENDER / 'scripts/delivery_policy.py')
         self.assertEqual(policy.ending_effect_fit({}), 'source_once')
         self.assertEqual(policy.ending_effect_fit({'ending_effect_fit': 'stretch_to_window'}), 'stretch_to_window')
+        with patch.dict(os.environ, {'MUSE_DEFAULT_ENDING_EFFECT_FIT': 'stretch_to_window'}):
+            self.assertEqual(policy.ending_effect_fit({}), 'stretch_to_window')
+            self.assertEqual(policy.ending_effect_fit({'ending_effect_fit': 'source_once'}), 'source_once')
+        with patch.dict(os.environ, {'MUSE_DEFAULT_ENDING_EFFECT_FIT': 'invalid'}):
+            with self.assertRaisesRegex(ValueError, 'ending_effect_fit'):
+                policy.ending_effect_fit({})
+            self.assertEqual(policy.ending_effect_fit({'ending_effect_fit': 'source_once'}), 'source_once')
         for invalid in (None, True, 'loop', {}):
             with self.assertRaisesRegex(ValueError, 'ending_effect_fit'):
                 policy.ending_effect_fit({'ending_effect_fit': invalid})
@@ -214,6 +360,12 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('trim=0:2.000', value)
         self.assertEqual(render.ending_effect_filter(2.0, timing={'fit': 'source_once'}),
                          render.ending_effect_filter(2.0))
+        with patch.object(render, 'probe', return_value={'format': {'duration': '1.02'}}):
+            with patch.dict(os.environ, {'MUSE_DEFAULT_ENDING_EFFECT_FIT': 'stretch_to_window'}):
+                self.assertEqual(render.ending_effect_timing({}, Path('effect.mp4'), 2.0), timing)
+                self.assertEqual(render.ending_effect_timing({'ending_effect_fit': 'source_once'}, Path('effect.mp4'), 2.0)['speed'], 1.0)
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertIsNone(render.ending_effect_timing({}, Path('effect.mp4'), 2.0))
 
     def test_ending_effect_layout_follows_landscape_canvas_without_portrait_stretch(self):
         render = load('render_ending_canvas_test', RENDER / 'scripts/render_episode.py')

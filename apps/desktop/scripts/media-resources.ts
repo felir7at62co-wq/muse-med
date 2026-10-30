@@ -27,7 +27,7 @@ export function assertMediaArchivePath(name: string): void {
  * @param path - File to verify.
  * @param resource - Expected size and SHA-256.
  */
-export async function verifyMediaResource(path: string, resource: MediaResource): Promise<void> {
+export async function verifyMediaResource(path: string, resource: Pick<MediaResource, 'filename' | 'bytes' | 'sha256'> & { url?: string }): Promise<void> {
   if ((await stat(path)).size !== resource.bytes) throw new Error(`media size mismatch: ${resource.filename}`)
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk)

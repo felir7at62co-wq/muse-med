@@ -71,6 +71,52 @@ class AaDraftTests(unittest.TestCase):
             plan, _ = self.plan()
         self.assertEqual(plan['audio'], {'master_gain': 0.8, 'bgm_gain': 1})
 
+    def test_product_subtitle_policy_overrides_old_style_without_changing_audio(self):
+        timeline = json.loads(self.timeline.read_text())
+        timeline['delivery'].update({'width': 1080, 'height': 1920,
+            'audio': {'master_gain': 0.8, 'bgm_gain': 0.35},
+            'draft_style': {'subtitle': {'font_size_ui': 45, 'transform_y': 0.5},
+                            'watermark': {'font_size_ui': 7}}, 'subtitle_visual': {}})
+        self.timeline.write_text(json.dumps(timeline))
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073,
+                  'max_width_ratio': 0.9, 'font_family': 'Zhuque Fangsong (technical preview)'}
+        source_srt = '1\n00:00:00,123 --> 00:00:00,789\n价格 3.14，好！\n\n'
+        self.srt.write_text(source_srt, encoding='utf-8')
+        def image(source, selected_us, target):
+            target.write_bytes(b'portrait final frame')
+            return {'path': str(target), 'duration_us': 2_000_000}
+        with patch.object(aa, 'ending_image', side_effect=image), \
+                patch.dict(aa.os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                           'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            plan, stage = self.plan()
+        subtitle = plan['draft_style']['subtitle']
+        self.assertEqual((subtitle['font_size_ui'], subtitle['border_width_ui']), (11, 20))
+        self.assertAlmostEqual(subtitle['transform_y'], 1 - 2 * visual['center_y_ratio'])
+        self.assertFalse(subtitle['auto_wrapping'])
+        self.assertEqual(plan['draft_style']['watermark'], {'font_size_ui': 7})
+        self.assertEqual(plan['audio'], {'master_gain': 0.8, 'bgm_gain': 0.35})
+        self.assertEqual(json.loads(self.timeline.read_text()), timeline)
+        self.assertEqual(self.srt.read_text(encoding='utf-8'), source_srt)
+        self.assertEqual(plan['subtitles'], [{'start_us': 123_000, 'end_us': 789_000,
+                                              'text': '价格 3.14 好'}])
+        self.assertEqual(aa.parse_subtitles(stage / 'subtitles-product.srt'), plan['subtitles'])
+
+    def test_product_punctuation_only_cues_leave_no_fake_overlay_and_warn(self):
+        source = '1\n00:00:00,123 --> 00:00:00,789\n？！\n'
+        self.srt.write_text(source, encoding='utf-8')
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073,
+                  'max_width_ratio': 0.9, 'font_family': 'Zhuque Fangsong'}
+        with patch.dict(aa.os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                       'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            plan, stage = self.plan()
+        self.assertEqual(plan['subtitles'], [])
+        self.assertNotIn('subtitle_overlay', plan)
+        self.assertEqual((stage / 'subtitles-product.srt').read_text(encoding='utf-8'), '')
+        self.assertEqual(self.srt.read_text(encoding='utf-8'), source)
+        self.assertTrue(any('123000–789000' in warning and '核听' in warning for warning in plan['warnings']))
+
     def saved(self, plan):
         rows = [{'id': 'draft', 'type': 'draft', 'attributes': {
             'width': plan['delivery']['width'], 'height': plan['delivery']['height']}}]
@@ -128,6 +174,15 @@ class AaDraftTests(unittest.TestCase):
         with patch.dict(aa.os.environ, {'MUSE_JIANYING_LANDSCAPE_SUBTITLE_SIZE': 'NaN'}):
             with self.assertRaisesRegex(ValueError, 'configuration is invalid'):
                 aa.resolve_landscape_subtitle_style()
+        visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073,
+                  'max_width_ratio': 0.9}
+        with patch.dict(aa.os.environ, {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                        'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            plan, _ = self.plan()
+        self.assertEqual(plan['draft_style']['subtitle']['font_size_ui'], 7)
+        self.assertEqual(plan['draft_style']['subtitle']['editor_y'], -879)
+        self.assertEqual(plan['draft_style']['subtitle']['transform_y'], 0.6)
 
     def test_native_readback_rejects_wrong_subtitle_size_or_position(self):
         plan, _ = self.plan()
@@ -519,7 +574,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4'), Path('C:/dir one/原片.mp4'))
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 

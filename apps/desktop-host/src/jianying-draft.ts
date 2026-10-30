@@ -24,6 +24,18 @@ export interface Config {
   readonly windowsHostPath?: string
   readonly windowsLandscapeSubtitleSize?: number
   readonly windowsLandscapeSubtitleY?: number
+  /** Product-only policy; the editor adapter uses UI units, not FFmpeg pixels. */
+  readonly enforceSubtitleVisual?: boolean
+  readonly defaultSubtitleVisual?: {
+    readonly schema_version: 1
+    readonly reference_width: number
+    readonly reference_height: number
+    readonly font_size_px: number
+    readonly outline_px: number
+    readonly center_y_ratio: number
+    readonly max_width_ratio: number
+    readonly font_family?: string
+  } | undefined
   readonly timeoutMs: number
   readonly graceMs: number
   readonly maxInputBytes: number
@@ -38,6 +50,13 @@ export const Config: z<Config> = z.object({
   windowsPowerShellPath: z.string().min(1), windowsCliPath: z.string().min(1), windowsHostPath: z.string().min(1),
   windowsLandscapeSubtitleSize: z.number().min(0.01).max(100),
   windowsLandscapeSubtitleY: z.number().min(-16384).max(16384),
+  enforceSubtitleVisual: z.boolean().default(false),
+  defaultSubtitleVisual: z.union([z.const(undefined), z.object({
+    schema_version: z.const(1).required(), reference_width: z.number().min(1).max(16384).required(),
+    reference_height: z.number().min(1).max(16384).required(), font_size_px: z.number().min(0.001).max(16384).required(),
+    outline_px: z.number().min(0).max(100).required(), center_y_ratio: z.number().min(0).max(1).required(),
+    max_width_ratio: z.number().min(0.001).max(1).required(), font_family: z.string().min(1).max(128),
+  })]),
   timeoutMs: z.number().step(1).min(1).required(), graceMs: z.number().step(1).min(0).required(),
   maxInputBytes: z.number().step(1).min(1).required(), maxOutputBytes: z.number().step(1).min(1).required(),
 })
@@ -117,6 +136,11 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const script = join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', backend.script)
   const env: Record<string, string | undefined> = { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8) }
+  if (config.enforceSubtitleVisual) {
+    if (config.defaultSubtitleVisual === undefined) throw new Error('Forced subtitle visual requires the product visual configuration')
+    env.MUSE_FORCE_SUBTITLE_VISUAL = '1'
+    env.MUSE_DEFAULT_SUBTITLE_VISUAL = JSON.stringify(config.defaultSubtitleVisual)
+  }
   if (config.ffmpegPath !== undefined) env.DSH_FFMPEG_PATH = config.ffmpegPath
   if (config.ffprobePath !== undefined) env.DSH_FFPROBE_PATH = config.ffprobePath
   if (backend.library === 'aa-jianying') {
