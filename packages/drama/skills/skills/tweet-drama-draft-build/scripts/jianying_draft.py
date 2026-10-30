@@ -124,10 +124,14 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
         policy = _delivery_policy.resolve_delivery(payload, project)
         audio = _draft_inputs.audio_gains(payload, project)
         effect_fit = _delivery_policy.ending_effect_fit(payload)
-        visual = _draft_inputs.subtitle_visual(payload, project)
+        force_portrait = (os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1'
+                          and policy['height'] > policy['width'])
+        visual = _draft_inputs.subtitle_visual(payload, project, _ignore_force=not force_portrait)
         style = _draft_inputs.draft_style(payload, project,
-                                         center_y_ratio=None if visual is None else visual['center_y_ratio'])
-        visual_mapping = None if visual is None else _draft_inputs.draft_subtitle_visual(visual, style['subtitle'])
+                                         center_y_ratio=None if visual is None else visual['center_y_ratio'],
+                                         enforce_product=force_portrait)
+        visual_mapping = None if visual is None else _draft_inputs.draft_subtitle_visual(
+            visual, style['subtitle'], product=force_portrait)
         if visual_mapping is not None:
             style = {**style, 'subtitle': visual_mapping['subtitle']}
         _delivery_policy.reject_animation_ending({**payload, "body_end": clock["body_end_us"] / 1e6}, end, policy)
@@ -137,10 +141,13 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
     font = draft_font_choice(style['subtitle']['font_family'])
     style_warnings = []
     if visual_mapping is not None:
+        typography_source = ('产品统一的剪映可编辑字幕配置' if force_portrait
+                             else 'delivery.draft_style.subtitle 的剪映配置')
+        unconfigured = ('使用产品默认字族' if force_portrait else '未配置字段保留旧默认')
         style_warnings.extend([
-            f"字幕视觉适配沿用 delivery.draft_style.subtitle 的剪映 UI 字号 "
+            f"字幕视觉适配使用{typography_source}的 UI 字号 "
             f"{style['subtitle']['font_size_ui']:g}、描边 {style['subtitle']['border_width_ui']:g} 与字族选择；"
-            "未配置字段保留旧默认。参考像素不是实测墨高，与成片等大、实际位置及字族等价尚未确认，请查看剪映预览。",
+            f"{unconfigured}。参考像素不是实测墨高，与成片等大、实际位置及字族等价尚未确认，请查看剪映预览。",
             "字幕保持单行及原文时间；line_max_width 只写入行宽意图，不保证不会左右裁切。"
             "请实际预览，超宽时依据真实字词时间选择语义切点，不自动缩小或按字数均分。",
         ])
@@ -1062,10 +1069,16 @@ def parse_srt_cues(srt_path, *, allow_empty=False) -> list:
     return cues
 
 
-def normalize_srt(srt_path, output_path=None, *, allow_empty=False) -> list:
+def normalize_srt(srt_path, output_path=None, *, allow_empty=False, on_warning=None) -> list:
     """规范化已对齐的短句文字并保留时间；未传输出路径时只校验。"""
     normalized = []
     for index, cue in enumerate(parse_srt_cues(srt_path, allow_empty=allow_empty), start=1):
+        if os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+            prepared, warnings = _draft_inputs.product_subtitle_cues([cue], str(srt_path))
+            for warning in warnings:
+                (on_warning or logger.warning)(warning)
+            normalized.extend(prepared)
+            continue
         lines = normalize_subtitle_text(cue["text"])
         if len(lines) != 1:
             logger.warning(f"字幕文件 {srt_path} 第 {index} 条超过建议长度；保留当前文字与时间，不均分估时。")
@@ -1086,7 +1099,7 @@ def write_srt_cues(output_path, cues: list) -> None:
 
     blocks = [f"{index}\n{stamp(cue['start_us'])} --> {stamp(cue['end_us'])}\n{cue['text']}"
               for index, cue in enumerate(cues, start=1)]
-    Path(output_path).write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+    Path(output_path).write_text("\n\n".join(blocks) + ("\n" if blocks else ""), encoding="utf-8")
 
 
 def _media_shot_number(media_file: Path) -> int:
@@ -1373,7 +1386,10 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
             failures.append(f"字幕纵坐标 {(segment.get('clip') or {}).get('transform')!r} != "
                             f"transform_y={subtitle_style['transform_y']}。")
         text = json.loads(material.get("content") or "{}").get("text", "")
-        if any(char in SUBTITLE_PUNCTUATION for char in text):
+        if (os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1'
+                and _draft_inputs.product_subtitle_text(text) != text) or (
+                os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') != '1'
+                and any(char in SUBTITLE_PUNCTUATION for char in text)):
             failures.append(f"字幕仍带标点：{text!r}。")
         if effective_character_count(text) > SUBTITLE_MAX_EFFECTIVE_CHARS:
             failures.append(f"字幕 {text!r} 有 {effective_character_count(text):.1f} 个有效字，"
@@ -1584,7 +1600,7 @@ def main_with_args(args, results=None):
                 warn(f"字幕对齐待核：{note}；保留选择继续生成，由 Muse 核听决定是否调整。")
         allow_empty_subtitle = getattr(args, 'allow_empty_subtitle_seq', None) == seq
         if srt_path and srt_path.exists():
-            checked_cues = normalize_srt(srt_path, allow_empty=allow_empty_subtitle)
+            checked_cues = normalize_srt(srt_path, allow_empty=allow_empty_subtitle, on_warning=warn)
             if any(effective_character_count(cue['text']) > SUBTITLE_MAX_EFFECTIVE_CHARS for cue in checked_cues):
                 warn(f"字幕 {srt_path} 超过建议长度，保留原文和时间，请 Muse 核对。")
         else:
@@ -1826,7 +1842,7 @@ def main_with_args(args, results=None):
                 logger.info(f"[{draft_name}] 字幕 {len(normalized_cues)} 条（去标点/单行/≤"
                             f"{SUBTITLE_MAX_EFFECTIVE_CHARS} 有效字），写出 {normalized_srt}")
                 if not normalized_cues:
-                    logger.info(f"[{draft_name}] 全部对白字已保留在源画面；不导入空的后加字幕轨。")
+                    logger.info(f"[{draft_name}] 规范化后没有可导入的字幕；请核听确认，未推断源画面已有字幕。")
                 elif not hasattr(script, 'import_srt'):
                     warn("剪映草稿库缺少 import_srt，当前候选没有可编辑字幕；请 Muse 核对。")
                 try:

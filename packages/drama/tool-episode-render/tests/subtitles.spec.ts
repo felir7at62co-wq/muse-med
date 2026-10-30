@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildAssHeader, WATERMARK_TEXT } from '../src/delivery.ts'
-import { buildAssDocument, formatSrtDocument, parseSrtDocument, parseSrtTime, readSubtitleCues, subtitleReviewWarnings, subtitleTextWarnings } from '../src/subtitles.ts'
+import { buildAssDocument, formatSrtDocument, normalizeSubtitleDisplay, parseSrtDocument, parseSrtTime, readSubtitleCues, subtitleDisplayWarnings, subtitleReviewWarnings, subtitleTextWarnings } from '../src/subtitles.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, srtDocument, tempProject } from './harness.ts'
 
@@ -81,6 +81,37 @@ describe('parseSrtDocument', () => {
 
   it('fails loud on a malformed timestamp inside a cue', () => {
     expect(() => parseSrtDocument('1\n--> 00:00:02,000\n正文\n', 'a.srt')).toThrow('不是 HH:MM:SS,mmm 形式')
+  })
+})
+
+describe('normalizeSubtitleDisplay', () => {
+  it('removes dialogue punctuation and row breaks without mutating words, cue intervals or source', () => {
+    const original = [cue(1, 39.854, 40.334, '做饭，\n好！'), cue(2, 41, 42, '亲权概率99.99%')]
+    expect(normalizeSubtitleDisplay(original)).toEqual([cue(1, 39.854, 40.334, '做饭 好'), cue(2, 41, 42, '亲权概率99.99%')])
+    expect(original[0]?.text).toBe('做饭，\n好！')
+  })
+
+  it('omits punctuation-only displays while preserving the original cue and its timing for review', () => {
+    const long = '一二三四五六七八九十一二三四五六七八九十'
+    const original = [cue(1, 1, 2, long), cue(2, 2, 3, '！')]
+    expect(normalizeSubtitleDisplay(original)).toEqual([cue(1, 1, 2, long)])
+    expect(original[1]).toEqual(cue(2, 2, 3, '！'))
+    expect(subtitleDisplayWarnings(original).join(' ')).toContain('2.000–3.000 秒')
+    expect(subtitleDisplayWarnings(original).join(' ')).toContain('勿据此认定该时段无对白')
+  })
+
+  it('removes common brackets, quotes and punctuation but preserves meaningful numeric and word separators', () => {
+    const text = '[他说] "好-吧" 价格1,234.56 12:30 2026/10/30 10-20 don\'t well-known！'
+    expect(normalizeSubtitleDisplay([cue(1, 1, 2, text)])[0]?.text)
+      .toBe("他说 好 吧 价格1,234.56 12:30 2026/10/30 10-20 don't well-known")
+  })
+
+  it('allows all-empty display without inventing words or a timed cue', () => {
+    const original = [cue(1, 3, 4, '……'), cue(2, 4, 5, '！')]
+    const display = normalizeSubtitleDisplay(original)
+    expect(display).toEqual([])
+    expect(parseSrtDocument(formatSrtDocument(display), 'empty.srt')).toEqual([])
+    expect(subtitleDisplayWarnings(original)).toHaveLength(2)
   })
 })
 

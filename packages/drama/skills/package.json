@@ -52,6 +52,7 @@
     "skills/tweet-drama-core/scripts/paths.py",
     "skills/tweet-drama-core/scripts/pipeline_state.py",
     "skills/tweet-drama-core/scripts/style_references.py",
+    "skills/tweet-drama-core/scripts/subtitle_display.py",
     "skills/tweet-drama-core/scripts/validate_live_action_skills.py",
     "skills/tweet-drama-core/scripts/video_bans.py",
     "skills/tweet-drama-delivery/SKILL.md",

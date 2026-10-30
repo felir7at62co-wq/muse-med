@@ -12,7 +12,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { parseTimelineDelivery } from './delivery-policy.ts'
+import { enforcePortraitSubtitleVisual, parseTimelineDelivery } from './delivery-policy.ts'
 import type { Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
@@ -35,10 +35,11 @@ function readInteger(source: Record<string, unknown>, field: string, path: strin
  * Read one timeline document.
  * @param document - The parsed JSON value.
  * @param path - The path the document came from, for diagnostics.
+ * @param ignoreSubtitleStyles - Ignore old subtitle styles when the product supplies its enforced visual.
  * @returns The clips in file order plus the body end they imply.
  * @throws {Error} When `clips` is missing or a clip is not a well-formed non-negative integer row.
  */
-export function parseTimelineDocument(document: unknown, path: string): Timeline {
+export function parseTimelineDocument(document: unknown, path: string, ignoreSubtitleStyles = false): Timeline {
   if (typeof document !== 'object' || document === null || !Array.isArray((document as { clips?: unknown }).clips)) {
     throw new Error(`${path}: 时间线必须是 {"clips":[{"shot":1,"start_us":0,"duration_us":5050000}]}。`
       + '请重新生成时间线，或把 prepare 的输出路径填给 timeline。')
@@ -75,7 +76,11 @@ export function parseTimelineDocument(document: unknown, path: string): Timeline
   if (endingEffectFit !== undefined && endingEffectFit !== 'source_once' && endingEffectFit !== 'stretch_to_window') {
     throw new Error(`${path}.ending_effect_fit 必须是 source_once 或 stretch_to_window。`)
   }
-  const delivery = Object.hasOwn(row, 'delivery') ? parseTimelineDelivery(row.delivery, `${path}.delivery`) : undefined
+  const rawDelivery = row.delivery
+  const geometry = typeof rawDelivery === 'object' && rawDelivery !== null && !Array.isArray(rawDelivery)
+    ? rawDelivery as Record<string, unknown> : {}
+  const delivery = Object.hasOwn(row, 'delivery') ? parseTimelineDelivery(rawDelivery, `${path}.delivery`,
+    enforcePortraitSubtitleVisual(ignoreSubtitleStyles, { width: geometry.width, height: geometry.height })) : undefined
   if (Object.hasOwn(row, 'body_end')
     && (typeof row.body_end !== 'number' || !Number.isFinite(row.body_end) || row.body_end < 0)) {
     throw new Error(`${path}.body_end 必须是非负有限秒数。请重跑 prepare。`)
@@ -117,10 +122,11 @@ export function bodyEndSecondsOf(clips: readonly TimelineClip[]): number {
 /**
  * Read and parse one timeline file.
  * @param path - Absolute path of the timeline JSON.
+ * @param ignoreSubtitleStyles - Ignore old subtitle styles when the product supplies its enforced visual.
  * @returns The parsed timeline.
  * @throws {Error} When the file cannot be read, is not JSON, or is not a timeline document.
  */
-export async function readTimeline(path: string): Promise<Timeline> {
+export async function readTimeline(path: string, ignoreSubtitleStyles = false): Promise<Timeline> {
   const text = await readTimelineText(path)
   let document: unknown
   try {
@@ -129,7 +135,7 @@ export async function readTimeline(path: string): Promise<Timeline> {
     throw new Error(`${path}: 时间线不是合法 JSON。`
       + '请确认它是 UTF-8 的 {"clips":[...]} 文件，或用 prepare 重新生成。', { cause: error })
   }
-  return parseTimelineDocument(document, path)
+  return parseTimelineDocument(document, path, ignoreSubtitleStyles)
 }
 
 /** Read one file as UTF-8 text without a byte-order mark. */
