@@ -73,6 +73,17 @@
 - id: tool-episode-render
   name: '@deepseek-ai/dsh-tool-episode-render'
   config:
+    defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
+    normalizeSubtitleText: true
+    enforceSubtitleVisual: true
+    defaultSubtitleVisual:
+      schema_version: 1
+      reference_width: 480
+      reference_height: 854
+      font_size_px: 48
+      outline_px: 2
+      center_y_ratio: 0.736747073
+      max_width_ratio: 0.9
     maxBgmVolume: 1
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'

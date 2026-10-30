@@ -113,3 +113,19 @@ describe('DSH package license gate', () => {
       .toContainEqual(expect.stringContaining('packages/drama/other/package.json'))
   })
 })
+
+
+describe('Codex-derived tool discovery notices', () => {
+  it.each([
+    ['packages/core/other', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-other', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT OR Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE']],
+  ])('rejects a changed package identity, license or omitted published notice', (directory, name, license, files) => {
+    const root = createWorkspace()
+    writeManifest(root, `${directory}/package.json`, { name, license, files })
+    writeFileSync(join(root, directory, 'NOTICE'), 'notice\n')
+    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'license\n')
+    expect(inspectDshPackageLicenses(root).failures).toHaveLength(1)
+  })
+})

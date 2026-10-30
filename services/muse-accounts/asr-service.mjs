@@ -421,8 +421,9 @@ export function createAsrService(options){
    const tail=pending.then(()=>{},()=>{});accountTails.set(account,tail);
    try{return await pending;}finally{active.delete(activeKey);if(accountTails.get(account)===tail)accountTails.delete(account);}
   },
-  /** Read an account-owned receipt; background workers alone query charged tasks. */
-  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);if(!job)throw fail(404,'ASR job not found');
+  /** Read an account-owned receipt or active upload; background workers alone query charged tasks. */
+  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);
+   if(!job){if(active.has(account+'\0'+key))return {id:key,status:'preparing',recovery:{capability:'none',next_action:'wait',automatic_resubmit:false}};throw fail(404,'ASR job not found');}
    if(active.has(account+'\0'+key)||workers.has(account+'\0'+key))return publicJob(job);
    await expire(job);
    return publicJob(await read(account,key));

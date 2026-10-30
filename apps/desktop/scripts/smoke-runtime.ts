@@ -220,7 +220,7 @@ export function apply(ctx) {
       for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
         'muse-llm-wiki', 'muse-project-participation',
         'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
-        'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
+        'trope-adaptation', 'wechat-shortdrama-harvest']) {
         if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
           throw new Error('desktop runtime: retired Host skill is enabled: ' + directory)
         }
@@ -229,7 +229,7 @@ export function apply(ctx) {
         && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
-      for (const name of ['audio-transcribe', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
+      for (const name of ['audio-transcribe', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format', 'video-review']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)

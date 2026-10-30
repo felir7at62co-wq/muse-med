@@ -69,7 +69,8 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/hindsight.js', 'lib/feishu-migration.js',
-    'lib/source-recovery.js', 'licenses',
+    'lib/source-recovery.js', 'licenses', 'lib/computer-use.js',
+    'lib/computer-input-worker.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -177,6 +178,8 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
+  // Codex-derived discovery surfaces publish their license notices beside the entry.
+  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
   // Statically linked client libraries keep their stylesheets next to the emitted
   // JavaScript, which imports them by relative path: the compile shell runs
   // them through its own CSS pipeline, so the sheets are published artifacts.
@@ -315,8 +318,6 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     ...hasTypertRemoteNavigation(manifest)
       ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts']
       : [],
-    // Adapted Apache-2.0 tool guidance carries its attribution and license.
-    ...manifest.name === '@deepseek-ai/dsh-tool-discovery' ? ['NOTICE', 'LICENSE-Codex'] : [],
   ]
 }
 

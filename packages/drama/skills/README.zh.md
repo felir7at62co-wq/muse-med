@@ -76,7 +76,7 @@ Agent 按剧本与已确认项目要求准备角色、场景和道具需求。[�
 
 分集覆盖检查和流程状态投影共用[显式工作范围规则](skills/tweet-drama-core/references/io-contract.md#episode-work-scope-and-coverage)。协作者可以完成已分配的集，不必补做前面的集，也不能因此宣称整剧完成。分工拆分保留其他协作者的清单条目和文件；验收仍校验当前原文、映射与镜头摘要。支持独立工作目录后合并产物，不协调同一本地项目的并发写入。
 
-[逐集生成质量流程](skills/tweet-drama-core/SKILL.md#逐集生成质量流程)在写卡前运行离线检查 `episode_coverage.py <project> preflight <episode> --script <shot-script>`，也适用于只做单集的任务。检查有序发声内容、说话人及对白/非当场发声方式，报告漏词、增词，无法识别的来源表达保留pending。它不签发验收记录，不替代带映射的动作/OS/VO覆盖、收费保护、听校或视觉审核；输入变化后重查受影响集。[道具与剧情动作适配](skills/tweet-drama-asset-vision-check/SKILL.md#道具与剧情动作适配)在生成前对照剧本使用方式核对选用图的相对尺度与结构，并在成片中检查接触和连续性。影响剧情成立的未修缺陷使整体不能通过，即使用户暂缓修复也一样。这属于Agent审核指引；发声检查脚本不识别图片，也不提供全局收费工具拦截。
+[逐集生成质量流程](skills/tweet-drama-core/SKILL.md#逐集生成质量流程)在写卡前运行离线检查 `episode_coverage.py <project> preflight <episode> --script <shot-script>`，也适用于只做单集的任务。支持标准镜头标记及逐包 Markdown 镜头标题和列表；分集原文不在 `episodes/` 时可用 `--source` 指定文件。检查有序发声内容、说话人及对白/非当场发声方式，报告漏词、增词，无法识别的来源表达保留pending。它不签发验收记录，不替代带映射的动作/OS/VO覆盖、收费保护、听校或视觉审核；输入变化后重查受影响集。[道具与剧情动作适配](skills/tweet-drama-asset-vision-check/SKILL.md#道具与剧情动作适配)在生成前对照剧本使用方式核对选用图的相对尺度与结构，并在成片中检查接触和连续性。影响剧情成立的未修缺陷使整体不能通过，即使用户暂缓修复也一样。这属于Agent审核指引；发声检查脚本不识别图片，也不提供全局收费工具拦截。
 
 交付使用自带 `assets/template.json`，保留 `01` 到 `9999` 的规范集号，`14` 和 `140` 是不同文件名。显式 `TWEET_DRAMA_TEMPLATE` 必须是已有目录；它不替换九目录名，也不导入第三方文件。组装会删除受管输出分区中的过期文件。项目内输出必须留在 `delivery` 下；项目祖先、上游重叠及已有输出内的链接会被拒绝。报告输出到 stdout，不写报告文件；复制不等于 SHA256 核对或完整媒体 QA。
 

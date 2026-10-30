@@ -418,6 +418,151 @@ describe('tool execution', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'line1\nline2' }])
   })
 
+  it('exposes structured snapshot identifiers in Native content without changing the canonical result', async () => {
+    const structuredContent = { snapshot_id: 'snapshot-1', elements: [{ element_index: 0, element_token: 'snapshot-1:0' }] }
+    const response = { content: [{ type: 'text', text: '[0] Edit' }], structuredContent }
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], response)
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('structured'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.isError).toBe(false)
+    expect(result.value).toEqual(response)
+    expect(result.content).toMatchInlineSnapshot(`
+      [
+        {
+          "text": "[0] Edit",
+          "type": "text",
+        },
+        {
+          "text": "{"snapshot_id":"snapshot-1","elements":[{"element_index":0,"element_token":"snapshot-1:0"}]}",
+          "type": "text",
+        },
+      ]
+    `)
+  })
+
+  it.each([
+    '{"snapshot_id":"snapshot-1","element_token":"snapshot-1:0"}',
+    ' {\n  "element_token": "snapshot-1:0",\n  "snapshot_id": "snapshot-1"\n} ',
+  ])('does not repeat structured fields already present as a complete JSON text block (%s)', async (text) => {
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], {
+      content: [{ type: 'text', text }],
+      structuredContent: { snapshot_id: 'snapshot-1', element_token: 'snapshot-1:0' },
+    })
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('deduplicated'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.content).toEqual([{ type: 'text', text }])
+  })
+
+  it('keeps complete structured fields when the existing JSON text contains only a subset', async () => {
+    const structuredContent = { snapshot_id: 'snapshot-1', element_token: 'snapshot-1:0' }
+    const text = '{"snapshot_id":"snapshot-1"}'
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], {
+      content: [{ type: 'text', text }], structuredContent,
+    })
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('subset'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.content).toEqual([{ type: 'text', text }, { type: 'text', text: JSON.stringify(structuredContent) }])
+  })
+
+  it('renders structured-only results without an empty-result diagnostic', async () => {
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], {
+      content: [], structuredContent: { snapshot_id: 'snapshot-1' },
+    })
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('structured-only'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.content).toEqual([{ type: 'text', text: '{"snapshot_id":"snapshot-1"}' }])
+  })
+
+  it('renders policy-owned structured fields beside unsupported canonical content blocks', async () => {
+    const structuredContent = { snapshot_id: 'policy-snapshot' }
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept', value: { content: [null, { type: 'text' }], structuredContent },
+    }))
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }])
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('policy-structured'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([
+      { type: 'text', text: '[unsupported MCP content block: expected an object]' },
+      { type: 'text', text: JSON.stringify(structuredContent) },
+    ])
+  })
+
+  it.each(['vision', 'text'])('keeps structured metadata beside admitted images or image diagnostics for %s', async (model) => {
+    const rich = await mountRichRegistry()
+    const structuredContent = { snapshot_id: 'snapshot-1', element_token: 'snapshot-1:0' }
+    const response = { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }], structuredContent }
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], response)
+    try {
+      await syncTools(client as never, rich.ctx, defaultOpts, new Map())
+      const result = await rich.ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId(`structured-${model}`), name: 'mcp__srv__snapshot',
+        arguments: {}, agent: agentOn(model) as never,
+      })
+      expect(result.isError).toBe(false)
+      expect(result.value).toEqual(response)
+      expect(result.content.at(-1)).toEqual({ type: 'text', text: JSON.stringify(structuredContent) })
+      if (model === 'vision') {
+        expect(result.content[0]?.type).toBe('image')
+        expect(rich.attachments.saved).toHaveLength(1)
+      } else {
+        expect(textAt(result.content)).toContain('does not declare image input')
+        expect(rich.attachments.saved).toEqual([])
+      }
+      expect(JSON.stringify(result.content)).not.toContain('AQ==')
+    } finally {
+      await rich.ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps structured error recovery details without storing images', async () => {
+    const rich = await mountRichRegistry()
+    const structuredContent = { code: 'background_unavailable', escalation: { recommended: 'foreground' } }
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], {
+      content: [{ type: 'text', text: 'snapshot failed' }, { type: 'image', mimeType: 'image/png', data: 'AQ==' }],
+      structuredContent, isError: true,
+    })
+    try {
+      await syncTools(client as never, rich.ctx, defaultOpts, new Map())
+      const result = await rich.ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('structured-error'), name: 'mcp__srv__snapshot',
+        arguments: {}, agent: agentOn() as never,
+      })
+      expect(result.isError).toBe(true)
+      expect(result.value).toBeUndefined()
+      expect(textAt(result.content)).toContain('snapshot failed')
+      expect(textAt(result.content)).toContain(JSON.stringify(structuredContent))
+      expect(JSON.stringify(result.content)).not.toContain('AQ==')
+      expect(rich.attachments.saved).toEqual([])
+    } finally {
+      await rich.ctx.fiber.dispose()
+    }
+  })
+
+  it('exposes structured-only MCP error recovery details as a failed tool result', async () => {
+    const structuredContent = { code: 'route_unavailable', retry: { after: 'fresh_snapshot' } }
+    const client = createMockClient([{ name: 'snapshot', inputSchema: { type: 'object' } }], {
+      content: [], structuredContent, isError: true,
+    })
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('structured-only-error'), name: 'mcp__srv__snapshot', arguments: {},
+    })
+    expect(result.isError).toBe(true)
+    expect(result.value).toBeUndefined()
+    expect(result.content).toEqual([{ type: 'text', text: `Error: ${JSON.stringify(structuredContent)}` }])
+  })
+
   it('preserves canonical MCP JSON while admitting an ordered mixed image result', async () => {
     const rich = await mountRichRegistry()
     const blocks = [
@@ -711,7 +856,7 @@ describe('tool execution', () => {
     try {
       const client = createMockClient(
         [{ name: 'img', inputSchema: { type: 'object' } }],
-        { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }] },
+        { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }], structuredContent: { element_token: 'dispatch-token' } },
       )
       const registrations = await syncTools(client as never, rich.ctx, defaultOpts, new Map())
       rich.ctx.on('tools/execute', async (_exec, next) => {
@@ -748,7 +893,7 @@ describe('tool execution', () => {
     }))
     const client = createMockClient(
       [{ name: 'img', inputSchema: { type: 'object' } }],
-      { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }] },
+      { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }], structuredContent: { element_token: 'policy-token' } },
     )
 
     await syncTools(client as never, rich.ctx, defaultOpts, new Map())
@@ -772,7 +917,7 @@ describe('tool execution', () => {
     }))
     const valueClient = createMockClient(
       [{ name: 'img', inputSchema: { type: 'object' } }],
-      { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }] },
+      { content: [{ type: 'image', mimeType: 'image/png', data: 'AQ==' }], structuredContent: { element_token: 'value-token' } },
     )
     await syncTools(valueClient as never, valueRich.ctx, defaultOpts, new Map())
     const replaced = await valueRich.ctx.tools.execute({
@@ -791,7 +936,7 @@ describe('tool execution', () => {
     }))
     const blockedClient = createMockClient(
       [{ name: 'img', inputSchema: { type: 'object' } }],
-      { content: [{ type: 'image', mimeType: 'image/png', data: 'Ag==' }] },
+      { content: [{ type: 'image', mimeType: 'image/png', data: 'Ag==' }], structuredContent: { element_token: 'blocked-token' } },
     )
     await syncTools(blockedClient as never, blockedRich.ctx, defaultOpts, new Map())
     const blocked = await blockedRich.ctx.tools.execute({

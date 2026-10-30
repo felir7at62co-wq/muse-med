@@ -8,7 +8,7 @@ import { resolve } from 'node:path'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
 import { parseSubtitleVisual } from './subtitle-visual.ts'
 import { activeSubtitleVisual } from './subtitle-visual.ts'
-import type { DeliveryAudio, DeliveryDraftStyle, DeliveryPolicy, DeliverySubtitle, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
+import type { DeliveryAudio, DeliveryDraftStyle, DeliveryPolicy, DeliverySubtitle, DeliverySubtitleVisual, Timeline, TimelineDelivery, VisualMedium } from './types.ts'
 
 /** Reject malformed explicit metadata instead of treating it as missing. */
 function object(value: unknown, path: string): Record<string, unknown> {
@@ -16,6 +16,17 @@ function object(value: unknown, path: string): Record<string, unknown> {
     throw new Error(`${path} 必须是对象。请修正项目配置或重新运行 prepare。`)
   }
   return value as Record<string, unknown>
+}
+
+/**
+ * Select the product subtitle policy for portrait output.
+ * @param enabled - Whether the deployment enforces its subtitle visual.
+ * @param geometry - Output dimensions used to select the portrait policy.
+ * @returns Whether the product visual replaces persisted subtitle styles.
+ */
+export function enforcePortraitSubtitleVisual(enabled: boolean | undefined, geometry: { width: unknown; height: unknown }): boolean {
+  return enabled === true && typeof geometry.width === 'number' && typeof geometry.height === 'number'
+    && geometry.height > geometry.width
 }
 
 /** Read the only two supported medium selectors. */
@@ -68,10 +79,10 @@ function audio(value: unknown, path: string): DeliveryAudio {
 }
 
 /** Parse explicit editor-unit typography without installing or resolving fonts. */
-function draftStyle(value: unknown, path: string): DeliveryDraftStyle {
+function draftStyle(value: unknown, path: string, ignoreSubtitleStyle = false): DeliveryDraftStyle {
   const row = object(value, path)
   const watermark = Object.hasOwn(row, 'watermark') ? object(row.watermark, `${path}.watermark`) : undefined
-  const body = Object.hasOwn(row, 'subtitle') ? object(row.subtitle, `${path}.subtitle`) : undefined
+  const body = !ignoreSubtitleStyle && Object.hasOwn(row, 'subtitle') ? object(row.subtitle, `${path}.subtitle`) : undefined
   if (body !== undefined && Object.hasOwn(body, 'font_family')
     && (typeof body.font_family !== 'string' || body.font_family.trim().length === 0
       || body.font_family.trim().length > 128 || /[\p{Cc}]/u.test(body.font_family))) {
@@ -114,9 +125,13 @@ function assertRepresentableSubtitle(delivery: TimelineDelivery, path: string): 
  * Parse a complete timeline delivery snapshot.
  * @param value - The delivery JSON value; absence is handled by the caller.
  * @param path - File and field named in diagnostics.
+ * @param ignoreSubtitleStyles - Ignore obsolete subtitle styles when the product enforces its own visual.
+ * @param ignoreDraftSubtitleStyle - Ignore obsolete draft-body styling while retaining the watermark.
  * @returns Validated medium and geometry.
  */
-export function parseTimelineDelivery(value: unknown, path: string): TimelineDelivery {
+export function parseTimelineDelivery(
+  value: unknown, path: string, ignoreSubtitleStyles = false, ignoreDraftSubtitleStyle = ignoreSubtitleStyles,
+): TimelineDelivery {
   const row = object(value, path)
   const width = positive(row.width, `${path}.width`)
   const height = positive(row.height, `${path}.height`)
@@ -126,10 +141,11 @@ export function parseTimelineDelivery(value: unknown, path: string): TimelineDel
   const delivery: TimelineDelivery = {
     ...(Object.hasOwn(row, 'visual_medium') ? { visual_medium: medium(row.visual_medium, `${path}.visual_medium`) } : {}),
     width, height, fps,
-    ...(Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
-    ...(Object.hasOwn(row, 'subtitle_visual') ? { subtitle_visual: parseSubtitleVisual(row.subtitle_visual, `${path}.subtitle_visual`) } : {}),
+    ...(!ignoreSubtitleStyles && Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
+    ...(!ignoreSubtitleStyles && Object.hasOwn(row, 'subtitle_visual')
+      ? { subtitle_visual: parseSubtitleVisual(row.subtitle_visual, `${path}.subtitle_visual`) } : {}),
     ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
-    ...(Object.hasOwn(row, 'draft_style') ? { draft_style: draftStyle(row.draft_style, `${path}.draft_style`) } : {}),
+    ...(Object.hasOwn(row, 'draft_style') ? { draft_style: draftStyle(row.draft_style, `${path}.draft_style`, ignoreDraftSubtitleStyle) } : {}),
   }
   assertRepresentableSubtitle(delivery, path)
   return delivery
@@ -138,32 +154,52 @@ export function parseTimelineDelivery(value: unknown, path: string): TimelineDel
 /**
  * Snapshot project settings before media work, using legacy geometry only for omitted fields.
  * @param project - Absolute project root.
+ * @param defaultVisual - Deployment visual used when no project style is specified, or always when enforced.
+ * @param enforceSubtitleVisual - Ignore project subtitle styles without changing their persisted configuration.
+ * @param outputGeometry - Actual selected timeline geometry when this differs from the project geometry.
  * @returns Validated settings from project_config.json.project_bible, or legacy defaults.
  */
-export async function readProjectDelivery(project: string): Promise<TimelineDelivery> {
+export async function readProjectDelivery(
+  project: string, defaultVisual?: DeliverySubtitleVisual, enforceSubtitleVisual = false,
+  outputGeometry?: Pick<TimelineDelivery, 'width' | 'height'>,
+): Promise<TimelineDelivery> {
+  if (enforceSubtitleVisual && defaultVisual === undefined) {
+    throw new Error('产品字幕视觉配置缺失。')
+  }
   const path = resolve(project, 'project_config.json')
   let text: string
   try {
     text = await readFile(path, 'utf8')
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return { ...DEFAULT_DELIVERY }
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return { ...DEFAULT_DELIVERY, ...(defaultVisual === undefined ? {} : { subtitle_visual: defaultVisual }) }
+    }
     throw error
   }
   const config = object(JSON.parse(text.replace(/^\ufeff/, '')), path)
-  if (!Object.hasOwn(config, 'project_bible')) return { ...DEFAULT_DELIVERY }
+  if (!Object.hasOwn(config, 'project_bible')) {
+    return { ...DEFAULT_DELIVERY, ...(defaultVisual === undefined ? {} : { subtitle_visual: defaultVisual }) }
+  }
   const bible = object(config.project_bible, `${path}.project_bible`)
   const geometry = Object.hasOwn(bible, 'delivery') ? object(bible.delivery, `${path}.project_bible.delivery`) : {}
+  const selectedGeometry = outputGeometry ?? {
+    width: geometry.width ?? DEFAULT_DELIVERY.width, height: geometry.height ?? DEFAULT_DELIVERY.height,
+  }
+  const enforced = enforcePortraitSubtitleVisual(enforceSubtitleVisual, selectedGeometry)
+  const visual = enforceSubtitleVisual && !enforced ? undefined : defaultVisual
   return parseTimelineDelivery({
     ...DEFAULT_DELIVERY,
     ...(Object.hasOwn(geometry, 'width') ? { width: geometry.width } : {}),
     ...(Object.hasOwn(geometry, 'height') ? { height: geometry.height } : {}),
     ...(Object.hasOwn(geometry, 'fps') ? { fps: geometry.fps } : {}),
-    ...(Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
-    ...(Object.hasOwn(geometry, 'subtitle_visual') ? { subtitle_visual: geometry.subtitle_visual } : {}),
+    ...(!enforced && Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
+    ...(!enforced && Object.hasOwn(geometry, 'subtitle_visual') ? { subtitle_visual: geometry.subtitle_visual } : {}),
+    ...((enforced || (!Object.hasOwn(geometry, 'subtitle_visual') && !Object.hasOwn(geometry, 'subtitle'))) && visual !== undefined
+      ? { subtitle_visual: visual } : {}),
     ...(Object.hasOwn(geometry, 'audio') ? { audio: geometry.audio } : {}),
     ...(Object.hasOwn(geometry, 'draft_style') ? { draft_style: geometry.draft_style } : {}),
     ...(Object.hasOwn(bible, 'visual_medium') ? { visual_medium: bible.visual_medium } : {}),
-  }, `${path}.project_bible.delivery`)
+  }, `${path}.project_bible.delivery`, false, enforced)
 }
 
 /**
@@ -187,20 +223,26 @@ export function deliveryPolicyFor(delivery: TimelineDelivery = DEFAULT_DELIVERY)
  * Resolve a timeline snapshot against the current project's explicit medium.
  * @param project - Absolute project root.
  * @param snapshot - Delivery metadata read from the timeline, if present.
+ * @param defaultVisual - Deployment visual used as a fallback, or always when enforcement is enabled.
+ * @param enforceSubtitleVisual - Ignore saved subtitle style sections for this output only.
  * Subtitle, audio and draft-style sections inherit independently: a saved section (even `{}`)
  * wins over the current project section; only a missing section inherits it.
  * Omitted fields inside the selected section retain deployment/legacy defaults.
  * @returns Snapshot geometry and selected sections, or legacy geometry when absent.
  * @throws {Error} When project and snapshot explicitly select different media.
  */
-export async function resolveDeliveryPolicy(project: string, snapshot?: TimelineDelivery): Promise<DeliveryPolicy> {
-  const current = await readProjectDelivery(project)
+export async function resolveDeliveryPolicy(
+  project: string, snapshot?: TimelineDelivery, defaultVisual?: DeliverySubtitleVisual, enforceSubtitleVisual = false,
+): Promise<DeliveryPolicy> {
+  const selectedGeometry = snapshot ?? DEFAULT_DELIVERY
+  const enforced = enforcePortraitSubtitleVisual(enforceSubtitleVisual, selectedGeometry)
+  const current = await readProjectDelivery(project, enforced ? defaultVisual : undefined, enforced, selectedGeometry)
   if (snapshot?.visual_medium !== undefined && current.visual_medium !== undefined
     && snapshot.visual_medium !== current.visual_medium) {
     throw new Error('时间线 delivery.visual_medium 与 project_bible.visual_medium 冲突；请重跑 prepare，禁止沿用旧时间线。')
   }
   const visualMedium = snapshot?.visual_medium ?? current.visual_medium
-  const delivery: TimelineDelivery = {
+  const selected: TimelineDelivery = {
     ...(snapshot ?? DEFAULT_DELIVERY),
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
     ...(snapshot?.subtitle !== undefined || current.subtitle === undefined ? {} : { subtitle: current.subtitle }),
@@ -208,6 +250,13 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
       ? {} : { subtitle_visual: current.subtitle_visual }),
     ...(snapshot?.audio !== undefined || current.audio === undefined ? {} : { audio: current.audio }),
     ...(snapshot?.draft_style !== undefined || current.draft_style === undefined ? {} : { draft_style: current.draft_style }),
+  }
+  const fallback = enforceSubtitleVisual && !enforced ? undefined : defaultVisual
+  let delivery: TimelineDelivery = selected.subtitle_visual === undefined && selected.subtitle === undefined
+    && fallback !== undefined ? { ...selected, subtitle_visual: fallback } : selected
+  if (enforced && defaultVisual !== undefined) {
+    const { subtitle: _oldSubtitle, subtitle_visual: _oldVisual, ...rest } = selected
+    delivery = { ...rest, subtitle_visual: defaultVisual }
   }
   // A legacy timeline may retain different geometry from the current project.
   // Validate the inherited margin against the frame that will actually be rendered.

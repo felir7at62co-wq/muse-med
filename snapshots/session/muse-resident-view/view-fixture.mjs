@@ -41,7 +41,7 @@ export async function apply(ctx) {
     assert.ok(!options.tools.some(tool => tool.name === 'fixture_optional_tool'))
     for (const name of ['drama_shot', 'manuscript_revision', 'video_inspect', 'drama_project', 'source_recover',
       'muse_production', 'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
-      'drama_character_references', 'drama_character_reference_view']) {
+      'drama_character_references', 'drama_character_reference_view', 'drama_render']) {
       assert.ok(options.tools.some(tool => tool.name === name), `Resident production tool: ${name}`)
     }
     yield* next()

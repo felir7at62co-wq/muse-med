@@ -22,6 +22,34 @@ import type { DeliveryPolicy, RenderSettings, SubtitleCue } from './types.ts'
 /** The watermark event runs the whole programme; ASS has no "until the end" timestamp. */
 const WATERMARK_END = '9:59:59.00'
 
+/** Normalize ordinary dialogue punctuation without changing the input cues or their measured times.
+ * Number separators and word-internal apostrophes/hyphens are retained when removing them changes meaning.
+ * @param cues - Authored input cues.
+ * @returns Display cues with ordinary punctuation and line breaks replaced by spaces; empty display cues are omitted.
+ */
+export function normalizeSubtitleDisplay(cues: readonly SubtitleCue[]): SubtitleCue[] {
+  return cues.flatMap((cue) => {
+    const text = cue.text.replace(/[\p{P}~～]/gu,
+      (char, offset: number, source: string) => {
+        const before = source[offset - 1] ?? '', after = source[offset + 1] ?? ''
+        if ('.,:：/-'.includes(char) && /\d/u.test(before) && /\d/u.test(after)) return char
+        if ('%％‰'.includes(char) && /\d/u.test(before)) return char
+        if ("’'-".includes(char) && /[A-Za-z]/u.test(before) && /[A-Za-z]/u.test(after)) return char
+        return ' '
+      }).replace(/\s+/gu, ' ').trim()
+    return text ? [{ ...cue, text }] : []
+  })
+}
+
+/** Identify time spans removed only from display, without judging whether speech occurred there.
+ * @param cues - Authored input cues, preserved unchanged.
+ * @returns Non-blocking observations for listening and speech-coverage review.
+ */
+export function subtitleDisplayWarnings(cues: readonly SubtitleCue[]): string[] {
+  return cues.flatMap(cue => normalizeSubtitleDisplay([cue]).length ? []
+    : [`第 ${String(cue.index)} 条字幕（${cue.startSeconds.toFixed(3)}–${cue.endSeconds.toFixed(3)} 秒）规范化后无显示文字；原字幕已保留，请结合实际发声和词级识别核听，勿据此认定该时段无对白。`])
+}
+
 /** Legacy alignment marker retained only for advisory readback.
  * @param path - Subtitle file.
  * @returns The historical marker path; its presence never rejects rendering.

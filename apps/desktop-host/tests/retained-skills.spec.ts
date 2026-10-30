@@ -77,7 +77,7 @@ it.each(writingSkills)('loads %s from the actual default product directory with 
     for (const file of originals) {
       const original = await readFile(join(originalDirectory, file))
       expect(await readFile(join(directory, file)), file).toEqual(original)
-      if (!file.endsWith('.md') || file.startsWith('upstream/')) continue
+      if (!file.endsWith('.md') || file.split(/[\\/]/)[0] === 'upstream') continue
       for (const link of original.toString('utf8').matchAll(/\]\(([^)]+)\)/gu)) {
         const target = link[1]
         if (target === undefined || /^(?:https?:|#)/u.test(target)) continue

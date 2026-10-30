@@ -16,6 +16,15 @@ SPEC.loader.exec_module(INPUTS)
 
 
 class DraftInputSemanticsTests(unittest.TestCase):
+    def test_product_punctuation_matches_common_render_examples(self):
+        original = '''[他说] "好-吧" 价格1,234.56 12:30 2026/10/30 10-20 don't well-known！'''
+        expected = "他说 好 吧 价格1,234.56 12:30 2026/10/30 10-20 don't well-known"
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1'}):
+            self.assertEqual(INPUTS.product_subtitle_text(original), expected)
+            self.assertEqual(INPUTS.product_subtitle_text('亲权概率99.99%'), '亲权概率99.99%')
+            self.assertEqual(INPUTS.product_subtitle_text('……'), '')
+            self.assertEqual(INPUTS.product_subtitle_text('！'), '')
+
     def test_frame_clock_recognizes_serialized_fractional_microsecond_boundaries(self):
         for time_us, frame in ((0, 0), (41_667, 1), (83_333, 2), (2_041_667, 49)):
             with self.subTest(time_us=time_us):

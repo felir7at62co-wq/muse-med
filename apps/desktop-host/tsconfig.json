@@ -115,6 +115,12 @@
     },
     {
       "path": "../../packages/compaction/compaction"
+    },
+    {
+      "path": "../../packages/computer-use/computer-use"
+    },
+    {
+      "path": "../../packages/mcp/mcp-client"
     }
   ]
 }

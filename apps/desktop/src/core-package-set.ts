@@ -34,6 +34,8 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'presets/short-drama/agent.cordis.yml',
   'presets/short-drama/preset.yml',
   'lib/native-preset.js',
+  'lib/computer-use.js',
+  'lib/computer-input-worker.js',
   'presets/standard/agent.cordis.yml',
   'presets/standard/preset.yml',
   'presets/ptc/agent.cordis.yml',

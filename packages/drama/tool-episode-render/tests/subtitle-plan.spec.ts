@@ -54,6 +54,29 @@ describe('source-bound subtitle overlay', () => {
     const result = await resolveSubtitleOverlay(await fixture([{ ...decision, text: ' 再添半碗！' }]))
     expect(result.report.retained_embedded[0]?.text).toBe('再添半碗')
   })
+  it('binds normalized display text to the overlay hash while retaining the original SRT', async () => {
+    const input = await fixture()
+    const original = input.original.replace('外加字幕', '外加，\n字幕！')
+    await writePlaceholder(input.subtitleSrt, original)
+    const result = await resolveSubtitleOverlay({ ...input, normalizeDisplay: true })
+    const output = await readFile(result.report.resolved_srt, 'utf8')
+    expect(result.cues.map(cue => cue.text)).toEqual(['外加 字幕'])
+    expect(output).toContain('外加 字幕')
+    expect(digest(output)).toBe(result.report.resolved_srt_sha256)
+    expect(result.report.original_srt_sha256).toBe(digest(original))
+    expect(await readFile(input.subtitleSrt, 'utf8')).toBe(original)
+  })
+  it('warns and emits an empty overlay when all selected cues are punctuation, without modifying the source', async () => {
+    const input = await fixture([])
+    const original = '1\n00:00:01,000 --> 00:00:02,000\n！\n'
+    await writePlaceholder(input.subtitleSrt, original)
+    const result = await resolveSubtitleOverlay({ ...input, normalizeDisplay: true })
+    expect(result.cues).toEqual([])
+    expect(result.warnings.join(' ')).toContain('1.000–2.000 秒')
+    expect(result.report.overlay_cue_count).toBe(0)
+    expect(await readFile(result.report.resolved_srt, 'utf8')).not.toContain('！')
+    expect(await readFile(input.subtitleSrt, 'utf8')).toBe(original)
+  })
   it('orders retained cue indexes and records a duplicated declared interval only once', async () => {
     const first = { ...decision, shot: 1, source_sha256: digest('first-picture'), text: '外加字幕' }
     const result = await resolveSubtitleOverlay(await fixture([decision, first, decision]))

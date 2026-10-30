@@ -37,6 +37,10 @@ describe('MCP result callback adaptation', () => {
       expect(result.value).toEqual({
         content: [{ type: 'text', text: 'Observed window.' }], structuredContent: { window: 7 },
       })
+      expect(result.content).toEqual([
+        { type: 'text', text: 'Observed window.' },
+        { type: 'text', text: '{"window":7}' },
+      ])
     } finally {
       await ctx.fiber.dispose()
     }

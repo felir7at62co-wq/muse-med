@@ -27,7 +27,7 @@ sys.path.insert(0, str(SCRIPT_ROOT))
 CORE_SCRIPTS = SCRIPT_ROOT.parents[1] / 'tweet-drama-core' / 'scripts'
 sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
-from draft_inputs import audio_gains, body_clock, draft_style, bgm_import
+from draft_inputs import audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues, write_product_subtitles
 from generate_draft_request import read_subtitle_overlay_report
 
 _policy_spec = importlib.util.spec_from_file_location(
@@ -329,6 +329,9 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
             raise ValueError('Zero overlay original subtitle hash or cue count changed')
     if any(cue['start_us'] < 0 or cue['end_us'] > clock['body_end_us'] for cue in cues):
         raise ValueError('Subtitle times must remain inside the selected episode body')
+    subtitle_warnings = []
+    if os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+        cues, subtitle_warnings = product_subtitle_cues(cues, str(subtitle_path))
     parent = project / 'editing/draft-materials'
     parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f'ep{episode:02d}-aa-', dir=parent))
@@ -346,10 +349,12 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
 
     retain(timeline_path, 'timeline.json')
     retain(subtitle_path, 'subtitles.srt')
+    if os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+        write_product_subtitles(stage / 'subtitles-product.srt', cues)
     if overlay is not None:
         retain(Path(overlay['source_path']), 'subtitle-overlay-report.json')
     by_shot = dict(zip(sorted(shots), sources))
-    warnings = [*policy['warnings'], *clock['warnings']]
+    warnings = [*policy['warnings'], *clock['warnings'], *subtitle_warnings]
     videos = []
     for row in ordered:
         original = by_shot[row['shot']]
@@ -372,7 +377,9 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
             'native_frame_rate': NATIVE_FRAME_RATE, 'body_end_us': clock['body_end_us'],
             'duration_us': clock['body_end_us'] + policy['ending_duration_us'],
             'delivery': policy, 'audio': audio_gains(timeline, project),
-            'draft_style': draft_style(timeline, project), 'warnings': warnings, 'materials': hashes}
+            'draft_style': draft_style(timeline, project, enforce_product=(
+                os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1' and policy['height'] > policy['width'])),
+            'warnings': warnings, 'materials': hashes}
     if ratio == '16:9':
         plan['draft_style']['subtitle'].update(resolve_landscape_subtitle_style())
     if overlay is not None:
