@@ -69,7 +69,8 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/hindsight.js', 'lib/feishu-migration.js',
-    'lib/source-recovery.js', 'licenses',
+    'lib/source-recovery.js', 'licenses', 'lib/computer-use.js',
+    'lib/computer-input-worker.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental

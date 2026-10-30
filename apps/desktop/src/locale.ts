@@ -2,6 +2,10 @@
 
 export const en = {
   productName: 'Muse',
+  computerUseActive: 'Muse is using your computer',
+  computerUsePaused: 'Computer use paused — you are in control',
+  computerUseYieldHint: 'Move the mouse or press a key to pause · Esc to exit',
+  computerUseResumeHint: 'Esc to exit · Return to the conversation to continue',
   cliCommandMenu: 'Manage dsh Command…',
   cliCommandTitle: 'Manage dsh Command',
   cliCommandLocation: 'Desktop command: {path}',
@@ -227,6 +231,10 @@ export type DesktopMessages = { readonly [Key in keyof typeof en]: string }
 
 export const zh = {
   productName: 'Muse',
+  computerUseActive: 'Muse 正在使用电脑',
+  computerUsePaused: '电脑操作已暂停，你已接管',
+  computerUseYieldHint: '移动鼠标或按键暂停 · Esc 退出',
+  computerUseResumeHint: 'Esc 退出 · 回到会话中可继续',
   cliCommandMenu: '管理 dsh 命令…',
   cliCommandTitle: '管理 dsh 命令',
   cliCommandLocation: 'Desktop 命令：{path}',

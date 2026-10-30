@@ -24,8 +24,8 @@
   en: 75ae9745d5b04796
   zh: 8ae5b8ca6e73296e
 /deepseek-ai-dsh-mcp-client/use-this-package/calling-tools-and-reading-results:
-  en: cad16c6102b0e316
-  zh: 03841eea6ead54cd
+  en: 5e71d0fad720223e
+  zh: b83b71a6951696a9
 /deepseek-ai-dsh-mcp-client/use-this-package/startup-updates-and-reconnection:
   en: d7b393106cf6b8fc
   zh: a95bdc34e914b0da
@@ -69,11 +69,11 @@
   en: a8503137ad03720c
   zh: 611a2dadf7c0c706
 /deepseek-ai-dsh-mcp-client/model-experience/tool-call-history-and-results/what-the-model-sees:
-  en: 5b3a7fe5bf11e73b
-  zh: e015c2468962fcf3
+  en: 3e052be305ae1f2e
+  zh: 96ca6db525c7e452
 /deepseek-ai-dsh-mcp-client/model-experience/tool-call-history-and-results/token-effect:
-  en: cc030374eca00e1c
-  zh: d4b19b9db621b367
+  en: d2f2aba6997b1b03
+  zh: a7d2da9162bb72fa
 /deepseek-ai-dsh-mcp-client/model-experience/tool-call-history-and-results/kv-cache-effect:
   en: f5d5f97a153f7c70
   zh: 31911b4f3506d6c8

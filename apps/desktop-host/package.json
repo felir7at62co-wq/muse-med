@@ -24,7 +24,9 @@
     "lib/hindsight.js",
     "lib/feishu-migration.js",
     "lib/source-recovery.js",
-    "licenses"
+    "licenses",
+    "lib/computer-use.js",
+    "lib/computer-input-worker.js"
   ],
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -90,7 +92,9 @@
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-tool-discovery": "workspace:*",
     "@deepseek-ai/dsh-session-query": "workspace:*",
-    "@deepseek-ai/dsh-compaction": "workspace:*"
+    "@deepseek-ai/dsh-compaction": "workspace:*",
+    "@deepseek-ai/dsh-computer-use": "workspace:*",
+    "@deepseek-ai/dsh-mcp-client": "workspace:*"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -104,7 +108,8 @@
     "./hindsight": "./lib/hindsight.js",
     "./feishu-migration": "./lib/feishu-migration.js",
     "./manuscript-source-review": "./lib/manuscript-source-review.js",
-    "./source-recovery": "./lib/source-recovery.js"
+    "./source-recovery": "./lib/source-recovery.js",
+    "./computer-use": "./lib/computer-use.js"
   },
   "dsh": {
     "bundle": {
