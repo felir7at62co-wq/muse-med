@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 function start(state, { config = {}, services } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-install-'))
   if (state) writeFileSync(join(home, 'state.json'), JSON.stringify(state))
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => {
     route = options
     return register(options)
   }
-  const applyResult = apply(ctx, { home, ...config })
+  const applyResult = apply(ctx, legacyConfig({ home, ...config }))
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -41,7 +41,15 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on settings/document-updated',
     'on session/event',
     'effect ds-bot: agent tool restrict retry',
+    'on agent/disposed',
     'on agent/created',
+    'on session/created',
+    'on session/disposed',
+    'on session/event',
+    'effect Muse Bot: Session identity service',
+    'on agent/created',
+    'on agent/pre-step',
+    'effect ds-bot: tool residency provider',
     'effect ds-bot: identity section',
     'prompt bot-identity 640',
     'on agent/pre-step (prepend)',
@@ -105,7 +113,6 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: capabilities',
     'effect ds-bot: usage ledger',
     'on llm/stream',
-    'effect ds-bot: update check',
     'effect ds-bot: dsh update install',
     'on agent/status',
     'on session/event',

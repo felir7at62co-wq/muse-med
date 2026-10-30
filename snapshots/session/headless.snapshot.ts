@@ -63,7 +63,7 @@ const editingCordisSkill = join(
   repoRoot,
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
-// Retired guides belong only to these recorded workspaces; current production discovery stays disabled.
+// Legacy guide bodies belong to their recorded workspaces; current discovery uses product resources.
 const museLegacySkills = join(snapshotsRoot, 'muse-video-screenplay-skills/legacy-skills')
 const museEditingSkill = join(museLegacySkills, 'editing.skill.txt')
 const museSharedSkills = [
@@ -570,6 +570,10 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
   },
+  async 'muse-video-review-lifecycle'(cwd) {
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+    await writeFile(join(cwd, 'unrelated.md'), 'A separate document whose delivery does not complete video observations.\n')
+  },
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -630,14 +634,21 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await workspaceSetups['windows-acl-skill']!(cwd)
   },
   async 'muse-current-professional-skills'(cwd) {
-    for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'screenplay-format']) {
-      await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+    for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'novel-to-script', 'screenplay-format']) {
+      await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
     }
   },
   async 'muse-creation-skills'(cwd) {
     await workspaceSetups['muse-editing-trial-skills']!(cwd)
     await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
-    await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+    const productSkills = join(repoRoot, 'apps/desktop-host/skills')
+    // Recovery recordings retain their seeded writing guides; current discovery has its own scenario.
+    const legacyWritingSkills = ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'novel-to-script', 'screenplay-format']
+      .map(name => join(productSkills, name))
+    await cp(productSkills, join(cwd, '.dsh/skills'), {
+      recursive: true,
+      filter: source => !legacyWritingSkills.includes(source),
+    })
     await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
@@ -837,6 +848,11 @@ function pinOf(scenario: HeadlessScenario): HeadlessScenario {
   const pin = headerPins.get(`${composition}/${header.class}`)
   if (pin === undefined) throw new Error(`${scenario.name}: composition/header class has no pin`)
   return pin
+}
+
+function supportedHeaderPinFormat(retained: SnapshotManifest['sessionFormat']): boolean {
+  return retained === undefined || (retained.coverage.length === 1 && retained.coverage[0] === 'retired-tools'
+    && Number.isSafeInteger(retained.version) && retained.version >= 0 && retained.version <= SESSION_FORMAT_VERSION)
 }
 
 function spillReferenceSource(events: readonly JsonObject[], label: string): JsonObject {
@@ -1193,7 +1209,21 @@ describe('headless recorded-session snapshots', () => {
   it('gives every composition and header class exactly one current-writer pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
-      expect(pinOf(scenario).manifest.sessionFormat, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      expect(supportedHeaderPinFormat(pinOf(scenario).manifest.sessionFormat), `${scenario.name}: current-writer header pin`).toBe(true)
+    }
+  })
+
+  it('allows retained header pins only for explicit retired-tool recordings within supported formats', () => {
+    expect(supportedHeaderPinFormat(undefined)).toBe(true)
+    for (const version of [0, SESSION_FORMAT_VERSION]) {
+      expect(supportedHeaderPinFormat({ version, coverage: ['retired-tools'] })).toBe(true)
+    }
+    for (const retained of [
+      { version: SESSION_FORMAT_VERSION - 1, coverage: ['adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION, coverage: ['retired-tools', 'adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION + 1, coverage: ['retired-tools'] },
+    ] satisfies NonNullable<SnapshotManifest['sessionFormat']>[]) {
+      expect(supportedHeaderPinFormat(retained)).toBe(false)
     }
   })
 
@@ -1589,6 +1619,45 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-resident-question') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const initial = events.find(event => event.type === 'request/header')
+              if (initial?.type !== 'request/header') throw Error('Missing initial tool definitions')
+              const names = initial.data.header.tools?.map(tool => tool.name) ?? []
+              expect(names.filter(name => name === 'ask_user')).toHaveLength(1)
+              expect(names).not.toContain('ask_user_question')
+              expect(names).not.toContain('video_inspect')
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+              expect(calls).toEqual(['ask_user'])
+              const result = events.find(event => event.type === 'tool/result')
+              expect(result?.data.message.isError).toBe(false)
+              expect(JSON.stringify(result?.data.message.content)).toContain('The card is on screen')
+            }
+            if (scenario.name === 'muse-video-review-lifecycle') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(9)
+              expect(results.every(result => !result.isError)).toBe(true)
+              const reports = results.map(result => {
+                const text = result.content.find(block => block.type === 'text')
+                if (text?.type !== 'text') throw Error('Missing lifecycle result')
+                return text.text
+              })
+              const closed = JSON.parse(reports[2]!) as {
+                follow_up: { status: string }; complete: boolean; pending: number; recorded: number; next: string
+              }
+              expect(closed).toMatchObject({ follow_up: { status: 'closed' }, complete: false, pending: 3, recorded: 2, next: 'closed' })
+              expect(JSON.parse(reports[4]!)).toMatchObject({ follow_up: { status: 'closed' }, pending: 3, recorded: 2 })
+              for (const index of [6, 7, 8]) {
+                expect(JSON.parse(reports[index]!)).toMatchObject({ follow_up: { status: 'active' }, pending: 3, recorded: 2 })
+              }
+              const continued = JSON.parse(reports[8]!) as { frames: { id: string }[] }
+              expect(continued.frames.map(frame => frame.id)).toEqual(['F00003', 'F00004'])
+              const changes = events.flatMap(event => event.type === 'video/review' && event.data.kind === 'update'
+                && event.data.follow_up !== undefined ? [event.data.follow_up.status] : [])
+              expect(changes.filter((status, index) => status !== changes[index - 1])).toEqual(['closed', 'active'])
+              expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
             }
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)

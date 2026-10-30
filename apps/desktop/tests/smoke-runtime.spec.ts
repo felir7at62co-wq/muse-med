@@ -2,8 +2,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
-import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
+import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -33,9 +34,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
   'muse-llm-wiki', 'muse-project-participation',
-  'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
-  'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
-  'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
+  'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
+  'trope-adaptation', 'wechat-shortdrama-harvest']
+const defaultHostSkills = ['audio-transcribe', 'muse-script-doctor', 'novel-to-script',
+  'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format', 'video-review']
 
 /**
  * Write the primary-runtime payload the smoke reads before it starts the Host.
@@ -60,7 +62,8 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation']
+  const layout = prepareDesktopSmokeSkills(home)
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -76,24 +79,22 @@ function fixture(packaged = false) {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    return { name, path, invocation: { modelInvocable: true } }
+    return { name, path, source: 'bundled', invocation: { modelInvocable: true } }
   })
-  const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
-  mkdirSync(dirname(customPath), { recursive: true })
-  writeFileSync(customPath, '# fixture')
-  skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
+  skills.push(...layout.selected.map(skill => ({ ...skill, invocation: { modelInvocable: true } })))
   const cordisSkill = {
     name: 'editing-cordis-compositions',
     path: unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md')),
+    source: 'bundled',
     invocation: { modelInvocable: true },
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe']) {
+  for (const name of defaultHostSkills) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
   const exporter = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/office-support/export_docx.py'))
   mkdirSync(dirname(exporter), { recursive: true })
@@ -121,10 +122,25 @@ function fixture(packaged = false) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
-  const agent = { preset: 'short-drama' }
+  const creationSkills = [...skills]
+  const selected = new Set<string>()
+  const agent = { preset: 'short-drama', id: 'smoke-agent', session: {
+    append: vi.fn((type: string, data: { message?: { content: readonly { type: string; text?: string }[] } }) => {
+      if (type === 'tool/result') {
+        const result = JSON.parse(data.message!.content.map(block => block.text ?? '').join('')) as {
+          operation: string
+          tools: string[]
+        }
+        for (const name of result.tools) {
+          if (result.operation === 'load') selected.add(name)
+          else if (result.operation === 'release') selected.delete(name)
+        }
+      }
+      return { seq: 1 }
+    }),
+  } }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
@@ -137,6 +153,9 @@ function fixture(packaged = false) {
   const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
   const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
     'ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
+  const coordinatorCapabilityNames = ['write', 'edit', 'glob', 'grep', 'present', 'web_search', 'web_fetch',
+    'ask_user_question', 'todo_write', 'todo_update', 'subagent', 'audio_transcribe', 'tool_search', 'tool_context',
+    'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']
   const editingCapabilityNames = ['ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   const loadSkill = (catalog: typeof skills, name: string) => {
     const skill = catalog.find(value => value.name === name)
@@ -162,16 +181,19 @@ function fixture(packaged = false) {
       await options.setup(agentCtx)
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
-    tools = { schemas: vi.fn((key?: { preset: string }) => {
+    toolDiscovery = { state: vi.fn(() => ({ loaded: [...selected], pinned: [] })) }
+    tools = { execute: vi.fn(async (input: { name: string; arguments: { operation: string; tools: string[] } }) => ({
+      isError: false, content: [{ type: 'text', text: JSON.stringify(input.arguments) }],
+    })), schemas: vi.fn((key?: { preset: string }): { name: string; description?: string }[] => {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames]
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...accountMcpNames, 'tool_search', 'tool_context']
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
-            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
+          : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+            'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
+            : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
               : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
-                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'short-drama'
@@ -179,13 +201,14 @@ function fixture(packaged = false) {
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
         : [],
       tools: context.scope.preset === 'short-drama'
-        ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
+        ? this.tools.schemas(context.scope).filter(tool => ['read', 'skill', 'tool_search', 'tool_context'].includes(tool.name) || selected.has(tool.name))
         : [],
     })) }
     skills = {
       list: vi.fn(async (options: { scope: { preset: string } }): Promise<{
         name: string
         path?: string
+        source?: string
         invocation: { modelInvocable: boolean }
       }[]> =>
         options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills),
@@ -197,7 +220,8 @@ function fixture(packaged = false) {
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
-    Context: TestContext, existsSync, realpathSync, writeFileSync, join, relative, isAbsolute, process: { platform: process.platform },
+    Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
+    join, relative, isAbsolute, process: { platform: process.platform },
   }) as (ctx: TestContext) => void
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
@@ -209,7 +233,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, skills, creationSkills, cordisSkill, skillRoot, home, root }
+    accountMcpNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -218,7 +242,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -232,12 +256,13 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   await f.apply(f.ctx)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
-  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: f.agent, scope: f.agent })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.layout.cwd })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(12)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.layout.cwd })
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -256,11 +281,11 @@ it('rejects a Cordis authoring skill served from the virtual ASAR path', async (
   await expect(f.apply(f.ctx)).rejects.toThrow('cordis authoring skill is not mounted')
 })
 
-it('rejects a shared Muse skill missing from the packaged Host', async () => {
+it.each(defaultHostSkills)('rejects shared Muse skill %s missing from the packaged Host', async (name) => {
   const f = fixture()
-  const index = f.skills.findIndex(skill => skill.name === 'audio-transcribe')
+  const index = f.skills.findIndex(skill => skill.name === name)
   if (index >= 0) f.skills.splice(index, 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill audio-transcribe')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -335,7 +360,7 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missing transcription in %s', async (preset) => {
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'bot-coordinator', 'creation'])('rejects missing transcription in %s', async (preset) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
@@ -386,9 +411,16 @@ it.each(['office-docx', 'office-xlsx', 'office-pptx'])('rejects creation without
   await expect(f.apply(f.ctx)).rejects.toThrow('missing creation skill ' + name)
 })
 
+it.each(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+('accepts additional creation skills from supported source %s', async (source) => {
+  const f = fixture()
+  f.creationSkills.push({ name: 'additional-user-skill', path: '', source, invocation: { modelInvocable: true } })
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+})
+
 it.each(['desktop-user-skill', 'editing-cordis-compositions', 'unreviewed-runtime-skill'])('rejects creation exposing %s', async (name) => {
   const f = fixture()
-  f.creationSkills.push({ name, path: '', invocation: { modelInvocable: true } })
+  f.creationSkills.push({ name, path: '', source: 'runtime', invocation: { modelInvocable: true } })
   await expect(f.apply(f.ctx)).rejects.toThrow('creation skill registry exposes unreviewed skills')
 })
 
@@ -487,22 +519,76 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
   const f = fixture()
   const custom = f.skills.find(skill => skill.name === 'desktop-user-skill')!
   if (kind === 'missing') f.skills.splice(f.skills.indexOf(custom), 1)
-  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-legacy-only' })
+  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-shared-only' })
   else {
     const path = join(f.home, '.agents/skills/desktop-user-skill/SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# legacy')
     custom.path = path
   }
-  await expect(f.apply(f.ctx)).rejects.toThrow('product custom skills missing or legacy skills discovered')
+  await expect(f.apply(f.ctx)).rejects.toThrow(kind === 'legacy-only'
+    ? 'excluded shared user skill was discovered' : 'custom or project skill selection differs')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['short-drama', 'creation'])('rejects missing or unreadable custom/project skills in %s', async (preset) => {
+  const f = fixture()
+  if (preset === 'creation') f.creationSkills.splice(f.creationSkills.findIndex(skill => skill.name === 'desktop-project-muse'), 1)
+  else {
+    const get = f.ctx.skills.get.getMockImplementation()!
+    f.ctx.skills.get.mockImplementation(async name => name === 'desktop-project-muse' ? undefined : get(name))
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow(preset === 'creation'
+    ? 'custom or project skill selection differs in creation: desktop-project-muse'
+    : 'custom or project skill could not load in short-drama: desktop-project-muse')
+})
+
+it.each(['source', 'priority'])('rejects incorrect project skill %s', async (change) => {
+  const f = fixture()
+  const skill = f.skills.find(skill => skill.name === 'desktop-project-priority')!
+  if (change === 'source') skill.source = 'custom'
+  else skill.path = join(f.layout.cwd, '.dsh/skills/desktop-project-priority/SKILL.md')
+  await expect(f.apply(f.ctx)).rejects.toThrow('custom or project skill selection differs in short-drama: desktop-project-priority')
 })
 
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
-  f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
+  f.ctx.agentPresets.list.mockResolvedValue([...(await f.ctx.agentPresets.list()), { id: 'personal' }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation'])
+('refuses a roster missing product preset %s before creating an agent', async (missing) => {
+  const f = fixture()
+  f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list()).filter(preset => preset.id !== missing))
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('refuses a same-sized roster that replaces the coordinator with a personal preset', async () => {
+  const f = fixture()
+  f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list())
+    .map(preset => preset.id === 'bot-coordinator' ? { id: 'personal' } : preset))
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('rejects changing the default product preset to the coordinator', async () => {
+  const f = fixture()
+  f.ctx.agentPresets.defaultId = 'bot-coordinator'
+  await expect(f.apply(f.ctx)).rejects.toThrow('product default preset changed')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it.each(['read', 'tool_search', 'tool_context', 'message_bot', 'create_bot'])
+('rejects coordinator missing its standard, discovery or team tool %s', async (missing) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'bot-coordinator'
+    ? schemas(key).filter(tool => tool.name !== missing) : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing + ' in bot-coordinator')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('fails missing tools and still disposes the created agent', async () => {
@@ -578,15 +664,101 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('loads deferred account definitions through committed context receipts and restores initial visibility', async () => {
+  const f = fixture()
+  await f.apply(f.ctx)
+  expect(f.ctx.tools.execute.mock.calls.map(([call]) => call.arguments.operation)).toEqual(['load', 'release', 'load', 'release'])
+  expect(f.agent.session.append.mock.calls.map(([type]) => type)).toEqual([
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+  ])
+  expect([...f.selected]).toEqual([])
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a missing authorized account definition %s', async (missing) => {
+  const f = fixture()
+  f.accountMcpNames.splice(f.accountMcpNames.indexOf(missing), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a changed authorized description for %s', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => schemas(key).map(tool => tool.name === name
+    ? { ...tool, description: 'Generic read.' } : tool))
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing authorized tool description changed: ' + name)
+})
+
+it('rejects account definitions exposed before discovery', async () => {
+  const f = fixture()
+  f.selected.add('mcp__muse-account__muse_account_status')
+  await expect(f.apply(f.ctx)).rejects.toThrow('account tools must remain deferred before discovery')
+})
+
+it.each(['read', 'skill', 'tool_search', 'tool_context'])('rejects missing initial resident definition %s', async (name) => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== name)
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing resident tool ' + name)
+})
+
+it.each(['load', 'release'])('rejects unsuccessful tool_context %s', async (operation) => {
+  const f = fixture()
+  const execute = f.ctx.tools.execute.getMockImplementation()!
+  f.ctx.tools.execute.mockImplementation(async input => input.arguments.operation === operation
+    ? { isError: true, content: [{ type: 'text', text: JSON.stringify(input.arguments) }] } : execute(input))
+  await expect(f.apply(f.ctx)).rejects.toThrow('tool_context ' + operation + ' failed')
+})
+
+it.each(['load', 'release'])('rejects successful %s without an applied context receipt', async (operation) => {
+  const f = fixture()
+  const append = f.agent.session.append.getMockImplementation()!
+  f.agent.session.append.mockImplementation((type, data) => {
+    if (type === 'tool/result' && data.message!.content.some(block => block.text?.includes('"operation":"' + operation + '"'))) return { seq: 1 }
+    return append(type, data)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(operation === 'load'
+    ? 'editing model tool description changed after loading:' : 'releasing account tools did not restore initial model tools')
+})
+
+it('rejects a loaded definition omitted from the assembled model request', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== 'mcp__muse-account__muse_account_status')
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: mcp__muse-account__muse_account_status')
+})
+
+it('rejects a released definition that remains in model input despite cleared selections', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let count = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (++count === 3) result.tools.push({ name: 'mcp__muse-account__muse_account_status', description: editingModelInput.tools['mcp__muse-account__muse_account_status']! })
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('releasing account tools did not restore initial model tools')
+})
+
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'short-drama') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
+    const tool = result.tools.find(tool => tool.name === name)
+    if (context.scope.preset === 'short-drama' && tool) tool.description = 'Generic read.'
     return result
   })
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -600,7 +772,7 @@ it('rejects an editing mode that loses a standard video tool', async () => {
 it.each(['directory', 'registry'])('rejects XHS in the product %s and disposes the created agent', async (source) => {
   const f = fixture()
   if (source === 'directory') mkdirSync(join(f.skillRoot, 'xiaohongshu-reference'))
-  else f.skills.push({ name: 'xiaohongshu-reference', path: '', invocation: { modelInvocable: false } })
+  else f.skills.push({ name: 'xiaohongshu-reference', path: '', source: 'runtime', invocation: { modelInvocable: false } })
   await expect(f.apply(f.ctx)).rejects.toThrow('XHS must not ship')
   expect(f.dispose).toHaveBeenCalledTimes(2)
 })
@@ -637,10 +809,10 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.dispose).toHaveBeenCalledTimes(14)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects required packaged skill %s without a filesystem path', async (name) => {
   const f = fixture()
   const list = f.ctx.skills.list.getMockImplementation()!
@@ -650,14 +822,14 @@ it.each(['audio-transcribe',
     ? 'missing product skill ' + name : 'missing shared Muse skill ' + name)
 })
 
-it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format'])('rejects re-enabling retired Host skill %s', async (name) => {
+it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import'])('rejects re-enabling retired Host skill %s', async (name) => {
   const f = fixture()
   const path = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
   writeFileSync(path, '# enabled old resource')
   await expect(f.apply(f.ctx)).rejects.toThrow('retired Host skill is enabled: ' + name)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a disabled file pretending to be active skill %s', async (name) => {
   const f = fixture()
   const skill = f.skills.find(value => value.name === name)!
@@ -667,21 +839,21 @@ it.each(['audio-transcribe',
   await expect(f.apply(f.ctx)).rejects.toThrow('disabled skill is model-invocable')
 })
 
-it.each(['audio-transcribe', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
+it.each([...defaultHostSkills, 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
   const f = fixture()
   const get = f.ctx.skills.get.getMockImplementation()!
   f.ctx.skills.get.mockImplementation(async target => target === name ? undefined : get(target))
-  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'audio-transcribe'
-    ? 'shared skill did not load from the packaged Host: ' + name
-    : 'shot-writing skill did not load from its packaged resource: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow(name.startsWith('shot-script-creator-')
+    ? 'shot-writing skill did not load from its packaged resource: ' + name
+    : 'shared skill did not load from the packaged Host: ' + name)
 })
 
-it('loads the transcription and shot-writing skills through the scoped registry', async () => {
+it('loads default transcription, writing and shot-writing skills through the scoped registry', async () => {
   const f = fixture()
   await f.apply(f.ctx)
-  for (const name of ['audio-transcribe',
+  for (const name of [...defaultHostSkills,
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.layout.cwd })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)

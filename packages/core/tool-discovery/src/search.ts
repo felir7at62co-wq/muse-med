@@ -23,6 +23,7 @@ export interface ToolSearchMatch {
 interface IndexedDocument {
   name: string
   normalizedName: string
+  aliases: string[]
   length: number
 }
 
@@ -37,6 +38,25 @@ function terms(value: string, segmenter: Intl.Segmenter): string[] {
     const fragments = word.split(/[_./:\-]+/u).filter(Boolean)
     return fragments.length > 1 ? [word, ...fragments] : fragments
   })
+}
+
+function mentioned(query: string, phrase: string): boolean {
+  if (!phrase) return false
+  let start = query.indexOf(phrase)
+  while (start >= 0) {
+    const before = query[start - 1] ?? ''
+    const after = query[start + phrase.length] ?? ''
+    if (!/[a-z0-9_]/u.test(before) && !/[a-z0-9_]/u.test(after)) return true
+    start = query.indexOf(phrase, start + 1)
+  }
+  return false
+}
+
+function explicitPriority(query: string, document: IndexedDocument): number {
+  return document.normalizedName === query ? 3
+    : mentioned(query, document.normalizedName) ? 2
+      : document.aliases.some(alias => /[\p{Script=Han}]/u.test(alias)
+        ? query.includes(alias) : mentioned(query, alias)) ? 1 : 0
 }
 
 function parameterText(parameters: Readonly<Record<string, unknown>>): string {
@@ -76,7 +96,8 @@ export class ToolSearchIndex {
     this.documents = documents.map((document) => {
       const tokens = terms([document.name, document.description, parameterText(document.parameters),
         ...(document.keywords ?? [])].join('\n'), this.segmenter)
-      const indexed = { name: document.name, normalizedName: normalize(document.name), length: tokens.length }
+      const indexed = { name: document.name, normalizedName: normalize(document.name),
+        aliases: (document.keywords ?? []).map(normalize).filter(Boolean), length: tokens.length }
       for (const token of tokens) {
         const posting = this.postings.get(token) ?? new Map<IndexedDocument, number>()
         posting.set(indexed, (posting.get(indexed) ?? 0) + 1)
@@ -89,7 +110,17 @@ export class ToolSearchIndex {
   }
 
   /**
-   * Return lexical matches, putting an exact tool-name query first and resolving score ties by name.
+   * Identify complete tool names and configured aliases mentioned by a query.
+   * @param query - Search text, normalized with the same rules as ranked queries.
+   * @returns Matching names without treating partial lexical overlap as an explicit mention.
+   */
+  explicitNames(query: string): string[] {
+    const normalizedQuery = normalize(query)
+    return this.documents.filter(document => explicitPriority(normalizedQuery, document) > 0).map(document => document.name)
+  }
+
+  /**
+   * Return lexical matches, prioritizing exact names and configured aliases before BM25 scores.
    * @param query - Natural-language request or exact tool name; blank input has no matches.
    * @param limit - Maximum number of results; nonpositive limits return no results.
    * @returns Matching names and scores, never unrelated fallback entries or full definitions.
@@ -110,10 +141,10 @@ export class ToolSearchIndex {
       }
     }
     return this.documents.flatMap((document) => {
-      const exact = document.normalizedName === normalizedQuery
+      const priority = explicitPriority(normalizedQuery, document)
       const score = scores.get(document) ?? 0
-      return exact || score > 0 ? [{ name: document.name, score, exact }] : []
-    }).sort((left, right) => Number(right.exact) - Number(left.exact) || right.score - left.score
+      return priority || score > 0 ? [{ name: document.name, score, priority }] : []
+    }).sort((left, right) => right.priority - left.priority || right.score - left.score
       || left.name.localeCompare(right.name, 'en'))
       .slice(0, limit).map(({ name, score }) => ({ name, score }))
   }

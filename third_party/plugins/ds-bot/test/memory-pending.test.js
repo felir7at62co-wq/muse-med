@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { PENDING_FILE, record } from '../src/host/memory-pending.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const TEAM = {
   version: 1,
@@ -29,8 +29,8 @@ const TEAM = {
 
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')) } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const ctx = fakeContext()
-  apply(ctx, { home })
+  const ctx = legacyContext()
+  apply(ctx, legacyConfig({ home }))
   const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId } })
   const read = (...path) => readFileSync(join(home, 'memory', ...path), 'utf8')
   const journal = () => read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))

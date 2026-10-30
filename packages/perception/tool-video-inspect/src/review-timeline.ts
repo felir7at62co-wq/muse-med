@@ -25,6 +25,8 @@ export interface VideoSourceTimeline {
     episode: string
     path: string
     source_version: string
+    /** Closing follow-up does not change source coverage or prevent explicit evidence reads. */
+    follow_up: NonNullable<VideoReview['follow_up']>
     duration_seconds: number
     scan_complete: boolean
     scanned_until: number
@@ -109,13 +111,14 @@ export function buildVideoSourceTimeline(review: VideoReview, selection: VideoTi
     })
   }
   const source = { review_id: review.id, episode: review.episode, path: review.path, source_version: review.source_version,
+    follow_up: review.follow_up ?? { status: 'active' as const },
     duration_seconds: review.duration, scan_complete: review.scan_complete, scanned_until: review.scanned_until }
   const scope = { start_seconds: start, end_seconds: end, full_episode: start === 0 && end === review.duration,
     window_seconds: selection.windowSeconds }
   const materials = { source, scope, windows, ...selectedSpeech === undefined ? {} : { speech: selectedSpeech },
     ...unavailable === undefined ? {} : { speech_unavailable: unavailable },
     ...resolution === undefined ? {} : { transcript_resolution: resolution } }
-  const { review_id: _id, ...sourceIdentity } = source
+  const { review_id: _id, follow_up: _followUp, ...sourceIdentity } = source
   const normalizedPath = (path: string) => relative(dirname(review.path), path).replaceAll('\\', '/')
   const normalizedReference = (reference: NonNullable<VideoTranscriptResolution['reference']>) => ({
     ...reference, path: normalizedPath(reference.path) })

@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolvePnpmEntrypoint } from '../pnpm-entrypoint.mjs'
 
 /** Where and with what environment a release step runs a command. */
 export interface RunOptions {
@@ -107,9 +108,9 @@ export function isEntry(moduleUrl: string): boolean {
  * `pnpm` shim is a `.cmd` batch file, which `spawnSync` refuses to run unless a
  * shell interprets it, so the prefix runs pnpm's JavaScript entry with the
  * current Node instead: the entry that launched this script when a run-script
- * did, or the workspace's own pnpm dependency otherwise. pnpm's manifest does
- * not export its bin entry, so the dependency is located on disk rather than
- * through module resolution.
+ * did, or the workspace dependency's declared JavaScript bin or Corepack
+ * launcher otherwise. The installed manifest is located on disk rather than
+ * resolving an unexported package subpath.
  * @returns Command and leading arguments to prepend before pnpm's arguments.
  */
 export function pnpmCommand(): readonly [command: string, ...args: string[]] {
@@ -117,8 +118,8 @@ export function pnpmCommand(): readonly [command: string, ...args: string[]] {
   // `npm run` and `yarn run` set this too, and handing pnpm's arguments to either would write a different lockfile.
   if (execpath !== undefined && /[\\/]pnpm[\\/]/u.test(execpath) && /\.[cm]?js$/u.test(execpath)) return [process.execPath, execpath]
   for (let directory = dirname(fileURLToPath(import.meta.url)); ; directory = dirname(directory)) {
-    const entry = join(directory, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
-    if (existsSync(entry)) return [process.execPath, entry]
+    const manifest = join(directory, 'node_modules', 'pnpm', 'package.json')
+    if (existsSync(manifest)) return [process.execPath, resolvePnpmEntrypoint(manifest)]
     if (dirname(directory) === directory) break
   }
   // Windows resolves a bare `pnpm` to a batch shim that spawnSync cannot start, so say that rather than fail later.

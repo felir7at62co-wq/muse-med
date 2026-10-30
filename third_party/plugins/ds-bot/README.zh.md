@@ -14,7 +14,7 @@ Bot 在已注册的工作间中新开会话分段时，该分段也会出现在�
 
 关闭自动登记后，仍可从“设置 → Bots → 使用已有会话”将所选 Session 原地登记，并打开原来的对话；Bot 默认使用 Session 标题命名。用户可在同页赋予主 Bot 身份。主 Bot 负责协调，也能直接执行简单任务，按需要委派。所有主 Bot 在侧边栏顶部依次排列，每行最多三个；普通置顶仍留在列表中。无论窗口宽度如何，打开 Bot 或会话都会保留侧边栏当前的展开或收起状态。 桌面端 Bot 模式收起后保留与 Web 相同的 56px 头像栏，离开 Bot 模式后恢复原生收起行为。
 
-新团队的主 Bot 使用 `bot-coordinator` 预设中的 DS Bot Chief of Staff 协调职责，Muse 则作为独立的 `short-drama` 专业执行 Bot。已有 Bot 的身份、Session、预设和历史继续保留。共享团队工作区保留 Muse 预装的短剧工具，设置中不提供通用插件和能力新增入口；底部账号区继续由 Muse 管理。Bot 仍可发现和加载已有技能、使用已挂接的能力，Host 工具、权限和保存的能力定义保持不变。“关于”页展示 Muse Bot，原项目署名放在默认收起的开源许可详情中。
+新团队的主 Bot 使用 `bot-coordinator` 预设中的 DS Bot Chief of Staff 协调职责，Muse 则作为独立的 `short-drama` 专业执行 Bot。已有 Bot 的身份、Session、预设和历史继续保留。共享团队工作区保留 Muse 预装的短剧工具，设置中不提供通用插件和能力新增入口；底部账号区继续由 Muse 管理。Bot 仍可发现和加载已有技能、使用已挂接的能力，Host 工具、权限和保存的能力定义保持不变。“关于”页展示 Muse Bot 产品信息，不展示仓库或许可区块。
 
 从“设置 → 反馈”打开 Muse 原有的会话反馈表单，由用户选择内容并提交；打开表单不会发送反馈或诊断信息。同一页面仍可预览、复制和保存本地诊断。
 
@@ -67,7 +67,17 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
 pnpm --dir third_party/plugins/toolchain run test:bot
 ```
 
+仓库开发依赖将 `esbuild` 固定为此插件声明的版本。在仓库根目录运行保留的无密钥测试，使用本检出的已构建 Harness 依赖：
+
+```sh
+DSH_HARNESS="$PWD" node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test "third_party/plugins/ds-bot/test/*.test.js"
+```
+
+保留的上游团队夹具显式选择原有主理人、预设、Bot 管理的上下文和记忆审阅。提问和视图夹具使用已有团队，不自动创建专业 Bot。`muse-host.test.js` 单独检查默认主理人与 Muse 专业 Bot 的初始化。测试解析器使用实际 Web 与 base 配置包的依赖，回归检查将解析模块与这些配置包的消费者进行比对。
+
 打包检查验证原生组合、浏览器入口、来源记录和署名。录制会话用隔离状态执行实际的名单工具。这些检查不代表付费提供方可用、创作质量通过或账号实测通过；Host 激活与 Muse Bot 界面另行进行桌面验证。
+
+源码 lint 覆盖 `src`、入口模块、脚本和测试。生成的 `client.js` 不参与 lint；`node scripts/build-client.mjs --check` 使用声明的 esbuild 版本核对它与 `src/client` 是否一致。
 
 ## License and attribution
 

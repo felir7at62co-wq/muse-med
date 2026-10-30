@@ -113,6 +113,8 @@ const resultSchema = z.object({
   loaded: z.array(z.object({ name: z.string(), description: z.string(), capabilities: z.array(z.string()) })),
   capabilities: z.array(z.object({ id: z.string(), title: z.string(), description: z.string(), tool_count: z.number() })),
   matched: z.number(), omitted: z.number(),
+  search_scope: z.enum(['directory', 'capability', 'global']), global_fallback: z.boolean(),
+  next_offset: z.number().optional(),
 })
 
 /** Read the complete last successful discovery result from its durable tool message. */
@@ -125,7 +127,7 @@ function receipt(agent: Agent) {
 
 /** Issue directory and filtered discovery requests through the model's normal tool surface. */
 async function discover(
-  f: Awaited<ReturnType<typeof fixture>>, agent: Agent, args: { query?: string; capability?: string; limit?: number },
+  f: Awaited<ReturnType<typeof fixture>>, agent: Agent, args: { query?: string; capability?: string; limit?: number; offset?: number },
 ) {
   f.responses.push(toolCallResponse(`directory-${agent.id}-${++searchOrdinal}`, 'tool_search', args), textResponse('Checked.'))
   await send(agent)
@@ -288,7 +290,7 @@ describe('Loader-composed tool discovery', () => {
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
-  it('browses a capability, records multiple memberships, and scopes keyword search', async () => {
+  it('browses a capability and retries category misses globally with explicit scope', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-category-'))
     const f = await fixture(root)
     try {
@@ -296,12 +298,15 @@ describe('Loader-composed tool discovery', () => {
       const browse = await discover(f, agent, { capability: 'video', limit: 1 })
       expect(browse.value.loaded.map(tool => tool.name)).toEqual(['video_inspect'])
       expect(browse.value.loaded[0]?.capabilities.sort()).toEqual(['shared', 'video'])
+      expect(browse.value).toMatchObject({ search_scope: 'capability', global_fallback: false })
       const scoped = await discover(f, agent, { capability: 'video', query: 'export_word', limit: 1 })
-      expect(scoped.value.loaded).toEqual([])
-      expect(await shown(f.ctx, agent)).not.toContain('export_word')
+      expect(scoped.value.loaded[0]?.name).toBe('export_word')
+      expect(scoped.value).toMatchObject({ search_scope: 'global', global_fallback: true })
+      expect(await shown(f.ctx, agent)).toContain('export_word')
       const globalResult = await discover(f, agent, { query: 'export_word', limit: 1 })
       expect(globalResult.value.loaded[0]?.name).toBe('export_word')
       expect(globalResult.value.loaded[0]?.capabilities.sort()).toEqual(['delivery', 'shared'])
+      expect(globalResult.value).toMatchObject({ search_scope: 'global', global_fallback: false })
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -312,9 +317,132 @@ describe('Loader-composed tool discovery', () => {
       const agent = await f.create('discovery-unknown')
       const result = await discover(f, agent, { capability: 'missing-category' })
       expect(result.value.loaded).toEqual([])
+      expect(result.value).toMatchObject({ search_scope: 'directory', global_fallback: false })
       expect(result.value.capabilities.map(group => group.id)).toContain('video')
       expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
       expect(agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('lets explicit authorized names and aliases cross categories despite weak scoped matches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-explicit-cross-category-'))
+    const f = await fixture(root, { keywords: { video_inspect: ['画面核对'] }, capabilities: [
+      { id: 'delivery', title: '交付', description: '导出文档。', tools: ['video_export'] },
+      { id: 'video', title: '视频理解', description: '查看视频。', tools: ['video_inspect'] },
+    ] })
+    try {
+      f.ctx.tools.register(defineTool({ name: 'video_export', description: 'Export video 画面 files.', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => 'unused',
+      }))
+      const agent = await f.create('discovery-explicit-cross-category')
+      for (const query of ['video_inspect', '请用 video_inspect 检查', '帮我做画面核对']) {
+        const result = await discover(f, agent, { capability: 'delivery', query, limit: 1 })
+        expect(result.value.loaded[0]?.name).toBe('video_inspect')
+        expect(result.value).toMatchObject({ search_scope: 'global', global_fallback: true })
+      }
+      const ordinary = await discover(f, agent, { capability: 'delivery', query: 'Export files', limit: 1 })
+      expect(ordinary.value.loaded[0]?.name).toBe('video_export')
+      expect(ordinary.value).toMatchObject({ search_scope: 'capability', global_fallback: false })
+      const restricted = await f.create('discovery-explicit-restricted', {
+        setup: (scope) => { scope.tools.restrict({ deny: ['video_inspect'] }) },
+      })
+      const denied = await discover(f, restricted, { capability: 'delivery', query: 'video_inspect', limit: 1 })
+      expect(denied.value.loaded.map(tool => tool.name)).not.toContain('video_inspect')
+      expect(denied.value).toMatchObject({ search_scope: 'capability', global_fallback: false })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('returns no unrelated tools when both category and authorized global search miss', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-no-match-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-no-match', { setup: (scope) => { scope.tools.restrict({ deny: ['secret_delete'] }) } })
+      for (const query of ['qzxvnonexistentcapability', 'secret_delete']) {
+        const result = await discover(f, agent, { capability: 'video', query })
+        expect(result.value).toMatchObject({ loaded: [], matched: 0, search_scope: 'global', global_fallback: true })
+        expect(result.value.next_offset).toBeUndefined()
+      }
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('keeps late authorized unclassified tools browsable without exposing denied or constant tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-unclassified-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-unclassified', { setup: (scope) => { scope.tools.restrict({ deny: ['secret_delete'] }) } })
+      const before = await discover(f, agent, {})
+      expect(before.value.capabilities.map(group => group.id)).not.toContain('uncategorized')
+      f.ctx.tools.register(defineTool({ name: 'mcp_late_tool', description: 'Analyze colors.', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => 'unused',
+      }))
+      const directory = await discover(f, agent, {})
+      expect(directory.value.capabilities.at(-1)).toMatchObject({ id: 'uncategorized', tool_count: 1 })
+      const browse = await discover(f, agent, { capability: 'uncategorized' })
+      expect(browse.value.loaded.map(tool => tool.name)).toEqual(['mcp_late_tool'])
+      expect(browse.value.loaded[0]?.capabilities).toEqual(['uncategorized'])
+      expect(browse.value).toMatchObject({ search_scope: 'capability', global_fallback: false })
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'mcp_late_tool', 'tool_context', 'tool_search'])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('paginates capability browse and global fallback in stable order without hiding later tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-pages-'))
+    const f = await fixture(root, { maxResults: 8 })
+    try {
+      const names = Array.from({ length: 11 }, (_, index) => `late_${String(index).padStart(2, '0')}`)
+      for (const name of [...names].reverse()) f.ctx.tools.register(defineTool({ name, description: 'Pagination fixture.', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => 'unused',
+      }))
+      const agent = await f.create('discovery-pages')
+      for (const args of [{ capability: 'uncategorized' }, { capability: 'video', query: 'Pagination' }]) {
+        const first = await discover(f, agent, { ...args, limit: 8 })
+        expect(first.value.loaded.map(tool => tool.name)).toEqual(names.slice(0, 8))
+        expect(first.value).toMatchObject({ matched: 11, omitted: 3, next_offset: 8 })
+        if (first.value.next_offset === undefined) throw new Error('First page did not return a continuation offset')
+        const last = await discover(f, agent, { ...args, offset: first.value.next_offset, limit: 8 })
+        expect(last.value.loaded.map(tool => tool.name)).toEqual(names.slice(8))
+        expect(last.value).toMatchObject({ matched: 11, omitted: 8 })
+        expect(last.value.next_offset).toBeUndefined()
+        const repeated = await discover(f, agent, { ...args, offset: 8, limit: 8 })
+        expect(repeated.value).toEqual(last.value)
+      }
+      const beyond = await discover(f, agent, { capability: 'uncategorized', offset: 100 })
+      expect(beyond.value.loaded).toEqual([])
+      expect(beyond.value.next_offset).toBeUndefined()
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('does not advertise a nonadvancing next page when one name exceeds the result budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-page-budget-'))
+    const f = await fixture(root, { maxResultChars: 256 })
+    try {
+      f.ctx.tools.register(defineTool({ name: `oversized_${'a'.repeat(256)}`, description: 'Oversized fixture.', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => 'unused',
+      }))
+      const agent = await f.create('discovery-page-budget')
+      const result = await discover(f, agent, { capability: 'uncategorized' })
+      expect(result.text.length).toBeLessThanOrEqual(256)
+      expect(result.value).toMatchObject({ loaded: [], matched: 1, omitted: 1 })
+      expect(result.value.next_offset).toBeUndefined()
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('rejects invalid page offsets without selecting tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-invalid-offset-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('discovery-invalid-offset')
+      for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+        const result = await f.ctx.tools.execute({ name: 'tool_search', arguments: { query: 'video_inspect', offset },
+          agent, callId: ToolCallId(`invalid-offset-${offset}`), signal: new AbortController().signal })
+        expect(result.isError).toBe(true)
+      }
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 

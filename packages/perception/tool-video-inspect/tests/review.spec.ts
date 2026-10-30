@@ -313,6 +313,157 @@ it.each([12, 125])('delivers unrelated parent-Session files without reading or c
   expect(pendingReview(reviewsOf(h.ctx, h.agent.session)[path]!)).toBe(125 - recorded)
 })
 
+it('closes and reports a legacy review by ID without reading source, transcript or cached images', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  saveReview(h.ctx, h.agent.session, { ...h.review(), transcript_reference: {
+    path: join(h.root, 'removed-asr.json'), version: 'saved-version', sha256: 'saved-sha',
+  } })
+  const before = h.review(), initialEvents = h.agent.session.snapshotEvents().filter(event => event.type === 'video/review').length
+  expect(before.follow_up).toBeUndefined()
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockRejectedValue(Error('No file resolution allowed'))
+  const stat = vi.spyOn(h.ctx.fs, 'stat').mockRejectedValue(Error('No source stat allowed'))
+  const readBytes = vi.spyOn(h.ctx.fs, 'readBytes').mockRejectedValue(Error('No ASR read allowed'))
+  const images = vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValue(Error('No cached image read allowed'))
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  const call = (method: string, extra = {}) => ({ name: 'video_inspect', args: { method, review_id: before.id, ...extra } })
+  await h.run(call('close', { reason: '当前用途已完成，保留画面缺口。' }), call('close'), call('status'), undefined)
+  expect(h.results().slice(-3).map(result => result.isError)).toEqual([false, false, false])
+  const output = z.object({}).loose().parse(JSON.parse(h.results().at(-1)!.content.filter(block => block.type === 'text')[0]!.text))
+  expect(output).toMatchObject({ follow_up: { status: 'closed', reason: '当前用途已完成，保留画面缺口。' },
+    next: 'closed', complete: false, pending: before.frames.length - 2, frames: [], event_groups: [] })
+  expect(output).not.toHaveProperty('speech')
+  expect(output).not.toHaveProperty('source_timeline_index')
+  expect(h.results().slice(-3).every(result => result.content.every(block => block.type === 'text'))).toBe(true)
+  expect(h.review()).toEqual({ ...before, follow_up: { status: 'closed', reason: '当前用途已完成，保留画面缺口。' } })
+  expect(h.agent.session.snapshotEvents().filter(event => event.type === 'video/review')).toHaveLength(initialEvents + 1)
+  expect(resolve).not.toHaveBeenCalled()
+  expect(stat).not.toHaveBeenCalled()
+  expect(readBytes).not.toHaveBeenCalled()
+  expect(images).not.toHaveBeenCalled()
+  expect(spawn).not.toHaveBeenCalled()
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, h.config).await()
+  expect(h.review().follow_up?.status).toBe('closed')
+})
+
+it('closes a removed source by its normalized saved path without changing evidence', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review()
+  await rm(h.input)
+  const stat = vi.spyOn(h.ctx.fs, 'stat')
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: 'unused/../episode-80.mp4' } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review()).toEqual({ ...before, follow_up: { status: 'closed' } })
+  expect(stat).not.toHaveBeenCalled()
+})
+
+it('reopens only the saved source revision and keeps repeated lifecycle operations idempotent', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = h.review(), call = (method: string) => ({ name: 'video_inspect', args: { method, review_id: before.id } })
+  await h.run(call('close'), undefined)
+  const closedEvents = h.agent.session.snapshotEvents().filter(event => event.type === 'video/review').length
+  await h.run(call('reopen'), call('reopen'), undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(h.review()).toEqual({ ...before, follow_up: { status: 'active' } })
+  expect(h.agent.session.snapshotEvents().filter(event => event.type === 'video/review')).toHaveLength(closedEvents + 1)
+  await h.run(call('close'), undefined)
+  const closed = h.review()
+  await appendFile(h.input, 'new source revision')
+  await h.run(call('reopen'), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
+  expect(h.review()).toBe(closed)
+  await h.run(call('scan'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().id).not.toBe(before.id)
+  expect(h.review().follow_up).toBeUndefined()
+  expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
+})
+
+it('does not guess another review when selectors are missing, unknown, ambiguous or conflicting', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review()
+  const calls = [
+    { method: 'close' },
+    { method: 'status', review_id: 'missing', file_path: h.input },
+    { method: 'close', review_id: before.id, file_path: join(h.root, 'other.mp4') },
+  ]
+  await h.run(...calls.map(args => ({ name: 'video_inspect', args })), undefined)
+  expect(h.results().slice(-3).map(result => result.isError)).toEqual([true, true, true])
+  expect(h.review()).toBe(before)
+  saveReview(h.ctx, h.agent.session, { ...before, path: join(h.root, 'duplicate.mp4') })
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_ID')
+  expect(h.review()).toBe(before)
+})
+
+it('keeps a closed review closed during explicit observation, image admission and legacy progress saves', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const id = h.review().id
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: id } }, undefined)
+  const before = h.review(), note = before.follow_up
+  await h.run(h.call('next'), h.record, undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(4)
+  expect(h.review().follow_up).toEqual(note)
+  const { follow_up: _followUp, ...legacy } = h.review()
+  saveReview(h.ctx, h.agent.session, { ...legacy, scanned_until: legacy.scanned_until + 1 })
+  expect(h.review().follow_up).toEqual(note)
+  const output = z.object({}).loose().parse(JSON.parse(h.results().at(-1)!.content.filter(block => block.type === 'text')[0]!.text))
+  expect(output).toMatchObject({ follow_up: { status: 'closed' }, next: 'closed' })
+})
+
+it('retains an explicit close committed while the image request is finishing', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  const before = h.review(), stream = h.adapter.stream.bind(h.adapter)
+  vi.spyOn(h.adapter, 'stream').mockImplementation(async function* (options) {
+    for await (const chunk of stream(options)) {
+      if (chunk.type === 'finish') saveReview(h.ctx, h.agent.session,
+        { ...h.review(), follow_up: { status: 'closed', reason: '当前用途已完成。' } })
+      yield chunk
+    }
+  })
+  await h.run(h.call('next'), undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(h.review().follow_up).toEqual({ status: 'closed', reason: '当前用途已完成。' })
+  expect(h.review().frames.filter(frame => frame.exposed).length).toBeGreaterThan(before.frames.filter(frame => frame.exposed).length)
+  expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(2)
+})
+
+it('keeps completed evidence report bytes and paths unchanged through close, reads and reopen', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), h.record, undefined)
+  while (pendingReview(h.review()) > 0) await h.run(h.call('next'), h.record, undefined)
+  const report = reportPath(h), contents = await readFile(report, 'utf8'), frames = h.review().frames
+  const call = (method: string) => ({ name: 'video_inspect', args: { method, review_id: h.review().id } })
+  await h.run(call('close'), h.call('status'), undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(reportPath(h)).toBe(report)
+  expect(await readFile(report, 'utf8')).toBe(contents)
+  expect(h.review().follow_up?.status).toBe('closed')
+  await h.run(call('reopen'), h.call('status'), undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(reportPath(h)).toBe(report)
+  expect(await readFile(report, 'utf8')).toBe(contents)
+  expect(h.review().frames).toEqual(frames)
+  expect(contents).not.toContain('follow_up')
+})
+
+it('renders legacy saved tool results with active follow-up without adding approval state', async () => {
+  const h = await fixture()
+  const result = JSON.stringify({ review_id: 'legacy-review', episode: '47', total: 125, recorded: 12, pending: 113,
+    complete: false, frames: [] })
+  const tool = h.ctx.tools.get('video_inspect')
+  expect(tool?.output.presentationMeta?.({}, result)).toMatchObject({ follow_up: { status: 'active' }, pending: 113, complete: false })
+  const rendered = tool?.output.render({}, result)
+  expect(JSON.stringify(rendered)).toContain('active')
+})
+
 it('refuses unseen frame claims, caller-selected frame budgets, and failed image requests', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), 'fail')

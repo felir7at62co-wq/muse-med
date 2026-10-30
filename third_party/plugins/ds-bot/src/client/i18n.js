@@ -13,8 +13,6 @@ const ZH = {
   'Muse blue': 'Muse 蓝',
   Muse: 'Muse',
   'Updates come with Muse.': '随 Muse 一起更新',
-  'Open-source licenses': '开源软件许可',
-  'View license notices': '查看许可说明',
   'Open feedback form': '填写反馈',
   'Use an existing conversation': '使用已有会话',
   'Keep its history, workspace and current model.': '保留会话历史、工作间和当前模型',
@@ -26,7 +24,6 @@ const ZH = {
   'Open the Muse feedback form. You choose what to include and submit.': '打开 Muse 反馈表单，由你选择附带内容并提交',
   'Open a conversation before filling in feedback.': '请先打开一个对话，再填写反馈',
   'Feedback is unavailable in this Muse session.': '当前会话的反馈暂不可用',
-  'Original project and license': '原项目与许可证',
   'Save or copy diagnostics to share with the Muse administrator.': '保存或复制诊断信息后，可交给 Muse 管理员排查',
   'What you did, what you expected, and what happened instead.': '你做了什么、期望的效果，以及实际发生的情况',
   // Shared

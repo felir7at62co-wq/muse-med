@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ShortcutCatalogEntry, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -21,6 +21,10 @@ const useResource = (() => ({ status: 'none' as const, value: undefined, failure
 const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
 
 const t: SidebarRootComponentProps['t'] = makeTranslate({ ...commonEn, ...en })
+
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+})
 
 afterEach(() => {
   cleanup()

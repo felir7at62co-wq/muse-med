@@ -185,7 +185,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -193,13 +193,19 @@
         b: 0.75
         keywords:
           video_inspect: [抽帧, 看视频, 查看画面, 切镜, 运镜, 动作观察]
+          video_contact_sheet: [视频接触表, 缩略图总览, 视频画面总览, 拼图预览]
           audio_transcribe: [语音识别, 台词转写, 音频转文字, 听视频]
           video_ocr: [字幕识别, 画面文字, 提取字幕]
           drama_shot: [分镜, 镜头脚本, 对白核对, 来源证据]
+          drama_project: [项目设定, 项目圣经, 人物关系, 画幅, 分辨率]
+          manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对]
+          source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
           jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片]
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
           drama_render: [剪辑, 成片, 渲染, 合成视频]
+          drama_draft_dir: [剪映目录, 剪映草稿目录, 草稿位置, 草稿路径]
+          jianying_draft: [剪映草稿, 可编辑草稿, 创建剪映草稿, 导出剪映, 剪映工程]
           drama_bgm: [配乐, 背景音乐]
           lvpaopao: [绿泡泡, 短剧选材, 剧目下载]
           fanqie_search: [番茄小说, 搜小说, 搜书, 书名, 作者]
@@ -207,20 +213,25 @@
           fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
+          hindsight_memory: [记忆, 项目记忆, 创作偏好, 回忆, 记住]
+          read_own_chat: [历史会话, 聊天记录, 之前说过, 自己的聊天]
+          read_group_chat: [群聊记录, 群消息, 群里说过]
+          read_browser: [当前网页, 浏览器页面, 打开的网页]
+          show_view: [交互图表, 数据看板, 展示图表]
 
         capabilities:
           - id: workspace
             title: 文件与工作间
             description: 查找、读取、编辑项目文件并交付文档。
-            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present]
+            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, working_directory, show_view, request_secret, list_secrets]
           - id: video-understanding
             title: 视频理解与转写
             description: 查看视频画面、抽帧、识别对白和字幕。
-            tools: [video_inspect, audio_transcribe, video_ocr]
+            tools: [video_inspect, video_contact_sheet, audio_transcribe, video_ocr]
           - id: screenplay
             title: 剧本与分镜
             description: 整理剧本、编写镜头脚本并对照来源证据。
-            tools: [drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
+            tools: [drama_project, drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
           - id: assets
             title: 角色场景与素材
             description: 查询、整理和准备角色、场景、道具及参考素材。
@@ -231,8 +242,8 @@
             tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
           - id: editing-delivery
             title: 剪辑配乐与交付
-            description: 导出 Word 剧本、处理 Office 文档、匹配配乐、编辑视频与整理成片。
-            tools: [screenplay_export_docx, load_workspace_dependencies, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
+            description: 导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。
+            tools: [screenplay_export_docx, load_workspace_dependencies, jianying_draft, drama_draft_dir, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
           - id: data-sourcing
             title: 数据选材与下载
             description: 搜索和下载番茄小说、剧目、榜单及视频素材。
@@ -240,12 +251,12 @@
           - id: knowledge
             title: 知识与项目资料
             description: 搜索、读取和整理已连接的知识库与项目资料。
-            tools: ['mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            tools: [source_recover, hindsight_memory, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
           - id: coordination
             title: 团队任务与跟进
-            description: 分配子任务、查看执行状态、安排定时跟进。
-            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', list_bots, message_bot, create_bot, update_bot, stop_bot]
+            description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。
+            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question, ask_user, list_bots, message_bot, create_bot, update_bot, stop_bot, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability]
           - id: research
             title: 搜索与技术分析
             description: 搜索网页资料、读取网页和分析技术问题。
-            tools: ['web_*', 'reverse_*']
+            tools: ['web_*', 'reverse_*', read_browser]

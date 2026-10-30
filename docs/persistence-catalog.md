@@ -79,7 +79,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:turn/end` | event | `0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce` | [`{ type: "turn/end" }`](#persistence-type-sha256-0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce) |
 | `event:turn/start` | event | `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8` | [`{ type: "turn/start" }`](#persistence-type-sha256-aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8) |
 | `event:user/message` | event | `7d890878cfad3f9b08b4657f31badbd9c8d5d7f69af360935090ab352d65db14` | [`{ type: "user/message" }`](#persistence-type-sha256-7d890878cfad3f9b08b4657f31badbd9c8d5d7f69af360935090ab352d65db14) |
-| `event:video/review` | event | `3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43` | [`{ type: "video/review" }`](#persistence-type-sha256-3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43) |
+| `event:video/review` | event | `5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd` | [`{ type: "video/review" }`](#persistence-type-sha256-5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd) |
 | `event:web/deepseek-search-llm-request` | event | `cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331` | [`{ type: "web/deepseek-search-llm-request" }`](#persistence-type-sha256-cf6e3aaf1e2de6480aa0157730a41b9a492108a55304100b0f7e112711dd4331) |
 | `event:workspace/changes` | event | `e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72` | [`{ type: "workspace/changes" }`](#persistence-type-sha256-e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72) |
 
@@ -1297,12 +1297,13 @@ Source: [`packages/core/session/src/types.ts:309`](../packages/core/session/src/
   frame_count: number
   scanned_until: number
   scan_complete: boolean
+  follow_up?: VideoReview['follow_up']
   event_groups?: ReviewEvent[]
   transcript_reference?: ReviewTranscriptReference
 }
 ```
 
-Source: [`packages/perception/tool-video-inspect/src/review-state.ts:41`](../packages/perception/tool-video-inspect/src/review-state.ts)
+Source: [`packages/perception/tool-video-inspect/src/review-state.ts:43`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 ### `web/*`
 
@@ -1585,6 +1586,14 @@ SHA-256: `aff60ef947c18b012644852bdd0d5bfe72065e061dd563787c76c646b4a10f6b`
 SHA-256: `e7e154d47d5fbc5366330fb4dade1f108c6dfe4335044d21ded14b7bf1dce084`
 
 `"clear"`
+
+<a id="persistence-type-sha256-9df8d793138536bf45660b8371e8f438ea8c64ab8fb0d84ad96464b26eb7b8be"></a>
+
+### `"closed"`
+
+SHA-256: `9df8d793138536bf45660b8371e8f438ea8c64ab8fb0d84ad96464b26eb7b8be`
+
+`"closed"`
 
 <a id="persistence-type-sha256-15495614ccfa9cbdeefb0ec2abd76406435f4c6ff3dae42acae8e09ef42025c9"></a>
 
@@ -4631,7 +4640,7 @@ Array of [`ReviewEvent`](#persistence-type-sha256-76c16732f0fdf1feba15d52dce1e94
 
 SHA-256: `20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6`
 
-Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:32`](../packages/perception/tool-video-inspect/src/review-state.ts)
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:34`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5533,7 +5542,7 @@ SHA-256: `0f7b5bce98a219dc42c0846aea1e6537d00c7f6b78d4df2a4b29b3ae19c15683`
 
 Array of [`UserMessage`](#persistence-type-sha256-27ca15e20d6a5050a951de97e6c4143eeeefdf1c6f72af46e60fd8407d08bb9c).
 
-<a id="persistence-type-sha256-6d7896b689fa2b1292987bbd13e7beb178b0676ffe115a50d569064e2e274ace"></a>
+<a id="persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf"></a>
 
 <a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsvideoreview"></a>
 
@@ -5541,15 +5550,16 @@ Array of [`UserMessage`](#persistence-type-sha256-27ca15e20d6a5050a951de97e6c414
 
 ### `VideoReview`
 
-SHA-256: `6d7896b689fa2b1292987bbd13e7beb178b0676ffe115a50d569064e2e274ace`
+SHA-256: `3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf`
 
-Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:34`](../packages/perception/tool-video-inspect/src/review-state.ts)
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:36`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `duration` | required | `number` |
 | `episode` | required | `string` |
 | `event_groups` | optional | [`ReviewEvent[]`](#persistence-type-sha256-cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c) |
+| `follow_up` | optional | [`{ reason?, status }`](#persistence-type-sha256-8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848) |
 | `frames` | required | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
 | `id` | required | `string` |
 | `path` | required | `string` |
@@ -5835,6 +5845,17 @@ One of:
 - `"fork"`
 - `"fresh"`
 
+<a id="persistence-type-sha256-6fdf65305cedfa59762ff497c9893db130beea522363c039f3a492e9df971e2a"></a>
+
+### `union (2 variants)`
+
+SHA-256: `6fdf65305cedfa59762ff497c9893db130beea522363c039f3a492e9df971e2a`
+
+One of:
+
+- `"active"`
+- `"closed"`
+
 <a id="persistence-type-sha256-9947aa5938fe19a895298da412917acbf9ffb5093a73ab8baa257e6ae9e63a07"></a>
 
 ### `union (2 variants)`
@@ -5846,16 +5867,16 @@ One of:
 - [`{ compactionId, llmStreamCall, maxTokens?, model, … }`](#persistence-type-sha256-a99ec0993c62c058e50af9f68922202a3b54f5e259bc2abf1915a73381d2316d)
 - [`{ compactionId, maxTokens?, model, provider, … }`](#persistence-type-sha256-576a2de8355eb09850963ff5953420b172e274d9283666eb7d889097db120796)
 
-<a id="persistence-type-sha256-df5d379d71aa3ea665e0459c1b208e699d2d3c7bafd0922a847c48a668460e1b"></a>
+<a id="persistence-type-sha256-c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469"></a>
 
 ### `union (2 variants)`
 
-SHA-256: `df5d379d71aa3ea665e0459c1b208e699d2d3c7bafd0922a847c48a668460e1b`
+SHA-256: `c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469`
 
 | kind | Form property | Other required fields | Full definition |
 |---|---|---|---|
-| `start` | not declared | `review`: [`VideoReview`](#persistence-type-sha256-6d7896b689fa2b1292987bbd13e7beb178b0676ffe115a50d569064e2e274ace) | [`{ kind: "start" }`](#persistence-type-sha256-768041843a78ed3d071a122dda4c6d680990bf2c054e1dd8e5ce980164b6fc5f) |
-| `update` | not declared | `frame_count`: `number`; `frames`: [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e); `id`: `string`; `path`: `string`; `scan_complete`: `boolean`; `scanned_until`: `number` | [`{ kind: "update" }`](#persistence-type-sha256-7146653f97ec75e2f8b1d25f63332caf91c42761a1f67706800fe0fbea270fc8) |
+| `start` | not declared | `review`: [`VideoReview`](#persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf) | [`{ kind: "start" }`](#persistence-type-sha256-37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f) |
+| `update` | not declared | `frame_count`: `number`; `frames`: [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e); `id`: `string`; `path`: `string`; `scan_complete`: `boolean`; `scanned_until`: `number` | [`{ kind: "update" }`](#persistence-type-sha256-f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d) |
 
 <a id="persistence-type-sha256-5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc"></a>
 
@@ -7608,18 +7629,18 @@ Sources: [`packages/drama/screenplay-project/src/index.ts:61`](../packages/drama
 |---|---|---|
 | `kind` | required | `"screenplay-project-read"` |
 
-<a id="persistence-type-sha256-768041843a78ed3d071a122dda4c6d680990bf2c054e1dd8e5ce980164b6fc5f"></a>
+<a id="persistence-type-sha256-37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f"></a>
 
 ### `{ kind: "start" }`
 
-SHA-256: `768041843a78ed3d071a122dda4c6d680990bf2c054e1dd8e5ce980164b6fc5f`
+SHA-256: `37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f`
 
-Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:41`](../packages/perception/tool-video-inspect/src/review-state.ts)
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:43`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `kind` | required | `"start"` |
-| `review` | required | [`VideoReview`](#persistence-type-sha256-6d7896b689fa2b1292987bbd13e7beb178b0676ffe115a50d569064e2e274ace) |
+| `review` | required | [`VideoReview`](#persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf) |
 
 <a id="persistence-type-sha256-1d76406cbb2ddadb0dbbb51e9d8bc6cf678fed455cf8eb512f36f7c86d37a62f"></a>
 
@@ -7969,17 +7990,18 @@ Sources: [`packages/core/tools/src/index.ts:34`](../packages/core/tools/src/inde
 |---|---|---|
 | `kind` | required | `"tool-registry"` |
 
-<a id="persistence-type-sha256-7146653f97ec75e2f8b1d25f63332caf91c42761a1f67706800fe0fbea270fc8"></a>
+<a id="persistence-type-sha256-f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d"></a>
 
 ### `{ kind: "update" }`
 
-SHA-256: `7146653f97ec75e2f8b1d25f63332caf91c42761a1f67706800fe0fbea270fc8`
+SHA-256: `f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d`
 
-Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:44`](../packages/perception/tool-video-inspect/src/review-state.ts)
+Sources: [`packages/perception/tool-video-inspect/src/review-state.ts:46`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `event_groups` | optional | [`ReviewEvent[]`](#persistence-type-sha256-cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c) |
+| `follow_up` | optional | [`{ reason?, status }`](#persistence-type-sha256-8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848) |
 | `frame_count` | required | `number` |
 | `frames` | required | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
 | `id` | required | `string` |
@@ -8235,6 +8257,17 @@ Sources: [`packages/core/session/src/types.ts:297`](../packages/core/session/src
 |---|---|---|
 | `reason` | required | [`TurnEndReason`](#persistence-type-sha256-f1687f982fa3d41ef29e159feed154ecd13af4dd209acaee16038f223f2e9402) |
 | `turn` | required | `number` |
+
+<a id="persistence-type-sha256-8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848"></a>
+
+### `{ reason?, status }`
+
+SHA-256: `8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848`
+
+| Property | Presence | Type |
+|---|---|---|
+| `reason` | optional | `string` |
+| `status` | required | [`union (2 variants)`](#persistence-type-sha256-6fdf65305cedfa59762ff497c9893db130beea522363c039f3a492e9df971e2a) |
 
 <a id="persistence-type-sha256-9a2a9029f8d7ede05336980d8342737557f487b913bfd28853d0ab5214600ab5"></a>
 
@@ -9494,17 +9527,17 @@ SHA-256: `7d890878cfad3f9b08b4657f31badbd9c8d5d7f69af360935090ab352d65db14`
 | `time` | required | `number` |
 | `type` | required | `"user/message"` |
 
-<a id="persistence-type-sha256-3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43"></a>
+<a id="persistence-type-sha256-5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd"></a>
 
 <a id="persistence-type-eventvideoreview"></a>
 
 ### `{ type: "video/review" }`
 
-SHA-256: `3a7a2a0ae101f700a0b05dd7d4d008406f51689f5a215eb106ce578e299d8c43`
+SHA-256: `5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`union (2 variants)`](#persistence-type-sha256-df5d379d71aa3ea665e0459c1b208e699d2d3c7bafd0922a847c48a668460e1b) |
+| `data` | required | [`union (2 variants)`](#persistence-type-sha256-c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |

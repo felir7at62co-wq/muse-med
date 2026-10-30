@@ -145,7 +145,7 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const stdout = handle.collected.stdout?.readFrom(0)
   if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
   if (!stdout.text.trim()) {
-    const stderr = handle.collected.stderr?.readFrom(0)?.text.trim()
+    const stderr = handle.collected.stderr?.readFrom(0).text.trim()
     throw new Error(`Draft generator returned no JSON (exit ${outcome.exitCode}): ${stderr || 'no diagnostic output'}`)
   }
   const value: unknown = JSON.parse(stdout.text)

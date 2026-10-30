@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { reviewsOf, reviewImage, type VideoReviewId } from './review-state.ts'
+import { reviewsOf, reviewImage, type VideoReview, type VideoReviewId } from './review-state.ts'
 import type { ReviewTranscriptReference } from './review-speech.ts'
 import { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
 import { resolveReviewTranscript, type VideoTranscriptCandidates } from './review-transcript.ts'
@@ -13,6 +13,8 @@ export interface VideoReviewSummary {
   episode: string
   path: string
   source_version: string
+  /** Follow-up activity is separate from source coverage; missing persisted status is active. */
+  follow_up: NonNullable<VideoReview['follow_up']>
   transcript_reference?: ReviewTranscriptReference
 }
 
@@ -40,11 +42,11 @@ export interface VideoSourceTimelineContent {
  * List current logged video revisions without choosing a draft or inferring ASR association.
  * @param ctx - Host projection registry.
  * @param session - Owning Session.
- * @returns Current review identities and saved explicit ASR references; no filesystem freshness claim.
+ * @returns All current review identities, including closed follow-ups, and saved ASR references; no filesystem freshness claim.
  */
 export function videoReviewSummaries(ctx: Context, session: Session): VideoReviewSummary[] {
   return Object.values(reviewsOf(ctx, session)).map(review => ({ review_id: review.id, episode: review.episode,
-    path: review.path, source_version: review.source_version,
+    path: review.path, source_version: review.source_version, follow_up: review.follow_up ?? { status: 'active' },
     ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference } }))
 }
 

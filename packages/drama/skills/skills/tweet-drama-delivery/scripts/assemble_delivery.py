@@ -10,7 +10,9 @@
 不生成图片、不调剧变、不重渲成片、不改上游产物；模板目录只读。
 
 内部控制文件放在 <项目>\\_probe\\delivery-config\\，不放交付根污染结构：
-  _confirmed_episodes.json（门禁账本）、confirmed-films.json（母版映射）、主角.json、简介.txt
+  _confirmed_episodes.json（门禁账本）、confirmed-films.json（母版映射）、
+  film-reviews.json（成片审查登记，video-review 技能按母版 SHA-256 登记；交付钩子只提示不拦截）、
+  主角.json、简介.txt
 """
 
 from __future__ import annotations
@@ -143,11 +145,87 @@ def film_candidates(project: Path, episode: int) -> str:
     )
 
 
-def pick_master(project: Path, episode: int) -> Path:
+REVIEW_FIELDS = ("picture", "audio", "subtitle", "spec")
+
+
+def film_review_notice(project: Path, episode: int, master: Path, digest: str) -> dict:
+    """交付钩子（提示性）：成片交付前提醒用 video-review 技能审查母版。
+
+    只提示不拦截：登记缺失、登记 SHA 与当前母版不符、或有维度未核完时，
+    打印醒目提醒并写进组装报告，不阻止组装——自动化流水线不会因此停下。
+    用户确认（_confirmed_episodes.json / confirmed-films.json）仍是不变的交付依据。
+    """
+    reviews_path = config_dir(project) / "film-reviews.json"
+    notice = dict(registered=False, path=str(reviews_path))
+    if not reviews_path.is_file():
+        notice["notice"] = (
+            f"第 {episode} 集没有成片审查登记（{reviews_path}）。\n"
+            f"      交付前请用 video-review 技能审查该集母版（画面/声音/字幕/规格）并登记；脚本不拦截交付。"
+        )
+        return notice
+    try:
+        reviews = json.loads(reviews_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        notice["notice"] = (
+            f"成片审查登记不可读（{reviews_path}：{error}）。\n"
+            f"      请修复或重新用 video-review 技能登记；脚本不拦截交付。"
+        )
+        return notice
+    films = reviews.get("films") if isinstance(reviews, dict) else None
+    if not isinstance(films, dict):
+        notice["notice"] = (
+            f"成片审查登记格式错误（{reviews_path}）：顶层要是对象且含 films 映射。\n"
+            f"      请按 video-review 技能说明重新登记；脚本不拦截交付。"
+        )
+        return notice
+    entry = next((films[k] for k in (f"{episode:02d}", str(episode)) if k in films), None)
+    if entry is None:
+        notice["notice"] = (
+            f"第 {episode} 集没有成片审查登记（已登记：{sorted(films) or '空'}）。\n"
+            f"      交付前请用 video-review 技能审查该集母版并登记；脚本不拦截交付。"
+        )
+        return notice
+    if not isinstance(entry, dict):
+        notice["notice"] = (
+            f"{reviews_path} 里第 {episode} 集的登记要是对象：{entry!r}。\n"
+            f"      请按 video-review 技能说明重新登记；脚本不拦截交付。"
+        )
+        return notice
+    problems: list[str] = []
+    source = entry.get("source")
+    declared = entry.get("sha256")
+    if isinstance(declared, str):
+        declared = declared.lower()
+    if not isinstance(source, str) or not source.strip():
+        problems.append("source 缺失")
+    elif (project / source).resolve() != master.resolve():
+        problems.append(f"登记的 source 与本次母版不一致（登记 {source}）")
+    if not isinstance(declared, str) or not re.fullmatch("[0-9a-f]{64}", declared):
+        problems.append("sha256 缺失或格式不对")
+    elif declared != digest:
+        problems.append("登记 SHA-256 与当前母版字节不一致（母版已变，审查已过期）")
+    if entry.get("reviewed") is not True:
+        problems.append("reviewed 不是 true")
+    for field in REVIEW_FIELDS:
+        if entry.get(field) not in {"ok", "issues"}:
+            problems.append(f"{field} 还是 unverified 或缺失")
+    if problems:
+        notice["notice"] = (
+            f"成片审查登记有问题：{'；'.join(problems)}。\n"
+            f"      交付前请用 video-review 技能重新审查该集母版并更新登记；脚本不拦截交付。"
+        )
+        return notice
+    notice["registered"] = True
+    notice["entry"] = entry
+    return notice
+
+
+def pick_master(project: Path, episode: int) -> tuple[Path, dict]:
     """成片只认 confirmed-films.json 里显式写出的那一份母版。
 
     同一集在 export\\ 下常有多份母版，用户确认的是具体文件而不是集号，所以这里绝不自行挑选：
     映射缺了、或映射指向的文件不存在，都直接失败。
+    映射通过后再过视频禁用与成片审查两道门禁，全部通过才返回 (母版, 审查登记)。
     """
     mapping = config_dir(project) / "confirmed-films.json"
     if not mapping.is_file():
@@ -175,8 +253,9 @@ def pick_master(project: Path, episode: int) -> Path:
             f"映射指向的母版不存在：{master}\n"
             f'      films["{episode:02d}"] = {source!r}' + film_candidates(project, episode)
         )
-    check_videos(project, [master])
-    return master
+    hashes = check_videos(project, [master])
+    review = film_review_notice(project, episode, master, hashes[str(master.resolve())])
+    return master, review
 
 
 def pick_leads(project: Path) -> list[dict]:
@@ -298,7 +377,7 @@ def main() -> int:
     if strays:
         die(f"00成片 里有不符合 01.mp4–9999.mp4 命名的文件：{strays}\n      请先人工确认（脚本不删它们）。")
 
-    master = pick_master(project, episode)
+    master, review = pick_master(project, episode)
     leads = pick_leads(project)
     posters = pick_posters(project)
     synopsis, synopsis_count = pick_synopsis(project)
@@ -313,6 +392,12 @@ def main() -> int:
 
     print(f"项目   {project}")
     print(f"第 {episode} 集  确认人 {rec.get('confirmed_by', '?')}  日期 {rec.get('date', '?')}")
+    if review["registered"]:
+        entry = review["entry"]
+        print(f"成片审查  已登记  {entry.get('reviewed_at', '?')}  picture={entry.get('picture')} "
+              f"audio={entry.get('audio')} subtitle={entry.get('subtitle')} spec={entry.get('spec')}")
+    else:
+        print("[成片审查提示] " + review["notice"].replace("\n", "\n              "))
     print(f"交付   {out}")
     print(f"模板   {TEMPLATE}")
     print()
@@ -358,6 +443,7 @@ def main() -> int:
         "config_dir": str(config_dir(project)),
         "assembled_at": datetime.now().isoformat(timespec="seconds"),
         "confirmed": rec,
+        "review": review,
         "film": {"name": film_name, "source": str(master)},
         "sections": {},
         "skipped": NOT_OURS,
