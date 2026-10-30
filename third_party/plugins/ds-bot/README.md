@@ -55,6 +55,8 @@ The bundled composition mounts one `muse-bot` row:
 
 `create_bot` accepts `preset` and `resident_tools`; `update_bot` can replace both. A preset change applies to future new Sessions, while the current conversation keeps its existing preset. Resident tools are exact names saved on the Bot record. The shared Harness `tool_search` finds tools by capability; `tool_context` loads, pins, unpins or releases them. Each Bot's own chat, group chats and future conversation parts use its resident list. The capability catalog is shared, authorization still applies, and loading a name does not grant permission. Failed residency saves reject the operation and restore the previous Bot setting. Tool results remain in Session history after a release.
 
+The Desktop composition keeps the registered Bot team tools available from the first model request, including `ask_user`, `show_view` and secure credential cards. Ordinary DSH Agent sessions exclude Bot management tools, and tool visibility does not grant Main Bot rights. User-selected additional tools retain their existing pin and release behavior. The card registration uses a selective DS Bot 0.2.4 update: a Bot-scoped `show_view` takes priority over another plugin’s global renderer and is removed on Agent or plugin disposal. The plugin retains its 0.2.2 base, Muse renderer, model routes and Muse web search.
+
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
 
 ## Source, packaging and checks

@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events'
 import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
@@ -15,6 +15,7 @@ import chokidar from 'chokidar'
 import { McpManagerGateway } from './lib/mcp/gateway.js'
 import { mcpListResultSchema } from './lib/mcp/wire.js'
 import { apply } from './lib/index.js'
+import { currentVersion, fetchUpdateCheck } from './lib/version.js'
 
 test('excludes shared agent skills from panel management and nested discovery while retaining Muse skills', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'muse-panel-skill-roots-'))
@@ -214,9 +215,9 @@ async function skillFixture(options = {}) {
 test('imports global and project Skills and preserves both after registry restart', async () => {
   const f = await skillFixture()
   try {
-    const olderReceipt = { name: 'older-receipt', kind: 'bundle', scope: { kind: 'global' } }
-    assert.deepEqual(f.decode(olderReceipt), olderReceipt, 'additive fields keep older receipts decodable')
-    assert.deepEqual(await f.add('global-import'), { name: 'global-import', kind: 'bundle', scope: { kind: 'global' }, status: 'saved', discovery: 'ready' })
+    const upstreamReceipt = { added: [{ name: 'existing-receipt', kind: 'bundle' }], skipped: [], warnings: [], scope: { kind: 'global' } }
+    assert.deepEqual(f.decode(upstreamReceipt), upstreamReceipt, 'additive status fields keep upstream receipts decodable')
+    assert.deepEqual(await f.add('global-import'), { added: [{ name: 'global-import', kind: 'bundle' }], skipped: [], warnings: [], scope: { kind: 'global' }, status: 'saved', discovery: 'ready' })
     const project = await f.add('project-import', f.workspace)
     assert.equal(project.status, 'saved')
     assert.equal(project.discovery, 'ready')
@@ -293,4 +294,57 @@ test('rolls back only newly written batch targets after a real filesystem write 
     syncBuiltinESMExports()
     await f.close()
   }
+})
+
+
+test('reports the installed stable version and preserves detection of a genuinely newer release', async (t) => {
+  assert.equal(currentVersion(), '2.3.5')
+  let tag = 'v2.3.5'
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(String(url))
+    assert.equal(String(url), 'https://api.github.com/repos/Fishquito7/dsh-skill-mcp-panel/releases/latest')
+    return new Response(JSON.stringify({ tag_name: tag }), { status: 200 })
+  })
+  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.3.5', updateAvailable: false, rateLimited: false })
+  tag = 'v2.3.6'
+  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.3.6', updateAvailable: true, rateLimited: false })
+  tag = 'v2.1.2'
+  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.1.2', updateAvailable: false, rateLimited: false })
+  assert.equal(calls.length, 3)
+})
+
+test('both rendered panel tabs clear a stale update notice but retain future Muse-managed updates', async () => {
+  const fixture = await readFile(new URL('./test-panel-render.mjs', import.meta.url), 'utf8')
+  const marker = '// ── 1. 技能页签'
+  assert.ok(fixture.includes(marker))
+  const harness = fixture.slice(0, fixture.indexOf(marker))
+  const assertions = String.raw`
+  const textOf = view => {
+    const texts=[];
+    const collect=node=>{if(typeof node==='string'){texts.push(node);return;}if(Array.isArray(node)){node.forEach(collect);return;}if(node&&typeof node==='object'&&node.props)collect(node.props.children);};
+    collect(view.section);return texts.join(' ');
+  };
+  for(const tab of ['skills','mcp']){
+    reset(skills,tab);
+    const base=tab==='skills'?rpc:mcpFace;
+    let view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.3.6',updateAvailable:true})});
+    check(tab+' opens and shows a genuine future update through Muse',()=>{
+      const text=textOf(view);assert(text.includes('2.3.6'),'future version absent');
+      assert(text.includes('Muse'),'managed application guidance absent');
+      assert(!text.includes('dsh-panel update'),'unsupported global CLI instruction visible');
+    });
+    view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.3.5',updateAvailable:false})});
+    check(tab+' clears the previous banner after the installed version catches up',()=>assert(!textOf(view).includes('2.3.6'),'stale update remains'));
+    view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.4.0',updateAvailable:true})});
+    check(tab+' continues to show later releases',()=>assert(textOf(view).includes('2.4.0'),'future updates were suppressed'));
+  }
+  if(failures)process.exit(1);
+  `
+  const outcome = childProcess.spawnSync(process.execPath, ['--input-type=module', '-', fileURLToPath(new URL('./lib/client.js', import.meta.url))], {
+    input: harness + assertions, encoding: 'utf8', timeout: 30000,
+  })
+  assert.equal(outcome.error, undefined)
+  assert.equal(outcome.signal, null)
+  assert.equal(outcome.status, 0, outcome.stdout + outcome.stderr)
 })

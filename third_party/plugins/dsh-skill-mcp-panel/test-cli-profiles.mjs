@@ -60,11 +60,11 @@ const binDir = join(base, "bin");
 const callsLog = join(base, "dsh-calls.log");
 const fetchStub = join(base, "fetch-stub.mjs");
 
-/** 造一个 profile 目录；version 为 null 表示没装本插件。 */
-function makeProfile(name, version, mounts) {
+/** 造一个 profile 目录；version 为 null 表示没装本插件；spec 缺省用 Git tag。 */
+function makeProfile(name, version, mounts, spec) {
 	const dir = join(profilesDir, name);
 	mkdirSync(dir, { recursive: true });
-	const dependencies = version === null ? {} : { "dsh-skill-mcp-panel": "github:Fishquito7/dsh-skill-mcp-panel#v" + version };
+	const dependencies = version === null ? {} : { "dsh-skill-mcp-panel": spec ?? ("github:Fishquito7/dsh-skill-mcp-panel#v" + version) };
 	const bundles = ["@deepseek-ai/dsh-base"];
 	if (mounts) bundles.push("dsh-skill-mcp-panel");
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "dsh-profile-" + name, private: true, dependencies, dsh: { profile: { bundles } } }, null, 2));
@@ -207,6 +207,34 @@ try {
 	check("未安装的 profile 被计划为安装", /未安装 → 将安装 v/.test(installBare.stdout), installBare.stdout);
 	check("显式指定时按该 profile 派发安装", readCalls()[0] === "plugin --profile bare add github:Fishquito7/dsh-skill-mcp-panel#v" + LATEST, JSON.stringify(readCalls()));
 
+	// ── 6.5 update 保持各 profile 原本的安装渠道 ──────────────────────────────
+	// tarball / npm 装来的 profile 不能被悄悄换成 Git：选这两个渠道的人往往正是
+	// 因为本机 Git 通道不可用（网络受限，或 Git 来源被 pnpm 的构建脚本闸门挡住）。
+	// 渠道信息取自各 profile package.json 里声明的 spec。
+	makeProfile("tb", "2.1.0", true, "https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/latest/download/dsh-skill-mcp-panel.tgz");
+	makeProfile("npmchan", "2.1.0", true, "dsh-skill-mcp-panel");
+	makeProfile("filechan", "2.1.0", true, "file:../somewhere/dsh-skill-mcp-panel-2.1.0.tgz");
+
+	resetCalls();
+	const tb = run(["update", "--yes", "--profile", "tb"]);
+	check("tarball 渠道的 profile 更新退出码 0", tb.status === 0, tb.stderr);
+	check("update 保持 tarball 渠道（换成该版本的版本化 URL）",
+		readCalls()[0] === "plugin --profile tb add https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/download/v" + LATEST + "/dsh-skill-mcp-panel-" + LATEST + ".tgz",
+		JSON.stringify(readCalls()));
+
+	resetCalls();
+	const npmchan = run(["update", "--yes", "--profile", "npmchan"]);
+	check("npm 渠道的 profile 更新退出码 0", npmchan.status === 0, npmchan.stderr);
+	check("update 保持 npm 渠道并钉到该版本",
+		readCalls()[0] === "plugin --profile npmchan add dsh-skill-mcp-panel@" + LATEST,
+		JSON.stringify(readCalls()));
+
+	resetCalls();
+	run(["update", "--yes", "--profile", "filechan"]);
+	check("未知渠道（file:）回落到 Git tag（原行为）",
+		readCalls()[0] === "plugin --profile filechan add github:Fishquito7/dsh-skill-mcp-panel#v" + LATEST,
+		JSON.stringify(readCalls()));
+
 	// ── 7. peerDependencies：DSH 自己的闸门必须接受本插件 ─────────────────────
 	function appBootPaths() {
 		const paths = [];
@@ -249,12 +277,12 @@ try {
 		check("无 peerDependencies 的 manifest 会被闸门直接放行（说明该字段才是开关）", evaluate({ name: manifest.name, version: manifest.version }) === undefined);
 		check("当前运行的 DSH 接受本插件（否则 profile 起不来）", evaluate(manifest) === undefined, JSON.stringify(evaluate(manifest)));
 		// README 兼容矩阵里承诺支持的版本必须全部通过（区间写窄了会让 profile 起不来）
-		for (const version of ["0.1.5-rc.0", "0.1.6-alpha.1", "0.1.6-alpha.2", "0.1.7-alpha.1", "0.1.7-rc.1", "0.1.8"]) {
+		for (const version of ["0.1.5-rc.0", "0.1.6-alpha.1", "0.1.6-alpha.2", "0.1.7-alpha.1", "0.1.7-rc.1", "0.1.8", "0.2.0-rc.1", "0.2.0-rc.2"]) {
 			check("区间接受 " + version, evaluate(manifest, {}, version) === undefined, JSON.stringify(evaluate(manifest, {}, version)));
 		}
-		// 区间外必须拒绝：低于下限没验证过；0.2.x 是未验证的新次版本号，
-		// includePrerelease 会让 <0.2.0 把 0.2.0-rc.1 也放进来，所以上界必须写 <0.2.0-0。
-		for (const version of ["0.1.4-rc.1", "0.2.0-0", "0.2.0-rc.1", "0.2.0", "0.2.1"]) {
+		// 区间外必须拒绝：低于下限没验证过；0.3.x 是未验证的新次版本号，
+		// includePrerelease 会让 <0.3.0 把 0.3.0-rc.1 也放进来，所以上界必须写 <0.3.0-0。
+		for (const version of ["0.1.4-rc.1", "0.3.0-0", "0.3.0-rc.1", "0.3.0", "0.3.1"]) {
 			check("区间拒绝 " + version, evaluate(manifest, {}, version) !== undefined);
 		}
 		const exempted = evaluate(manifest, { [manifest.name + "@" + manifest.version]: ["0.1.4-rc.1"] }, "0.1.4-rc.1");

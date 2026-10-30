@@ -1,0 +1,2432 @@
+{
+  "initial": [
+    {
+      "name": "ask_user",
+      "description": "Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user's next message.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "One short question"
+          },
+          "options": {
+            "type": "array",
+            "description": "Two to four answers",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "description": "Short answer shown on the option"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Optional one-line explanation under the label"
+                }
+              },
+              "required": [
+                "label"
+              ]
+            }
+          },
+          "detail": {
+            "type": "string",
+            "description": "Optional one-line context shown under the question"
+          },
+          "multiSelect": {
+            "type": "boolean",
+            "description": "Allow choosing several options"
+          },
+          "allowCustom": {
+            "type": "boolean",
+            "description": "Also offer a field for an answer in the user's own words"
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ]
+      }
+    },
+    {
+      "name": "ask_user_question",
+      "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "description": "Questions to ask the user before continuing.",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Stable id for this question; echoed in the answer."
+                },
+                "question": {
+                  "type": "string",
+                  "description": "The specific question to ask the user."
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+                },
+                "options": {
+                  "type": "array",
+                  "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Short user-facing option label."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "One sentence explaining the tradeoff or impact."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                },
+                "multi_select": {
+                  "type": "boolean",
+                  "description": "Whether the user may select more than one option. Defaults to false."
+                }
+              },
+              "required": [
+                "id",
+                "question"
+              ]
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      }
+    },
+    {
+      "name": "attach_capability",
+      "description": "Attached a shared capability to yourself, or to another Bot if you are a Main Bot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Capability name from list_capabilities"
+          },
+          "bot": {
+            "type": "string",
+            "description": "Optional Bot name; only a Main Bot may change another Bot"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_bot",
+      "description": "Main Bot only. Create a new Bot on the user's team. It appears in the sidebar and greets the user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Short display name, e.g. \"Researcher\" or \"Editor\""
+          },
+          "role": {
+            "type": "string",
+            "description": "Two-to-four character role label shown under the name"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "What this Bot is responsible for and how it should work"
+          },
+          "brief": {
+            "type": "string",
+            "description": "Why the user wants it, passed to the new Bot as its first context"
+          },
+          "preset": {
+            "type": "string",
+            "description": "Registered agent preset for the new Bot. Defaults to short-drama for Muse specialist work; bot-coordinator supplies general coordination."
+          },
+          "resident_tools": {
+            "type": "array",
+            "description": "Exact tool names to keep resident for this Bot. Tools remain subject to its existing permissions; it can later search, pin or release them with tool_search and tool_context.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Thinking level for the model, as list_models shows it. Only when the user names one."
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "Profile picture: a local image path (a relative path starts in your working folder) or a data URL. PNG, JPEG, WebP, or GIF; square, 256x256 recommended, up to 120 KB. Images are not resized."
+          }
+        },
+        "required": [
+          "name",
+          "role",
+          "instructions"
+        ]
+      }
+    },
+    {
+      "name": "create_goal",
+      "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "The concrete completion objective inferred from the direct human request."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Optional positive safe-integer limit on automatic continuation rounds."
+          }
+        },
+        "required": [
+          "objective"
+        ]
+      }
+    },
+    {
+      "name": "create_group",
+      "description": "Main Bot only. Create a group chat with the user and some Bots. You join it as its admin unless you name another member.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "description": "Exact names of the other Bots to add; you are added automatically",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Group name; defaults to the member names"
+          },
+          "notice": {
+            "type": "string",
+            "description": "Shared instructions every member reads before speaking in this group"
+          },
+          "admin": {
+            "type": "string",
+            "description": "Member who leads the group; defaults to you"
+          },
+          "mode": {
+            "type": "string",
+            "description": "\"everyone\": every member answers a plain message in turn, admin first. \"admin\" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.",
+            "enum": [
+              "everyone",
+              "admin"
+            ]
+          }
+        },
+        "required": [
+          "members"
+        ]
+      }
+    },
+    {
+      "name": "delete_capability",
+      "description": "Remove a shared capability and detach it from every Bot and pack.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_group",
+      "description": "Main Bot only. Delete a group chat; its history is archived. Only when the user asks.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          }
+        },
+        "required": [
+          "group"
+        ]
+      }
+    },
+    {
+      "name": "detach_capability",
+      "description": "Detached a shared capability to yourself, or to another Bot if you are a Main Bot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Capability name from list_capabilities"
+          },
+          "bot": {
+            "type": "string",
+            "description": "Optional Bot name; only a Main Bot may change another Bot"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_reference_project",
+      "description": "列出当前 Session 工作区内经 Host 校验的剧变项目；唯一有效项目可由 Agent 直接选定并读取角色清单。工作区有多个项目时先列出并询问用户，不得自行猜测；只传剧变项目 ID，不接受本机路径。选定结果给出经圣经校验的角色 ID、名称、类型和已有项目主绑定资产 ID；资产 ID 不代表公共库使用许可。人物检索仍会重读圣经和角色身份。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "select"
+            ]
+          },
+          "script_id": {
+            "type": "integer",
+            "description": "仅在 select 时填写 Host 列出的唯一项目 ID，或用户明确指名的多个项目之一。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_reference_view",
+      "description": "实际查看先前检索到的一张人物候选图片。传入候选的 catalog_asset_id 和 image_sha256；Host 重新读取并核对图片身份与原图 SHA-256，然后把图片作为图像内容交给当前支持看图的模型。看图不授予素材使用、绑定或发布许可。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "catalog_asset_id": {
+            "type": "string",
+            "description": "检索结果中的稳定 Catalog ID；不是项目 character_id 或供应商资产 ID。"
+          },
+          "expected_sha256": {
+            "type": "string",
+            "description": "检索结果中的原图 SHA-256；不得自行编造。"
+          }
+        },
+        "required": [
+          "catalog_asset_id",
+          "expected_sha256"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_references",
+      "description": "根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角、配角和群演均可检索；Agent 根据出场方式、一致性需求和用户目标决定是否检索，不把剧情理由当作检索许可。返回候选身份、原图 SHA-256 和文字匹配依据；这是检索，不代表已经看图。可按候选 ID 调用 drama_character_reference_view 实际看图，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "character_id": {
+            "type": "string",
+            "description": "当前项目角色 ID；只用于关联本次建议，不等于 catalog_asset_id。"
+          },
+          "role_description": {
+            "type": "string",
+            "description": "从当前剧本提取的角色需求摘要，不可编造。"
+          },
+          "role_class": {
+            "type": "string",
+            "description": "根据当前剧本声明角色类型；圣经已登记时 Host 会核对，缺省时仅用于只读初排并标明不确定性，不授予素材使用权。",
+            "enum": [
+              "lead",
+              "important_support",
+              "support",
+              "extra"
+            ]
+          },
+          "supporting_use_reason": {
+            "type": "string",
+            "description": "可选的剧本依据，用于解释本次检索；不是配角检索的通行证，也不授予素材使用权。"
+          },
+          "collection": {
+            "type": "string",
+            "description": "已知人物风格范围；不确定时省略。",
+            "enum": [
+              "ancient",
+              "urban",
+              "all"
+            ]
+          },
+          "required_era": {
+            "type": "string",
+            "description": "剧本明确要求的年代；不得从素材状态推断。"
+          },
+          "gender": {
+            "type": "string",
+            "description": "剧本明确要求的性别；不确定时省略。"
+          },
+          "style_terms": {
+            "type": "array",
+            "description": "从剧本提取的风格关键词。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trait_terms": {
+            "type": "array",
+            "description": "从剧本提取的外观或气质关键词。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role_terms": {
+            "type": "array",
+            "description": "从剧本提取的角色适配关键词。",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "character_id",
+          "role_description",
+          "role_class"
+        ]
+      }
+    },
+    {
+      "name": "drama_project",
+      "description": "Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "preview",
+              "update"
+            ]
+          },
+          "project_dir": {
+            "type": "string",
+            "description": "Existing absolute project directory."
+          },
+          "changes": {
+            "type": "object",
+            "description": "Fields to merge for preview/update; omit for read.",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Project title."
+              },
+              "style": {
+                "type": "string",
+                "description": "Confirmed visual style as free text, including the user's custom answer and creative guidance."
+              },
+              "visual_medium": {
+                "type": "string",
+                "description": "Confirmed delivery medium: animation_3d adds no ending or watermark; photorealistic retains both. Independent of the full style text and aspect ratio; omitted legacy values keep marked delivery with a warning.",
+                "enum": [
+                  "animation_3d",
+                  "photorealistic"
+                ]
+              },
+              "aspect_ratio": {
+                "type": "string",
+                "description": "Confirmed generation aspect ratio, checked against the live catalogue."
+              },
+              "jubian_script_id": {
+                "type": "integer",
+                "description": "Actual remote project ID. An existing binding cannot be replaced."
+              },
+              "video": {
+                "type": "object",
+                "description": "Exact catalogue selection; model, platform and resolution are required together.",
+                "additionalProperties": false,
+                "properties": {
+                  "model_id": {
+                    "type": "string"
+                  },
+                  "platform_id": {
+                    "type": "string",
+                    "description": "Exact catalogue platformId value."
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "description": "Generation resolution, separate from delivery pixels."
+                  },
+                  "generation_type": {
+                    "type": "integer",
+                    "description": "Optional actual catalogue genType."
+                  }
+                },
+                "required": [
+                  "model_id",
+                  "platform_id",
+                  "resolution"
+                ]
+              },
+              "delivery": {
+                "type": "object",
+                "description": "Delivery target; omitted numeric fields inherit the current project or Settings.",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "fps": {
+                    "type": "integer"
+                  },
+                  "min_bitrate_mbps": {
+                    "type": "number"
+                  },
+                  "max_effective_chars_per_shot": {
+                    "type": "integer"
+                  },
+                  "subtitle_visual": {
+                    "type": "object",
+                    "description": "Optional shared reference-raster subtitle intent. Replaces this whole section; {} restores legacy per-engine styling. Approve real MP4/editor previews, not these nominal numbers.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "schema_version": {
+                        "type": "integer",
+                        "enum": [
+                          1
+                        ]
+                      },
+                      "reference_width": {
+                        "type": "number",
+                        "description": "Reference picture width, positive and at most 16384."
+                      },
+                      "reference_height": {
+                        "type": "number",
+                        "description": "Reference height; typography scales by actual height / reference height."
+                      },
+                      "font_size_px": {
+                        "type": "number",
+                        "description": "Nominal reference-pixel size, not measured glyph height or editor UI size."
+                      },
+                      "outline_px": {
+                        "type": "number",
+                        "description": "Black outline in reference pixels, from 0 through 100."
+                      },
+                      "center_y_ratio": {
+                        "type": "number",
+                        "description": "Text-box centre from the top, from 0 through 1; calibrate with real previews."
+                      },
+                      "max_width_ratio": {
+                        "type": "number",
+                        "description": "Actual picture width available for a single line, greater than 0 and at most 1; measure glyph width."
+                      },
+                      "font_family": {
+                        "type": "string",
+                        "description": "Optional requested local family, no comma or controls. A request does not prove both engines resolve the same font; never download missing fonts."
+                      }
+                    }
+                  },
+                  "draft_style": {
+                    "type": "object",
+                    "description": "Editable Jianying typography in editor UI units, not formal-render pixels. Replaces the whole draft-style section; {} restores draft defaults after prepare.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "watermark": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "font_size_ui": {
+                            "type": "number",
+                            "description": "Editor font size, greater than 0 and at most 100. Animation omits the watermark."
+                          }
+                        }
+                      },
+                      "subtitle": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "font_family": {
+                            "type": "string",
+                            "description": "Requested trimmed font name, 1–128 characters, no controls. Missing or unsupported editor resources require a warning and system-font fallback; no font download or license approval."
+                          },
+                          "font_size_ui": {
+                            "type": "number",
+                            "description": "Editor font size, greater than 0 and at most 100."
+                          },
+                          "border_width_ui": {
+                            "type": "number",
+                            "description": "Black border from 0 through 100 editor units, not the raw serialized width."
+                          },
+                          "transform_y": {
+                            "type": "number",
+                            "description": "Editor-relative vertical position from -1 through 1."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "episode_plan": {
+                "type": "object",
+                "description": "Flexible outline and episode length; fixed counts are optional.",
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "flexible",
+                      "fixed"
+                    ]
+                  },
+                  "outline": {
+                    "type": "string"
+                  },
+                  "episode_count": {
+                    "type": "integer"
+                  },
+                  "target_seconds": {
+                    "type": "number"
+                  }
+                }
+              },
+              "package_bindings": {
+                "type": "array",
+                "description": "Append stable package IDs mapped to remote storyboards. Keep the same package ID through content edits.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "package_id": {
+                      "type": "string"
+                    },
+                    "storyboard_id": {
+                      "type": "integer"
+                    },
+                    "episode_id": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "package_id",
+                    "storyboard_id"
+                  ]
+                }
+              },
+              "characters": {
+                "type": "array",
+                "description": "Stable character identities, role importance and approved voice guidance. Character-library use is decided by Host tools; catalog metadata never decides lead/support policy.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "character_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "aliases": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "asset_id": {
+                      "type": "integer"
+                    },
+                    "role_class": {
+                      "type": "string",
+                      "description": "Project-owned role importance. The public character library is searched for lead characters by default; another role requires a recorded story-specific reason.",
+                      "enum": [
+                        "lead",
+                        "important_support",
+                        "support",
+                        "extra"
+                      ]
+                    },
+                    "voice_profile": {
+                      "type": "object",
+                      "description": "Legacy default voice. Partial updates preserve approved guidance. Supply description when first creating a voice profile.",
+                      "additionalProperties": false,
+                      "properties": {
+                        "speaker_id": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                        },
+                        "reference_audio": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                        },
+                        "reference_audio_asset_id": {
+                          "type": "integer",
+                          "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                        },
+                        "reference_audio_sha256": {
+                          "type": "string",
+                          "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                        },
+                        "reference_audio_duration_seconds": {
+                          "type": "number",
+                          "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
+                        }
+                      }
+                    },
+                    "voice_profiles": {
+                      "type": "array",
+                      "description": "Voice periods of the same stable character, such as child and adult. Merge by voice_period_id; omissions and [] preserve existing periods. Costume changes preserve their period voice. Each new period requires description.",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "voice_period_id": {
+                            "type": "string",
+                            "description": "Stable explicit life-period ID, independent of costume and emotion."
+                          },
+                          "label": {
+                            "type": "string",
+                            "description": "Optional readable period label."
+                          },
+                          "speaker_id": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string",
+                            "description": "Approved gender/age, timbre, speaking style and accent to reuse in each package."
+                          },
+                          "reference_audio": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Approved reference path, ID or URL. Set null to remove the current reference and its asset ID, hash and duration; voice guidance remains."
+                          },
+                          "reference_audio_asset_id": {
+                            "type": "integer",
+                            "description": "Actual approved audio-category asset ID. Set together with its HTTPS reference_audio URL, measured SHA-256 and duration."
+                          },
+                          "reference_audio_sha256": {
+                            "type": "string",
+                            "description": "64 hexadecimal SHA-256 characters of the approved audio bytes."
+                          },
+                          "reference_audio_duration_seconds": {
+                            "type": "number",
+                            "description": "Measured reference duration in seconds, greater than zero and at most 15; the usual sample is 2 seconds."
+                          }
+                        },
+                        "required": [
+                          "voice_period_id"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "character_id"
+                  ]
+                }
+              },
+              "completed_tasks": {
+                "type": "array",
+                "description": "Append completed task references. Existing records are preserved.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "package_id": {
+                      "type": "string"
+                    },
+                    "result_ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "kind"
+                  ]
+                }
+              },
+              "bgm_feedback": {
+                "type": "array",
+                "description": "Append explicit user feedback for this project and similar context_tags only, not a global track blacklist. Preserve prior records; a later explicit change of mind needs a new feedback_id. Never record the Agent's own preference as user feedback.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "feedback_id": {
+                      "type": "string",
+                      "description": "Unique immutable feedback ID; replaying the identical record is idempotent."
+                    },
+                    "track_id": {
+                      "type": "string",
+                      "description": "Actual catalogue track ID. Supply this or source_sha256, or both."
+                    },
+                    "source_sha256": {
+                      "type": "string",
+                      "description": "Actual source SHA-256: 64 hexadecimal characters, optionally prefixed sha256:."
+                    },
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "accept",
+                        "reject"
+                      ]
+                    },
+                    "context_tags": {
+                      "type": "array",
+                      "description": "Nonempty scene/emotion/instrumentation context tags; scope the feedback to similar use, never all projects or all scenes.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Reason grounded in the explicit user feedback, not inferred Agent taste."
+                    },
+                    "recorded_at": {
+                      "type": "string",
+                      "description": "Known time of the explicit user feedback as an ISO timestamp with Z or numeric timezone offset; do not invent a time."
+                    },
+                    "episode": {
+                      "type": "integer",
+                      "description": "Optional positive episode number associated with the feedback."
+                    },
+                    "user_quote": {
+                      "type": "string",
+                      "description": "Optional exact nonempty user words supporting the decision."
+                    }
+                  },
+                  "required": [
+                    "feedback_id",
+                    "decision",
+                    "context_tags",
+                    "reason",
+                    "recorded_at"
+                  ]
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Preview/update reason recorded in version history."
+          },
+          "expected_revision": {
+            "type": "string",
+            "description": "Update only: exact current-file revision from preview, including missing for first creation."
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "description": "Update only: fingerprint from the same reviewed preview."
+          }
+        },
+        "required": [
+          "action",
+          "project_dir"
+        ]
+      }
+    },
+    {
+      "name": "drama_shot",
+      "description": "镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。完整的动作预算、发声预算、反应预算与表演顺序用于同步/串行时间核算；缺项、算术冲突仍报告warning，不能据ok=true判断可行。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。",
+            "enum": [
+              "validate",
+              "preview",
+              "compile"
+            ]
+          },
+          "script": {
+            "type": "string",
+            "description": "镜头脚本路径（绝对，或相对当前工作目录）。"
+          },
+          "assets": {
+            "type": "string",
+            "description": "资产清单 assets_manifest.json 的路径；preview 与 compile 必填，validate 可选——给了才判定资产绑定。"
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录；compile 必填。advisory 仅创建 shot_reviews/<集号>/，无需 episodes/ 或本地素材图片。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
+          },
+          "max_submit_seconds": {
+            "type": "integer",
+            "description": "启用会话视频选择时自动读取当前会话模型上限，此参数忽略；否则 preview/compile 必填，表示含收束的单包参考上限（至少4秒），须核实模型能力。上限不代表推荐包长；advisory 超预算仅提示，submit_seconds 需核对后再用于生成。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。"
+          }
+        },
+        "required": [
+          "method",
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "edit",
+      "description": "Edit an existing UTF-8 text file by replacing literal text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    {
+      "name": "exit_plan_mode",
+      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "description": "The complete plan, as markdown, starting with a # heading that names it."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "get_goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "glob",
+      "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for (ripgrep syntax)."
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "include": {
+            "type": "string",
+            "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "interrupt_agent",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The id of an agent created under you: your direct child or a deeper descendant."
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "job_kill",
+      "description": "Request cancellation of a running background job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional short reason, recorded in the log and forwarded to the job."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "job_list",
+      "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_output",
+      "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "jubian_catalog",
+      "description": "剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。",
+            "enum": [
+              "models",
+              "rate",
+              "script",
+              "episodes"
+            ]
+          },
+          "task_type": {
+            "type": "number",
+            "description": "models 必填：1=视频，2=图片，10=去字幕，20=转高清。"
+          },
+          "standard_id": {
+            "type": "number",
+            "description": "rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。"
+          },
+          "script_id": {
+            "type": "number",
+            "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。"
+          },
+          "page_num": {
+            "type": "number",
+            "description": "页码，默认 1。"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "每页条数，默认 20，上限 1000。"
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    },
+    {
+      "name": "jubian_find",
+      "description": "按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成\"就这些\"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status 与 script_style；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name，但没有 script_style——这个字段只有 mine 的行被实测到。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。production_type 与 share_target_type 只对 mine 有效，同样原样转发为 productionType 与 shareTargetType；控制台打开「漫剧视频」时发的就是 productionType=0 + shareTargetType=1，要列漫剧项目就传这两个值。两个取值都是提供方自己的编码，本工具不解释、不校验、也不设默认值，省略就不出现在查询串里；给 pool 传会被拒绝。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成\"没找到\"——漏本和没本必须能区分。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。",
+            "enum": [
+              "mine",
+              "pool"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。省略就是列出该 scope 的第一页。空白字符串会被拒绝。"
+          },
+          "page_num": {
+            "type": "number",
+            "description": "可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：第 2 页起要读完的仍是 total 里剩下的部分。"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。"
+          },
+          "status": {
+            "type": "string",
+            "description": "可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。"
+          },
+          "production_type": {
+            "type": "number",
+            "description": "可选，仅 scope=mine：按提供方自己的 productionType 编码过滤，原样转发为查询参数 productionType。控制台打开「漫剧视频」时发的是 productionType=0，所以要列漫剧项目就传 0；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
+          },
+          "share_target_type": {
+            "type": "number",
+            "description": "可选，仅 scope=mine：按提供方自己的 shareTargetType 编码过滤，原样转发为查询参数 shareTargetType。控制台打开「漫剧视频」时发的是 shareTargetType=1，所以要列漫剧项目就传 1；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
+          }
+        },
+        "required": [
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "jubian_organize",
+      "description": "只读、免费的资产组织视图：把剧变项目按「集数 → 类别」列出（每集用到哪些角色/场景/道具，各自的 asset_id、material_id 与状态），并做两份审计——不符合 `EP{两位集数}｜{类别}｜{名称}` 规范的远端名称，以及 assetType 与自身名字或清单声明不一致的资产（历史遗留的类别错放）。同时读出个人资产库里每个类别的文件夹树。**它只读：不重命名、不移动、不改动任何远端资产**，结果同时写一份本地索引文件。要改，用 jubian_asset 的 create_folder / move / rename，且批量操作前先取得用户同意。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "index=按集数与类别输出组织视图，并写本地索引文件。",
+            "enum": [
+              "index"
+            ]
+          },
+          "script_id": {
+            "type": "number",
+            "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。"
+          },
+          "project_dir": {
+            "type": "string",
+            "description": "prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
+          }
+        },
+        "required": [
+          "method",
+          "script_id",
+          "project_dir"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+            "enum": [
+              "children",
+              "descendants"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "list_bots",
+      "description": "List every Bot on the user's team with its role, what it does and what it is doing right now, and the group chats you can see.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_capabilities",
+      "description": "List shared MCP servers, skills, and packs, plus the capabilities attached to you.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "manuscript_revision",
+      "description": "支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "compare",
+              "status",
+              "review",
+              "measure"
+            ]
+          },
+          "baseline_path": {
+            "type": "string",
+            "description": "实际上一稿路径；同路径返稿已有交付快照时可省略。"
+          },
+          "revised_path": {
+            "type": "string",
+            "description": "用户最新返稿的真实本地路径。"
+          },
+          "source_paths": {
+            "type": "array",
+            "description": "measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_paths": {
+            "type": "array",
+            "description": "完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_growth_percent": {
+            "type": "number",
+            "description": "仅measure：本轮明确对照的增长百分比上限。参考区间不是修字配额，不为凑数字删必要情节或添复述；以用户篇幅要求和实际统计口径为准。未提供则标明未设置，不推断目标。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "message_bot",
+      "description": "Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to \"user\" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing \"@Name\" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Exact Bot name from list_bots"
+          },
+          "message": {
+            "type": "string",
+            "description": "Self-contained message; the other Bot cannot see this conversation"
+          },
+          "reply_to": {
+            "type": "string",
+            "description": "\"me\" (default): the reply comes back to you and the user does not see it. \"user\": the Bot answers the user in its own chat, where the user reads it, and nothing comes back to you. Use \"user\" whenever the user wants to hear from that Bot directly or asks Bots to say something in their own chats.",
+            "enum": [
+              "me",
+              "user"
+            ]
+          },
+          "when": {
+            "type": "string",
+            "description": "\"now\" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. \"queue\": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to \"user\" the message always queues.",
+            "enum": [
+              "now",
+              "queue"
+            ]
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Your own name for this request, up to 200 characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused."
+          }
+        },
+        "required": [
+          "to",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "muse_production",
+      "description": "Muse自有批量制作：preview读取完整分镜脚本、当前会话视频模型和剧变库存，按完整镜头自动分包，逐镜给出人物／服装、场景、道具、音频候选和依据；保存本地方案，不写剧变、不收费。read分页查看matches/packages/warnings；update只提交要调整的逐镜choices或requirements，刷新库存与模型后重新预览。apply将方案免费批量写入剧变并真实回读，已有同名同集卡原位更新；不提交生成。所有创作、匹配和时长问题为提示，不要求清零，也不需要用户逐包批准。预览结果须实际交回你看图／听音核对，不能在同一脚本里直接把未审候选连到apply。保留用户当前稿、原台词、说话人和换装节点；不要用一个全局人物映射覆盖不同镜头。缺声线看voice_follow_up：按已有制作授权先生成首个清晰讲话包，再核对和抽取、上传登记共享声线；换装不换声线时期。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "read",
+              "update",
+              "apply"
+            ]
+          },
+          "project_dir": {
+            "type": "string",
+            "description": "preview必填：已有project_config.json且绑定剧变项目的本地根目录。"
+          },
+          "script": {
+            "type": "string",
+            "description": "preview必填：本集完整导演分镜脚本UTF-8文件；使用【镜头N】和本镜人物、场景、道具字段。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "preview必填：真实显示集号，工具查询远端episode_id。"
+          },
+          "ratio": {
+            "type": "string",
+            "description": "首次preview必填：项目已确认画幅，如16:9，不改变项目风格。"
+          },
+          "gen_type": {
+            "type": "integer",
+            "description": "首次preview必填：当前模型支持且本项目采用的生成类型。"
+          },
+          "plan_path": {
+            "type": "string",
+            "description": "read/update/apply必填：上次返回的完整本地方案路径。"
+          },
+          "requirements": {
+            "type": "array",
+            "description": "可选逐镜更正或补充要求；人物名用稳定故事身份，state写本镜服装，conditions写具体场景或道具条件；声音明确character_id与voice_period_id。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "shot": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "character",
+                    "scene",
+                    "prop",
+                    "voice"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "conditions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "character_id": {
+                  "type": "string"
+                },
+                "voice_period_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "shot",
+                "kind",
+                "name"
+              ]
+            }
+          },
+          "choices": {
+            "type": "array",
+            "description": "只提交要改的逐镜选择，其他选择保留。asset_id=null明确暂不绑定；同名人物换装按镜分别选，不按列表顺序猜。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "shot": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "character",
+                    "scene",
+                    "prop",
+                    "voice"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "asset_id": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "shot",
+                "kind",
+                "name",
+                "asset_id"
+              ]
+            }
+          },
+          "targets": {
+            "type": "array",
+            "description": "可选原卡选择：index是方案包序号，storyboard_id是实际原卡ID；null明确新建。默认复用同集同名唯一原卡，重名时按target_candidates核对，不猜、不重复建卡。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "storyboard_id": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "index",
+                "storyboard_id"
+              ]
+            }
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "matches",
+              "packages",
+              "warnings",
+              "assets"
+            ]
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    },
+    {
+      "name": "post_to_group",
+      "description": "Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot's or the group admin's post starts a round: members reply in the group, where the user reads them. Another member's post calls only the members it names with \"@Name\"; without one it is only written into the group.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          },
+          "message": {
+            "type": "string",
+            "description": "What to say; write \"@Name\" to choose who answers, and a name without \"@\" to only mention a member"
+          },
+          "report_back": {
+            "type": "boolean",
+            "description": "Also send the members' replies back to you as a new message when the round ends"
+          }
+        },
+        "required": [
+          "group",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "present",
+      "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path of an existing regular file. Relative paths use the Session working directory."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Brief description for the user."
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "read_image",
+      "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the image file, resolved by the filesystem backend."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "save_capability",
+      "description": "Create or update a shared MCP server, skill, or pack. Changes apply from your next message.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Lowercase letters, digits, and single hyphens, up to 32 characters; \"github\" is reserved"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mcp",
+              "skill",
+              "pack"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What this capability provides"
+          },
+          "transport": {
+            "type": "string",
+            "description": "How to reach an MCP server: a local command or an HTTP URL",
+            "enum": [
+              "stdio",
+              "streamable-http"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "description": "Program that starts a local MCP server"
+          },
+          "args": {
+            "type": "array",
+            "description": "Arguments for command",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value",
+            "additionalProperties": true
+          },
+          "url": {
+            "type": "string",
+            "description": "MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys"
+          },
+          "headers": {
+            "type": "object",
+            "description": "HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value",
+            "additionalProperties": true
+          },
+          "content": {
+            "type": "string",
+            "description": "Skill instructions"
+          },
+          "items": {
+            "type": "array",
+            "description": "MCP server and skill names in the pack",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the agent."
+          }
+        },
+        "required": [
+          "agent_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "show_view",
+      "description": "Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user's next message. Never collect a key, token or password. Keep the view under 8 KB.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional short heading shown above the view"
+          },
+          "view": {
+            "type": "object",
+            "description": "One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: \"formula\" }. Display: text ({ text: Markdown, tone?: \"muted\" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { \"=\": \"expression\" } over input ids and let names: numbers, 'text', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs' values to you).",
+            "additionalProperties": true
+          },
+          "await_reply": {
+            "type": "boolean",
+            "description": "Wait for the user to submit the view. A view with options, confirm, form or submit always waits; a view without them cannot."
+          }
+        },
+        "required": [
+          "view"
+        ]
+      }
+    },
+    {
+      "name": "skill",
+      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The exact skill name from the available skills list."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "source_recover",
+      "description": "Page through text of a successful original read result already recorded in this Session. It does not read the current file or restore text omitted by the original read.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "description": "Original read result event sequence."
+          },
+          "block": {
+            "type": "integer",
+            "description": "Zero-based content block number."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based Unicode code point offset."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum code points; at most 4000."
+          }
+        },
+        "required": [
+          "seq",
+          "block",
+          "offset",
+          "limit"
+        ]
+      }
+    },
+    {
+      "name": "stop_bot",
+      "description": "Main Bot only. Stop another Bot's running turn immediately — when it must not finish a dangerous action and a message_bot warning is not enough. Its queued messages are dropped with the turn. It is then told why in a new turn, whose reply comes back to you.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string",
+            "description": "Exact Bot name from list_bots"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it was stopped; it reads this afterwards"
+          }
+        },
+        "required": [
+          "bot"
+        ]
+      }
+    },
+    {
+      "name": "subagent",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_fork",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "todo_write",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "description": "The COMPLETE task list, replacing any previous list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "What the task is — a short imperative line."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "pending (not started) | in_progress (now) | completed (done).",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "todos"
+        ]
+      }
+    },
+    {
+      "name": "tool_context",
+      "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+            "enum": [
+              "status",
+              "load",
+              "pin",
+              "release",
+              "unpin"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "description": "Exact tool names; required for changes. Use tool_search to find names.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      }
+    },
+    {
+      "name": "tool_search",
+      "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+          },
+          "capability": {
+            "type": "string",
+            "description": "Optional capability id from the directory. Omit to search across groups."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum matching tools to load, from 1 to 8; defaults to 8."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_bot",
+      "description": "Change a Bot's name, role, color, profile picture, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string",
+            "description": "Current name of the Bot to change; leave out to change yourself"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "role": {
+            "type": "string",
+            "description": "New role label"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Replacement instructions"
+          },
+          "preset": {
+            "type": "string",
+            "description": "Registered preset for future new Sessions of this Bot. Its current conversation and preset remain intact."
+          },
+          "resident_tools": {
+            "type": "array",
+            "description": "Replacement exact-name resident tools. An empty list clears residency; existing permissions still apply. Use tool_context to adjust your own active tools.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "color": {
+            "type": "string",
+            "description": "One of deepseek, blue, violet, orange, green, magenta, cyan, red, yellow, brown, gray, black, aurora, charcoal, graphite, rose, sky, tangerine, cobalt"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "Profile picture: a local image path (a relative path starts in your working folder) or a data URL. PNG, JPEG, WebP, or GIF; square, 256x256 recommended, up to 120 KB. Images are not resized. An empty string removes the photo and shows the Bot's character again."
+          },
+          "model": {
+            "type": "string",
+            "description": "Move the Bot to another model, as provider/model or a model id"
+          },
+          "effort": {
+            "type": "string",
+            "description": "Thinking level for the Bot's model, as list_models shows; an empty string returns to the model's default"
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it; an empty string returns it to the team workspace"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_goal",
+      "description": "Update the current goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "Exact id returned by get_goal."
+          },
+          "revision": {
+            "type": "number",
+            "description": "Exact positive revision returned by get_goal."
+          },
+          "action": {
+            "type": "string",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+            "enum": [
+              "edit",
+              "pause",
+              "resume",
+              "complete",
+              "blocked",
+              "wait"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "description": "Replacement objective; valid only with action edit."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Replacement cap; valid only with action edit."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          },
+          "wait_reason": {
+            "type": "string",
+            "description": "With action wait: describe what new information or event is needed."
+          },
+          "wake_after_seconds": {
+            "type": "number",
+            "description": "With action wait: optional positive whole seconds before continuing."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "With action wait: optional owned job to watch for new output or settlement."
+          }
+        },
+        "required": [
+          "goal_id",
+          "revision",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "update_group",
+      "description": "Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group's admin may change its own group.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          },
+          "name": {
+            "type": "string",
+            "description": "New group name; an empty string names it after its members again"
+          },
+          "notice": {
+            "type": "string",
+            "description": "Replacement notice, the shared instructions every member reads; an empty string clears it"
+          },
+          "add_members": {
+            "type": "array",
+            "description": "Exact names of Bots to add",
+            "items": {
+              "type": "string"
+            }
+          },
+          "remove_members": {
+            "type": "array",
+            "description": "Exact names of Bots to remove",
+            "items": {
+              "type": "string"
+            }
+          },
+          "admin": {
+            "type": "string",
+            "description": "Member to make the admin; \"none\" leaves the group without one (Main Bots only)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "\"everyone\": every member answers a plain message in turn, admin first. \"admin\" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.",
+            "enum": [
+              "everyone",
+              "admin"
+            ]
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)"
+          }
+        },
+        "required": [
+          "group"
+        ]
+      }
+    },
+    {
+      "name": "video_inspect",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+          },
+          "review_id": {
+            "type": "string",
+            "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
+          },
+          "episode": {
+            "type": "string",
+            "description": "首次scan时标记集号；省略则使用实际视频路径。"
+          },
+          "method": {
+            "type": "string",
+            "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
+            "enum": [
+              "scan",
+              "next",
+              "revisit",
+              "observe",
+              "events",
+              "status",
+              "metadata",
+              "timeline",
+              "compare",
+              "close",
+              "reopen"
+            ]
+          },
+          "timeline_start_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+          },
+          "timeline_end_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+          },
+          "frame_ids": {
+            "type": "array",
+            "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "draft_path": {
+            "type": "string",
+            "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+          },
+          "transcript_path": {
+            "type": "string",
+            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
+          },
+          "event_groups": {
+            "type": "array",
+            "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "frame_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "uncertainty": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "frame_ids",
+                "actor",
+                "action",
+                "object",
+                "before",
+                "after",
+                "uncertainty"
+              ]
+            }
+          },
+          "observations": {
+            "type": "array",
+            "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frame_id": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "string",
+                  "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                },
+                "change": {
+                  "type": "string",
+                  "description": "与邻近画面的变化；无变化也需据实说明。"
+                },
+                "uncertainty": {
+                  "type": "string",
+                  "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                }
+              },
+              "required": [
+                "frame_id",
+                "visible",
+                "change"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The HTTP(S) URL to fetch."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "description": "1–4 search queries; their results are merged.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "name": "workflow",
+      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
+          },
+          "meta": {
+            "type": "object",
+            "description": "The workflow identity as plain JSON, not code.",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Short kebab-case workflow name."
+              },
+              "description": {
+                "type": "string",
+                "description": "One-line description of what the workflow does."
+              },
+              "whenToUse": {
+                "type": "string",
+                "description": "Optional guidance on when this workflow applies."
+              },
+              "phases": {
+                "type": "array",
+                "description": "Optional phase declarations matched by phase() calls.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The phase title phase() calls match by exact string."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "description": "Optional one-line description of the phase."
+                    },
+                    "provider": {
+                      "type": "string",
+                      "description": "Optional provider override this phase is expected to use."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Optional model override this phase is expected to use."
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "description"
+            ]
+          },
+          "args": {
+            "type": "object",
+            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+            "additionalProperties": true
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
+          }
+        },
+        "required": [
+          "script",
+          "meta"
+        ]
+      }
+    },
+    {
+      "name": "write",
+      "description": "Create or fully replace a UTF-8 text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full UTF-8 text content to write."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

@@ -672,7 +672,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  const showViewTool = defineTool({
     name: 'show_view',
     description: 'Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user\'s next message. Never collect a key, token or password. Keep the view under 8 KB.',
     parameters: {
@@ -714,13 +714,36 @@ export function install(rt) {
       exec.concludeTurn?.()
       return 'The view is on screen; the user\'s answer arrives as their next message.'
     },
-  }))
+  })
+
+  // Adapted from DS Bot 0.2.4: the Bot card shadows another plugin's global view.
+  const scopedViews = new Map()
+  const disposedAgents = new WeakSet()
+  let viewsClosed = false
+  const releaseView = (agent) => {
+    const dispose = scopedViews.get(agent)
+    if (dispose === undefined) return
+    scopedViews.delete(agent)
+    dispose()
+  }
+  const shareBotView = (agent) => {
+    if (viewsClosed || agent === undefined || disposedAgents.has(agent) || scopedViews.has(agent) || !rt.isBotSession(agent.session?.id)) return
+    if (typeof agent.ctx?.tools?.register !== 'function') return
+    scopedViews.set(agent, agent.ctx.tools.register(showViewTool))
+  }
+  ctx.on('agent/disposed', ({ agent }) => { disposedAgents.add(agent); releaseView(agent) })
+  ctx.effect(() => () => {
+    viewsClosed = true
+    for (const agent of scopedViews.keys()) releaseView(agent)
+  }, 'ds-bot: scoped view tools')
 
   // Bot question cards allow peer replies to arrive while an answer is pending.
   // Native goal tools remain available with Muse-managed context.
   const hiddenTools = new WeakSet()
   const keepsNativeInteraction = sessionId => rt.botOf(rt.selfOf(sessionId))?.interactionSource === 'session'
   const hideBotUnusedTools = (agent) => {
+    if (viewsClosed) return
+    shareBotView(agent)
     if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {

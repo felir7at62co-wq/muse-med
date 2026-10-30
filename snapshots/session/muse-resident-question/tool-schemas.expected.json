@@ -51,6 +51,26 @@
       }
     },
     {
+      "name": "attach_capability",
+      "description": "Attached a shared capability to yourself, or to another Bot if you are a Main Bot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Capability name from list_capabilities"
+          },
+          "bot": {
+            "type": "string",
+            "description": "Optional Bot name; only a Main Bot may change another Bot"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
       "name": "create_bot",
       "description": "Main Bot only. Create a new Bot on the user's team. It appears in the sidebar and greets the user.",
       "parameters": {
@@ -124,6 +144,96 @@
         },
         "required": [
           "objective"
+        ]
+      }
+    },
+    {
+      "name": "create_group",
+      "description": "Main Bot only. Create a group chat with the user and some Bots. You join it as its admin unless you name another member.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "description": "Exact names of the other Bots to add; you are added automatically",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Group name; defaults to the member names"
+          },
+          "notice": {
+            "type": "string",
+            "description": "Shared instructions every member reads before speaking in this group"
+          },
+          "admin": {
+            "type": "string",
+            "description": "Member who leads the group; defaults to you"
+          },
+          "mode": {
+            "type": "string",
+            "description": "\"everyone\": every member answers a plain message in turn, admin first. \"admin\" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.",
+            "enum": [
+              "everyone",
+              "admin"
+            ]
+          }
+        },
+        "required": [
+          "members"
+        ]
+      }
+    },
+    {
+      "name": "delete_capability",
+      "description": "Remove a shared capability and detach it from every Bot and pack.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_group",
+      "description": "Main Bot only. Delete a group chat; its history is archived. Only when the user asks.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          }
+        },
+        "required": [
+          "group"
+        ]
+      }
+    },
+    {
+      "name": "detach_capability",
+      "description": "Detached a shared capability to yourself, or to another Bot if you are a Main Bot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Capability name from list_capabilities"
+          },
+          "bot": {
+            "type": "string",
+            "description": "Optional Bot name; only a Main Bot may change another Bot"
+          }
+        },
+        "required": [
+          "name"
         ]
       }
     },
@@ -331,6 +441,22 @@
       }
     },
     {
+      "name": "list_capabilities",
+      "description": "List shared MCP servers, skills, and packs, plus the capabilities attached to you.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "message_bot",
       "description": "Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to \"user\" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing \"@Name\" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.",
       "parameters": {
@@ -367,6 +493,31 @@
         },
         "required": [
           "to",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "post_to_group",
+      "description": "Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot's or the group admin's post starts a round: members reply in the group, where the user reads them. Another member's post calls only the members it names with \"@Name\"; without one it is only written into the group.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          },
+          "message": {
+            "type": "string",
+            "description": "What to say; write \"@Name\" to choose who answers, and a name without \"@\" to only mention a member"
+          },
+          "report_back": {
+            "type": "boolean",
+            "description": "Also send the members' replies back to you as a new message when the round ends"
+          }
+        },
+        "required": [
+          "group",
           "message"
         ]
       }
@@ -416,6 +567,79 @@
       }
     },
     {
+      "name": "save_capability",
+      "description": "Create or update a shared MCP server, skill, or pack. Changes apply from your next message.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Lowercase letters, digits, and single hyphens, up to 32 characters; \"github\" is reserved"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mcp",
+              "skill",
+              "pack"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "What this capability provides"
+          },
+          "transport": {
+            "type": "string",
+            "description": "How to reach an MCP server: a local command or an HTTP URL",
+            "enum": [
+              "stdio",
+              "streamable-http"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "description": "Program that starts a local MCP server"
+          },
+          "args": {
+            "type": "array",
+            "description": "Arguments for command",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "object",
+            "description": "Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value",
+            "additionalProperties": true
+          },
+          "url": {
+            "type": "string",
+            "description": "MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys"
+          },
+          "headers": {
+            "type": "object",
+            "description": "HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value",
+            "additionalProperties": true
+          },
+          "content": {
+            "type": "string",
+            "description": "Skill instructions"
+          },
+          "items": {
+            "type": "array",
+            "description": "MCP server and skill names in the pack",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      }
+    },
+    {
       "name": "send_message",
       "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
       "parameters": {
@@ -433,6 +657,31 @@
         "required": [
           "agent_id",
           "message"
+        ]
+      }
+    },
+    {
+      "name": "show_view",
+      "description": "Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user's next message. Never collect a key, token or password. Keep the view under 8 KB.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional short heading shown above the view"
+          },
+          "view": {
+            "type": "object",
+            "description": "One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: \"formula\" }. Display: text ({ text: Markdown, tone?: \"muted\" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { \"=\": \"expression\" } over input ids and let names: numbers, 'text', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs' values to you).",
+            "additionalProperties": true
+          },
+          "await_reply": {
+            "type": "boolean",
+            "description": "Wait for the user to submit the view. A view with options, confirm, form or submit always waits; a view without them cannot."
+          }
+        },
+        "required": [
+          "view"
         ]
       }
     },
@@ -753,6 +1002,60 @@
           "goal_id",
           "revision",
           "action"
+        ]
+      }
+    },
+    {
+      "name": "update_group",
+      "description": "Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group's admin may change its own group.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name from list_bots"
+          },
+          "name": {
+            "type": "string",
+            "description": "New group name; an empty string names it after its members again"
+          },
+          "notice": {
+            "type": "string",
+            "description": "Replacement notice, the shared instructions every member reads; an empty string clears it"
+          },
+          "add_members": {
+            "type": "array",
+            "description": "Exact names of Bots to add",
+            "items": {
+              "type": "string"
+            }
+          },
+          "remove_members": {
+            "type": "array",
+            "description": "Exact names of Bots to remove",
+            "items": {
+              "type": "string"
+            }
+          },
+          "admin": {
+            "type": "string",
+            "description": "Member to make the admin; \"none\" leaves the group without one (Main Bots only)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "\"everyone\": every member answers a plain message in turn, admin first. \"admin\" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.",
+            "enum": [
+              "everyone",
+              "admin"
+            ]
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)"
+          }
+        },
+        "required": [
+          "group"
         ]
       }
     },

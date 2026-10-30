@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false, preserveSavedSkills: true }
+export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false, preserveSavedSkills: true, desktopManagedUpdates: true, clearsCurrentUpdateNotice: true }
 
 /** Apply the Desktop panel overlay to an isolated build directory. */
 export function applyMcpDesktopCompatibility(directory) {
@@ -11,6 +11,12 @@ export function applyMcpDesktopCompatibility(directory) {
     const source = readFileSync(path, 'utf8').replaceAll('\r\n', '\n')
     if (source.split(before).length !== 2) throw new Error(`MCP Desktop overlay anchor changed: ${file}`)
     writeFileSync(path, source.replace(before, after))
+  }
+  const editMany = (file, before, after, count) => {
+    const path = join(directory, file)
+    const source = readFileSync(path, 'utf8').replaceAll('\r\n', '\n')
+    if (source.split(before).length !== count + 1) throw new Error(`MCP Desktop overlay anchor changed: ${file}`)
+    writeFileSync(path, source.replaceAll(before, after))
   }
   edit('src/index.ts', 'import { ensureGlobalShim } from "./global-shim.js";\n', '')
   edit('src/index.ts', '  ensureGlobalShim(ctx.logger);\n', '')
@@ -29,45 +35,55 @@ export function applyMcpDesktopCompatibility(directory) {
     '    const agentsHome = undefined;')
   edit('src/provider.ts', '    return [join(agentsHome, "skills"), join(dshHome, "skills")];',
     '    return [join(dshHome, "skills")];')
-  edit('src/index.ts', 'const addResultSchema = z.object({ name: z.string(), kind: z.enum(["bundle", "flat"]), scope: scopeSchema });',
-    'const addResultSchema = z.object({ name: z.string(), kind: z.enum(["bundle", "flat"]), scope: scopeSchema, status: z.literal("saved").optional(), discovery: z.enum(["ready", "pending", "unavailable"]).optional() });')
-  edit('src/index.ts', `    // 让 DSH 做最终裁判：轮询注册表直到这批技能全部出现。
-    // 一直不出现就整体回滚。
-    const accepted = await this.waitForDiscovery(skills.map((skill) => skill.name), sessionId, targetProject ?? cwd);
-    if (!accepted) {
-      for (const target of written.reverse()) await rm(target, { recursive: true, force: true }).catch(() => {});
-      throw new Error("DSH 未接受部分技能（格式校验未通过），已回滚。请检查 frontmatter 后重试");
-    }
-    return { name: skills.map((skill) => skill.name).join(", "), kind, scope: targetProject === undefined ? { kind: "global" } : await this.scopeForTarget(targetRoot, targetProject) };`,
-  `    // Format validation and the file transaction have succeeded. Session discovery is separate.
-    const discovery = await this.waitForDiscovery(skills.map((skill) => skill.name), sessionId, targetProject ?? cwd).catch(() => "unavailable");
-    return { name: skills.map((skill) => skill.name).join(", "), kind, scope: savedScope, status: "saved", discovery };`)
+  edit('src/index.ts', `  scope: scopeSchema
+});
+
+/** 注册到 API 网关的类型化 wire 描述符。 */`, `  scope: scopeSchema,
+  status: z.literal("saved").optional(),
+  discovery: z.enum(["ready", "pending", "unavailable"]).optional()
+});
+
+/** 注册到 API 网关的类型化 wire 描述符。 */`)
   edit('src/index.ts', '    const stagingBase = join(targetRoot, ".dsh-skill-staging-" + process.pid + "-" + Math.random().toString(36).slice(2, 8));',
     '    const savedScope = targetProject === undefined ? { kind: "global" } : await this.scopeForTarget(targetRoot, targetProject);\n    const stagingBase = join(targetRoot, ".dsh-skill-staging-" + process.pid + "-" + Math.random().toString(36).slice(2, 8));')
-  edit('src/index.ts', '        if (pending.size === 0) return true;', '        if (pending.size === 0) return "ready";')
+  edit('src/index.ts', `        skipped.push({ name: skill.name, reason: "写入失败（已回滚该技能）：" + (error instanceof Error ? error.message : String(error)) });`,
+    `        for (const item of written.reverse()) await rm(item.target, { recursive: true, force: true }).catch(() => {});
+        await rm(stagingBase, { recursive: true, force: true }).catch(() => {});
+        throw new Error("写入技能文件失败（已回滚）：" + (error instanceof Error ? error.message : String(error)));`)
+  edit('src/index.ts', `    // ── DSH 做最终裁判：未被注册表接收的单独回滚，其余保留 ────────────────
+    const missing = await this.waitForDiscovery(written.map((item) => item.name), sessionId, targetProject ?? cwd);
+    const added: any[] = [];
+    for (const item of written) {
+      if (missing.has(item.name)) {
+        await rm(item.target, { recursive: true, force: true }).catch(() => {});
+        skipped.push({ name: item.name, reason: "DSH 未接受（frontmatter 校验未通过或不可发现），已回滚" });
+        continue;
+      }
+      added.push({ name: item.name, kind: item.kind });
+    }
+    if (added.length === 0) throw new Error("没有技能被 DSH 接受，已全部回滚：" + describeSkips(skipped));
+    return { added, skipped, warnings, scope: targetProject === undefined ? { kind: "global" } : await this.scopeForTarget(targetRoot, targetProject) };`,
+  `    // Saved files survive delayed or unavailable Session discovery.
+    if (written.length === 0) throw new Error("没有技能写入：" + describeSkips(skipped));
+    const missing = await this.waitForDiscovery(written.map((item) => item.name), sessionId, targetProject ?? cwd).catch(() => undefined);
+    const discovery = missing === undefined ? "unavailable" : missing.size === 0 ? "ready" : "pending";
+    const added = written.map((item) => ({ name: item.name, kind: item.kind }));
+    return { added, skipped, warnings, scope: savedScope, status: "saved", discovery };`)
   edit('src/index.ts', `        // 注册表不可用：视为已接收（没有可核对的依据）
-        return true;`, `        // Keep saved files when availability cannot be checked.
-        return "unavailable";`)
-  edit('src/index.ts', `    return false;
-  }
-}
-
-export function apply`, `    return "pending";
-  }
-}
-
-export function apply`)
+        return new Set();`, `        // Saved files remain available for later discovery.
+        return undefined;`)
   edit('src/client.ts', 'addBusy: "正在添加技能…",', 'addBusy: "正在添加技能…",\n                        addSavedPending: "技能文件已保存，当前会话尚未发现。请刷新技能列表或在支持该技能的会话中使用。",\n                        addSavedUnavailable: "技能文件已保存，暂时无法检查是否可用，文件已保留。",')
-  edit('src/client.ts', 'addBusy: "Adding skill…",', 'addBusy: "Adding skill…",\n                        addSavedPending: "Skill files are saved but are not available in this conversation yet. Refresh Skills or use a conversation that supports them.",\n                        addSavedUnavailable: "Skill files are saved. Availability could not be checked; your files are retained.",')
-  edit('src/client.ts', `}).then(() => {
-					setAdding({ status: "ok" });
-					setTimeout(() => setRequest((value) => value + 1), 700);
-					setTimeout(() => setAdding({ status: "idle" }), 2500);`, `}).then((result) => {
-					setAdding(result.discovery === "ready" ? { status: "ok" } : { status: "saved", message: t(result.discovery === "unavailable" ? "addSavedUnavailable" : "addSavedPending") });
-					setTimeout(() => setRequest((value) => value + 1), 700);
-					if (result.discovery === "ready") setTimeout(() => setAdding({ status: "idle" }), 2500);`)
-  edit('src/client.ts', `adding.status === "busy" ? (0, react_jsx_runtime.jsx)("p", {`, `adding.status === "saved" ? (0, react_jsx_runtime.jsx)("p", { className: c.addStatus, role: "status", children: adding.message }) : null,
-						adding.status === "busy" ? (0, react_jsx_runtime.jsx)("p", {`)
+  edit('src/client.ts', 'addBusy: "Adding skills…",', 'addBusy: "Adding skills…",\n                        addSavedPending: "Skill files are saved but are not available in this conversation yet. Refresh Skills or use a conversation that supports them.",\n                        addSavedUnavailable: "Skill files are saved. Availability could not be checked; your files are retained.",')
+  edit('src/client.ts', `                    setAdding({ status: "ok", message: summarizeAdd(result) });`.replaceAll('    ', '\t'),
+    `                    setAdding(result.discovery === "ready" ? { status: "ok", message: summarizeAdd(result) } : { status: "saved", message: summarizeAdd(result) + " " + t(result.discovery === "unavailable" ? "addSavedUnavailable" : "addSavedPending") });`.replaceAll('    ', '\t'))
+  edit('src/client.ts', '                    setTimeout(() => setAdding((prev) => (prev.status === "ok" ? { status: "idle" } : prev)), 8000);'.replaceAll('    ', '\t'),
+    '                    if (result.discovery === "ready") setTimeout(() => setAdding((prev) => (prev.status === "ok" ? { status: "idle" } : prev)), 8000);'.replaceAll('    ', '\t'))
+  edit('src/client.ts', 'adding.status === "ok" ? (0, react_jsx_runtime.jsxs)("div", {', '(adding.status === "ok" || adding.status === "saved") ? (0, react_jsx_runtime.jsxs)("div", {')
+  edit('src/client.ts', 'hostIcon(primitiveIcon("IconXOutlineRegular"), 14, PATHS)', 'hostIcon(primitiveIcon("IconCloseOutlineRegular"), 14, PATHS)')
+  editMany('src/client.ts', 'if (latest !== null && snapshot.updateAvailable === true) setUpdateBanner(t("checkUpdateAvailable") + latest + t("checkUpdateCurrent") + currentV + t("checkUpdateHint"));',
+    'setUpdateBanner(latest !== null && snapshot.updateAvailable === true ? t("checkUpdateAvailable") + latest + t("checkUpdateCurrent") + currentV + t("checkUpdateHint") : null);', 2)
+  editMany('src/client.ts', 'checkUpdateHint: "）。可在终端运行 dsh-panel update 更新"', 'checkUpdateHint: "）。请更新 Muse 应用以获取此插件更新。"', 2)
+  editMany('src/client.ts', 'checkUpdateHint: "). Run dsh-panel update in a terminal to install it"', 'checkUpdateHint: "). Update the Muse application to receive this plugin update."', 2)
   edit('src/mcp/gateway.ts', '      return { servers, externalServers, patch };', `      const known = new Set([...servers, ...externalServers].map(row => row.serverName));
       const counts = new Map<string, number>();
       for (const tool of this.C.tools?.schemas?.() ?? []) {
@@ -82,9 +98,9 @@ export function apply`)
       }
       return { servers, externalServers, patch };`)
   edit('src/client.ts', 'subtitle: "在 profile cordis.patch.yml 的受管块中维护 MCP 服务器，保存后由 DSH HMR 热加载。",',
-    'subtitle: "查看内置知识库和已连接的 MCP 服务，也可以添加自己的服务器。",')
-  edit('src/client.ts', 'external: "外部管理",', 'external: "内置 / 外部管理",\n                        museKnowledgeBase: "Muse 知识库（内置）",\n                        runtime: "已连接",')
-  edit('src/client.ts', 'external: "External",', 'external: "Built-in / external",\n                        museKnowledgeBase: "Muse knowledge base (built-in)",\n                        runtime: "Connected",')
+    'subtitle: "查看 Muse 内置服务和已连接的 MCP 服务，也可以添加自己的服务器。",')
+  edit('src/client.ts', 'external: "外部管理",', 'external: "内置 / 外部管理",\n                        museKnowledgeBase: "Muse 服务（内置）",\n                        runtime: "已连接",')
+  edit('src/client.ts', 'external: "External",', 'external: "Built-in / external",\n                        museKnowledgeBase: "Muse services (built-in)",\n                        runtime: "Connected",')
   edit('src/client.ts', 'className: m.name, children: server.serverName', 'className: m.name, children: server.serverName === "muse-account" ? t("museKnowledgeBase") : server.serverName')
   edit('src/client.ts', 'server.transport === "streamable-http" ? "HTTP" : "STDIO"', 'server.transport === "streamable-http" ? "HTTP" : server.transport === "stdio" ? "STDIO" : t("runtime")')
   return mcpDesktopCompatibility

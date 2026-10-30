@@ -45,6 +45,9 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
     assert.match(member(archive, 'client.js'), /window\.__ModuleLoader__\.load\(/u)
     assert.match(member(archive, 'client.js'), /Muse Bot/u)
     assert.ok(member(archive, 'src/host/muse-config.js').trim())
+    for (const file of ['src/host/tools.js', 'src/host/prompt.js']) {
+      assert.equal(member(archive, file), readFileSync(join(source, file), 'utf8'))
+    }
     assert.equal(member(archive, 'cordis.patch.yml'), readFileSync(join(source, 'cordis.patch.yml'), 'utf8'))
     const metadata = JSON.parse(member(archive, 'SOURCE.json'))
     assert.deepEqual(metadata.upstream, pin)

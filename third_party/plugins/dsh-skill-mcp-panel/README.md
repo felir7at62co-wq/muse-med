@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/dsh-skill-mcp-panel?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/dsh-skill-mcp-panel)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-skill-mcp-panel?color=cb3837&label=downloads)](https://www.npmjs.com/package/dsh-skill-mcp-panel)
 [![GitHub release](https://img.shields.io/github/v/release/Fishquito7/dsh-skill-mcp-panel?color=2ea043&label=release)](https://github.com/Fishquito7/dsh-skill-mcp-panel/releases)
-[![DSH](https://img.shields.io/badge/DSH-0.1.6--alpha.2%20~%200.1.7--rc.1-4c6ef5)](https://github.com/Fishquito7/dsh-skill-mcp-panel)
+[![DSH](https://img.shields.io/badge/DSH-0.2.x-4c6ef5)](https://github.com/Fishquito7/dsh-skill-mcp-panel)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [简体中文](README.md) · [English](README.en.md)
@@ -16,32 +16,35 @@
 
 ---
 
-DSH 插件，在 Web 主页左侧栏「插件」下方提供「技能」与「MCP」两个管理面板（点击即在中央主区打开，不是弹窗），并随包提供统一终端命令 `dsh-panel`（`skill` / `mcp` / `update` / `profiles`）。
+DSH 插件：把**技能**与 **MCP 服务器**的管理搬进 DSH Web 的主页侧边栏——点左栏的「Skill / MCP」，中央主区直接切到整页面板（不是弹窗，也不是设置页里的 tab），改完即生效。随包附带统一终端命令 `dsh-panel`：面板能做的事命令行都能做，另外多一个跨 profile 升级。
 
-- 🗂️ **技能面板** —— 列表预览、搜索、工作区分栏与分组筛选、卡片展开查看全文、热启停 / 删除，支持 `.md` / `.zip` / 技能文件夹的添加与批量迁移
-- 🔌 **MCP 面板**（v2.0.0）—— 可视化维护 profile `cordis.patch.yml` 中的 MCP 受管块，Stdio / HTTP 两种调用方式，支持测试连接，保存后由 DSH HMR 热加载
-- 🧩 **主页侧边栏面板**（v2.1.0）—— 与宿主内置「插件」页同一套槽位机制，点左栏即在中央主区切页，页面左上角另有「← 返回会话」
-- 🩹 **适配 DSH 0.1.7**（v2.1.1）—— 跟进宿主在 `0.1.7-alpha.1` 重命名的图标导出（旧名在新宿主上已不存在），技能页不再一片空白；并补上 `test-host-icons.mjs` 回归守卫
-- 🧭 **profile 显式化**（v2.1.2）—— `mcp` 子命令必须显式 `--profile`（不再默认 `web`），错名一律拒绝且**不会新建 profile**；`dsh-panel update` 不带 `--profile` 时升级**全部** profile，比较基准改为各 profile 自己已装的版本；新增 `dsh-panel profiles` 一览
-- ⌨️ **统一 CLI** —— `dsh-panel skill …` 与 `dsh-panel mcp …` 覆盖两个面板的全部能力
-- 📦 **无需本地构建** —— npm 与 Release tarball 安装的都是预构建产物
+- 🗂️ **技能管理** —— 列表预览、搜索、工作区分栏与分组筛选、卡片展开查看全文、热启停 / 删除，支持 `.md` / `.zip` / 技能文件夹的添加与批量迁移
+- 🔌 **MCP 服务器管理** —— 可视化维护 profile `cordis.patch.yml` 中的 MCP 受管块，Stdio / HTTP 两种调用方式，支持测试连接，保存后由 DSH HMR 热加载
+- 🧩 **整页面板** —— 与宿主内置「插件」页同一套槽位机制，点左栏即在中央主区切页，页面左上角另有「← 返回会话」
+- ⌨️ **`dsh-panel` 命令行** —— `dsh-panel skill …` 与 `dsh-panel mcp …` 覆盖两个面板的全部能力
+- 📦 **装上就能用** —— npm 与 Release tarball 安装的都是预构建产物
 
 > **profile 提示**：`mcp` 子命令**必须**显式写 `--profile <name>`，且名字必须已存在——打错会被拒绝，不会新建 profile。`skill` 不按 profile 分家（技能按用户根 / 工作区存放），不需要该参数。不带 `--profile` 的 `dsh-panel update` 升级全部已安装本插件的 profile（`desktop` 由桌面应用独占，自动跳过）。
 
-**目录**：[界面预览](#界面预览) · [安装](#安装) · [功能](#功能) · [命令行](#命令行) · [工作原理](#工作原理) · [开发](#开发) · [卸载](#卸载) · [链接](#链接) · [License](#license)
+**目录**：[界面预览](#界面预览) · [安装](#安装) · [功能](#功能) · [命令行](#命令行) · [工作原理](#工作原理) · [开发](#开发) · [卸载](#卸载) · [更新日志](#更新日志) · [链接](#链接) · [License](#license)
 
 ## 界面预览
 
 > 面板入口在主页左侧栏「插件」下方（v2.1.0 起由设置页迁移到侧边栏），点「技能」/「MCP」即在中央主区打开；两个页面左上角都有「← 返回会话」，可直接回到进面板前那个会话。
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/sidebar-entry.png" width="260" alt="DSH 主页侧边栏：插件 / 技能 / MCP">
-  <br><sub>入口 · 主页侧边栏中的「技能」与「MCP」</sub>
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/sidebar-entry.png" width="260" alt="DSH 主页侧边栏：插件 / Skill / MCP">
+  <br><sub>入口 · 主页侧边栏中的「Skill / MCP」（v2.1.5 起两个面板合并为一行，标签固定用英文写法）</sub>
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skills-panel.png" width="1000" alt="技能面板：搜索、工作区选择器与技能卡片展开">
-  <br><sub>技能面板 · 搜索 / 工作区选择器（折叠下拉）/ 卡片展开查看全文</sub>
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skills-panel.png" width="1000" alt="技能面板（三栏布局）：工作区 / 分组 / 内容三栏，搜索、全部启停、显示插件技能开关与技能卡片">
+  <br><sub>技能面板 · 三栏布局（工作区 / 分组 / 内容）· 搜索 / 全部启停 / 显示插件技能开关</sub>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/skills-panel-compact.png" width="1000" alt="技能面板（简洁布局）：收起左右两栏，工作区折叠成下拉、分组横排 chip、一行两个技能">
+  <br><sub>技能面板 · 简洁布局（工具栏最右按钮切换）· 收起左右两栏 / 工作区折叠下拉 / 一行两个技能</sub>
 </p>
 
 <p align="center">
@@ -55,8 +58,8 @@ DSH 插件，在 Web 主页左侧栏「插件」下方提供「技能」与「MC
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/mcp-panel.png" width="1000" alt="MCP 面板：服务器卡片、工具数量、启停、测试连接与删除">
-  <br><sub>MCP 面板 · 服务器卡片 / 工具数 / 启停 / 测试连接</sub>
+  <img src="https://raw.githubusercontent.com/Fishquito7/dsh-skill-mcp-panel/main/docs/images/mcp-panel.png" width="1000" alt="MCP 面板：注册机制说明、服务器卡片、工具数量、启停、测试连接与删除">
+  <br><sub>MCP 面板 · 注册机制说明 / 服务器卡片 / 工具数 / 启停 / 测试连接</sub>
 </p>
 
 <p align="center">
@@ -66,13 +69,17 @@ DSH 插件，在 Web 主页左侧栏「插件」下方提供「技能」与「MC
 
 ## 安装
 
-1. 安装本包（bundle 层自动挂载，无需编辑配置文件），二选一：
+1. 安装本包，二选一（桌面端用户请在内置插件安装器中输入'...add'后面的内容）：
 
-   **方式一：GitHub Release tarball**（推荐）
+   **方式一：GitHub Release tarball**（推荐，恒定指向最新版）
 
    ```bash
-   dsh plugin --profile web add https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/download/v2.1.2/dsh-skill-mcp-panel-2.1.2.tgz
+   dsh plugin --profile web add https://github.com/Fishquito7/dsh-skill-mcp-panel/releases/latest/download/dsh-skill-mcp-panel.tgz
    ```
+
+   这是**无版本号的稳定链接**：每次发版都同时上传别名 `dsh-skill-mcp-panel.tgz`（恒定指向最新版）与带版本号的
+   `dsh-skill-mcp-panel-<版本>.tgz`，所以这条命令不随版本改。需要锁定具体版本时，把 `latest/download/dsh-skill-mcp-panel.tgz`
+   换成 `download/v<版本>/dsh-skill-mcp-panel-<版本>.tgz` 即可。
 
    **方式二：npm（预构建，插件市场同款通道）**
 
@@ -92,68 +99,42 @@ DSH 插件，在 Web 主页左侧栏「插件」下方提供「技能」与「MC
 
 
 
-   重启后刷新页面：左侧栏从「插件」往下依次是「技能」「MCP」，点击哪一个，中央主区就切换成哪一个面板。
+   重启后刷新页面：左侧栏「插件」下面就是合并后的「Skill / MCP」一行——点它把中央主区切成面板，面板内部再用页签切换「技能」与「MCP」。
 
 ## 功能
 
-> 两个面板与宿主自带的「插件」页一样，是**侧边栏全局面板**：点击左栏的「技能」/「MCP」直接把中央主区切过去（不是设置页那种弹窗）。两个页面左上角各有一个「← 返回会话」箭头，点它立刻回到进面板之前那个会话；点会话列表里的任意会话或「插件」也能切走。
+面板和宿主自带的「插件」页是同一套机制：左栏一行「Skill / MCP」，点它把中央主区切过去——不是设置页的 tab，也不是弹窗。面板内用页签切换「技能」与「MCP」，并记住你上次停在哪一页；左上角「← 返回会话」随时退回进面板前的会话。
 
 ### 技能面板
 
-- **技能卡片列表**：预览已注册安装的 skill，点击卡片可展开查看完整内容
-- **skill 状态**：启用、停用状态标签，与内置插件列表同款样式
-- **skill 管理**：开关热启用/停用、删除；按名称搜索；进入页面自动刷新
-- **skill 添加**（0.7.0 统一入口）：点「+」直接选文件（`.md` / `.zip`），或把文件、压缩包、技能文件夹直接拖进页面——自动识别目录束 / 单文件 / 压缩包结构，不合规内容会被拒绝并提示原因
-- **工作区分栏**（0.3.0）：技能实体直接存放在其所属位置里——全局在 `~/.dsh/skills`，限定工作区在该工作区的 `.dsh/skills`。页面「技能列表」下方有一条工作区选择器（折叠式下拉，全局 + 各工作区，最多显示 11 项、其余滚动），选中即只显示该工作区下的技能。
-- **批量迁移**：「+」号左侧的迁移按钮：源工作区、目标工作区（**可多选**）与技能都在对话框内手动选择，批量**复制**或**移动**（默认不勾选任何技能；逐个迁移、失败不影响其余；移动模式限单个目标）。源工作区有分组时，可在技能列表上方按分组筛选（0.7.0）。
-- **技能分组**（0.5.0）：工作区选择器下方新增分组横栏（全部 + 分组名，放不下时换行），点击只显示该分组下的技能。「分组」按钮（迁移按钮左侧）打开分组编辑器：新建 / 重命名 / 删除分组、选择工作区、命名并批量勾选成员。分组只写入插件自己的显示配置（`~/.dsh/skills/.system/skill-viewer/groups.json`），不修改技能目录。
-- **作用域化管理**（0.6.4）：同名技能同时存在于全局与某工作区时，删除、启停、查看内容均按（名称 + 作用域）精确操作——页面各行独立展开、独立操作，绝不影响其它作用域里的副本；找不到指定作用域的条目会直接报错，不会回退误操作。命令行同名技能也需用 `--global` / `--project` / `--workspace` 显式指定。
+- **列表与卡片** —— 按名称搜索，点开卡片看全文；按工作区（全局 / 各工作区）分栏，可按分组或按来源筛选
+- **启停与删除** —— 开关热生效（改的是磁盘上的 `SKILL.md`），删除可撤销；插件自带的技能可一键隐藏
+- **添加** —— 点「+」或直接把文件 / 压缩包 / 技能文件夹拖进页面：`.md`、`.zip`、整个文件夹都认，含多个技能的文件夹一次导入；不合法、**目标作用域内**重名的逐条跳过并说明原因
+- **迁移** —— 批量复制或移动到多个工作区，单条失败不影响其余
+- **分组** —— 新建 / 重命名 / 删除、批量勾选成员；只写插件自己的显示配置，不动技能目录
 
-### MCP 面板（v2.0.0）
+### MCP 面板
 
-- 主页侧边栏「技能」下方新增「MCP」面板，管理 profile `cordis.patch.yml` 中的 MCP 服务器受管块；
-- 支持 **Stdio**（本地命令）与 **HTTP**（streamable-http）两种调用方式；
-- 支持新增、编辑、启停、删除、测试连接；保存后由 DSH HMR 热加载，无需重启网关；
-- `env` / `headers` 密钥在 RPC 与页面中脱敏，编辑时缺省 key 保留旧值；
-- `cordis.patch.yml` 面板块外的用户内容逐字节保留。
-
-### 主页面板与返回会话（v2.1.0）
-
-- **管理面板从设置页迁移到主页侧边栏**：与宿主自带的「插件」页同一套槽位机制（`sidebar.panellist` 列表槽位 + `main` 键控槽位），点击左栏「技能」/「MCP」直接在中央主区切页，设置页不再有这两个 tab；面板自带整页外壳（滚动与页边距）。需要宿主提供上述两个槽位，本机 DSH 0.1.6-alpha.2 已实测。
-- **「← 返回会话」箭头**：两个页面左上角各一个，点它立刻回到进面板之前那个会话（调宿主 `ctx.layout.selectPanel(null)`，不改变当前会话）。
+- **服务器管理** —— 支持 **Stdio** 与 **HTTP** 两种方式：新增、编辑、启停、删除、测试连接；保存后由 DSH HMR 热加载，不用重启网关。只改面板自己的受管块，`cordis.patch.yml` 其它内容（含块内别人的条目）逐字节保留
+- **密钥** —— `env` / `headers` 在页面与 RPC 里脱敏，编辑时留空即保留旧值；值里写 `${NAME}` 就是读该环境变量
+- **单工具禁用** —— 按工具名关掉其中一部分，被禁的工具会从模型看到的工具表里**消失**（不是调用时才拒绝），上下文立刻省下来
+- **OAuth 登录** —— 远程 `streamable-http` 服务器支持时一键登录（自动发现授权服务器、动态注册客户端、授权码 + PKCE），令牌写回该行配置并热加载；可随时断开
 
 ### DSH 版本兼容
 
-本插件对宿主有**三处**版本敏感的依赖，彼此无关，同一份构建同时满足全部三条：
+只支持 **DSH `0.2.x`**（peer 声明 `>=0.2.0-rc.1 <0.3.0-0`）。DSH 会在安装时和 profile 启动时校验这条声明，不满足就拒绝加载并打印精确豁免命令——不会静默崩。上界写成 `<0.3.0-0` 是因为该校验带 `includePrerelease`，`<0.3.0` 会把 `0.3.0-rc.1` 也放进来。
 
-| 宿主版本 | ① 插件树加载（TypertCodec） | ② 技能页图标（primitives 导出名） | ③ 侧栏面板槽位 |
-| --- | :---: | :---: | :---: |
-| `0.1.5-rc.x` | ✅ 读 `schema` | ✅ 旧名 | ⚠️ 未验证 |
-| `0.1.6-alpha.1` | ✅ 读 `schema` | ✅ 旧名 | ⚠️ 未验证 |
-| `0.1.6-alpha.2` ~ `0.1.7-alpha.0` | ✅ 读 `create` | ✅ 旧名 | ✅ |
-| `0.1.7-alpha.1` 及以后 | ✅ 读 `create` | ✅ 新名 | ✅ |
+确需在老宿主上使用，用宿主打印的精确版本豁免：
 
-- **① TypertCodec `create()` 契约**：自 `0.1.6-alpha.2` 起 strict codec 改为持 `schema` 工厂 `create()`；仍写 `schema:` 的插件在注册阶段直接抛错，**整个插件树加载失败、网关起不来**（Issue #20）。本插件的每个 codec 同时携带 `schema` 与 `create`，两代宿主都只做 `typeof` 检查、都不拒绝多余属性，因此一份构建通吃，无需版本探测。守卫：`test-codec.mjs`。
-- **② 技能页图标导出名**：`0.1.7-alpha.1` 把图标的像素后缀换成描边档位（`IconSkillOutline16` → `IconSkillOutlineRegular`，尺寸改由 `size` prop 传），**两代命名没有交集**。技能半区 6 处引用改走 `primitiveIcon(cur, legacy)`「新名优先、旧名回退」；若直接换成新名，`0.1.6` 及更早的用户会反向打不开。守卫：`test-host-icons.mjs`。
-- **③ 侧栏面板槽位**：v2.1.0 起面板挂在宿主 `sidebar.panellist`（list 槽位）+ `main`（键控槽位）上，需要宿主提供这两个槽位。`0.1.6-alpha.2` 实测通过，`0.1.7` 系列槽位名未变。`0.1.5-rc.x` / `0.1.6-alpha.1` **未验证**；即使槽位缺失，插件树与 CLI 仍然可用，只是左栏不会出现「技能」「MCP」两行。
-- **④ peerDependencies 硬闸门**（v2.1.2）：本包声明 `"@deepseek-ai/dsh": ">=0.1.5-rc.0 <0.2.0-0"`。DSH 的 `evaluatePluginCompatibility` 会在**安装时**与**profile 启动时**校验它，不满足就拒绝加载并打印精确豁免命令——把「静默崩」换成「明着拦」。没有这个字段时该校验直接放行，这正是 0.1.7-rc.1 那次断裂能静默发生的原因。
-  - 上界写成 `<0.2.0-0` 而不是 `<0.2.0`：该校验带 `includePrerelease`，`<0.2.0` 会把 `0.2.0-rc.1` 也放进来。
-  - 下限 `0.1.5-rc.0` 是「插件树还能加载」的边界，比上表「面板已实测」的范围更宽——区间内不等于面板已验证。
-  - 在区间外的宿主上确需使用时，用宿主自己的精确版本豁免：
-
-    ```bash
-    dsh plugin --profile web allow-version dsh-skill-mcp-panel@2.1.2 --dsh-version <宿主版本> --accept-risk
-    ```
-  - 守卫：`test-cli-profiles.mjs`（直接调用宿主真实的 `evaluatePluginCompatibility` 验证区间两端）。
-
-### 面板行为调整（v2.0.5）
-
-- 作用域选择器固定为折叠式下拉（最多显示 11 项，其余滚动）；分组栏改为换行布局。
-- 技能列表不再依赖「是否打开了会话」：没有会话时服务端回退全局注册表。
+```bash
+dsh plugin --profile web allow-version dsh-skill-mcp-panel@2.3.5 --dsh-version <宿主版本> --accept-risk
+```
 
 ## 命令行
 
 统一父命令为 `dsh-panel`。
+
+> **全局 shim**：宿主启动时会在 npm 全局 bin 目录写入 `dsh-panel`。Windows 下写三份——`dsh-panel.cmd`（CMD）、`dsh-panel.ps1`（PowerShell）、以及**无扩展名**的 `dsh-panel` sh 脚本（Git Bash / MSYS2 / Cygwin 靠它，v2.1.5 之前缺这一份，bash 里会报 `command not found`）；macOS / Linux 写一份可执行的 `dsh-panel`。三份都指向「最后启动的那个 profile」装的插件副本。
 
 `mcp` 子命令**必须**用 `--profile <name>` 指定目标 profile，名字必须已存在（判据是
 `$DSH_HOME/profiles/<name>/package.json`）。打错名字会以退出码 2 被拒绝，**不会**像 `dsh plugin`
@@ -200,6 +181,28 @@ dsh-panel mcp remove <serverName> [--yes] --profile web
 dsh-panel mcp test <serverName> --profile web
 ```
 
+环境变量取值直接写 `${NAME}`（保存时格式化成 `cordis.patch.yml` 的 `!!js` 表达式，由 DSH 装载时求值）；以 `!!js` 开头的值按进阶写法原样透传：
+
+```bash
+dsh-panel mcp add --name github --stdio --command npx --args -y --args @modelcontextprotocol/server-github \
+  --env 'GITHUB_TOKEN=${GITHUB_TOKEN}' --profile web
+
+dsh-panel mcp add --name web --http --url https://example.com/mcp \
+  --header 'Authorization=Bearer ${MCP_TOKEN}' --profile web
+
+# 进阶：整段 JS 表达式原样写进 !!js 标签
+dsh-panel mcp add --name web2 --http --url https://example.com/mcp \
+  --header 'Authorization=!!js `Bearer ${process.env.MCP_TOKEN}`' --profile web
+```
+
+```bash
+dsh-panel mcp add --name github --stdio --command npx --args -y --args @modelcontextprotocol/server-github \
+  --env 'GITHUB_TOKEN=!!js process.env.GITHUB_TOKEN' --profile web
+
+dsh-panel mcp add --name web --http --url https://example.com/mcp \
+  --header 'Authorization=!!js `Bearer ${process.env.MCP_TOKEN}`' --profile web
+```
+
 MCP 配置写入目标 profile 的 `cordis.patch.yml` 受管块；网关在线时自动热加载。面板块由
 `# >>> dsh-skill-mcp-panel:mcp:begin` / `# <<< ...end` 标记，请勿手改块内内容。
 
@@ -213,6 +216,8 @@ dsh-panel mcp update                      # 等价于 dsh-panel update
 ```
 
 - 对比基准是**每个 profile 自己 `node_modules` 里已装的版本**，不是正在执行的那份 CLI 的版本。
+- 更新**保持该 profile 原本的安装渠道**：tarball 装的仍走 tarball（换成对应版本的版本化 URL），npm 装的仍走 npm 并钉到该版本，
+  Git（或来源未知）装的仍用 `github:Fishquito7/dsh-skill-mcp-panel#v<版本>`。
 - 已经是最新的 profile 会被跳过，不会被重装。
 - `desktop` 由 DSH 桌面应用独占，宿主的 `dsh plugin --profile desktop` 会直接报错；自动枚举时跳过并说明，
   显式 `--profile desktop` 时以退出码 2 报错。
@@ -220,6 +225,7 @@ dsh-panel mcp update                      # 等价于 dsh-panel update
 
 CLI 只扫描当前目录锚定的项目根与用户根；管理其他工作区的技能请加 `--cwd <工作区路径>`。
 同名技能存在于多个作用域时，`enable`/`disable`/`delete` 需加 `--global`/`--project`/`--workspace` 指定操作哪一份。
+`add` 不在此列：目标作用域内没有同名就照常添加，跨作用域同名只打印一条提示（v2.1.7）。
 
 ## 工作原理
 
@@ -247,6 +253,27 @@ CLI 只扫描当前目录锚定的项目根与用户根；管理其他工作区�
 ```bash
 dsh plugin --profile web remove dsh-skill-mcp-panel
 ```
+
+## 更新日志
+
+只列**会改变使用方式**的版本要点；完整改动见 [Releases](https://github.com/Fishquito7/dsh-skill-mcp-panel/releases)。
+
+- **v2.3.5** —— 修 **禁用任一 MCP 工具后宿主卡死（#59 / #62）**。根因在我们自己的监听器：宿主的 `ScopedLayers.effect()` 在限制生效后**和撤销时**都会同步广播 `tools/change`，而插件既监听这个事件、又在回调里 `undo()` / `restrict()`，等于自己触发自己——同步无限递归，爆栈抛出的 `RangeError` 又被空 `catch` 吞掉，进程不崩、只是主线程持续 100% 烧 CPU。用宿主真实的 `@deepseek-ai/dsh-scope` 复现：一次事件放大成 **887 次 `restrict` / 1774 次 `view` / 递归 458 层**。现在 `tools/change` 只由控制器统一监听并带重入守卫，每个插件的 `sync()` 只在**禁用集合真的变化**时才撤销重施（集合没变就只多一次 `view`），挂载途中的 agent 用 `mounting` 挡住；原本静默的 `catch` 全部接上 logger，这类故障以后至少留得下日志；顺便修了同一 issue 里「显示插件技能」复选框不记忆的问题（现在勾选状态记在浏览器里）
+- **v2.3.4** —— 修「打开目录」只弹出「文档」的那个 bug（2.3.3 的回归）。Windows 的 `explorer.exe` 不认正斜杠：面板把技能根路径规范化成了 `C:/Users/.../.dsh/skills`，explorer 收到这种参数会当成无效目标、默默打开自己的默认位置，于是点哪个工作区都只看到「文档」。现在宿主先把路径换成本机分隔符再交给系统，提示条里显示的也是同一份路径，复制出来直接能粘进资源管理器；顺手修了两个边界：盘符根 `C:/` 不再被裁成 `C:`，末尾多余的 `\` 会收敛掉。界面预览换成新版截图（三栏 / 简洁两种布局各一张）
+- **v2.3.3** —— 技能页新增 **「三栏 / 简洁」布局开关**（#50）：简洁模式收起左右两栏，工作区变成折叠式下拉、分组变成横排 chip，技能一行两个，想回到旧版那种清爽的单栏就点工具栏最右那个按钮（选择记在浏览器里）。MCP 页那条「受管块里有外来行」的提醒现在能真正解决：**[移出受管块]** 把不属于面板的行原样搬到标记之外（语义不变），**[查看机制]** 说明它为什么会在块里、留在块里为什么没有影响；**「打开目录」修好了，而且真的会弹出资源管理器**（宿主侧调用系统文件管理器；技能根还不存在时会先建出来）。侧栏入口标签改为 `Skill / MCP`。另合并两条社区 PR：`@deepseek-ai/cordis` 移到 peerDependencies（dshmarket 不再报 shared-host-package-dependency）、落在受管块外的面板行标成「受管块外」
+- **v2.3.1** —— 修 **#51：单工具禁用面板点不开**（报 `remote[method] is not a function`）。原因很直给：浏览器束里另有一份 Remote 方法清单，客户端只认清单里挂过的方法，而 2.2.0 加 `listTools` / `getToolFilter` / `setToolFilter` 与 OAuth 三连时只补了宿主侧清单、漏了浏览器束那份，于是点「工具」按钮必然抛错；卡片上的 **OAuth 登录 / 断开** 按钮也是同一个病因，这次一并修好。新增 `test-client-contribution.mjs` 守两份清单双向全量比对，杜绝再漏
+- **v2.3.0** —— **只支持 DSH `0.2.x`**（peer 改为 `>=0.2.0-rc.1 <0.3.0-0`，0.1.x 的历史兼容分支全部删除：图标不再回退像素后缀旧名、strict codec 去掉 `schema` 字段）；适配 DSH `0.2.1`：协议依赖钉到 `@deepseek-ai/dsh-typert-protocol@^0.2.1-rc.1` 并显式带上它的 peer `@deepseek-ai/cordis`（此前 `^0.1.0-rc.6` 会在 profile 里装出旧协议，宿主 0.2.1 判「strict definition withdrawn」→ 技能页与 MCP 页全挂；peer 缺 `cordis` 时连导入都会失败，见 Issue #48）；`dsh-home-paths` / `dsh-subprocess` 里我们只用到的两个纯函数已内联，不再拖它们的 peer 链；MCP 卡片新增 **OAuth 登录 / 重新登录 / 断开** 按钮（`--disconnect` 同款能力搬进面板，轮询式，不再只能用 CLI）
+- **v2.2.0** —— 前端按新设计稿重构（三栏：工作区 / 分组 / 内容；批量选择 + 迁移；删除可撤销）；修 **#46 受管块改写外来行**（会连带把 dsh-market 的更新全部回滚，见 ADR-0003）；MCP 新增**单工具禁用**（真省上下文，见 ADR-0005）与 **OAuth 登录**（`dsh-panel mcp oauth`）；技能页新增**按来源分组**与工作区栏（#42：工作区全列出、放不下就滚动）；`dsh-panel skill add` 的同名判定收窄到目标作用域（ADR-0002）
+
+- **v2.1.7** —— 「添加技能」的冲突判定收窄到**目标作用域内**：以前只要这台机器上任何地方（别的 profile、别的工作区、全局根）存在同名技能就拒绝添加，现在只有目标作用域里已有同名才跳过；跨作用域同名照常落盘并回报一条提示（`dsh-panel skill add` 同步）。理由见 ADR-0002：DSH 的重名由注册表按根优先级裁决，工作区发现根按会话 cwd 解析，别的工作区根本不在本会话的发现链上，且面板的行级操作本就按（名称 + 作用域）定位
+
+- **v2.1.6** —— 修好「添加技能」：文件夹选择器不再丢掉被选中文件夹自己的名字（此前直接选中任何合法技能包都会被误报「缺少顶层 SKILL.md」）；三个入口（单文件 / 文件夹·zip / 拖放）统一按同一套规则识别——选中范围内直接有 `SKILL.md` 就是一个**技能包**（顶层平铺的依赖 `.md` 与 `references/`、`scripts/` 都是载荷，不再被当成技能逐个校验），否则递归发现其中的技能并**拍平到技能根第一层**，于是「含多个技能的文件夹」也能一次导入（`.zip` 同理）；不合法 / 重名 / 冲突的逐条跳过并回报，一个都没成功才整体报错。`dsh-panel skill add` 与面板行为一致
+- **v2.1.5** —— 侧栏「技能」「MCP」合并成一行「Skill / MCP」（换用新的合并入口图标）+ 面板内页签（记住上次停留）；新增「显示插件技能」开关；MCP 环境变量支持 `${NAME}` 直觉写法（面板/CLI 自动格式化成 `!!js`，读回来仍是 `${NAME}`，不再被写坏成字面量）、MCP 页新增「注册机制」说明按钮，并为空字段补灰字示例；Windows 补上无扩展名的 bash shim；`dsh-panel update` 保持各 profile 原本的安装渠道（tarball / npm / Git），README 安装指引改用无版本号的稳定 tarball 链接
+- **v2.1.3** —— 适配 DSH `0.2.0`（peer 上界抬到 `<0.3.0-0`，否则宿主会在 profile 启动时禁用整行）；MCP 表单里非法的服务器名不再只报一句网关「天书」
+- **v2.1.2** —— `mcp` 子命令必须显式 `--profile`，错名一律拒绝且不会新建 profile；`dsh-panel update` 不带 `--profile` 时升级全部 profile；新增 `dsh-panel profiles`
+- **v2.1.1** —— 适配 DSH `0.1.7` 重命名的图标导出，技能页不再一片空白
+- **v2.1.0** —— 面板从设置页迁移到主页侧边栏，每个面板带「← 返回会话」
+- **v2.0.0** —— MCP 面板上线
 
 ## 链接
 

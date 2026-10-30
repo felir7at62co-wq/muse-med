@@ -10,7 +10,7 @@ export function apply(ctx) {
   install({
     ctx,
     config: { goals: 'enabled' },
-    state: { questions: {}, exchangeTurns: {} },
+    state: { questions: {}, views: {}, exchangeTurns: {} },
     groupOwners: new Map(),
     chatOwners,
     live: new Map(),

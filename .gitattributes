@@ -12,7 +12,7 @@
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
 
 # Preserve the pinned panel client's upstream whitespace in the source snapshot.
-third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol
+third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol,-space-before-tab
 
 # These pinned PGZXB documents retain upstream end-of-file blank lines.
 third_party/plugins/dsh-feishu/docs/architecture.md whitespace=-blank-at-eof

@@ -32,8 +32,8 @@
   },
   "dsh-skill-mcp-panel": {
     "repository": "https://github.com/Fishquito7/dsh-skill-mcp-panel",
-    "version": "2.1.2",
-    "commit": "f1ee2a9604122bcc3971e68f1b2ea67ddbec5f5b",
+    "version": "2.3.5",
+    "commit": "ae3fb4a4b6d723c5e1ec0a3c933f80d19f686dc1",
     "license": "MIT"
   },
   "muse-hongguo-search": {

@@ -55,6 +55,8 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
 
 `create_bot` 支持 `preset` 和 `resident_tools`，`update_bot` 可以替换这两项。预设变更用于未来新建的 Session，当前会话继续使用原预设。常驻工具按精确名称存入 Bot 记录。共享的 Harness `tool_search` 按能力查找工具，`tool_context` 负责加载、常驻、取消常驻和收起。各 Bot 的私聊、群聊和后续会话分段共用自己的常驻列表。能力目录共享，原有授权继续生效；加载名称不会增加权限。常驻配置保存失败时操作会报错，并恢复原 Bot 设置。收起工具后，历史工具结果仍保留在 Session 中。
 
+桌面组合从首个模型请求开始提供已注册的 Bot 团队工具，包括 `ask_user`、`show_view` 和安全凭据卡片。普通 DSH Agent 会话排除 Bot 管理工具，工具可见性不会授予主 Bot 权限。用户额外选择工具的常驻与收起行为保持不变。卡片注册选择性采用 DS Bot 0.2.4 的更新：Bot 作用域的 `show_view` 优先于其他插件的全局渲染器，并在 Agent 或插件卸载时移除。插件保留 0.2.2 基础、Muse 渲染器、模型路由与 Muse 网页搜索。
+
 可选的 `home` 配置可指定其他 Bot 状态目录。模型和推理等级仍可在界面中选择；创建 Bot 或向其发送消息可能通过已配置的提供方发起正常模型请求。认证与提供方可用性由 Muse 原有服务管理。
 
 ## Source, packaging and checks

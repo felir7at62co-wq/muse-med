@@ -1,0 +1,21 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: typert-loader
+  disabled: true
+- insert:
+    - id: resident-bot-questions
+      name: '../../../apps/desktop/tests/fixtures/resident-bot-questions.mjs'
+    - id: resident-discovery
+      name: '../../../apps/desktop/tests/fixtures/resident-discovery.mjs'
+
+- insert:
+    - id: resident-view-assertions
+      name: './view-fixture.mjs'
+
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama

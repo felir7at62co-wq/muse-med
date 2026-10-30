@@ -23,7 +23,7 @@ import * as BotQuestions from './fixtures/resident-bot-questions.mjs'
 
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it.each(['classic', 'bot'] as const)('presents and executes the %s question tool without a discovery call', async (mode) => {
+it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s question tool without a discovery call', async (mode) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-resident-questions-'))
   const ctx = new Context()
   try {
@@ -39,7 +39,16 @@ it.each(['classic', 'bot'] as const)('presents and executes the %s question tool
     const discovery = Discovery.Config({ ...config, alwaysLoad: names })
     expect(discovery.alwaysLoad).toContain('ask_user_question')
     expect(discovery.alwaysLoad).toContain('ask_user')
-    expect(discovery.alwaysLoad).not.toContain('video_inspect')
+    expect(discovery.alwaysLoad).toContain('show_view')
+    for (const name of ['show_view', 'ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'drama_shot', 'manuscript_revision', 'video_inspect', 'drama_project',
+      'source_recover', 'muse_production', 'jubian_catalog', 'jubian_organize', 'jubian_find',
+      'drama_character_reference_project', 'drama_character_references', 'drama_character_reference_view']) {
+      expect(discovery.alwaysLoad).toContain(name)
+    }
+    for (const name of ['manuscript_work', 'creative_guidance', 'source_review', 'screenplay_project']) {
+      expect(discovery.alwaysLoad).not.toContain(name)
+    }
+    expect(discovery.alwaysLoad).not.toContain('fixture_optional_tool')
     await ctx.plugin(Loader)
     Object.assign(ctx.loader.builtins, { include: Include, llm: Llm, sessions: Sessions, projections: Projections,
       prompt: SystemPrompt, tools: Tools, agents: Agents, loop: AgentLoop,
@@ -51,43 +60,58 @@ it.each(['classic', 'bot'] as const)('presents and executes the %s question tool
       { id: 'tools', name: 'cordis:tools' }, { id: 'agents', name: 'cordis:agents' },
       { id: 'loop', name: 'cordis:loop', config: { agents: [] } },
       { id: 'questions', name: 'cordis:questions' }, { id: 'ask', name: 'cordis:ask' },
-      ...mode === 'bot' ? [{ id: 'bot-tools', name: 'cordis:botQuestions' }] : [],
+      ...mode !== 'classic' ? [{ id: 'bot-tools', name: 'cordis:botQuestions' }] : [],
       { id: 'discovery', name: 'cordis:discovery', config: discovery },
     ]))
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(composition).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    if (mode === 'bot') {
+    if (mode !== 'classic') {
       const entry = [...ctx.loader.entries()].find(entry => entry.options.id === 'bot-tools')
       expect(entry?.fiber?.state).toBe(FiberState.ACTIVE)
       expect(ctx.tools.schemas().map(schema => schema.name)).toContain('ask_user')
     }
     const answer = vi.fn(async () => ({ answers: [{ id: 'delivery', selected: ['Word'] }] }))
     ctx.on('user-questions/request', answer)
-    ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Inspect video frames.', parameters: {},
+    ctx.tools.register(defineTool({ name: 'fixture_optional_tool', description: 'Inspect video frames.', parameters: {},
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute: async () => 'No fixture video.',
     }))
-    const tool = mode === 'bot' ? 'ask_user' : 'ask_user_question'
-    const args = mode === 'bot' ? { question: 'Which delivery format?', options: [{ label: 'Word' }, { label: 'Markdown' }] }
+    const tool = mode === 'view' ? 'show_view' : mode === 'bot' ? 'ask_user' : 'ask_user_question'
+    const args = mode === 'view' ? { title: 'Choose delivery', view: { type: 'options', id: 'format', options: [{ label: 'Word' }, { label: 'Markdown' }] } } : mode === 'bot' ? { question: 'Which delivery format?', options: [{ label: 'Word' }, { label: 'Markdown' }] }
       : { questions: [{ id: 'delivery', question: 'Which delivery format?', options: [{ label: 'Word' }, { label: 'Markdown' }] }] }
+    ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Inspect a local fixture video.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => 'Not called by this card scenario.',
+    }))
+    ctx.tools.register(defineTool({ name: 'read_browser', description: 'A denied resident browser tool.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => 'Not reached.',
+    }))
     const responses = [toolCallResponse('resident-question-call', tool, args), ...mode === 'classic' ? [textResponse('Answered.')] : []]
     const adapter = new MockAdapter(responses)
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = (await ctx.agents.create({ sessionId: SessionId(`${mode}-resident-question`), meta: { cwd: root },
       agentOptions: { provider: 'mock', model: 'mock' } })).agent
+    agent.ctx.tools.restrict({ deny: ['read_browser'] })
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Clarify the output format.' }] }))
     await agent.whenIdle()
     const initial = adapter.requests[0]
     expect(initial?.tools?.filter(schema => schema.name === tool)).toHaveLength(1)
-    expect(initial?.tools?.some(schema => schema.name === 'video_inspect')).toBe(false)
-    if (mode === 'bot') expect(initial?.tools?.some(schema => schema.name === 'ask_user_question')).toBe(false)
+    expect(initial?.tools?.some(schema => schema.name === 'fixture_optional_tool')).toBe(false)
+    expect(initial?.tools?.some(schema => schema.name === 'read_browser')).toBe(false)
+    expect(initial?.tools?.some(schema => schema.name === 'list_secrets')).toBe(false)
+    const authorized = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    for (const name of names.filter(name => authorized.has(name))) {
+      expect(initial?.tools?.some(schema => schema.name === name), name).toBe(true)
+    }
+    if (mode !== 'classic') expect(initial?.tools?.some(schema => schema.name === 'ask_user_question')).toBe(false)
     const calls = agent.session.snapshotEvents().filter(event => event.type === 'tool/call')
     expect(calls.map(event => event.data.name)).toEqual([tool])
     const result = agent.session.snapshotEvents().find(event => event.type === 'tool/result')
     expect(result?.data.message.isError).not.toBe(true)
-    expect(JSON.stringify(result?.data.message.content)).toContain(mode === 'bot' ? 'The card is on screen' : 'Word')
-    expect(answer).toHaveBeenCalledTimes(mode === 'bot' ? 0 : 1)
+    expect(JSON.stringify(result?.data.message.content)).toContain(mode === 'view' ? 'The view is on screen' : mode === 'bot' ? 'The card is on screen' : 'Word')
+    expect(answer).toHaveBeenCalledTimes(mode !== 'classic' ? 0 : 1)
     responses.push(toolCallResponse('release-resident-question', 'tool_context', { operation: 'release', tools: [tool] }),
       textResponse('Checked.'))
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Keep the question tool available.' }] }))
@@ -97,7 +121,18 @@ it.each(['classic', 'bot'] as const)('presents and executes the %s question tool
     expect(JSON.stringify(release?.data.message.content)).toContain('Constant tools already remain available')
     const shown = (await ctx.systemPrompt.assemble({ agent, scope: agent })).tools.map(schema => schema.name)
     expect(shown).toContain(tool)
-    expect(shown).not.toContain('video_inspect')
+    expect(shown).not.toContain('fixture_optional_tool')
     expect(ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+    responses.push(toolCallResponse('pin-professional-tool', 'tool_context', { operation: 'pin', tools: ['fixture_optional_tool'] }), textResponse('Pinned.'))
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Pin the optional video tool.' }] }))
+    await agent.whenIdle()
+    expect(ctx.toolDiscovery.state(agent).pinned).toEqual(['fixture_optional_tool'])
+    responses.push(toolCallResponse('release-professional-tool', 'tool_context', { operation: 'release', tools: ['fixture_optional_tool'] }), textResponse('Released.'))
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Release the optional video tool.' }] }))
+    await agent.whenIdle()
+    expect(ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+    const afterRelease = (await ctx.systemPrompt.assemble({ agent, scope: agent })).tools.map(schema => schema.name)
+    expect(afterRelease).toContain(tool)
+    expect(afterRelease).not.toContain('fixture_optional_tool')
   } finally { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
 })

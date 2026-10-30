@@ -192,7 +192,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, drama_shot, manuscript_revision, video_inspect, drama_project, source_recover, muse_production, jubian_catalog, jubian_organize, jubian_find, drama_character_reference_project, drama_character_references, drama_character_reference_view]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000

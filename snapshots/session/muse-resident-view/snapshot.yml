@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-resident-view
+profile: headless
+composition: muse-resident-view
+recording: authored
+writerOutput: true
+header:
+  class: muse-resident-view
+  pin: true
+workspace:
+  final: true
