@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { resolveDesktopLocale } from '../src/locale.ts'
 
 const fixture = vi.hoisted(() => ({
+  loadReady: undefined as Promise<void> | undefined,
   windows: [] as Array<{
     options: Record<string, unknown>
     html: string
@@ -26,7 +27,10 @@ vi.mock('electron', () => ({
     webContents = { setWindowOpenHandler: vi.fn() }
     setIgnoreMouseEvents(value: boolean) { this.record.mouseIgnored = value }
     setAlwaysOnTop(value: boolean) { this.record.top = value }
-    async loadURL(url: string) { this.record.html = decodeURIComponent(url.split(',').slice(1).join(',')) }
+    async loadURL(url: string) {
+      this.record.html = decodeURIComponent(url.split(',').slice(1).join(','))
+      await fixture.loadReady
+    }
     showInactive() { this.record.shown = true }
     isDestroyed() { return this.record.destroyed }
     destroy() { this.record.destroyed = true }
@@ -34,7 +38,7 @@ vi.mock('electron', () => ({
 }))
 import { DesktopComputerUseOverlay, computerUseOverlayHtml } from '../src/computer-use-overlay.ts'
 
-afterEach(() => { fixture.windows.length = 0 })
+afterEach(() => { fixture.windows.length = 0; fixture.loadReady = undefined })
 
 it('shows a click-through non-focusable indicator on every display and removes it on idle', async () => {
   const overlay = new DesktopComputerUseOverlay(() => resolveDesktopLocale('zh-CN'))
@@ -64,4 +68,29 @@ it('uses locale-owned copy and refuses to recreate an indicator after disposal',
   overlay.dispose()
   await expect(overlay.update('active')).rejects.toThrow('disposed')
   expect(fixture.windows).toHaveLength(0)
+})
+
+it('cancels queued indicators when the owning Host clears its windows', async () => {
+  const overlay = new DesktopComputerUseOverlay(() => resolveDesktopLocale('en-US'))
+  const pending = overlay.update('active')
+  overlay.clear()
+  await expect(pending).rejects.toThrow('cleared')
+  expect(fixture.windows).toHaveLength(0)
+  await overlay.update('active')
+  expect(fixture.windows).toHaveLength(2)
+  overlay.dispose()
+})
+
+it('does not show an old Host indicator that finishes loading after clear', async () => {
+  const loaded: PromiseWithResolvers<void> = Promise.withResolvers()
+  fixture.loadReady = loaded.promise
+  const overlay = new DesktopComputerUseOverlay(() => resolveDesktopLocale('en-US'))
+  const pending = overlay.update('active')
+  try {
+    await vi.waitFor(() => { expect(fixture.windows).toHaveLength(1) })
+    overlay.clear()
+  } finally { loaded.resolve() }
+  await expect(pending).rejects.toThrow('cleared during loading')
+  expect(fixture.windows.every(window => window.destroyed && !window.shown)).toBe(true)
+  overlay.dispose()
 })

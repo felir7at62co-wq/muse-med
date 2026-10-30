@@ -36,6 +36,7 @@ export class DesktopComputerUseOverlay {
   private serial = Promise.resolve()
   private state: ComputerUseState = 'idle'
   private disposed = false
+  private generation = 0
   private isDisposed(): boolean { return this.disposed }
 
   /** @param locale - Current shell locale, evaluated for every update. */
@@ -43,13 +44,15 @@ export class DesktopComputerUseOverlay {
 
   /** Show state before acknowledging Host admission; idle closes all indicator windows.
    * @param state - Content-free Host control state.
-   * @returns Completion after the indicator is visible without activation.
+   * @returns Completion after the indicator is visible without activation; rejects if cleared or disposed.
    */
   update(state: ComputerUseState): Promise<void> {
+    const generation = this.generation
     const operation = this.serial.catch((_error: unknown) => undefined).then(async () => {
       if (this.isDisposed()) throw new Error('Computer-use indicator disposed')
+      if (generation !== this.generation) throw new Error('Computer-use indicator cleared')
       if (state === this.state && this.windows.every(window => !window.isDestroyed())) return
-      this.clear()
+      this.closeWindows()
       if (state === 'idle') return
       try {
         for (const display of screen.getAllDisplays()) {
@@ -65,17 +68,23 @@ export class DesktopComputerUseOverlay {
           window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
           await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(computerUseOverlayHtml(state, this.locale())))
           if (this.isDisposed()) throw new Error('Computer-use indicator disposed during loading')
+          if (generation !== this.generation) throw new Error('Computer-use indicator cleared during loading')
           window.showInactive()
         }
         this.state = state
-      } catch (error) { this.clear(); throw error }
+      } catch (error) { this.closeWindows(); throw error }
     })
     this.serial = operation
     return operation
   }
 
-  /** Close indicators when the Host stops; does not quit or activate other windows. */
+  /** Cancel queued updates and close indicators when the Host stops. */
   clear(): void {
+    this.generation++
+    this.closeWindows()
+  }
+
+  private closeWindows(): void {
     for (const window of this.windows) if (!window.isDestroyed()) window.destroy()
     this.windows = []
     this.state = 'idle'

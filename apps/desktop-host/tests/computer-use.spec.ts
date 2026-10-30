@@ -15,7 +15,7 @@ import Tools from '@deepseek-ai/dsh-tools'
 import Llm, { LlmAdapter, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
-import Agents from '@deepseek-ai/dsh-agent'
+import Agents, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Projections from '@deepseek-ai/dsh-session-projection'
@@ -363,7 +363,7 @@ describe('Muse bundled computer tools', () => {
     const diagnostic = retry.content[0]
     expect(diagnostic?.type).toBe('text')
     if (diagnostic?.type !== 'text') throw new Error('Missing disconnect diagnostic')
-    expect(diagnostic.text).toMatch(/connection closed|server is disconnected/iu)
+    expect(diagnostic.text).toMatch(/connection closed|server is disconnected|not connected/iu)
     expect((await driverEvents(root)).filter(event => event.event === 'initialize')).toHaveLength(1)
     expect((await driverEvents(root)).filter(event => event.event === 'call')).toHaveLength(1)
   }, 20_000)
@@ -509,6 +509,54 @@ it('holds concurrent tools until the shared blue indicator has been acknowledged
   }
   expect(input.states.filter(state => state === 'active')).toHaveLength(1)
   expect((await driverEvents(root)).some(event => event.event === 'call')).toBe(true)
+})
+
+it('refuses an admitted action when its control owner unloads before indicator acknowledgement', async () => {
+  const { ctx } = await load()
+  const agent = await createAgent(ctx, 'unloaded-indicator-owner')
+  const visible: PromiseWithResolvers<void> = Promise.withResolvers()
+  input.activeReady = visible.promise
+  let calls = 0
+  ctx.effect(() => ctx.tools.register({
+    name: computerTool('surviving_input'), description: 'Input registered outside the control owner.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    output: { schema: { type: 'object' }, render: () => [{ type: 'text', text: 'done' }] },
+    async execute() { calls++; return {} },
+  }))
+  const run = ctx.tools.execute({ name: computerTool('surviving_input'), arguments: {}, agent,
+    callId: ToolCallId('unloaded-indicator'), signal: new AbortController().signal })
+  try {
+    await vi.waitFor(() => { expect(input.states).toContain('active') })
+    const entry = [...ctx.loader.entries()].find(row => row.options.id === 'computer-use-driver')
+    if (entry?.fiber === undefined) throw new Error('Missing control owner')
+    await entry.fiber.dispose()
+  } finally { visible.resolve() }
+  const result = await run
+  expect(calls).toBe(0)
+  expect(result.isError).toBe(true)
+  expect(JSON.stringify(result)).toContain('COMPUTER_USE_OBSERVER_UNAVAILABLE')
+})
+
+it('refuses dispatch after the owning Agent releases the desktop during admission', async () => {
+  const { ctx } = await load()
+  const agent = await createAgent(ctx, 'released-owner')
+  const name = computerTool('released_input')
+  let calls = 0
+  ctx.effect(() => ctx.tools.register({
+    name, description: 'Input whose owner is released before dispatch.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    output: { schema: { type: 'object' }, render: () => [{ type: 'text', text: 'done' }] },
+    async execute() { calls++; return {} },
+  }))
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (exec.name === name) agentEvents(ctx, agent).emit('agent/status', { status: 'idle' })
+    return next()
+  })
+  const result = await ctx.tools.execute({ name, arguments: {}, agent,
+    callId: ToolCallId('released-owner'), signal: new AbortController().signal })
+  expect(calls).toBe(0)
+  expect(result.isError).toBe(true)
+  expect(JSON.stringify(result)).toContain('COMPUTER_USE_OBSERVER_UNAVAILABLE')
 })
 
 

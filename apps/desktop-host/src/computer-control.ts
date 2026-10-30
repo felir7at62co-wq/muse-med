@@ -73,6 +73,7 @@ export function installComputerControl(
   const pauseReason = (): string | undefined => paused
   let inFlight: AbortController | undefined
   let disposed = false
+  const ownsInput = (agent: Agent | undefined): boolean => !disposed && agent !== undefined && owner === agent
   const affected = (exec: ToolExecution): boolean => exec.name.startsWith(PREFIX) && exec.name !== PREFIX + 'end_session'
   const show = (state: ComputerControlState): void => {
     void publish(state).catch((_error: unknown) => {
@@ -150,6 +151,7 @@ export function installComputerControl(
       indicatorReady = publish('active').catch((_error: unknown) => { pause(UNAVAILABLE) })
     }
     await indicatorReady
+    if (!ownsInput(exec.agent)) return { kind: 'deny', reason: UNAVAILABLE }
     observe()
     const reason = pauseReason()
     if (reason !== undefined) return { kind: 'deny', reason }
@@ -158,6 +160,7 @@ export function installComputerControl(
   ctx.on('tools/execute', async (exec, next) => {
     if (exec.name === PREFIX + 'end_session') end()
     if (!affected(exec)) return next()
+    if (!ownsInput(exec.agent)) throw new Error(UNAVAILABLE)
     observe()
     if (paused !== undefined) throw new Error(paused)
     if (inFlight !== undefined) throw new Error('COMPUTER_USE_BUSY: A computer action is still settling.')
