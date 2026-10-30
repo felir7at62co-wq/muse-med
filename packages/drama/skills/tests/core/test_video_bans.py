@@ -45,7 +45,14 @@ class VideoBanTests(unittest.TestCase):
         config = self.project / '_probe/delivery-config'
         config.mkdir(parents=True)
         (config / 'confirmed-films.json').write_text(json.dumps({'films': {'11': str(master)}}))
-        self.assertEqual(delivery.pick_master(self.project, 11), master)
+        (config / 'film-reviews.json').write_text(json.dumps({'films': {'11': {
+            'source': str(master), 'sha256': hashlib.sha256(master.read_bytes()).hexdigest(),
+            'reviewed': True, 'picture': 'ok', 'audio': 'ok', 'subtitle': 'ok', 'spec': 'ok', 'issues': [],
+        }}}))
+        picked, review = delivery.pick_master(self.project, 11)
+        self.assertEqual(picked, master)
+        self.assertTrue(review['registered'])
+        self.assertEqual(review['entry']['source'], str(master))
 
     def test_delivery_rejects_banned_master(self):
         spec = importlib.util.spec_from_file_location('delivery', SKILLS / 'tweet-drama-delivery/scripts/assemble_delivery.py')

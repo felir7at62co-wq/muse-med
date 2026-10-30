@@ -75,3 +75,29 @@ describe('DSH package license gate', () => {
       .toContainEqual(expect.stringContaining('packages/drama/other/package.json'))
   })
 })
+
+
+describe('Codex-derived tool discovery notices', () => {
+  it('accepts its exact composite license only with both bundled notice files', () => {
+    const root = createWorkspace()
+    const directory = 'packages/core/tool-discovery'
+    writeManifest(root, `${directory}/package.json`, { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0', files: ['NOTICE', 'LICENSE-Codex'] })
+    writeFileSync(join(root, directory, 'NOTICE'), 'Codex-derived instructions\n')
+    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'Apache License 2.0\n')
+    expect(inspectDshPackageLicenses(root).failures).toEqual([])
+    rmSync(join(root, directory, 'NOTICE'))
+    expect(inspectDshPackageLicenses(root).failures).toHaveLength(1)
+  })
+  it.each([
+    ['packages/core/other', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-other', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT OR Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE']],
+  ])('rejects a changed package identity, license or omitted published notice', (directory, name, license, files) => {
+    const root = createWorkspace()
+    writeManifest(root, `${directory}/package.json`, { name, license, files })
+    writeFileSync(join(root, directory, 'NOTICE'), 'notice\n')
+    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'license\n')
+    expect(inspectDshPackageLicenses(root).failures).toHaveLength(1)
+  })
+})

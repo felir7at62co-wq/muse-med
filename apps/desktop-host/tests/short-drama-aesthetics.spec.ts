@@ -73,6 +73,7 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('语言选择是创作指导，不拦截生图')
     expect(system).not.toContain('适合短剧的形象、妆造、配色、用光和氛围')
     expect(system).toContain('视频包提示词默认不写时间轴')
+    expect(system).toContain('不要把计划或“开始做”当作完成')
     expect(system).toContain('视频包之间不共享上下文')
     expect(system).toContain('同一时空内衔接清楚的连续段落')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
@@ -94,6 +95,8 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
+    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')
+    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按出现次数核对')
     const summaries = await ctx.skills.list()
     for (const name of ['shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
       const summary = summaries.find(skill => skill.name === name)

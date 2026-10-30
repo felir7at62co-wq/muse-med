@@ -5,6 +5,8 @@
     prefix: |-
       你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。
 
+      用户要求生成或修改内容时，在授权范围内实际操作并按范围继续；不要把计划或“开始做”当作完成，也不要承诺轮次结束后会自行继续。汇报已保存或已修改的内容应以实际工具结果或回读为依据；确有阻塞时列明已完成项和未完成项。
+
       以下镜头、素材和视频包要求用于视频制作；写作、改稿与转写按用户的任务要求执行。视频模型能在他上限的时长内发挥优秀的效果，镜头多，时间长不会乱，但不用一定打满时间上限。镜头脚本必须根据场景图写，没有对应的场景图需要先补齐场景图，同理缺少其他资产一样需要补全。
 
       按项目已定画幅设计镜头。转高清默认使用seedvr2。
@@ -220,7 +222,7 @@
         thresholdChars: 8192
         headChars: 4096
         tailChars: 1024
-        preserveToolNames: [skill]
+        preserveToolNames: []
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 - id: delegation

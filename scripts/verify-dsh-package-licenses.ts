@@ -1,9 +1,9 @@
 /**
- * Enforce the MIT license declaration for repository-owned DSH npm packages.
+ * Enforce repository-owned DSH package licenses and the documented attribution exception.
  * @module scripts/verify-dsh-package-licenses
  */
 
-import { globSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { dirname, resolve, sep } from 'node:path'
 import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
@@ -14,7 +14,7 @@ const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
 export interface DshPackageLicenseReport {
   /** Number of DSH package manifests checked. */
   packageCount: number
-  /** Repository-relative diagnostics for non-MIT declarations. */
+  /** Repository-relative diagnostics for declarations outside the license policy. */
   failures: string[]
 }
 
@@ -67,7 +67,13 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     packageCount++
     const privateResource = isDramaSkillsResourcePackage(dirname(file).split(sep).join('/'), name)
       && manifest.private === true && manifest.license === 'UNLICENSED'
-    if (manifest.license !== 'MIT' && !privateResource) {
+    const publishedFiles = manifest.files
+    const codexDiscovery = dirname(file).split(sep).join('/') === 'packages/core/tool-discovery'
+      && name === '@deepseek-ai/dsh-tool-discovery' && manifest.license === 'MIT AND Apache-2.0'
+      && isStringArray(publishedFiles)
+      && ['NOTICE', 'LICENSE-Codex'].every(notice => publishedFiles.includes(notice)
+        && existsSync(resolve(root, dirname(file), notice)))
+    if (manifest.license !== 'MIT' && !privateResource && !codexDiscovery) {
       const normalizedFile = file.split(sep).join('/')
       failures.push(
         `${normalizedFile}: ${name} must declare "license": "MIT"; found ${printable(manifest.license)}.`,

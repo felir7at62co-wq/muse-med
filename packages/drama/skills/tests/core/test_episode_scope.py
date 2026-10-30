@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -449,7 +450,8 @@ class EpisodeScopeTests(unittest.TestCase):
         self.scope(["140", "141"])
         script = Path(__file__).resolve().parents[2] / "skills/tweet-drama-core/scripts/episode_coverage.py"
         accepted = subprocess.run([sys.executable, "-B", str(script), str(self.root), "accept", "140"],
-                                  capture_output=True, text=True, encoding="utf-8", check=False)
+                                  capture_output=True, text=True, encoding="utf-8", check=False,
+                                  env={**os.environ, "PYTHONUTF8": "1"})
         self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
         result = json.loads(accepted.stdout)
         self.assertEqual(result["expected_episodes"], ["140", "141"])
