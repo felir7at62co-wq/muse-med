@@ -198,8 +198,14 @@ def film_review_notice(project: Path, episode: int, master: Path, digest: str) -
         declared = declared.lower()
     if not isinstance(source, str) or not source.strip():
         problems.append("source 缺失")
-    elif (project / source).resolve() != master.resolve():
-        problems.append(f"登记的 source 与本次母版不一致（登记 {source}）")
+    else:
+        try:
+            reviewed_source = (project / source).resolve()
+        except (OSError, ValueError, UnicodeError) as error:
+            problems.append(f"source 无法解析（{type(error).__name__}）")
+        else:
+            if reviewed_source != master.resolve():
+                problems.append(f"登记的 source 与本次母版不一致（登记 {source}）")
     if not isinstance(declared, str) or not re.fullmatch("[0-9a-f]{64}", declared):
         problems.append("sha256 缺失或格式不对")
     elif declared != digest:

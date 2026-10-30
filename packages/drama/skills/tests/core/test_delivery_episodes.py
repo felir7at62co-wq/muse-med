@@ -201,6 +201,15 @@ class DeliveryEpisodeTests(unittest.TestCase):
         self.assertIn('不可读', text)
         self.assertEqual(self.films(), {'14.mp4': b'master for episode 14'})
 
+    def test_invalid_review_source_remains_advisory(self):
+        for source in ('\0', '\ud800'):
+            with self.subTest(source=source):
+                self.rewrite_reviews({'14': self.review_entry(14, source=source)})
+                report, text = self.assemble_notice(14)
+                self.assertFalse(report['review']['registered'])
+                self.assertIn('source 无法解析', text)
+                self.assertEqual(self.films(), {'14.mp4': b'master for episode 14'})
+
     def test_review_bound_to_a_different_master_source_assembles_with_notice(self):
         self.rewrite_reviews({'14': self.review_entry(14, source='export/1.mp4')})
         report, text = self.assemble_notice(14)
