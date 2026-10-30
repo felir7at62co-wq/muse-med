@@ -119,6 +119,8 @@ kind: "package-reference"
 
 响应保留旧状态值、可选 `queued: true` 和实际 `service_version`；带用途请求再增加 `purpose`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`。可选 `provider_diagnostic` 只含校验过的操作、HTTP／提供方状态和固定原因 `timeout`、`transport`、`http`、`response`、`json`、`result` 或 `audio`；旧收据缺原因时仍省略。`recovery` 说明支持的操作：查询原标准任务、等待当前极速响应、核查已结束的未知极速收据、使用结果，或用同 ID 恢复未提交上传；不授权再次付费提交。未知极速任务没有提供方查询能力，反复读取不变的服务器收据无法恢复丢失的同步响应。诊断不证明收费或退款；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。
 
+账号自己的音频仍在暂存、持久收据尚未写入时，查询返回 `preparing` 和恢复动作 `wait`。此临时响应不代表已向提供方提交，也不会跨网关重启保留；上传失败后仍可能返回 404。
+
 HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`、`daily_quota`、`provider_rate`、`request_rate`、`server_draining`、`invalid_request` 或 `idempotency_conflict`。队列／上传上限与排空状态带 `Retry-After: 2`，滚动额度给出最早重试间隔；提交与查询共享每账号／IP 每分钟 `requestRatePerMinute` 次限制（默认 60），超出带 `Retry-After: 60`，日额度不提示立即重试。未受理上传在容量恢复后沿用原 ID；已受理或未知收据须对账，不以新 ID 重提。
 
 `GET /api/admin/asr/diagnostics` 只允许已登录且短时提升权限仍有效的管理员访问，并把访问写入管理员审计日志。审计持久化后重新核验授权；已取消的请求不读取诊断。响应禁止缓存，只包含内存聚合数量和配置上限：active、worker 与 waiting 占用，按服务版本和额度组汇总的使用量，标准版未解决任务的年龄桶，以及本次网关进程启动以来的 `queue_full` 类别。该接口不读取或修改收据，也不返回账号、任务、应用、音频、路径、提供方响应或凭据数据；网关重启后计数清零。
