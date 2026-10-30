@@ -209,7 +209,7 @@ describe('CI workflow', () => {
       if (jobName === 'node-24-consumers') {
         const browserCache: unknown = job.steps.find(step => isRecord(step) && isRecord(step.with)
           && step.with.path === '${{ env.PLAYWRIGHT_BROWSERS_PATH }}')
-        expect(browserCache).toMatchObject({ uses: 'actions/cache/restore@v4' })
+        expect(browserCache).toMatchObject({ uses: 'actions/cache/restore@v6' })
       }
       const store: unknown = job.steps.find(step => isRecord(step) && step.name === 'Configure pnpm store path')
       expect(store).toMatchObject({
@@ -571,7 +571,7 @@ describe('CI workflow', () => {
   it('always restores the hosted benchmark pnpm cache', () => {
     const benchmark = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-bench')
     if (!Array.isArray(benchmark.steps)) throw new TypeError('benchmark job must define steps')
-    const caches = benchmark.steps.filter(step => isRecord(step) && step.uses === 'actions/cache/restore@v4')
+    const caches = benchmark.steps.filter(step => isRecord(step) && step.uses === 'actions/cache/restore@v6')
 
     expect(caches).toHaveLength(1)
     expect(caches[0]).not.toHaveProperty('if')
