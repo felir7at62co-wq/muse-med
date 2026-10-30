@@ -176,7 +176,6 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
   // Codex-derived discovery surfaces publish their license notices beside the entry.
@@ -562,7 +561,7 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const match = /^skills\/([a-z0-9-]+)\/(.+)$/u.exec(file)
     const resource = match?.[2]
     const nestedResource = resource !== undefined
-      && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt|ps1)$/u.test(resource)
+      && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
