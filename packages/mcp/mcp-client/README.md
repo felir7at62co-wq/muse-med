@@ -82,7 +82,7 @@ The model sees each tool under a stable server-qualified name: `mcp__<serverName
 
 ### Calling tools and reading results
 
-When the model calls an MCP tool, the call runs against the remote server with a per-call timeout (default 60 seconds) and can be cancelled like any other tool call. The result comes back as ordinary text in block order; resource links appear as text with their name and URI. If the server reports an error, the call fails visibly — the model does not see a fake success.
+When the model calls an MCP tool, the call runs against the remote server with a per-call timeout (default 60 seconds) and can be cancelled like any other tool call. The result preserves content order and includes structured result fields as JSON text; resource links appear as text with their name and URI. If the server reports an error, the call fails visibly — the model does not see a fake success.
 
 Images are supported when the current model accepts image input and the harness attachment feature is enabled; they then appear in the conversation like other images. Otherwise — and for audio or embedded resources — the model sees a clear diagnostic message instead of nothing.
 
@@ -174,11 +174,11 @@ The tool-definition prefix stays stable while the discovered set and schemas are
 
 #### What the model sees
 
-The public tool name and JSON arguments remain in assistant history. The canonical value retains the complete MCP JSON blocks and optional structured content for programmatic and PTC mode callers; supported image blocks project beside text in their original order after exact route-capability proof. Refused images, audio, embedded resources, resource links, and unknown blocks remain visible as bounded text diagnostics, and MCP `isError` rejects the call before image persistence.
+The public tool name and JSON arguments remain in assistant history. Native results append `structuredContent` as JSON text after the original content, preserving fields such as snapshot identifiers and recovery instructions. A complete text block containing equivalent JSON is retained once; structured-only results contain only that JSON. Supported image blocks keep their original order beside this metadata after exact route-capability proof. Programmatic and PTC mode callers retain the complete canonical MCP JSON blocks and optional structured content. Refused images, audio, embedded resources, resource links, and unknown blocks remain visible as bounded text diagnostics. Image refusal preserves the structured JSON. MCP `isError` retains text and structured diagnostics as a failed call before image persistence. Content replacement, value replacement, and blocking policies remain authoritative over the projected result.
 
 #### Token effect
 
-Arguments, mapped text, and durable image references are retained until compaction. Inline MCP base64 stays only in the execution-local canonical value and is never copied into a session event; the provider reads verified bytes from the attachment store. Audio and embedded-resource payloads stay out of model context.
+Arguments, mapped text, structured JSON, and durable image references are retained until compaction. Inline MCP base64 stays only in the execution-local canonical value and is never copied into a session event; the provider reads verified bytes from the attachment store. Audio and embedded-resource payloads stay out of model context.
 
 #### KV Cache effect
 

@@ -127,6 +127,18 @@
     - id: muse-lvpaopao-bridge
       name: muse-lvpaopao/bridge
 
+    # Windows x64 carries the reviewed driver payload in Desktop resources.
+    - id: computer-use
+      disabled: !!js process.platform !== 'win32' || process.arch !== 'x64'
+      name: '@deepseek-ai/dsh-computer-use'
+
+    - id: muse-computer-use
+      disabled: !!js process.platform !== 'win32' || process.arch !== 'x64'
+      name: '@deepseek-ai/dsh-desktop-host/computer-use'
+      config:
+        command: !!js process.env.MUSE_COMPUTER_USE_EXECUTABLE
+        args: [mcp]
+
     - id: muse-hindsight
       name: '@deepseek-ai/dsh-desktop-host/hindsight'
 
@@ -192,6 +204,9 @@
         k1: 1.2
         b: 0.75
         keywords:
+          mcp__muse-computer__list_windows: [操作电脑, 操作软件, 查找窗口, 桌面操作, 点击按钮, 帮我操作, computer use]
+          mcp__muse-computer__launch_app: [打开软件, 启动应用, 打开程序, launch app]
+          mcp__muse-computer__get_window_state: [查看窗口, 查看屏幕, 屏幕截图, 看界面]
           video_inspect: [抽帧, 看视频, 查看画面, 切镜, 运镜, 动作观察]
           video_contact_sheet: [视频接触表, 缩略图总览, 视频画面总览, 拼图预览]
           audio_transcribe: [语音识别, 台词转写, 音频转文字, 听视频]
@@ -256,6 +271,10 @@
             title: 团队任务与跟进
             description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。
             tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question, ask_user, list_bots, message_bot, create_bot, update_bot, stop_bot, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability]
+          - id: computer-use
+            title: 电脑与软件操作
+            description: 查看本机应用窗口与截图，根据任务点击、输入和滚动，再读取实际结果。
+            tools: ['mcp__muse-computer__*']
           - id: research
             title: 搜索与技术分析
             description: 搜索网页资料、读取网页和分析技术问题。

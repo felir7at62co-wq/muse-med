@@ -25,6 +25,7 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager, type DesktopProjectHooks } from './project-manager.ts'
+import { DesktopComputerUseOverlay } from './computer-use-overlay.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
@@ -563,6 +564,8 @@ async function main(): Promise<void> {
   const publishBackend = (state: DesktopBackendState): void => { publishState(DESKTOP_IPC.backendState, state) }
   const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
+  const computerUseOverlay = new DesktopComputerUseOverlay(currentDesktopLocale)
+  app.once('will-quit', () => { computerUseOverlay.dispose() })
   const backend = new DesktopBackendController((onFailure) => {
     // Profile preparation settled before this factory runs; a profile that still belongs to another
     // runtime, or one whose package transaction is incomplete, must not reach a Host spawn.
@@ -571,7 +574,7 @@ async function main(): Promise<void> {
     let hostActive = true
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, (error) => {
-        if (hostActive) { hostActive = false; completionNotice.clear() }
+        if (hostActive) { hostActive = false; completionNotice.clear(); computerUseOverlay.clear() }
         onFailure(error)
       },
       primaryRuntime,
@@ -593,7 +596,7 @@ async function main(): Promise<void> {
       }, async (request) => {
         if (mainWindow === undefined || mainWindow.isDestroyed()) return { type: 'douyin-browser-data-result', requestId: request.requestId, code: 'UI_UNAVAILABLE' }
         return browserGuests.data(mainWindow.webContents, request)
-      })
+      }, state => computerUseOverlay.update(state))
     browserGuests.downloads.onRevoked = (taskId, code) => { host.notifyDouyinRevoked(taskId, code) }
     return {
       start: async () => {
@@ -648,6 +651,7 @@ async function main(): Promise<void> {
       },
       stop: async () => {
         hostActive = false
+        computerUseOverlay.clear()
         completionNotice.clear()
         analyticsEnabled = false
         stopAccount?.()
