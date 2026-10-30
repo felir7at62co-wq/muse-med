@@ -1,0 +1,26 @@
+# Keyless real-tool search through the account provider and a local fake gateway.
+- id: llm-deepseek
+  disabled: true
+- id: compaction-basic
+  disabled: true
+- id: command-compact
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+- id: web
+  config:
+    searchProvider: muse
+    fetchProvider: http
+- insert:
+    - id: muse-search-proxy-fixture
+      name: ./search-fixture.mjs

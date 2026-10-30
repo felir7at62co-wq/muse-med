@@ -2378,7 +2378,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:39`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:40`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2411,6 +2411,10 @@ export interface Config {
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Register account-authorized search when a web service is present. Muse Desktop enables it. */
+  readonly webSearch: boolean
+  /** Maximum lifetime of one account-authorized web search, in milliseconds. */
+  readonly searchRequestTimeoutMs: number
   /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
   readonly modelRequestImageMaxBytes?: number
   /** Maximum time for one compressed-audio upload and gateway response. */

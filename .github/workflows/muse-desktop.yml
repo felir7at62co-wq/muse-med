@@ -9,6 +9,10 @@ on:
         required: true
         default: all
         options: [all, win-x64, mac-arm64]
+      upload_draft_release:
+        description: Copy both verified installers into existing exact-commit drafts; requires target all
+        type: boolean
+        default: false
       verify_hongguo_live:
         description: Require complete Hongguo downloads from the genuine installed application
         type: boolean
@@ -178,3 +182,197 @@ jobs:
           path: apps/desktop/.desktop-build/installer-tests/
           if-no-files-found: warn
           retention-days: 14
+  upload-drafts:
+    name: Copy verified installers into existing drafts
+    needs: build
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'workflow_dispatch' && inputs.upload_draft_release && inputs.target == 'all' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Download the exact Mac build from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: muse-mac-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/muse-draft-artifacts/mac-arm64
+      - name: Download the exact Windows build from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: muse-win-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/muse-draft-artifacts/win-x64
+      - name: Verify both unsigned builds and all artifact bytes
+        env:
+          MUSE_ARTIFACT_ROOT: ${{ runner.temp }}/muse-draft-artifacts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import stat
+          import subprocess
+
+          def require(value, message):
+              if not value:
+                  raise RuntimeError(message)
+
+          commit = os.environ['GITHUB_SHA']
+          require(re.fullmatch(r'[a-f0-9]{40}', commit), 'An exact source commit is required')
+          require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == commit,
+                  'The checkout differs from this workflow source')
+          version = json.loads(pathlib.Path('apps/desktop/muse-product.json').read_text())['version']
+          require(isinstance(version, str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version),
+                  'Draft upload requires a stable product version')
+          root = pathlib.Path(os.environ['MUSE_ARTIFACT_ROOT']).resolve()
+          payloads = []
+          for target, suffixes, feed in [
+              ('mac-arm64', ['.dmg', '.zip', '.zip.blockmap'], 'latest-mac.yml'),
+              ('win-x64', ['.exe', '.exe.blockmap'], 'latest.yml'),
+          ]:
+              directory = root / target
+              require(directory.is_dir() and not directory.is_symlink(), 'Invalid artifact directory')
+              base = f'muse-med-{version}-{target}'
+              names = [base + suffix for suffix in suffixes]
+              expected = set(names + [feed])
+              inventory = {path.name for path in directory.iterdir()}
+              required = expected | {'unsigned-build.json'}
+              require(inventory in (required, required | {'builder-debug.yml'}),
+                      'The artifact contains unexpected or missing files')
+              for path in directory.iterdir():
+                  require(stat.S_ISREG(path.lstat().st_mode), 'Artifact inputs must be regular files')
+              record = json.loads((directory / 'unsigned-build.json').read_text())
+              require(isinstance(record, dict) and record.get('schemaVersion') == 1
+                      and record.get('target') == target and record.get('version') == version
+                      and record.get('sourceCommit') == commit and record.get('unsigned') is True,
+                      'The unsigned build belongs to another source or version')
+              artifacts = record.get('artifacts')
+              require(isinstance(artifacts, dict) and set(artifacts) == expected,
+                      'The unsigned build has an unexpected artifact inventory')
+              for name in sorted(expected):
+                  path = directory / name
+                  locked = artifacts[name]
+                  require(isinstance(locked, dict) and type(locked.get('size')) is int and locked['size'] > 0
+                          and isinstance(locked.get('sha256'), str)
+                          and re.fullmatch(r'[a-f0-9]{64}', locked['sha256']), 'Invalid artifact digest')
+                  digest = hashlib.sha256()
+                  with path.open('rb') as stream:
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                          digest.update(chunk)
+                  require(path.stat().st_size == locked['size'] and digest.hexdigest() == locked['sha256'],
+                          'Artifact bytes differ from the verified unsigned build')
+                  if name in names:
+                      payloads.append({'name': name, 'path': str(path),
+                                       'size': locked['size'], 'sha256': locked['sha256']})
+          require(len(payloads) == 5 and len({row['name'] for row in payloads}) == 5,
+                  'Exactly five installer payloads are required')
+          plan = {'version': version, 'sourceCommit': commit, 'payloads': payloads}
+          (root / 'draft-upload-plan.json').write_text(json.dumps(plan) + '\n')
+          print(f'Verified {version} at {commit}: five payloads; no feeds selected for upload')
+          PY
+      - name: Upload binaries only to existing exact-commit drafts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MUSE_ARTIFACT_ROOT: ${{ runner.temp }}/muse-draft-artifacts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import http.client
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import urllib.parse
+
+          def require(value, message):
+              if not value:
+                  raise RuntimeError(message)
+
+          def github_json(path):
+              result = subprocess.run(['gh', 'api', '--paginate', '--slurp', path],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+              require(result.returncode == 0, 'GitHub draft metadata could not be read')
+              return json.loads(result.stdout)
+
+          repository = 'felir7at62co-wq/muse-med'
+          require(os.environ['GITHUB_REPOSITORY'] == repository, 'Unexpected release repository')
+          root = pathlib.Path(os.environ['MUSE_ARTIFACT_ROOT']).resolve()
+          plan = json.loads((root / 'draft-upload-plan.json').read_text())
+          version, commit = plan['version'], os.environ['GITHUB_SHA']
+          require(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version)
+                  and re.fullmatch(r'[a-f0-9]{40}', commit) and plan['sourceCommit'] == commit,
+                  'The upload plan differs from this workflow source')
+          expected = {
+              f'muse-med-{version}-mac-arm64.dmg', f'muse-med-{version}-mac-arm64.zip',
+              f'muse-med-{version}-mac-arm64.zip.blockmap', f'muse-med-{version}-win-x64.exe',
+              f'muse-med-{version}-win-x64.exe.blockmap',
+          }
+          payloads = plan['payloads']
+          require(len(payloads) == 5 and {row['name'] for row in payloads} == expected,
+                  'The upload plan must contain exactly five installer payloads')
+          for row in payloads:
+              path = pathlib.Path(row['path'])
+              target = 'mac-arm64' if '-mac-arm64.' in row['name'] else 'win-x64'
+              require(path == root / target / row['name'] and path.is_file() and not path.is_symlink(),
+                      'Invalid installer payload path')
+              with path.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              require(path.stat().st_size == row['size'] and digest == row['sha256'],
+                      'Installer bytes changed after verification')
+
+          tags = [f'v{version}', f'v{version}-rc.muse-stable']
+          releases = [release for page in github_json(f'repos/{repository}/releases?per_page=100') for release in page]
+          drafts = []
+          for tag in tags:
+              matches = [release for release in releases if release.get('tag_name') == tag]
+              require(len(matches) == 1, 'Both exact release drafts must already exist')
+              release = matches[0]
+              require(release.get('draft') is True and release.get('target_commitish') == commit
+                      and type(release.get('id')) is int, 'A release is public or targets another source')
+              assets = [asset for page in github_json(
+                  f"repos/{repository}/releases/{release['id']}/assets?per_page=100") for asset in page]
+              require(not any(asset.get('name') in expected for asset in assets),
+                      'A payload already exists; reconcile the drafts before retrying')
+              drafts.append((tag, release['id']))
+
+          token = os.environ['GH_TOKEN']
+          require(bool(token), 'The draft upload token is missing')
+          for tag, release_id in drafts:
+              for row in payloads:
+                  # One streamed POST, without redirects, replacement, or automatic retries.
+                  connection = http.client.HTTPSConnection('uploads.github.com', timeout=1800)
+                  try:
+                      name = urllib.parse.quote(row['name'], safe='')
+                      connection.putrequest('POST', f'/repos/{repository}/releases/{release_id}/assets?name={name}')
+                      connection.putheader('Authorization', f'Bearer {token}')
+                      connection.putheader('Accept', 'application/vnd.github+json')
+                      connection.putheader('X-GitHub-Api-Version', '2022-11-28')
+                      connection.putheader('User-Agent', 'Muse-verified-draft-upload')
+                      connection.putheader('Content-Type', 'application/octet-stream')
+                      connection.putheader('Content-Length', str(row['size']))
+                      connection.endheaders()
+                      with pathlib.Path(row['path']).open('rb') as stream:
+                          for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                              connection.send(chunk)
+                      response = connection.getresponse()
+                      body = response.read(262145)
+                      require(response.status == 201 and len(body) <= 262144,
+                              'Draft upload failed; reconcile uploaded assets before retrying')
+                      asset = json.loads(body)
+                      require(asset.get('name') == row['name'] and asset.get('size') == row['size']
+                              and asset.get('state') == 'uploaded' and asset.get('digest') == 'sha256:' + row['sha256'],
+                              'Uploaded asset identity differs; reconcile the drafts before retrying')
+                      print(json.dumps({'draft': tag, 'name': row['name'], 'assetId': asset['id'],
+                                        'size': row['size'], 'sha256': row['sha256']}))
+                  finally:
+                      connection.close()
+          print('Uploaded binary assets only; this job did not create tags, update feeds, or publish releases')
+          PY

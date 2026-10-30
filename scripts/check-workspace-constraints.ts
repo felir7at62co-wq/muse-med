@@ -69,6 +69,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/hindsight.js', 'lib/feishu-migration.js',
+    'lib/source-recovery.js', 'licenses',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -314,6 +315,8 @@ export function expectedDshPackageFiles(manifest: PackageManifest): readonly str
     ...hasTypertRemoteNavigation(manifest)
       ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts']
       : [],
+    // Adapted Apache-2.0 tool guidance carries its attribution and license.
+    ...manifest.name === '@deepseek-ai/dsh-tool-discovery' ? ['NOTICE', 'LICENSE-Codex'] : [],
   ]
 }
 
@@ -558,11 +561,12 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const resource = match?.[2]
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
+    const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference)) {
+    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

@@ -24,7 +24,7 @@ interface AcceptanceIdentity {
   readonly sourceCommit: string
 }
 
-const PREVIOUS_VERSION = '1.2.2'
+const PREVIOUS_VERSION = '1.2.3'
 
 /**
  * Resolve the published baseline whose original installer bytes qualify replacement upgrades.
@@ -41,13 +41,13 @@ export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target
   const filename = `muse-med-${PREVIOUS_VERSION}-${windows ? 'win-x64.exe' : 'mac-arm64.dmg'}`
   return { target, version: PREVIOUS_VERSION, resource: {
     filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/${filename}`,
-    bytes: windows ? 799318863 : 853009732,
-    sha256: windows ? '1f41de03eb6bdcb9c7fe0a5a8246d82cba3e098ad06e6009052866e1b4061bcd'
-      : '81313556b596baaf11d4ca4c0b7c3c505aa5a07b2e6b5df09776e3da01d8d75e',
+    bytes: windows ? 799236953 : 852940016,
+    sha256: windows ? 'a0bc9eb35686704a163d3243648070ae34cc9ebd8933a5f6cd13c644246b17b7'
+      : 'fcdf7d683708e7f297caa7b26491c6f8d0e11036a087e85e7e6f6c42f11d783e',
   }, manifestResource: {
     filename: 'muse-desktop-builds.json',
     url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/muse-desktop-builds.json`,
-    bytes: 2504, sha256: 'be7e149c692e87b097e570091c5dfab9dd85d91b6a82efb4d446bb51bb968168',
+    bytes: 2504, sha256: 'c95eb80af80ef789b563a3eba3234ef4e8cdaefd1124329dbae056f6bb1f98f2',
   } }
 }
 

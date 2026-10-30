@@ -9,7 +9,7 @@ description: Muse Flash 预设会在本地拒绝估算超大的请求，不再�
 
 ## 变更
 
-Muse Desktop Host 默认值与 `standard`、`ptc`、`cordis`、`short-drama`、`creation`、`bot-coordinator` 预设为 DeepSeek 官方 Flash 的当前与历史 ID 启用 `workingTokenLimit: 475000`。模型物理容量元数据仍为 1,000,000 tokens；提供方路由、默认模型与正常对话输出上限不变。`0.45` 阈值会在估算 450,000 tokens 时开始主动压缩，目标近期尾部为 65,536 tokens，摘要上限为 16,384 tokens。
+Muse Desktop Host 默认值与 `standard`、`ptc`、Cordis、`short-drama`、`creation`、`bot-coordinator` 预设为 DeepSeek 官方 Flash 的当前与历史 ID 启用 `workingTokenLimit: 475000`。模型物理容量元数据仍为 1,000,000 tokens；提供方路由、默认模型与正常对话输出上限不变。`0.45` 阈值会在估算 450,000 tokens 时开始主动压缩，目标近期尾部为 65,536 tokens，摘要上限为 16,384 tokens。
 
 现有压缩后端会在发送到提供方之前检查完整的普通 agent-loop 请求。本地恢复原样保留当前步骤刚提交的输入、运行时上下文与工具更新文本，压缩更早的平衡历史，并且只在压力降至上限以下、持久化确认替换落盘后重试。失败会停止请求，不再发送超大历史。此估算不保证与提供方的精确 tokenizer 一致。未设置 `workingTokenLimit` 的 profile 保持原有行为。
 

@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-Muse Desktop Host defaults and the `standard`, `ptc`, `cordis`, `short-drama`, `creation` and `bot-coordinator` presets enable `workingTokenLimit: 475000` for the current and historical official DeepSeek Flash IDs. Their physical model metadata stays at 1,000,000 tokens; provider routing, the default model and conversation output caps do not change. A `0.45` threshold starts proactive compaction at 450,000 estimated tokens, with a requested 65,536-token recent tail and a 16,384-token summary cap.
+Muse Desktop Host defaults and the `standard`, `ptc`, Cordis, `short-drama`, `creation` and `bot-coordinator` presets enable `workingTokenLimit: 475000` for the current and historical official DeepSeek Flash IDs. Their physical model metadata stays at 1,000,000 tokens; provider routing, the default model and conversation output caps do not change. A `0.45` threshold starts proactive compaction at 450,000 estimated tokens, with a requested 65,536-token recent tail and a 16,384-token summary cap.
 
 The existing compaction backend checks complete ordinary agent-loop requests before provider dispatch. Local recovery preserves newly committed current-step input, runtime context and tool-update text, compacts older balanced history, and retries only after pressure falls below the limit and persistence acknowledges the replacement. Failure stops the request instead of sending oversized history. This estimate is not a guarantee about the provider's exact tokenizer. Profiles without `workingTokenLimit` keep their previous behavior.
 

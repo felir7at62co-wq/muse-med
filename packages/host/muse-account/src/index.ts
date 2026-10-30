@@ -16,6 +16,7 @@ import { MuseAccountService } from './service.ts'
 import { MuseFeedbackClient, feedbackSecrets } from './feedback.ts'
 import { MuseDesktopRemote } from './desktop-remote.ts'
 import { mountMuseActivity } from './activity.ts'
+import { mountMuseWebSearch } from './web-search.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -65,6 +66,10 @@ export interface Config {
   readonly accountHome?: string
   /** Timeout for account and knowledge-base gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Register account-authorized search when a web service is present. Muse Desktop enables it. */
+  readonly webSearch: boolean
+  /** Maximum lifetime of one account-authorized web search, in milliseconds. */
+  readonly searchRequestTimeoutMs: number
   /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
   readonly modelRequestImageMaxBytes?: number
   /** Maximum time for one compressed-audio upload and gateway response. */
@@ -102,6 +107,8 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   })).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
+  webSearch: Schema.boolean().default(false),
+  searchRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(60_000),
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
@@ -131,6 +138,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   mountMuseActivity(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'),
     reportIntervalMs: config.activityReportIntervalMs, requestTimeoutMs: config.activityRequestTimeoutMs })
+  if (config.webSearch) {
+    mountMuseWebSearch(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.searchRequestTimeoutMs })
+  }
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,

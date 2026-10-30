@@ -85,6 +85,12 @@
 - id: web-startup
   disabled: false
 
+# Muse search uses the account gateway; anonymous page fetching keeps its HTTP provider.
+- id: web
+  config:
+    searchProvider: muse
+    fetchProvider: http
+
 # Muse feedback is delivered explicitly to its account inbox.
 - id: session-log-deepseek
   disabled: true
@@ -163,6 +169,7 @@
       inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+        webSearch: true
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }

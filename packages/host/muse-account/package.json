@@ -58,6 +58,7 @@
     "@deepseek-ai/dsh-credentials": "workspace:*",
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "@deepseek-ai/dsh-web": "workspace:*",
     "@deepseek-ai/dsh-mcp-client": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "@modelcontextprotocol/client": "2.0.0",

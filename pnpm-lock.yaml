@@ -10626,6 +10626,9 @@ importers:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
         version: link:../../util/home-paths
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:*
+        version: link:../../web/web
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../webserver

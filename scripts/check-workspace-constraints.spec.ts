@@ -277,6 +277,43 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('requires the exact attribution files only for tool-discovery', () => {
+    const dir = 'packages/core/tool-discovery'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(expectedDshPackageFiles(manifest)).toEqual(['lib/index.js', 'lib/types/**/*.d.ts', 'NOTICE', 'LICENSE-Codex'])
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const files of [
+      manifest.files!.filter(file => file !== 'NOTICE'), manifest.files!.filter(file => file !== 'LICENSE-Codex'),
+      [...manifest.files!, 'LICENSE-other'], [...manifest.files!, 'licenses/**'],
+    ]) expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+      .toContainEqual(expect.stringContaining('package.json files must be'))
+    const other = { ...manifest, name: '@deepseek-ai/dsh-other' }
+    expect(expectedDshPackageFiles(other)).not.toContain('NOTICE')
+    expect(checkWorkspaceManifest({ dir, manifest: other })).toContainEqual(expect.stringContaining('package.json files must be'))
+  })
+
+  it('requires the released Desktop recovery entry and license directory without widening its payload', () => {
+    const dir = 'apps/desktop-host'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const files of [
+      manifest.files!.filter(file => file !== 'lib/source-recovery.js'), manifest.files!.filter(file => file !== 'licenses'),
+      [...manifest.files!, 'lib/other.js'], [...manifest.files!, 'licenses/**'],
+    ]) expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+      .toContainEqual(expect.stringContaining('package.json files must be'))
+  })
+
+  it('accepts only the fixed Windows draft bridge in the private drama skill package', () => {
+    const dir = 'packages/drama/skills'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const file of [
+      'skills/tweet-drama-draft-build/scripts/windows/other.ps1',
+      'skills/tweet-drama-core/scripts/windows/aa-draft.ps1',
+      'skills/tweet-drama-draft-build/scripts/windows/*.ps1',
+    ]) expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
+      .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
+  })
   it('requires only the exact Windows OCR bridge beside the video inspection runtime', () => {
     const dir = 'packages/perception/tool-video-inspect'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']

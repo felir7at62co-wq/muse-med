@@ -47,6 +47,12 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 回答评分与任务反馈弹窗提交到 Muse 意见箱；**Muse Bot 设置 → 意见反馈**打开[账号 UI](../../client/ui-muse-account/README.zh.md)所述的原生会话反馈表单。提交使用桌面保存的账号，并保留分类、本地会话及消息标识。相关摘录的可选勾选框默认关闭；勾选后只附有限长度的可见请求和回答文字，并移除已知凭据。不发送工具参数、工具结果、思考内容、附件或完整会话日志。意见箱保存凭据经确认后表单才关闭；登录、网络和账号切换失败保留草稿。提交结果不确定时，应先查看意见箱再决定是否重试。管理员在 `/feedback` 查看全部意见，普通用户只能查看自己的意见。
 
+### 账号授权的网页搜索
+
+配置 `webSearch: true` 时，Muse Desktop 选择 `muse` 搜索提供方，`web_fetch` 继续使用现有 `http` 提供方。原有 `web_search` 工具使用已保存的 Muse 会话，把每条查询及可选结果数发送到同源 `/api/web/search` 接口。官方搜索 API Key 保留在服务器，不要求本地 `DEEPSEEK_API_KEY`、模型凭据或 DeepSeek Account 登录。非 Muse profile 保留各自配置的搜索提供方。
+
+搜索拒绝重定向，使用独立的 `searchRequestTimeoutMs` 时限，将网关 JSON 限制为 1 MiB，只返回校验过的来源 URL、标题、摘要片段或 summary 后备文本及日期。工具的来源数量上限仍有效。请求期间退出或切换账号会拒绝该结果。错误使用固定诊断，不包含原始网关响应、凭据值或传输异常，不自动重试。插件卸载会取消并等待在途搜索结束。客户端选择该提供方前，账号网关须先部署对应接口。
+
 ### 共享声线登记
 
 `MuseAccountService.requestVoiceSlot` 仅供 Host 使用，沿当前私密 Muse 会话调用[共享登记协调器](../../../services/muse-accounts/README.zh.md#shared-voice-registration)。剧变 token 仅通过私密请求头发送，响应后核对账号修订，拒绝重定向，将严格 UTF-8 协调响应限制为 16 KiB，且不自动重试。该方法不是 Remote 接口，也不是模型可见的凭据读取器。未配置服务时拒绝新的协调登记，已有音频复用和其他制作工作仍可继续。
@@ -76,6 +82,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `modelRefreshMs` | 60,000 | 模型目录刷新间隔毫秒数，可设为 10,000 至 3,600,000。 |
 | `accountHome` | 当前 DSH 主目录 | 存放本产品账号会话文件的绝对目录。 |
 | `requestTimeoutMs` | 15,000 | 账号和知识库授权请求的超时毫秒数，可设为 1,000 至 120,000。 |
+| `webSearch` | `false` | web 服务存在时注册 `muse` 搜索提供方；Muse Desktop 启用此项。 |
+| `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `activityReportIntervalMs` | 30,000 | 同一登录两次使用情况上报的最短间隔，范围 1,000–3,600,000 毫秒。 |

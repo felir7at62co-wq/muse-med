@@ -17,6 +17,9 @@
 /deepseek-ai-dsh-muse-account/use-this-package:
   en: fbc62e010ce40b1e
   zh: b031173fa96df7fd
+/deepseek-ai-dsh-muse-account/use-this-package/account-authorized-web-search:
+  en: 176956ec3d631560
+  zh: 98b06e33be6e5060
 /deepseek-ai-dsh-muse-account/use-this-package/shared-voice-registration:
   en: dd5ecfddac2f51bc
   zh: 8c0ff6195e7bf5da
@@ -24,8 +27,8 @@
   en: 27ac5f78763f8980
   zh: dbacd0b9dc857ec9
 /deepseek-ai-dsh-muse-account/use-this-package/minimal-configuration:
-  en: 854902d0afeaf2b2
-  zh: 6a8f294e5ffa0653
+  en: ec83273ba274c208
+  zh: cc822bef7c9fed9e
 /deepseek-ai-dsh-muse-account/use-this-package/desktop-access-from-the-website:
   en: 3274ef3700b1dae4
   zh: d2725395470e644f
