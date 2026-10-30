@@ -529,7 +529,23 @@ class SingleExeBuild {
           + `target ${target.platform}-${target.arch} does not match host ${host.platform}-${host.arch}.`,
         )
       }
-      resolveWindowsNodePtyAddons(join(this.staging, 'node_modules', 'node-pty'), target.arch)
+      // pnpm deploy does not run dependency lifecycle scripts, so the ConPTY
+      // prebuilds materialized by the workspace install never reach the staging;
+      // copy them from the workspace package like the Linux manylinux fallback.
+      const stagedPty = join(this.staging, 'node_modules', 'node-pty')
+      const stagedPrebuilds = join(stagedPty, 'prebuilds', 'win32-x64')
+      if (!existsSync(join(stagedPrebuilds, 'conpty.node'))) {
+        await mkdir(stagedPrebuilds, { recursive: true })
+        await copyFile(
+          join(packageDirectory, 'prebuilds', 'win32-x64', 'conpty.node'),
+          join(stagedPrebuilds, 'conpty.node'),
+        )
+        await copyFile(
+          join(packageDirectory, 'prebuilds', 'win32-x64', 'conpty_console_list.node'),
+          join(stagedPrebuilds, 'conpty_console_list.node'),
+        )
+      }
+      resolveWindowsNodePtyAddons(stagedPty, target.arch)
       return
     }
     if (target.platform !== 'linux') return
