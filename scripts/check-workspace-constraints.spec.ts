@@ -277,6 +277,26 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('requires only the Codex attribution files beside the tool discovery runtime', () => {
+    const dir = 'packages/core/tool-discovery'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    const canonical = ['lib/index.js', 'NOTICE', 'LICENSE-Codex', 'lib/types/**/*.d.ts']
+    expect(manifest.files).toEqual(canonical)
+    expect(expectedDshPackageFiles(manifest)).toEqual(canonical)
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const files of [
+      canonical.filter(file => file !== 'NOTICE'),
+      canonical.filter(file => file !== 'LICENSE-Codex'),
+      ['lib/index.js', 'NOTICE', 'LICENSE-*', 'lib/types/**/*.d.ts'],
+      [...canonical, 'LICENSE-other'],
+    ]) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+        .toEqual([expect.stringContaining('package.json files must be')])
+    }
+    expect(expectedDshPackageFiles({ name: '@deepseek-ai/dsh-other' }))
+      .toEqual(['lib/index.js', 'lib/types/**/*.d.ts'])
+  })
+
   it('requires only the exact Windows OCR bridge beside the video inspection runtime', () => {
     const dir = 'packages/perception/tool-video-inspect'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
@@ -319,6 +339,22 @@ describe('package payload constraints', () => {
       .toContainEqual(expect.stringContaining('resource package file does not exist'))
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other' } }))
       .toContainEqual(expect.stringContaining('release member must not set "private": true'))
+  })
+
+  it('accepts only the declared Windows draft bridge among PowerShell skill resources', () => {
+    const dir = 'packages/drama/skills'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(manifest.files).toContain('skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1')
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const file of [
+      'skills/tweet-drama-draft-build/scripts/windows/other.ps1',
+      'skills/tweet-drama-draft-build/scripts/aa-draft.ps1',
+      'skills/tweet-drama-core/scripts/windows/aa-draft.ps1',
+      'skills/tweet-drama-draft-build/scripts/windows/*.ps1',
+    ]) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
+        .toContainEqual(expect.stringContaining(`resource package file must be a declared skill resource: ${file}`))
+    }
   })
 
 
