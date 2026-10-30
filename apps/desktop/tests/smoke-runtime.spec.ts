@@ -35,9 +35,9 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
   'muse-llm-wiki', 'muse-project-participation',
   'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
-  'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
+  'trope-adaptation', 'wechat-shortdrama-harvest']
 const defaultHostSkills = ['audio-transcribe', 'muse-script-doctor', 'novel-to-script',
-  'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']
+  'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format', 'video-review']
 
 /**
  * Write the primary-runtime payload the smoke reads before it starts the Host.
