@@ -411,7 +411,8 @@ class PortabilityTests(unittest.TestCase):
         self.assertIn('os', text)
         self.assertNotIn('Optional actual_speech_start', text)
         render = (RENDER / 'SKILL.md').read_text(encoding='utf-8')
-        self.assertIn('使用多首时', render)
+        self.assertIn('同一情绪发展可沿用一曲，确有剧情转折才合理改变音乐', render)
+        self.assertIn('场景数、镜头数和分析段落数都不决定曲目数量', render)
         self.assertIn('按正文情绪分段选曲', render)
         self.assertNotIn('E:\\aa-manju', render)
 
