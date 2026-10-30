@@ -867,7 +867,27 @@ def paid_ready(project: Path | str, episodes: list[str] | tuple[str, ...], *, ep
             "reasons": reasons}
 
 
-def speech_preflight(project: Path | str, episode: str, script: Path | str) -> dict[str, Any]:
+def _preflight_shots(text: str, characters: set[str]) -> list[tuple[str, str | None, str, str] | None]:
+    """Read ordered speech from either canonical shots or per-package Markdown shots."""
+    markdown = list(re.finditer(r"^#{2,6}[ \t]+(?:镜头[0-9]+|画外音镜)[）)]?[ \t]*$", text, re.MULTILINE))
+    canonical = list(SHOT_MARKER.finditer(text))
+    if markdown and canonical:
+        raise ValueError("镜头脚本混用不同标记格式，请先统一")
+    if not markdown:
+        if not canonical:
+            raise ValueError("未找到可检查的逐镜台词：请使用【镜头N】或逐包 Markdown 镜头标题，并将发声写入各镜的台词字段；覆盖表和按包汇总不能代替逐镜内容")
+        return list(_shots(text, characters).values())
+    result = []
+    for index, marker in enumerate(markdown):
+        end = markdown[index + 1].start() if index + 1 < len(markdown) else len(text)
+        body = text[marker.end():end]
+        body = re.sub(r"^[ \t]*[-*][ \t]+(?=(?:台词|画外音|画外声|心声|旁白|解说|VO|OS|dialogue|发声类型|语音类型|说话人)[：:])", "", body, flags=re.MULTILINE | re.IGNORECASE)
+        result.append(_shot_speech(body, characters))
+    return result
+
+
+def speech_preflight(project: Path | str, episode: str, script: Path | str,
+                     *, source_file: Path | str | None = None) -> dict[str, Any]:
     """Compare ordered speech before writing cards, without signing full coverage.
 
     This supports ordinary screenplay performance annotations for characters
@@ -880,13 +900,17 @@ def speech_preflight(project: Path | str, episode: str, script: Path | str) -> d
     ep = str(episode).zfill(2)
     if not is_episode_id(ep):
         raise ValueError("preflight需要一个有效的单集号")
-    source_path = project / "episodes" / f"{ep}.txt"
+    source_path = Path(source_file) if source_file is not None else project / "episodes" / f"{ep}.txt"
+    source_path = source_path if source_path.is_absolute() else project / source_path
     shot_path = Path(script)
     shot_path = shot_path if shot_path.is_absolute() else project / shot_path
     source = source_path.read_text(encoding="utf-8-sig")
     authored = shot_path.read_text(encoding="utf-8-sig")
     if not source.strip():
         raise ValueError("分集原文为空，不能签发发声预检通过")
+    header = EPISODE_HEADER.match(source.lstrip())
+    if source_file is not None and header is not None and int(header.group(1) or header.group(2)) != int(ep):
+        raise ValueError("原文集号与预检集号不一致")
     names = _source_characters(source)
     expected, actual = [], []
     pending, source_rows = [], []
@@ -901,8 +925,8 @@ def speech_preflight(project: Path | str, episode: str, script: Path | str) -> d
                             "speaker": speaker, "text": spoken})
         expected.extend((speaker, "dialogue" if kind == "dialogue" else "vo", c)
                         for c in re.findall(r"[\u4e00-\u9fffA-Za-z0-9]", spoken))
-    shots = _shots(authored, names)
-    for speech in shots.values():
+    shots = _preflight_shots(authored, names)
+    for speech in shots:
         if speech is not None:
             kind, _subtype, speaker, spoken = speech
             actual.extend((speaker, kind, c) for c in re.findall(r"[\u4e00-\u9fffA-Za-z0-9]", spoken))
@@ -928,12 +952,13 @@ def main() -> int:
     parser.add_argument("command", choices=("audit", "accept", "gate", "preflight", "source-lines", "source-scan"))
     parser.add_argument("episodes", nargs="*", help="gate 时按序传入待付费制作集号")
     parser.add_argument("--script", type=Path, help="preflight比较的完整单集镜头脚本")
+    parser.add_argument("--source", type=Path, help="preflight使用的单集原文；省略时读取项目episodes目录")
     parser.add_argument("--episode-only", action="store_true", help="accept/gate仅核对显式指定的一集，不要求前序覆盖凭证；保留原文完整性检查")
     args = parser.parse_args()
     if args.episode_only and (args.command not in {"accept", "gate"} or len(args.episodes) != 1):
         parser.error("--episode-only仅用于显式指定一个集号的accept/gate")
-    if args.command != "preflight" and args.script is not None:
-        parser.error("--script仅用于preflight")
+    if args.command != "preflight" and (args.script is not None or args.source is not None):
+        parser.error("--script和--source仅用于preflight")
     if args.command == "source-scan":
         if args.episodes:
             parser.error("source-scan按已声明工作范围扫描，不接受集号参数")
@@ -950,7 +975,7 @@ def main() -> int:
         if len(args.episodes) != 1 or args.script is None:
             parser.error("preflight需要一个集号和--script")
         try:
-            result = speech_preflight(args.project, args.episodes[0], args.script)
+            result = speech_preflight(args.project, args.episodes[0], args.script, source_file=args.source)
         except (OSError, UnicodeError, ValueError) as error:
             result = {"status": "failed", "check": "ordered_speech_only", "coverage_acceptance": False,
                       "reasons": [str(error)]}

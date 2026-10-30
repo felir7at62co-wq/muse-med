@@ -144,6 +144,77 @@ class SpeechPreflight(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '原文为空'):
             self.run_check('', '【镜头1】\n发声类型：action\n')
 
+    def test_package_summary_and_coverage_table_are_not_a_shot_script(self):
+        source = '人物：甲\n甲：刘福贵！刘福贵！'
+        authored = ('## 覆盖\n| 原文行 | 落镜 |\n| 甲：刘福贵！刘福贵！ | 镜1 |\n'
+                    '## 包 EP12-P1\n1. 甲转身喊。\n'
+                    '## 台词落位\n| 包 | 台词 |\n| P1 | 甲：刘福贵！刘福贵！ |\n')
+        with self.assertRaisesRegex(ValueError, '覆盖表和按包汇总不能代替逐镜内容'):
+            self.run_check(source, authored)
+
+    def test_markdown_shots_report_missing_repeated_short_utterance(self):
+        source = '人物：甲、乙\n甲：柴劈好了。\n乙：嗯。\n甲：水挑好了。\n乙：嗯。\n甲：别老嗯。'
+        authored = ('## 包 EP29-P1\n### 镜头1）\n- 台词：甲：柴劈好了。\n- 发声类型：dialogue\n'
+                    '### 镜头2）\n- 台词：乙：嗯。\n- 发声类型：dialogue\n'
+                    '## 包 EP29-P2\n### 镜头1）\n- 台词：甲：水挑好了。\n- 发声类型：dialogue\n'
+                    '### 镜头2）\n- 台词：甲：别老嗯。\n- 发声类型：dialogue\n')
+        result = self.run_check(source, authored)
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual('嗯', ''.join(x['source'] for x in result['changes']))
+
+    def test_markdown_shots_detect_repeated_vo_and_allow_split_vo(self):
+        source = '人物：乙\n乙 VO：日子过去了。生活发生了变化。'
+        def segment(text):
+            return f'### 镜头1）\n- 台词：乙（画外音）：{text}\n- 发声类型：vo\n'
+        repeated = segment('日子过去了。生活发生了变化。') * 3
+        self.assertEqual(self.run_check(source, repeated)['status'], 'failed')
+        split = segment('日子过去了。') + segment('生活发生了变化。')
+        self.assertEqual(self.run_check(source, split)['status'], 'passed')
+
+    def test_markdown_unnumbered_offscreen_shot_keeps_speech_separate(self):
+        source = '人物：甲、接警员（VO）\n甲：喂。\n接警员 VO：收到。'
+        authored = ('### 镜头1）\n- 台词：甲：喂。\n- 发声类型：dialogue\n'
+                    '### 画外音镜）\n- 台词：接警员（画外音）：收到。\n- 发声类型：vo\n')
+        self.assertEqual(self.run_check(source, authored)['status'], 'passed')
+
+    def test_markdown_offscreen_reply_order_matches_source(self):
+        source = '人物：甲、接警员（VO）\n接警员 VO：家里有药吗？\n甲：我回去找。'
+        reply = '### 镜头1）\n- 台词：甲：我回去找。\n- 发声类型：dialogue\n'
+        voice = '### 画外音镜）\n- 台词：接警员（画外音）：家里有药吗？\n- 发声类型：vo\n'
+        self.assertEqual(self.run_check(source, reply + voice)['status'], 'failed')
+        self.assertEqual(self.run_check(source, voice + reply)['status'], 'passed')
+
+    def test_cli_accepts_explicit_source_file_without_project_manifest(self):
+        source = self.root / 'source.txt'
+        source.write_text('人物：甲\n甲：好。', encoding='utf-8')
+        script = self.root / 'authored.txt'
+        script.write_text(shot(1, '甲', '好。'), encoding='utf-8')
+        process = subprocess.run([sys.executable, '-B', '-X', 'utf8', str(SCRIPTS / 'episode_coverage.py'),
+                                  str(self.root), 'preflight', '12', '--script', str(script), '--source', str(source)],
+                                 capture_output=True, encoding='utf-8', timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(json.loads(process.stdout)['status'], 'passed')
+
+    def test_markdown_shots_reject_conflicting_speaker_and_voice(self):
+        source = '人物：甲、乙\n甲 VO：记住。'
+        for body in ('- 台词：乙（画外音）：记住。\n- 发声类型：vo',
+                     '- 台词：甲：记住。\n- 发声类型：dialogue'):
+            with self.subTest(body=body):
+                result = self.run_check(source, '### 镜头1）\n' + body + '\n')
+                self.assertEqual(result['status'], 'failed')
+
+    def test_preflight_rejects_mixed_shot_notation(self):
+        with self.assertRaisesRegex(ValueError, '混用'):
+            self.run_check('人物：甲\n甲：好。', shot(1, '甲', '好。') + '### 镜头2）\n- 发声类型：action\n')
+
+    def test_explicit_source_episode_header_must_match(self):
+        source = self.root / 'source.txt'
+        source.write_text('第13集\n人物：甲\n甲：好。', encoding='utf-8')
+        script = self.root / 'authored.txt'
+        script.write_text(shot(1, '甲', '好。'), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, '集号'):
+            speech_preflight(self.root, '12', script, source_file=source)
+
     def test_cli_fails_for_missing_text_and_never_signs_acceptance(self):
         self.run_check('刘福贵：等等。', shot(1, '刘福贵', '走吧。'))
         process = subprocess.run([sys.executable, '-B', '-X', 'utf8', str(SCRIPTS / 'episode_coverage.py'),
