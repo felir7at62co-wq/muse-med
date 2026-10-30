@@ -21,8 +21,27 @@ async function fixture(t,{recognize=async()=>({status:'silent'}),probe=async()=>
   const response=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'synthetic-password'}),redirect:'manual'});
   cookies.set(username,response.headers.get('set-cookie').split(';')[0]);
  }
- return {base,service,releases,post:(username='alice',id=randomUUID())=>fetch(base+'/api/asr/jobs',{method:'POST',headers:{origin,cookie:cookies.get(username),'content-type':'audio/mpeg','idempotency-key':id,'x-audio-sha256':hash,'x-audio-language':'zh'},body:bytes}),get:id=>fetch(base+'/api/asr/jobs/'+id,{headers:{cookie:cookies.get('alice')}})};
+ return {base,service,releases,post:(username='alice',id=randomUUID())=>fetch(base+'/api/asr/jobs',{method:'POST',headers:{origin,cookie:cookies.get(username),'content-type':'audio/mpeg','idempotency-key':id,'x-audio-sha256':hash,'x-audio-language':'zh'},body:bytes}),get:(id,username='alice')=>fetch(base+'/api/asr/jobs/'+id,{headers:{cookie:cookies.get(username)}})};
 }
+
+test('HTTP status reports an active upload before its durable receipt exists',async t=>{
+ const entered=Promise.withResolvers(),release=Promise.withResolvers();let calls=0;
+ const env=await fixture(t,{probe:async()=>{entered.resolve();await release.promise;return 10;},recognize:async()=>{calls++;return {status:'silent'};}});env.releases.push(release.resolve);
+ const id=randomUUID(),upload=env.post('alice',id);await entered.promise;
+ const pending=await env.get(id);assert.equal(pending.status,200);
+ assert.deepEqual(await pending.json(),{id,status:'preparing',recovery:{capability:'none',next_action:'wait',automatic_resubmit:false}});
+ assert.equal((await env.get(id,'bob')).status,404);assert.equal((await env.get(randomUUID())).status,404);
+ release.resolve();assert.equal((await upload).status,202);await env.service.idle();
+ assert.equal((await (await env.get(id)).json()).status,'silent');assert.equal(calls,1);
+});
+
+test('a rejected upload no longer appears active after its request settles',async t=>{
+ const entered=Promise.withResolvers(),release=Promise.withResolvers();let calls=0;
+ const env=await fixture(t,{probe:async()=>{entered.resolve();await release.promise;throw Object.assign(Error('invalid audio'),{status:422});},recognize:async()=>{calls++;return {status:'silent'};}});env.releases.push(release.resolve);
+ const id=randomUUID(),upload=env.post('alice',id);await entered.promise;
+ assert.equal((await env.get(id)).status,200);release.resolve();assert.equal((await upload).status,422);
+ assert.equal((await env.get(id)).status,404);assert.equal(calls,0);
+});
 
 test('HTTP queue refusal keeps legacy error text and adds a safe retry reason and header',async t=>{
  const entered=Promise.withResolvers(),release=Promise.withResolvers();
