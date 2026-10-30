@@ -108,7 +108,11 @@ it('keeps shot requirements resident and loads creative direction with skills', 
       expect(summary?.whenToUse).toContain('不用于仅整理普通分场剧本')
       const content = await readFile(new URL(`${name}/SKILL.md`, `file://${skillRoot}`))
       expect(bodies[names.indexOf(name)]).toContain(content.toString('utf8').replace(/^---\n[\s\S]*?\n---\n/u, '').trim())
-      expect(bodies[names.indexOf(name)]).not.toContain('drama_shot')
+      if (name === 'shot-script-creator-9-16') {
+        expect(bodies[names.indexOf(name)]).toContain('drama_shot validate` 只检查格式与建议，不能代替原文逐字预检')
+      } else {
+        expect(bodies[names.indexOf(name)]).not.toContain('drama_shot')
+      }
       expect(bodies[names.indexOf(name)]).not.toContain('15秒信息密度')
       expect(bodies[names.indexOf(name)]).toContain('写卡使用 `jubian_storyboard` 的预览、保存和真实回读')
       expect(bodies[names.indexOf(name)]).toContain('分辨率以当前会话的视频选择为准')
