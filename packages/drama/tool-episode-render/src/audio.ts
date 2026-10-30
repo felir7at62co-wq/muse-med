@@ -318,11 +318,13 @@ export async function previewAudio(input: AudioPreviewInput): Promise<AudioPrevi
   const sampleCount = Math.round(input.durationSeconds * 48_000)
   if (!Number.isSafeInteger(startSample) || sampleCount < 1) throw new Error('音频试听窗口至少需要一个 48 kHz 样本，起点不能超出安全整数范围。')
   const timelineFile = await requireProjectAudioFile(input.project, input.timelinePath)
-  const timeline = await readTimeline(timelineFile)
+  const timeline = await readTimeline(timelineFile, input.settings.enforceSubtitleVisual)
   if (input.startSeconds + input.durationSeconds > timeline.bodyEndSeconds + 0.000001) {
     throw new Error('音频试听窗口不能超过正文时间线。')
   }
-  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  const policy = await resolveDeliveryPolicy(
+    input.project, timeline.delivery, input.settings.defaultSubtitleVisual, input.settings.enforceSubtitleVisual,
+  )
   const profile = await loadAudioMixProfile(input.project, input.profilePath,
     deliveryRenderSettings(input.settings, policy.delivery))
   const original = await requireProjectAudioFile(input.project, input.audio)

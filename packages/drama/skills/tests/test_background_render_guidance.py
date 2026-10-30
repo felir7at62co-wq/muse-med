@@ -4,6 +4,18 @@ import unittest
 
 
 class BackgroundRenderGuidance(unittest.TestCase):
+    def test_resumed_projects_use_current_renderer_without_new_gate(self):
+        text = (Path(__file__).resolve().parents[1] / "skills" /
+                "tweet-drama-background-render" / "SKILL.md").read_text(encoding="utf-8")
+        for required in ("历史会话续做或 Muse 更新后", "旧手写 ASS、FFmpeg 命令或历史绝对字体路径",
+                         "`drama_render subtitles → prepare → render`", "prepare 返回的真实候选字幕",
+                         "同一时间线制作 MP4 与草稿", "按下述 resolved SRT 与报告操作",
+                         "此指导不拦截任意手写命令，不新增用户审批步骤",
+                         "Windows 与 macOS 产品媒体运行时均准备锁定的随包字体",
+                         "macOS 源码准备与模拟测试不能代替实际 Mac 安装及渲染验收"):
+            self.assertIn(required, text)
+        self.assertNotIn("随包字体只存在于 muse-med Windows 产品", text)
+
     def test_upscale_uses_live_catalogue_and_explicit_paid_authority(self):
         text = (Path(__file__).resolve().parents[1] / "skills" /
                 "tweet-drama-background-render" / "SKILL.md").read_text(encoding="utf-8")

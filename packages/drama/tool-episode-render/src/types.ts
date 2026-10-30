@@ -617,6 +617,14 @@ export interface BgmPlanReport {
 
 /** The deployment-varying choices one render resolves. */
 export interface RenderSettings {
+  /** Deployment fallback when the timeline does not select a tail-effect fit. */
+  readonly defaultEndingEffectFit?: EndingEffectFit
+  /** Deployment's fallback subtitle target when the project has not selected a style. */
+  readonly defaultSubtitleVisual?: DeliverySubtitleVisual
+  /** Apply the deployment subtitle target even to old project and timeline overrides. */
+  readonly enforceSubtitleVisual?: boolean
+  /** Normalize display text while retaining source SRT and measured cue times. */
+  readonly normalizeSubtitleText?: boolean
   /** Deployment ceiling for the final BGM multiplier; omitted retains the legacy limit of 8. */
   readonly maxBgmVolume?: number
   /** ffmpeg executable to start. */

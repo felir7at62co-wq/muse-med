@@ -3,6 +3,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/scripts/jianying_draft.py'
@@ -41,6 +42,20 @@ class DraftSubtitleTimingTests(unittest.TestCase):
             self.assertEqual(len(cues), 1)
             self.assertEqual((cues[0]['start_us'], cues[0]['end_us']), (100_000, 8_000_000))
             self.assertIn('这是第一段台词 这是第二段台词 后面还有一段台词', output.read_text())
+
+    def test_product_cue_uses_shared_punctuation_policy_without_inventing_times(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, output = Path(temporary) / 'source.srt', Path(temporary) / 'product.srt'
+            raw = ('1\n00:00:00,123 --> 00:00:08,456\n'
+                   '价格 3.14，好！\n这是一条很长很长很长很长很长很长的字幕。\n')
+            source.write_text(raw, encoding='utf-8')
+            with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1'}):
+                cues = self.draft.normalize_srt(source, output)
+            self.assertEqual(source.read_text(encoding='utf-8'), raw)
+            self.assertEqual(len(cues), 1)
+            self.assertEqual((cues[0]['start_us'], cues[0]['end_us']), (123_000, 8_456_000))
+            self.assertEqual(cues[0]['text'], '价格 3.14 好 这是一条很长很长很长很长很长很长的字幕')
+            self.assertIn(cues[0]['text'], output.read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':

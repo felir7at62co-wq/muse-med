@@ -412,7 +412,8 @@ beforeEach(() => {
   vi.stubEnv('MUSE_MED_HOME', undefined)
   for (const name of ['PATH', 'Path', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'MUSE_HOME',
     'DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_WHISPER_MODEL_DIR', 'MUSE_BGM_RUNTIME_DIR', 'MUSE_FONTS_DIR',
-    'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY']) {
+    'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY', 'MUSE_DEFAULT_ENDING_EFFECT_FIT',
+    'MUSE_DEFAULT_SUBTITLE_VISUAL', 'MUSE_FORCE_SUBTITLE_VISUAL', 'MUSE_NORMALIZE_SUBTITLE_TEXT']) {
     vi.stubEnv(name, process.env[name])
   }
 })
@@ -876,6 +877,35 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_HOME).toBe(join(homedir(), '.muse'))
   })
 
+  it('uses the bundled Mac media tools and subtitle fonts for packaged startup', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'darwin', resourcesPath: 'desktop-test-resources' })
+    for (const name of ['DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_FONTS_DIR',
+      'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY']) vi.stubEnv(name, undefined)
+    await import('../src/main.ts')
+    const media = join('desktop-test-resources', 'runtime', 'media')
+    expect(process.env.DSH_FFMPEG_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffmpeg'))
+    expect(process.env.DSH_FFPROBE_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffprobe'))
+    expect(process.env.FFMPEG_PATH).toBe(process.env.DSH_FFMPEG_PATH)
+    expect(process.env.FFPROBE_PATH).toBe(process.env.DSH_FFPROBE_PATH)
+    expect(process.env.MUSE_FONTS_DIR).toBe(join(media, 'fonts'))
+    expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')
+    expect(process.env.MUSE_WATERMARK_FONT_FAMILY).toBe('Noto Sans CJK SC')
+    expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'),
+      MUSE_SUBTITLE_FONT_FAMILY: 'Zhuque Fangsong (technical preview)' })
+  })
+
+  it('preserves explicit Mac media tools but enforces the bundled product subtitle font', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'darwin', resourcesPath: 'desktop-test-resources' })
+    vi.stubEnv('DSH_FFMPEG_PATH', 'custom-ffmpeg')
+    vi.stubEnv('MUSE_FONTS_DIR', 'custom-fonts')
+    vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'custom-subtitle')
+    vi.stubEnv('MUSE_FONT_FAMILY', 'old-parent-font')
+    await import('../src/main.ts')
+    expect(process.env.DSH_FFMPEG_PATH).toBe('custom-ffmpeg')
+    expect(process.env.MUSE_FONTS_DIR).toBe(join('desktop-test-resources', 'runtime', 'media', 'fonts'))
+    expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')
+  })
+
   it('makes packaged Windows media tools available without a local ASR model', async () => {
     vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
     vi.stubEnv('PATH', 'system-tools')
@@ -884,6 +914,10 @@ describe('desktop main startup', () => {
     vi.stubEnv('PYTHONDONTWRITEBYTECODE', '0')
     vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'inherited subtitle')
     vi.stubEnv('MUSE_WATERMARK_FONT_FAMILY', 'inherited watermark')
+    vi.stubEnv('MUSE_DEFAULT_ENDING_EFFECT_FIT', undefined)
+    vi.stubEnv('MUSE_DEFAULT_SUBTITLE_VISUAL', undefined)
+    vi.stubEnv('MUSE_FORCE_SUBTITLE_VISUAL', undefined)
+    vi.stubEnv('MUSE_NORMALIZE_SUBTITLE_TEXT', undefined)
     await import('../src/main.ts')
     await harness.preparing.promise
     const media = join('desktop-test-resources', 'runtime', 'media')
@@ -901,8 +935,15 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_FONT_FAMILY).toBe('Noto Sans CJK SC')
     expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')
     expect(process.env.MUSE_WATERMARK_FONT_FAMILY).toBe('Noto Sans CJK SC')
+    expect(process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT).toBe('stretch_to_window')
+    expect(JSON.parse(process.env.MUSE_DEFAULT_SUBTITLE_VISUAL ?? 'null')).toEqual({ schema_version: 1, reference_width: 480,
+      reference_height: 854, font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 })
+    expect(process.env.MUSE_NORMALIZE_SUBTITLE_TEXT).toBe('1')
+    expect(process.env.MUSE_FORCE_SUBTITLE_VISUAL).toBe('1')
     expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'), MUSE_FONT_FAMILY: 'Noto Sans CJK SC',
-      MUSE_SUBTITLE_FONT_FAMILY: 'Zhuque Fangsong (technical preview)', MUSE_WATERMARK_FONT_FAMILY: 'Noto Sans CJK SC' })
+      MUSE_SUBTITLE_FONT_FAMILY: 'Zhuque Fangsong (technical preview)', MUSE_WATERMARK_FONT_FAMILY: 'Noto Sans CJK SC',
+      MUSE_DEFAULT_ENDING_EFFECT_FIT: 'stretch_to_window', MUSE_NORMALIZE_SUBTITLE_TEXT: '1', MUSE_FORCE_SUBTITLE_VISUAL: '1',
+      MUSE_DEFAULT_SUBTITLE_VISUAL: process.env.MUSE_DEFAULT_SUBTITLE_VISUAL })
   })
 
   it('passes the explicit product home to the backend environment', async () => {
