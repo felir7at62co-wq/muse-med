@@ -59,11 +59,12 @@ You can verify success by watching the conversation continue past the point wher
 
 ### Tuning when condensation starts
 
-All settings are optional. With context window `W`, effective request output cap `O`, and headroom `B`, the default trigger is `floor(min(W × 0.8, W − O − B))`, where `B = 65,536` tokens. Retention requests the newest 16% of `W − O` verbatim; pressure reduces that budget when fixed request content would prevent a checkpoint from fitting below the trigger. The table below lists every setting; the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) also includes their types.
+All settings are optional. With context window `W`, effective request output cap `O`, and headroom `B`, the default trigger is `floor(min(W × 0.8, W − O − B))`, where `B = 65,536` tokens. An optional `workingTokenLimit` also caps this trigger and limits estimated request pressure before automatic conversation requests reach the provider; it does not change `W` or `O`. Retention requests the newest 16% of `W − O` verbatim; pressure reduces that budget when fixed request content would prevent a checkpoint from fitting below the trigger. The table below lists every setting; the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) also includes their types.
 
 | Field | Default | Meaning |
 |---|---|---|
 | `thresholdRatio` | `0.8` | Window fraction used in `floor(min(W × thresholdRatio, W − O − headroomTokens))`. |
+| `workingTokenLimit` | — | Positive estimated request budget for automatic conversation requests; also caps the pressure trigger. Exact model policies inherit or override it. |
 | `headroomTokens` | `65536` | Additional pressure headroom beyond the routed output reservation; a non-negative integer. |
 | `retainRatio` | `0.16` | Requested verbatim recent-conversation budget as a fraction of `W − O`; mutually exclusive with `retainTokens`. |
 | `retainTokens` | — | Requested absolute verbatim recent-conversation budget; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
@@ -71,9 +72,9 @@ All settings are optional. With context window `W`, effective request output cap
 | `summarizationModel` | `''` | Set together with `summarizationProvider`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
 | `maxTokens` | `headroomTokens` (`65536`) | Positive summary output cap, including any provider-counted reasoning tokens. Explicit per-model caps override explicit global caps; otherwise the cap follows the resolved headroom. |
 | `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
-| `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
+| `maxOverflowRetries` | `1` | Maximum recovery retries for provider-confirmed overflow or local working-budget rejection; `0` disables recovery, while the working-budget check still blocks oversized requests. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
-| `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. |
+| `auto` | `true` | Enable automatic condensation, working-budget checks and overflow recovery; set `false` for manual-only operation. |
 
 Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, or a retention ratio at least as large as the threshold ratio reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
 
@@ -114,6 +115,10 @@ With `auto: true`, a serial `agent/pre-step` listener checks pressure before req
 
 Pressure policy resolves capacity from the adapter that owns the durable route. Missing capacity, output plus headroom exhausting the window, or a retained budget at least as large as the threshold makes the manual pressure path throw a target-specific configuration error. The automatic listener warns once for that exact target and skips proactive compaction until its configuration is corrected; provider-confirmed overflow recovery remains available.
 
+With `workingTokenLimit`, an `llm/stream` listener checks the complete ordinary agent-loop request after its accepted inputs, system prompt and tool declarations have been committed. An over-budget request returns a local working-budget error without calling the provider. Recovery keeps surface nodes added in the current step as a protected tail, preserving new user input, runtime context and tool-update text while condensing older balanced history. Auxiliary calls with a declared `purpose` do not use this conversation budget; `auto: false` disables its check.
+
+Working-budget recovery rebuilds the request only after the surface replacement advances, pressure falls below the working limit, and `ctx.sessions.flush()` returns `true`. A persistence flush listener must acknowledge durability; a missing listener, failed flush, cancellation or exhausted `maxOverflowRetries` stops recovery without dispatching the oversized conversation request. This local rejection is separate from provider-confirmed context overflow. See the [upgrade guide](../../../docs/upgrade-guide/v0.2.1-alpha.1/muse-working-context-budget/guide.md) for profile compatibility and rollback.
+
 Pressure selection subtracts tool schemas, the system head, and any provider-usage adjustment from the threshold before budgeting a retained tail and checkpoint framing. If tool-pair rounding exceeds the remaining space, it keeps only the newest indivisible unit; if that still cannot fit a useful checkpoint, it warns once per request policy and makes no summary call. A failed selection is not summarized again while its projected messages and request policy stay unchanged. After a successful replacement, pressure also skips summarizing that checkpoint alone. Appends become eligible when original history enters the selected range; changes to the routed envelope or resolved policy allow another attempt. These guards are local to the live backend and do not suppress cancellation, manual compaction, or provider-confirmed overflow recovery.
 
 ### Summarization mechanics
@@ -128,7 +133,7 @@ The transaction validates the surface span and the durable lock, appends `compac
 
 ### Config resolution
 
-`resolveConfig` validates and detaches defaults, `resolveTargetPolicy` merges exact provider/model overrides, and `resolveCompactSpec` requires explicit adapter capacity and routed output reservation to resolve the trigger and retained budget. The effective envelope’s `maxTokens` supplies that reservation, falling back to the adapter default and then zero. Model discovery (`listModels()`) is never consulted for policy; only the durable route's capacity matters.
+`resolveConfig` validates and detaches defaults, `resolveTargetPolicy` merges exact provider/model overrides, and `resolveCompactSpec` requires explicit adapter capacity and routed output reservation to resolve the trigger and retained budget. An explicit envelope `maxTokens` supplies that reservation; an adapter-derived cap uses the current adapter default before the next request, falling back to zero when no default remains. Headers without the adapter-default marker retain their recorded cap. Model discovery (`listModels()`) is never consulted for policy; only the durable route's capacity matters.
 
 ### Source map
 
@@ -137,6 +142,7 @@ The transaction validates the surface span and the durable lock, appends `compac
 | [`src/index.ts`](src/index.ts) | Plugin entry: `BasicCompactionEngine`, automatic listeners, entry-point dispatch |
 | [`src/region.ts`](src/region.ts) | Retention selection and the shared bracket-first compaction transaction |
 | [`src/pressure.ts`](src/pressure.ts) | Feasible retained-tail budgets and unchanged-selection identities |
+| [`src/working-budget.ts`](src/working-budget.ts) | Final conversation-request checks and durable bounded recovery |
 | [`src/summarizer.ts`](src/summarizer.ts) | Default `ctx.llm.stream()` summarization, checkpoint framing, safe-summary projection |
 | [`src/config.ts`](src/config.ts) | Load-time validation and routed-model policy resolution |
 | [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` and resolved policy vocabulary |
@@ -242,11 +248,11 @@ The replayed system prompt, tools, and shadowed-region messages match the conver
 
 These limits define when automatic condensation is a poor fit or needs special care; they are the current package constraints.
 
-- **Meter accuracy follows the fixed heuristic** — missing reusable provider usage falls back to character count plus structural overhead rather than exact tokenization; image occurrences carry provider-exact visual tokens only on routes whose adapter declares request-image pricing.
+- **Meter accuracy follows the fixed heuristic** — missing reusable provider usage falls back to character count plus structural overhead rather than exact tokenization; image occurrences carry provider-exact visual tokens only on routes whose adapter declares request-image pricing. A working limit bounds this estimate, not the provider's exact input-token count.
 - **Overflow classification is adapter-maintained** — provider wording can change; both DeepSeek adapters normalize recognized context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
-- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path logs a warning and proceeds with full over-budget history. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
+- **Summarization failure preserves the latest durable surface** — without a working limit, the auto path warns and proceeds from the latest durable history, including any completed pruning. With a working limit, a still-over-budget conversation request is blocked. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -258,6 +264,6 @@ This Dev Note is working context for maintainers and is explicitly non-authorita
 
 - **Default ratios, undecided** — `thresholdRatio: 0.8` and `retainRatio: 0.16` are fixed defaults; per-model tuning via `modelPolicies` exists, but no corpus-backed guidance on ideal values is recorded.
 - **Tokenizer-accurate measurement, deferred** — the token meter's four-characters-per-token heuristic underprices CJK text and JSON Schema documents; exact tokenization remains an open direction for the measurement service.
-- **Overflow recovery beyond canonical errors, undecided** — recovery triggers on `CONTEXT_WINDOW_EXCEEDED` only; other provider-side context failures are not classified.
+- **Provider overflow recovery beyond canonical errors, undecided** — provider-side recovery triggers on `CONTEXT_WINDOW_EXCEEDED` only; other provider-side context failures are not classified. Local working-budget rejection uses its own recovery path.
 
 </details>

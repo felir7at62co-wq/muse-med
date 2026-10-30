@@ -534,7 +534,29 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'SERVER', status: 500 } })
   })
 
-  it('uses the resolved catalog context window for usage-based overflow detection', async () => {
+  it.each([undefined, 'compaction'] as const)('preserves a completed stream above stale capacity for purpose %s', async (purpose) => {
+    const model = 'deepseek-v4.1-flash-261017'
+    const events = [
+      JSON.stringify({ choices: [{ delta: { role: 'assistant', content: 'Completed successfully.' }, index: 0, finish_reason: null }] }),
+      JSON.stringify({
+        choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 490_470, prompt_cache_hit_tokens: 490_240, prompt_cache_miss_tokens: 230, completion_tokens: 537 },
+      }),
+      '[DONE]',
+    ]
+    const server = await mockServer([{ events }])
+    const ctx = await harness(server.url, { models: [{ id: model, contextWindow: 475_000, maxTokens: 393_216 }] })
+    onTestFinished(() => ctx.fiber.dispose())
+
+    const result = await assemble(ctx, { model, messages: [], ...purpose === undefined ? {} : { purpose } })
+
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'Completed successfully.' }])
+    expect(result.usage).toMatchObject({ inputTokens: 230, cacheReadTokens: 490_240, outputTokens: 537 })
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('uses the resolved catalog context window for empty usage-based overflow detection', async () => {
     const model = getBuiltinModels('deepseek').find(candidate => candidate.id === 'deepseek-flash')
     if (model === undefined) throw new Error('deepseek-flash missing from pi-ai test catalog')
     const events = [

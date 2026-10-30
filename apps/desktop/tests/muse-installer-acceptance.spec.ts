@@ -19,16 +19,16 @@ describe('genuine Muse installer identity', () => {
   it('locks each original published baseline to its installer bytes and source manifest', () => {
     const windows = museAcceptancePreviousRelease('win-x64')
     const mac = museAcceptancePreviousRelease('mac-arm64')
-    expect(windows.version).toBe('1.2.1')
+    expect(windows.version).toBe('1.2.2')
     expect(mac.manifestResource).toEqual({ filename: 'muse-desktop-builds.json',
-      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.1/muse-desktop-builds.json',
-      bytes: 2504, sha256: '31f1fbe47e3c5d8c38d1b33f025f1834e171c2c2da041c2492c1dc4e97c1e33c' })
-    expect(windows.resource).toEqual({ filename: 'muse-med-1.2.1-win-x64.exe',
-      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.1/muse-med-1.2.1-win-x64.exe',
-      bytes: 767995857, sha256: '84e68b2b477f3b8f3585ba2e18de32bad8069b6a2be57ff897545a75d9f2c37c' })
-    expect(mac.resource.bytes).toBe(820124899)
-    expect(mac.resource.sha256).toBe('d9f9b8cb1e157df07a8375a82f14eebde30fa2ee1752b55ac5b4cec200b8bf4f')
-    expect(mac.resource.url).toBe('https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.1/muse-med-1.2.1-mac-arm64.dmg')
+      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.2/muse-desktop-builds.json',
+      bytes: 2504, sha256: 'be7e149c692e87b097e570091c5dfab9dd85d91b6a82efb4d446bb51bb968168' })
+    expect(windows.resource).toEqual({ filename: 'muse-med-1.2.2-win-x64.exe',
+      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.2/muse-med-1.2.2-win-x64.exe',
+      bytes: 799318863, sha256: '1f41de03eb6bdcb9c7fe0a5a8246d82cba3e098ad06e6009052866e1b4061bcd' })
+    expect(mac.resource.bytes).toBe(853009732)
+    expect(mac.resource.sha256).toBe('81313556b596baaf11d4ca4c0b7c3c505aa5a07b2e6b5df09776e3da01d8d75e')
+    expect(mac.resource.url).toBe('https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.2/muse-med-1.2.2-mac-arm64.dmg')
   })
 
   it.each(['win-x64', 'mac-arm64'] as const)('binds the mapped %s build to its baseline installer and source identity', (target) => {
@@ -38,7 +38,7 @@ describe('genuine Muse installer identity', () => {
     const build = { schemaVersion: 1, target: previous.target, version: previous.version, sourceCommit, unsigned: true,
       artifacts: { [previous.resource.filename]: artifact } }
     const baseline = { schemaVersion: 1, version: previous.version, sourceCommit, builds: { [target]: build } }
-    expect(museAcceptancePreviousIdentity(baseline, target)).toEqual({ target, version: '1.2.1', sourceCommit })
+    expect(museAcceptancePreviousIdentity(baseline, target)).toEqual({ target, version: '1.2.2', sourceCommit })
     for (const changed of [
       { ...baseline, schemaVersion: 2 }, { ...baseline, version: '1.1.6' }, { ...baseline, sourceCommit: 'invalid' },
       { ...baseline, sourceCommit: 'e'.repeat(40) }, { ...baseline, builds: [] }, { ...baseline, builds: [build] },

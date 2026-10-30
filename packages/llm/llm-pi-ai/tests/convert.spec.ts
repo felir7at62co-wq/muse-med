@@ -985,11 +985,21 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
   })
 
-  it('uses the resolved context window for silent and length-stop overflows', () => {
-    // Non-empty content keeps the no-window branch on the successful stop path
-    // (an empty stop is EMPTY_RESPONSE, covered above); overflow wins over both.
-    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0), content: [{ type: 'text', text: 'x' }] })
-    expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
+  it.each([
+    usage(230, 537, 490_240),
+    usage(172, 577, 596_480),
+  ])('preserves completed responses above stale catalog capacity: %j', (reportedUsage) => {
+    const completed = assistant({
+      stopReason: 'stop', usage: reportedUsage,
+      content: [{ type: 'text', text: 'Completed successfully.' }],
+    })
+    expect(mapStopReason(completed, 475_000)).toEqual({ kind: 'stop' })
+    expect(mapUsage(reportedUsage).totalTokens).toBeGreaterThan(475_000)
+  })
+
+  it('uses the resolved context window for empty and length-stop overflows', () => {
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    expect(mapStopReason(silent)).toMatchObject({ kind: 'error', failure: { code: EMPTY_RESPONSE_CODE } })
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',
       failure: {

@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-working-budget-stop
+profile: headless
+composition: muse-working-budget-stop
+recording: authored
+header:
+  class: muse-working-budget-stop
+  pin: true

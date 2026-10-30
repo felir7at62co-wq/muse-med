@@ -29,6 +29,7 @@ import {
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
 import { pressureSelectionKey, selectPressureRange } from './pressure.ts'
+import { registerWorkingBudget } from './working-budget.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
@@ -59,12 +60,13 @@ function routedTarget(
 
 /**
  * Output tokens the routed request reserves, which the provider charges to the
- * same window as the prompt. The effective envelope's own cap wins; otherwise
- * the adapter's per-request default, which the adapter materializes when that
- * envelope omits one. No declared cap means no reservation.
+ * same window as the prompt. An explicit envelope cap wins; an adapter-derived
+ * cap uses the current adapter default before the next envelope is admitted.
+ * No declared cap means no reservation.
  */
 function reservedCompletionTokens(agent: Agent, defaultMaxTokens: number | undefined): number {
-  const configured = agent.session.requestHeader()?.config.maxTokens
+  const header = agent.session.requestHeader()
+  const configured = header?.adapterDefaults?.maxTokens === true ? undefined : header?.config.maxTokens
   return configured ?? defaultMaxTokens ?? 0
 }
 
@@ -80,6 +82,7 @@ function conversationTarget(
 }
 
 const thresholdRatioSchema = z.number()
+const workingTokenLimitSchema = z.number().step(1).min(1)
 const headroomTokensSchema = z.number().step(1).min(0)
 const retainRatioSchema = z.number()
 const retainTokensSchema = z.number().step(1).min(0)
@@ -93,6 +96,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
   thresholdRatio: thresholdRatioSchema,
+  workingTokenLimit: workingTokenLimitSchema,
   headroomTokens: headroomTokensSchema,
   retainRatio: retainRatioSchema,
   retainTokens: retainTokensSchema,
@@ -116,6 +120,7 @@ export class BasicCompactionEngine extends CompactionEngine {
 
   static Config: z<BasicCompactionConfig> = z.object({
     thresholdRatio: thresholdRatioSchema,
+    workingTokenLimit: workingTokenLimitSchema,
     headroomTokens: headroomTokensSchema,
     retainRatio: retainRatioSchema,
     retainTokens: retainTokensSchema,
@@ -136,11 +141,22 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly pressureSuppression = new WeakMap<Session, string>()
   private readonly warnedInfeasiblePressure = new WeakMap<Session, string>()
+  private readonly workingRetainedNodes = new WeakMap<Agent, ReadonlySet<SessionSeq>>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config)
-    if (this.config.auto) this._registerAutomaticCompaction()
+    if (this.config.auto) {
+      this._registerAutomaticCompaction()
+      registerWorkingBudget(ctx, this.config, async (agent, signal, protectedNodes) => {
+        this.workingRetainedNodes.set(agent, new Set(protectedNodes))
+        try {
+          return await this.compactIfNeeded(agent, 'pressure', signal)
+        } finally {
+          this.workingRetainedNodes.delete(agent)
+        }
+      })
+    }
   }
 
   /**
@@ -332,7 +348,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     let result: CompactionResult | null = null
     let attempts = 0
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectPressureRange(agent.session, measurement, spec, meter)
+      const range = selectPressureRange(agent.session, measurement, spec, meter, this.workingRetainedNodes.get(agent))
       if (range === null) {
         /* v8 ignore else -- a successful nonempty checkpoint remains feasible under the unchanged fixed content and tail. */
         if (result === null) {

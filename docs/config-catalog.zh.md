@@ -829,14 +829,14 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:44`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:49`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
+  /** Enable automatic pressure, working-budget checks and overflow recovery. Defaults to `true`. */
   auto?: boolean
 }
 
@@ -844,6 +844,11 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
 export interface CompactionPolicyConfig {
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
+  /**
+   * Optional positive estimated request budget for automatic admission; also
+   * caps the pressure threshold without changing model capacity.
+   */
+  workingTokenLimit?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
   /**
@@ -862,7 +867,7 @@ export interface CompactionPolicyConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
-  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  /** Maximum recovery retries after canonical overflow or local working-budget rejection; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
 }
 

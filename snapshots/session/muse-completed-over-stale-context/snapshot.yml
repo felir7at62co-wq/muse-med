@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-completed-over-stale-context
+profile: headless
+composition: muse-completed-over-stale-context
+recording: authored
+header:
+  class: muse-completed-over-stale-context
+  pin: true
+writerOutput: true

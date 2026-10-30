@@ -120,6 +120,8 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 成功的 Chat Completions SSE（Server-Sent Events）响应在收到完整的 `[DONE]` 事件时结束，并取消尚未读取的 HTTP 响应正文，即使提供方仍保持连接也不会继续等待。仅有 `finish_reason` 不会截断流，因此其后的用量信息仍会保留。没有收到完整 `[DONE]` 时，仍按正常 HTTP EOF 结束，并保留 pi-ai 对缺失终止原因的校验。
 
+已完成且非空的 `stop` 回复，在报告用量超过本地模型目录容量时仍按成功处理。用量继续用于估算上下文压力，不覆盖提供方的成功结束状态。提供方明确报告的上下文错误，以及空回复或零输出截断响应的用量判定，仍保留超限分类。
+
 pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。Adapter 会在 pi-ai 把 SDK 错误压成文本前捕获每次请求的 HTTP 状态、有效 `Retry-After` 和有长度限制的提供方请求 ID；状态会把 401/403 分类为 `AUTH`、429 分类为 `RATE_LIMIT`、5xx 分类为 `SERVER`。Host 可通过故障观察器只接收这些结构化事实以及路由、模型和错误类别；响应正文和其他任意标头不会进入观察器。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
 
 Chat Completions 的终止原因 `finish_reason: content_filter` 返回不可重试的 `CONTENT_FILTER`；`network_error` 返回暂时性 `TRANSPORT`。只有 SDK 的精确协议标签才按此分类；未知终止原因仍为 `PI_AI_ERROR`，默认策略不重试。

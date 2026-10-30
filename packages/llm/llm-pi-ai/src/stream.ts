@@ -83,10 +83,11 @@ function classifyPiAiError(message: string, status?: number): string {
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
  * @param providerFailure - structured non-success response facts captured at
  *   the HTTP boundary, when the Host opted into them.
- * @returns the mapped harness reason. Recognized error text, `stop` usage above
- *   `contextWindow`, and zero-output `length` usage that fills the window map
- *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
- *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
+ * @returns the mapped harness reason. Recognized error text, empty `stop` usage
+ *   above `contextWindow`, and zero-output `length` usage that fills the window
+ *   map to `CONTEXT_WINDOW_EXCEEDED`. A nonempty successful `stop` is preserved
+ *   even when reported usage exceeds the local catalog capacity. An otherwise
+ *   empty `stop` maps to `EMPTY_RESPONSE`, while terminal `pending` and `deferred` states map
  *   to non-retryable `PI_AI_ERROR` failures.
  */
 export function mapStopReason(
@@ -94,7 +95,8 @@ export function mapStopReason(
   contextWindow?: number,
   providerFailure?: Pick<LlmFailure, 'status' | 'providerRetryAfterMs' | 'requestId'>,
 ): FinishReason {
-  const piAiOverflow = isContextOverflow(message, contextWindow)
+  const piAiOverflow = (message.stopReason !== 'stop' || message.content.length === 0)
+    && isContextOverflow(message, contextWindow)
   const harnessOverflow = message.stopReason === 'error'
     && message.errorMessage !== undefined
     && isContextWindowExceededError(message.errorMessage)

@@ -25,6 +25,7 @@ const DEFAULT_RETAIN_RATIO = 0.16
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
   'thresholdRatio',
+  'workingTokenLimit',
   'headroomTokens',
   'retainRatio',
   'retainTokens',
@@ -97,6 +98,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
 
   return deepFreeze({
     thresholdRatio,
+    ...(config.workingTokenLimit === undefined ? {} : { workingTokenLimit: config.workingTokenLimit }),
     headroomTokens,
     ...retention,
     summarizationProvider: config.summarizationProvider ?? '',
@@ -125,9 +127,11 @@ export function resolveTargetPolicy(
   const inheritedRetention: ResolvedRetention = config.retainTokens === undefined
     ? { retainRatio: config.retainRatio }
     : { retainTokens: config.retainTokens }
+  const workingTokenLimit = override?.workingTokenLimit ?? config.workingTokenLimit
   return deepFreeze({
     target: { provider: target.provider, model: target.model },
     thresholdRatio: override?.thresholdRatio ?? config.thresholdRatio,
+    ...(workingTokenLimit === undefined ? {} : { workingTokenLimit }),
     headroomTokens: override?.headroomTokens ?? config.headroomTokens,
     ...resolveRetention(override ?? {}, inheritedRetention),
     summarizationProvider: override?.summarizationProvider ?? config.summarizationProvider,
@@ -142,8 +146,9 @@ export function resolveTargetPolicy(
  * Scale one routed policy into concrete token budgets for its model capacity.
  *
  * Pressure is capped by both the window fraction and the capacity remaining
- * after the routed output reservation plus compaction headroom. Retention scales
- * the message budget before headroom is deducted.
+ * after the routed output reservation plus compaction headroom, and by an
+ * optional estimated working budget. Retention scales the message budget before
+ * headroom is deducted.
  *
  * @param policy - merged policy for the exact routed target.
  * @param contextWindow - positive adapter-owned capacity for that target.
@@ -191,6 +196,7 @@ export function resolveCompactSpec(
   const thresholdTokens = Math.floor(Math.min(
     contextWindow * policy.thresholdRatio,
     pressureBudgetTokens,
+    policy.workingTokenLimit ?? Infinity,
   ))
   const retainTokens = policy.retainTokens === undefined
     ? Math.floor(messageBudgetTokens * policy.retainRatio)
@@ -206,6 +212,7 @@ export function resolveCompactSpec(
     target: { ...policy.target },
     contextWindow,
     thresholdRatio: policy.thresholdRatio,
+    ...(policy.workingTokenLimit === undefined ? {} : { workingTokenLimit: policy.workingTokenLimit }),
     thresholdTokens,
     retainTokens,
     summarizationProvider: policy.summarizationProvider,
@@ -279,6 +286,7 @@ function validatePolicy(
   name: string,
 ): void {
   const thresholdRatio = config.thresholdRatio
+  const workingTokenLimit = config.workingTokenLimit
   const headroomTokens = config.headroomTokens
   const retainRatio = config.retainRatio
   const retainTokens = config.retainTokens
@@ -286,6 +294,7 @@ function validatePolicy(
   const compactionRetries = config.compactionRetries
   const maxOverflowRetries = config.maxOverflowRetries
   if (thresholdRatio !== undefined) assertRatio(`${name}.thresholdRatio`, thresholdRatio)
+  if (workingTokenLimit !== undefined) assertPositiveInteger(`${name}.workingTokenLimit`, workingTokenLimit)
   if (headroomTokens !== undefined) assertNonNegativeInteger(`${name}.headroomTokens`, headroomTokens)
   if (retainRatio !== undefined) assertRatio(`${name}.retainRatio`, retainRatio)
   if (retainTokens !== undefined) assertNonNegativeInteger(`${name}.retainTokens`, retainTokens)

@@ -60,11 +60,12 @@ kind: "package-reference"
 <a id="tuning-when-condensation-starts"></a>
 ### 调整压缩开始的时机
 
-所有设置都可选。设上下文窗口为 `W`、生效请求输出上限为 `O`、余量为 `B`，默认触发阈值为 `floor(min(W × 0.8, W − O − B))`，其中 `B = 65,536` tokens。逐字保留的近期历史目标预算为 `W − O` 的 16%；若固定请求内容使检查点无法装入触发阈值以内，压力路径会缩小该预算。下表列出全部设置；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)还包含字段类型。
+所有设置都可选。设上下文窗口为 `W`、生效请求输出上限为 `O`、余量为 `B`，默认触发阈值为 `floor(min(W × 0.8, W − O − B))`，其中 `B = 65,536` tokens。可选的 `workingTokenLimit` 还会限制该触发阈值，并在自动会话请求到达提供方之前限制估算请求压力；它不改变 `W` 或 `O`。逐字保留的近期历史目标预算为 `W − O` 的 16%；若固定请求内容使检查点无法装入触发阈值以内，压力路径会缩小该预算。下表列出全部设置；生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)还包含字段类型。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `thresholdRatio` | `0.8` | 用于 `floor(min(W × thresholdRatio, W − O − headroomTokens))` 的窗口比例。 |
+| `workingTokenLimit` | — | 自动会话请求的正整数估算请求预算，同时限制压力触发阈值。精确模型策略可继承或覆盖它。 |
 | `headroomTokens` | `65536` | 路由请求输出预留之外的额外压力余量；必须为非负整数。 |
 | `retainRatio` | `0.16` | 以 `W − O` 的一部分表示逐字保留的近期对话目标预算；与 `retainTokens` 互斥。 |
 | `retainTokens` | — | 逐字保留的近期对话绝对目标预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
@@ -72,9 +73,9 @@ kind: "package-reference"
 | `summarizationModel` | `''` | 与 `summarizationProvider` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
 | `maxTokens` | `headroomTokens`（`65536`） | 正数摘要输出上限，包含提供方计入的推理 token。显式模型上限覆盖显式全局上限；否则跟随解析后的余量。 |
 | `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。 |
-| `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
+| `maxOverflowRetries` | `1` | 提供方确认溢出或本地工作预算拒绝后的最大恢复重试次数；`0` 禁用恢复，但工作预算检查仍阻止超大请求。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
-| `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。 |
+| `auto` | `true` | 启用自动压缩、工作预算检查与溢出恢复；设为 `false` 则仅手动执行。 |
 
 配置错误会快速失败：未知设置、重复的按模型覆盖、无效 token 数、两种保留形式同时出现，或保留比例不小于阈值比例，都会在加载时拒绝插件。模型首次使用时，`W − O − B` 必须为正，且解析出的保留预算必须低于触发阈值。余量为零时，必须在全局或对应模型策略中显式设置正数 `maxTokens`。小窗口部署必须配置适合其容量的余量；降低 `thresholdRatio` 可以提早压缩。
 
@@ -115,6 +116,10 @@ kind: "package-reference"
 
 压力策略从拥有持久路由的适配器解析容量。容量缺失、输出预留与余量耗尽窗口，或保留预算不小于阈值时，手动压力路径会抛出目标特定配置错误。自动 listener 会对该精确目标警告一次，并在配置修正前跳过主动压缩；提供方确认溢出后的恢复仍然可用。
 
+配置 `workingTokenLimit` 时，`llm/stream` listener 会在已接受输入、系统提示词与工具定义提交后，检查完整的普通 agent-loop 请求。超预算请求会返回本地工作预算错误，不调用提供方。恢复会把当前步骤新增的表层节点保留为受保护尾部，原样保留新用户输入、运行时上下文与工具更新文本，同时压缩更早的平衡历史。声明了 `purpose` 的辅助调用不受此会话预算限制；`auto: false` 禁用该检查。
+
+工作预算恢复仅在表层替换发生、压力降至工作上限以下且 `ctx.sessions.flush()` 返回 `true` 后重建请求。持久化 flush listener 必须确认已落盘；监听器缺失、flush 失败、取消或耗尽 `maxOverflowRetries` 都会停止恢复，不发送超大会话请求。这一本地拒绝与提供方确认的上下文溢出分开处理。profile 兼容与回退参见[迁移指南](../../../docs/upgrade-guide/v0.2.1-alpha.1/muse-working-context-budget/guide.zh.md)。
+
 压力选区先从阈值中扣除工具定义、系统首节点以及提供方用量修正，再为保留尾部和检查点包装分配预算。若工具配对边界扩大后的尾部超过剩余空间，则只保留最新不可分单元；若仍放不下有用的检查点，则每种请求策略仅警告一次，不调用摘要模型。失败选区的投影消息和请求策略不变时，不会重复摘要。成功替换后，压力路径也会跳过仅包含该检查点的选区。当原始历史进入选区时，追加内容才有资格再次压缩；路由请求信封或解析策略变化也允许再次尝试。这些保护仅保存在活动后端中，不抑制取消、手动压缩或提供方确认溢出后的恢复。
 
 ### 摘要机制
@@ -129,7 +134,7 @@ kind: "package-reference"
 
 ### 配置解析
 
-`resolveConfig` 验证并分离默认值，`resolveTargetPolicy` 合并精确的提供方／模型覆盖，`resolveCompactSpec` 要求显式传入适配器容量与路由请求的输出预留，以解析触发阈值和保留预算。预留取自生效信封的 `maxTokens`，否则回退到适配器默认值，再回退到零。策略解析绝不咨询模型发现（`listModels()`）；只有持久路由的容量才重要。
+`resolveConfig` 验证并分离默认值，`resolveTargetPolicy` 合并精确的提供方／模型覆盖，`resolveCompactSpec` 要求显式传入适配器容量与路由请求的输出预留，以解析触发阈值和保留预算。显式指定的信封 `maxTokens` 用于预留；来自适配器默认值的上限则在下一次请求前采用当前适配器默认值，默认值已移除时回退到零。没有适配器默认值标记的 header 保留已记录上限。策略解析绝不咨询模型发现（`listModels()`）；只有持久路由的容量才重要。
 
 ### 源码地图
 
@@ -138,6 +143,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：`BasicCompactionEngine`、自动 listener、入口点分发 |
 | [`src/region.ts`](src/region.ts) | 保留选择与共享的先记录标记压缩事务 |
 | [`src/pressure.ts`](src/pressure.ts) | 可行尾部保留预算与不变选区身份 |
+| [`src/working-budget.ts`](src/working-budget.ts) | 最终会话请求检查与确认落盘后的有界恢复 |
 | [`src/summarizer.ts`](src/summarizer.ts) | 默认 `ctx.llm.stream()` 摘要、检查点框定、安全摘要投影 |
 | [`src/config.ts`](src/config.ts) | 加载时验证与路由模型策略解析 |
 | [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` 与已解析策略词汇 |
@@ -243,11 +249,11 @@ Rules:
 
 这些限制说明自动压缩何时不合适，或何时需要特别注意；它们是当前包约束。
 
-- **计量准确度取决于固定启发式规则**——可复用提供方用量缺失时，会回退到字符数加结构开销，而非精确的 token 化；只有在适配器声明了请求图片定价的路由上，图片出现处才携带提供方精确的视觉 token。
+- **计量准确度取决于固定启发式规则**——可复用提供方用量缺失时，会回退到字符数加结构开销，而非精确的 token 化；只有在适配器声明了请求图片定价的路由上，图片出现处才携带提供方精确的视觉 token。工作上限限制的是此估算值，并非提供方计算的精确输入 token 数。
 - **溢出分类由适配器维护**——提供方措辞可能改变；两个 DeepSeek 适配器将可识别的上下文限制失败规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 - **部分不可分单元与仅 envelope 溢出仍不在表层压缩范围内**——恢复无法缩减系统／工具／前缀、拆分不可分的非工具节点，或修复不可剪枝剩余部分仍超出窗口的工具单元。可选 pruner 可以缩减原本不可分工具对内的文本型工具结果主体。
 - **`compactRegion` 要求存在未结束的轮次**——在完全关闭的会话上手动调用会抛出异常（「no open turn」），而不是执行压缩。
-- **摘要失败会保留最新持久表层**——任何替换前，自动路径会记录警告，并携带完整超预算历史继续。如果剪枝已落地，后续摘要失败会从该持久剪枝表层继续。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
+- **摘要失败会保留最新持久表层**——未配置工作上限时，自动路径会记录警告，并从最新持久历史继续，包括已完成的剪枝。配置工作上限后，仍超预算的会话请求会被阻止。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -259,6 +265,6 @@ Rules:
 
 - **默认比例，尚未决定**——`thresholdRatio: 0.8` 与 `retainRatio: 0.16` 是固定默认值；存在通过 `modelPolicies` 进行的按模型调优，但没有基于语料的理想值指引记录。
 - **tokenizer 精确测量，暂缓**——token meter 每 token 四字符的启发式对 CJK 文本与 JSON Schema 定价偏低；精确 token 化仍是测量服务的开放方向。
-- **规范错误之外的溢出恢复，尚未决定**——恢复仅针对 `CONTEXT_WINDOW_EXCEEDED` 触发；其他提供方侧上下文失败不参与分类。
+- **规范错误之外的提供方溢出恢复，尚未决定**——提供方侧恢复仅针对 `CONTEXT_WINDOW_EXCEEDED` 触发；其他提供方侧上下文失败不参与分类。本地工作预算拒绝使用独立恢复路径。
 
 </details>
