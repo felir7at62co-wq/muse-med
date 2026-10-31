@@ -22,6 +22,7 @@ interface WorkingRequest {
   readonly step: number
   readonly previousNodes: ReadonlySet<SessionSeq>
   protectedNodes: readonly SessionSeq[]
+  limit?: number
   attempts: number
   pending: boolean
   terminal: boolean
@@ -79,7 +80,23 @@ export function registerWorkingBudget(
         }
         if (!active || request.agent.session.id !== options.sessionId) throw stopped()
         if (request.terminal) throw stopped()
-        if (ctx.tokenMeter.measure(request.agent.session).totalTokens < limit) {
+        let effectiveLimit = limit
+        if (policy.adaptiveBudget) {
+          const info = await ctx.llm.resolveModelInfo(options.provider, options.model, signal)
+          signal?.throwIfAborted()
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can occur while model metadata resolves.
+          if (!active) throw stopped()
+          if (info.context !== undefined) {
+            const available = info.context.contextWindow - (options.maxTokens ?? info.defaultMaxTokens ?? 0)
+            if (available <= 0) throw stopped()
+            const headroom = policy.headroomTokens >= available
+              ? Math.floor(available * policy.thresholdRatio)
+              : policy.headroomTokens
+            effectiveLimit = Math.min(limit, available - headroom)
+          }
+        }
+        request.limit = effectiveLimit
+        if (ctx.tokenMeter.measure(request.agent.session).totalTokens < effectiveLimit) {
           yield* next()
           return
         }
@@ -111,7 +128,7 @@ export function registerWorkingBudget(
         throw stopped()
       }
       const policy = resolveTargetPolicy(config, header.config)
-      const limit = policy.workingTokenLimit
+      const limit = request.limit
       if (!active || limit === undefined || request.attempts > policy.maxOverflowRetries) {
         request.terminal = true
         throw stopped()

@@ -5,7 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, LlmError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
@@ -13,6 +13,9 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface SummaryConfig {
+  readonly adaptiveBudget: boolean
+  readonly thresholdRatio: number
+  readonly headroomTokens: number
   readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
@@ -141,6 +144,44 @@ export async function summarizeWithLlm(
     )
   }
 
+  let maxTokens = config.maxTokens
+  if (config.adaptiveBudget) {
+    const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal)
+    signal?.throwIfAborted()
+    // The adapter default is not a provider hard limit, but is a conservative cap.
+    if (info.defaultMaxTokens !== undefined) maxTokens = Math.min(maxTokens, info.defaultMaxTokens)
+    if (info.context !== undefined) {
+      const meter = ctx.tokenMeter
+      const current = meter.measure(agent.session)
+      const prices = new Map<Message['id'], number>()
+      for (const node of current.nodes) {
+        // Existing Session history read; migration deferred.
+        // oxlint-disable-next-line typescript/no-deprecated
+        const event = agent.session.eventAt(node.seq)
+        if (event === undefined) continue
+        const message = agent.session.deriveEventMessage(event)
+        if (message !== null) prices.set(message.id, Math.max(node.tokens, node.heuristicTokens))
+      }
+      const instruction = createUserMessage({
+        content: [{ type: 'text', text: COMPACTION_INSTRUCTION }], source: { kind: 'user' },
+      })
+      const tools = input.tools === undefined || input.tools.length === 0 ? 0 : meter.estimateMessage(createUserMessage({
+        content: [{ type: 'text', text: JSON.stringify(input.tools) }], source: { kind: 'user' },
+      }))
+      const estimatedInput = tools + meter.estimateMessage(instruction)
+        + input.messages.reduce((total, message) => total + (prices.get(message.id) ?? meter.estimateMessage(message)), 0)
+      const available = info.context.contextWindow - estimatedInput
+      if (available <= 0) throw new Error('estimated summary input exceeds the summary model context window')
+      const headroom = config.headroomTokens >= available
+        ? Math.floor(available * config.thresholdRatio)
+        : config.headroomTokens
+      if (config.headroomTokens > 0 && headroom === 0) {
+        throw new Error('estimated summary input leaves no safety headroom')
+      }
+      maxTokens = Math.min(maxTokens, available - headroom)
+    }
+  }
+
   const assembler = new BlockAssembler()
   const messages: RequestMessage[] = [
     ...input.messages,
@@ -155,7 +196,7 @@ export async function summarizeWithLlm(
     messages,
     toolHistory: agent.session.toolHistory(),
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
-    maxTokens: config.maxTokens,
+    maxTokens,
     sessionId: agent.session.id,
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
@@ -175,7 +216,7 @@ export async function summarizeWithLlm(
     llmStreamCall: true,
     provider: options.provider,
     model: options.model,
-    maxTokens: config.maxTokens,
+    maxTokens,
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
 }

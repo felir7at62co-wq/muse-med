@@ -63,6 +63,7 @@ All settings are optional. With context window `W`, effective request output cap
 
 | Field | Default | Meaning |
 |---|---|---|
+| `adaptiveBudget` | `false` | Scale headroom, retained tail, summary output and the working admission limit down for smaller windows using `thresholdRatio`; explicit policies may disable adaptation. Summary requests also reserve `headroomTokens` after estimating the selected messages and tool schemas. An adapter without a context window retains the configured working limit; summary requests use the adapter default output as a conservative cap, not a verified provider maximum. If that cap truncates summaries, select a suitable summarization model or explicitly disable adaptation and configure `maxTokens` after verifying provider limits. |
 | `thresholdRatio` | `0.8` | Window fraction used in `floor(min(W × thresholdRatio, W − O − headroomTokens))`. |
 | `workingTokenLimit` | — | Positive estimated request budget for automatic conversation requests; also caps the pressure trigger. Exact model policies inherit or override it. |
 | `headroomTokens` | `65536` | Additional pressure headroom beyond the routed output reservation; a non-negative integer. |

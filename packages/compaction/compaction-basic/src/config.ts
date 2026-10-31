@@ -24,6 +24,7 @@ const DEFAULT_RETAIN_RATIO = 0.16
 
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
+  'adaptiveBudget',
   'thresholdRatio',
   'workingTokenLimit',
   'headroomTokens',
@@ -97,6 +98,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
   }
 
   return deepFreeze({
+    adaptiveBudget: config.adaptiveBudget ?? false,
     thresholdRatio,
     ...(config.workingTokenLimit === undefined ? {} : { workingTokenLimit: config.workingTokenLimit }),
     headroomTokens,
@@ -130,6 +132,7 @@ export function resolveTargetPolicy(
   const workingTokenLimit = override?.workingTokenLimit ?? config.workingTokenLimit
   return deepFreeze({
     target: { provider: target.provider, model: target.model },
+    adaptiveBudget: override?.adaptiveBudget ?? config.adaptiveBudget,
     thresholdRatio: override?.thresholdRatio ?? config.thresholdRatio,
     ...(workingTokenLimit === undefined ? {} : { workingTokenLimit }),
     headroomTokens: override?.headroomTokens ?? config.headroomTokens,
@@ -183,7 +186,10 @@ export function resolveCompactSpec(
       + "the adapter model's contextWindow above the effective request maxTokens",
     )
   }
-  const pressureBudgetTokens = messageBudgetTokens - policy.headroomTokens
+  const effectiveHeadroomTokens = policy.adaptiveBudget && policy.headroomTokens >= messageBudgetTokens
+    ? Math.floor(messageBudgetTokens * policy.thresholdRatio)
+    : policy.headroomTokens
+  const pressureBudgetTokens = messageBudgetTokens - effectiveHeadroomTokens
   if (pressureBudgetTokens <= 0) {
     throw new TargetPressureConfigError(
       targetKey,
@@ -198,9 +204,12 @@ export function resolveCompactSpec(
     pressureBudgetTokens,
     policy.workingTokenLimit ?? Infinity,
   ))
-  const retainTokens = policy.retainTokens === undefined
+  const requestedRetainTokens = policy.retainTokens === undefined
     ? Math.floor(messageBudgetTokens * policy.retainRatio)
     : policy.retainTokens
+  const retainTokens = policy.adaptiveBudget && requestedRetainTokens >= thresholdTokens
+    ? Math.floor(thresholdTokens * policy.thresholdRatio)
+    : requestedRetainTokens
   if (retainTokens >= thresholdTokens) {
     throw new TargetPressureConfigError(
       targetKey,
@@ -211,13 +220,16 @@ export function resolveCompactSpec(
   return deepFreeze({
     target: { ...policy.target },
     contextWindow,
+    adaptiveBudget: policy.adaptiveBudget,
     thresholdRatio: policy.thresholdRatio,
     ...(policy.workingTokenLimit === undefined ? {} : { workingTokenLimit: policy.workingTokenLimit }),
     thresholdTokens,
     retainTokens,
     summarizationProvider: policy.summarizationProvider,
     summarizationModel: policy.summarizationModel,
-    maxTokens: policy.maxTokens,
+    maxTokens: policy.adaptiveBudget && policy.maxTokens >= contextWindow
+      ? Math.max(1, Math.floor(contextWindow * policy.thresholdRatio))
+      : policy.maxTokens,
     compactionRetries: policy.compactionRetries,
     maxOverflowRetries: policy.maxOverflowRetries,
   })
@@ -285,6 +297,9 @@ function validatePolicy(
   config: CompactionPolicyConfig | Record<string, unknown>,
   name: string,
 ): void {
+  if (config.adaptiveBudget !== undefined && typeof config.adaptiveBudget !== 'boolean') {
+    throw new Error(`${name}.adaptiveBudget must be a boolean`)
+  }
   const thresholdRatio = config.thresholdRatio
   const workingTokenLimit = config.workingTokenLimit
   const headroomTokens = config.headroomTokens

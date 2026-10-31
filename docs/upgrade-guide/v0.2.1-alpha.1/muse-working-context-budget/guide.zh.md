@@ -1,6 +1,6 @@
 ---
 kind: upgrade-guide
-description: Muse Flash 预设会在本地拒绝估算超大的请求，不再在压缩失败后继续携带超预算历史。
+description: Muse 为所有桌面模型启用自适应工作上下文预算。
 ---
 
 # Muse 估算工作上下文预算
@@ -9,13 +9,13 @@ description: Muse Flash 预设会在本地拒绝估算超大的请求，不再�
 
 ## 变更
 
-Muse Desktop Host 默认值与 `standard`、`ptc`、Cordis、`short-drama`、`creation`、`bot-coordinator` 预设为 DeepSeek 官方 Flash 的当前与历史 ID 启用 `workingTokenLimit: 475000`。模型物理容量元数据仍为 1,000,000 tokens；提供方路由、默认模型与正常对话输出上限不变。`0.45` 阈值会在估算 450,000 tokens 时开始主动压缩，目标近期尾部为 65,536 tokens，摘要上限为 16,384 tokens。
+Muse Desktop Host 默认值与 `standard`、`ptc`、Cordis、`short-drama`、`creation` 和 `bot-coordinator` 预设对所有模型使用统一自适应策略：475,000-token 估算工作上限、`0.45` 压力比例、16,384-token 余量与摘要输出上限，以及目标 65,536-token 近期尾部。窗口较小时会下调余量、保留尾部、摘要输出和最终请求准入上限。模型物理窗口、正常对话输出上限和路由不变。估算不保证与提供方 tokenizer 一致。`minimal` 不挂载自动压缩。
 
-现有压缩后端会在发送到提供方之前检查完整的普通 agent-loop 请求。本地恢复原样保留当前步骤刚提交的输入、运行时上下文与工具更新文本，压缩更早的平衡历史，并且只在压力降至上限以下、持久化确认替换落盘后重试。失败会停止请求，不再发送超大历史。此估算不保证与提供方的精确 tokenizer 一致。未设置 `workingTokenLimit` 的 profile 保持原有行为。
+本地工作预算拒绝会保留当前步骤输入和工具更新，压缩平衡的历史，并只在持久化确认替换后重试。无法装入或 flush 失败时停止请求。
 
 ## 迁移
 
-1. 同步升级压缩运行时与 profile 策略。旧运行时会拒绝新的配置字段。[Host 默认值](../../../../apps/desktop-host/config/defaults.cordis.patch.yml)和各受影响预设的 `agent.cordis.yml` 包含 `muse-cloud-deepseek-official/deepseek-flash` 与 `muse-cloud-deepseek-official/deepseek-v4.1-flash-261017` 的精确策略；个人 profile 通过自己的 `modelPolicies` 选择启用。
-2. 保持自动压缩启用，并为 `ctx.sessions.flush()` 提供持久化监听器。恢复要求返回 `true`；监听器缺失或 flush 失败会停止请求。`maxOverflowRetries` 限制恢复次数，包括本地工作预算恢复。`auto: false` 禁用检查；声明了 `purpose` 的辅助请求不参与检查。
-3. 使用[无需密钥的工作预算测试](../../../../packages/compaction/compaction-basic/tests/working-context-limit.spec.ts)验证：超大请求在替换落盘前不能到达会话适配器，当前步骤输入须保持完整，flush 失败须阻止重试。确认适配器模型容量仍为 1M。只更新服务器目录不会安装此客户端／Host 行为。
-4. 如需禁用最终请求检查，从实际生效的默认与精确目标策略中移除 `workingTokenLimit`，并重新加载对应 profile。已有阈值与保留设置仍然生效；若需恢复原压缩时机，另行恢复这些字段的原值。不要恢复数据库或重写 Session 日志：已提交摘要和工具收据仍有效。配置参见[压缩参考](../../../../packages/compaction/compaction-basic/README.zh.md#tuning-when-condensation-starts)。
+1. 同步升级压缩运行时、[Host 默认值](../../../../apps/desktop-host/config/defaults.cordis.patch.yml)和各受影响预设。旧运行时会拒绝 `adaptiveBudget`。
+2. 个人 profile 补丁可以设置 `adaptiveBudget: false`，并按[压缩参考](../../../../packages/compaction/compaction-basic/README.zh.md#tuning-when-condensation-starts)配置自己的 `modelPolicies`、阈值、工作预算、余量、保留尾部和摘要上限。物理上无效的输出预留仍会明确失败。
+3. 保持自动压缩启用，并为 `ctx.sessions.flush()` 提供持久化监听器；缺少或未收到确认会停止恢复。`maxOverflowRetries` 限制重试次数，`auto: false` 禁用检查。
+4. 运行[无需密钥的准入测试](../../../../packages/compaction/compaction-basic/tests/working-context-limit.spec.ts)，核对选用适配器的模型容量。只更新服务器目录不会安装此行为。不要重写 Session 日志或恢复旧数据库：已提交的摘要和工具收据仍有效。

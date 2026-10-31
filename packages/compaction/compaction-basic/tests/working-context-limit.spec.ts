@@ -11,6 +11,8 @@ import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import BasicCompactionEngine, { type BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
+import { resolveConfig } from '../src/config.ts'
+import { summarizeWithLlm } from '../src/summarizer.ts'
 
 const contexts: Context[] = []
 afterEach(async () => {
@@ -33,6 +35,15 @@ class BudgetAdapter extends LlmAdapter {
   ) { super() }
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    if (model === 'unknown-context') return Promise.resolve({ provider, id: model, name: model })
+    if (model === 'tiny-route') return Promise.resolve({ provider, id: model, name: model,
+      context: { contextWindow: 8_192 }, defaultMaxTokens: 256 })
+    if (model === 'small-summary') return Promise.resolve({ provider, id: model, name: model,
+      context: { contextWindow: 512 }, defaultMaxTokens: 64 })
+    if (model === 'bounded-summary') return Promise.resolve({ provider, id: model, name: model,
+      context: { contextWindow: 128_000 }, defaultMaxTokens: 4_096 })
+    if (model === 'windowed-summary') return Promise.resolve({ provider, id: model, name: model,
+      context: { contextWindow: 4_000 }, defaultMaxTokens: 4_096 })
     return Promise.resolve({ provider, id: model, name: model,
       context: { contextWindow: this.contextWindow }, defaultMaxTokens: 256 })
   }
@@ -77,7 +88,11 @@ class BudgetAdapter extends LlmAdapter {
 }
 
 /** Keep the old surface below 900 estimated tokens until the new input is admitted. */
-function historySeed(systemHead = true, systemText = 'You are an AI agent powered by DeepSeek Harness.'): readonly SessionEvent[] {
+function historySeed(
+  systemHead = true,
+  systemText = 'You are an AI agent powered by DeepSeek Harness.',
+  anchoredInputTokens?: number,
+): readonly SessionEvent[] {
   const session = Session.create(SessionId('budget-history'))
   for (let turn = 1; turn <= 2; turn += 1) {
     session.append('turn/start', { turn })
@@ -92,7 +107,8 @@ function historySeed(systemHead = true, systemText = 'You are an AI agent powere
     session.append('assistant/message', { turn, step: 1, stream: [], message: createMessage({
       role: 'assistant', content: [{ type: 'text', text: `historical answer ${'A'.repeat(600)}` }],
       source: { kind: 'model', provider: 'mock', model: 'limited' },
-    }) }, { surfaceOp: 'append' })
+    }), ...anchoredInputTokens === undefined ? {} : { usage: { inputTokens: anchoredInputTokens, outputTokens: 1 } } },
+    { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
@@ -141,6 +157,195 @@ function lastReason(agent: Agent) {
 }
 
 describe('final working-context admission', () => {
+  it('reserves configured headroom for Chinese summary input near the smaller model window', async () => {
+    const { agent, adapter, ctx } = await harness()
+    const message = createUserMessage({
+      content: [{ type: 'text', text: '短剧制作角色剧情'.repeat(500) }], source: { kind: 'user' },
+    })
+    const config = resolveConfig({
+      adaptiveBudget: true, thresholdRatio: 0.45, headroomTokens: 1_000, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: 'windowed-summary',
+    })
+    await summarizeWithLlm(ctx, config, { messages: [message] }, agent)
+    expect(adapter.summaries).toHaveLength(1)
+    const sent = adapter.summaries[0]
+    if (sent === undefined) throw new Error('missing summary request')
+    const instruction = sent.messages.at(-1)
+    if (instruction?.role !== 'user') throw new Error('missing summary instruction')
+    const measuredInstruction = ctx.tokenMeter.estimateMessage(createUserMessage({
+      content: instruction.content, source: { kind: 'user' },
+    }))
+    expect(ctx.tokenMeter.estimateMessage(message) + measuredInstruction + 1_000 + (sent.maxTokens ?? 0))
+      .toBeLessThanOrEqual(4_000)
+    expect(sent.maxTokens).toBeGreaterThan(0)
+    expect(sent.maxTokens).toBeLessThan(4_000)
+  })
+
+  it('scales the safety headroom down to fit a tight summary model window', async () => {
+    const { agent, adapter, ctx } = await harness()
+    const message = createUserMessage({
+      content: [{ type: 'text', text: '剧'.repeat(12_000) }], source: { kind: 'user' },
+    })
+    const config = {
+      adaptiveBudget: true, thresholdRatio: 0.45, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: 'windowed-summary',
+    }
+    await summarizeWithLlm(ctx, resolveConfig({ ...config, headroomTokens: 0 }), { messages: [message] }, agent)
+    await summarizeWithLlm(ctx, resolveConfig({ ...config, headroomTokens: 1_000 }), { messages: [message] }, agent)
+    expect(adapter.summaries).toHaveLength(2)
+    const without = adapter.summaries[0]?.maxTokens
+    const withHeadroom = adapter.summaries[1]?.maxTokens
+    if (without === undefined || withHeadroom === undefined) throw new Error('summary output cap missing')
+    expect(without).toBeLessThan(1_000)
+    expect(withHeadroom).toBe(without - Math.floor(without * 0.45))
+    expect(withHeadroom).toBeGreaterThan(0)
+  })
+
+  it('does not dispatch a summary when the remaining window cannot hold any safety headroom', async () => {
+    const { agent, adapter, ctx } = await harness()
+    const config = {
+      adaptiveBudget: true, thresholdRatio: 0.45, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: 'windowed-summary',
+    }
+    const make = (text: string) => createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    })
+    await summarizeWithLlm(ctx, resolveConfig({ ...config, headroomTokens: 0 }), { messages: [make('probe')] }, agent)
+    const instruction = adapter.summaries[0]?.messages.at(-1)
+    if (instruction?.role !== 'user') throw new Error('missing summary instruction')
+    const instructionTokens = ctx.tokenMeter.estimateMessage(createUserMessage({
+      content: instruction.content, source: { kind: 'user' },
+    }))
+    const oneTokenLeft = make('x'.repeat((4_000 - instructionTokens - 1 - 8) * 4))
+    expect(ctx.tokenMeter.estimateMessage(oneTokenLeft) + instructionTokens).toBe(3_999)
+    await expect(summarizeWithLlm(ctx, resolveConfig({ ...config, headroomTokens: 1_000 }),
+      { messages: [oneTokenLeft] }, agent)).rejects.toThrow(/no safety headroom/)
+    expect(adapter.summaries).toHaveLength(1)
+  })
+
+  it('prices only the selected summary input when provider usage anchors a much larger history', async () => {
+    const { agent, adapter, ctx } = await harness({}, {
+      contextWindow: 1_000_000, seed: historySeed(true, undefined, 300_000),
+    })
+    expect(ctx.tokenMeter.measure(agent.session).totalTokens).toBeGreaterThan(128_000)
+    const user = agent.session.snapshotEvents().find(event => event.type === 'user/message')
+    if (user === undefined) throw new Error('missing historical user message')
+    const message = agent.session.deriveEventMessage(user)
+    if (message === null) throw new Error('historical message cannot be derived')
+    const config = resolveConfig({
+      adaptiveBudget: true, thresholdRatio: 0.45, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: 'bounded-summary',
+    })
+    await summarizeWithLlm(ctx, config, { messages: [message] }, agent)
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.summaries[0]).toMatchObject({ model: 'bounded-summary', maxTokens: 4_096 })
+  })
+
+  it('keeps an adapter without context metadata usable within the configured fixed budget', async () => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45,
+      headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [],
+    }, { model: 'unknown-context', seed: [] })
+    await send(agent, 'short request')
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.model).toBe('unknown-context')
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('reevaluates the model window after a session switches models', async () => {
+    const { agent, adapter, ctx } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45,
+      headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [],
+    }, { contextWindow: 100_000, seed: [] })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2 ? { ...config, model: 'tiny-route' } : config
+    })
+    await send(agent, 'first request')
+    expect(adapter.requests).toHaveLength(1)
+    await send(agent, `SECOND_LARGE_INPUT; ${'Z'.repeat(50_000)}`)
+    expect(adapter.requests).toHaveLength(1)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
+  })
+
+  it.each([
+    ['bounded-summary', 4_096],
+    ['windowed-summary', 4_000],
+  ])('caps a distinct %s summary request by available metadata', async (summaryModel, bound) => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 1_000, thresholdRatio: 0.09,
+      headroomTokens: 0, retainTokens: 0, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: summaryModel, modelPolicies: [],
+    })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.summaries[0]?.model).toBe(summaryModel)
+    const actual = adapter.summaries[0]?.maxTokens
+    expect(actual).toBeDefined()
+    expect(actual).toBeLessThanOrEqual(bound)
+    if (summaryModel === 'bounded-summary') expect(actual).toBe(4_096)
+    else expect(actual).toBeLessThan(bound)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('keeps a summary adapter without context metadata compatible with its configured cap', async () => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 1_000, thresholdRatio: 0.09,
+      headroomTokens: 0, retainTokens: 0, maxTokens: 16_384,
+      summarizationProvider: 'mock', summarizationModel: 'unknown-context', modelPolicies: [],
+    })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.summaries[0]).toMatchObject({ model: 'unknown-context', maxTokens: 16_384 })
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('does not send an over-window summary to a smaller separate summarizer', async () => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 1_000, thresholdRatio: 0.09,
+      headroomTokens: 0, retainTokens: 0, maxTokens: 64,
+      summarizationProvider: 'mock', summarizationModel: 'small-summary', modelPolicies: [],
+    })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
+  })
+
+  it('scales the real summary call for a small model and resumes its tool turn', async () => {
+    const { agent, adapter, ctx } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45,
+      headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [],
+    }, { contextWindow: 4_096 })
+    let calls = 0
+    ctx.effect(() => ctx.tools.register(defineContentToolFixture({
+      name: 'work', description: 'Perform the prepared work.', parameters: {},
+      async execute() { calls += 1; return [{ type: 'text', text: 'TOOL_AFTER_COMPACTION' }] },
+    })))
+    adapter.replies = ['tool', 'text']
+    await send(agent, `LATEST_INPUT; ${'N'.repeat(6_500)}`)
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.summaries[0]?.maxTokens).toBe(256)
+    expect(calls).toBe(1)
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('TOOL_AFTER_COMPACTION')
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('enforces a smaller model window before dispatch under the shared working budget', async () => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45,
+      headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [],
+    }, { contextWindow: 8_192 })
+    await send(agent, `TOO_LARGE_SINGLE_INPUT; ${'Z'.repeat(50_000)}`)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
+  })
+
   it('flushes a durable summary before deriving the retry and executes its tool once', async () => {
     const { ctx, agent, adapter } = await harness()
     expect(ctx.tokenMeter.measure(agent.session).totalTokens).toBeLessThan(900)

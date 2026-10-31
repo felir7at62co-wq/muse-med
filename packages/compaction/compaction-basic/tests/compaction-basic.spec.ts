@@ -312,6 +312,7 @@ describe('compact configuration and defaults', () => {
     const resolved = resolveConfig({})
 
     expect(resolved).toEqual({
+      adaptiveBudget: false,
       thresholdRatio: 0.8,
       headroomTokens: 65_536,
       retainRatio: 0.16,

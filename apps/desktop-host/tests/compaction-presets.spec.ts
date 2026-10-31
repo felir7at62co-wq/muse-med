@@ -12,7 +12,6 @@ interface PresetRow {
   readonly config?: unknown
 }
 
-const smallModels = ['gpt-6-sol', 'gpt-6-astra', 'gemini-3.1-pro']
 const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'bot-coordinator']
 
 function presetConfig(preset: string): BasicCompactionConfig {
@@ -35,83 +34,27 @@ function hostDefaultsConfig(): BasicCompactionConfig {
   return entry?.config as BasicCompactionConfig
 }
 
-function assertSmallWindowBudget(config: BasicCompactionConfig): void {
+function assertUnifiedPolicy(config: BasicCompactionConfig): void {
   const resolved = resolveConfig(config)
-  for (const model of smallModels) {
-    const policy = resolveTargetPolicy(resolved, { provider: 'muse-cloud-yunying', model })
-    const spec = resolveCompactSpec(policy, 128_000, 32_768)
-    expect(spec.thresholdTokens, model).toBeGreaterThan(42_093)
-    expect(spec.thresholdTokens, model).toBe(78_848)
-    expect(spec.maxTokens, model).toBe(8192)
-    expect(spec.retainTokens, model).toBe(15_237)
-  }
-  const personal = resolveTargetPolicy(resolved, { provider: 'personal', model: 'gpt-6-sol' })
-  expect(personal.headroomTokens).toBe(65_536)
-  expect(personal.maxTokens).toBe(65_536)
-  expect(personal).not.toHaveProperty('workingTokenLimit')
-  expect(resolved).not.toHaveProperty('workingTokenLimit')
-  const large = resolveTargetPolicy(resolved, { provider: 'muse-cloud-yunying', model: 'claude-opus-5-5' })
-  expect(large.headroomTokens).toBe(16_384)
-  expect(large.maxTokens).toBe(8192)
-  for (const [provider, model, context, output] of [
-    ['yunying', 'gpt-6-sol', 1050000, 128000], ['yunying', 'gpt-6-astra', 1050000, 128000],
-    ['yunying', 'claude-opus-5-5', 1000000, 128000], ['yunying', 'claude-fable-5-1', 1000000, 128000],
-    ['yunying', 'claude-sonnet-5-5', 1000000, 128000], ['yunying', 'gemini-3.1-pro', 1048576, 65536],
-    ['yunying', 'glm-5.3-flash', 1048576, 128000],
-    ['zhipu-official', 'glm-5.3-flashx', 1048576, 128000],
-    ['zhipu-official', 'glm-5.3-flash', 1048576, 128000],
-    ['deepseek-official', 'deepseek-flash', 1000000, 393216], ['deepseek-official', 'deepseek-v4-pro', 1048576, 393216],
+  for (const [provider, model, window, output, threshold] of [
+    ['muse-cloud-deepseek-official', 'deepseek-v4.1-flash-261017', 1_000_000, 393_216, 450_000],
+    ['muse-cloud-volcengine-ark', 'glm-5.3-flash-260828', 475_000, 128_000, 213_750],
+    ['muse-cloud-yunying', 'gpt-6.1-sol', 1_050_000, 128_000, 472_500],
+    ['muse-cloud-yunying', 'gemini-3.1-pro', 1_048_576, 65_536, 471_859],
+    ['personal', 'small', 8_192, 2_048, 3_380],
   ] as const) {
-    const spec = resolveCompactSpec(resolveTargetPolicy(resolved, { provider: `muse-cloud-${provider}`, model }), context, output)
-    if (provider === 'deepseek-official' && model === 'deepseek-flash') {
-      expect(spec.thresholdTokens).toBe(450_000)
-      expect(spec.maxTokens).toBe(16_384)
-    } else {
-      expect(spec.thresholdTokens).toBeGreaterThan(600000)
-      expect(spec.maxTokens).toBe(8192)
-      expect(spec).not.toHaveProperty('workingTokenLimit')
-    }
+    const policy = resolveTargetPolicy(resolved, { provider, model })
+    expect(policy).toMatchObject({ adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45 })
+    const spec = resolveCompactSpec(policy, window, output)
+    expect(spec.contextWindow).toBe(window)
+    expect(spec.thresholdTokens).toBe(threshold)
+    expect(spec.retainTokens).toBeLessThan(threshold)
+    expect(spec.maxTokens).toBeLessThanOrEqual(16_384)
   }
 }
 
-it.each(presets)('keeps the observed 42k request below automatic compaction pressure in the %s preset', (preset) => {
-  assertSmallWindowBudget(presetConfig(preset))
-})
-
-it('uses the same cloud budgets in the desktop Host defaults', () => {
-  assertSmallWindowBudget(hostDefaultsConfig())
-})
-
-it.each([...presets, 'host-defaults'])('keeps Flash at a 1M physical window with a 475k working budget in %s', (preset) => {
-  const config = resolveConfig(preset === 'host-defaults' ? hostDefaultsConfig() : presetConfig(preset))
-  for (const model of ['deepseek-flash', 'deepseek-v4.1-flash-261017']) {
-    const policy = resolveTargetPolicy(config, { provider: 'muse-cloud-deepseek-official', model })
-    expect(policy.workingTokenLimit, model).toBe(475_000)
-    expect(policy.thresholdRatio, model).toBe(0.45)
-    expect(policy.headroomTokens, model).toBe(16_384)
-    expect(policy).not.toHaveProperty('retainRatio')
-    for (const output of [8192, 65_536, 131_072, 393_216]) {
-      const spec = resolveCompactSpec(policy, 1_000_000, output)
-      expect(spec.contextWindow, model).toBe(1_000_000)
-      expect(spec.workingTokenLimit, model).toBe(475_000)
-      expect(spec.thresholdTokens, model).toBe(450_000)
-      expect(spec.maxTokens, model).toBe(16_384)
-      expect(spec.retainTokens, model).toBe(65_536)
-    }
-  }
-})
-
-it('keeps Bot coordinator policy overrides limited to the current and historical Flash routes', () => {
-  const config = presetConfig('bot-coordinator')
-  const isFlash = (policy: { provider: string; model: string }) => policy.provider === 'muse-cloud-deepseek-official'
-    && ['deepseek-flash', 'deepseek-v4.1-flash-261017'].includes(policy.model)
-  expect(config.modelPolicies?.filter(isFlash)).toEqual(['deepseek-flash', 'deepseek-v4.1-flash-261017'].map(model => ({
-    provider: 'muse-cloud-deepseek-official', model, thresholdRatio: 0.45, workingTokenLimit: 475_000,
-    headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
-  })))
-  expect(config.modelPolicies?.filter(policy => !isFlash(policy))).toEqual(
-    presetConfig('standard').modelPolicies?.filter(policy => !isFlash(policy)),
-  )
+it.each([...presets, 'host-defaults'])('uses the shared adaptive policy in %s', (preset) => {
+  assertUnifiedPolicy(preset === 'host-defaults' ? hostDefaultsConfig() : presetConfig(preset))
 })
 
 it('leaves the minimal preset without an automatic compaction backend', () => {

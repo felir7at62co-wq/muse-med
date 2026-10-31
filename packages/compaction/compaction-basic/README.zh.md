@@ -64,6 +64,7 @@ kind: "package-reference"
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
+| `adaptiveBudget` | `false` | 使用 `thresholdRatio` 按小窗口下调余量、保留尾部、摘要输出与工作准入上限；显式策略可关闭自适应。摘要请求估算所选消息与工具定义后，还会预留 `headroomTokens`。适配器未提供上下文窗口时保留已配置的工作上限；摘要请求将适配器配置的默认输出作为保守上限，它不是已验证的提供方最大值。如果该上限导致摘要截断，可选择合适的摘要模型，或在核实提供方限制后显式关闭自适应并配置 `maxTokens`。 |
 | `thresholdRatio` | `0.8` | 用于 `floor(min(W × thresholdRatio, W − O − headroomTokens))` 的窗口比例。 |
 | `workingTokenLimit` | — | 自动会话请求的正整数估算请求预算，同时限制压力触发阈值。精确模型策略可继承或覆盖它。 |
 | `headroomTokens` | `65536` | 路由请求输出预留之外的额外压力余量；必须为非负整数。 |

@@ -146,7 +146,7 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 
 ## 压缩默认值
 
-Host 默认值与 `standard`、`ptc`、`cordis`、`short-drama`、`creation`、`bot-coordinator` 预设为[选定目录](../../services/muse-accounts/README.zh.md#selected-model-budgets)中的账号模型声明精确策略，包括现有会话使用的历史路由 `muse-cloud-deepseek-official/deepseek-v4.1-flash-261017`。每条策略预留 16,384 tokens 的额外压缩余量。DeepSeek Flash 的当前与历史 ID 使用 475,000-token 估算工作上限、`0.45` 触发比例、65,536-token 近期尾部与 16,384-token 摘要上限：适配器窗口为 1,000,000 tokens 时，在 450,000 tokens 开始压缩。模型物理窗口、正常对话输出上限与路由保持不变。其他选定模型保留 8,192-token 摘要上限与现有策略；其他路由继承后端默认值。`minimal` 不挂载自动压缩。
+Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`creation`、`bot-coordinator` 预设对所有模型使用统一自适应压缩策略：475,000-token 工作预算、`0.45` 触发比例、16,384-token 余量与摘要上限、65,536-token 近期尾部。窗口较小时自动下调余量、准入上限、摘要输出和保留尾部，以适应模型容量。模型物理窗口、正常对话输出上限和路由保持不变；个人策略可以覆盖这些设置。`minimal` 不挂载自动压缩。
 
 每个创作预设拥有隔离的压缩后端，因此策略同时位于各预设的 `agent.cordis.yml` 和 Host 默认覆盖文件。个人预设可按[压缩配置](../../packages/compaction/compaction-basic/README.zh.md#tuning-when-condensation-starts)设置自己的 `modelPolicies`。后端将固定请求成本计入预算，并在相关输入改变前跳过未改变的失败选区或单独检查点的重复摘要。最终工作预算恢复要求持久化 flush 成功；profile 兼容与回退参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-working-context-budget/guide.zh.md)。
 

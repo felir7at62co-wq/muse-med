@@ -93,6 +93,7 @@ const compactionRetriesSchema = z.number().step(1).min(0)
 const maxOverflowRetriesSchema = z.number().step(1).min(0)
 
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
+  adaptiveBudget: z.boolean(),
   provider: z.string().required(),
   model: z.string().required(),
   thresholdRatio: thresholdRatioSchema,
@@ -119,6 +120,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions']
 
   static Config: z<BasicCompactionConfig> = z.object({
+    adaptiveBudget: z.boolean(),
     thresholdRatio: thresholdRatioSchema,
     workingTokenLimit: workingTokenLimitSchema,
     headroomTokens: headroomTokensSchema,
