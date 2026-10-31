@@ -10,7 +10,7 @@ export const museBotDesktopCompatibility = Object.freeze({
   agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator',
   contextManagement: 'host',
   goals: 'host',
-  memoryReview: false,
+  memoryReview: true,
   autoSessionBots: true,
   sessionBotSyncIntervalMs: 30000,
   updateCheck: false,
@@ -32,7 +32,7 @@ export function applyMuseBotDesktopCompatibility(directory) {
   }
   const patch = load(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'))
   const expected = [{ insert: [{ id: 'muse-bot', name: 'ds-bot', config: {
-    agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', contextManagement: 'host', goals: 'host', memoryReview: false,
+    agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', contextManagement: 'host', goals: 'host', memoryReview: true,
     autoSessionBots: true, sessionBotSyncIntervalMs: 30000, github: false, updateCheck: false,
   } }] }]
   if (JSON.stringify(patch) !== JSON.stringify(expected)) {

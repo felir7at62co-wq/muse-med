@@ -72,10 +72,10 @@ jobs:
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Build Host peers for plugin packaging
         run: pnpm run build:lib:host
-      - name: Check built-in Bot memory and shutdown
+      - name: Check built-in Bot memory, shutdown and packaging policy
         env:
           DSH_HARNESS: ${{ github.workspace }}
-        run: node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/memory.test.js third_party/plugins/ds-bot/test/memory-pending.test.js third_party/plugins/ds-bot/test/muse-host.test.js
+        run: node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/memory.test.js third_party/plugins/ds-bot/test/memory-pending.test.js third_party/plugins/ds-bot/test/muse-host.test.js third_party/plugins/compatibility/muse-bot-desktop.test.mjs
       - name: Check download bundle packaging
         run: node --test third_party/plugins/download-pack.test.mjs third_party/plugins/muse-fanqie-download/tests/client.test.js apps/desktop/tests/hongguo-live-smoke.test.mjs apps/desktop/tests/fanqie-live-smoke.test.mjs
       - name: Check bundled 3D anime skill preflight

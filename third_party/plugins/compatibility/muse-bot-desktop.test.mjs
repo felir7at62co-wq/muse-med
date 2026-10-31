@@ -4,7 +4,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { applyMuseBotDesktopCompatibility } from './muse-bot-desktop.mjs'
+import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './muse-bot-desktop.mjs'
 
 const source = join(import.meta.dirname, '../ds-bot')
 
@@ -20,8 +20,12 @@ function staged(run) {
 
 test('qualifies the native plugin without changing its retained manifest or attribution', () => {
   const original = readFileSync(join(source, 'package.json'))
+  assert.equal(museBotDesktopCompatibility.memoryReview, true)
   staged(directory => {
+    const patch = readFileSync(join(directory, 'cordis.patch.yml'), 'utf8')
+    assert.match(patch, /memoryReview: true/u)
     applyMuseBotDesktopCompatibility(directory)
+    assert.equal(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'), patch)
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
     assert.equal(manifest.name, 'ds-bot')
     assert.equal(manifest.version, '0.2.2')
@@ -33,6 +37,14 @@ test('qualifies the native plugin without changing its retained manifest or attr
     assert.equal(readFileSync(join(directory, 'NOTICE'), 'utf8'), readFileSync(join(source, 'NOTICE'), 'utf8'))
   })
   assert.deepEqual(readFileSync(join(source, 'package.json')), original)
+})
+
+test('rejects an older bundle that disables the restored memory review default', () => {
+  staged(directory => {
+    const path = join(directory, 'cordis.patch.yml')
+    writeFileSync(path, readFileSync(path, 'utf8').replace('memoryReview: true', 'memoryReview: false'))
+    assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
+  })
 })
 
 test('rejects a search override or a second plugin row', () => {

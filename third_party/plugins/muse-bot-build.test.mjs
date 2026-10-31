@@ -49,9 +49,13 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
       assert.equal(member(archive, file), readFileSync(join(source, file), 'utf8'))
     }
     assert.equal(member(archive, 'cordis.patch.yml'), readFileSync(join(source, 'cordis.patch.yml'), 'utf8'))
+    assert.match(member(archive, 'cordis.patch.yml'), /memoryReview: true/u)
+    assert.equal(member(archive, 'src/host/memory.js'), readFileSync(join(source, 'src/host/memory.js'), 'utf8'))
+    assert.equal(member(archive, 'src/host/muse-config.js'), readFileSync(join(source, 'src/host/muse-config.js'), 'utf8'))
     const metadata = JSON.parse(member(archive, 'SOURCE.json'))
     assert.deepEqual(metadata.upstream, pin)
     assert.deepEqual(metadata.compatibilityOverlay, museBotDesktopCompatibility)
+    assert.equal(metadata.compatibilityOverlay.memoryReview, true)
     const list = spawnSync('tar', ['-tzf', archive], { encoding: 'utf8' })
     assert.equal(list.status, 0)
     assert.doesNotMatch(list.stdout, /(?:^|\n)package\/(?:dev|node_modules|test|web-search\.js|\.env|\.git)(?:\/|$|\n)/u)
