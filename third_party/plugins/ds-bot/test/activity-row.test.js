@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, rowVisible } from './src/client/activity-row.js'",
+      "export { activityChoice, activityClockLabel, activityClockStart, findHost, rowVisible } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -39,7 +39,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, rowVisible, clientErrors } = module.exports
+const { activityChoice, activityClockLabel, activityClockStart, findHost, rowVisible, clientErrors } = module.exports
 
 test('the activity row mounts at the running slot even under an extra wrapper', () => {
   dom.window.document.body.innerHTML = '<div data-chat-flow><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
@@ -69,7 +69,7 @@ test('the row shows while a turn runs, also when text streamed before a tool', (
   const bot = {}
   const cases = [
     [{ running: true, streaming: false, tools: [], relaying: false, bot }, true],
-    [{ running: true, streaming: true, tools: [], relaying: false, bot }, false],
+    [{ running: true, streaming: true, tools: [], relaying: false, bot }, true],
     [{ running: true, streaming: true, tools: [{ label: 'x' }], relaying: false, bot }, true],
     [{ running: true, streaming: false, tools: [{ label: 'x' }], relaying: false, bot }, true],
     [{ running: false, streaming: false, tools: [{ label: 'x' }], relaying: false, bot }, false],
@@ -79,4 +79,19 @@ test('the row shows while a turn runs, also when text streamed before a tool', (
     [{ running: true, streaming: false, tools: [], relaying: false, room: {} }, true],
   ]
   for (const [input, expected] of cases) assert.equal(rowVisible(input), expected, JSON.stringify(input))
+})
+
+test('activity labels follow fresh visible evidence and keep waiting after a new steer', () => {
+  assert.equal(activityChoice({ inputAt: 0, texts: [] }).label, 'Waiting for model reply')
+  assert.equal(activityChoice({ inputAt: 1, texts: [{ at: 2, text: true }] }).label, 'Receiving reply')
+  assert.equal(activityChoice({ inputAt: 3, texts: [{ at: 2, text: true }] }).label, 'Waiting for model reply')
+  assert.equal(activityChoice({ inputAt: 1, texts: [], tool: { at: 2, label: 'Reading a file', state: 'searching' } }).label, 'Reading a file')
+})
+
+test('the elapsed label uses the whole turn, not a later model wait or steer', () => {
+  assert.equal(activityClockStart({ moveAt: 0, turnAt: 100, runAt: 150, inputAt: 500 }), 100)
+  assert.equal(activityClockLabel(100), 'Turn elapsed')
+  assert.equal(activityClockLabel(undefined), 'Observed elapsed')
+  assert.equal(activityClockStart({ moveAt: 0, turnAt: undefined, runAt: 150, inputAt: 500 }), 150)
+  assert.equal(activityClockStart({ moveAt: 300, turnAt: 100, runAt: 150 }), 300)
 })

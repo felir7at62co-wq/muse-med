@@ -166,6 +166,36 @@ describe('installed pi-ai Chat Completions protocol', () => {
     await source.cancelled
   })
 
+  it.each(['top-level', 'choice-level'])('keeps token and cached usage when %s billing follows it', async (location) => {
+    const good = { prompt_tokens: 268, completion_tokens: 252, total_tokens: 520,
+      prompt_tokens_details: { cached_tokens: 68 } }
+    const billing = { balance_rmb: 10, cost_currency: 'CNY', cost_rmb: 0.01 }
+    const events = [
+      JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }] }),
+      JSON.stringify(location === 'top-level'
+        ? { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: good }
+        : { choices: [{ index: 0, delta: {}, finish_reason: 'stop', usage: good }] }),
+      JSON.stringify(location === 'top-level' ? { choices: [], usage: billing }
+        : { choices: [{ index: 0, delta: {}, usage: billing }] }), '[DONE]',
+    ]
+    const server = await mockServer([{ events }])
+    const result = await collect(server.url, new AbortController().signal)
+    expect(result.at(-1)).toMatchObject({ type: 'done', message: { usage: {
+      input: 200, output: 252, cacheRead: 68, totalTokens: 520,
+    } } })
+  })
+
+  it('accepts explicit zero token counts after an earlier positive usage', async () => {
+    const server = await mockServer([{ events: [
+      JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+        usage: { prompt_tokens: 5, completion_tokens: 3 } }),
+      JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } }), '[DONE]',
+    ] }])
+    const result = await collect(server.url, new AbortController().signal)
+    expect(result.at(-1)).toMatchObject({ type: 'done', message: { usage: { input: 0, output: 0, totalTokens: 0 } } })
+  })
+
   it('finishes with trailing usage while the provider leaves HTTP open', async () => {
     const server = await mockServer([{ holdOpen: true, events: [
       '{"choices":[{"index":0,"delta":{"reasoning_content":"checking"},"finish_reason":null}]}',

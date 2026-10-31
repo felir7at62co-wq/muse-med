@@ -400,7 +400,7 @@ export class DesktopHostProcess {
     const response = await this.control(
       { type: 'update-tasks', action },
       10_000,
-      'desktop update: task inspection timed out',
+      `desktop update: task ${action} timed out`,
     )
     if (response.type !== 'update-tasks')
       throw new Error('desktop update: Host answered with a different control response')

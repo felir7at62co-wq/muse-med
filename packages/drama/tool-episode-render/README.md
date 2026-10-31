@@ -319,7 +319,7 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-The request includes `drama_render` and `drama_video`, with parameter and result schemas reproduced in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-episode-render). Render results expose measurements, failed checks and unmeasured QA. Video-decision results expose labels, reason, current ban state and `review_status: "not_assessed"`; for `list`, top-level `banned` means at least one listed version is banned. Both tools render their result as formatted JSON and register no additional prompt text.
+The request includes `drama_render` and `drama_video`, with parameter and result schemas reproduced in the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-episode-render). Render results expose measurements, failed checks and unmeasured QA. Video-decision results expose labels, reason, current ban state and `review_status: "not_assessed"`; for `list`, top-level `banned` means at least one listed version is banned. Both tools render their result as formatted JSON and register no additional prompt text. The tool description states operation choices, evidence requirements and result limits. Parameter descriptions own their input formats; `project` states the shared path rule once. Fixed FFmpeg recipes and delivery details live in this reference rather than repeating in every model request.
 
 #### Token effect
 

@@ -363,7 +363,7 @@ function prepareCompaction(
   session: Session,
   selection: SurfaceSelection,
 ): PreparedCompaction {
-  const measurement = dependencies.meter.measure(session)
+  const measurement = dependencies.meter.measureWorkingContext(session)
   const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
   if (selectedNodes.length !== selection.shadowedSeqs.length
     || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
@@ -433,7 +433,7 @@ function assertWholeSurfaceUnchanged(
   session: Session,
   prepared: PreparedCompaction,
 ): void {
-  const current = dependencies.meter.measure(session)
+  const current = dependencies.meter.measureWorkingContext(session)
   if (!isDeepStrictEqual(current.nodes, prepared.measurement.nodes)) {
     throw new SurfaceChangedError('compaction: session surface changed during summarization')
   }
@@ -461,7 +461,7 @@ function assertSelectedSpanStable(
   if (!isDeepStrictEqual([...current.shadowedSeqs], [...prepared.shadowedSeqs])) {
     throw new SurfaceChangedError('compaction: the selected span changed during summarization')
   }
-  const measured = dependencies.meter.measure(session).nodes.slice(current.startIdx, current.endIdx + 1)
+  const measured = dependencies.meter.measureWorkingContext(session).nodes.slice(current.startIdx, current.endIdx + 1)
   if (!isDeepStrictEqual(measured, prepared.selectedNodes)) {
     throw new SurfaceChangedError('compaction: the selected span was rewritten during summarization')
   }

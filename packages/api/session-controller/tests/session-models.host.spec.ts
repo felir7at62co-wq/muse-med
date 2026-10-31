@@ -9,6 +9,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
@@ -523,6 +524,101 @@ describe('Web session model selection', () => {
     })).toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
     expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     await ctx.fiber.dispose()
+  })
+
+  it('lists same-named Yunying and subscription models through the session remote', async () => {
+    const { ctx, sessionId } = await harness({ provider: 'muse-cloud-yunying', model: 'legacy-hidden' })
+    ctx.llm.registerAdapter(['muse-cloud-yunying'], new CatalogAdapter('Muse · 云映', [
+      { provider: 'muse-cloud-yunying', id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' },
+      { provider: 'muse-cloud-yunying', id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+      { provider: 'muse-cloud-yunying', id: 'legacy-hidden', name: 'Legacy', selectable: false },
+    ]))
+    ctx.llm.registerAdapter(['chatgpt-subscription'], new CatalogAdapter('ChatGPT Subscription', [
+      { provider: 'chatgpt-subscription', id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' },
+    ]))
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp',
+    })
+    const catalog = expectValue(await remote.modelCatalog())
+    expect(catalog.groups.find(group => group.id === 'muse-cloud-yunying')?.models.map(model => model.id))
+      .toEqual(['gpt-6.1-sol', 'gemini-3.1-pro'])
+    expect(catalog.groups.find(group => group.id === 'chatgpt-subscription')?.models.map(model => model.id))
+      .toEqual(['gpt-6.1-sol'])
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'muse-cloud-yunying', model: 'legacy-hidden' })
+    expect(await remote.selectModel({ sessionId, provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol' }))
+      .toMatchObject({ ok: true })
+    expect(await remote.selectModel({ sessionId, provider: 'chatgpt-subscription', model: 'gpt-6.1-sol' }))
+      .toMatchObject({ ok: true })
+    expect(await remote.selectModel({ sessionId, provider: 'muse-cloud-yunying', model: 'legacy-hidden' }))
+      .toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    await ctx.fiber.dispose()
+  })
+
+  it.each(['gpt-6.1-sol', 'gemini-3.1-pro'] as const)('keeps Yunying %s thinking levels local to the selected Session', async (model) => {
+    const unsupportedEffort = model === 'gpt-6.1-sol' ? 'minimal' : 'max'
+    const { ctx, agent, sessionId } = await harness({
+      provider: 'legacy-provider', model: 'legacy-reasoner', reasoningEffort: ReasoningEffortId(unsupportedEffort),
+    })
+    onTestFinished(() => ctx.fiber.dispose())
+    const commonEfforts = [
+      { id: ReasoningEffortId('low'), name: 'Low' },
+      { id: ReasoningEffortId('medium'), name: 'Medium' },
+      { id: ReasoningEffortId('high'), name: 'High' },
+    ]
+    const reasoningByModel = {
+      'gpt-6.1-sol': {
+        efforts: [...commonEfforts, { id: ReasoningEffortId('xhigh'), name: 'Extra high' }, { id: ReasoningEffortId('max'), name: 'Max' }],
+        defaultEffort: ReasoningEffortId('high'),
+      },
+      'gemini-3.1-pro': { efforts: commonEfforts, defaultEffort: ReasoningEffortId('high') },
+    } satisfies Record<string, LlmModelReasoningInfo>
+    const reasoning = reasoningByModel[model]
+    ctx.llm.registerAdapter(['muse-cloud-yunying'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, selectedModel: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider, id: selectedModel, name: selectedModel,
+          reasoning: reasoningByModel[selectedModel as keyof typeof reasoningByModel],
+        })
+      }
+    }('Muse · 云映', [
+      { provider: 'muse-cloud-yunying', id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' },
+      { provider: 'muse-cloud-yunying', id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+    ]))
+    const otherSession = ctx.sessions.create()
+    const otherSelection = {
+      provider: 'muse-cloud-yunying',
+      model: model === 'gpt-6.1-sol' ? 'gemini-3.1-pro' : 'gpt-6.1-sol',
+      reasoningEffort: ReasoningEffortId('medium'),
+    }
+    otherSession.append('request/header', { header: { config: otherSelection }, reason: 'initial' })
+    await ctx.agents.register({ ...agent, id: otherSession.id, session: otherSession, inbox: createInboxStub() })
+    const defaultSelection = {
+      provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: ReasoningEffortId('off'),
+    }
+    const saveDefault = vi.fn()
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => defaultSelection, saveDefaultModelSelection: saveDefault, cwd: '/tmp',
+    })
+    const catalog = expectValue(await remote.modelCatalog())
+    expect(catalog.groups.find(group => group.id === 'muse-cloud-yunying')?.models)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: model, reasoning })]))
+
+    expect(expectValue(await remote.selectModel({
+      sessionId, provider: 'muse-cloud-yunying', model, saveDefault: false,
+    })).selected).toEqual({ provider: 'muse-cloud-yunying', model, reasoningEffort: 'high' })
+    for (const { id: effort } of reasoning.efforts) {
+      const selected = { provider: 'muse-cloud-yunying', model, reasoningEffort: effort }
+      expect(expectValue(await remote.selectModel({ sessionId, ...selected, saveDefault: false })).selected).toEqual(selected)
+      expect(currentSelection(ctx, sessionId)).toEqual(selected)
+      expect(currentSelection(ctx, otherSession.id)).toEqual(otherSelection)
+      expect(ctx.agentDefaultModel.currentSelection()).toEqual(defaultSelection)
+    }
+    expect(await remote.selectModel({
+      sessionId, provider: 'muse-cloud-yunying', model, reasoningEffort: unsupportedEffort, saveDefault: false,
+    })).toMatchObject({ ok: false, error: { code: 'session/model-unavailable' } })
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'muse-cloud-yunying', model, reasoningEffort: reasoning.efforts.at(-1)?.id })
+    expect(currentSelection(ctx, otherSession.id)).toEqual(otherSelection)
+    expect(saveDefault).not.toHaveBeenCalled()
   })
 
   it('hides a non-selectable model while retaining its provider route', async () => {

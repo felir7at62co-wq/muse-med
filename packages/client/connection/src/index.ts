@@ -57,6 +57,16 @@ export const name = 'client-connection'
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
+     * Stop accepting and drain client streams for an approved Desktop update.
+     * @mode serial
+     */
+    'connection/update-pause'(): Promise<void>
+    /**
+     * Resume client streams after a cancelled or failed Desktop update.
+     * @mode serial
+     */
+    'connection/update-resume'(): void
+    /**
      * Admit or wrap an authenticated shared API request, including body transfer.
      * Existing requests continue when a listener refuses subsequent requests.
      * @param request - Authenticated incoming HTTP request.

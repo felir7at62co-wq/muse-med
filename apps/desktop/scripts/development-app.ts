@@ -16,9 +16,23 @@ export interface DevelopmentAppOptions {
   readonly rendererPort: number
   readonly hostPort: number
   readonly openDevtools: string
+  /** Muse service origin retained when Launch Services starts without the parent shell. */
+  readonly museBaseUrl?: string
 }
 
 function quote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'` }
+
+function museOrigin(value: string): string {
+  try {
+    const url = new URL(value)
+    if (value !== value.trim() || url.username || url.password || url.search || url.hash || url.pathname !== '/'
+      || !(url.protocol === 'https:' || url.protocol === 'http:'
+        && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Invalid origin')
+    return url.origin
+  } catch {
+    throw new Error('desktop development: MUSE_BASE_URL must be an HTTPS or loopback HTTP origin without credentials, path, query, or fragment')
+  }
+}
 
 /**
  * Prepare and register a disposable .app without changing the installed Electron package.
@@ -68,6 +82,7 @@ export function developmentLauncher(options: DevelopmentAppOptions, bundle: stri
     DSH_DESKTOP_OPEN_DEVTOOLS: options.openDevtools,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: options.primaryRuntime,
     ELECTRON_ENABLE_LOGGING: '1',
+    ...(options.museBaseUrl === undefined ? {} : { MUSE_BASE_URL: museOrigin(options.museBaseUrl) }),
   }
   const args = [
     join(bundle, 'Contents', 'MacOS', 'Electron'),

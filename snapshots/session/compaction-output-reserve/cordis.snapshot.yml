@@ -1,5 +1,5 @@
-# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 7,370 to 6,370, between the history and its condensed replacement.
+# A 9,210-token model minus 1,000 output and 1,800 headroom tokens gives a
+# 6,410-token trigger, between the initial request and its marker result.
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
@@ -28,7 +28,7 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 9170
+                contextWindow: 9210
                 defaultMaxTokens: 1000
 
 - insert:

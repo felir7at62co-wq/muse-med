@@ -125,7 +125,10 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts
+        run: |
+          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.2
+          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.5
+          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.6
       - name: Accept the genuine installer in an isolated directory
         if: github.event_name == 'workflow_dispatch'
         env:

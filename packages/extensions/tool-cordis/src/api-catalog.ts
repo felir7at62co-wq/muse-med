@@ -3577,6 +3577,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached deeply immutable pressure and surface measurement.',
       },
       {
+        signature: 'measureWorkingContext(session: Session, requestHeader?: EpochHeader): TokenMeasurement',
+        description: 'Estimate working pressure with matching provider usage distributed across current route-priced content. Retained nodes and tools keep their calibrated cost; replacing old nodes removes only their share. This is a conservative estimate, not an exact tokenizer or billing measurement.',
+        parameters: [{ name: 'session', description: 'session to replay through its current durable tail.' }, { name: 'requestHeader', description: 'optional effective request envelope replacing the latest logged header.' }],
+        returns: 'an immutable working-budget snapshot; without a usable anchor it equals `measure()`.',
+      },
+      {
         signature: 'estimateMessage(message: Message): number',
         description: 'Heuristically price one model-visible message (instance face of the pure `estimateMessage` export from `estimate.ts`).',
         parameters: [{ name: 'message', description: 'message to price without mutation.' }],
@@ -3770,7 +3776,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Resolve strict generated definitions or conservative SRC markers against current Cordis Services and Typert providers.',
     methods: [
       {
-        signature: 'readonly wireStream: TypertGatewayWireStream = { open: (endpoint, payload, uplink, peer, signal) => this.openWireStream(endpoint, payload, uplink, peer, signal, new AbortController()), failure: error => rpcError(error), }',
+        signature: 'readonly wireStream: TypertGatewayWireStream = { open: (endpoint, payload, uplink, peer, signal) => this.holdLocalStream(() => this.openWireStream(endpoint, payload, uplink, peer, signal, new AbortController())), failure: error => rpcError(error), }',
         description: 'Carrier adapter shared by the WebSocket mux and local Host transports.',
         parameters: [],
       },
@@ -4368,6 +4374,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Admit or wrap an authenticated shared API request, including body transfer.',
     description: 'Admit or wrap an authenticated shared API request, including body transfer. Existing requests continue when a listener refuses subsequent requests.',
     parameters: [{ name: 'request', description: 'Authenticated incoming HTTP request.' }, { name: 'response', description: 'Response owned until the delegated bridge settles.' }, { name: 'next', description: 'Delegate to the next listener or the shared API bridge.' }],
+  },
+  {
+    name: 'connection/update-pause',
+    mode: 'serial',
+    signature: '\'connection/update-pause\'(): Promise<void>',
+    summary: 'Stop accepting and drain client streams for an approved Desktop update.',
+    description: 'Stop accepting and drain client streams for an approved Desktop update.',
+    parameters: [],
+  },
+  {
+    name: 'connection/update-resume',
+    mode: 'serial',
+    signature: '\'connection/update-resume\'(): void',
+    summary: 'Resume client streams after a cancelled or failed Desktop update.',
+    description: 'Resume client streams after a cancelled or failed Desktop update.',
+    parameters: [],
   },
   {
     name: 'cordis/dynamic-package',

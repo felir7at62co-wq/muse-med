@@ -32,6 +32,67 @@ afterEach(async () => {
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
+  it('pauses new socket streams and waits for cancelled stream cleanup before resuming', async () => {
+    const opened = Promise.withResolvers<undefined>()
+    const started = Promise.withResolvers<undefined>()
+    const cleaning = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => {
+      opened.resolve(undefined)
+      return (async function* () {
+        started.resolve(undefined)
+        try { yield* waitForAbort(control.signal) }
+        finally { cleaning.resolve(undefined); await release.promise }
+      })()
+    })
+    const client = await connect(entry.url)
+    client.send(openFrame('active'))
+    await opened.promise
+    await started.promise
+    let settled = false
+    const paused = entry.mux.pause().then(() => { settled = true })
+    try {
+      await cleaning.promise
+      expect(settled).toBe(false)
+      const refused = new WebSocket(entry.url)
+      const error = once(refused, 'error')
+      await error
+      expect(refused.readyState).not.toBe(WebSocket.OPEN)
+    } finally {
+      release.resolve(undefined)
+      await paused
+    }
+    expect(settled).toBe(true)
+    entry.mux.resume()
+    const restored = await connect(entry.url)
+    restored.close()
+    await once(restored, 'close')
+  })
+
+  it('does not close a new socket when an invalidated pause finishes late', async () => {
+    const started = Promise.withResolvers<undefined>()
+    const cleaning = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => (async function* () {
+      started.resolve(undefined)
+      try { yield* waitForAbort(control.signal) }
+      finally { cleaning.resolve(undefined); await release.promise }
+    })())
+    const old = await connect(entry.url)
+    old.send(openFrame('old'))
+    await started.promise
+    const paused = entry.mux.pause()
+    try {
+      await cleaning.promise
+      entry.mux.resume()
+      const replacement = await connect(entry.url)
+      release.resolve(undefined)
+      await paused
+      expect(replacement.readyState).toBe(WebSocket.OPEN)
+      replacement.close()
+      await once(replacement, 'close')
+    } finally { release.resolve(undefined); await paused }
+  })
   it('allows a delayed Ping write to receive its Pong after the queued-write checks', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal), 20)

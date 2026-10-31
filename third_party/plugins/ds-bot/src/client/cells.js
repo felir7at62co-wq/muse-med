@@ -232,7 +232,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   // earlier step's cell.
   const thinking = groupPart === 'response' || !shown ? undefined : thinkingStep(members)
   const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter(step => step.status !== 'running').length, skip: hidden || reasoning === '' })
-  // A streaming reply stands in for the activity row.
+  // Report a visible reply to the activity row.
   useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts.length > 0 ? { text: true } : null)
   if (hidden) return null
   // A relay spliced mid-turn is a 'context' node, hidden from the chat flow on
@@ -1012,13 +1012,20 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const findBot = nameOrId => roster.byId[nameOrId] ?? roster.bots.find(bot => bot.name.toLowerCase() === String(nameOrId ?? '').toLowerCase())
   const calls = hidden ? [] : callTree(root)
   const drawn = calls.filter(call => DRAWN.has(toolName(call)))
+  const ordinary = calls.filter(call => toolName(call) && toolName(call) !== 'run_code' && !DRAWN.has(toolName(call)))
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null
-  // A running tool shows only as the activity row's phrase.
+  // Running tools also supply the activity row.
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => CARDS.has(toolName(call)) && call.callId).map(call => call.callId))
-  if (drawn.length === 0) return null
+  if (drawn.length === 0 && ordinary.length === 0) return null
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards }
-  return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
+  return h(Fragment, null,
+    ordinary.length ? h('details', { className: 'bt-think', 'data-tool-activity': '' },
+      h('summary', null, t('Tool activity ({count})', { count: ordinary.length })),
+      h('div', { className: 'bt-think-text' }, ordinary.map((call, index) => h('div', { key: call.callId ?? index },
+        h('span', null, toolName(call)), ' · ',
+        t(call.kind !== 'tool-result' ? 'Result pending' : call.isError ? 'Tool failed' : 'Result returned'))))) : null,
+    drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }

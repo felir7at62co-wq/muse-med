@@ -69,6 +69,14 @@ var ZH = {
   "Video model": "视频模型",
   "Feishu linked": "已绑定飞书",
   Working: "工作中",
+  "Waiting for model reply": "等待模型回复",
+  "Receiving reply": "正在接收回复",
+  "Turn elapsed": "本轮已用",
+  "Observed elapsed": "本窗口已观察",
+  "Tool activity ({count})": "工具记录（{count}）",
+  "Result pending": "结果未返回",
+  "Result returned": "已返回结果",
+  "Tool failed": "工具执行失败",
   "Waiting for your answer": "等你回答",
   "Waiting for {names}": "等 {names} 交回",
   "Unread activity": "有未读",
@@ -1869,7 +1877,7 @@ var allThemes = () => ({ ...THEMES, ...customThemes });
 var MESSAGE_WIDTH = { min: 50, max: 100, step: 5 };
 var percent = (value, initial) => Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial;
 var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
-var thinkingShown = (prefs) => prefs?.thinking === true;
+var thinkingShown = (prefs) => prefs?.thinking === void 0 || prefs.thinking === true;
 var widthOf = (prefs) => percent(prefs?.width, 80);
 var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 
@@ -8074,21 +8082,46 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, ac
   const findBot = (nameOrId) => roster.byId[nameOrId] ?? roster.bots.find((bot) => bot.name.toLowerCase() === String(nameOrId ?? "").toLowerCase());
   const calls = hidden ? [] : callTree(root);
   const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)));
+  const ordinary = calls.filter((call2) => toolName(call2) && toolName(call2) !== "run_code" && !DRAWN.has(toolName(call2)));
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
   useShownCards(actions, sessionId, drawn.filter((call2) => CARDS.has(toolName(call2)) && call2.callId).map((call2) => call2.callId));
-  if (drawn.length === 0) return null;
+  if (drawn.length === 0 && ordinary.length === 0) return null;
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards };
-  return (0, import_react12.createElement)(import_react12.Fragment, null, drawn.map((call2, index) => (0, import_react12.createElement)(import_react12.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
+  return (0, import_react12.createElement)(
+    import_react12.Fragment,
+    null,
+    ordinary.length ? (0, import_react12.createElement)(
+      "details",
+      { className: "bt-think", "data-tool-activity": "" },
+      (0, import_react12.createElement)("summary", null, t("Tool activity ({count})", { count: ordinary.length })),
+      (0, import_react12.createElement)("div", { className: "bt-think-text" }, ordinary.map((call2, index) => (0, import_react12.createElement)(
+        "div",
+        { key: call2.callId ?? index },
+        (0, import_react12.createElement)("span", null, toolName(call2)),
+        " · ",
+        t(call2.kind !== "tool-result" ? "Result pending" : call2.isError ? "Tool failed" : "Result returned")
+      )))
+    ) : null,
+    drawn.map((call2, index) => (0, import_react12.createElement)(import_react12.Fragment, { key: call2.callId ?? index }, renderCall(call2, env)))
+  );
 }
 
 // src/client/activity-row.js
 var import_react13 = require("react");
 var import_react_dom2 = require("react-dom");
 var PHRASE_HOLD_MS = 800;
-var drawPhrase = (pool) => t(pool[Math.min(pool.length - 1, Math.floor(Math.random() * pool.length))]);
-var rowVisible = ({ running, streaming, tools, relaying, bot, room: room2 }) => running && (!streaming || tools.length > 0) && !relaying && (bot !== void 0 || room2 !== void 0);
+var rowVisible = ({ running, relaying, bot, room: room2 }) => running && !relaying && (bot !== void 0 || room2 !== void 0);
+var activityClockStart = ({ moveAt, turnAt, runAt }) => moveAt !== 0 ? moveAt : turnAt ?? runAt;
+var activityClockLabel = (turnAt) => t(turnAt === void 0 ? "Observed elapsed" : "Turn elapsed");
+function activityChoice({ inputAt, texts: texts2, tool }) {
+  const textAt = Math.max(0, ...texts2.map((entry) => entry.at ?? 0));
+  if (inputAt > Math.max(textAt, tool?.at ?? 0)) return { key: `input:${inputAt}`, label: t("Waiting for model reply"), state: "thinking" };
+  if (tool) return { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label ?? t("Working"), state: tool.state ?? "working" };
+  if (texts2.length) return { key: "receiving", label: t("Receiving reply"), state: "working" };
+  return { key: "waiting", label: t("Waiting for model reply"), state: "thinking" };
+}
 var mountMissed = false;
 function findHost() {
   const node = document.querySelector("[data-chat-flow] [data-chat-running]") ?? document.querySelector("[data-chat-flow]");
@@ -8188,7 +8221,8 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
   }) ?? 0;
   const entries2 = (0, import_react13.useMemo)(() => Object.values(JSON.parse(liveKey)), [liveKey]);
-  const streaming = entries2.some((entry) => entry.text);
+  const texts2 = entries2.filter((entry) => entry.text);
+  const streaming = texts2.length > 0;
   const tools = entries2.filter((entry) => !entry.text).sort((a, b) => a.at - b.at);
   const relaying = tools.some((entry) => entry.relay);
   const visible = moveAt !== 0 || rowVisible({ running, streaming, tools, relaying, bot, room: room2 });
@@ -8196,14 +8230,14 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const inputRef = (0, import_react13.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
+  const want = !visible ? null : moveAt !== 0 ? { key: "move", label: t("Switching working folder"), state: "thinking" } : activityChoice({ inputAt, texts: texts2, tool });
   const [shown, setShown] = (0, import_react13.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react13.useRef)("thinking");
   if (want) markState.current = want.state;
   (0, import_react13.useEffect)(() => {
     if (wantKey === null || shown?.key === wantKey) return void 0;
-    const make = () => setShown({ key: wantKey, text: want.label ?? drawPhrase(want.pool), at: Date.now() });
+    const make = () => setShown({ key: wantKey, text: want.label, at: Date.now() });
     const wait = shown ? shown.at + PHRASE_HOLD_MS - Date.now() : 0;
     if (wait <= 0) {
       make();
@@ -8254,7 +8288,8 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
       "span",
       { className: "bt-typing-text" },
       (0, import_react13.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react13.createElement)(Shimmer, null, `${shown.text}…`)),
-      (0, import_react13.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
+      moveAt === 0 ? (0, import_react13.createElement)("span", { className: "bt-typing-time" }, ` · ${activityClockLabel(turnAt)}`) : null,
+      (0, import_react13.createElement)(Elapsed, { at: activityClockStart({ moveAt, turnAt, runAt: runAt.current }), className: "bt-typing-time" })
     )
   ), host);
 }

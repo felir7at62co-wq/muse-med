@@ -34,12 +34,14 @@ interface WorkingRequest {
  * unchanged. Disposal cancels and drains active compaction before returning.
  * @param ctx - compaction plugin context owning reversible listeners.
  * @param config - validated defaults and exact-target policies.
- * @param compact - existing pressure compaction operation for the current agent.
+ * @param compact - pressure compaction operation with protected inputs and the effective admission limit.
  */
 export function registerWorkingBudget(
   ctx: Context,
   config: ResolvedConfig,
-  compact: (agent: Agent, signal: AbortSignal, protectedNodes: readonly SessionSeq[]) => Promise<CompactionResult | null>,
+  compact: (
+    agent: Agent, signal: AbortSignal, protectedNodes: readonly SessionSeq[], effectiveLimit: number,
+  ) => Promise<CompactionResult | null>,
 ): void {
   if (config.workingTokenLimit === undefined
     && config.modelPolicies.every(policy => policy.workingTokenLimit === undefined)) return
@@ -96,7 +98,7 @@ export function registerWorkingBudget(
           }
         }
         request.limit = effectiveLimit
-        if (ctx.tokenMeter.measure(request.agent.session).totalTokens < effectiveLimit) {
+        if (ctx.tokenMeter.measureWorkingContext(request.agent.session).totalTokens < effectiveLimit) {
           yield* next()
           return
         }
@@ -136,11 +138,11 @@ export function registerWorkingBudget(
       const generation = agent.session.surface.replaceGeneration
       pending.set(signal, agent)
       try {
-        await compact(agent, signal, request.protectedNodes)
+        await compact(agent, signal, request.protectedNodes, limit)
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while compaction is awaited.
         if (!active || agent.session.surface.replaceGeneration <= generation
-          || ctx.tokenMeter.measure(agent.session).totalTokens >= limit) throw stopped()
+          || ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens >= limit) throw stopped()
         const flushed = await ctx.sessions.flush(agent.session)
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while persistence is awaited.

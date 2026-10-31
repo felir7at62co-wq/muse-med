@@ -3,9 +3,12 @@ import { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { JobStatus, JobView } from '@deepseek-ai/dsh-jobs'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { Readable } from 'node:stream'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installDesktopUpdateTaskControl } from '../../desktop-host/src/update-tasks.ts'
+import { bridge } from '../../../packages/client/connection/src/http-bridge.ts'
 
 type AgentState = { id: SessionId; status: 'idle' | 'running'; inbox: { nextTurn: object[]; nextStep: object[] } }
 
@@ -54,11 +57,38 @@ function idleAgent(): AgentState { return { id: SessionId('update-task-owner'), 
 
 function request(next: () => Promise<void>) {
   const incoming = Readable.from([]) as IncomingMessage
-  const response = { writeHead: vi.fn(), end: vi.fn() }
+  const response = { writeHead: vi.fn(), end: vi.fn(), destroy: vi.fn() }
   return { response, done: ctx.waterfall('connection/request', incoming, response as unknown as ServerResponse, next) }
 }
 
 describe('Desktop Host update task protection', () => {
+  it('cancels and drains an admitted streaming HTTP read before locking', async () => {
+    const aborted = Promise.withResolvers<undefined>()
+    const server = createServer((incoming, response) => {
+      void ctx.waterfall('connection/request', incoming, response, () => bridge(incoming, response, {
+        requestBodyMode: () => 'buffered', fetch: async request => new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          controller.enqueue(new TextEncoder().encode('frame'))
+          request.signal.addEventListener('abort', () => { controller.close(); aborted.resolve(undefined) }, { once: true })
+        } })),
+      }))
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('missing server address')
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/video`)
+      expect(response.status).toBe(200)
+      expect(await inspect('lock')).toBe(false)
+      await aborted.promise
+      await inspect('unlock')
+      await response.body?.cancel()
+    } finally {
+      server.closeAllConnections()
+      server.close()
+      await once(server, 'close')
+    }
+  })
   it.each(['running', 'nextTurn', 'nextStep'] as const)('counts %s agent work without stopping it', async (kind) => {
     const agent = idleAgent()
     if (kind === 'running') agent.status = 'running'
@@ -92,6 +122,7 @@ describe('Desktop Host update task protection', () => {
       expect(await inspect('inspect')).toBe(false)
       let drained = false
       const locking = inspect('lock').then((active) => { drained = true; return active })
+      expect(pending.response.destroy).toHaveBeenCalledOnce()
       const refused = request(next)
       await refused.done
       expect(refused.response.writeHead).toHaveBeenCalledWith(503)
@@ -125,6 +156,7 @@ describe('Desktop Host update task protection', () => {
       await entered.promise
       expect(await inspect('inspect')).toBe(false)
       const locking = inspect('lock')
+      expect(pending.response.destroy).toHaveBeenCalledOnce()
       finish.resolve(undefined)
       expect(await locking).toBe(true)
     } finally { finish.resolve(undefined); await pending.done }
@@ -143,6 +175,26 @@ describe('Desktop Host update task protection', () => {
       finish.resolve(undefined)
       await rejected
     } finally { finish.resolve(undefined); await pending.done }
+  })
+
+  it('does not reacquire admission when a superseded stream pause finishes late', async () => {
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('connection/update-pause', async () => { entered.resolve(undefined); await release.promise })
+    const locking = inspect('lock')
+    const rejected = expect(locking).rejects.toThrow('lock was superseded')
+    try {
+      await entered.promise
+      await inspect('unlock')
+      const admitted = vi.fn(async () => {})
+      await request(admitted).done
+      expect(admitted).toHaveBeenCalledOnce()
+      release.resolve(undefined)
+      await rejected
+      const after = vi.fn(async () => {})
+      await request(after).done
+      expect(after).toHaveBeenCalledOnce()
+    } finally { release.resolve(undefined); await rejected }
   })
 
   it('releases request accounting when the bridge rejects', async () => {

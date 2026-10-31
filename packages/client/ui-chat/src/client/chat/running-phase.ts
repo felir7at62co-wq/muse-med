@@ -2,7 +2,7 @@
 import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /** Local preparation, admitted request, or visible turn activity inferred from the loaded timeline. */
-export type RunningPhase = 'preparing' | 'waiting' | 'working'
+export type RunningPhase = 'preparing' | 'waiting' | 'reasoning' | 'responding' | 'working'
 
 /**
  * Distinguish initial preparation from an admitted request awaiting content.
@@ -19,7 +19,8 @@ export function runningPhase(timeline: ConversationTimelineSnapshot): RunningPha
   if (step.status !== 'open' || step.start === undefined) return 'working'
   const assistant = step.data.get('assistant-step')
   if (assistant?.status !== 'running') return 'working'
-  const hasContent = assistant.blocks.some(block =>
-    block.kind === 'text' || block.kind === 'reasoning' ? block.text.trim() !== '' : true)
-  return hasContent ? 'working' : 'waiting'
+  const block = assistant.blocks.findLast(candidate =>
+    candidate.kind === 'text' || candidate.kind === 'reasoning' ? candidate.text.trim() !== '' : true)
+  if (block === undefined) return 'waiting'
+  return block.kind === 'text' ? 'responding' : block.kind === 'reasoning' ? 'reasoning' : 'working'
 }

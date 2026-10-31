@@ -59,8 +59,8 @@ export async function apply(ctx) {
     assert.ok(options.tools.some(tool => tool.name === 'drama_render'), 'render tool retained')
     const shotReview = options.tools.find(tool => tool.name === 'drama_shot')
     assert.ok(shotReview, 'shot review tool retained')
-    assert.ok(shotReview.description.includes('镜头脚本检查与分包建议（提示模式）'), 'shot review remains advisory')
-    assert.ok(shotReview.description.includes('不硬性拦截，也不要求全部清零'), 'shot review does not block creative choices')
+    assert.ok(shotReview.description.includes('问题均作 warning'), 'shot review remains advisory')
+    assert.ok(shotReview.description.includes('不硬拦截、不要求清零'), 'shot review does not block creative choices')
     const videoModel = options.tools.find(tool => tool.name === 'jubian_video_model')
     assert.ok(videoModel?.description.includes('选择后追加上下文'), 'session video model changes remain visible')
     assert.ok(options.messages.some(message => message.source?.kind === 'runtime-context'

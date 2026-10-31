@@ -10,6 +10,7 @@ import css from './ChatView.module.css'
 
 interface RunningStatusProps {
   readonly startTime: number | undefined
+  readonly stepStartTime?: number | undefined
   readonly phase: RunningPhase
   readonly t: ChatViewSlotProps['t']
 }
@@ -19,7 +20,7 @@ interface RunningStatusProps {
  * @param props - Current Turn start time, observed phase, and localized copy.
  * @returns the blue running indicator; mount only while the Session is running.
  */
-export const RunningStatus = memo(function RunningStatus({ startTime, phase, t }: RunningStatusProps) {
+export const RunningStatus = memo(function RunningStatus({ startTime, stepStartTime, phase, t }: RunningStatusProps) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (startTime === undefined) return
@@ -30,13 +31,16 @@ export const RunningStatus = memo(function RunningStatus({ startTime, phase, t }
   const keys = {
     preparing: ['chat.preparing', 'chat.preparingFor'],
     waiting: ['chat.waitingForResponse', 'chat.waitingForResponseFor'],
+    reasoning: ['chat.receivingReasoning', 'chat.receivingReasoningFor'],
+    responding: ['chat.receivingResponse', 'chat.receivingResponseFor'],
     working: ['chat.deepDiving', 'chat.deepDivingFor'],
   } as const
   const [statusKey, durationKey] = keys[phase]
   const status = t(statusKey)
-  const label = startTime === undefined ? status : t(durationKey, {
-    duration: formatRunDuration(Math.max(1000, now - startTime), t).map(part => part.text).join(''),
-  })
+  const elapsed = (since: number): string => formatRunDuration(Math.max(1000, now - since), t).map(part => part.text).join('')
+  const label = startTime === undefined ? status : phase === 'waiting' && stepStartTime !== undefined
+    ? t('chat.waitingForResponseStep', { stepDuration: elapsed(stepStartTime), duration: elapsed(startTime) })
+    : t(durationKey, { duration: elapsed(startTime) })
   return (
     <div className={css.running} data-chat-running data-phase={phase}>
       <span className={a11yCss.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{status}</span>

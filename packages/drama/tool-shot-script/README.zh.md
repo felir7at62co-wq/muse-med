@@ -172,7 +172,7 @@ strict 编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`�
 
 #### 模型看到什么
 
-[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `review_mode`、`duration_budget`、`shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。advisory 模式中，`ok: true` 表示检查完成，`warnings` 保留需要 Agent 考虑的内容问题；它不是生成或质量批准。advisory 的 `material_bindings` 仅列出身份完整、已确认且无歧义的显式引用；未能确定的引用保留在原文中，并附警告。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。strict 模式中，同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
+当前检查模式提供一份工具描述，说明警告与失败规则、资产和时长要求以及写入位置。方法选择与输入要求只在参数描述中列出，测量事实由结果提供。 [工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `review_mode`、`duration_budget`、`shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。advisory 模式中，`ok: true` 表示检查完成，`warnings` 保留需要 Agent 考虑的内容问题；它不是生成或质量批准。advisory 的 `material_bindings` 仅列出身份完整、已确认且无歧义的显式引用；未能确定的引用保留在原文中，并附警告。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。strict 模式中，同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
 
 #### Token 影响
 

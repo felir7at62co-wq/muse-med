@@ -57,7 +57,7 @@ class FeedService extends TypertRemoteService {
   readonly peeked: unknown[] = []
   readonly peers: PeerScope[] = []
   leftover: AsyncIterator<string> | undefined
-  source: Iterable<string> = []
+  source: Iterable<string> | AsyncIterable<string> = []
   returns = 0
 
   constructor(ctx: Context) {
@@ -85,7 +85,7 @@ class FeedService extends TypertRemoteService {
   }
 
   @Remote({ mode: 'stream' })
-  items(): Iterable<string> {
+  items(): Iterable<string> | AsyncIterable<string> {
     return this.source
   }
 
@@ -339,6 +339,98 @@ afterEach(async () => {
 })
 
 describe('Typert Remote streams', () => {
+  it.each(['in-process', 'websocket'] as const)('waits for a cancelled %s source read before allowing an update', async (carrier) => {
+    const { ctx, service } = await setup(carrier === 'websocket')
+    const started = Promise.withResolvers<undefined>()
+    const returned = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let wrote = false
+    service.source = {
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          started.resolve(undefined)
+          await release.promise
+          wrote = true
+          return { done: true, value: undefined }
+        },
+        async return() {
+          returned.resolve(undefined)
+          return { done: true, value: undefined }
+        },
+      }),
+    }
+    let socket: WebSocket | undefined
+    let paused: Promise<void> | undefined
+    try {
+      if (carrier === 'in-process') {
+        const abort = new AbortController()
+        const source = await ctx.typertGateway.stream({ namespace: 'feed', method: 'items', args: {}, signal: abort.signal })
+        const pending = source[Symbol.asyncIterator]().next()
+        const cancelled = expect(pending).rejects.toMatchObject({ code: 'gateway/cancelled' })
+        await started.promise
+        abort.abort()
+        await cancelled
+        paused = ctx.serial('connection/update-pause')
+      } else {
+        socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+          headers: { cookie: browserCookie(ctx) },
+        })
+        await once(socket, 'open')
+        sendOpen(socket, 'writing', 'feed/items', {})
+        await started.promise
+        paused = ctx.serial('connection/update-pause')
+      }
+      await returned.promise
+      // The source accepts return() independently of its already-running next().
+      expect(await Promise.race([
+        paused.then(() => 'finished'),
+        new Promise<string>(resolve => setImmediate(() => { resolve('pending') })),
+      ])).toBe('pending')
+      expect(wrote).toBe(false)
+      release.resolve(undefined)
+      await paused
+      expect(wrote).toBe(true)
+      await ctx.serial('connection/update-resume')
+    } finally {
+      release.resolve(undefined)
+      await paused
+      socket?.terminate()
+    }
+  })
+
+  it('quiesces the actual WebSocket carrier and fails closed for active in-process streams', async () => {
+    const { ctx, service } = await setup(true)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
+    await once(socket, 'open')
+    sendOpen(socket, 'active', 'feed/follow', { label: 'update' })
+    await vi.waitFor(() => { expect(service.signals).toHaveLength(1) })
+    const closed = once(socket, 'close')
+    await ctx.serial('connection/update-pause')
+    await closed
+    expect(service.returns).toBe(1)
+    expect(await acceptsSocket(ctx)).toBe(false)
+    await expect(ctx.typertGateway.invoke({ namespace: 'feed', method: 'unknown', args: {} }))
+      .rejects.toThrow('Remote admission is paused')
+    await ctx.serial('connection/update-resume')
+    expect(await acceptsSocket(ctx)).toBe(true)
+
+    const source = await ctx.typertGateway.stream({ namespace: 'feed', method: 'follow', args: { label: 'local' } })
+    const iterator = source[Symbol.asyncIterator]()
+    expect((await iterator.next()).value).toBe('local:ready')
+    await expect(ctx.serial('connection/update-pause')).rejects.toThrow('in-process Remote streams are active')
+    await ctx.serial('connection/update-resume')
+    await iterator.return?.()
+    await ctx.serial('connection/update-pause')
+    await ctx.serial('connection/update-resume')
+    const unstarted = await ctx.typertGateway.stream({ namespace: 'feed', method: 'sync', args: { label: 'unused' } })
+    await expect(ctx.serial('connection/update-pause')).rejects.toThrow('in-process Remote streams are active')
+    await ctx.serial('connection/update-resume')
+    await unstarted[Symbol.asyncIterator]().return?.()
+    await ctx.serial('connection/update-pause')
+    await ctx.serial('connection/update-resume')
+  })
   it('reports Client event streams without counting a bare WebSocket', async () => {
     const { ctx } = await setup(true)
     const source = new RemoteEventSourceProbe()

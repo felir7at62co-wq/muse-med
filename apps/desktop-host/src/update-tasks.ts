@@ -1,6 +1,7 @@
 /** Desktop installation admission and task inspection for the shared Web Host. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -30,7 +31,7 @@ export function installDesktopUpdateTaskControl(ctx: Context): (action: 'inspect
   let lockGeneration = 0
   let stopped = false
   ctx.effect(() => () => { stopped = true })
-  const pendingRequests = new Set<Promise<void>>()
+  const pendingRequests = new Map<Promise<void>, ServerResponse>()
   ctx.on('connection/request', async (_request, response, next) => {
     if (locked) {
       response.writeHead(503)
@@ -38,21 +39,27 @@ export function installDesktopUpdateTaskControl(ctx: Context): (action: 'inspect
       return
     }
     const finished = Promise.withResolvers<void>()
-    pendingRequests.add(finished.promise)
+    pendingRequests.set(finished.promise, response)
     try { await next() }
     finally { pendingRequests.delete(finished.promise); finished.resolve() }
   })
   return async (action) => {
     if (stopped) throw new Error('desktop update: Host is stopping')
-    if (action === 'unlock') { locked = false; lockGeneration++ }
+    if (action === 'unlock') {
+      locked = false
+      lockGeneration++
+      await ctx.serial('connection/update-resume')
+    }
     const agents = ctx.get('agents')
     const jobs = ctx.get('jobs')
     if (agents === undefined || jobs === undefined) throw new Error('desktop update: task services are unavailable')
     if (action === 'lock') {
       locked = true
       const generation = ++lockGeneration
-      // Read requests are not tasks; admitted writes must finish before the final work check.
-      await Promise.all(pendingRequests)
+      const streams = ctx.serial('connection/update-pause')
+      // Cancellation requests cooperation; only the completed handlers release admission.
+      for (const response of pendingRequests.values()) response.destroy()
+      await Promise.all([streams, ...pendingRequests.keys()])
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disposal can run while admitted requests drain.
       if (stopped) throw new Error('desktop update: Host is stopping')
       if (generation !== lockGeneration) throw new Error('desktop update: admission lock was superseded')

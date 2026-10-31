@@ -10,23 +10,27 @@ const bundle = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const module = { exports: {} }
+let menuOpen = false
 runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
+  document: { body: {} },
   require: name => {
     const platform = {
       react: {
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-        useState: initial => [initial, () => {}],
+        useState: initial => [menuOpen && initial === null ? { left: 0, top: 0 } : initial, () => {}],
         useEffect: () => {},
+        useLayoutEffect: () => {},
+        useRef: initial => ({ current: initial }),
       },
-      'react-dom': {},
+      'react-dom': { createPortal: tree => tree },
       '@deepseek-ai/dsh-client-ui-primitives': {},
     }
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
 })
-const { groupModels, ModelChoiceDock, effortRows } = module.exports
+const { groupModels, ModelChoiceDock, ModelMenu, effortRows } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -110,6 +114,41 @@ test('the Thinking section always offers Default, so a picked level can be clear
   assert.deepEqual(Array.from(effortRows({ efforts }), row => row.effort), [undefined, 'low', 'high'])
   assert.equal(effortRows({ efforts: [] }).length, 0)
 })
+
+for (const model of ['gpt-6.1-sol', 'gemini-3.1-pro']) {
+  test(`the Yunying ${model} menu offers and submits each thinking level for its own Bot`, () => {
+    const efforts = [{ id: 'low', name: 'Low' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }]
+    if (model === 'gpt-6.1-sol') efforts.push({ id: 'xhigh', name: 'Extra high' }, { id: 'max', name: 'Max' })
+    const reasoning = {
+      efforts,
+      defaultEffort: 'high',
+    }
+    const bot = { id: 'selected-bot', name: 'Selected', model: `muse-cloud-yunying/${model}`, effort: model === 'gpt-6.1-sol' ? 'minimal' : 'max' }
+    const other = { id: 'other-bot', model: 'muse-cloud-yunying/gpt-6.1-sol', effort: 'medium' }
+    const roster = {
+      byId: { [bot.id]: bot, [other.id]: other },
+      models: [{ ref: bot.model, provider: 'muse-cloud-yunying', providerName: 'Muse · 云映', name: model, reasoning }],
+      defaultModel: 'muse-cloud-yunying/gpt-6.1-sol',
+    }
+    const before = structuredClone(roster)
+    const updates = []
+    let tree
+    menuOpen = true
+    try {
+      tree = ModelMenu({ bot, roster, actions: { updateBot: (id, patch) => { updates.push([id, patch]); return Promise.resolve() } }, run: promise => promise })
+    } finally {
+      menuOpen = false
+    }
+    const section = nodes(tree, node => node.props.reasoning === reasoning)[0]
+    const rows = nodes(section.type(section.props), node => node.type === 'button')
+    assert.deepEqual(rows.map(row => nodes(row, node => node.props.className === 'bt-menu-label')[0].children[0]), ['Default', ...efforts.map(effort => effort.name)])
+    assert.deepEqual(rows.map(row => row.props['aria-checked']), [true, ...efforts.map(() => false)])
+    assert.match(nodes(tree, node => node.props.className === 'bt-model-provider')[0].children[0], /High$/)
+    for (const row of rows.slice(1)) row.props.onClick()
+    assert.deepEqual(JSON.parse(JSON.stringify(updates)), efforts.map(effort => [bot.id, { effort: effort.id }]))
+    assert.deepEqual(roster, before)
+  })
+}
 
 const keyless = [
   { ref: 'official/flash', provider: 'official', providerName: 'DeepSeek', name: 'DeepSeek Flash', needsKey: true },

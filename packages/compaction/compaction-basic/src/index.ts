@@ -143,19 +143,19 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly pressureSuppression = new WeakMap<Session, string>()
   private readonly warnedInfeasiblePressure = new WeakMap<Session, string>()
-  private readonly workingRetainedNodes = new WeakMap<Agent, ReadonlySet<SessionSeq>>()
+  private readonly workingRecoveries = new WeakMap<Agent, { protectedNodes: ReadonlySet<SessionSeq>; limit: number }>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config)
     if (this.config.auto) {
       this._registerAutomaticCompaction()
-      registerWorkingBudget(ctx, this.config, async (agent, signal, protectedNodes) => {
-        this.workingRetainedNodes.set(agent, new Set(protectedNodes))
+      registerWorkingBudget(ctx, this.config, async (agent, signal, protectedNodes, limit) => {
+        this.workingRecoveries.set(agent, { protectedNodes: new Set(protectedNodes), limit })
         try {
           return await this.compactIfNeeded(agent, 'pressure', signal)
         } finally {
-          this.workingRetainedNodes.delete(agent)
+          this.workingRecoveries.delete(agent)
         }
       })
     }
@@ -296,7 +296,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (target === undefined) return null
     const policy = resolveTargetPolicy(this.config, target)
     const meter = this.ctx.tokenMeter
-    let measurement = meter.measure(agent.session)
+    let measurement = meter.measureWorkingContext(agent.session)
     switch (trigger) {
       case 'context-overflow':
         break
@@ -315,7 +315,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (trigger === 'context-overflow') {
       if (prune !== undefined) {
         prune.pruneSession(agent.session)
-        measurement = meter.measure(agent.session)
+        measurement = meter.measureWorkingContext(agent.session)
       }
       const range = selectCompactableRange(agent.session, measurement, 0)
       if (range === null) return null
@@ -332,25 +332,27 @@ export class BasicCompactionEngine extends CompactionEngine {
         + 'configure contextWindow on that adapter model',
       )
     }
-    const spec = resolveCompactSpec(
+    const configuredSpec = resolveCompactSpec(
       policy,
       info.context.contextWindow,
       reservedCompletionTokens(agent, info.defaultMaxTokens),
     )
+    const recovery = this.workingRecoveries.get(agent)
+    const spec = recovery === undefined ? configuredSpec : { ...configuredSpec, thresholdTokens: recovery.limit }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
     if (prune !== undefined) {
       prune.pruneSession(agent.session)
-      measurement = meter.measure(agent.session)
+      measurement = meter.measureWorkingContext(agent.session)
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
     let attempts = 0
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectPressureRange(agent.session, measurement, spec, meter, this.workingRetainedNodes.get(agent))
+      const range = selectPressureRange(agent.session, measurement, spec, meter, recovery?.protectedNodes)
       if (range === null) {
         /* v8 ignore else -- a successful nonempty checkpoint remains feasible under the unchanged fixed content and tail. */
         if (result === null) {
@@ -380,7 +382,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         if (!signal.aborted) this.pressureSuppression.set(agent.session, key)
         throw error
       }
-      measurement = meter.measure(agent.session)
+      measurement = meter.measureWorkingContext(agent.session)
       // Successful replacement leaves one checkpoint at the selected start position.
       // oxlint-disable-next-line typescript/no-non-null-assertion
       const checkpointSeq = agent.session.surface.nodes[replacementIndex]!
@@ -443,7 +445,7 @@ export class BasicCompactionEngine extends CompactionEngine {
           operationSignal.throwIfAborted()
           const range = selectCompactableRange(
             agent.session,
-            this.ctx.tokenMeter.measure(agent.session),
+            this.ctx.tokenMeter.measureWorkingContext(agent.session),
             0,
           )
           if (range === null) return null

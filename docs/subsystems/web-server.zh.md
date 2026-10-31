@@ -304,6 +304,38 @@ Admit or wrap an authenticated shared API request, including body transfer. Exis
 
 Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
 
+<a id="connectionupdate-pause--serial"></a>
+
+#### `connection/update-pause` — serial
+
+Stop accepting and drain client streams for an approved Desktop update.
+
+```ts cordis-catalog
+/**
+ * Stop accepting and drain client streams for an approved Desktop update.
+ * @mode serial
+ */
+'connection/update-pause'(): Promise<void>
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
+
+<a id="connectionupdate-resume--serial"></a>
+
+#### `connection/update-resume` — serial
+
+Resume client streams after a cancelled or failed Desktop update.
+
+```ts cordis-catalog
+/**
+ * Resume client streams after a cancelled or failed Desktop update.
+ * @mode serial
+ */
+'connection/update-resume'(): void
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
+
 <a id="webserver-events"></a>
 
 ### `webserver/*` events

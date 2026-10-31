@@ -11,12 +11,12 @@ export function install(rt) {
   const { ctx, state } = rt
 
   let modelsSynced = null
-  let catalogCache = { at: 0, value: [] }
+  let catalogCache = { at: 0, value: [], all: [] }
   // A model's thinking levels, resolved once and kept for a short while: they change
   // only with the provider, which also drops the catalog cache.
   const reasoningCache = new Map()
-  ctx.on?.('llm/adapters-updated', () => { catalogCache = { at: 0, value: [] }; reasoningCache.clear() })
-  for (const name of ['credentials/reference-updated', 'settings/document-updated']) ctx.on?.(name, () => { catalogCache = { at: 0, value: [] } })
+  ctx.on?.('llm/adapters-updated', () => { catalogCache = { at: 0, value: [], all: [] }; reasoningCache.clear() })
+  for (const name of ['credentials/reference-updated', 'settings/document-updated']) ctx.on?.(name, () => { catalogCache = { at: 0, value: [], all: [] } })
 
   // The thinking levels a model serves: `{efforts: [{id, name, description?}],
   // defaultEffort?}`, or undefined when it has none or the provider cannot say.
@@ -36,21 +36,24 @@ export function install(rt) {
   // A provider's model list can change in DSH settings without any event, so a picker
   // that is about to be used asks for a `fresh` one. Entries for models a Bot uses
   // also carry their `reasoning`, so the picker can offer thinking levels.
-  async function catalog({ fresh = false } = {}) {
-    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return catalogCache.value
+  async function catalog({ fresh = false, includeHidden = false } = {}) {
+    if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.all.length > 0) return includeHidden ? catalogCache.all : catalogCache.value
     const entries = []
+    const selectable = []
     for (const provider of ctx.llm.listProviders()) {
       let models = []
       try { models = await ctx.llm.listModels(provider.id) } catch { continue }
       for (const model of models) {
-        entries.push({
+        const entry = {
           ref: `${provider.id}/${model.id}`,
           provider: provider.id,
           providerName: provider.name ?? provider.id,
           id: model.id,
           name: model.name ?? model.id,
           ...(model.inputModalities ? { input: [...model.inputModalities] } : {}),
-        })
+        }
+        entries.push(entry)
+        if (provider.selectable !== false && model.selectable !== false) selectable.push(entry)
       }
     }
     // DSH serves a provider's models whether or not its key is set; without one, every
@@ -62,8 +65,8 @@ export function install(rt) {
       const reasoning = await reasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
-    catalogCache = { at: Date.now(), value: entries }
-    return entries
+    catalogCache = { at: Date.now(), value: selectable, all: entries }
+    return includeHidden ? entries : selectable
   }
 
   // The profile default model of DSH as set, served or not.
@@ -105,9 +108,9 @@ export function install(rt) {
       return selection === undefined ? undefined : `${selection.provider}/${selection.model}`
     }
     if (!bot.model) return undefined
-    const entries = await catalog()
+    const entries = await catalog({ includeHidden: true })
     const served = new Set(entries.map(entry => entry.ref))
-    return [bot.model, bot.appliedModel].find(ref => ref && served.has(ref)) ?? pickDefault(entries)
+    return [bot.model, bot.appliedModel].find(ref => ref && served.has(ref)) ?? pickDefault(await catalog())
   }
 
   // The thinking level a Bot asked for, when the model it runs on serves it; else the
@@ -200,8 +203,8 @@ export function install(rt) {
     const deadline = Date.now() + ms
     for (;;) {
       if (!bot.model) return undefined
-      catalogCache = { at: 0, value: [] }
-      const served = new Set((await catalog()).map(entry => entry.ref))
+      catalogCache = { at: 0, value: [], all: [] }
+      const served = new Set((await catalog({ includeHidden: true })).map(entry => entry.ref))
       if (served.has(bot.model) || Date.now() >= deadline) return desiredModel(bot)
       await new Promise((resolve) => {
         const timer = setTimeout(done, Math.min(2000, deadline - Date.now()))
@@ -215,7 +218,7 @@ export function install(rt) {
   // registers late still gets its Bots' models selected.
   let syncedKey
   const syncModels = () => {
-    const key = catalogCache.value.map(entry => entry.ref).join(',')
+    const key = catalogCache.all.map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
     return modelsSynced
   }
@@ -231,6 +234,6 @@ export function install(rt) {
     defaultRef, defaultModel, defaultEffort, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, waitForModel, syncModels,
     sessionSelection, modelView,
-    dropCatalog: () => { catalogCache = { at: 0, value: [] } },
+    dropCatalog: () => { catalogCache = { at: 0, value: [], all: [] } },
   })
 }

@@ -35,17 +35,19 @@ describe('RunningStatus', () => {
     view.set(1_000, 'waiting')
     expect(view.content()).toBe(content)
     expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('正在等待回复')
-    expect(content?.textContent).toBe('正在等待回复，总用时 6秒 ···')
+    expect(status.textContent).toBe('正在等待模型回复')
+    expect(content?.textContent).toBe('正在等待模型回复，本轮总用时 6秒 ···')
     expect(vi.getTimerCount()).toBe(1)
     view.set(1_000, 'working')
-    expect(status.textContent).toBe('深度求索中')
-    expect(content?.textContent).toBe('深度求索中，用时 6秒 ···')
+    expect(status.textContent).toBe('正在处理任务')
+    expect(content?.textContent).toBe('正在处理任务，本轮总用时 6秒 ···')
   })
 
   it.each([
     ['preparing', 'Preparing request'],
-    ['waiting', 'Waiting for response'],
+    ['waiting', 'Waiting for model response'],
+    ['reasoning', 'Receiving reasoning summary'],
+    ['responding', 'Receiving response'],
   ] as const)('localizes the untimed %s phase', (phase, label) => {
     const view = render(<RunningStatus startTime={undefined} phase={phase} t={makeTranslate(en)} />)
     expect(view.getByRole('status').textContent).toBe(label)
@@ -53,16 +55,27 @@ describe('RunningStatus', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('keeps current-step wait separate from total Turn time and resets it between steps', () => {
+    vi.setSystemTime(520_000)
+    const view = render(<RunningStatus startTime={0} stepStartTime={490_000} phase="waiting" t={t} />)
+    const visible = (): string | null | undefined => view.container.querySelector('[data-chat-running] > :last-child')?.textContent
+    expect(visible()).toBe('正在等待模型回复，本步已用时 30秒 · 本轮总用时 8分40秒 ···')
+    view.rerender(<RunningStatus startTime={0} stepStartTime={519_000} phase="waiting" t={t} />)
+    expect(visible()).toBe('正在等待模型回复，本步已用时 1秒 · 本轮总用时 8分40秒 ···')
+    expect(view.getByRole('status').textContent).toBe('正在等待模型回复')
+    expect(vi.getTimerCount()).toBe(1)
+  })
+
   it('waits for an open Turn start before allocating its clock', () => {
     const view = statusHarness()
-    expect(view.content()?.textContent).toBe('深度求索中')
+    expect(view.content()?.textContent).toBe('正在处理任务')
     expect(vi.getTimerCount()).toBe(0)
     view.set(1_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.content()?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(view.content()?.querySelectorAll('[data-shimmer="true"]')).toHaveLength(1)
     expect(vi.getTimerCount()).toBe(1)
     view.set()
-    expect(view.content()?.textContent).toBe('深度求索中')
+    expect(view.content()?.textContent).toBe('正在处理任务')
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -72,28 +85,28 @@ describe('RunningStatus', () => {
     const status = view.getByRole('status')
     const initialText = content?.textContent
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(content?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(content?.textContent).not.toBe(initialText)
     view.set(7_000)
     expect(view.content()).toBe(content)
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(content?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(vi.getTimerCount()).toBe(1)
     const nextTurnText = content?.textContent
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(content?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(content?.textContent).not.toBe(nextTurnText)
     expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('深度求索中')
+    expect(status.textContent).toBe('正在处理任务')
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('keeps the duration nonnegative when the start is ahead of the local clock', () => {
     const view = statusHarness(6_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.content()?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(view.content()?.textContent).not.toContain('-')
     act(() => { vi.advanceTimersByTime(3_000) })
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(view.content()?.textContent).toMatch(/^正在处理任务，本轮总用时 \d+秒 ···$/)
     expect(view.content()?.textContent).not.toContain('-')
   })
 

@@ -39,7 +39,9 @@ After admission succeeds, a failed account-liveness check returns non-retryable 
 
 Model refusals and cancelled streams expose fixed diagnostics with their error category, HTTP status and retry delay when available. The Host diagnostic log records only provider, model, category, HTTP status, and a bounded supplier request ID; supplier error text, credentials, authorization headers, diagnostic request IDs and chained exceptions do not enter Session logs. Successful model content and replay metadata remain intact. Content-safety refusals retain `CONTENT_FILTER` and never become a transient retry category.
 
-Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort.
+Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort. Yunying's exact `gpt-6.1-sol` model uses `max_completion_tokens` for its output limit.
+
+Session and Bot menus expose only the effort levels advertised by the account catalog. Yunying GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`; Gemini 3.1 Pro supports `low`, `medium`, and `high`. The regular Session menu retains its personal-default save behavior; Bot selections remain specific to that Bot. Neither changes the server catalog defaults. Gemini keeps `include_thoughts: true` alongside the selected `reasoning_effort`. A requested level does not guarantee that the supplier returns a visible summary on every step.
 
 A model choice saved during catalog refresh takes precedence over initial account default selection. The refreshed catalog remains available; an unrelated settings write failure still rejects the refresh.
 

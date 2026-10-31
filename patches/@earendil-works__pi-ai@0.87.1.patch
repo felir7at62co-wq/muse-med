@@ -35,10 +35,38 @@ index 67f9341a6f7d855dce25054fd48cd9077e8e04a1..afdb5c2c873abb72ca8011b7e3f06a23
                  type: "toolcall_delta",
                  contentIndex: toolBlocksByKey.get(key),
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index 48464f2bf56b9369d5c202e4f02fc4f13d35b412..d829f5e8e56e788d96fa7a82c0e3cfaef3fc1f63 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
-@@ -453,7 +453,6 @@ export const stream = (model, context, options) => {
+@@ -147,6 +147,10 @@
+         return "long";
+     }
+     return "short";
++}
++function hasTokenUsage(usage) {
++    return typeof usage === "object" && usage !== null && ["prompt_tokens", "completion_tokens"].some((key) =>
++        typeof usage[key] === "number" && Number.isFinite(usage[key]) && usage[key] >= 0);
+ }
+ export const stream = (model, context, options) => {
+     const stream = new AssistantMessageEventStream();
+@@ -359,7 +363,7 @@
+                 if (typeof chunk.model === "string" && chunk.model.length > 0 && chunk.model !== model.id) {
+                     output.responseModel ||= chunk.model;
+                 }
+-                if (chunk.usage) {
++                if (hasTokenUsage(chunk.usage)) {
+                     output.usage = parseChunkUsage(chunk.usage, model);
+                 }
+                 const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+@@ -367,7 +371,7 @@
+                     continue;
+                 // Fallback: some providers (e.g., Moonshot) return usage
+                 // in choice.usage instead of the standard chunk.usage
+-                if (!chunk.usage && choice.usage) {
++                if (!hasTokenUsage(chunk.usage) && hasTokenUsage(choice.usage)) {
+                     output.usage = parseChunkUsage(choice.usage, model);
+                 }
+                 if (choice.finish_reason) {
+@@ -437,7 +441,6 @@
                              if (toolCall.function?.arguments) {
                                  delta = toolCall.function.arguments;
                                  block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;

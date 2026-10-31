@@ -207,7 +207,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
   readonly wireStream: TypertGatewayWireStream = {
     open: (endpoint, payload, uplink, peer, signal) =>
-      this.openWireStream(endpoint, payload, uplink, peer, signal, new AbortController()),
+      this.holdLocalStream(() => this.openWireStream(endpoint, payload, uplink, peer, signal, new AbortController())),
     failure: error => rpcError(error),
   }
 
@@ -216,6 +216,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private remoteEvents: RegisteredRemoteEventSource | undefined
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
+  private readonly updateMuxes = new Set<RemoteStreamMuxServer>()
+  private readonly localUpdateStreams = new Set<symbol>()
+  private readonly updateCalls = new Set<Promise<void>>()
+  private readonly updateStreamOperations = new Set<Promise<void>>()
+  private updatePaused = false
 
   /**
    * Register the Gateway against the active Typert registry.
@@ -227,6 +232,17 @@ export class TypertGatewayService extends Service implements TypertGateway {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'typertGateway')
     const resolved = config as ResolvedConfig
+    ctx.on('connection/update-pause', async () => {
+      this.updatePaused = true
+      if (this.localUpdateStreams.size > 0) throw new Error('desktop update: in-process Remote streams are active')
+      await Promise.all([...this.updateCalls, ...[...this.updateMuxes].map(mux => mux.pause())])
+      // Cancellation can settle the carrier before a source iterator's pending read.
+      while (this.updateStreamOperations.size > 0) await Promise.all(this.updateStreamOperations)
+    })
+    ctx.on('connection/update-resume', () => {
+      this.updatePaused = false
+      for (const mux of this.updateMuxes) mux.resume()
+    })
     ctx.on('internal/service', () => {
       this.srcClaims = undefined
     })
@@ -246,7 +262,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
           resolved.websocketHeartbeatIntervalMs,
           resolved.streamInboxBytes,
         )
+        const updateMuxes = this.updateMuxes
+        const updatePaused = (): boolean => this.updatePaused
         webCtx.effect(function* () {
+          updateMuxes.add(mux)
+          yield () => { updateMuxes.delete(mux) }
+          if (updatePaused()) void mux.pause()
           yield () => mux.close()
           const route: WebUpgradeRoute = {
             path: REMOTE_STREAM_MUX_PATH,
@@ -355,7 +376,21 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   async invoke(request: InvokeRemoteRequest): Promise<unknown> {
-    return this.invokePrepared(await this.prepareInvocation(request, new AbortController()))
+    return this.runUpdateProtected(async () => this.invokePrepared(await this.prepareInvocation(request, new AbortController())))
+  }
+
+  private async runUpdateProtected<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.updatePaused) throw new Error('desktop update: Remote admission is paused')
+    const done = Promise.withResolvers<void>()
+    this.updateCalls.add(done.promise)
+    try { return await operation() }
+    finally { this.updateCalls.delete(done.promise); done.resolve() }
+  }
+
+  private trackStreamOperation(operation: Promise<IteratorResult<unknown>>): void {
+    const settled = operation.then(() => undefined, () => undefined)
+    this.updateStreamOperations.add(settled)
+    void settled.then(() => { this.updateStreamOperations.delete(settled) })
   }
 
   private async invokePrepared(prepared: PreparedInvocation): Promise<unknown> {
@@ -384,7 +419,47 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * @returns a cancellation-aware iterable over the business results.
    */
   async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>> {
-    return this.openStream(request, new AbortController())
+    return this.holdLocalStream(() => this.openStream(request, new AbortController()))
+  }
+
+  private async holdLocalStream(open: () => Promise<AsyncIterable<unknown>>): Promise<AsyncIterable<unknown>> {
+    if (this.updatePaused) throw new Error('desktop update: Remote stream admission is paused')
+    const token = Symbol('in-process Remote stream')
+    this.localUpdateStreams.add(token)
+    try {
+      const source = await open()
+      const active = this.localUpdateStreams
+      const iterator = source[Symbol.asyncIterator]()
+      let pending = 0
+      let terminated = false
+      const run = async (operation: () => Promise<IteratorResult<unknown>>): Promise<IteratorResult<unknown>> => {
+        pending++
+        try {
+          const result = await operation()
+          if (result.done) terminated = true
+          return result
+        } catch (error) {
+          terminated = true
+          throw error
+        } finally {
+          pending--
+          if (terminated && pending === 0) active.delete(token)
+        }
+      }
+      const wrapped: AsyncIterableIterator<unknown> = {
+        [Symbol.asyncIterator]: () => wrapped,
+        next: () => run(() => iterator.next()),
+        return: () => run(async () => await iterator.return?.() ?? { done: true, value: undefined }),
+        throw: (error?: unknown) => run(async () => {
+          if (iterator.throw === undefined) throw error
+          return iterator.throw(error)
+        }),
+      }
+      return wrapped
+    } catch (error) {
+      this.localUpdateStreams.delete(token)
+      throw error
+    }
   }
 
   /**
@@ -418,10 +493,19 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: 'result' },
       )
     }
-    return cancellableStream(source, prepared.endpoint, prepared.invocation)
+    return cancellableStream(source, prepared.endpoint, prepared.invocation, (operation) => { this.trackStreamOperation(operation) })
   }
 
   private async dispatchRpc(
+    endpoint: string,
+    payload: unknown,
+    signal: AbortSignal,
+    peer: PeerScope,
+  ): Promise<ConnectionRpcResult> {
+    return this.runUpdateProtected(() => this.dispatchRpcUnpaused(endpoint, payload, signal, peer))
+  }
+
+  private async dispatchRpcUnpaused(
     endpoint: string,
     payload: unknown,
     signal: AbortSignal,
@@ -1169,6 +1253,7 @@ async function *cancellableStream(
   source: Iterable<unknown> | AsyncIterable<unknown>,
   endpoint: string,
   invocation: GatewayInvocation,
+  trackOperation: (operation: Promise<IteratorResult<unknown>>) => void,
 ): AsyncGenerator {
   const { signal } = invocation
   const asyncFactory: unknown = Reflect.get(source, Symbol.asyncIterator)
@@ -1188,7 +1273,9 @@ async function *cancellableStream(
       const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
       // next() can abort and throw synchronously before the race subscribes.
       void aborted.catch(() => undefined)
-      const next = await Promise.race([Promise.resolve(iterator.next()), aborted])
+      const pending = Promise.resolve(iterator.next())
+      trackOperation(pending)
+      const next = await Promise.race([pending, aborted])
       rejectAbort = undefined
       if (next.done === true) return
       yield next.value
@@ -1199,7 +1286,11 @@ async function *cancellableStream(
     // The uplink closes first so a method blocked on `uplink.next()` unwinds
     // before its iterator is asked to return.
     await invocation.close()
-    await iterator.return?.()
+    if (iterator.return !== undefined) {
+      const returned = Promise.resolve(iterator.return())
+      trackOperation(returned)
+      await returned
+    }
   }
 }
 

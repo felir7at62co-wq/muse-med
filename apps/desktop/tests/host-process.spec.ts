@@ -129,6 +129,22 @@ describe('desktop host process', () => {
     await expect(host.updateTasks('inspect')).rejects.toThrow('Host is unavailable')
   })
 
+  it.each(['inspect', 'lock', 'unlock'] as const)('reports the timed-out %s control phase', async (action) => {
+    const host = hostProcess(projectWithHost(`
+      process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:3080/' })
+      process.on('message', message => {
+        if (message.type === 'shutdown') process.send({ type: 'shutdown-complete' }, () => process.disconnect())
+      })
+    `))
+    await host.start()
+    vi.useFakeTimers()
+    try {
+      const result = expect(host.updateTasks(action)).rejects.toThrow(`desktop update: task ${action} timed out`)
+      await vi.advanceTimersByTimeAsync(10_000)
+      await result
+    } finally { vi.useRealTimers() }
+  })
+
   it('correlates quit inspections with task requests and fails an unanswered one at its own deadline', async () => {
     const host = hostProcess(projectWithHost())
     await expect(host.inspectQuit()).rejects.toThrow('desktop quit: Host is unavailable')

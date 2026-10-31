@@ -114,6 +114,12 @@ export function ChatView({
   // Turn enters, leaves, or changes its preview.
   const turnNavigationItems = useChat(s => s.navigation.items())
   const phase = useChat(s => runningPhase(s.timeline))
+  const runningStepStartTime = useChat((s) => {
+    const turnNumber = s.timeline.turnOrder.at(-1)
+    const turn = turnNumber === undefined ? undefined : s.timeline.turns.get(turnNumber)
+    const step = turn?.steps.at(-1)
+    return turn?.status === 'open' && step?.status === 'open' ? step.start?.time : undefined
+  })
   const latestTurnAnchor = turnNavigationItems.at(-1)?.anchorKey
   const runningStartTime = useChatNode(latestTurnAnchor ?? '', (node) => {
     const location = node?.location
@@ -279,7 +285,7 @@ export function ChatView({
                 t={t}
               />
             </MarkdownDelegateProvider>
-            {running && <RunningStatus startTime={runningStartTime} phase={phase} t={t} />}
+            {running && <RunningStatus startTime={runningStartTime} stepStartTime={runningStepStartTime} phase={phase} t={t} />}
             {/* No pending placeholders: questions (ui-user-questions) and approvals
                 (ApprovalPanel) both take over the composer, so a flow card would
                 double-render the same wait. */}

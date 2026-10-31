@@ -104,7 +104,7 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 
 `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
 
-For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. For GLM-compatible Chat Completions endpoints, `zaiToolStream: true` adds `tool_stream: true` when the request has tools; omitted or false leaves it absent. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
+For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. For GLM-compatible Chat Completions endpoints, `zaiToolStream: true` adds `tool_stream: true` when the request has tools; omitted or false leaves it absent. A model may opt into `googleThoughtSummaries: true` for an OpenAI-compatible Google gateway; this adds `extra_body.google.thinking_config.include_thoughts` without changing the thinking level. Custom resolved provider profiles may omit the summary map to retain their existing request behavior. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
 
 ### Change configuration at runtime
 
@@ -119,6 +119,8 @@ The exported `discoverModels(request, storedProfile?, fetcher?)` operation also 
 ### Failures and recovery
 
 Successful Chat Completions SSE responses finish at a complete `[DONE]` event and cancel any unread HTTP body, even when the provider keeps the connection open. A `finish_reason` alone does not truncate the stream, so trailing usage is retained. Normal HTTP EOF and pi-ai's missing-terminal-reason validation still apply when no complete `[DONE]` arrives.
+
+Chat Completions usage updates require a finite, nonnegative `prompt_tokens` or `completion_tokens` count. Empty usage and billing-only metadata cannot overwrite earlier token counts or cache usage; explicit zero token counts remain valid.
 
 A completed, nonempty `stop` remains successful when reported usage exceeds the local model catalog capacity. Usage still informs context pressure; it does not override a successful provider finish. Explicit provider context errors and usage-based empty or zero-output truncated responses retain overflow classification.
 

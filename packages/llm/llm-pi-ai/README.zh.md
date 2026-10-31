@@ -104,7 +104,7 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
-对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。GLM 兼容的 Chat Completions 接口可设置 `zaiToolStream: true`，有工具时发送 `tool_stream: true`；省略或 false 不发送该字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
+对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。GLM 兼容的 Chat Completions 接口可设置 `zaiToolStream: true`，有工具时发送 `tool_stream: true`；省略或 false 不发送该字段。模型可为 OpenAI 兼容的 Google 网关显式设置 `googleThoughtSummaries: true`，发送 `extra_body.google.thinking_config.include_thoughts`，不会改变思考等级。自定义的已解析提供方配置可以省略摘要映射，保持既有请求行为。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
 
 ### 运行时更改配置
 
@@ -119,6 +119,8 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 ### 失败与恢复
 
 成功的 Chat Completions SSE（Server-Sent Events）响应在收到完整的 `[DONE]` 事件时结束，并取消尚未读取的 HTTP 响应正文，即使提供方仍保持连接也不会继续等待。仅有 `finish_reason` 不会截断流，因此其后的用量信息仍会保留。没有收到完整 `[DONE]` 时，仍按正常 HTTP EOF 结束，并保留 pi-ai 对缺失终止原因的校验。
+
+Chat Completions 用量更新需要包含有限、非负的 `prompt_tokens` 或 `completion_tokens`。空用量和只含账务信息的对象不会覆盖先前的 Token 及缓存计数；明确报告的零计数仍有效。
 
 已完成且非空的 `stop` 回复，在报告用量超过本地模型目录容量时仍按成功处理。用量继续用于估算上下文压力，不覆盖提供方的成功结束状态。提供方明确报告的上下文错误，以及空回复或零输出截断响应的用量判定，仍保留超限分类。
 

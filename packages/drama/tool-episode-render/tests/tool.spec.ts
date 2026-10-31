@@ -143,20 +143,19 @@ describe('registration', () => {
     expect(inject).toEqual(['tools'])
   })
 
-  it('registers exactly the drama_render tool with the delivery style and both known traps', () => {
+  it('states operation choices, evidence limits and nonblocking findings', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
-    expect(tool.description).toContain('默认 SimHei 40，字体服从部署配置')
-    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 40', '字间距 -2',
+    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps',
       '单行、无标点、每条不超过 14 个有效字', '长句要逐条取得同源字词时间',
-      '黑描边按成片宽度推导（1440px 宽目标 7px）', 'fps=F,setpts=N/(F*TB)', 'F 取时间线 delivery.fps（旧时间线默认 60）',
-      '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
+      '内容由AI生成', 'drawtext', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格真实尾帧 2 秒',
+      '不均分句时长', '不做识别、测能量或估算时间', '无可用条目只写检查说明', '不覆盖原字幕',
+    ]) {
       expect(tool.description).toContain(phrase)
     }
-    // The delivery style states the outline as a delivered width, never as the raw
-    // ASS field: the field is derived, and a stale literal here is what let the
-    // value drift away from the 7px the picture must show.
-    expect(tool.description).not.toMatch(/\d+px 黑描边/u)
+    expect(tool.description).toContain('不能只看元数据')
+    expect(tool.description).toContain('不要求审批')
+    expect(tool.description).toContain('成片质量问题保留文件与实测参数')
   })
 
   it('states the shipped ending bytes in the ending parameter descriptions', () => {
@@ -183,10 +182,8 @@ describe('registration', () => {
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay',
       'speech_coverage', 'subtitle_layout'])
-    for (const field of ['shots', 'lines', 'alignment', 'timeline', 'subtitle_srt', 'bgm', 'bgm_plan',
-      'ending_audio', 'ending_effect', 'output']) {
-      expect(parameters.properties[field]?.description).toContain('相对路径以 project 为基准')
-    }
+    expect(parameters.properties.project?.description).toContain('其余相对路径以 project 为基准')
+    expect(parameters.properties.project?.description).toContain('绝对路径保持不变')
     expect(parameters.properties.bgm?.description).toContain('drama_bgm 返回的绝对 output')
     expect(parameters.properties.bgm_plan?.description).toContain('drama_bgm 返回的绝对 plan')
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'project'])

@@ -38,11 +38,12 @@ export async function apply(ctx) {
     assert.equal(options.tools.filter(tool => tool.name === 'show_view').length, 1)
     assert.ok(options.tools.some(tool => tool.name === 'list_bots'))
     assert.ok(options.tools.some(tool => tool.name === 'update_bot'))
+    assert.ok(options.tools.some(tool => tool.name === 'video_inspect'))
     assert.ok(!options.tools.some(tool => tool.name === 'fixture_optional_tool'))
-    for (const name of ['drama_shot', 'manuscript_revision', 'video_inspect', 'drama_project', 'source_recover',
+    for (const name of ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover',
       'muse_production', 'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
       'drama_character_references', 'drama_character_reference_view', 'drama_render']) {
-      assert.ok(options.tools.some(tool => tool.name === name), `Resident production tool: ${name}`)
+      assert.ok(!options.tools.some(tool => tool.name === name), `Production tool stays on demand: ${name}`)
     }
     yield* next()
   })

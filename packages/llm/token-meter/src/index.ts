@@ -144,13 +144,32 @@ export class TokenMeter extends Service {
    * @returns a detached deeply immutable pressure and surface measurement.
    */
   measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement {
+    return this._measure(session, requestHeader, false)
+  }
+
+  /**
+   * Estimate working pressure with matching provider usage distributed across
+   * current route-priced content. Retained nodes and tools keep their calibrated
+   * cost; replacing old nodes removes only their share. This is a conservative
+   * estimate, not an exact tokenizer or billing measurement.
+   *
+   * @param session - session to replay through its current durable tail.
+   * @param requestHeader - optional effective request envelope replacing the latest logged header.
+   * @returns an immutable working-budget snapshot; without a usable anchor it equals `measure()`.
+   */
+  measureWorkingContext(session: Session, requestHeader?: EpochHeader): TokenMeasurement {
+    return this._measure(session, requestHeader, true)
+  }
+
+  /** Price either view from the same replay state and route projection. */
+  private _measure(session: Session, requestHeader: EpochHeader | undefined, working: boolean): TokenMeasurement {
     const state = this._sync(session)
     const header = requestHeader === undefined
       ? state.header
       : canonicalHeader(requestHeader)
     const pricing = this._routeImagePricing(header)
     const fileText = this._fileRequestText()
-    const surface = priceSurface(state.surface, pricing, fileText)
+    let surface = priceSurface(state.surface, pricing, fileText)
     const anchor = state.anchor
 
     let baseline: TokenMeasurementBaseline
@@ -168,7 +187,12 @@ export class TokenMeter extends Service {
       baseline = usage !== undefined && usageTokens(usage) >= estimatedAnchorTokens
         ? { kind: 'usage', tokens: usageTokens(usage), usage }
         : { kind: 'estimated', tokens: estimatedAnchorTokens }
-      surfaceDeltaTokens = surface.surfaceTokens - anchorSurfaceTokens
+      if (working && baseline.kind === 'usage' && estimatedAnchorTokens > 0) {
+        const scale = baseline.tokens / estimatedAnchorTokens
+        const nodes = surface.nodes.map(node => ({ ...node, tokens: Math.ceil(node.tokens * scale) }))
+        surface = { nodes, surfaceTokens: nodes.reduce((total, node) => total + node.tokens, 0) }
+        surfaceDeltaTokens = surface.surfaceTokens + Math.ceil(estimateToolsTokens(header) * scale) - baseline.tokens
+      } else surfaceDeltaTokens = surface.surfaceTokens - anchorSurfaceTokens
     } else if (header === undefined && surface.surfaceTokens === 0) {
       baseline = { kind: 'none', tokens: 0 }
       surfaceDeltaTokens = 0

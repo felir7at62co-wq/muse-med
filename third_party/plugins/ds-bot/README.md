@@ -6,7 +6,7 @@ Muse Bot adds persistent Bot conversations, a team roster, group chats, shared w
 
 ## Desktop use
 
-Open Muse Bot from the Muse sidebar. Create a Bot, select its model and reasoning level, and send it a task. A Bot uses the existing Muse model catalog, account, workspace and tools. Its conversation remains an ordinary Harness Session, and the original Muse task interface remains available. Group chats let Bots coordinate messages without requiring a separate planning, review or approval workflow.
+Open Muse Bot from the Muse sidebar. Create a Bot, select its model and reasoning level, and send it a task. A Bot uses the existing Muse model catalog, account, workspace and tools. New model choices respect provider and model visibility; existing Bot selections are retained. Its conversation remains an ordinary Harness Session, and the original Muse task interface remains available. Group chats let Bots coordinate messages without requiring a separate planning, review or approval workflow.
 
 When the Muse Bot interface opens or the roster is queried, visible independent Muse Sessions become ordinary Bots in place, including ordinary forks. Subagents, team-room Sessions, earlier Bot parts, standalone DSH Agent Sessions and archived Sessions are excluded. Their history, working directory, workspace, model, reasoning level and preset remain with the original Session, as do native questions, live Agents, goals and jobs. Automatic registration reads list metadata without restoring inactive Agents, sending greetings or requesting a model.
 
@@ -58,6 +58,10 @@ The bundled composition mounts one `muse-bot` row:
 The Desktop composition keeps the registered Bot team tools available from the first model request, including `ask_user`, `show_view` and secure credential cards. Ordinary DSH Agent sessions exclude Bot management tools, and tool visibility does not grant Main Bot rights. User-selected additional tools retain their existing pin and release behavior. The card registration uses a selective DS Bot 0.2.4 update: a Bot-scoped `show_view` takes priority over another plugin’s global renderer and is removed on Agent or plugin disposal. The plugin retains its 0.2.2 base, Muse renderer, model routes and Muse web search.
 
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
+
+The conversation activity row distinguishes waiting for a reply from receiving visible text and labels its clock as total turn time. Ordinary tool calls retain a collapsed record of tool names and returned, failed or pending status without exposing arguments or raw results.
+
+Returned reasoning summaries are visible when the user has not set the thinking-display preference. An explicit off setting remains off. This preference changes display only; it does not request hidden reasoning or generate a summary when the model returns none.
 
 ## Source, packaging and checks
 

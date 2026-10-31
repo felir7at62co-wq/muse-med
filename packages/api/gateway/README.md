@@ -40,6 +40,8 @@ Every stream also carries a Client-to-Host uplink on the same logical stream. A 
 
 Stream cancellation and stopping keep read-local state, not a history of delivered items, on the Host downlink, Host uplink, and Client uplink pump. Completing the downlink also wakes pending uplink reads.
 
+During an approved Desktop update, Gateway pauses new calls and socket upgrades, cancels socket streams, and waits for admitted unary calls and underlying iterator operations to settle. A caller observing cancellation does not establish that its producer has stopped. An open in-process stream blocks installation until its owner closes it; a timed-out or cancelled update resumes admission.
+
 Host composition can register one application event source through `registerRemoteEvents()`. Gateway reserves the internal `$events` logical endpoint for that source, accepts only empty `args`, and aborts streams opened by the registration when the source is withdrawn. API Remotes owns the event selection, argument validation, per-Client queues, and the Host home sent in the opening `{ type: 'ready', clientId, host: { home } }` frame. Its source factory attaches incremental listeners synchronously, so the Client publishes the generation and starts baseline reads only after incremental delivery is ready.
 
 `hasLiveClient()` checks the existing `$events` records for an uncancelled stream. A cancelled stream does not count even while its iterator is still awaiting cleanup; a bare WebSocket does not count. This synchronous observation does not guarantee delivery or Client provider readiness.

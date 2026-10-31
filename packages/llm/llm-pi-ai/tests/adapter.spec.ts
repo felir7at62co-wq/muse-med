@@ -12,6 +12,7 @@ import type {
 import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { requestGoogleThoughtSummaries } from '../src/adapter.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
@@ -1232,4 +1233,14 @@ it.each([
     auth: memoryAuth(),
   })
   expect(await adapter.listModels('deepseek')).not.toHaveLength(0)
+})
+
+
+it('adds Google summaries while retaining unrelated payload and nested parameters', () => {
+  const body = { model: 'gemini', messages: [{ role: 'user', content: 'hello' }],
+    extra_body: { other: 'keep', google: { project: 'p', thinking_config: { budget: 12 } } } }
+  expect(requestGoogleThoughtSummaries(body)).toEqual({ ...body,
+    extra_body: { other: 'keep', google: { project: 'p', thinking_config: { budget: 12, include_thoughts: true } } } })
+  expect(body.extra_body.google.thinking_config).toEqual({ budget: 12 })
+  expect(() => requestGoogleThoughtSummaries({ extra_body: { google: 'bad' } })).toThrow(/must be an object/)
 })

@@ -467,6 +467,32 @@ it('hides exact Yunying model IDs while retaining other Yunying, Zhipu, and pers
   } finally { personal() }
 })
 
+it('makes the two allowed Yunying models selectable without hiding the same subscription model', async () => {
+  await login()
+  class SubscriptionAdapter extends PersonalAdapter {
+    override async listModels(provider: string) { return [{ provider, id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' }] }
+  }
+  const disposeSubscription = ctx.llm.registerAdapter(['chatgpt-subscription'], new SubscriptionAdapter())
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  try {
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      hiddenProviderIds: ['yunying'], visibleModels: [
+        { providerId: 'yunying', modelId: 'gemini-3.1-pro' },
+        { providerId: 'yunying', modelId: 'gpt-6.1-sol' },
+      ], fetcher: async () => Response.json({ providers: [{ id: 'yunying', name: '云映',
+        models: ['gemini-3.1-pro', 'gpt-6.1-sol', 'gpt-6-astra'].map(id => ({ ...entry, id, name: id })) }] }) })
+    await models.refresh()
+    const browser = await buildModelCatalog(ctx, { provider: 'chatgpt-subscription', model: 'gpt-6.1-sol' })
+    expect(browser.groups.find(group => group.id === 'muse-cloud-yunying')?.models.map(model => model.id))
+      .toEqual(['gemini-3.1-pro', 'gpt-6.1-sol'])
+    expect(browser.groups.find(group => group.id === 'chatgpt-subscription')?.models.map(model => model.id))
+      .toEqual(['gpt-6.1-sol'])
+    expect(await modelAvailable(ctx, { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' })).toBe(false)
+    await expect(ctx.llm.resolveModelInfo('muse-cloud-yunying', 'gpt-6-astra'))
+      .resolves.toMatchObject({ provider: 'muse-cloud-yunying', id: 'gpt-6-astra' })
+  } finally { disposeSubscription() }
+})
+
 it('hides Yunying from new selections while retaining its route and the visible DeepSeek and GLM providers', async () => {
   await login()
   const entry = suppliedCatalog.providers[0]!.models[0]!
@@ -1191,4 +1217,182 @@ it('refuses a leased route assigned to a supplier other than official Zhipu', as
     fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
       ? { ...catalog, transport: 'direct' } : { transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'leased' }] }) })
   await expect(models.refresh()).rejects.toThrow()
+})
+
+it('requests Google thought summaries only for the exact Yunying Gemini route', async () => {
+  const events = [
+    '{"choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{"reasoning_content":"plan"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{"content":"answer"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}',
+    '[DONE]',
+  ]
+  const toolEvents = [
+    JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'plan',
+      reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-test-signature' }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call-1',
+      type: 'function', function: { name: 'lookup', arguments: '{}' } }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 268, completion_tokens: 252, total_tokens: 520 } }),
+    JSON.stringify({ choices: [], usage: { balance_rmb: 10, cost_currency: 'CNY', cost_rmb: 0.01 } }), '[DONE]',
+  ]
+  const server = await mockServer([{ events }, { events }, { events }, { events }, { events: toolEvents }, { events }])
+  await login()
+  const base = suppliedCatalog.providers[0]!.models[0]!
+  const providers = [
+    { id: 'yunying', name: '云映', models: ['gemini-3.1-pro', 'gpt-6.1-sol'].map(id => ({ ...base, id, name: id })) },
+    { id: 'deepseek-official', name: 'DeepSeek', models: [{ ...base, id: 'deepseek-flash', name: 'DeepSeek Flash' }] },
+    { id: 'volcengine', name: '火山', models: [{ ...base, id: 'glm-5.3-flash', name: 'GLM Flash' }] },
+  ]
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'fake-test-key' } })) }) })
+  await models.refresh()
+  const gemini = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [] })
+  expect(gemini.finish).toEqual({ kind: 'stop' })
+  expect(gemini.message.content).toEqual(expect.arrayContaining([{ type: 'reasoning', text: 'plan' }, { type: 'text', text: 'answer' }]))
+  await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol', messages: [] })
+  await assemble(ctx, { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', messages: [] })
+  await assemble(ctx, { provider: 'muse-cloud-volcengine', model: 'glm-5.3-flash', messages: [] })
+  expect(server.requests[0]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } } })
+  for (const request of server.requests.slice(1, 4)) expect(request).not.toHaveProperty('extra_body')
+  const called = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [] })
+  expect(called.finish).toEqual({ kind: 'tool-calls' })
+  expect(called.usage).toMatchObject({ inputTokens: 268, outputTokens: 252, totalTokens: 520 })
+  const continued = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [
+    called.message, createToolResultMessage({ callId: ToolCallId('call-1'), isError: false,
+      content: [{ type: 'text', text: 'found' }] }),
+  ] })
+  expect(continued.finish).toEqual({ kind: 'stop' })
+  expect(server.requests[5]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } },
+    messages: [{ role: 'assistant',
+      reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-test-signature' }],
+      tool_calls: [{ id: 'call-1' }] }, { role: 'tool' }] })
+})
+
+it('keeps the Yunying Sol high reasoning default through tool continuation and scopes its output limit field', async () => {
+  const reasoning = 'Check the inputs before using the lookup result.'
+  const events = [
+    JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: reasoning }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'sol-lookup',
+      type: 'function', function: { name: 'lookup', arguments: '{"query":"note"}' } }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 } }), '[DONE]',
+  ]
+  const server = await mockServer([{ events }, ...Array.from({ length: 5 }, () => ({ events: textEvents }))])
+  await login()
+  const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
+  const sol = { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
+    reasoningEfforts: { high: 'high' }, defaultReasoningEffort: 'high' }
+  const providers = [
+    { id: 'yunying', name: '云映', models: [sol,
+      { ...base, id: 'gemini-3.1-pro', name: 'Gemini', reasoningEfforts: false }] },
+    { id: 'deepseek-official', name: 'DeepSeek', models: [{ ...base, id: 'deepseek-flash', name: 'DeepSeek Flash',
+      reasoningEfforts: { low: 'low', high: 'high', max: 'max' }, defaultReasoningEffort: 'low' }] },
+    { id: 'zhipu-official', name: '智谱官方', models: [{ ...base, id: 'glm-5.3-flash', name: 'GLM Flash',
+      reasoningEfforts: { low: 'low', high: 'high', max: 'max' }, defaultReasoningEffort: 'max' }] },
+    { id: 'studio', name: 'Studio', models: [sol] },
+  ]
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'sol-reasoning-fixture-key' } })) }) })
+  await models.refresh()
+  const request = { provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol' }
+  const prepared = await ctx.llm.prepareCall(request)
+  expect(prepared.config).toEqual({ ...request, maxTokens: 8192, reasoningEffort: 'high' })
+  expect(prepared.adapterDefaults).toEqual({ maxTokens: true, reasoningEffort: true })
+  const called = await assemble(ctx, { ...prepared.config, messages: [] })
+  expect(called.finish).toEqual({ kind: 'tool-calls' })
+  expect(called.message.content).toEqual([
+    { type: 'reasoning', text: reasoning },
+    { type: 'tool-call', id: 'sol-lookup', name: 'lookup', arguments: '{"query":"note"}' },
+  ])
+  expect(called.usage).toMatchObject({ inputTokens: 30, outputTokens: 12, totalTokens: 42 })
+  const continued = await assemble(ctx, { ...request, messages: [called.message,
+    createToolResultMessage({ callId: ToolCallId('sol-lookup'), isError: false, content: [{ type: 'text', text: 'found' }] }),
+  ] })
+  expect(continued.finish).toEqual({ kind: 'stop' })
+  expect(continued.message.content).toEqual([{ type: 'text', text: 'hello' }])
+  for (const wire of server.requests.slice(0, 2)) {
+    expect(wire).toMatchObject({ model: 'gpt-6.1-sol', reasoning_effort: 'high', max_completion_tokens: 8192,
+      stream_options: { include_usage: true } })
+    expect(wire).not.toHaveProperty('max_tokens')
+    expect(wire).not.toHaveProperty('extra_body')
+    expect(wire).not.toHaveProperty('thinking')
+  }
+  expect(server.requests[1]).toMatchObject({ messages: [
+    { role: 'assistant', reasoning_content: reasoning, tool_calls: [{ id: 'sol-lookup' }] },
+    { role: 'tool', tool_call_id: 'sol-lookup', content: 'found' },
+  ] })
+  for (const [provider, model] of [
+    ['yunying', 'gemini-3.1-pro'], ['deepseek-official', 'deepseek-flash'],
+    ['zhipu-official', 'glm-5.3-flash'], ['studio', 'gpt-6.1-sol'],
+  ] as const) expect((await assemble(ctx, { provider: `muse-cloud-${provider}`, model, messages: [] })).finish).toEqual({ kind: 'stop' })
+  for (const wire of server.requests.slice(2)) {
+    expect(wire).toHaveProperty('max_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_completion_tokens')
+  }
+  expect(server.requests[2]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } } })
+  expect(server.requests[2]).not.toHaveProperty('reasoning_effort')
+  expect(server.requests[3]).toMatchObject({ reasoning_effort: 'low', thinking: { type: 'enabled' } })
+  expect(server.requests[4]).toMatchObject({ reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false } })
+  for (const wire of server.requests.slice(3)) expect(wire).not.toHaveProperty('extra_body')
+  expect(server.paths).toEqual(Array.from({ length: 6 }, () => '/chat/completions'))
+})
+
+it.each([
+  ['gpt-6.1-sol', 'low'],
+  ['gpt-6.1-sol', 'medium'],
+  ['gpt-6.1-sol', 'high'],
+  ['gpt-6.1-sol', 'xhigh'],
+  ['gpt-6.1-sol', 'max'],
+  ['gemini-3.1-pro', 'low'],
+  ['gemini-3.1-pro', 'medium'],
+  ['gemini-3.1-pro', 'high'],
+] as const)('sends selected Yunying %s effort %s without changing the model default', async (model, effort) => {
+  const server = await mockServer([{ events: textEvents }])
+  await login()
+  const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
+  const providers = [{ id: 'yunying', name: '云映', models: [
+    { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } },
+    { ...base, id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro',
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } },
+  ] }]
+  const originalProviders = structuredClone(providers)
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'yunying-effort-fixture-key' } })) }) })
+  await models.refresh()
+  const request = { provider: 'muse-cloud-yunying', model }
+  const defaultBefore = await ctx.llm.prepareCall(request)
+  expect(defaultBefore.config).not.toHaveProperty('reasoningEffort')
+  const prepared = await ctx.llm.prepareCall({ ...request, reasoningEffort: ReasoningEffortId(effort) })
+  expect(prepared.config).toEqual({ ...request, maxTokens: 8192, reasoningEffort: effort })
+  expect(prepared.adapterDefaults).toEqual({ maxTokens: true })
+  expect((await assemble(ctx, { ...prepared.config, messages: [] })).finish).toEqual({ kind: 'stop' })
+
+  expect(server.requests).toHaveLength(1)
+  const wire = server.requests[0]
+  expect(wire).toMatchObject({ model, reasoning_effort: effort })
+  if (model === 'gpt-6.1-sol') {
+    expect(wire).toHaveProperty('max_completion_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_tokens')
+  } else {
+    expect(wire).toHaveProperty('max_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_completion_tokens')
+    expect(wire).toHaveProperty('extra_body.google.thinking_config.include_thoughts', true)
+    expect(wire).not.toHaveProperty('extra_body.google.thinking_config.thinking_level')
+    expect(wire).not.toHaveProperty('thinking_level')
+  }
+  const defaultAfter = await ctx.llm.prepareCall(request)
+  expect(defaultAfter.config).not.toHaveProperty('reasoningEffort')
+  expect(defaultAfter.config).toEqual(defaultBefore.config)
+  expect(providers).toEqual(originalProviders)
 })

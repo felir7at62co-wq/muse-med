@@ -56,6 +56,7 @@ export class RemoteStreamMuxServer {
   private readonly connections = new Set<Promise<void>>()
   private readonly heartbeats = new WeakMap<WebSocket, HeartbeatState>()
   private heartbeatTimer: NodeJS.Timeout | undefined
+  private paused = false
 
   /**
    * @param open - Gateway stream dispatcher.
@@ -80,7 +81,9 @@ export class RemoteStreamMuxServer {
    * @param peer - Peer the upgrade was admitted as.
    */
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer, peer: PeerScope): void {
+    if (this.paused) { socket.destroy(); return }
     this.server.handleUpgrade(req, socket, head, (websocket) => {
+      if (this.paused) { websocket.terminate(); return }
       const release = bindPeer(websocket, peer)
       if (release === undefined) return
       const heartbeat: HeartbeatState = { missedPongs: 0, pongRevision: 0, pendingPing: undefined }
@@ -102,6 +105,16 @@ export class RemoteStreamMuxServer {
       })
     })
   }
+
+  /** Cancel current socket streams and wait for their iterators to settle. */
+  async pause(): Promise<void> {
+    this.paused = true
+    for (const socket of this.server.clients) socket.terminate()
+    await Promise.all(this.connections)
+  }
+
+  /** Permit new socket streams after an aborted update. */
+  resume(): void { this.paused = false }
 
   /** Terminate all sockets and wait until every iterator has returned. */
   async close(): Promise<void> {

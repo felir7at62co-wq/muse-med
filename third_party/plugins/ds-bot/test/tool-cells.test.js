@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -278,10 +279,17 @@ test('each sub-call shows its own state, not its program\'s', () => {
   assert.match(shown(program([refused, posted])), /Couldn't post in the group.*Posted in.*Ops/)
 })
 
-test('a program with no known sub-call draws nothing, as before', () => {
+test('ordinary tool activity keeps a collapsed record without arguments or result text', () => {
   assert.equal(ToolCell(props(program([]))), null)
-  assert.equal(ToolCell(props(program([call('bash', 'program:ptc:1'), call('read_file', 'program:ptc:2')]))), null)
-  assert.equal(ToolCell(props(call('bash', 'direct'))), null)
+  const root = program([call('bash', 'program:ptc:1', { args: { command: 'private-input' }, content: 'private-output' }),
+    call('read_file', 'program:ptc:2', { isError: true }), call('write', 'program:ptc:3', { running: true })])
+  const out = expand(ToolCell(props(root)))
+  const details = find(out, node => node.type === 'details' && node.props['data-tool-activity'] === '')
+  assert.ok(details)
+  assert.equal(details.props.open, undefined)
+  assert.equal(text(details), readFileSync(new URL('./fixtures/tool-activity.expected.txt', import.meta.url), 'utf8').trim())
+  assert.doesNotMatch(text(details), /private-input|private-output/)
+  assert.match(shown(call('bash', 'direct')), /Tool activity \(1\).*bash.*Result returned/)
   effects = []
 })
 

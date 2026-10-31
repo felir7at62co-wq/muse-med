@@ -216,6 +216,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Models opted into Google thought summaries; omission keeps custom provider profiles unchanged. */
+  googleThoughtSummaries?: ReadonlySet<string>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -313,6 +315,7 @@ const modelFields = {
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  googleThoughtSummaries: z.boolean(),
   compat: compatProfile,
 }
 
@@ -488,6 +491,22 @@ export function resolveProfiles(
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       catalogError ??= error.message
     }
+    const modelSettings = source.models?.length
+      ? source.models.map(model => [model.id, model] as const)
+      : Object.entries(source.modelOverrides ?? {})
+    const googleThoughtSummaries = new Set<string>()
+    for (const [id, model] of modelSettings) {
+      if (model.googleThoughtSummaries !== undefined && typeof model.googleThoughtSummaries !== 'boolean') {
+        throw new Error(`llm-pi-ai: provider "${provider}" model "${id}" googleThoughtSummaries must be a boolean`)
+      }
+      if (model.googleThoughtSummaries === true) {
+        const resolvedModel = catalog?.models.find(entry => entry.id === id)
+        if (resolvedModel !== undefined && resolvedModel.api !== 'openai-completions') {
+          throw new Error(`llm-pi-ai: provider "${provider}" model "${id}" googleThoughtSummaries requires openai-completions`)
+        }
+        googleThoughtSummaries.add(id)
+      }
+    }
     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
     resolved.set(provider, {
       ...rest,
@@ -502,6 +521,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      googleThoughtSummaries,
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

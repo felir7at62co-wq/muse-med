@@ -192,6 +192,7 @@
         hiddenProviderIds: ['yunying']
         visibleModels:
           - { providerId: yunying, modelId: gemini-3.1-pro }
+          - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
         remoteAccess: true
 
@@ -204,7 +205,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, drama_shot, manuscript_revision, video_inspect, drama_project, source_recover, muse_production, jubian_catalog, jubian_organize, jubian_find, drama_character_reference_project, drama_character_references, drama_character_reference_view, drama_render]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, video_inspect]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -226,6 +227,13 @@
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
           drama_render: [剪辑, 成片, 渲染, 合成视频, 交付检查, 台词覆盖, 字幕布局]
+          muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
+          jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
+          jubian_find: [查找剧本, 剧变剧本, 我的项目, 可认领剧本]
+          jubian_organize: [整理成片, 整理素材, 整理项目文件]
+          drama_character_reference_project: [角色参考项目, 人物参考项目, 角色资产规划]
+          drama_character_references: [角色参考图, 人物参考图, 角色三视图]
+          drama_character_reference_view: [查看角色参考图, 预览人物参考图, 检查三视图]
           drama_draft_dir: [剪映目录, 剪映草稿目录, 草稿位置, 草稿路径]
           jianying_draft: [剪映草稿, 可编辑草稿, 创建剪映草稿, 导出剪映, 剪映工程]
           drama_bgm: [配乐, 背景音乐]

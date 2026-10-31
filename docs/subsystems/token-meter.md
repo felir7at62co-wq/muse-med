@@ -92,6 +92,18 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
+ * Estimate working pressure with matching provider usage distributed across
+ * current route-priced content. Retained nodes and tools keep their calibrated
+ * cost; replacing old nodes removes only their share. This is a conservative
+ * estimate, not an exact tokenizer or billing measurement.
+ *
+ * @param session - session to replay through its current durable tail.
+ * @param requestHeader - optional effective request envelope replacing the latest logged header.
+ * @returns an immutable working-budget snapshot; without a usable anchor it equals `measure()`.
+ */
+measureWorkingContext(session: Session, requestHeader?: EpochHeader): TokenMeasurement
+
+/**
  * Heuristically price one model-visible message (instance face of the pure
  * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.

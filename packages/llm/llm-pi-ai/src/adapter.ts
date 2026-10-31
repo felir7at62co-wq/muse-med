@@ -65,6 +65,26 @@ import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 import { completeCompletionsResponse } from './completions-response.ts'
 
+function requestObject(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new LlmError(`pi-ai request ${field} must be an object`, 'INVALID_REQUEST')
+  }
+  return value as Record<string, unknown>
+}
+
+/**
+ * Add Google thought summaries without replacing other provider request fields.
+ * @param payload - the OpenAI-compatible request body produced by pi-ai.
+ * @returns a request body with the model-scoped option enabled.
+ */
+export function requestGoogleThoughtSummaries(payload: unknown): Record<string, unknown> {
+  const body = requestObject(payload, 'payload')
+  const extra = body.extra_body === undefined ? {} : requestObject(body.extra_body, 'extra_body')
+  const google = extra.google === undefined ? {} : requestObject(extra.google, 'extra_body.google')
+  const thinking = google.thinking_config === undefined ? {} : requestObject(google.thinking_config, 'extra_body.google.thinking_config')
+  return { ...body, extra_body: { ...extra, google: { ...google, thinking_config: { ...thinking, include_thoughts: true } } } }
+}
+
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
   /** The resolved profiles this collection was built from, used as its identity. */
@@ -466,6 +486,7 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
         fetch: captureResponse,
+        ...profile.googleThoughtSummaries?.has(model.id) ? { onPayload: requestGoogleThoughtSummaries } : {},
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
