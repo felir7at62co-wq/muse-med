@@ -9,9 +9,11 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-Muse Desktop Host defaults and the `standard`, `ptc`, Cordis, `short-drama`, `creation` and `bot-coordinator` presets apply one adaptive policy to all models. The policy uses a 475,000-token estimated working limit, a `0.45` pressure ratio, 16,384 tokens of headroom and summary output, and a requested 65,536-token recent tail. Smaller model windows reduce headroom, retained tail, summary output and final request admission. Physical model windows, ordinary output caps and routes do not change. The estimate does not guarantee agreement with the provider tokenizer. `minimal` does not mount automatic compaction.
+Muse Desktop Host defaults and the `standard`, `ptc`, Cordis, `short-drama`, `creation` and `bot-coordinator` presets apply one adaptive policy to all models. The policy uses a 475,000-token estimated working target, a `0.45` pressure ratio, 16,384 tokens of headroom and summary output, and a requested 65,536-token recent tail. Smaller model windows reduce headroom, retained tail, summary output and final request admission. Physical model windows, ordinary output caps and routes do not change. The estimate does not guarantee agreement with the provider tokenizer. `minimal` does not mount automatic compaction.
 
-A local working-budget rejection preserves current-step input and tool updates, compacts balanced history, and retries only after durable replacement. The request stops if it cannot fit or the flush fails.
+A local working-budget rejection preserves current-step input and tool updates, compacts balanced history, and retries only after a durability acknowledgement. If summarization fails or cannot reach the target, retained context may continue only below the known model window minus output reservation and headroom. Unknown capacity, cancellation, failed commits and failed flushes do not permit this fallback.
+
+The context meter separates the working target from model capacity. When a working target and matching input estimate are recorded, it uses the latest prepared request's calibrated estimate. Existing logs retain the model-window display until a new request records this metadata.
 
 ## Migration
 

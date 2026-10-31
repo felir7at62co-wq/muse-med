@@ -59,7 +59,7 @@ The Desktop composition keeps the registered Bot team tools available from the f
 
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
 
-The conversation activity row distinguishes waiting for a reply from receiving visible text and labels its clock as total turn time. Ordinary tool calls retain a collapsed record of tool names and returned, failed or pending status without exposing arguments or raw results.
+The conversation activity row distinguishes waiting for a reply from receiving visible text and labels its clock as total turn time. Context status uses the recorded calibrated estimate and working target when paired; its tooltip lists the model window separately. Missing paired metadata retains the legacy context display. Ordinary tool calls retain a collapsed record of tool names and returned, failed or pending status without exposing arguments or raw results.
 
 Returned reasoning summaries are visible when the user has not set the thinking-display preference. An explicit off setting remains off. This preference changes display only; it does not request hidden reasoning or generate a summary when the model returns none.
 

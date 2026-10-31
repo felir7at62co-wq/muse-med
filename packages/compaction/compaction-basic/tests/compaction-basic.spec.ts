@@ -824,7 +824,7 @@ describe('pressure measurement and retention', () => {
       header: { config: { provider: 'actual', model: 'actual' } },
       reason: 'initial',
     })
-    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+    const measure = vi.spyOn(ctx.tokenMeter, 'measureWorkingContext')
 
     const result = await compactIfNeeded(compact, session, 'pressure', 'fallback')
     expect(result).not.toBeNull()
@@ -854,7 +854,7 @@ describe('pressure measurement and retention', () => {
   it('uses one unified measurement for each pressure-and-retention decision', async () => {
     const ctx = createContext()
     const compact = service(compactConfig, ctx)
-    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+    const measure = vi.spyOn(ctx.tokenMeter, 'measureWorkingContext')
     const stop = new Error('stop after first decision')
     vi.spyOn(compact, 'compactRegion').mockRejectedValueOnce(stop)
 
@@ -1341,8 +1341,8 @@ describe('compaction region transaction', () => {
   it('rejects a meter snapshot that changed before summarization began', async () => {
     const ctx = createContext()
     const meter = ctx.tokenMeter
-    const original = meter.measure.bind(meter)
-    vi.spyOn(meter, 'measure').mockImplementationOnce((session) => {
+    const original = meter.measureWorkingContext.bind(meter)
+    vi.spyOn(meter, 'measureWorkingContext').mockImplementationOnce((session) => {
       const measurement = original(session)
       return { ...measurement, nodes: measurement.nodes.slice(1) }
     })

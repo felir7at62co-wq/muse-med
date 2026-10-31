@@ -533,6 +533,8 @@ const ZH = {
   '{speed} tok/s': '{speed} tok/s',
   'Cache hit {hit}%': '缓存命中 {hit}%',
   'Context {percent}%': '上下文 {percent}%',
+  'Working context {percent}%': '工作上下文 {percent}%',
+  'Last request estimate: {used} / {target} tokens; model window {window}': '最近一次请求的上下文估算：{used} / {target} tokens；模型总窗口 {window}',
   '{used} of {total} tokens of context in use': '上下文已用 {used} / {total} tokens',
 
   // Transcript

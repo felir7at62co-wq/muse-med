@@ -1,8 +1,6 @@
-/** Composer context-occupancy meter: a ring and percentage below the card fed by the
- * `contextPressure` projection, with a click-open panel of the heuristic
- * `contextBreakdown` composition (system prompt, tools, conversation).
- * Renders nothing until a provider reports both pressure and a route
- * capacity. */
+/** Composer occupancy uses a calibrated prepared-request snapshot when available
+ * and keeps the model window separate from composition estimates. It stays
+ * hidden until an estimate and route capacity are available. */
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -88,30 +86,31 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
 
   if (context === null) return null
   const percent = context.percent
+  const fillPercent = Math.min(100, percent)
+  const working = context.workingTokenLimit !== undefined
+  const ariaKey = working ? 'context.workingAria' : 'context.aria'
+  const usedKey = working ? 'context.workingUsed' : 'context.used'
   const reading = `${percent}%`
-  const [headBefore = '', headAfter = ''] = t('context.aria', { percent: READING_SLOT })
+  const [headBefore = '', headAfter = ''] = t(ariaKey, { percent: READING_SLOT })
     .split(READING_SLOT)
     .map(part => part.trim())
 
-  // The bar's overall length stays the provider-exact percent; the heuristic
-  // breakdown only proportions its colored parts. A zero-width part is dropped
-  // instead of rendered: `.segment`'s min-width keeps a hairline part visible,
-  // which at 0% occupancy would draw a filled bar over an empty context.
+  // The reading may exceed the working target; drawing remains within its track.
   const breakdownTotal = breakdown === undefined
     ? 0
     : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
   const parts = breakdown === undefined || breakdownTotal === 0
-    ? [{ key: 'total', color: undefined, width: percent }]
-    : ROWS.map(row => ({ key: row.key, color: row.color, width: percent * breakdown[row.key] / breakdownTotal }))
+    ? [{ key: 'total', color: undefined, width: fillPercent }]
+    : ROWS.map(row => ({ key: row.key, color: row.color, width: fillPercent * breakdown[row.key] / breakdownTotal }))
   const segments = parts.filter(part => part.width > 0)
 
   return (
     <span ref={rootRef} className={css.root}>
-      <Tooltip label={t('context.aria', { percent: reading })} side="top" delayMs={200} disabled={open}>
+      <Tooltip label={t(ariaKey, { percent: reading })} side="top" delayMs={200} disabled={open}>
         <button
           type="button"
           className={css.trigger}
-          aria-label={t('context.aria', { percent: reading })}
+          aria-label={t(ariaKey, { percent: reading })}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => { setOpen(!open) }}
@@ -123,7 +122,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
               cx="7"
               cy="7"
               r={RADIUS}
-              strokeDasharray={`${CIRCUMFERENCE * percent / 100} ${CIRCUMFERENCE}`}
+              strokeDasharray={`${CIRCUMFERENCE * fillPercent / 100} ${CIRCUMFERENCE}`}
               transform="rotate(-90 7 7)"
             />
           </svg>
@@ -136,7 +135,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
           className={css.panel}
           style={position ?? { visibility: 'hidden', left: 0, top: 0 }}
           role="dialog"
-          aria-label={t('context.used')}
+          aria-label={t(usedKey)}
         >
           <div className={css.header}>
             {/* Empty sides collapse through `.headline:empty` so the locale that
@@ -147,9 +146,20 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
             {/* `~`: usedTokens prefers projectedTokens, whose surface delta is
                 heuristically repriced on top of the provider-anchored sample. */}
             <span className={css.figures}>
-              {`~${formatTokens(context.usedTokens, t)} / ${formatTokens(context.contextWindow, t)}`}
+              {`~${formatTokens(context.usedTokens, t)} / ${formatTokens(context.workingTokenLimit ?? context.contextWindow, t)}`}
             </span>
           </div>
+          {working && (
+            <>
+              <dl className={css.rows}>
+                <div className={css.row}>
+                  <dt>{t('context.modelWindow')}</dt>
+                  <dd>{formatTokens(context.contextWindow, t)}</dd>
+                </div>
+              </dl>
+              <p className={css.note}>{t('context.workingTarget')}</p>
+            </>
+          )}
           <div className={css.bar}>
             {segments.map(segment => (
               <div
@@ -160,17 +170,20 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
             ))}
           </div>
           {breakdown !== undefined && (
-            <dl className={css.rows}>
-              {ROWS.map(row => (
-                <div key={row.key} className={css.row}>
-                  <dt>
-                    <span className={`${css.swatch} ${row.color}`} aria-hidden />
-                    {t(row.label)}
-                  </dt>
-                  <dd>{`~${formatTokens(breakdown[row.key], t)}`}</dd>
-                </div>
-              ))}
-            </dl>
+            <>
+              <p className={css.note}>{t('context.compositionEstimate')}</p>
+              <dl className={css.rows}>
+                {ROWS.map(row => (
+                  <div key={row.key} className={css.row}>
+                    <dt>
+                      <span className={`${css.swatch} ${row.color}`} aria-hidden />
+                      {t(row.label)}
+                    </dt>
+                    <dd>{`~${formatTokens(breakdown[row.key], t)}`}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
           )}
         </div>,
         document.body,

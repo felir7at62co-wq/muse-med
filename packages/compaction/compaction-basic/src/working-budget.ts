@@ -12,6 +12,7 @@ import { isAgentLoopRequest, LlmError } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { resolveTargetPolicy } from './config.ts'
+import { assertNoActiveCompaction, CompactionCommitError } from './region.ts'
 import type { ResolvedConfig } from './types.ts'
 
 /** Local admission failure; provider-supplied copies do not authorize recovery. */
@@ -23,15 +24,31 @@ interface WorkingRequest {
   readonly previousNodes: ReadonlySet<SessionSeq>
   protectedNodes: readonly SessionSeq[]
   limit?: number
+  safeInputBudget?: number
   attempts: number
   pending: boolean
   terminal: boolean
+  useExistingContext: boolean
+}
+
+/** Fixed failures distinguish capacity, summary and durability without exposing upstream details. */
+function stopped(kind: 'capacity' | 'summary' | 'persistence' | 'unavailable'): LlmError {
+  switch (kind) {
+    case 'capacity':
+      return new LlmError('The request exceeds the model\'s estimated safe input budget and could not be reduced. Existing work is retained; compact again or reduce attached context.', WORKING_CONTEXT_LIMIT)
+    case 'summary':
+      return new LlmError('Summarization is unavailable and the request exceeds the model\'s estimated safe input budget. Existing work is retained; retry when summarization is available.', 'COMPACTION_UNAVAILABLE')
+    case 'persistence':
+      return new LlmError('The context checkpoint could not be saved. Existing work is retained; retry after storage is available.', 'COMPACTION_PERSISTENCE_FAILED')
+    case 'unavailable':
+      return new LlmError('The model\'s safe input budget is unavailable. Existing work is retained; check the model capacity and output reservation.', 'CONTEXT_BUDGET_UNAVAILABLE')
+  }
 }
 
 /**
- * Refuse oversized finalized conversation requests and recover only witnessed
- * local failures. Auxiliary calls and routes without a working limit delegate
- * unchanged. Disposal cancels and drains active compaction before returning.
+ * Compact finalized requests above their working target. Retained context may
+ * continue below the calibrated model budget after output and headroom are reserved.
+ * Auxiliary calls delegate unchanged; disposal cancels and drains active recovery.
  * @param ctx - compaction plugin context owning reversible listeners.
  * @param config - validated defaults and exact-target policies.
  * @param compact - pressure compaction operation with protected inputs and the effective admission limit.
@@ -43,16 +60,9 @@ export function registerWorkingBudget(
     agent: Agent, signal: AbortSignal, protectedNodes: readonly SessionSeq[], effectiveLimit: number,
   ) => Promise<CompactionResult | null>,
 ): void {
-  if (config.workingTokenLimit === undefined
-    && config.modelPolicies.every(policy => policy.workingTokenLimit === undefined)) return
   const requests = new WeakMap<AbortSignal, WorkingRequest>()
   const pending = new Map<AbortSignal, Agent>()
   let active = true
-  const stopped = (): LlmError => new LlmError(
-    'Working context could not be reduced below its configured budget. '
-    + 'Existing work is retained; use file references or reduce the latest input and try again.',
-    WORKING_CONTEXT_LIMIT,
-  )
 
   ctx.effect(function* () {
     ctx.on('agent/request', ({ agent, step, signal }, next) => {
@@ -60,7 +70,7 @@ export function registerWorkingBudget(
       if (previous?.agent !== agent || previous.step !== step) {
         requests.set(signal, {
           agent, step, previousNodes: new Set(agent.session.surface.nodes), protectedNodes: [],
-          attempts: 0, pending: false, terminal: false,
+          attempts: 0, pending: false, terminal: false, useExistingContext: false,
         })
       }
       return next()
@@ -68,41 +78,62 @@ export function registerWorkingBudget(
 
     ctx.on('llm/stream', (options, next) => {
       if (!isAgentLoopRequest(options) || options.purpose !== undefined) return next()
-      const policy = resolveTargetPolicy(config, options)
-      const limit = policy.workingTokenLimit
-      if (limit === undefined) return next()
       return (async function* (): AsyncIterable<StreamChunk> {
         const signal = options.signal
         signal?.throwIfAborted()
         const request = signal === undefined ? undefined : requests.get(signal)
         // Agent events are scoped; a sibling preset can share this LLM service.
-        if (request === undefined) {
+        if (signal === undefined || request === undefined) {
           yield* next()
           return
         }
-        if (!active || request.agent.session.id !== options.sessionId) throw stopped()
-        if (request.terminal) throw stopped()
+        if (!active || request.agent.session.id !== options.sessionId || request.terminal) throw stopped('unavailable')
+        const policy = resolveTargetPolicy(config, options)
+        const limit = policy.workingTokenLimit
+        if (limit === undefined) {
+          yield* next()
+          return
+        }
+        const previousContext = request.agent.session.requestContext()
         let effectiveLimit = limit
-        if (policy.adaptiveBudget) {
-          const info = await ctx.llm.resolveModelInfo(options.provider, options.model, signal)
-          signal?.throwIfAborted()
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can occur while model metadata resolves.
-          if (!active) throw stopped()
-          if (info.context !== undefined) {
-            const available = info.context.contextWindow - (options.maxTokens ?? info.defaultMaxTokens ?? 0)
-            if (available <= 0) throw stopped()
-            const headroom = policy.headroomTokens >= available
-              ? Math.floor(available * policy.thresholdRatio)
-              : policy.headroomTokens
-            effectiveLimit = Math.min(limit, available - headroom)
-          }
+        pending.set(signal, request.agent)
+        const info = await ctx.llm.resolveModelInfo(options.provider, options.model, signal)
+          .finally(() => { pending.delete(signal) })
+        signal.throwIfAborted()
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can occur while model metadata resolves.
+        if (!active) throw stopped('unavailable')
+        delete request.safeInputBudget
+        if (info.context !== undefined) {
+          const window = info.context.contextWindow
+          const reserved = options.maxTokens ?? info.defaultMaxTokens ?? 0
+          if (!Number.isInteger(window) || window <= 0 || !Number.isInteger(reserved) || reserved < 0) throw stopped('unavailable')
+          const available = window - reserved
+          if (available <= 0) throw stopped('unavailable')
+          const headroom = policy.adaptiveBudget && policy.headroomTokens >= available
+            ? Math.floor(available * policy.thresholdRatio)
+            : policy.headroomTokens
+          request.safeInputBudget = available - headroom
+          if (request.safeInputBudget <= 0) throw stopped('unavailable')
+          effectiveLimit = Math.min(limit, request.safeInputBudget)
         }
         request.limit = effectiveLimit
-        if (ctx.tokenMeter.measureWorkingContext(request.agent.session).totalTokens < effectiveLimit) {
+        const measured = ctx.tokenMeter.measureWorkingContext(request.agent.session).totalTokens
+        if (previousContext?.workingTokenLimit !== effectiveLimit || previousContext.workingContextTokens !== measured) {
+          request.agent.session.append('request/context', {
+            ...previousContext, provider: options.provider, model: options.model,
+            ...(info.context === undefined ? {} : { contextWindow: info.context.contextWindow }),
+            workingTokenLimit: effectiveLimit, workingContextTokens: measured,
+          })
+        }
+        const belowSafeBudget = request.safeInputBudget !== undefined && measured < request.safeInputBudget
+        if (measured < effectiveLimit || (request.useExistingContext && belowSafeBudget)) {
           yield* next()
           return
         }
-        if (request.attempts >= policy.maxOverflowRetries) throw stopped()
+        if (request.attempts >= policy.maxOverflowRetries) {
+          if (belowSafeBudget) { yield* next(); return }
+          throw stopped(request.safeInputBudget === undefined ? 'unavailable' : 'capacity')
+        }
         request.protectedNodes = request.agent.session.surface.nodes.filter(seq => !request.previousNodes.has(seq))
         request.pending = true
         yield {
@@ -127,32 +158,58 @@ export function registerWorkingBudget(
       const header = agent.session.requestHeader()
       if (header === undefined) {
         request.terminal = true
-        throw stopped()
+        throw stopped('unavailable')
       }
       const policy = resolveTargetPolicy(config, header.config)
       const limit = request.limit
       if (!active || limit === undefined || request.attempts > policy.maxOverflowRetries) {
         request.terminal = true
-        throw stopped()
+        throw stopped('unavailable')
       }
-      const generation = agent.session.surface.replaceGeneration
       pending.set(signal, agent)
       try {
-        await compact(agent, signal, request.protectedNodes, limit)
+        let summaryFailed = false
+        try { await compact(agent, signal, request.protectedNodes, limit) }
+        catch (error: unknown) {
+          signal.throwIfAborted()
+          if (error instanceof CompactionCommitError) throw stopped('persistence')
+          summaryFailed = true
+        }
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while compaction is awaited.
-        if (!active || agent.session.surface.replaceGeneration <= generation
-          || ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens >= limit) throw stopped()
-        const flushed = await ctx.sessions.flush(agent.session)
+        if (!active) throw stopped('unavailable')
+        try { assertNoActiveCompaction(agent.session, 'working-context recovery') }
+        catch (_error: unknown) { throw stopped('persistence') }
+        try {
+          const flushed = await ctx.sessions.flush(agent.session)
+          signal.throwIfAborted()
+          if (!flushed) throw stopped('persistence')
+        } catch (_error: unknown) {
+          signal.throwIfAborted()
+          throw stopped('persistence')
+        }
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while persistence is awaited.
-        if (!active || !flushed) throw stopped()
-        return { kind: 'retry' }
-      } catch (_error: unknown) {
+        if (!active) throw stopped('unavailable')
+        const measured = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
+        const context = agent.session.requestContext()
+        if (context?.workingTokenLimit !== limit || context.workingContextTokens !== measured) {
+          agent.session.append('request/context', {
+            ...context, provider: header.config.provider, model: header.config.model,
+            workingTokenLimit: limit, workingContextTokens: measured,
+          })
+        }
+        if (measured < limit) return { kind: 'retry' }
+        if (request.safeInputBudget !== undefined && measured < request.safeInputBudget) {
+          request.useExistingContext = true
+          ctx.logger.warn(`compaction recovery ${summaryFailed ? 'failed' : 'did not reach its target'}; continuing with retained context below the estimated safe request budget`)
+          return { kind: 'retry' }
+        }
+        throw stopped(request.safeInputBudget === undefined ? 'unavailable' : summaryFailed ? 'summary' : 'capacity')
+      } catch (error: unknown) {
         request.terminal = true
         signal.throwIfAborted()
-        // Local recovery failures never expose summarizer or credential details.
-        throw stopped()
+        throw error
       } finally {
         pending.delete(signal)
       }

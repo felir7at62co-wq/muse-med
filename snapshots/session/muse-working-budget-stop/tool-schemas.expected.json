@@ -221,10 +221,6 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "column": {
-            "type": "number",
-            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
-          },
           "file_path": {
             "type": "string",
             "description": "Path to read, resolved by the filesystem backend."
@@ -232,6 +228,10 @@
           "offset": {
             "type": "number",
             "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
           },
           "limit": {
             "type": "number",

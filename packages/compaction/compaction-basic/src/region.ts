@@ -76,6 +76,14 @@ interface CompactionEntryState {
  */
 class SurfaceChangedError extends Error {}
 
+/** Automatic transaction failure that cannot authorize unchanged-context admission. */
+export class CompactionCommitError extends Error {
+  /** @param cause - Opening or committing the log-recorded transaction failed. */
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'compaction transaction could not be committed', { cause })
+  }
+}
+
 /** Whether the summary may still replace the span it was built from. */
 type StabilityCheck = (
   dependencies: RegionDependencies,
@@ -207,7 +215,12 @@ export async function compactSurfaceRegion(
     ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },
     turn: owner,
   }
-  const startEvent = session.append('compaction/start', lifecycle)
+  let startEvent: SessionEvent<'compaction/start'>
+  try { startEvent = session.append('compaction/start', lifecycle) }
+  catch (error: unknown) {
+    if (options.owner !== null) throw new CompactionCommitError(error)
+    throw error
+  }
   const assertStable: StabilityCheck = options.stability === 'whole-surface'
     ? assertWholeSurfaceUnchanged
     : assertSelectedSpanStable
@@ -261,6 +274,7 @@ export async function compactSurfaceRegion(
   if (options.owner === null) signal?.throwIfAborted()
   if (failure !== undefined) {
     if (options.owner === null) throwManualFailure(failure)
+    if (failure.stage === 'commit') throw new CompactionCommitError(failure.error)
     throw failure.error
   }
   if (flushFailure !== undefined) {

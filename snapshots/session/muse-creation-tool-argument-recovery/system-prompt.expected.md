@@ -178,35 +178,35 @@ interface ToolArgsMap {
     /** 项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。 */
     output?: string;
   } & Record<string, JsonValue>;
-  /** 短剧整集渲染编排（剧变流水线）。subtitle_layout=按 timeline 与 subtitle_srt 预览已启用的 subtitle_visual：逐种文本用实际字体、libass 和正式烧录链测白字宽高，返回 PNG、完整字体/错误日志路径及超宽 cue；黑描边另作估量。render 在显式启用时也执行同一检查。按部署和项目配置选择样式，不按字数猜宽、不自动缩字；超宽与探针失败只提醒，不要求用户审批。speech_coverage=只读双向比较现有同源词级转写与最终完整显示的 SRT（含保留原片烧字对应文字），需要 shots、timeline、subtitle_srt、speech_transcripts；speech_decisions 可记录本次证据绑定的逐项核听理由。包含单字、尾音和剧本外识别内容；不跨时间借词、不重复使用字符、多字词保留整词时间，不猜字级时间。结果是 ASR 待核候选，不是已证实真声或听感通过；不得自动补词、猜时码或把未识别认定为静音。源片可能已烧录文字：先用 video_ocr/video_inspect 预览并作明确决定，不能把无识别结果当作无字幕。subtitle_overlay=读取 subtitle_plan 的 shot/source_sha256/镜内时间/text/retain_embedded/reason 决定，只对完整覆盖且同文的 cue 导出不重复叠加的新 SRT 与摘要报告；部分重叠或文字不符只提示，不自动切句。prepare/render 可传同一 subtitle_plan；原始 SRT 不改写，草稿复用返回的 resolved_srt 和 decision_report。原片字不可编辑、无法由外加样式统一字号位置；evidence_paths 只是调用方声明，不是可信验收凭据。subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，估算出来的时间正是字幕压在错句上的原因。缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕；有可用条目时写出独立候选，由你判断下一步。没有可用条目时只写本次检查说明，明确提示未生成字幕候选，不覆盖已有候选及其说明。提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。已有同源词级转写时向 prepare 传 speech_transcripts：实际测宽后仅在完整匹配且不重叠的词界切分超宽字幕，缺证据则保留原句并核查，不猜时码；成片和草稿复用返回的 render_preview.subtitle.path。prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。project_bible.delivery 可显式配置 subtitle.{font_family,font_size_px,margin_bottom_px}（字号和底距为成片像素）与 audio.{master_gain,bgm_gain}（0..8 线性增益，0 为静音）；prepare 同时快照已配 section。Muse 短剧产品竖版输出强制使用部署配置的统一正文字幕视觉，不继承旧项目及时间线字幕样式；横版和方形沿用原布局规则，音频等其他 section 仍按时间线、项目、部署默认顺序选择。非产品部署继续按 section 优先用时间线，再用项目显式 section，最后沿用部署/旧样式默认；已快照的 section 不逐字段继承后改项目。prepare/render 的 render_preview 明示最终规格、字幕设计字号与名义输出像素、实际 BGM 路径及增益；请与已认可审查版核对，SRT 不携带审查片的字体样式。prepare 可附 bgm/bgm_plan 预览选曲，未附只提示，不阻塞。render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：片尾用最后一镜的真实尾帧定格 2 秒：timeline 的 ending_effect_fit 优先，缺省使用部署配置，未配置时沿用 source_once。stretch_to_window 把完整源特效变速铺满这 2 秒，不循环、不补黑场；source_once 按原速播放一次，余下是定格帧。只有 ending_audio 的前 2 秒在正片结束处进入混音；这两份素材按 SHA-256 校验，只接受随包字节；source_once 拒绝长于两秒的特效。拼接后烧录 ASS 字幕（未配置项目样式时默认 SimHei 40，字体服从部署配置，40 为设计字号而非成片像素；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），再把整集原声（默认增益 1.45）+ BGM（默认增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，项目显式增益不改变此混音算法，AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，回退原因写进 encoder_fallback_reason 与渲染日志。verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。 */
+  /** 处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。 */
   drama_render: {
-    /** prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定；speech_coverage=现有词级转写与最终完整显示 SRT 的只读双向比较（不编码、不做识别）；subtitle_layout=显式统一样式的真实字形探针与PNG，不渲染整集。 */
+    /** prepare=准备输入；render=出片；verify=检查；subtitles=按现有对齐生成字幕；audio_preview=用最终混音滤镜制作短音频 A/B 并分析 RMS/峰值；subtitle_overlay=导出外加字幕决定；speech_coverage=只读核对发声与完整字幕；subtitle_layout=测量字形并预览PNG。 */
     method: "prepare" | "render" | "verify" | "subtitles" | "audio_preview" | "subtitle_overlay" | "speech_coverage" | "subtitle_layout";
-    /** 项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。 */
+    /** 项目根目录（含 video/、audio/、editing/、exports/），所有方法必填。相对 project 按进程工作目录解析一次，其余相对路径以 project 为基准；绝对路径保持不变。 */
     project: string;
     /** 集号（正整数，如 2）；写入时补成两位，如 02。 */
     episode: number;
-    /** 成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；prepare、subtitles 与 speech_coverage 必填。相对路径以 project 为基准，绝对路径保持不变。video 缺音轨时必须给 audio；speech_coverage 按实际 audio（缺省 video）绑定转写来源。 */
+    /** 成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；prepare、subtitles 与 speech_coverage 必填。video 缺音轨时必须给 audio；speech_coverage 按实际 audio（缺省 video）绑定转写来源。 */
     shots?: string;
-    /** 台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。 */
+    /** 台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。每镜按原文顺序去标点并按语义分条，工具不改文字；样式和覆盖问题只提醒。 */
     lines?: string;
-    /** 语音识别对齐文档 JSON 路径，subtitles 必填，形如 {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。 */
+    /** 语音识别对齐文档 JSON 路径，subtitles 必填，形如 {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。显示文字仍来自 lines，识别文本只用于核对同一段表演。缺镜、段数或文本不符只提醒，不要求清零或审批。 */
     alignment?: string;
-    /** 时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout 必填，相对路径以 project 为基准；可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。 */
+    /** 时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout 必填，可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。 */
     timeline?: string;
-    /** 本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。 */
+    /** 本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；subtitle_layout 必填待预览SRT，不更改其文本和时间。 */
     subtitle_srt?: string;
     /** speech_coverage 必填、prepare 可选：项目内现有映射 {shots:[{shot,receipt}]}，receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。 */
     speech_transcripts?: string;
     /** speech_coverage 可选：项目内核听声明 JSON，{schema_version:1,evidence_sha256,decisions:[{item_id,decision,reason,observed_text,reviewed_start_seconds,reviewed_end_seconds}]}。decision=keep|adjust_subtitle|asr_error|unresolved；需本次逐项 id、非空理由及覆盖该项的核听区间；不是 Host 声学证明。 */
     speech_decisions?: string;
-    /** prepare/render 可选、subtitle_overlay 必填的 JSON 路径。{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:"retain_embedded",reason,evidence_paths:[]}]}。时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。相对路径以 project 为基准。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。 */
+    /** prepare/render 可选、subtitle_overlay 必填的 JSON 路径。{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:"retain_embedded",reason,evidence_paths:[]}]}。时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。 */
     subtitle_plan?: string;
     /** 本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。 */
     last_shot?: number;
-    /** 本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。相对路径以 project 为基准；优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。 */
+    /** 本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。 */
     bgm?: string;
-    /** prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。 */
+    /** prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。 */
     bgm_plan?: string;
     /** render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。 */
     mix_profile?: string;
@@ -220,16 +220,16 @@ interface ToolArgsMap {
     duration_seconds?: number;
     /** audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。 */
     intended_use?: "commercial" | "non_commercial" | "unknown";
-    /** 片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。 */
+    /** 片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。 */
     ending_audio?: string;
-    /** 片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。 */
+    /** 片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。 */
     ending_effect?: string;
     /** render 成片输出（省略写 exports/<集>.mp4），verify 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。 */
     output?: string;
     /** render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。 */
     force?: boolean;
   } & Record<string, JsonValue>;
-  /** 镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。完整的动作预算、发声预算、反应预算与表演顺序用于同步/串行时间核算；缺项、算术冲突仍报告warning，不能据ok=true判断可行。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。 */
+  /** 镜头脚本检查与分包建议；创作、格式、资产匹配和时长问题均作 warning，不硬拦截、不要求清零。返回镜号、行号、时长估算、资产匹配与建议；compile 仅保存原文及检查报告为 shot_reviews/<集号>/shot_script.txt、review.json。以用户要求、原剧本和已读创作 Skill 为准，不为旧格式重写内容；保留台词、说话人、镜头正文和时长，不补资产、不替换素材、不截断超长镜头。动作/发声/反应预算及表演顺序用于同步或串行核算；缺项、算术冲突仍警告。只绑定已确认且身份完整的素材；未确认引用保留原文并提示核对，不编造身份。估算与结构化字段可能不完整，多条发声的 text 仅为首条，以原文完整台词为准。ok=true 仅代表检查完成，不是可行性、成片质量、素材绑定、费用或生成准备的验收。分包建议可调整；不覆盖 prompts/、matches/、episode_packages/。启用会话视频选择时读取当前模型、分辨率和时长上限，在 duration_budget 报告并忽略 max_submit_seconds；未知上限不借用其他模型能力，只检查原镜头。切换模型会追加最近分包时长复核的普通上下文，只核对已记录包，不自动改卡、重写或提交。必需参数缺失、文件不可读、资产 JSON 无效或草稿无法安全写入仍为执行错误。 */
   drama_shot: {
     /** validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。 */
     method: "validate" | "preview" | "compile";
@@ -514,21 +514,21 @@ interface ToolArgsMap {
     /** claim 必填：简述用户原话中对这个 ID 的明确认领授权；不能由查询结果或代理自己推定。inspect 不需要。 */
     authorization_basis?: string;
   } & Record<string, JsonValue>;
-  /** 按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status 与 script_style；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name，但没有 script_style——这个字段只有 mine 的行被实测到。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。production_type 与 share_target_type 只对 mine 有效，同样原样转发为 productionType 与 shareTargetType；控制台打开「漫剧视频」时发的就是 productionType=0 + shareTargetType=1，要列漫剧项目就传这两个值。两个取值都是提供方自己的编码，本工具不解释、不校验、也不设默认值，省略就不出现在查询串里；给 pool 传会被拒绝。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。 */
+  /** 按名称查询剧变（Jubian）剧本。只读免费，不改远端状态、不写账本、不检查预算、不重试，无需 idempotency_key。按名称查询时从 page_num 连续翻页，直到覆盖 total、遇到空页或达到 scan_page_limit。complete=false 表示未覆盖 total，不能当作没有更多结果；scanned_pages 为实际请求页数，returned 为返回的匹配数。truncated=true 表示匹配列表被输出上限截断，扫描本身可能完整。匹配行含 script_id、script_name、manuscript_name、episode_count、status；mine 另有 script_style，pool 另有 can_claim、claim_leader_name、claim_member_name，不含 script_style。响应无法识别时抛出 CONTRACT_CHANGED，不按空结果处理。 */
   jubian_find: {
-    /** mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。 */
+    /** mine=自己名下的画布项目；pool=可认领的剧本池。 */
     scope: "mine" | "pool";
-    /** 可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。省略就是列出该 scope 的第一页。空白字符串会被拒绝。 */
+    /** 名称子串，同时匹配 scriptName 与 manuscriptName；去首尾空白、合并连续空白、忽略大小写。不支持拼音、别名或模糊匹配，空白字符串被拒绝；省略时只列起始页。 */
     name?: string;
-    /** 可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：第 2 页起要读完的仍是 total 里剩下的部分。 */
+    /** 起始页，默认 1，必须为正整数；complete 按此起点核算到 total。 */
     page_num?: number;
-    /** 可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。 */
+    /** 每次请求条数，默认 20，整数范围 1..1000；不限制整次扫描的页数。 */
     page_size?: number;
-    /** 可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。 */
+    /** 仅 pool：提供方状态过滤值，原样转发，不解释或校验状态名（如 returned、claimed、pending_leader_claim）；mine 拒绝此参数。 */
     status?: string;
-    /** 可选，仅 scope=mine：按提供方自己的 productionType 编码过滤，原样转发为查询参数 productionType。控制台打开「漫剧视频」时发的是 productionType=0，所以要列漫剧项目就传 0；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。 */
+    /** 仅 mine：整数编码，原样转发为 productionType，不解释业务取值，无默认值；漫剧项目传 0。pool 拒绝此参数。 */
     production_type?: number;
-    /** 可选，仅 scope=mine：按提供方自己的 shareTargetType 编码过滤，原样转发为查询参数 shareTargetType。控制台打开「漫剧视频」时发的是 shareTargetType=1，所以要列漫剧项目就传 1；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。 */
+    /** 仅 mine：整数编码，原样转发为 shareTargetType，不解释业务取值，无默认值；漫剧项目传 1。pool 拒绝此参数。 */
     share_target_type?: number;
   } & Record<string, JsonValue>;
   /** 把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。不产生费用、不需要凭证（该 CDN 是公开的）。下载后请用你自己的看图工具（如 read_image）或抽帧工具读取该路径——本工具不会把图片或视频内容放进返回值。 */

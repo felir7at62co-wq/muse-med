@@ -13,8 +13,9 @@ export interface CompactionPolicyConfig {
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
   /**
-   * Optional positive estimated request budget for automatic admission; also
-   * caps the pressure threshold without changing model capacity.
+   * Optional positive estimated compaction target; also caps the pressure
+   * threshold. Retained context may continue below the calibrated safe input
+   * budget without changing model capacity.
    */
   workingTokenLimit?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */

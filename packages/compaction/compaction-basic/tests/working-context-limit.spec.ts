@@ -1,5 +1,5 @@
 /** Final-request working budgets through the production loop and local adapters. */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -16,6 +16,7 @@ import { summarizeWithLlm } from '../src/summarizer.ts'
 
 const contexts: Context[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
 })
 
@@ -24,7 +25,7 @@ class BudgetAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   readonly summaries: GenerateOptions[] = []
   readonly summaryEntered = Promise.withResolvers<undefined>()
-  summaryMode: 'success' | 'error' | 'wait-for-abort' = 'success'
+  summaryMode: 'success' | 'error' | 'empty' | 'wait-for-abort' = 'success'
   ordinaryFailure: string | undefined
   replies: ('tool' | 'text')[] = []
   onOrdinary: (() => void) | undefined
@@ -59,6 +60,10 @@ class BudgetAdapter extends LlmAdapter {
       this.summaries.push(options)
       this.summaryEntered.resolve(undefined)
       if (this.summaryMode === 'error') throw new LlmError('summary unavailable', 'SERVER')
+      if (this.summaryMode === 'empty') {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
       if (this.summaryMode === 'wait-for-abort') {
         const signal = options.signal
         if (signal === undefined) throw new Error('summary requires its live cancellation signal')
@@ -92,6 +97,7 @@ function historySeed(
   systemHead = true,
   systemText = 'You are an AI agent powered by DeepSeek Harness.',
   anchoredInputTokens?: number,
+  messageChars = 600,
 ): readonly SessionEvent[] {
   const session = Session.create(SessionId('budget-history'))
   for (let turn = 1; turn <= 2; turn += 1) {
@@ -100,12 +106,12 @@ function historySeed(
       message: createSystemMessage(systemText),
     }, { surfaceOp: 'append' })
     session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: `OLD_CONTEXT_SENTINEL_${turn}; KEEP_POLICY; ${'H'.repeat(600)}` }], source: { kind: 'user' },
+      content: [{ type: 'text', text: `OLD_CONTEXT_SENTINEL_${turn}; KEEP_POLICY; ${'H'.repeat(messageChars)}` }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     if (turn === 1) session.append('request/header', { header: { config: { provider: 'mock', model: 'limited' } }, reason: 'initial' })
     session.append('assistant/message', { turn, step: 1, stream: [], message: createMessage({
-      role: 'assistant', content: [{ type: 'text', text: `historical answer ${'A'.repeat(600)}` }],
+      role: 'assistant', content: [{ type: 'text', text: `historical answer ${'A'.repeat(messageChars)}` }],
       source: { kind: 'model', provider: 'mock', model: 'limited' },
     }), ...anchoredInputTokens === undefined ? {} : { usage: { inputTokens: anchoredInputTokens, outputTokens: 1 } } },
     { surfaceOp: 'append' })
@@ -121,6 +127,7 @@ interface FixtureOptions {
   contextWindow?: number
   alwaysRetry?: boolean
   durabilityListener?: boolean
+  maxTokens?: number
 }
 
 async function harness(config: BasicCompactionConfig = {}, options: FixtureOptions = {}) {
@@ -141,7 +148,9 @@ async function harness(config: BasicCompactionConfig = {}, options: FixtureOptio
   })
   const { agent } = await ctx.agentLoop.createAgent(ctx, {
     sessionId: SessionId('working-budget'), seed: options.seed ?? historySeed(),
-    agentOptions: { provider: 'mock', model: options.model ?? 'limited' },
+    agentOptions: { provider: 'mock', model: options.model ?? 'limited',
+      ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+    },
   })
   return { ctx, adapter, agent, compactionFiber }
 }
@@ -157,6 +166,57 @@ function lastReason(agent: Agent) {
 }
 
 describe('final working-context admission', () => {
+  it.each(['error', 'empty'] as const)('continues a normal short input with retained 498K context when the summary is %s', async (mode) => {
+    const { agent, adapter } = await harness({ adaptiveBudget: true,
+      thresholdRatio: 0.45, headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [{ provider: 'mock', model: 'limited', workingTokenLimit: 475_000 }],
+    }, { seed: historySeed(true, undefined, undefined, 498_000), contextWindow: 1_000_000, maxTokens: 393_216 })
+    adapter.summaryMode = mode
+    await send(agent, '继续下一段内容。')
+    expect(adapter.summaries).toHaveLength(2)
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('OLD_CONTEXT_SENTINEL_1')
+    expect(request).toContain('继续下一段内容。')
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
+    expect(agent.session.requestContext()).toMatchObject({ contextWindow: 1_000_000, workingTokenLimit: 475_000 })
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('rejects a failed summary above the actual output-reserved input budget', async () => {
+    const { agent, adapter } = await harness({ adaptiveBudget: true,
+      thresholdRatio: 0.45, headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [{ provider: 'mock', model: 'limited', workingTokenLimit: 475_000 }],
+    }, { seed: historySeed(true, undefined, undefined, 498_000), contextWindow: 1_000_000, maxTokens: 600_000 })
+    adapter.summaryMode = 'error'
+    await send(agent, '继续下一段内容。')
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_UNAVAILABLE' } })
+  })
+
+  it('does not fall back after a failed durability flush when summarization made no replacement', async () => {
+    const { ctx, agent, adapter } = await harness()
+    adapter.summaryMode = 'error'
+    ctx.on('session/flush', () => { throw new Error('storage is unavailable') })
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_PERSISTENCE_FAILED' } })
+  })
+
+  it.each(['compaction/start', 'compaction/summary'] as const)('does not fall back after a failed %s write', async (failedType) => {
+    const { agent, adapter } = await harness()
+    const append = agent.session.append.bind(agent.session)
+    // Fault injection covers every append overload without widening production event types.
+    vi.spyOn(agent.session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === failedType) throw new Error('compaction record could not be committed')
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_PERSISTENCE_FAILED' } })
+  })
+
   it('reserves configured headroom for Chinese summary input near the smaller model window', async () => {
     const { agent, adapter, ctx } = await harness()
     const message = createUserMessage({
@@ -302,7 +362,7 @@ describe('final working-context admission', () => {
     expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
-  it('does not send an over-window summary to a smaller separate summarizer', async () => {
+  it('keeps retained conversation context when a smaller separate summarizer cannot accept it', async () => {
     const { agent, adapter } = await harness({
       adaptiveBudget: true, workingTokenLimit: 1_000, thresholdRatio: 0.09,
       headroomTokens: 0, retainTokens: 0, maxTokens: 64,
@@ -310,8 +370,8 @@ describe('final working-context admission', () => {
     })
     await send(agent)
     expect(adapter.summaries).toHaveLength(0)
-    expect(adapter.requests).toHaveLength(0)
-    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
+    expect(adapter.requests).toHaveLength(1)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
   it('scales the real summary call for a small model and resumes its tool turn', async () => {
@@ -426,28 +486,28 @@ describe('final working-context admission', () => {
     expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
-  it('stops with zero ordinary calls when summarization fails despite an always-retry provider', async () => {
+  it('continues below the safe model budget when summarization fails despite an always-retry provider', async () => {
     const { agent, adapter } = await harness({}, { alwaysRetry: true })
     adapter.summaryMode = 'error'
     await send(agent)
     expect(adapter.summaries).toHaveLength(1)
-    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
     expect(agent.session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
     expect(agent.session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data.error).toContain('summary unavailable')
     expect(agent.session.snapshotEvents().filter(event => event.type === 'llm/retry')).toHaveLength(0)
-    expect(lastReason(agent)?.kind).toBe('error')
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
-  it('blocks an indivisible new input above the actual 475000 budget while retaining physical 1M', async () => {
+  it('admits an indivisible input above the working target while below the safe model budget', async () => {
     const { ctx, agent, adapter } = await harness({ thresholdRatio: 0.45,
       modelPolicies: [{ provider: 'mock', model: 'limited', workingTokenLimit: 475_000 }],
     }, { seed: [], contextWindow: 1_000_000 })
     await send(agent, `OVERSIZED_NEW_INPUT; ${'X'.repeat(1_900_000)}`)
     expect(ctx.tokenMeter.measure(agent.session).totalTokens).toBeGreaterThanOrEqual(475_000)
-    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
     expect(adapter.summaries).toHaveLength(0)
     expect(agent.session.requestContext()?.contextWindow).toBe(1_000_000)
-    expect(lastReason(agent)?.kind).toBe('error')
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
   it('does not dispatch a rebuilt request when the replacement durability checkpoint fails', async () => {
@@ -471,7 +531,7 @@ describe('final working-context admission', () => {
     expect(lastReason(agent)?.kind).toBe('error')
   })
 
-  it('counts newly admitted tool schemas and rejects fixed content that no summary can shrink', async () => {
+  it('keeps fixed tool declarations when they exceed only the working target', async () => {
     const { ctx, agent, adapter } = await harness()
     ctx.effect(() => ctx.tools.register(defineContentToolFixture({
       name: 'huge_schema', description: 'D'.repeat(4_400), parameters: {},
@@ -480,9 +540,9 @@ describe('final working-context admission', () => {
     await send(agent, 'small new request')
     expect(ctx.tokenMeter.measure(agent.session).totalTokens).toBeGreaterThanOrEqual(1_000)
     expect(agent.session.requestHeader()?.tools?.[0]?.description.length).toBe(4_400)
-    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
     expect(adapter.summaries).toHaveLength(0)
-    expect(lastReason(agent)?.kind).toBe('error')
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
   it('cancels a blocked summary without dispatching the original or rebuilt ordinary request', async () => {
@@ -545,7 +605,7 @@ describe('final working-context admission', () => {
 
   it('allows a non-loop one-shot call associated with the same oversized session', async () => {
     const { ctx, agent, adapter } = await harness({}, { seed: [] })
-    await send(agent, 'X'.repeat(4_100))
+    await send(agent, 'X'.repeat(40_100))
     expect(adapter.requests).toHaveLength(0)
     for await (const _chunk of ctx.llm.stream({ provider: 'mock', model: 'limited',
       sessionId: agent.session.id, messages: agent.session.deriveMessages(),

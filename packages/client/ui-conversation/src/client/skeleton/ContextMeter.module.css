@@ -63,6 +63,7 @@
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -80,7 +81,7 @@
 }
 
 .headline {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* The headline brackets the reading, so the side a locale leaves empty must
@@ -133,6 +134,11 @@
 
 .rows {
   margin: 6px 0 0;
+}
+
+.note {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .row {

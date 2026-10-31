@@ -211,6 +211,36 @@ function lastReason(agent: Agent) {
 }
 
 describe('published Muse 475K policy through real loop and JSONL', () => {
+  it.each([
+    { chars: 15_900, admitted: true },
+    { chars: 28_000, admitted: false },
+  ])('uses calibrated prices for retained-context fallback: admitted=$admitted', async ({ chars, admitted }) => {
+    const h = await harness(routes[0], 20_000, 445_000)
+    h.adapter.summaryMode = 'error'
+    h.adapter.toolNext = false
+    const observed: { legacy: number; working: number }[] = []
+    h.adapter.onOrdinary = () => { observed.push({
+      legacy: h.ctx.tokenMeter.measure(h.agent.session).totalTokens,
+      working: h.ctx.tokenMeter.measureWorkingContext(h.agent.session).totalTokens,
+    }) }
+    const text = `LATEST_CALIBRATED_INPUT; ${'新'.repeat(chars)}`
+    await run(h.agent, text)
+    expect(h.adapter.ordinary).toHaveLength(admitted ? 1 : 0)
+    if (admitted) {
+      expect(observed[0]?.legacy).toBeGreaterThan(448_000)
+      expect(observed[0]?.legacy).toBeLessThan(451_000)
+      expect(observed[0]?.working).toBeGreaterThan(530_000)
+      expect(observed[0]?.working).toBeLessThan(540_000)
+      expect(h.agent.session.requestContext()?.workingContextTokens).toBe(observed[0]?.working)
+      expect(lastReason(h.agent)).toEqual({ kind: 'completed' })
+    } else {
+      expect(h.ctx.tokenMeter.measure(h.agent.session).totalTokens).toBeLessThan(475_000)
+      expect(h.ctx.tokenMeter.measureWorkingContext(h.agent.session).totalTokens).toBeGreaterThan(590_400)
+      expect(lastReason(h.agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_UNAVAILABLE' } })
+    }
+    expect(h.agent.session.deriveMessages().some(message => message.content.some(block => block.type === 'text' && block.text === text))).toBe(true)
+  })
+
   it('uses the same policy for the ordinary session, Bot and product defaults', async () => {
     expect(policy).toEqual({ adaptiveBudget: true, workingTokenLimit: 475_000,
       thresholdRatio: 0.45, headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384 })
@@ -319,25 +349,27 @@ describe('published Muse 475K policy through real loop and JSONL', () => {
       recoveredRequestTokens: requestPrices[0], finalKind: lastReason(h.agent)?.kind, toolExecutions: h.executions })}\n`)
   })
 
-  it('rejects a protected input that remains above the hard working budget', async () => {
+  it('retains a protected input above the working target while inside the safe model budget', async () => {
     const h = await harness(routes[0], 20_000)
     const prefix = 'OVERSIZED_PROTECTED_INPUT: '
     const input = prefix + '新'.repeat((476_000 - 8) * 4 - prefix.length)
     await run(h.agent, input)
-    expect(h.adapter.ordinary).toHaveLength(0)
-    expect(h.executions).toBe(0)
-    expect(lastReason(h.agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
-    expect(h.agent.session.deriveMessages().some(message => message.content.some(block => block.type === 'text' && block.text === input))).toBe(true)
+    expect(h.adapter.ordinary).toHaveLength(2)
+    expect(h.executions).toBe(1)
+    expect(lastReason(h.agent)).toEqual({ kind: 'completed' })
+    expect(h.adapter.ordinary[0]?.messages.some(message => message.content.some(block => block.type === 'text' && block.text === input))).toBe(true)
+    expect(h.agent.session.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.content.some(block => block.type === 'text' && block.text === input))).toBe(true)
   })
 
   it('does not mark a failed near-limit summary as a successful replacement', async () => {
     const h = await harness(routes[2], 475_100)
     h.adapter.summaryMode = 'error'
     await run(h.agent)
-    expect(h.adapter.ordinary).toHaveLength(0)
+    expect(h.adapter.ordinary).toHaveLength(2)
     expect(h.agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
     expect(h.agent.session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.data.error).toBeDefined()
-    expect(lastReason(h.agent)?.kind).toBe('error')
+    expect(lastReason(h.agent)).toEqual({ kind: 'completed' })
     expect(JSON.stringify(h.agent.session.deriveMessages())).toContain('OLD_CHINESE_HISTORY')
   })
 

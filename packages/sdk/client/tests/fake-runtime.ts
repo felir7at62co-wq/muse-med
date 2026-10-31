@@ -8,6 +8,7 @@
  *
  * Script vocabulary (all optional):
  * - `FAKE_VIDEO_REVIEW`: one serialized observation-progress payload before the assistant answer.
+ * - `FAKE_REQUEST_CONTEXT`: one serialized request/context payload before the assistant answer.
  * - `FAKE_TEXT`: assistant text for each turn (default `hello from fake runtime`).
  * - `FAKE_STATUS`: the `session.finished` status (default `ok`).
  * - `FAKE_REASON_KIND`: the `session.finished` reason kind (default `completed`; `none` omits the reason).
@@ -121,6 +122,11 @@ function runTurn(sessionId: string): void {
     return
   }
   event(sessionId, 'turn/start', { turn: 0 })
+  if (env.FAKE_REQUEST_CONTEXT !== undefined) {
+    const context: unknown = JSON.parse(env.FAKE_REQUEST_CONTEXT)
+    if (context === null || typeof context !== 'object') throw new Error('Expected request context payload')
+    event(sessionId, 'request/context', context)
+  }
   if (env.FAKE_VIDEO_REVIEW !== undefined) {
     const review: unknown = JSON.parse(env.FAKE_VIDEO_REVIEW)
     if (review === null || typeof review !== 'object') throw new Error('Expected video review payload')

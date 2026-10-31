@@ -35,7 +35,7 @@ kind: "package-reference"
 
 `ctx.tokenMeter` 暴露三个操作。`measure(session, requestHeader?)` 在同一个已消费日志 revision 上返回独立、深度不可变的快照：`totalTokens` 是请求与响应压力，`surfaceTokens` 是仅表面的路由定价总量，等于 `nodes[].tokens` 之和。可选 `requestHeader` 覆盖会选择计价路由与压力字段；节点集合仍描述当前会话。`estimateMessage(message)` 用固定启发式规则为一条消息计价。每次调用都会克隆带位置的表面节点，因此测量是 O(surface)。
 
-`measureWorkingContext(session, requestHeader?)` 为压缩和工作预算准入提供校准估算。存在匹配且可用的用量锚点时，它以提供方用量除以锚点完整估算价格，得到不低于一的倍率，再逐项向上取整地应用到当前节点与工具 schema。保留的系统内容、工具及新输入仍承担校准后的成本；替换旧节点只移除其对应份额，并以相同倍率计算替换内容。`heuristicTokens` 与用量基线保持不变，`surfaceTokens` 汇总校准后的节点价格，`surfaceDeltaTokens` 则连接总量与该基线。锚点缺失、低于估算、请求不匹配或锚点估价为零时，结果沿用既有 `measure()`。这项估算不改变计费或 UI 投影，也不是精确的提供方分词器。
+`measureWorkingContext(session, requestHeader?)` 为压缩和工作预算准入提供校准估算。存在匹配且可用的用量锚点时，它以提供方用量除以锚点完整估算价格，得到不低于一的倍率，再逐项向上取整地应用到当前节点与工具 schema。保留的系统内容、工具及新输入仍承担校准后的成本；替换旧节点只移除其对应份额，并以相同倍率计算替换内容。`heuristicTokens` 与用量基线保持不变，`surfaceTokens` 汇总校准后的节点价格，`surfaceDeltaTokens` 则连接总量与该基线。锚点缺失、低于估算、请求不匹配或锚点估价为零时，结果沿用既有 `measure()`。这项估算不改变计费或旧压力计算，也不是精确的提供方分词器。
 
 ```text
 const { totalTokens, surfaceTokens, nodes } = ctx.tokenMeter.measure(session)
@@ -49,7 +49,7 @@ const price = ctx.tokenMeter.estimateMessage(message)
 
 ### 会话投影
 
-当组合提供 `ctx.sessionProjections` 时，token-meter 注册三个投影单元。`tokenUsage` 携带完整持久日志中的 `uncachedInputTokens`、`outputTokens`、`cacheReadTokens` 与 `cacheWriteTokens`。最终 assistant 消息样本会替换同一次尝试的流式用量；`llm/retry-started` 会结束该替换范围，因此同一步骤中的重试会贡献另一次计费用量。`contextPressure` 携带可选 `pressureTokens`（提供方报告的最新提示词规模）、可选 `projectedTokens`（下一个请求的提示词将花费多少）与来自最新一条 `request/context` 记录的可选 `contextWindow`。`contextBreakdown` 携带启发式 `systemTokens`、`toolsTokens` 与 `messageTokens`——上下文的构成，而非提供方计费规模。卸载插件会移除全部三个键。
+当组合提供 `ctx.sessionProjections` 时，token-meter 注册三个投影单元。`tokenUsage` 携带完整持久日志中的 `uncachedInputTokens`、`outputTokens`、`cacheReadTokens` 与 `cacheWriteTokens`。最终 assistant 消息样本会替换同一次尝试的流式用量；`llm/retry-started` 会结束该替换范围，因此同一步骤中的重试会贡献另一次计费用量。`contextPressure` 携带可选 `pressureTokens`（提供方报告的最新提示词规模）、可选 `projectedTokens`（下一个请求的提示词将花费多少）与来自最新一条 `request/context` 记录的可选 `contextWindow`。该记录还可携带 `workingTokenLimit` 和 `workingContextTokens`，分别表示压缩目标和请求准备时的校准估算。两者不跟随之后的启发式 surface 增量变化；下次请求准备时会替换它们，省略的值会清除旧值。状态版本 6 会重新归并旧的压力缓存。`contextBreakdown` 携带启发式 `systemTokens`、`toolsTokens` 与 `messageTokens`——上下文的构成，而非提供方计费规模。卸载插件会移除全部三个键。
 
 图片省略重新计算现有节点的价格，同时保留此前的用量锚点。固定引用启发式规则不计入 `offloaded` 元数据，因此一次省略决定不改变 `contextBreakdown` 或标量启发式总量，按路由的测量则把所选图片的视觉价格换成占位文本价格。
 
@@ -68,7 +68,7 @@ const price = ctx.tokenMeter.estimateMessage(message)
 
 ### 解读数字
 
-占用是参考数字，不是计费记录：harness 中没有任何机制依据它做决定，压缩读取的是 `measureWorkingContext()`。UI 用测量压力除以所选模型独立解析的容量来计算占用。`contextBreakdown` 数字是估算值，其总和不会等于 `projectedTokens`；后者的提供方锚点恰好携带启发式误差——CJK 文本与 JSON schema 在每 token 四字符下严重低估。
+占用是参考数字，不是计费记录：harness 中没有任何机制依据它做决定，压缩读取的是 `measureWorkingContext()`。UI 可以将已记录的校准工作估算除以配对的工作目标，并标明这是最近一次准备的请求；缺少配对值时，则沿用旧压力除以独立解析的模型容量。`contextBreakdown` 数字是估算值，其总和不会等于 `projectedTokens`；后者的提供方锚点恰好携带启发式误差——CJK 文本与 JSON schema 在每 token 四字符下严重低估。
 
 -----
 

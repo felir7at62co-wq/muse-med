@@ -250,7 +250,7 @@ export interface EpochHeader {
   system?: never
 }
 
-/** Registration-bound metadata for one resolved model route. */
+/** Recorded route metadata and working-context estimates for a prepared request. */
 export interface RequestContext {
   /** Registered provider route the metadata belongs to. */
   provider: string
@@ -258,6 +258,10 @@ export interface RequestContext {
   model: string
   /** Maximum combined request and response context in tokens, when advertised. */
   contextWindow?: number
+  /** Estimated working-context target for automatic compaction on this route, when configured. */
+  workingTokenLimit?: number
+  /** Calibrated working-context estimate recorded while preparing the latest request. */
+  workingContextTokens?: number
   /** `'in-history'` when the route reads the latest `system` message at any position as the effective system prompt. */
   systemPromptUpdate?: SystemPromptUpdate
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -321,11 +321,15 @@ const pressure = (ctx: Context, session: Session): ContextPressureProjection => 
   return value
 }
 
-function recordContext(session: Session, model: string, contextWindow?: number): void {
+function recordContext(
+  session: Session, model: string, contextWindow?: number, workingTokenLimit?: number, workingContextTokens?: number,
+): void {
   session.append('request/context', {
     provider: 'mock',
     model,
     ...contextWindow === undefined ? {} : { contextWindow },
+    ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
+    ...workingContextTokens === undefined ? {} : { workingContextTokens },
   })
 }
 
@@ -418,6 +422,68 @@ describe('contextPressure session projection', () => {
     expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, projectedTokens: 100 })
   })
 
+  it('replays a working budget and removes it when a newer route omits it', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'flash', 1_000_000, 475_000, 534_000)
+    usageChunk(session, { inputTokens: 498_000, outputTokens: 10 }, 1, 1)
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 498_000, projectedTokens: 498_000,
+      contextWindow: 1_000_000, workingTokenLimit: 475_000, workingContextTokens: 534_000,
+    })
+    recordContext(session, 'other', 1_000_000)
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 498_000, projectedTokens: 498_000, contextWindow: 1_000_000,
+    })
+  })
+
+  it('keeps the calibrated admission estimate separate from usage and replaces it after recovery', async () => {
+    const { ctx, session } = await harness()
+    try {
+      recordContext(session, 'flash', 1_000_000, 475_000, 534_000)
+      usageChunk(session, { inputTokens: 449_000, outputTokens: 10 }, 1, 1)
+      expect(pressure(ctx, session)).toMatchObject({ projectedTokens: 449_000, workingContextTokens: 534_000 })
+      appendUser(session, 'New content belongs to the next prepared request.')
+      expect(pressure(ctx, session).workingContextTokens).toBe(534_000)
+      recordContext(session, 'flash', 1_000_000, 475_000, 200_980)
+      expect(pressure(ctx, session)).toMatchObject({ workingTokenLimit: 475_000, workingContextTokens: 200_980 })
+      recordContext(session, 'flash', 1_000_000, 475_000)
+      expect(pressure(ctx, session)).not.toHaveProperty('workingContextTokens')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('refolds an older version-five cache instead of hiding recorded working estimates', async () => {
+    const { ctx, session } = await harness()
+    try {
+      recordContext(session, 'flash', 1_000_000, 475_000, 534_000)
+      const current = ctx.sessionProjections.checkpoint(session)
+      const row = current.contextPressure
+      if (row === undefined) throw new Error('contextPressure checkpoint is missing')
+      const stale = { ...current, contextPressure: { ...row, ver: 5, val: { surfaceTokens: 0, contextWindow: 1_000_000 } } }
+      expect(ctx.sessionProjections.viewCheckpoint(stale)).not.toHaveProperty('contextPressure')
+      expect(ctx.sessionProjections.restoreFloor(stale)).toBe(0)
+      const restored = ctx.sessionProjections.restore(
+        stale, session.snapshotEvents(), SessionLogOffset(0), session.header, session.inheritedEventCount,
+      )
+      expect(restored.snapshot.values.contextPressure).toEqual(pressure(ctx, session))
+      expect(restored.checkpoint.contextPressure?.ver).toBe(6)
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('publishes budget changes and preserves projection identity for unchanged metadata', async () => {
+    const { ctx, session } = await harness()
+    recordContext(session, 'flash', 1_000_000, 475_000)
+    const changed: string[] = []
+    ctx.sessionProjections.onChanged((_session, key) => { changed.push(key) })
+    recordContext(session, 'flash', 1_000_000, 475_000)
+    expect(changed).not.toContain('contextPressure')
+    recordContext(session, 'flash', 1_000_000, 500_000)
+    expect(changed).toContain('contextPressure')
+    expect(pressure(ctx, session)).toEqual({ contextWindow: 1_000_000, workingTokenLimit: 500_000 })
+    recordContext(session, 'unknown')
+    expect(pressure(ctx, session)).toEqual({})
+  })
+
   it('pushes no change for unrelated events or a restated capacity', async () => {
     // The registry gates its change feed on Object.is, so a unit that rebuilt
     // state for an event it does not care about would push phantom updates.
@@ -446,7 +512,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(5)
+    expect(checkpoint.contextPressure?.ver).toBe(6)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

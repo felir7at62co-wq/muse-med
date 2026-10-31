@@ -68,10 +68,14 @@ const pressureSchema: z.ZodType<ContextPressureProjection> = z.object({
   pressureTokens: z.number().int().nonnegative().optional(),
   projectedTokens: z.number().int().nonnegative().optional(),
   contextWindow: z.number().int().positive().optional(),
-}).strict().transform(({ pressureTokens, projectedTokens, contextWindow }) => ({
+  workingTokenLimit: z.number().int().positive().optional(),
+  workingContextTokens: z.number().int().nonnegative().optional(),
+}).strict().transform(({ pressureTokens, projectedTokens, contextWindow, workingTokenLimit, workingContextTokens }) => ({
   ...pressureTokens === undefined ? {} : { pressureTokens },
   ...projectedTokens === undefined ? {} : { projectedTokens },
   ...contextWindow === undefined ? {} : { contextWindow },
+  ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
+  ...workingContextTokens === undefined ? {} : { workingContextTokens },
 }))
 
 /** Prompt-side pressure of one request: input plus cache traffic, no output. */
@@ -95,6 +99,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 /** The context-pressure state schema and source of its inferred type. */
 const contextPressureStateSchema = z.object({
   contextWindow: z.number().int().positive().optional(),
+  workingTokenLimit: z.number().int().positive().optional(),
+  workingContextTokens: z.number().int().nonnegative().optional(),
   pressureTokens: z.number().int().nonnegative().optional(),
   surfaceTokens: z.number().int().nonnegative(),
   sampledSurfaceTokens: z.number().int().nonnegative().optional(),
@@ -169,23 +175,28 @@ export const tokenUsageProjectionDefinition = {
  * without a claim preserves the previous total. A usage sample is stamped
  * BEFORE the same event joins the surface, so an `assistant/message` anchors
  * against the surface its own request saw.
+ *
+ * Working targets and calibrated estimates copy the latest request/context
+ * record without applying heuristic surface deltas to that prepared request.
  */
 export const contextPressureProjectionDefinition = {
   key: 'contextPressure',
-  stateVersion: 5,
+  stateVersion: 6,
   stateSchema: contextPressureStateSchema,
   init: () => ({ surfaceTokens: 0 }),
   apply: (state, event) => {
     const fold = foldSurfaceProjection(state.claim, event)
     let next = state
     if (event.type === 'request/context') {
-      const contextWindow = event.data.contextWindow
-      if (contextWindow !== state.contextWindow) {
-        if (contextWindow !== undefined) {
-          next = { ...next, contextWindow }
-        } else {
-          const { contextWindow: _removed, ...withoutContextWindow } = next
-          next = withoutContextWindow
+      const { contextWindow, workingTokenLimit, workingContextTokens } = event.data
+      if (contextWindow !== state.contextWindow || workingTokenLimit !== state.workingTokenLimit
+        || workingContextTokens !== state.workingContextTokens) {
+        const { contextWindow: _window, workingTokenLimit: _limit, workingContextTokens: _tokens, ...withoutRouteBudget } = next
+        next = {
+          ...withoutRouteBudget,
+          ...contextWindow === undefined ? {} : { contextWindow },
+          ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
+          ...workingContextTokens === undefined ? {} : { workingContextTokens },
         }
       }
     }
@@ -207,8 +218,10 @@ export const contextPressureProjectionDefinition = {
   },
   wire: {
     viewSchema: pressureSchema,
-    view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
+    view: ({ contextWindow, workingTokenLimit, workingContextTokens, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
       ...contextWindow === undefined ? {} : { contextWindow },
+      ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
+      ...workingContextTokens === undefined ? {} : { workingContextTokens },
       ...pressureTokens === undefined ? {} : { pressureTokens },
       ...pressureTokens === undefined || sampledSurfaceTokens === undefined
         ? {}

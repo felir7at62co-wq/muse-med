@@ -5,21 +5,29 @@ export interface ContextOccupancy {
   percent: number
   usedTokens: number
   contextWindow: number
+  workingTokenLimit?: number
 }
 
 /**
- * Resolve bounded display occupancy from independently updated pressure fields.
+ * Use a calibrated prepared-request snapshot when paired with a working target;
+ * otherwise retain the provider-anchored model-window display.
  * @param pressure - latest token-meter projection.
  * @returns occupancy, or null until numerator and capacity are known.
  */
 export function contextOccupancy(
   pressure: ContextPressureProjection | undefined,
 ): ContextOccupancy | null {
-  const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
+  const workingTokenLimit = pressure?.workingContextTokens === undefined ? undefined : pressure.workingTokenLimit
+  const usedTokens = workingTokenLimit === undefined
+    ? pressure?.projectedTokens ?? pressure?.pressureTokens
+    : pressure?.workingContextTokens
   if (usedTokens === undefined || pressure?.contextWindow === undefined) return null
   return {
-    percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+    percent: workingTokenLimit === undefined
+      ? Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100))
+      : Math.round(usedTokens / workingTokenLimit * 100),
     usedTokens,
     contextWindow: pressure.contextWindow,
+    ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
   }
 }

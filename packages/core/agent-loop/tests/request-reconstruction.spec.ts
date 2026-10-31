@@ -938,6 +938,38 @@ describe('request/context capacity records', () => {
     expect(agent.session.surface.nodes).not.toContain(records[0]?.seq)
   })
 
+  it.each([
+    { workingTokenLimit: 64_000, workingContextTokens: 10_000 },
+    { workingContextTokens: 10_000 },
+    { workingTokenLimit: 64_000 },
+  ])('clears previous working metadata before the next request on the same route %#', async (workingMetadata) => {
+    const adapter = capacityAdapter({ mock: 128_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('working-target-clear'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+    const removeBudget = ctx.on('llm/stream', async function* (_options, next) {
+      const context = agent.session.requestContext()
+      if (context === undefined) throw new Error('Request context is missing')
+      agent.session.append('request/context', { ...context, ...workingMetadata })
+      yield* next()
+    })
+    try {
+      send(agent, 'first')
+      await waitForIdle(ctx, agent)
+      expect(agent.session.requestContext()).toMatchObject(workingMetadata)
+      removeBudget()
+      send(agent, 'second')
+      await waitForIdle(ctx, agent)
+      expect(agent.session.requestContext()).toEqual({ provider: 'mock', model: 'mock', contextWindow: 128_000 })
+    } finally {
+      removeBudget()
+      await handle.dispose()
+    }
+  })
+
   it('records a second capacity when the route changes mid-session', async () => {
     const adapter = capacityAdapter(
       { small: 64_000, large: 256_000 },

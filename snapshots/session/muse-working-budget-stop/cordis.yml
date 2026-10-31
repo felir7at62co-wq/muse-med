@@ -1,4 +1,4 @@
-# Only this fixture opts into a deliberately infeasible working budget.
+# Only this fixture reserves a deliberately infeasible safe input budget.
 - id: llm-deepseek
   disabled: true
 - id: compaction-basic
@@ -6,7 +6,7 @@
   config:
     thresholdRatio: 0.9
     workingTokenLimit: 256
-    headroomTokens: 16
+    headroomTokens: 606528
     retainTokens: 20
     maxTokens: 32
     maxOverflowRetries: 1

@@ -590,6 +590,8 @@ var ZH = {
   "{speed} tok/s": "{speed} tok/s",
   "Cache hit {hit}%": "缓存命中 {hit}%",
   "Context {percent}%": "上下文 {percent}%",
+  "Working context {percent}%": "工作上下文 {percent}%",
+  "Last request estimate: {used} / {target} tokens; model window {window}": "最近一次请求的上下文估算：{used} / {target} tokens；模型总窗口 {window}",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
   Footnotes: "脚注",
@@ -2147,12 +2149,17 @@ function runStatsOf(values) {
   }
   const prompt = (usage?.uncachedInputTokens ?? 0) + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0);
   if (prompt > 0) shown.push({ key: "cache", text: t("Cache hit {hit}%", { hit: percentText(usage.cacheReadTokens ?? 0, prompt) }) });
-  const used = pressure?.projectedTokens ?? pressure?.pressureTokens;
+  const working = Number.isFinite(pressure?.workingContextTokens) && pressure.workingContextTokens >= 0 && Number.isFinite(pressure?.workingTokenLimit) && pressure.workingTokenLimit > 0;
+  const used = working ? pressure.workingContextTokens : pressure?.projectedTokens ?? pressure?.pressureTokens;
   if (Number.isFinite(used) && pressure.contextWindow > 0) {
     shown.push({
       key: "context",
-      text: t("Context {percent}%", { percent: Math.min(100, Math.round(used / pressure.contextWindow * 100)) }),
-      title: t("{used} of {total} tokens of context in use", { used: formatTokens(used), total: formatTokens(pressure.contextWindow) })
+      text: working ? t("Working context {percent}%", { percent: Math.round(used / pressure.workingTokenLimit * 100) }) : t("Context {percent}%", { percent: Math.min(100, Math.round(used / pressure.contextWindow * 100)) }),
+      title: working ? t("Last request estimate: {used} / {target} tokens; model window {window}", {
+        used: formatTokens(used),
+        target: formatTokens(pressure.workingTokenLimit),
+        window: formatTokens(pressure.contextWindow)
+      }) : t("{used} of {total} tokens of context in use", { used: formatTokens(used), total: formatTokens(pressure.contextWindow) })
     });
   }
   return shown;

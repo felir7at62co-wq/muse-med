@@ -6989,7 +6989,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RequestContext',
-    declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n    systemPromptUpdate?: SystemPromptUpdate;\n}',
+    declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n    workingTokenLimit?: number;\n    workingContextTokens?: number;\n    systemPromptUpdate?: SystemPromptUpdate;\n}',
   },
   {
     name: 'RequestErrorAction',

@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-31-working-context-target.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-31-working-context-target.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-31-working-context-target:
+  en: b77ab1441dcaa308
+  zh: a0ddab3297b11b21
+/2026-10-31-working-context-target/summary:
+  en: 638bc1d9ec5fc7c8
+  zh: 9e9dc9c494f7d83f
+/2026-10-31-working-context-target/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-31-working-context-target/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-31-working-context-target/compatibility:
+  en: 7c621cf6ac5d3134
+  zh: 552450aad5797762
+/2026-10-31-working-context-target/verification:
+  en: c482354b67a7140f
+  zh: 389d97814d2dc488
+/2026-10-31-working-context-target/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

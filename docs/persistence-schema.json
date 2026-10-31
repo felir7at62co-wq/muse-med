@@ -11584,7 +11584,7 @@
       "kind": "event",
       "event": "request/context",
       "surface": false,
-      "digest": "37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf",
+      "digest": "e6880c6e32739d438c181803047edba233b56f4392753f40217b96b2c1595fe9",
       "schema": {
         "root": 0,
         "nodes": [
@@ -11640,6 +11640,16 @@
               {
                 "name": "systemPromptUpdate",
                 "type": 4,
+                "optional": true
+              },
+              {
+                "name": "workingContextTokens",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "workingTokenLimit",
+                "type": 2,
                 "optional": true
               }
             ],
@@ -23903,7 +23913,7 @@
       "digest": "17d1afb770d9941936130996da00dc86782cfef731d8d6526162c301256a4ac3",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:427"
+        "packages/core/session/src/types.ts:431"
       ]
     },
     {
@@ -24008,7 +24018,7 @@
       "digest": "1ccb56061942f5ccb0d30c9e4f2883b9d115ff906560029de637b61d3cde896d",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:341"
+        "packages/core/session/src/types.ts:345"
       ]
     },
     {
@@ -24441,7 +24451,7 @@
         "packages/core/session/src/types.ts#SurfaceOp"
       ],
       "sources": [
-        "packages/core/session/src/types.ts:462"
+        "packages/core/session/src/types.ts:466"
       ]
     },
     {
@@ -24492,11 +24502,6 @@
     },
     {
       "digest": "378f90f9f6022a0991928a1eaf7991094ea1920fe89a9248358a1da106e1a970",
-      "names": [],
-      "sources": []
-    },
-    {
-      "digest": "37cbc9cf06d494cfe5c67f078af1605eacb8e4c2c853e9e26455b73de0ee7ccf",
       "names": [],
       "sources": []
     },
@@ -24945,7 +24950,7 @@
       "digest": "5186557c16eaab6113e3526a7f0cb1b99a5d2c612b6ffaa0d1dd6589a5464f2a",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:311"
+        "packages/core/session/src/types.ts:315"
       ]
     },
     {
@@ -24978,7 +24983,7 @@
       "digest": "5302e763151277614b97e77f00e3b326694c6c1247b916a20503c344dc970777",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:375"
+        "packages/core/session/src/types.ts:379"
       ]
     },
     {
@@ -24987,7 +24992,7 @@
         "packages/core/session/src/types.ts#RequestHeaderReason"
       ],
       "sources": [
-        "packages/core/session/src/types.ts:273"
+        "packages/core/session/src/types.ts:277"
       ]
     },
     {
@@ -24999,7 +25004,7 @@
       "digest": "54f9276a1617d7c12594722c89cfe864bcbe4517e9a6f9c98bab14f199a135e0",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:355"
+        "packages/core/session/src/types.ts:359"
       ]
     },
     {
@@ -25341,7 +25346,7 @@
       "digest": "6bc8e51124d0874bc89e1d0ceff381a9c3cd0fc240667d69f841ce4f60f65fe5",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:330"
+        "packages/core/session/src/types.ts:334"
       ]
     },
     {
@@ -25741,6 +25746,15 @@
       "digest": "854db3efdfb0cd39d30953b28703e519c121f1115cebfffc40369fe86c406dd1",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "85705953f1bb40851daa548b75a0e180d73327f40aa070f7422eede012cd4a10",
+      "names": [
+        "packages/core/session/src/types.ts#RequestContext"
+      ],
+      "sources": [
+        "packages/core/session/src/types.ts:254"
+      ]
     },
     {
       "digest": "85d6d96ff884297410ec0026bdacba835f10e56cbcc5a3b9d670739f4aa0494b",
@@ -26282,7 +26296,7 @@
       "digest": "a81059ca06999da1e712414520c2c65e491d052fcf9640fae20aa38f0a5dc735",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:383",
+        "packages/core/session/src/types.ts:387",
         "packages/core/tools/src/types.ts:24"
       ]
     },
@@ -26454,15 +26468,6 @@
       "digest": "b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "b158f3ff6923714807c0d73882f0b05dc87f8fa85c9e90814852d48bbc866081",
-      "names": [
-        "packages/core/session/src/types.ts#RequestContext"
-      ],
-      "sources": [
-        "packages/core/session/src/types.ts:254"
-      ]
     },
     {
       "digest": "b15bd6661a7be1d6a31bb8bf89c11040e4c76d47e9ef1f20603a73dfbb25a78f",
@@ -26684,7 +26689,7 @@
       "digest": "bcf0caf62d964b2fcf5404bd5c909cfa9a21c3f3c96e6b7e36d9e33565223825",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:464"
+        "packages/core/session/src/types.ts:468"
       ]
     },
     {
@@ -26696,7 +26701,7 @@
       "digest": "bdaa5945b4c7dd845956b7209b33003f9863304165690e5563b77a42fbea9071",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:390"
+        "packages/core/session/src/types.ts:394"
       ]
     },
     {
@@ -27129,14 +27134,14 @@
       "digest": "e481c46af3813e0010558e93f578b2986acd658404cec2d1679e3ac2a6c48654",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:297"
+        "packages/core/session/src/types.ts:301"
       ]
     },
     {
       "digest": "e4c18e294232c3ba6c9f1999f168263cc55956147cfe4121720899be8e52edd1",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:361"
+        "packages/core/session/src/types.ts:365"
       ]
     },
     {
@@ -27160,6 +27165,11 @@
     },
     {
       "digest": "e6411b09c1d982f789bf741ca74e2bea69df56029847f86a6148e722039ee732",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "e6880c6e32739d438c181803047edba233b56f4392753f40217b96b2c1595fe9",
       "names": [],
       "sources": []
     },
@@ -27287,8 +27297,8 @@
       "digest": "ef11a3b7fa2033ae4279545ff8a8a2ee4e301b9b73e5b91654c48e6d08283545",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:299",
-        "packages/core/session/src/types.ts:301"
+        "packages/core/session/src/types.ts:303",
+        "packages/core/session/src/types.ts:305"
       ]
     },
     {
@@ -27459,7 +27469,7 @@
       "digest": "f90eb4ab2d3897bc20c521a038e3119d581f791ec974b1a0004f63a8ab9e232d",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:288",
+        "packages/core/session/src/types.ts:292",
         "packages/deliverables/workspace-changes/src/types.ts:106"
       ]
     },

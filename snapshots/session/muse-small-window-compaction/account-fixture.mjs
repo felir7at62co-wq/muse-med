@@ -67,8 +67,13 @@ export async function apply(ctx) {
   const rows = parse(source, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: value => ({ __jsExpr: value }) }] })
   const policy = leaf(rows)?.config
   assert.ok(policy)
-  const selectedPolicy = policy.modelPolicies.find(row => row.provider === 'muse-cloud-yunying' && row.model === 'gpt-6-sol')
-  assert.deepEqual(selectedPolicy, { provider: 'muse-cloud-yunying', model: 'gpt-6-sol', headroomTokens: 16384, maxTokens: 8192 })
+  const selectedPolicy = { ...policy, ...(policy.modelPolicies ?? []).find(row => row.provider === 'muse-cloud-yunying' && row.model === 'gpt-6-sol') }
+  assert.equal(selectedPolicy.adaptiveBudget, true)
+  assert.equal(selectedPolicy.workingTokenLimit, 475000)
+  assert.equal(selectedPolicy.thresholdRatio, 0.45)
+  assert.equal(selectedPolicy.headroomTokens, 16384)
+  assert.equal(selectedPolicy.maxTokens, 16384)
+  const pressureThreshold = Math.min(128000 * selectedPolicy.thresholdRatio, 128000 - 32768 - selectedPolicy.headroomTokens, selectedPolicy.workingTokenLimit)
   await ctx.plugin(compaction.default, policy).await()
   const recorded = (await readFile(process.env.DSH_SNAPSHOT_FILE, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const selection = recorded.find(event => event.type === 'request/header')?.data.header.config
@@ -76,6 +81,9 @@ export async function apply(ctx) {
   const script = recorded.flatMap(event => event.type === 'assistant/message' ? [{ summary: false, content: event.data.message.content }]
     : event.type === 'compaction/summary' && event.data.llmStreamCall ? [{ summary: true, content: event.data.rawOutput }] : [])
   assert.equal(script.length, 8)
+  const ordinaryScript = script.filter(step => !step.summary)
+  const summaryScript = script.find(step => step.summary)
+  assert.ok(summaryScript)
   const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
   // This recording exercises the smaller account configuration that produced the original loop.
   const recordedModel = catalog.providers.find(provider => provider.id === 'yunying').models.find(model => model.id === selection.model)
@@ -104,15 +112,16 @@ export async function apply(ctx) {
           assert.equal(request.headers.authorization, 'Bearer pressure-session')
           assert.equal(payload.model, 'gpt-6-sol')
           assert.equal(payload.reasoning_effort, 'low')
-          const step = script[requests.length]
+          const summary = payload.max_tokens === selectedPolicy.maxTokens
+          const step = summary ? summaryScript : ordinaryScript[requests.filter(request => !request.summary).length]
           assert.ok(step)
-          assert.equal(payload.max_tokens, step.summary ? 8192 : 32768)
-          const measurement = ctx.tokenMeter.measure(active.session)
+          assert.equal(payload.max_tokens, summary ? selectedPolicy.maxTokens : 32768)
+          const measurement = ctx.tokenMeter.measureWorkingContext(active.session)
           const summaries = active.session.snapshotEvents().filter(event => event.type === 'compaction/summary')
           if (requests.length === 0) assert.ok(measurement.totalTokens > 35000 && measurement.totalTokens < 41000)
-          if (!step.summary && summaries.length === 0) assert.ok(measurement.totalTokens > 29696 && measurement.totalTokens < 78848)
-          if (step.summary) assert.ok(measurement.totalTokens >= 78848)
-          requests.push({ summary: step.summary, tokens: measurement.totalTokens })
+          if (!summary && summaries.length === 0) assert.ok(measurement.totalTokens > 29696 && measurement.totalTokens < pressureThreshold)
+          if (summary) assert.ok(measurement.totalTokens >= pressureThreshold)
+          requests.push({ summary, tokens: measurement.totalTokens })
           response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(completion(step.content)); return
         }
         response.writeHead(404); response.end()
@@ -148,15 +157,15 @@ export async function apply(ctx) {
   })))
   ctx.on('agent/turn-stopping', ({ agent }) => {
     if (rejected) throw rejected
-    assert.equal(requests.length, 8)
-    assert.equal(requests.filter(request => request.summary).length, 1)
+    assert.equal(requests.filter(request => !request.summary).length, ordinaryScript.length)
+    assert.equal(requests.filter(request => request.summary).length, 4)
     assert.equal(results.length, 26)
     const events = agent.session.snapshotEvents()
-    for (const type of ['compaction/start', 'compaction/summary', 'compaction/end']) assert.equal(events.filter(event => event.type === type).length, 1)
+    for (const type of ['compaction/start', 'compaction/summary', 'compaction/end']) assert.equal(events.filter(event => event.type === type).length, 4)
     const summary = events.find(event => event.type === 'compaction/summary')
-    assert.equal(summary.data.maxTokens, 8192)
+    assert.equal(summary.data.maxTokens, selectedPolicy.maxTokens)
     assert.ok(summary.data.shadowedSeqs.length > 1)
-    assert.ok(ctx.tokenMeter.measure(agent.session).totalTokens < 78848)
+    assert.ok(ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens < pressureThreshold)
     assert.ok(events.some(event => event.type === 'tool/result' && event.data.message.content.some(block => block.text === 'TOOL_CONTINUED_AFTER_COMPACTION')))
     assert.ok(!JSON.stringify(events).includes('pressure-session'))
   })

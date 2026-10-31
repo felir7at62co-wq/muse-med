@@ -38,6 +38,7 @@ it('keeps sibling scoped budgets independent while sharing the same model runtim
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeter)
+  ctx.on('session/flush', () => undefined)
   const adapter = new ScopedBudgetAdapter()
   ctx.effect(() => ctx.llm.registerAdapter(['mock'], adapter))
   const observedRequests = { small: 0, roomy: 0 }
@@ -52,7 +53,7 @@ it('keeps sibling scoped budgets independent while sharing the same model runtim
           return next()
         })
         await agentCtx.isolate('compaction').plugin(BasicCompactionEngine, {
-          thresholdRatio: 0.9, workingTokenLimit, headroomTokens: 0, retainTokens: 0,
+          thresholdRatio: 0.9, workingTokenLimit, headroomTokens: name === 'small' ? 8_500 : 0, retainTokens: 0,
           maxTokens: 32, maxOverflowRetries: 1,
         })
       },
@@ -89,4 +90,32 @@ it('keeps sibling scoped budgets independent while sharing the same model runtim
   expect(adapter.requests[1]?.sessionId).toBe(unmanaged.session.id)
   expect(unmanaged.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
     .toEqual({ kind: 'completed' })
+})
+
+it('preserves child admission metadata when a parent compaction instance has no working policy', async () => {
+  const ctx = new Context()
+  contexts.push(ctx)
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TokenMeter)
+  await ctx.plugin(BasicCompactionEngine, { headroomTokens: 0, maxTokens: 32 })
+  const adapter = new ScopedBudgetAdapter()
+  ctx.effect(() => ctx.llm.registerAdapter(['mock'], adapter))
+  const { agent } = await ctx.agentLoop.createAgent(ctx, {
+    sessionId: SessionId('budget-scope-nested'),
+    agentOptions: { provider: 'mock', model: 'shared' },
+    async setup(agentCtx) {
+      await agentCtx.isolate('compaction').plugin(BasicCompactionEngine, {
+        workingTokenLimit: 5_000, headroomTokens: 0, maxTokens: 32,
+      })
+    },
+  })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: 'PRESERVE_SCOPED_BUDGET' }], source: { kind: 'user' } }))
+  await agent.whenIdle()
+
+  expect(adapter.requests).toHaveLength(1)
+  expect(agent.session.requestContext()).toMatchObject({ workingTokenLimit: 5_000, workingContextTokens: expect.any(Number) })
+  const contextEvents = agent.session.snapshotEvents().filter(event => event.type === 'request/context')
+  expect(contextEvents).toHaveLength(2)
+  expect(contextEvents.at(-1)?.data).toMatchObject({ workingTokenLimit: 5_000, workingContextTokens: expect.any(Number) })
 })

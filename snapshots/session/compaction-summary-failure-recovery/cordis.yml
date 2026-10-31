@@ -1,0 +1,11 @@
+- id: compaction-basic
+  config:
+    thresholdRatio: 0.8
+    headroomTokens: 1800
+    retainTokens: 20
+    maxTokens: 32
+    workingTokenLimit: 7500
+
+- insert:
+    - id: summary-failure-fixture
+      name: ./summary-failure-fixture.mjs

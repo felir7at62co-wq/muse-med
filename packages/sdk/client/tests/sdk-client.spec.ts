@@ -63,6 +63,18 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 describe('DeepSeekHarness', () => {
+  it.each([
+    { provider: 'mock', model: 'mock', contextWindow: 1_000_000 },
+    { provider: 'mock', model: 'mock', contextWindow: 1_000_000, workingTokenLimit: 475_000, workingContextTokens: 231_000 },
+  ])('preserves request/context working snapshots and legacy absence: %j', async (context) => {
+    const result = await harnessWith({ FAKE_REQUEST_CONTEXT: JSON.stringify(context) }).run('Continue the conversation.')
+    const contexts = result.events.filter(event => event.type === 'request/context')
+    expect(contexts.map(event => event.data)).toEqual([context])
+    const events = result.notifications.flatMap(notification => notification.method === 'session.event'
+      ? [notification.params.event] : [])
+    expect(events).toContainEqual(contexts[0])
+  })
+
   it('preserves complete-video observation progress in public Session events', async () => {
     const expected: unknown = JSON.parse(await readFile(new URL('./expected/video-review.json', import.meta.url), 'utf8'))
     const result = await harnessWith({ FAKE_VIDEO_REVIEW: JSON.stringify(expected) }).run('Observe every detected frame.')

@@ -6,7 +6,7 @@
   config:
     thresholdRatio: 0.9
     workingTokenLimit: 256
-    headroomTokens: 16
+    headroomTokens: 606528
     retainTokens: 20
     maxTokens: 32
     maxOverflowRetries: 1

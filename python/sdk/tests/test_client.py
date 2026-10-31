@@ -13,6 +13,45 @@ from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Noti
 from deepseek_harness.errors import JsonRpcError
 
 
+@pytest.mark.parametrize("context", [
+    {"provider": "mock", "model": "mock", "contextWindow": 1_000_000},
+    {"provider": "mock", "model": "mock", "contextWindow": 1_000_000,
+     "workingTokenLimit": 475_000, "workingContextTokens": 231_000},
+])
+def test_request_context_preserves_working_snapshots_and_legacy_absence(tmp_path: Path, context: dict[str, object]) -> None:
+    script = tmp_path / "fake_runtime.py"
+    script.write_text(
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get("method") == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
+    elif msg.get("method") == "session/prompt":
+        session_id = msg["params"]["sessionId"]
+        for event in [
+            {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}},
+            {"type": "request/context", "data": CONTEXT},
+            {"type": "turn/end", "data": {"turn": 1, "reason": {"kind": "completed"}}},
+        ]:
+            print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": session_id, "event": event}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": session_id, "status": "idle"}}), flush=True)
+    elif msg.get("method") == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip().replace("CONTEXT", repr(context))
+    )
+    with DeepSeekHarness(_launch_args=(sys.executable, str(script)), cwd=str(tmp_path)) as harness:
+        result = harness.run("Continue the conversation.", session_id="main")
+    assert [event["data"] for event in result.events if event["type"] == "request/context"] == [context]
+    assert [notification.payload["event"]["data"] for notification in result.notifications
+            if notification.method == "session.event"
+            and notification.payload["event"]["type"] == "request/context"] == [context]
+
+
 def test_high_level_sdk_runs_turn_and_preserves_auto_review_errors(tmp_path: Path) -> None:
     script = tmp_path / "fake_runtime.py"
     env_dump = tmp_path / "env.json"

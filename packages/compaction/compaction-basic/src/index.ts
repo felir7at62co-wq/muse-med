@@ -142,6 +142,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   private readonly pressureSuppression = new WeakMap<Session, string>()
+  private readonly failedPressureSelection = new WeakMap<Session, string>()
   private readonly warnedInfeasiblePressure = new WeakMap<Session, string>()
   private readonly workingRecoveries = new WeakMap<Agent, { protectedNodes: ReadonlySet<SessionSeq>; limit: number }>()
 
@@ -151,6 +152,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (this.config.auto) {
       this._registerAutomaticCompaction()
       registerWorkingBudget(ctx, this.config, async (agent, signal, protectedNodes, limit) => {
+        const failed = this.failedPressureSelection.get(agent.session)
+        if (failed !== undefined && this.pressureSuppression.get(agent.session) === failed) {
+          this.pressureSuppression.delete(agent.session)
+        }
         this.workingRecoveries.set(agent, { protectedNodes: new Set(protectedNodes), limit })
         try {
           return await this.compactIfNeeded(agent, 'pressure', signal)
@@ -379,9 +384,13 @@ export class BasicCompactionEngine extends CompactionEngine {
       try {
         result = await this.compactRegion(range.start, range.end, agent, signal)
       } catch (error: unknown) {
-        if (!signal.aborted) this.pressureSuppression.set(agent.session, key)
+        if (!signal.aborted) {
+          this.pressureSuppression.set(agent.session, key)
+          this.failedPressureSelection.set(agent.session, key)
+        }
         throw error
       }
+      this.failedPressureSelection.delete(agent.session)
       measurement = meter.measureWorkingContext(agent.session)
       // Successful replacement leaves one checkpoint at the selected start position.
       // oxlint-disable-next-line typescript/no-non-null-assertion

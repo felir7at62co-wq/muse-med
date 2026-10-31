@@ -665,9 +665,9 @@ describe('compactNow transaction and failure classification', () => {
     const session = closedConversation(2)
     const agent = fakeAgent(session, () => () => undefined)
     const meter = ctx.tokenMeter
-    const original = meter.measure.bind(meter)
+    const original = meter.measureWorkingContext.bind(meter)
     compact.duringSummary = () => {
-      vi.spyOn(meter, 'measure').mockImplementationOnce((target) => {
+      vi.spyOn(meter, 'measureWorkingContext').mockImplementationOnce((target) => {
         const measurement = original(target)
         return {
           ...measurement,
@@ -761,7 +761,7 @@ describe('compactNow transaction and failure classification', () => {
     for (const testCase of cases) {
       const { ctx, compact } = detachedService()
       const reserve = vi.fn(() => testCase.release)
-      const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+      const measure = vi.spyOn(ctx.tokenMeter, 'measureWorkingContext')
       const agent = fakeAgent(testCase.session, reserve)
       const before = testCase.session.snapshotEvents()
       const reason = Object.freeze({ kind: 'cancelled', case: testCase.name })

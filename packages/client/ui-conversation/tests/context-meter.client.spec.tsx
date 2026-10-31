@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn, zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/index.ts'
@@ -39,10 +39,87 @@ describe('ContextMeter', () => {
     expect(contextOccupancy({ pressureTokens: 300_000, contextWindow: 128_000 })?.percent).toBe(100)
   })
 
+  it('uses a recorded zero estimate before usage and avoids pairing an unmeasured target with legacy pressure', () => {
+    expect(contextOccupancy({ workingContextTokens: 0, workingTokenLimit: 475_000, contextWindow: 1_000_000 }))
+      .toEqual({ percent: 0, usedTokens: 0, contextWindow: 1_000_000, workingTokenLimit: 475_000 })
+    expect(contextOccupancy({ projectedTokens: 498_000, workingTokenLimit: 475_000, contextWindow: 1_000_000 }))
+      .toEqual({ percent: 50, usedTokens: 498_000, contextWindow: 1_000_000 })
+    expect(contextOccupancy({ projectedTokens: 498_000, workingContextTokens: 300_000, contextWindow: 1_000_000 }))
+      .toEqual({ percent: 50, usedTokens: 498_000, contextWindow: 1_000_000 })
+  })
+
   it('renders nothing until both pressure and capacity are known', () => {
     expect(meter({}).container.textContent).toBe('')
     expect(meter({ contextPressure: { pressureTokens: 32_000 } }).container.textContent).toBe('')
     expect(meter({ contextPressure: { contextWindow: 128_000 } }).container.textContent).toBe('')
+  })
+
+  it('uses the working budget without clipping its reading or changing model capacity', () => {
+    expect(contextOccupancy({
+      projectedTokens: 449_000, contextWindow: 1_000_000, workingTokenLimit: 475_000, workingContextTokens: 534_000,
+    }))
+      .toEqual({ percent: 112, usedTokens: 534_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 })
+  })
+
+  it.each([
+    { translate: t, name: '工作上下文 105%', modelLabel: '模型总窗口', composition: '分项为组成估算，不与总量相加', target: '最近一次请求的上下文估算；达到工作目标会尝试压缩' },
+    { translate: tEn, name: '105% of working context target', modelLabel: 'Model window', composition: 'Composition estimates do not add up to the total', target: 'Context estimate for the latest request; reaching the target triggers compaction' },
+  ])('shows working and model budgets separately with localized copy: $name', ({ translate, name, modelLabel, composition, target }) => {
+    const view = meter({
+      contextPressure: { projectedTokens: 449_000, contextWindow: 1_000_000, workingTokenLimit: 475_000, workingContextTokens: 498_000 },
+      contextBreakdown: BREAKDOWN,
+    }, translate)
+    const trigger = view.getByRole('button', { name })
+    fireEvent.click(trigger)
+    const panel = view.getByRole('dialog')
+    expect(panel.textContent).toContain('~498K / 475K')
+    expect(panel.textContent).toContain(modelLabel + '1M')
+    expect(panel.textContent).toContain(composition)
+    expect(panel.textContent).toContain(target)
+    const circumference = 2 * Math.PI * 5.5
+    expect(trigger.querySelector('circle:last-child')?.getAttribute('stroke-dasharray'))
+      .toBe(`${circumference} ${circumference}`)
+    const widths = Array.from(panel.getElementsByClassName(segmentClass), node => Number.parseFloat((node as HTMLElement).style.width))
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100)
+  })
+
+  it('keeps the expanded working-context panel portaled and inside the viewport', () => {
+    const width = 264
+    const height = 340
+    const anchor = vi.spyOn(HTMLSpanElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(window.innerWidth - 44, window.innerHeight - 24, 28, 20))
+    const panelWidth = vi.spyOn(HTMLDivElement.prototype, 'offsetWidth', 'get').mockReturnValue(width)
+    const panelHeight = vi.spyOn(HTMLDivElement.prototype, 'offsetHeight', 'get').mockReturnValue(height)
+    try {
+      const view = meter({
+        contextPressure: { workingContextTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 },
+        contextBreakdown: BREAKDOWN,
+      })
+      fireEvent.click(view.getByRole('button', { name: '工作上下文 105%' }))
+      const panel = view.getByRole('dialog')
+      expect(panel.parentElement).toBe(document.body)
+      expect(Number.parseFloat(panel.style.left)).toBe(window.innerWidth - width - 12)
+      expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(12)
+      expect(Number.parseFloat(panel.style.top) + height).toBeLessThanOrEqual(window.innerHeight - 12)
+    } finally {
+      anchor.mockRestore()
+      panelWidth.mockRestore()
+      panelHeight.mockRestore()
+    }
+  })
+
+  it('uses the new model window after a working budget is removed', () => {
+    let values: Record<string, unknown> = {
+      contextPressure: { projectedTokens: 449_000, contextWindow: 1_000_000, workingTokenLimit: 475_000, workingContextTokens: 498_000 },
+    }
+    const view = render(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    fireEvent.click(view.getByRole('button', { name: '工作上下文 105%' }))
+    values = { contextPressure: { projectedTokens: 32_000, contextWindow: 128_000 } }
+    view.rerender(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    expect(view.getByRole('button', { name: '上下文已用 25%' })).not.toBeNull()
+    expect(view.getByRole('dialog').textContent).toContain('~32K / 128K')
+    expect(view.getByRole('dialog').textContent).not.toContain('475K')
+    expect(view.getByRole('dialog').textContent).not.toContain('模型总窗口')
   })
 
   it('shows the occupancy ring and opens the breakdown panel on click', () => {
