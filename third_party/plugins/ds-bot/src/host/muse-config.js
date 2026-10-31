@@ -11,7 +11,7 @@ export function resolveMuseConfig(config = {}) {
     ensureMuseSpecialist: config.ensureMuseSpecialist ?? true,
     contextManagement: config.contextManagement ?? 'host',
     goals: config.goals ?? 'host',
-    memoryReview: config.memoryReview ?? false,
+    memoryReview: config.memoryReview ?? true,
     autoSessionBots: config.autoSessionBots ?? true,
     sessionBotSyncIntervalMs: config.sessionBotSyncIntervalMs ?? 30000,
     github: config.github ?? false,

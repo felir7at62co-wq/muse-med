@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-export default defineConfig(['index', 'cli', 'native-preset', 'creation-policy', 'editing-policy', 'creation-skills', 'short-drama-guidance', 'hindsight', 'feishu-migration', 'manuscript-revisions', 'manuscript-source-review', 'source-recovery', 'jianying-draft', 'computer-use', 'computer-input-worker'].map(name => ({
+export default defineConfig(['index', 'cli', 'native-preset', 'creation-policy', 'editing-policy', 'creation-skills', 'short-drama-guidance', 'feishu-migration', 'manuscript-revisions', 'manuscript-source-review', 'source-recovery', 'jianying-draft', 'computer-use', 'computer-input-worker'].map(name => ({
   entry: ['lib/types/' + name + '.js'],
   outDir: 'lib',
   format: ['esm'] as const,

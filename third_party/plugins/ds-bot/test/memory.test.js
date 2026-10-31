@@ -544,10 +544,10 @@ test('"ask or update" answers from the entries and changes them through the same
     ],
   }))
   const answer = (await call('memory-ask', { botId: 'b2', text: 'I like green tea now; I live in Hangzhou; we meet Mondays; Friday is off' })).value
-  assert.match(requests[0].system, /Bot memory is for responsibilities, collaboration agreements and reusable methods/)
-  assert.match(requests[0].system, /Prefer Hindsight for confirmed user preferences/)
-  assert.match(requests[0].system, /preserving explicit user edits to existing Bot entries/)
-  assert.doesNotMatch(requests[0].system, /The user writes code in Vim/)
+  assert.match(requests[0].system, /You keep the memory of one Bot in Muse Bot/)
+  assert.doesNotMatch(requests[0].system, /hindsight/i)
+  assert.match(requests[0].system, /changes: empty unless the user asks to add, correct, or remove/)
+  assert.match(requests[0].system, /The user writes code in Vim/)
   assert.match(requests[0].messages[0].content[0].text, /^Entries of Writer \(yours: Writer's own; team: shared by every Bot\):\n\[1\] \(own\) Likes tea\n\[2\] \(team\) Ship on Friday\n/)
   assert.equal(answer.reply, 'Done.')
   assert.deepEqual(answer.changes.map(change => [change.op, change.scope, change.ok]), [
@@ -612,8 +612,8 @@ test('when a turn ends, the memory review keeps what the user said, through the 
   await reviewed(call)
   assert.equal(requests.length, 1)
   assert.match(requests[0].system, /^You keep the long-term memory of one Bot/)
-  assert.match(requests[0].system, /do not duplicate them in Bot memory/)
-  assert.doesNotMatch(requests[0].system, /a lasting preference the user states or shows/)
+  assert.match(requests[0].system, /a lasting preference the user states or shows/)
+  assert.match(requests[0].system, /a decision or a correction from the user that holds beyond the task/)
   assert.doesNotMatch(requests[0].system, /"team": true/)
   assert.equal(requests[0].messages[0].content[0].text, [
     'The Bot: Writer, 写作.',
@@ -807,7 +807,7 @@ test('a full MEMORY.md keeps the review\'s place, and an add with a topic lands 
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
   assert.match(requests[0].messages[0].content[0].text, /MEMORY\.md has 3\d{3} of 4000 characters \(own\)/)
-  assert.match(requests[0].system, /"topic": "source-checks"/)
+  assert.match(requests[0].system, /"topic": "travel"/)
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
@@ -930,8 +930,8 @@ test('a group\'s memory panel shows only the group memory, and what the user cha
 
   const answer = (await call('memory-ask', { roomId: 'r1', text: 'The demo is on Monday; Friday is off' })).value
   assert.match(requests[1].system, /^You keep the memory of one group chat/)
-  assert.match(requests[1].system, /Prefer Hindsight for confirmed user preferences/)
-  assert.match(requests[1].system, /preserving explicit user edits to existing Bot entries/)
+  assert.doesNotMatch(requests[1].system, /hindsight/i)
+  assert.match(requests[1].system, /changes: empty unless the user asks to add, correct, or remove/)
   assert.doesNotMatch(requests[1].system, /"team"/)
   assert.match(requests[1].messages[0].content[0].text, /^Entries of the group chat "Launch" \(group: shared by its members\):\n\[1\] \(group\) Ship on Friday\n/)
   assert.deepEqual(answer.changes.map(change => [change.op, change.scope, change.ok]), [['add', 'group', true], ['remove', 'group', true]])
@@ -1153,61 +1153,128 @@ test('a turn whose Session moves to a fresh part before its review is still revi
   assert.deepEqual(Object.keys(JSON.parse(read('reviewed.json'))), ['chat:b2'])
 })
 
-test('Muse memory review is opt-in and rejects non-boolean deployment settings', () => {
-  assert.equal(resolveMuseConfig().memoryReview, false)
-  assert.equal(resolveMuseConfig({ memoryReview: true }).memoryReview, true)
+test('Muse memory review defaults on and accepts an explicit opt-out', () => {
+  assert.equal(resolveMuseConfig().memoryReview, true)
+  assert.equal(resolveMuseConfig({ memoryReview: false }).memoryReview, false)
   for (const memoryReview of ['false', 0, {}, []]) assert.throws(() => resolveMuseConfig({ memoryReview }), /memoryReview must be a boolean/)
 })
 
-test('default and explicit review-off preserve Bot notes without background model calls', async (t) => {
-  for (const config of [{}, { memoryReview: false }]) {
-    const { ctx, home, call, tool, read, section, requests, stop } = start({ config: { ...config, memoryReviewDelayMs: 0 }, useMuseReviewDefault: true })
-    t.after(() => stop())
-    assert.equal(ctx.calls.includes('effect ds-bot: memory review'), false)
-    await tool('remember', { text: 'Writer gathers sources; Coder handles export integration' }, 'b2')
-    const saved = read('bots', 'b2', 'MEMORY.md')
-    const changes = read('journal.jsonl')
-    assert.match(await tool('recall', { query: 'export integration' }, 'b2'), /Coder handles export integration/)
-    const text = section('b2')
-    assert.match(text, /Use hindsight_memory for sourced, confirmed user preferences/)
-    assert.match(text, /There is no required write each turn/)
-    assert.doesNotMatch(text, /Call it in that same turn/)
-    assert.doesNotMatch(text, /a name, a city, and a preference/)
-    assert.match(ctx.registeredTools.get('remember').description, /do not save the same fact in both systems/)
-    ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'running' })
-    ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
-    await settle()
-    assert.equal((await call('state', {})).value.memoryReviews, 0)
-    assert.equal(requests.length, 0)
-    assert.equal(read('bots', 'b2', 'MEMORY.md'), saved)
-    assert.equal(read('journal.jsonl'), changes)
-    assert.equal(existsSync(join(home, 'memory', 'reviewed.json')), false)
-  }
+test('default review retains preferences through the Bot model without a separate memory service', async (t) => {
+  const { ctx, call, read, requests, section, stop } = start({
+    useMuseReviewDefault: true,
+    config: { memoryReviewDelayMs: 0 },
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'The user prefers restrained performances' }] })],
+  })
+  t.after(() => stop())
+  assert.equal(ctx.calls.includes('effect ds-bot: memory review'), true)
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'running' })
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await until(() => requests.length === 1)
+  await reviewed(call)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /The user prefers restrained performances/)
+  assert.match(section('b2'), /the user's preferences, decisions, facts the user should not have to repeat/)
+  assert.doesNotMatch(section('b2'), /hindsight/i)
+  assert.match(requests[0].system, /a lasting preference the user states or shows/)
+  assert.doesNotMatch(requests[0].system, /hindsight/i)
+  assert.equal(requests[0].provider, 'deepseek')
+  assert.equal(requests[0].model, 'v4')
+  assert.equal(requests[0].reasoningEffort, 'off')
+  assert.equal(requests[0].maxTokens, 2048)
+  assert.equal(requests[0].sessionId, 'b2')
 })
 
-test('a legacy memory prompt snapshot refreshes policy without rewriting its notes or journal', async (t) => {
+test('disposing aborts and drains a running memory review without late notes or queued requests', async (t) => {
+  let releaseReply
+  const blockedReply = new Promise(resolve => { releaseReply = resolve })
+  const { ctx, home, call, requests, stop } = start({
+    useMuseReviewDefault: true,
+    config: { memoryReviewDelayMs: 0 },
+    replies: [blockedReply, JSON.stringify({ changes: [{ op: 'add', text: 'Another Bot note' }] })],
+  })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await until(() => requests.length === 1)
+  ctx.emit('agent/status', { agent: { id: 'b3' }, status: 'idle' })
+  for (let tries = 0; tries < 200; tries += 1) {
+    if ((await call('state', {})).value.memoryReviews === 2) break
+    await settle()
+  }
+  assert.equal((await call('state', {})).value.memoryReviews, 2)
+  let disposed = false
+  const closing = ctx.dispose().then(() => { disposed = true })
+  assert.equal(requests[0].signal.aborted, true)
+  await settle()
+  assert.equal(disposed, false, 'disposal must wait until the model iterator exits')
+  releaseReply(JSON.stringify({ changes: [{ op: 'add', text: 'Late preference must not be saved' }] }))
+  await closing
+  assert.equal(disposed, true)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md')), false)
+  assert.equal(existsSync(join(home, 'memory', 'bots', 'b3', 'MEMORY.md')), false)
+  assert.equal(existsSync(join(home, 'memory', 'journal.jsonl')), false)
+  const before = JSON.parse(readFileSync(join(home, 'memory', 'reviewed.json'), 'utf8'))
+  assert.equal(before['chat:b2'], 9)
+  assert.equal(before['chat:b3'], undefined)
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await settle()
+  assert.equal(requests.length, 1)
+  assert.deepEqual(JSON.parse(readFileSync(join(home, 'memory', 'reviewed.json'), 'utf8')), before)
+})
+
+test('explicit review-off preserves saved preferences without background model calls', async (t) => {
+  const { ctx, home, call, tool, read, section, requests, stop } = start({ config: { memoryReview: false, memoryReviewDelayMs: 0 }, useMuseReviewDefault: true })
+  t.after(() => stop())
+  assert.equal(ctx.calls.includes('effect ds-bot: memory review'), false)
+  await tool('remember', { text: 'The user prefers restrained performances' }, 'b2')
+  const saved = read('bots', 'b2', 'MEMORY.md')
+  const changes = read('journal.jsonl')
+  assert.match(await tool('recall', { query: 'restrained performances' }, 'b2'), /restrained performances/)
+  const text = section('b2')
+  assert.doesNotMatch(text, /hindsight/i)
+  assert.match(text, /Call remember when the user states a lasting preference/)
+  assert.match(ctx.registeredTools.get('remember').description, /a lasting preference of the user, a decision, a correction/)
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'running' })
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await settle()
+  assert.equal((await call('state', {})).value.memoryReviews, 0)
+  assert.equal(requests.length, 0)
+  assert.equal(read('bots', 'b2', 'MEMORY.md'), saved)
+  assert.equal(read('journal.jsonl'), changes)
+  assert.equal(existsSync(join(home, 'memory', 'reviewed.json')), false)
+})
+
+test('a former Hindsight-only memory prompt refreshes without rewriting notes or journal', async (t) => {
   const first = start()
   await first.tool('remember', { text: 'The user prefers short replies' }, 'b2')
   const saved = first.read('bots', 'b2', 'MEMORY.md')
   const changes = first.read('journal.jsonl')
-  const oldPrompt = first.section('b2').replace(/^Use hindsight_memory.*\n/m, '').replace('There is no required write each turn;', 'Call remember every turn;')
+  const oldPrompt = first.section('b2').replace(/You keep notes that last across all your conversations:[^\n]*/, 'Use hindsight_memory for user preferences; Bot memory covers coordination only.')
   writeFileSync(join(first.home, 'memory', 'snapshots', 'b2.md'), oldPrompt)
   await first.stop({ keep: true })
-  const second = start({ home: first.home })
+  const second = start({ home: first.home, useMuseReviewDefault: true })
   t.after(() => second.stop())
   assert.match(await second.tool('recall', { query: 'short replies' }, 'b2'), /The user prefers short replies/)
-  assert.match(second.section('b2'), /Use hindsight_memory for sourced, confirmed user preferences/)
-  assert.doesNotMatch(second.section('b2'), /Call remember every turn/)
+  assert.doesNotMatch(second.section('b2'), /hindsight/i)
+  assert.match(second.section('b2'), /After each of your turns, a memory review reads/)
   assert.equal(second.read('bots', 'b2', 'MEMORY.md'), saved)
   assert.equal(second.read('journal.jsonl'), changes)
-  await second.stop({ keep: true })
-  const enabled = start({ home: first.home, config: { memoryReview: true } })
+})
+
+test('built-in memory presents its complete default and manual policies', async (t) => {
+  const enabled = start({ useMuseReviewDefault: true })
+  const disabled = start({ config: { memoryReview: false } })
   t.after(() => enabled.stop())
-  await enabled.tool('recall', {}, 'b2')
-  assert.match(enabled.section('b2'), /After each of your turns, a memory review reads/)
-  assert.doesNotMatch(enabled.section('b2'), /There is no required write each turn/)
-  assert.equal(enabled.read('bots', 'b2', 'MEMORY.md'), saved)
-  assert.equal(enabled.read('journal.jsonl'), changes)
+  t.after(() => disabled.stop())
+  await enabled.call('state', {})
+  await disabled.call('state', {})
+  const actual = {
+    automatic: enabled.section('b2'),
+    manual: disabled.section('b2'),
+    remember: enabled.ctx.registeredTools.get('remember').description,
+  }
+  const expected = JSON.parse(readFileSync(new URL('./fixtures/memory-policies.expected.json', import.meta.url), 'utf8'))
+  assert.deepEqual(actual, expected)
 })
 
 test('config.memory false leaves the tools, the section, and the panel out', async (t) => {

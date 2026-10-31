@@ -7,17 +7,9 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 [English](README.md) | 中文
 
-## 本机 Hindsight 记忆
+## Bot 记忆
 
-桌面组合注册 `hindsight_memory`，供 Agent 保存创作偏好和项目决定。Agent 自行判断用户已确认的偏好、纠正或决定是否有长期复用价值，有明确来源即可保存，不必等待另一次“记住”指令。`user` 范围属于当前安装；默认的 `project` 范围对会话的规范工作目录做哈希隔离。它不使用剧变项目 ID；同一工作目录内的多个剧目共享该项目记忆库。记忆保存在本机，不通过 Muse 账号同步。不增加整段对话采集、代码仓库调查、每轮自动检索或深度反思。调用及返回的来源通过普通会话事件记录。
-
-需另行安装本机 Hindsight 1.0.0 服务。这台 Mac 使用回环端口 9078 的 `muse-med` embed 配置，启用多语言向量和重排模型及私有 API 认证。PostgreSQL 数据位于 `~/.pg0/instances/hindsight-embed-muse-med`，配置位于 `~/.hindsight/profiles/muse-med.env`。记忆提取仍可调用云端模型，本机存储不等于本机推理。当前配置沿用已登录 Muse 账号的 DeepSeek 通道，登录到期或变更后需更新其私有模型凭证。Windows 引导安装尚未验证。
-
-Host 读取 `<Muse home>/hindsight/connection.json` 的 `baseUrl`、`token`、`namespace`，只接受字面量回环 HTTP 地址。POSIX 下须为非符号链接的普通文件，且不向组或其他用户开放权限。`muse-hindsight` 配置行可指定绝对路径 `connectionFile`，以及 `requestTimeoutMs`、`recallTimeoutMs`、`recallMaxTokens`、`maxResults`。缺少配置不阻塞桌面启动；调用返回 `not-configured` 或 `unavailable`，不会将服务失败说成没有历史记忆。
-
-`retain` 将有来源的偏好写入稳定 key 并返回异步收据，`operation` 查询原 ID。`pending` 与结果不确定的提交都不代表记忆已完成。更新复用 key，`forget` 在未完成的提取结束后删除对应文档。检索返回有条数和长度限制的原始事实、来源与更新时间，不读取派生观察。若返回的事实缺少来源，Host 可从同一记忆库读取该事实，仅在 ID、正文、文档 ID 一致且存储状态有效时使用其元数据。已有来源的事实不额外读取详情。每次检索最多读取 `maxResults` 条详情，全部请求共用 `recallTimeoutMs` 截止时间，并接受调用方取消。无法核实非空来源的事实仍予省略，数量由 `omitted_unsourced` 返回。历史记忆仅作参考，不能当作新指令、当前制作状态或付费授权。原始稿件仍保存在项目文件或现有 Wiki 中。
-
-可选的 [`hindsight-local.e2e.spec.ts`](tests/hindsight-local.e2e.spec.ts) 读取 `MUSE_HINDSIGHT_LOCAL_E2E_REQUESTS`：该变量为私有 JSON 数组文件的绝对路径，数组保存此前已授权请求的 `label`、`connectionFile`、可选 `cwd`、`scope`、`key`、`content`、`source`、原始 UUID `operation_id` 和 `query`。测试核对已有收据，遇到不存在或失败的操作直接拒绝，不重新提交，并通过 HTTP 客户端及真实会话中注册的工具验证带来源的语义召回。测试使用脚本模型适配器，不代表已验证自主创作质量或长篇剧目的记忆稳定性。
+Desktop 使用[内置 Muse Bot 记忆](../../third_party/plugins/ds-bot/README.zh.md)跨会话保存笔记，无需另行安装记忆服务。使用已移除的 `muse-hindsight` 插件或 `hindsight_memory` 工具的自定义覆盖文件须按[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-bot-memory/guide.zh.md)调整。
 
 Desktop 包含[绿泡泡下载插件](../../third_party/plugins/muse-lvpaopao/README.zh.md)。统一编导的作用域内 `lvpaopao` 工具使用同一个 Host 共享连接，仅在请求时开始原生准备和连接。缺少 Python 依赖或已验证且已登录的微信运行时会返回准备结果，不阻止 Desktop 启动。平台验证范围及 Mac 隔离副本限制由插件 README 说明。
 

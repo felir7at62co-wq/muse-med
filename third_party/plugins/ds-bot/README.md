@@ -20,7 +20,7 @@ Open Settings → Feedback to fill in Muse's existing Session feedback form. The
 
 Bot state and memory default to `muse-bot/` inside the active Muse home. Conversation history stays in the existing Session store. The adaptation does not automatically import the separate experimental Muse Bot application's state or change existing Muse task histories.
 
-Muse's existing `hindsight_memory` stores sourced, confirmed user preferences, aesthetic feedback and project decisions on demand. Bot memory covers identity, assignments, coordination agreements and reusable working methods. Per-turn Bot memory review defaults off; existing notes remain readable and editable, and are not migrated or deleted. These stores are not synchronized: explicit edits can still create overlapping notes, and the latest user instruction and current project files take priority.
+Muse Bot includes DS Bot's local memory without a separate service. `remember`, `recall` and `forget` retain preferences, decisions, corrections, useful facts and working methods across conversations. Each Bot has its own Markdown notes; team and group notes retain their existing access rules. Core notes enter each new conversation's context, while detailed topics are recalled on demand. Background review runs after a turn by default and uses the Bot's normal Muse model route to keep lasting information, rather than copying every message. It may add model usage; it does not require a Hindsight installation or credentials. Existing notes, journals and source references stay in place. Memory is local to this Muse home and does not synchronize between computers; current user instructions and project files take priority.
 
 The Host exposes `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`, `resolveCurrentSession(botId)` and `switchCurrentSession(botId, sessionId)` for the native IM adapter. The Bot ID remains stable when the user explicitly changes its current Session; the earlier Session remains in its history. Goals and jobs remain attached to their original Session. Registration and switching validate independent Session ownership and roll back roster changes if saving fails. An explicit switch may absorb an untouched automatic roster entry; customized or collaborating Bots retain their identities. Ordinary adopted user and goal turns keep native restart behavior; admitted Bot collaboration messages retain their original exchange recovery.
 
@@ -40,7 +40,7 @@ The bundled composition mounts one `muse-bot` row:
         ensureMuseSpecialist: true
         contextManagement: host
         goals: host
-        memoryReview: false
+        memoryReview: true
         autoSessionBots: true
         sessionBotSyncIntervalMs: 30000
         github: false
@@ -49,7 +49,7 @@ The bundled composition mounts one `muse-bot` row:
 
 `agentPreset` chooses the registered Muse preset for new specialist Bot Sessions; `mainAgentPreset` chooses it for newly created Main Bots. `ensureMuseSpecialist` creates one Muse specialist when none is already configured, preserving existing specialist identities. All required presets must be available; creation never falls back to another preset. `contextManagement: host` leaves context compaction with the current Host. `goals: host` retains the Host goal tools and continuation behavior. `updateCheck: false` disables independent plugin and Harness update offers; Muse application updates supply the reviewed plugin. `github: false` disables the optional built-in GitHub MCP connector. The bundle does not replace the profile's web-search provider, model routes, account settings or permission policy.
 
-`memoryReview: true` explicitly enables background review of Bot coordination notes; the default does not issue that extra model request. Adopted Sessions keep their native model selection through catalog refreshes. An explicit model or effort change from the interface or `update_bot` makes that selection Bot-managed.
+`memoryReview: false` disables automatic background review while retaining the memory tools, saved notes and panel. Reviews use the selected Bot model, request its lowest supported reasoning level and start with a 2,048-token output budget; a truncated response can retry once with 8,192 tokens. Provider failures can fall back to the configured default model. These are ordinary model requests, charged through the existing Muse route. Host shutdown cancels and drains pending reviews before disposal completes; a canceled review does not save a late model response. Adopted Sessions keep their native model selection through catalog refreshes. An explicit model or effort change from the interface or `update_bot` makes that selection Bot-managed.
 
 `autoSessionBots: false` disables automatic Session registration while retaining the manual entry. `sessionBotSyncIntervalMs` sets the roster's metadata refresh interval in milliseconds; native Session changes invalidate the cached result. Newly created Bot Sessions continue to use `short-drama`; registration preserves an existing Session's preset.
 

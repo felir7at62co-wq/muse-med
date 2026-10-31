@@ -119,7 +119,7 @@ export function apply(ctx) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
-      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
+      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
       'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]

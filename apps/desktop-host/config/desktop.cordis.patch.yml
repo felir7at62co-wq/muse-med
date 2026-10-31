@@ -145,9 +145,6 @@
         command: !!js process.env.MUSE_COMPUTER_USE_EXECUTABLE
         args: [mcp]
 
-    - id: muse-hindsight
-      name: '@deepseek-ai/dsh-desktop-host/hindsight'
-
     - id: directory-picker-native
       name: '@deepseek-ai/dsh-host-directory-picker-native'
 
@@ -243,7 +240,6 @@
           fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
-          hindsight_memory: [记忆, 项目记忆, 创作偏好, 回忆, 记住]
           read_own_chat: [历史会话, 聊天记录, 之前说过, 自己的聊天]
           read_group_chat: [群聊记录, 群消息, 群里说过]
           read_browser: [当前网页, 浏览器页面, 打开的网页]
@@ -281,7 +277,7 @@
           - id: knowledge
             title: 知识与项目资料
             description: 搜索、读取和整理已连接的知识库与项目资料。
-            tools: [source_recover, hindsight_memory, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            tools: [source_recover, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
           - id: coordination
             title: 团队任务与跟进
             description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。

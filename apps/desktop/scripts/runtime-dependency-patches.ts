@@ -1,7 +1,6 @@
 /** Carry reviewed pnpm dependency patches into the private production install. */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { dump, load } from 'js-yaml'
 
@@ -43,11 +42,11 @@ export function stageRuntimeDependencyPatches(repository: string, project: strin
  */
 export function verifyRuntimeDependencyPatches(repository: string, project: string): void {
   const name = '@earendil-works/pi-ai'
-  const anchor = createRequire(join(repository, 'packages/llm/llm-pi-ai/package.json'))
-  const expectedRoot = (anchor.resolve.paths(name) ?? []).map(path => join(path, name))
-    .find(path => existsSync(join(path, 'package.json')))
-  if (expectedRoot === undefined) throw new Error('desktop runtime: patched PI-AI reference dependency is missing')
+  const expectedRoot = join(repository, 'packages/llm/llm-pi-ai/node_modules', name)
   const entry = 'dist/api/openai-completions.js'
+  if (!existsSync(join(expectedRoot, 'package.json')) || !existsSync(join(expectedRoot, entry))) {
+    throw new Error('desktop runtime: patched PI-AI reference dependency is missing')
+  }
   const expected = readFileSync(join(expectedRoot, entry))
   const text = expected.toString('utf8')
   if (!text.includes('function hasTokenUsage(usage)') || !text.includes('if (hasTokenUsage(chunk.usage))')

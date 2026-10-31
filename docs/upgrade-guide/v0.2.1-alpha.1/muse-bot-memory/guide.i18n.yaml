@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-bot-memory/guide.md
+/:
+  en: 64f6891ffef0d1a4
+  zh: 3b578fa8e3e2a195
+/muse-desktop-uses-built-in-bot-memory:
+  en: bc915456e81330d9
+  zh: 11b4f992794a35e0
+/muse-desktop-uses-built-in-bot-memory/change:
+  en: a33423f606f3b90a
+  zh: a3693d1fb987e092
+/muse-desktop-uses-built-in-bot-memory/migration:
+  en: 42e7bde1484f89f7
+  zh: 689b3befda86587e

@@ -89,7 +89,7 @@ function start(t, { config = {}, initial = team(), presets = [{ id: 'short-drama
 }
 
 test('Muse defaults retain native goals and context management and reject incompatible settings', () => {
-  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', ensureMuseSpecialist: true, contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: false, autoSessionBots: true, sessionBotSyncIntervalMs: 30000 })
+  assert.deepEqual(resolveMuseConfig(), { agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', ensureMuseSpecialist: true, contextManagement: 'host', goals: 'host', github: false, updateCheck: false, memoryReview: true, autoSessionBots: true, sessionBotSyncIntervalMs: 30000 })
   for (const input of [null, [], { agentPreset: '../editing' }, { mainAgentPreset: '../standard' }, { ensureMuseSpecialist: 'yes' }, { contextManagement: 'unknown' }, { goals: true }, { contextManagement: 'bot' }, { updateCheck: true }, { autoSessionBots: 'yes' }, { sessionBotSyncIntervalMs: 0 }, { sessionBotSyncIntervalMs: 1.5 }]) {
     assert.throws(() => resolveMuseConfig(input), TypeError)
   }

@@ -1,5 +1,6 @@
 /** Product classification and Chinese recall against schemas registered by real tool plugins. */
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
@@ -43,6 +44,16 @@ function packagesFromRows(value: unknown): string[] {
 
 beforeAll(async () => { catalog = await collectToolCatalog() })
 
+it('does not register or expose the removed daemon memory integration', () => {
+  const plugins = loadOverlayPatches('desktop-memory-composition', patchPath)
+    .flatMap(patch => packagesFromRows(patch.insert))
+  expect(plugins).not.toContain('@deepseek-ai/dsh-desktop-host/hindsight')
+  expect(catalog.flatMap(entry => entry.schemas).map(schema => schema.name)).not.toContain('hindsight_memory')
+  const require = createRequire(new URL('../package.json', import.meta.url))
+  expect(() => require.resolve('@deepseek-ai/dsh-desktop-host/hindsight'))
+    .toThrowError(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
+})
+
 it.each(['short-drama', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s product composition', async (preset) => {
   const source = await readFile(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
   const packages = new Set(packagesFromRows(yaml.load(source, { schema: entryListSchema })))
@@ -85,7 +96,7 @@ it.each([
 
 it('keeps native delivery, project and memory tools deferred while giving each a capability', () => {
   for (const name of ['drama_draft_dir', 'drama_project', 'jianying_draft', 'screenplay_export_docx',
-    'load_workspace_dependencies', 'manuscript_revision', 'source_recover', 'hindsight_memory']) {
+    'load_workspace_dependencies', 'manuscript_revision', 'source_recover']) {
     expect(config.alwaysLoad).not.toContain(name)
     expect(capabilityMemberships(name, config.capabilities ?? []).length).toBeGreaterThan(0)
     expect(config.keywords?.[name]?.length).toBeGreaterThan(0)
@@ -108,6 +119,6 @@ it('classifies the actual Bot team tool registrations without changing their per
     expect(names).toContain('attach_capability')
     const resident = new Set([...config.alwaysLoad, 'tool_search', 'tool_context'])
     expect(names.filter(name => !resident.has(name) && !capabilityMemberships(name, config.capabilities ?? []).length)).toEqual([])
-    expect(config.alwaysLoad).not.toContain('create_group')
+    expect(config.alwaysLoad).toContain('create_group')
   } finally { await ctx.fiber.dispose() }
 })

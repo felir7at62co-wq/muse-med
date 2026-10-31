@@ -20,7 +20,7 @@ Bot 在已注册的工作间中新开会话分段时，该分段也会出现在�
 
 Bot 状态和记忆默认存放在当前 Muse home 的 `muse-bot/` 下，会话历史仍由现有 Session 存储管理。该适配不会自动导入独立 Muse Bot 实验应用的数据，也不改变已有 Muse 任务历史。
 
-Muse 原有的 `hindsight_memory` 按需保存有来源且已确认的用户偏好、审美反馈和项目决定；Bot 记忆用于身份分工、协作约定和可复用工作方法。默认不在每轮结束后自动复盘 Bot 记忆，已有记录仍可阅读和编辑，不自动迁移或删除。两套存储不会同步，显式编辑仍可能产生重复记录；最新用户要求和当前项目文件优先。
+Muse Bot 内置 DS Bot 的本地记忆，不需要另装服务。`remember`、`recall` 和 `forget` 跨会话保存偏好、决定、纠正、有用事实及工作方法。每个 Bot 使用独立的 Markdown 笔记；团队和群组记忆保留原有访问规则。核心笔记进入新会话的上下文，详细主题按需回读。默认在回合结束后，使用该 Bot 的普通 Muse 模型线路复盘值得保留的信息，不复制每条消息。复盘可能增加模型用量，但不需要 Hindsight 服务或凭据。已有笔记、变更日志及来源引用保持原位。记忆只属于当前 Muse home，不跨电脑同步；最新用户要求和项目文件优先。
 
 Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { name?, role?, main? })`、`resolveCurrentSession(botId)` 和 `switchCurrentSession(botId, sessionId)`。用户明确切换当前 Session 时，Bot ID 保持稳定，早先的 Session 仍可从历史打开；目标和后台任务留在原 Session。登记与切换会校验独立 Session 归属，保存失败则回滚名单变更。显式切换可吸收未定制的自动名单项，已定制或参与协作的 Bot 保留独立身份。接入后的普通用户回合和目标续跑仍由原生机制恢复；已接收的 Bot 协作消息继续按原交接收据恢复。
 
@@ -40,7 +40,7 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
         ensureMuseSpecialist: true
         contextManagement: host
         goals: host
-        memoryReview: false
+        memoryReview: true
         autoSessionBots: true
         sessionBotSyncIntervalMs: 30000
         github: false
@@ -49,7 +49,7 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
 
 `agentPreset` 为新专业 Bot 会话选择已注册的 Muse 预设；`mainAgentPreset` 为新主 Bot 选择预设。`ensureMuseSpecialist` 会在没有专业成员时创建一个 Muse 执行 Bot，并保留已有专业成员的身份。所需预设必须可用，创建失败时不会改用其他预设。`contextManagement: host` 让当前 Host 管理上下文压缩。`goals: host` 保留 Host 的目标工具和续跑行为。`updateCheck: false` 关闭插件和 Harness 的独立更新提示；已审核插件随 Muse 应用更新提供。`github: false` 关闭可选的内置 GitHub MCP 连接器。该 bundle 不替换 profile 的网页搜索、模型路由、账号设置或权限策略。
 
-显式配置 `memoryReview: true` 可开启 Bot 协作笔记的后台复盘，默认不发起这类额外模型请求。已登记 Session 在模型目录刷新时保留原生选择；用户通过界面或 `update_bot` 明确修改模型或推理等级后，才由 Bot 配置管理该选择。
+`memoryReview: false` 关闭自动后台复盘，保留记忆工具、已有笔记和面板。复盘使用该 Bot 选择的模型，请求最低可用思考档位，先使用 2,048 Token 输出预算；输出被截断时最多以 8,192 Token 重试一次。供应商调用失败时可以回退到已配置的默认模型。这些都是通过现有 Muse 线路计费的普通模型请求。Host 关闭时取消并等待待处理复盘结束，再完成资源释放；已取消的复盘不会保存迟到的模型回复。已登记 Session 在模型目录刷新时保留原生选择；用户通过界面或 `update_bot` 明确修改模型或推理等级后，才由 Bot 配置管理该选择。
 
 `autoSessionBots: false` 关闭自动会话登记，仍保留手动入口。`sessionBotSyncIntervalMs` 按毫秒设置名单元数据的刷新间隔；原生 Session 变更会使缓存失效。新建 Bot 会话继续使用 `short-drama`，登记已有 Session 则保留其原有预设。
 
