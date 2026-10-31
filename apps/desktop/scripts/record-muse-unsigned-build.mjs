@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { readDesktopProductVersion } from './desktop-build-version.mjs'
 import { recordMuseUnsignedBuild } from './muse-release-mirror.mjs'
+import { packagedPiAiArchive, verifyPackagedPiAiPatch } from './verify-packaged-pi-ai.mjs'
 
 const target = process.env.MUSE_RELEASE_TARGET
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: resolve(import.meta.dirname, '../../..'), encoding: 'utf8' }).trim()
@@ -11,6 +12,8 @@ if (process.env.GITHUB_SHA !== commit) throw new Error('Muse unsigned build: che
 execFileSync('git', ['diff', '--exit-code', 'HEAD', '--', '.', ':(exclude)apps/desktop/.env.*'], {
   cwd: resolve(import.meta.dirname, '../../..'), stdio: 'ignore',
 })
-await recordMuseUnsignedBuild({ target, version: readDesktopProductVersion(), sourceCommit: commit,
-  artifactsRoot: desktopTargetBuildPaths(target).unsignedArtifacts })
+const artifactsRoot = desktopTargetBuildPaths(target).unsignedArtifacts
+const parser = await verifyPackagedPiAiPatch(packagedPiAiArchive(target, artifactsRoot))
+console.log(`Muse packaged PI-AI: ${parser.module} SHA-256 ${parser.sha256} matches source`)
+await recordMuseUnsignedBuild({ target, version: readDesktopProductVersion(), sourceCommit: commit, artifactsRoot })
 console.log(`Muse unsigned build: ${target} ${commit} hashes recorded`)

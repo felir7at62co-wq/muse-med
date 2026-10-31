@@ -22,6 +22,7 @@ import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { resolveCodexRuntimeVersion, verifyCodexRuntime } from './verify-codex-runtime.ts'
 import { desktopFetchTimeout } from './desktop-fetch-timeout.ts'
+import { stageRuntimeDependencyPatches, verifyRuntimeDependencyPatches } from './runtime-dependency-patches.ts'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
@@ -123,6 +124,7 @@ async function main(): Promise<void> {
       copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
       cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
       createRuntimeProjectMetadata(BUILD_ROOT, release)
+      stageRuntimeDependencyPatches(resolve(APP_ROOT, '../..'), BUILD_ROOT)
     })
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () => runPnpm(['install', '--lockfile-only']))
     verifyDesktopCoreLockfile(
@@ -133,6 +135,9 @@ async function main(): Promise<void> {
       'install', '--prod', '--frozen-lockfile', '--trust-lockfile',
       `--fetch-timeout=${desktopFetchTimeout(process.env)}`,
     ]))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-dependency-patches', async () => {
+      verifyRuntimeDependencyPatches(resolve(APP_ROOT, '../..'), BUILD_ROOT)
+    })
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const packageNames = packageSet.packages.map(entry => entry.name)
     const targetName = resolveDesktopBuildTarget()
