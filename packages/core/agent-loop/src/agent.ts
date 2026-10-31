@@ -667,6 +667,7 @@ export class ReactLoopAgent implements Agent {
     if (previousContext?.provider !== requestContext.provider
       || previousContext.model !== requestContext.model
       || previousContext.contextWindow !== requestContext.contextWindow
+      || previousContext.workingTokenLimit !== undefined
       || previousContext.systemPromptUpdate !== requestContext.systemPromptUpdate) {
       session.append('request/context', requestContext)
     }

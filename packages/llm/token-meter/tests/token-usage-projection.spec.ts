@@ -321,11 +321,12 @@ const pressure = (ctx: Context, session: Session): ContextPressureProjection => 
   return value
 }
 
-function recordContext(session: Session, model: string, contextWindow?: number): void {
+function recordContext(session: Session, model: string, contextWindow?: number, workingTokenLimit?: number): void {
   session.append('request/context', {
     provider: 'mock',
     model,
     ...contextWindow === undefined ? {} : { contextWindow },
+    ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
   })
 }
 
@@ -418,6 +419,35 @@ describe('contextPressure session projection', () => {
     expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, projectedTokens: 100 })
   })
 
+  it('replays a working budget and removes it when a newer route omits it', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'flash', 1_000_000, 475_000)
+    usageChunk(session, { inputTokens: 498_000, outputTokens: 10 }, 1, 1)
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 498_000, projectedTokens: 498_000,
+      contextWindow: 1_000_000, workingTokenLimit: 475_000,
+    })
+    recordContext(session, 'other', 1_000_000)
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 498_000, projectedTokens: 498_000, contextWindow: 1_000_000,
+    })
+  })
+
+  it('publishes budget changes and preserves projection identity for unchanged metadata', async () => {
+    const { ctx, session } = await harness()
+    recordContext(session, 'flash', 1_000_000, 475_000)
+    const changed: string[] = []
+    ctx.sessionProjections.onChanged((_session, key) => { changed.push(key) })
+    recordContext(session, 'flash', 1_000_000, 475_000)
+    expect(changed).not.toContain('contextPressure')
+    recordContext(session, 'flash', 1_000_000, 500_000)
+    expect(changed).toContain('contextPressure')
+    expect(pressure(ctx, session)).toEqual({ contextWindow: 1_000_000, workingTokenLimit: 500_000 })
+    recordContext(session, 'unknown')
+    expect(pressure(ctx, session)).toEqual({})
+  })
+
   it('pushes no change for unrelated events or a restated capacity', async () => {
     // The registry gates its change feed on Object.is, so a unit that rebuilt
     // state for an event it does not care about would push phantom updates.
@@ -446,7 +476,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(5)
+    expect(checkpoint.contextPressure?.ver).toBe(6)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

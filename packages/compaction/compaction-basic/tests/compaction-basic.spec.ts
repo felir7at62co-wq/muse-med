@@ -1896,6 +1896,36 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(1)
   })
 
+  it.each([
+    { source: 'adapter-default', currentDefault: 32_768, compacts: false },
+    { source: 'removed-adapter-default', currentDefault: undefined, compacts: false },
+    { source: 'explicit', currentDefault: 32_768, compacts: true },
+    { source: 'legacy', currentDefault: 32_768, compacts: true },
+  ])('prices refreshed output defaults before the next request for $source caps', async ({ source, currentDefault, compacts }) => {
+    const ctx = createContext(475_000)
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL, id: MODEL, name: MODEL,
+      context: { contextWindow: 475_000 },
+      ...currentDefault === undefined ? {} : { defaultMaxTokens: currentDefault },
+    })
+    const compact = new TestCompactionEngine(ctx, { headroomTokens: 16_384, maxTokens: 8192 })
+    const session = conversation(4, 'x'.repeat(45_000))
+    session.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL, maxTokens: 393_216 },
+        ...source.endsWith('adapter-default') ? { adapterDefaults: { maxTokens: true as const } }
+          : source === 'explicit' ? { adapterDefaults: { reasoningEffort: true as const } } : {},
+      }, reason: 'change',
+    })
+    const priorHeader = session.requestHeader()
+
+    await preStep(ctx, agent(session, MODEL))
+
+    expect(compact.calls).toHaveLength(compacts ? 1 : 0)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(compacts)
+    expect(session.requestHeader()).toEqual(priorHeader)
+  })
+
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {

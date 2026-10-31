@@ -45,6 +45,47 @@ describe('ContextMeter', () => {
     expect(meter({ contextPressure: { contextWindow: 128_000 } }).container.textContent).toBe('')
   })
 
+  it('uses the working budget without clipping its reading or changing model capacity', () => {
+    expect(contextOccupancy({ projectedTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 }))
+      .toEqual({ percent: 105, usedTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 })
+  })
+
+  it.each([
+    { translate: t, name: '工作预算已用 105%', modelLabel: '模型总窗口', composition: '分项为组成估算，不与总量相加', target: '工作预算用于触发压缩，模型总窗口另列' },
+    { translate: tEn, name: '105% of working budget used', modelLabel: 'Model window', composition: 'Composition estimates do not add up to the total', target: 'Work budget triggers compaction; model window is separate' },
+  ])('shows working and model budgets separately with localized copy: $name', ({ translate, name, modelLabel, composition, target }) => {
+    const view = meter({
+      contextPressure: { projectedTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 },
+      contextBreakdown: BREAKDOWN,
+    }, translate)
+    const trigger = view.getByRole('button', { name })
+    fireEvent.click(trigger)
+    const panel = view.getByRole('dialog')
+    expect(panel.textContent).toContain('~498K / 475K')
+    expect(panel.textContent).toContain(modelLabel + '1M')
+    expect(panel.textContent).toContain(composition)
+    expect(panel.textContent).toContain(target)
+    const circumference = 2 * Math.PI * 5.5
+    expect(trigger.querySelector('circle:last-child')?.getAttribute('stroke-dasharray'))
+      .toBe(`${circumference} ${circumference}`)
+    const widths = Array.from(panel.getElementsByClassName(segmentClass), node => Number.parseFloat((node as HTMLElement).style.width))
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100)
+  })
+
+  it('uses the new model window after a working budget is removed', () => {
+    let values: Record<string, unknown> = {
+      contextPressure: { projectedTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 },
+    }
+    const view = render(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    fireEvent.click(view.getByRole('button', { name: '工作预算已用 105%' }))
+    values = { contextPressure: { projectedTokens: 32_000, contextWindow: 128_000 } }
+    view.rerender(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    expect(view.getByRole('button', { name: '上下文已用 25%' })).not.toBeNull()
+    expect(view.getByRole('dialog').textContent).toContain('~32K / 128K')
+    expect(view.getByRole('dialog').textContent).not.toContain('475K')
+    expect(view.getByRole('dialog').textContent).not.toContain('模型总窗口')
+  })
+
   it('shows the occupancy ring and opens the breakdown panel on click', () => {
     const view = meter({
       contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },

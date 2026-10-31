@@ -45,6 +45,8 @@ export interface ContextPressureProjection {
   projectedTokens?: number
   /** Newest recorded route capacity; absent when no adapter advertised one. */
   contextWindow?: number
+  /** Newest route's estimated working-context target; absent when no policy recorded one. */
+  workingTokenLimit?: number
 }
 
 /**

@@ -68,10 +68,12 @@ const pressureSchema: z.ZodType<ContextPressureProjection> = z.object({
   pressureTokens: z.number().int().nonnegative().optional(),
   projectedTokens: z.number().int().nonnegative().optional(),
   contextWindow: z.number().int().positive().optional(),
-}).strict().transform(({ pressureTokens, projectedTokens, contextWindow }) => ({
+  workingTokenLimit: z.number().int().positive().optional(),
+}).strict().transform(({ pressureTokens, projectedTokens, contextWindow, workingTokenLimit }) => ({
   ...pressureTokens === undefined ? {} : { pressureTokens },
   ...projectedTokens === undefined ? {} : { projectedTokens },
   ...contextWindow === undefined ? {} : { contextWindow },
+  ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
 }))
 
 /** Prompt-side pressure of one request: input plus cache traffic, no output. */
@@ -95,6 +97,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 /** The context-pressure state schema and source of its inferred type. */
 const contextPressureStateSchema = z.object({
   contextWindow: z.number().int().positive().optional(),
+  workingTokenLimit: z.number().int().positive().optional(),
   pressureTokens: z.number().int().nonnegative().optional(),
   surfaceTokens: z.number().int().nonnegative(),
   sampledSurfaceTokens: z.number().int().nonnegative().optional(),
@@ -172,20 +175,20 @@ export const tokenUsageProjectionDefinition = {
  */
 export const contextPressureProjectionDefinition = {
   key: 'contextPressure',
-  stateVersion: 5,
+  stateVersion: 6,
   stateSchema: contextPressureStateSchema,
   init: () => ({ surfaceTokens: 0 }),
   apply: (state, event) => {
     const fold = foldSurfaceProjection(state.claim, event)
     let next = state
     if (event.type === 'request/context') {
-      const contextWindow = event.data.contextWindow
-      if (contextWindow !== state.contextWindow) {
-        if (contextWindow !== undefined) {
-          next = { ...next, contextWindow }
-        } else {
-          const { contextWindow: _removed, ...withoutContextWindow } = next
-          next = withoutContextWindow
+      const { contextWindow, workingTokenLimit } = event.data
+      if (contextWindow !== state.contextWindow || workingTokenLimit !== state.workingTokenLimit) {
+        const { contextWindow: _window, workingTokenLimit: _limit, ...withoutRouteBudget } = next
+        next = {
+          ...withoutRouteBudget,
+          ...contextWindow === undefined ? {} : { contextWindow },
+          ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
         }
       }
     }
@@ -207,8 +210,9 @@ export const contextPressureProjectionDefinition = {
   },
   wire: {
     viewSchema: pressureSchema,
-    view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
+    view: ({ contextWindow, workingTokenLimit, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
       ...contextWindow === undefined ? {} : { contextWindow },
+      ...workingTokenLimit === undefined ? {} : { workingTokenLimit },
       ...pressureTokens === undefined ? {} : { pressureTokens },
       ...pressureTokens === undefined || sampledSurfaceTokens === undefined
         ? {}

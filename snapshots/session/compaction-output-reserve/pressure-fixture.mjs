@@ -12,7 +12,7 @@ export function apply(ctx) {
     const summary = last?.content.some(block => block.type === 'text'
       && block.text.includes('You are now acting as a compaction engine')) === true
     const tokens = ctx.tokenMeter.measure(agent.session).totalTokens
-    assert.ok(summary ? tokens >= 6370 : tokens < 6370, `Pressure request ${requests.length}: ${tokens}`)
+    assert.ok(summary ? tokens >= 6400 : tokens < 6400, `Pressure request ${requests.length}: ${tokens}`)
     requests.push({ summary, tokens })
     yield* next()
   })
