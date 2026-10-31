@@ -33,9 +33,8 @@ export function install(rt) {
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
-  // Models come from DSH, not state.json, so a provider added in Harness settings
-  // changes the view without a new revision.
-  const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
+  // Catalog and native Session selections can change without a team-state write.
+  const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}|${JSON.stringify(Object.values(state.bots).filter(bot => bot.modelSource === 'session').map(bot => [bot.id, rt.modelView(bot)]))}`
   const view = () => ({
     revision: state.revision,
     workspaceId: state.workspaceId ?? null,

@@ -1,7 +1,7 @@
 // Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
-// Models. Every Bot runs on one model of its own, fixed when it is created and changed
-// only in its settings or by a Main Bot. A new Bot inherits Muse's selected route
-// and thinking level. The Session keeps the selection durably.
+// Models. Independent Bots own their model settings; automatically listed Session
+// Bots follow the native Session's selection. A new independent Bot inherits Muse's
+// selected route and thinking level. The Session keeps the selection durably.
 import { normalize, splitRef } from './text.js'
 
 const CATALOG_TTL_MS = 10_000

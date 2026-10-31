@@ -122,9 +122,10 @@ const ownChat = [
 // of a Session, oldest first; each own chat has one user message, at seq 10, unless
 // it says otherwise. `requireSession` turns down a request without a Session, as
 // some routes do.
-function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false, useMuseReviewDefault = false } = {}) {
+function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false, useMuseReviewDefault = false, nativeSelection } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const services = defaultModel === undefined ? {} : { agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: defaultModel }) } }
+  if (nativeSelection !== undefined) services.sessionProjections = { stateOf: () => ({ pending: nativeSelection }) }
   const ctx = legacyContext({ services })
   const requests = []
   Object.assign(ctx, {
@@ -143,7 +144,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
       },
     },
     sessionController: {
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId, seq: (history[sessionId] ?? ownChat).at(-1).event.seq + 1 } } }),
+      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId, seq: (history[sessionId] ?? ownChat).at(-1).event.seq + 1, requestHeader: () => undefined } } }),
       selectModel: async () => {},
       page: async ({ address, beforeSeq, maxMessages }) => {
         const all = (history[address.sessionId] ?? ownChat).filter(record => beforeSeq === undefined || record.event.seq < beforeSeq)
@@ -151,7 +152,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
         return { records, hasMore: records.length < all.length }
       },
     },
-    sessions: { messageProjections: [] },
+    sessions: { get: id => ({ id, requestHeader: () => undefined }), messageProjections: [] },
     workspaceRegistry: { archiveSession: async () => {} },
   })
   let route
@@ -1349,4 +1350,25 @@ test('a memory call names the current part of the Bot chat', async (t) => {
   const answer = await call('memory-ask', { botId: 'b2', text: 'Which part?' })
   assert.equal(answer.ok, true)
   assert.equal(requests[0].sessionId, 'b2-part2')
+})
+
+
+test('an automatic Session Bot background review uses its pending native model instead of its saved preference', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-native-memory-'))
+  const state = structuredClone(TEAM)
+  Object.assign(state.bots.b2, { autoSessionBot: true, modelSource: 'bot', model: 'deepseek/gemini-3.1-pro', appliedModel: 'deepseek/gemini-3.1-pro' })
+  writeFileSync(join(home, 'state.json'), JSON.stringify(state))
+  const { ctx, call, requests, stop } = start({ home, useMuseReviewDefault: true,
+    config: { memoryReviewDelayMs: 0, contextManagement: 'host' }, models: ['gemini-3.1-pro', 'deepseek-v4.1-flash'],
+    nativeSelection: { provider: 'deepseek', model: 'deepseek-v4.1-flash', reasoningEffort: 'low' },
+    replies: [JSON.stringify({ changes: [] })],
+  })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await until(() => requests.length === 1)
+  await reviewed(call)
+  assert.equal(requests[0].provider, 'deepseek')
+  assert.equal(requests[0].model, 'deepseek-v4.1-flash')
+  assert.equal(requests[0].reasoningEffort, 'off')
 })

@@ -285,3 +285,18 @@ test('dispose waits for a pending save and prevents later writes', async (t) => 
     restore()
   }
 })
+
+
+test('legacy automatic Session Bots retain their metadata while native model ownership is restored', async t => {
+  const auto = { id: 'source', sessionId: 'current', autoSessionBot: true, modelSource: 'bot',
+    model: 'yunying/gemini-3.1-pro', appliedModel: 'yunying/gemini-3.1-pro', effort: 'max',
+    segments: [{ sessionId: 'earlier' }], capabilities: [], name: 'Writer' }
+  const independent = { id: 'independent', modelSource: 'bot', model: 'yunying/gemini-3.1-pro', capabilities: [], name: 'Director' }
+  const { rt, statePath } = runtime(t, { version: 1, whaleStored: true, capabilities: { items: {} },
+    bots: { source: auto, independent }, prefs: { thinking: true } })
+  await rt.load()
+  assert.deepEqual(rt.state.bots.source, { ...auto, modelSource: 'session' })
+  assert.deepEqual(rt.state.bots.independent, independent)
+  assert.deepEqual(rt.state.prefs, { thinking: true })
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).bots.source.modelSource, 'session')
+})

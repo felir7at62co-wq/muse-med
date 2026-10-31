@@ -12,7 +12,7 @@ import { fakeContext } from './fake-ctx.js'
 
 const MODEL = { provider: 'muse', model: 'native-choice', reasoningEffort: 'high' }
 
-function start(t, { plain = false } = {}) {
+function start(t, { plain = false, legacyAuto = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'muse-bot-adopt-'))
   const state = {
     version: 1, revision: 1, whaleStored: true, mainBotIds: ['chief'],
@@ -20,6 +20,9 @@ function start(t, { plain = false } = {}) {
     rooms: {}, agents: plain ? { plain: { id: 'plain', name: 'Agent', sessions: ['source'], createdAt: 1 } } : {},
     capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, questions: {},
   }
+  if (legacyAuto) state.bots.source = { id: 'source', sessionId: 'source', name: 'Transcriber', autoSessionBot: true,
+    modelSource: 'bot', interactionSource: 'session', model: 'muse/gemini-3.1-pro', appliedModel: 'muse/gemini-3.1-pro',
+    effort: 'max', capabilities: [], createdAt: 2 }
   writeFileSync(join(home, 'state.json'), JSON.stringify(state))
   const selected = [], created = [], archived = [], sent = [], renamed = [], restrictions = [], released = []
   const projections = new Map()
@@ -79,7 +82,7 @@ function start(t, { plain = false } = {}) {
     },
     llm: {
       listProviders: () => [{ id: 'muse' }],
-      listModels: async () => ['native-choice', 'new-choice', 'previous', 'default'].map(id => ({ id })),
+      listModels: async () => ['native-choice', 'new-choice', 'previous', 'default', 'gemini-3.1-pro', 'deepseek-v4.1-flash'].map(id => ({ id })),
       resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'high' }, { id: 'low' }] } }),
     },
   })
@@ -481,4 +484,66 @@ test('museTeam is injectable through Cordis and unavailable after its owning plu
   await owner.dispose()
   assert.equal(ctx.get('museTeam'), undefined)
   await assert.rejects(service.resolveCurrentSession('bot'), /stopped/)
+})
+
+
+test('an automatic Session Bot shares native selection, polling and the next ordinary send', async t => {
+  const f = start(t, { legacyAuto: true })
+  const agent = f.agentOf('source')
+  const deepseek = { provider: 'muse', model: 'deepseek-v4.1-flash', reasoningEffort: 'low' }
+  f.projections.get('source').pending = deepseek
+  await f.rt.load()
+  const bot = f.rt.botOf('source')
+  assert.equal(bot.modelSource, 'session')
+  assert.equal(bot.model, 'muse/gemini-3.1-pro')
+  assert.equal(await f.rt.desiredModel(bot), 'muse/deepseek-v4.1-flash')
+  assert.equal(await f.rt.desiredEffort(bot, 'muse/deepseek-v4.1-flash'), 'low')
+  const first = await f.call('state')
+  assert.equal(first.value.bots.find(item => item.id === 'source').model, 'muse/deepseek-v4.1-flash')
+  const sent = []
+  f.ctx.sessionController.prompt = async request => { sent.push({ request, selection: f.rt.sessionSelection(agent.session) }) }
+  assert.equal((await f.call('send', { sessionId: 'source', text: 'Continue' })).ok, true)
+  assert.deepEqual(sent[0].selection, deepseek)
+  assert.deepEqual(f.selected, [])
+  f.ctx.sessionController.selectModel = async request => {
+    f.selected.push(request)
+    const { provider, model, reasoningEffort } = request
+    f.projections.get(request.sessionId).pending = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+  }
+  await f.rt.updateBot('source', { model: 'muse/gemini-3.1-pro', effort: 'high' })
+  assert.equal(bot.modelSource, 'session')
+  assert.deepEqual(f.selected, [{ sessionId: 'source', provider: 'muse', model: 'gemini-3.1-pro', reasoningEffort: 'high', saveDefault: false }])
+  assert.equal(f.rt.modelView(bot).model, 'muse/gemini-3.1-pro')
+  assert.equal(f.rt.sessionSelection(agent.session).model, 'gemini-3.1-pro')
+  const second = (await f.call('state')).value
+  f.projections.get('source').pending = deepseek
+  const changed = (await f.call('state', { since: second.revision, models: second.modelsKey })).value
+  assert.equal(changed.unchanged, undefined)
+  assert.equal(changed.bots.find(item => item.id === 'source').model, 'muse/deepseek-v4.1-flash')
+  assert.equal(changed.bots.find(item => item.id === 'source').effort, 'low')
+  assert.notEqual(changed.modelsKey, second.modelsKey)
+  const chief = f.rt.botOf('chief')
+  assert.equal(chief.model, 'muse/native-choice')
+  assert.equal(await f.rt.desiredModel(chief), 'muse/native-choice')
+  bot.model = 'muse/gemini-3.1-pro'
+  await f.rt.updateBot('source', { effort: 'high' })
+  assert.deepEqual(f.selected.at(-1), { sessionId: 'source', provider: 'muse', model: 'deepseek-v4.1-flash', reasoningEffort: 'high', saveDefault: false })
+  assert.equal(f.rt.modelView(bot).model, 'muse/deepseek-v4.1-flash')
+  assert.equal(f.rt.modelView(bot).effort, 'high')
+  await f.rt.updateBot('source', { model: null })
+  assert.equal(f.rt.modelView(bot).model, 'muse/default')
+  assert.equal(f.rt.modelView(bot).effort, 'low')
+  assert.equal(bot.modelSource, 'session')
+  assert.deepEqual(f.ctx.get('agentDefaultModel').currentSelection(), { provider: 'muse', model: 'default', reasoningEffort: 'low' })
+})
+
+test('an automatic Session Bot with no pending or admitted route uses the native default', async t => {
+  const f = start(t, { legacyAuto: true })
+  const agent = f.agentOf('source')
+  f.projections.get('source').pending = null
+  agent.session.requestHeader = () => undefined
+  await f.rt.load()
+  assert.equal(await f.rt.desiredModel(f.rt.botOf('source')), 'muse/default')
+  assert.equal(f.rt.modelView(f.rt.botOf('source')).effort, 'low')
+  assert.deepEqual(f.selected, [])
 })

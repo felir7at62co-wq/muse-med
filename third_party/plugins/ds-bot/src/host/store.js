@@ -120,6 +120,12 @@ export function install(rt) {
       migrated = true
     }
     for (const bot of Object.values(state.bots)) {
+      // Automatically listed Bots share the native Session's model selection.
+      // Retain saved model preferences and parts; they no longer override that selection.
+      if (bot.autoSessionBot === true && bot.modelSource !== 'session') {
+        bot.modelSource = 'session'
+        migrated = true
+      }
       if (!Array.isArray(bot.capabilities)) {
         bot.capabilities = []
         migrated = true

@@ -3,7 +3,7 @@
 // the first Main Bot of a new team.
 import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
-import { currentColor, isColor, normalize, unquote } from './text.js'
+import { currentColor, isColor, normalize, splitRef, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 import { cleanResidentTools } from './tool-residency.js'
 
@@ -300,7 +300,8 @@ export function install(rt) {
       : await rt.resolveModel(patch.model)
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
-    const effortRef = modelRef === undefined ? nativeRef ?? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    const resetRef = bot.autoSessionBot === true && modelRef === null ? await rt.defaultModel() : undefined
+    const effortRef = modelRef === undefined ? nativeRef ?? bot.model ?? bot.appliedModel : modelRef ?? resetRef ?? bot.appliedModel
     let effortId
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') effortId = null
@@ -345,13 +346,13 @@ export function install(rt) {
       else delete bot.avatar
     }
     if (patch.model !== undefined) {
-      bot.modelSource = 'bot'
+      bot.modelSource = bot.autoSessionBot === true ? 'session' : 'bot'
       if (modelRef === null) delete bot.model
       else bot.model = modelRef
       modelChanged = true
     }
     if (patch.effort !== undefined) {
-      bot.modelSource = 'bot'
+      bot.modelSource = bot.autoSessionBot === true ? 'session' : 'bot'
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
       modelChanged = true
@@ -368,7 +369,17 @@ export function install(rt) {
     }
     await rt.save()
     if (residentTools !== undefined) await rt.refreshResidentTools?.(bot.id)
-    if (modelChanged) await rt.applyModel(bot, { force: true })
+    if (modelChanged) {
+      if (bot.autoSessionBot === true) {
+        const ref = modelRef === undefined ? nativeRef : modelRef ?? resetRef
+        if (ref !== undefined) {
+          const requestedEffort = modelRef === null && patch.effort === undefined ? rt.defaultEffort(ref) : bot.effort
+          const reasoning = await rt.reasoningOf(ref)
+          const effort = reasoning?.efforts?.some(entry => entry.id === requestedEffort) ? requestedEffort : undefined
+          await rt.selectSessionModel(rt.chatOf(id), { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
+        }
+      } else await rt.applyModel(bot, { force: true })
+    }
     if (moved) void rt.followFolder(bot.id)
     if (bot.model && bot.kickoff !== undefined) {
       const held = bot.kickoff

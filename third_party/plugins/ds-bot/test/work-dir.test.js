@@ -92,7 +92,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
       page: async () => ({ records: [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { get: id => agents.get(id)?.session, flush: async () => {} },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -837,4 +837,28 @@ test('a Bot changes back to the team workspace when the team workspace is known 
   assert.equal(back.ran, true)
   assert.equal(state().bots.b.workDir, undefined)
   assert.equal(requests.length, 0)
+})
+
+
+test('an automatic Session Bot carries the pending native model and effort into its next part', async t => {
+  const team = onModel('deepseek/flash')
+  Object.assign(team.bots.b, { autoSessionBot: true, modelSource: 'bot' })
+  const pending = new Map([['b', { provider: 'deepseek', model: 'v4-pro', reasoningEffort: 'low' }]])
+  const env = await start({ llm: MODELS, team, services: { sessionProjections: {
+    stateOf: (session, key) => key === 'modelSelection' ? { pending: pending.get(session.id) ?? null } : undefined,
+  } } })
+  t.after(env.stop)
+  env.ctx.sessions.get = id => env.agentOf(id).session
+  const selected = []
+  env.ctx.sessionController.selectModel = async request => {
+    selected.push(request)
+    pending.set(request.sessionId, { provider: request.provider, model: request.model, reasoningEffort: request.reasoningEffort })
+  }
+  assert.equal((await env.call('update-bot', { id: 'b', workDir: env.project })).ok, true)
+  await until(() => env.state().bots.b.sessionId === 's1')
+  await until(() => handoffOf(env.agentOf('s1')) !== undefined)
+  assert.deepEqual(selected.filter(request => request.sessionId === 's1'), [
+    { sessionId: 's1', provider: 'deepseek', model: 'v4-pro', reasoningEffort: 'low', saveDefault: false },
+  ])
+  assert.equal(env.state().bots.b.modelSource, 'session')
 })

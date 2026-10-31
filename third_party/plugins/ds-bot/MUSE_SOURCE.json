@@ -72,6 +72,7 @@
     "Per-Bot resident tool preferences connected to shared Harness tool discovery without granting additional permissions",
     "Bot mode retains the shared 56px avatar rail on desktop and releases it on exit",
     "Composer attachment menu keeps hook order stable while the Bot roster loads",
-    "Working-context status uses the calibrated prepared-request estimate and lists model capacity separately"
+    "Working-context status uses the calibrated prepared-request estimate and lists model capacity separately",
+    "Automatically listed Session Bots share native model selection across conversation, Bot controls, side answers, memory review and new parts"
   ]
 }
