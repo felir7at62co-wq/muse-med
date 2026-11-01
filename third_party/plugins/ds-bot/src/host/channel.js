@@ -132,8 +132,8 @@ export function install(rt) {
     if (body.thinking !== undefined) {
       // A value this version does not know is ignored, not refused: the toggle
       // may grow more states later.
-      if (body.thinking === true) state.prefs.thinking = true
-      else if (body.thinking === false || body.thinking === null) delete state.prefs.thinking
+      if (typeof body.thinking === 'boolean') state.prefs.thinking = body.thinking
+      else if (body.thinking === null) delete state.prefs.thinking
     }
     return rt.save()
   }

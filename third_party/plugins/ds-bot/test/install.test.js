@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { legacyContext, legacyConfig } from './legacy-ctx.js'
+import { thinkingShown } from '../src/client/themes.js'
 
 function start(state, { config = {}, services } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-install-'))
@@ -25,8 +26,36 @@ function start(state, { config = {}, services } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, call, stop, applyResult }
+  return { ctx, call, stop, applyResult, home }
 }
+
+test('thinking display stays off after saving and loading the saved team', async (t) => {
+  const first = start({ version: 1, mainBotId: 'm1', bots: { m1: { id: 'm1', name: 'Chief' } }, rooms: {}, prefs: {} })
+  t.after(first.stop)
+  await first.call('set-prefs', { accent: '#123456', motion: 'quiet' })
+  const initial = await first.call('state')
+  assert.equal(initial.ok, true, JSON.stringify(initial))
+  assert.equal(thinkingShown(initial.value.prefs), false)
+
+  for (const thinking of [false, true, false]) {
+    const response = await first.call('set-prefs', { thinking })
+    assert.equal(response.ok, true)
+    assert.equal(response.value.thinking, thinking)
+    assert.equal(thinkingShown((await first.call('state')).value.prefs), thinking)
+    const saved = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+    assert.equal(saved.prefs.thinking, thinking)
+    const reopened = start(saved)
+    t.after(reopened.stop)
+    const prefs = (await reopened.call('state')).value.prefs
+    assert.equal(thinkingShown(prefs), thinking)
+    assert.equal(prefs.accent, '#123456')
+    assert.equal(prefs.motion, 'quiet')
+  }
+
+  const reset = await first.call('set-prefs', { thinking: null })
+  assert.equal('thinking' in reset.value, false)
+  assert.equal(thinkingShown(reset.value), false)
+})
 
 // Listeners run, and tools are listed, in the order they are registered.
 test('apply registers listeners, tools, and effects in a fixed order', (t) => {
@@ -172,12 +201,12 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal((await call('set-prefs', { flatWidth: 70 })).value.flatWidth, 70)
   assert.equal('flatWidth' in (await call('set-prefs', { flatWidth: 100 })).value, false)
   assert.deepEqual((await call('set-prefs', { flatWidth: 40 })).error, { code: 'bot/invalid', message: 'Flat text width must be a whole percent from 50 to 100', details: {} })
-  // The thinking switch stores only true; false, null and unknown values leave nothing.
+  // Explicit thinking choices persist; null restores the default and unknown values are ignored.
   assert.equal('thinking' in (await call('set-prefs', { thinking: 'yes' })).value, false)
   assert.equal('thinking' in (await call('set-prefs', { thinking: 1 })).value, false)
   assert.equal((await call('set-prefs', { thinking: true })).value.thinking, true)
   assert.equal((await call('set-prefs', { thinking: 'yes' })).value.thinking, true)
-  assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
+  assert.equal((await call('set-prefs', { thinking: false })).value.thinking, false)
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
   // A refusal from the team code keeps its message for the user.

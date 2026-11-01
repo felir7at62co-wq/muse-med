@@ -57,6 +57,8 @@ The bundled composition mounts one `muse-bot` row:
 
 The optional `home` configuration selects a different Bot-state directory. Bot model and effort settings remain selectable in the interface; creating or messaging a Bot may issue a normal model request using the configured provider. Authentication and provider availability are governed by Muse's existing services.
 
+The `set-prefs` endpoint persists explicit `thinking: true` and `thinking: false` choices; `thinking: null` restores the default. An explicit off setting remains off after reloading the team. This preference controls Bot reasoning-summary display only; it does not change the selected model or reasoning effort.
+
 ## Source, packaging and checks
 
 The [controlled builder](../build.mjs) rebuilds the browser module from `src/client`, qualifies peers against the reviewed Host and includes `LICENSE`, `NOTICE` and `SOURCE.json` in the tarball. Its Muse overlay omits the upstream automatic search module and its retired `dsh-web` peer. The package does not include the upstream development application or install another agent engine.
