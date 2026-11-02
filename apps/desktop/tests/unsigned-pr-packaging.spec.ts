@@ -68,3 +68,16 @@ it('prewarms private Windows FFmpeg in the cache read by media packaging', () =>
   expect(preload.if).toBe("matrix.target == 'win-x64'")
   expect(record(preload.env).GH_TOKEN).toBe('${{ github.token }}')
 })
+
+it('checks the unauthenticated TOS route before building an encrypted export', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const route = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check the candidate export network route')
+  if (!route || typeof route.run !== 'string') throw new Error('Expected TOS route check')
+  expect(route.if).toBe("matrix.target == 'win-x64' && inputs.export_candidate_to_tos")
+  expect(route.env).toBeUndefined()
+  expect(route.run).toContain("method: 'HEAD'")
+  expect(route.run).toContain('https://muse.tos-s3-cn-beijing.volces.com/')
+  expect(steps.indexOf(route)).toBeLessThan(steps.findIndex((step: unknown) => record(step).name === 'Build and verify the assembled application'))
+})

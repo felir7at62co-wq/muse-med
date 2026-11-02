@@ -10,6 +10,9 @@ import { readDesktopProductConfig } from './desktop-build-version.mjs'
 import { createMuseMirrorPlan } from './muse-release-mirror.mjs'
 
 const REPOSITORY = 'felir7at62co-wq/muse-med'
+const TRANSPORT_ERROR_NAMES = new Set(['Error', 'TypeError', 'AbortError', 'TimeoutError'])
+const TRANSPORT_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET'])
 const EVIDENCE_EXTENSIONS = new Set(['.json', '.jsonl', '.log', '.txt', '.xml'])
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'payload', 'installed', 'installation', 'resources', 'credentials', 'profiles'])
 class ExportFailure extends Error {}
@@ -138,21 +141,35 @@ async function auditTextEvidence(directory, secrets) {
   }
 }
 
-async function put(object, body, fetchImpl, now, expiry) {
-  requireExport(now() < expiry, 'export authorization expired')
+async function put(object, body, fetchImpl, now, expiry, kind) {
+  const remaining = expiry - now()
+  requireExport(remaining > 0, 'export authorization expired')
+  const signal = AbortSignal.timeout(remaining)
+  console.log(JSON.stringify({ stage: 'muse-candidate-upload-started', object: kind,
+    bytes: typeof body === 'string' ? Buffer.byteLength(body) : body.size,
+    expiresAtUtc: new Date(expiry).toISOString(), remainingSeconds: Math.floor(remaining / 1000) }))
   let response
   try {
     response = await fetchImpl(object.url, { method: 'PUT', headers: object.headers, body,
-      redirect: 'error', signal: AbortSignal.timeout(15 * 60_000) })
-  } catch { throw new ExportFailure('Muse candidate export: upload transport failed') }
+      redirect: 'error', signal })
+  } catch (error) {
+    const code = error?.cause?.code ?? error?.code
+    console.error(JSON.stringify({ stage: 'muse-candidate-upload-failed', object: kind,
+      authorizationExpired: signal.aborted, errorName: TRANSPORT_ERROR_NAMES.has(error?.name) ? error.name : 'Error',
+      transportCode: TRANSPORT_ERROR_CODES.has(code) ? code : null }))
+    throw new ExportFailure(signal.aborted ? 'Muse candidate export: export authorization expired during upload'
+      : 'Muse candidate export: upload transport failed')
+  }
   const status = response.status
   await response.body?.cancel()
   requireExport(response.ok, `upload failed (HTTP ${status})`)
+  console.log(JSON.stringify({ stage: 'muse-candidate-upload-complete', object: kind }))
 }
 
-/** Encrypt the exact candidate and text-only native acceptance evidence after rejecting known secrets and credential patterns.
+/** Encrypt the exact candidate and audited text evidence; upload pending metadata before ciphertext and stop each PUT at capability expiry.
  * @param {{root?: string, environment?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, fetchImpl?: typeof fetch, now?: () => number}} options - Build roots and isolated adapters for offline qualification.
  * @returns {Promise<{version: string, target: string, commit: string, runId: string, exportId: string, encryptedBytes: number, encryptedSha256: string, ivHex: string, authTagHex: string}>} Non-secret transfer metadata after both private objects upload.
+ * @throws {Error} If validation, expiry, upload or cleanup fails. Pending metadata may remain when ciphertext upload fails.
  */
 export async function exportMuseCiCandidate({ root = resolve(import.meta.dirname, '../../..'), environment = process.env,
   platform = process.platform, fetchImpl = fetch, now = Date.now } = {}) {
@@ -195,8 +212,10 @@ export async function exportMuseCiCandidate({ root = resolve(import.meta.dirname
     for await (const chunk of createReadStream(encrypted)) { encryptedBytes += chunk.length; sha256.update(chunk) }
     const transfer = { version, target: 'win-x64', commit: config.expectedCommit, runId: environment.GITHUB_RUN_ID,
       exportId: config.exportId, encryptedBytes, encryptedSha256: sha256.digest('hex'), ivHex: iv.toString('hex'), authTagHex: cipher.getAuthTag().toString('hex') }
-    await put(config.objects.candidate, await openAsBlob(encrypted), fetchImpl, now, Date.parse(config.expiresAtUtc))
-    await put(config.objects.transfer, JSON.stringify(transfer), fetchImpl, now, Date.parse(config.expiresAtUtc))
+    console.log(JSON.stringify({ stage: 'muse-candidate-encrypted', version, target: 'win-x64',
+      commit: transfer.commit, runId: transfer.runId, exportId: transfer.exportId, encryptedBytes }))
+    await put(config.objects.transfer, JSON.stringify(transfer), fetchImpl, now, Date.parse(config.expiresAtUtc), 'transfer')
+    await put(config.objects.candidate, await openAsBlob(encrypted), fetchImpl, now, Date.parse(config.expiresAtUtc), 'candidate')
     return transfer
   } catch (error) {
     if (error instanceof ExportFailure) throw error

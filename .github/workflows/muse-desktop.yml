@@ -65,6 +65,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+      - name: Check the candidate export network route
+        if: matrix.target == 'win-x64' && inputs.export_candidate_to_tos
+        run: >-
+          node --input-type=module -e "const started = Date.now();
+          try { const response = await fetch('https://muse.tos-s3-cn-beijing.volces.com/',
+          { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(30000) });
+          const status = response.status; await response.body?.cancel();
+          console.log(JSON.stringify({ stage: 'muse-tos-route-check', status, elapsedMs: Date.now() - started }));
+          if (status !== 200 && status !== 403) process.exitCode = 1;
+          } catch { console.error('Muse TOS route check failed before packaging'); process.exitCode = 1; }"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -109,7 +119,7 @@ jobs:
       - name: Check transcription receipts and portable recovery paths
         run: pnpm exec vitest run packages/drama/tool-audio-transcribe/tests/runner.spec.ts
       - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts apps/desktop/tests/runtime-dependency-patches.spec.ts apps/desktop/tests/packaged-pi-ai.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts packages/client/ui-permission-presets/tests scripts/release/pack.spec.ts
+        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/export-muse-ci-candidate.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts apps/desktop/tests/runtime-dependency-patches.spec.ts apps/desktop/tests/packaged-pi-ai.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts packages/client/ui-permission-presets/tests scripts/release/pack.spec.ts
       - name: Configure unsigned Muse packaging
         run: >-
           node --input-type=module -e "import { writeFileSync } from 'node:fs';

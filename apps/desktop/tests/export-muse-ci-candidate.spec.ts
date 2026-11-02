@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extract } from 'tar'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { readDesktopProductConfig } from '../scripts/desktop-build-version.mjs'
 import { exportMuseCiCandidate } from '../scripts/export-muse-ci-candidate.mjs'
 import { recordMuseUnsignedBuild } from '../scripts/muse-release-mirror.mjs'
@@ -62,7 +62,7 @@ async function fixture() {
     options: { root, environment, platform: 'win32' as const, now: () => Date.parse('2030-01-01T00:00:00.000Z') } }
 }
 
-it('round-trips exact candidate bytes and bounded evidence through authenticated encryption before publishing transfer metadata', async () => {
+it('round-trips exact candidate bytes and audited evidence after uploading pending transfer metadata', async () => {
   const f = await fixture(), uploads: Array<{ url: string; body: Buffer; headers: HeadersInit | undefined }> = []
   const fetchImpl: typeof fetch = async (url, init) => {
     const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
@@ -72,8 +72,9 @@ it('round-trips exact candidate bytes and bounded evidence through authenticated
   }
   const transfer = await exportMuseCiCandidate({ ...f.options, fetchImpl })
   expect(uploads).toHaveLength(2)
-  const [candidateUpload, transferUpload] = uploads
+  const [transferUpload, candidateUpload] = uploads
   if (!candidateUpload || !transferUpload) throw new Error('Expected candidate and transfer uploads')
+  expect(uploads.map(upload => upload.url)).toEqual([f.config.objects.transfer.url, f.config.objects.candidate.url])
   const encryptedBody = candidateUpload.body
   expect(candidateUpload.headers).toEqual(f.config.objects.candidate.headers)
   expect(JSON.parse(transferUpload.body.toString())).toEqual(transfer)
@@ -141,7 +142,7 @@ it('refuses changed build bytes, unsuccessful receipts, environment files and di
   }
 })
 
-it('redacts network and HTTP failure details, stops before transfer and removes temporary data', async () => {
+it('redacts metadata upload failures, stops before the candidate and removes temporary data', async () => {
   for (const kind of ['network', 'http']) {
     const f = await fixture()
     let calls = 0
@@ -176,4 +177,80 @@ it('refuses secret-bearing text evidence before either upload', async () => {
     expect(calls).toBe(0)
     expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
   }
+})
+
+it('uses the remaining authorized window for each upload after the clock advances', async () => {
+  const f = await fixture()
+  let clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const timeout = vi.spyOn(AbortSignal, 'timeout')
+  try {
+    let calls = 0
+    const fetchImpl: typeof fetch = async () => { calls++; clock += 60 * 60_000; return new Response(null, { status: 200 }) }
+    await exportMuseCiCandidate({ ...f.options, now: () => clock, fetchImpl })
+    expect(calls).toBe(2)
+    expect(timeout.mock.calls.map(([duration]) => duration)).toEqual([2 * 60 * 60_000, 60 * 60_000])
+  } finally { timeout.mockRestore() }
+})
+
+it('aborts an active upload when its authorization window ends and removes temporary data', async () => {
+  const f = await fixture()
+  let calls = 0, aborted = false
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    calls++
+    const signal = init?.signal
+    if (!signal) throw new Error('Expected upload cancellation signal')
+    return await new Promise<Response>((resolve, reject) => {
+      const onAbort = () => { aborted = true; clearTimeout(completion); reject(new Error(f.config.encryptionKeyHex)) }
+      const completion = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(new Response(null, { status: 200 })) }, 250)
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+  await expect(exportMuseCiCandidate({ ...f.options, now: () => Date.parse(f.config.expiresAtUtc) - 50, fetchImpl }))
+    .rejects.toThrow('Muse candidate export: export authorization expired during upload')
+  expect(aborted).toBe(true)
+  expect(calls).toBe(1)
+  expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
+})
+
+it('does not start the candidate after metadata consumes the remaining authorization', async () => {
+  const f = await fixture()
+  let clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const uploaded: string[] = []
+  const fetchImpl: typeof fetch = async (url) => {
+    uploaded.push(String(url)); clock = Date.parse(f.config.expiresAtUtc)
+    return new Response(null, { status: 200 })
+  }
+  await expect(exportMuseCiCandidate({ ...f.options, now: () => clock, fetchImpl })).rejects.toThrow('export authorization expired')
+  expect(uploaded).toEqual([f.config.objects.transfer.url])
+  expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
+})
+
+it('retains only non-secret metadata when candidate upload fails without reporting success', async () => {
+  const f = await fixture(), uploaded: string[] = []
+  let metadata: string | undefined
+  const fetchImpl: typeof fetch = async (url, init) => {
+    uploaded.push(String(url))
+    if (String(url) === f.config.objects.transfer.url) {
+      metadata = await new Response(init?.body).text()
+      return new Response(null, { status: 200 })
+    }
+    const error = new Error(`${f.config.objects.candidate.url} ${f.config.encryptionKeyHex}`, { cause: { code: 'ECONNRESET' } })
+    error.name = f.config.encryptionKeyHex
+    throw error
+  }
+  const diagnostics = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await expect(exportMuseCiCandidate({ ...f.options, fetchImpl })).rejects.toThrow(/^Muse candidate export: upload transport failed$/u)
+    expect(uploaded).toEqual([f.config.objects.transfer.url, f.config.objects.candidate.url])
+    expect(metadata).toBeDefined()
+    expect(metadata).not.toContain(f.config.encryptionKeyHex)
+    expect(metadata).not.toContain('https://')
+    expect(JSON.parse(metadata ?? '{}')).toMatchObject({ commit: f.config.expectedCommit, runId: '123456', exportId: f.config.exportId })
+    const log = JSON.stringify(diagnostics.mock.calls)
+    expect(log).toContain('ECONNRESET')
+    expect(log).not.toContain(f.config.encryptionKeyHex)
+    expect(log).not.toContain(f.config.objects.candidate.url)
+    expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
+  } finally { diagnostics.mockRestore() }
 })
