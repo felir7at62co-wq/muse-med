@@ -148,6 +148,11 @@ jobs:
           pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.2
           pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.5
           pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.6
+      - name: Cache the locked previous installer and release manifest
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v1.2.5 --repo felir7at62co-wq/muse-med --pattern muse-desktop-builds.json --pattern muse-med-1.2.5-${{ matrix.target }}.${{ matrix.target == 'win-x64' && 'exe' || 'dmg' }} --dir apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
       - name: Accept the genuine installer in an isolated directory
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -158,7 +163,7 @@ jobs:
           MUSE_FANQIE_LIVE_BOOK_ID: ${{ inputs.fanqie_book_id }}
           MUSE_FANQIE_LIVE_TITLE: 摆烂摆烂，誓做修仙界第一关系户
           MUSE_FANQIE_LIVE_AUTHOR: 倒荷
-        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
+        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts --previous-release-cache apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
       - name: Export the encrypted Windows candidate and acceptance to TOS
         if: github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos
         env:

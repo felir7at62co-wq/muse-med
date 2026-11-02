@@ -71,9 +71,11 @@ it('round-trips exact candidate bytes and bounded evidence through authenticated
   }
   const transfer = await exportMuseCiCandidate({ ...f.options, fetchImpl })
   expect(uploads).toHaveLength(2)
-  const encryptedBody = uploads[0].body
-  expect(uploads[0].headers).toEqual(f.config.objects.candidate.headers)
-  expect(JSON.parse(uploads[1].body.toString())).toEqual(transfer)
+  const [candidateUpload, transferUpload] = uploads
+  if (!candidateUpload || !transferUpload) throw new Error('Expected candidate and transfer uploads')
+  const encryptedBody = candidateUpload.body
+  expect(candidateUpload.headers).toEqual(f.config.objects.candidate.headers)
+  expect(JSON.parse(transferUpload.body.toString())).toEqual(transfer)
   expect(Object.keys(transfer).sort()).toEqual(['version', 'target', 'commit', 'runId', 'exportId', 'encryptedBytes', 'encryptedSha256', 'ivHex', 'authTagHex'].sort())
   expect(transfer).toMatchObject({ version: f.config.version, commit: f.config.expectedCommit, runId: '123456' })
   expect(transfer.encryptedSha256).toBe(createHash('sha256').update(encryptedBody).digest('hex'))

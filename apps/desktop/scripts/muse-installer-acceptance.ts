@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { promisify } from 'node:util'
+import { dirname, join, resolve } from 'node:path'
+import { parseArgs, promisify } from 'node:util'
 import { readAsar } from 'app-builder-lib/out/asar/asar.js'
 import { getPath7za } from 'app-builder-lib/out/toolsets/7zip.js'
 import { isEntry } from '../../../scripts/release/process.ts'
@@ -202,6 +202,7 @@ export function assertMuseInstalledUnchanged(before: Readonly<Record<string, str
 }
 
 async function main(): Promise<void> {
+  const { values } = parseArgs({ options: { 'previous-release-cache': { type: 'string' } } })
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Installer acceptance requires a disposable GitHub Actions runner')
   const target = process.env.MUSE_RELEASE_TARGET
   assert.ok(target === 'win-x64' || target === 'mac-arm64', 'Installer acceptance: unsupported target')
@@ -296,8 +297,9 @@ async function main(): Promise<void> {
     await persist()
 
     const previousRelease = museAcceptancePreviousRelease(target)
-    const downloads = join(root, 'downloads')
-    await mkdir(downloads)
+    const downloads = values['previous-release-cache'] === undefined
+      ? join(root, 'downloads') : resolve(values['previous-release-cache'])
+    await mkdir(downloads, { recursive: true })
     const previousManifestPath = await obtain(previousRelease.manifestResource, downloads)
     const previous = museAcceptancePreviousIdentity(JSON.parse(await readFile(previousManifestPath, 'utf8')), target)
     const previousInstaller = await obtain(previousRelease.resource, downloads)
