@@ -18,6 +18,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 [Muse 自定义模型](muse-personal-models.e2e.ts)从测试自有的本地端点发现模型，单独保存凭据，并验证设置列表、对话选择、重启持久化与适配器请求。场景加载内置桌面设置覆盖层，不操作已安装的 Muse 应用。
 
+构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
+
 ## 完成状态观察
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。

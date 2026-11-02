@@ -18,6 +18,8 @@ The workspace file-reference recording supplies its historical two-skill catalog
 
 [Muse personal models](muse-personal-models.e2e.ts) discovers a model from an owned local endpoint, saves its credential separately, and verifies settings rows, conversation selection, restart persistence and an adapter request. It boots the shipped desktop settings overlay without touching an installed Muse application.
 
+Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
+
 ## Completion observations
 
 Desktop onboarding waits for the published balance result through a [read-only account observer](fixtures/plugins/fixture-onboarding-account/client.js). A held post-return response separates request arrival and enabled navigation from the failed result reaching the account subscription; the fixture disposes that subscription when its Client plugin stops.
