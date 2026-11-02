@@ -24,6 +24,8 @@ const { outputFiles } = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const react = {
+  createContext: value => ({ value }), useContext: context => context.value,
+  useCallback: fn => fn, useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useEffect() {}, useLayoutEffect() {}, useState: initial => [initial, () => {}],
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',

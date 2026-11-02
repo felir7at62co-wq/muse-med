@@ -12,7 +12,7 @@ import { fakeContext } from './fake-ctx.js'
 
 const MODEL = { provider: 'muse', model: 'native-choice', reasoningEffort: 'high' }
 
-function start(t, { plain = false, legacyAuto = false } = {}) {
+function start(t, { plain = false, legacyAuto = false, config = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'muse-bot-adopt-'))
   const state = {
     version: 1, revision: 1, whaleStored: true, mainBotIds: ['chief'],
@@ -89,7 +89,7 @@ function start(t, { plain = false, legacyAuto = false } = {}) {
   let route
   const register = ctx.connection.fetch.register.bind(ctx.connection.fetch)
   ctx.connection.fetch.register = options => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, diagnosticsFile: false, ensureMuseSpecialist: false })
+  const rt = createRuntime(ctx, { home, diagnosticsFile: false, ensureMuseSpecialist: false, ...config })
   t.after(async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
@@ -264,7 +264,7 @@ test('explicit native Session switching preserves stable Bot identity and all ol
 })
 
 async function automaticTarget(t) {
-  const f = start(t)
+  const f = start(t, { config: { autoSessionBots: true } })
   await f.rt.museTeam.registerSessionAsBot('source')
   const items = [{ sessionId: 'next', cwd: join(f.workspace.path, 'next'), blank: false,
     projections: { values: { title: 'Existing episode discussion', modelSelection: { next: MODEL } } } }]
@@ -438,7 +438,7 @@ test('unloading during root resolution waits for the pending operation and recor
   assert.deepEqual([created, archived], [[], []])
 })
 
-test('an unlisted ordinary caller can make its first message_bot call without opening the Bot roster', async t => {
+test('an ordinary caller cannot use message_bot until it explicitly joins the team', async t => {
   const f = start(t)
   const caller = f.agentOf('source')
   const original = structuredClone({ goal: caller.goal, inbox: caller.inbox, jobs: caller.jobs })
@@ -447,8 +447,15 @@ test('an unlisted ordinary caller can make its first message_bot call without op
   assert.equal(f.rt.botOf('source'), undefined)
   const reply = await f.ctx.registeredTools.get('message_bot').execute(
     { to: 'Chief', message: 'Review this episode', reply_to: 'user', when: 'queue' }, { agent: caller })
-  assert.match(reply, /^Delivered to Chief/)
-  assert.equal(f.rt.botOf('source').autoSessionBot, true)
+  assert.match(reply, /Only Bots on the team/)
+  assert.equal(f.rt.botOf('source'), undefined)
+  assert.equal(JSON.parse(readFileSync(join(f.home, 'state.json'), 'utf8')).bots.source, undefined)
+  assert.deepEqual(f.sent, [])
+  await f.rt.museTeam.registerSessionAsBot('source')
+  const registeredReply = await f.ctx.registeredTools.get('message_bot').execute(
+    { to: 'Chief', message: 'Review this episode', reply_to: 'user', when: 'queue' }, { agent: caller })
+  assert.match(registeredReply, /^Delivered to Chief/)
+  assert.equal(f.rt.botOf('source').autoSessionBot, undefined)
   assert.equal(f.rt.selfOf('source'), 'source')
   assert.equal(f.sent.length, 1)
   assert.equal(f.sent[0].id, 'chief')

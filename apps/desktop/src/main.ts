@@ -46,6 +46,7 @@ import { WELCOME_IPC, needsWelcome, type WelcomeNotice } from './welcome-api.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
 import { DesktopUpdateJournal, type DesktopUpdateJournalResult, type DesktopUpdateJournalStage } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
+import { prepareDesktopUpdateWindow } from './update-window.ts'
 import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
 import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presentation.ts'
 import { desktopErrorState } from './startup-error.ts'
@@ -755,6 +756,8 @@ async function main(): Promise<void> {
       const host = backend.host
       if (host === undefined) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
       const active = await timed('update-task-inspection', () => host.updateTasks('inspect'))
+      const parent = currentDialogWindow()
+      if (parent === undefined || !await prepareDesktopUpdateWindow(parent, locale.messages.updateFullscreenTimeout)) return false
       const manual = updates.installationMode === 'manual-dmg'
       const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform, manual)
       const confirmation: Electron.MessageBoxOptions = {
@@ -768,8 +771,6 @@ async function main(): Promise<void> {
       if (isMandatory()) {
         if (!await mandatoryUI?.confirm(updates.state.version ?? '', active)) return false
       } else {
-        const parent = currentDialogWindow()
-        if (parent === undefined) return false
         const result = await updateDialog.show(parent, confirmation)
         if (result.response !== 0 || isMandatory()) return false
       }

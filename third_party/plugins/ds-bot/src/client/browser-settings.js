@@ -26,6 +26,7 @@ function grantKinds(grant) {
 }
 
 export function BrowserPage({ roster, actions, run, Section, Row }) {
+  const automation = roster.browserAutomation === true
   const bots = roster.bots ?? []
   const [botId, setBotId] = useState(bots[0]?.id ?? '')
   const [site, setSite] = useState('')
@@ -47,7 +48,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   }
   const add = event => {
     event.preventDefault()
-    if (!selectedBot || kinds.length === 0 || busy) return
+    if (!automation || !selectedBot || kinds.length === 0 || busy) return
     const now = Date.now()
     let until
     if (duration === 'hour') until = now + 60 * 60 * 1000
@@ -70,7 +71,9 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, { title: t('Browser access') },
-      h('p', { className: 'bt-browser-note' }, t('Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
+      h('p', { className: 'bt-browser-note' }, automation
+        ? t('Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
+        : t('Bot browser automation is not enabled. Saved grants are kept; permissions for other browser tools are unchanged.'))),
     h(Section, { title: t('Allowed actions') },
       grants.length === 0
         ? h(Row, { label: t('Nothing allowed yet.') })
@@ -92,13 +95,14 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },
-          h('select', { className: 'bt-select', value: botId, onChange: event => setBotId(event.target.value), disabled: bots.length === 0 },
+          h('select', { className: 'bt-select', value: botId, onChange: event => setBotId(event.target.value), disabled: !automation || bots.length === 0 },
             bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
         h(Row, { label: t('Site') },
           h('input', {
             className: 'bt-select bt-browser-site',
             type: 'text',
             value: site,
+            disabled: !automation,
             placeholder: t('example.com — leave empty for all sites'),
             onChange: event => setSite(event.target.value),
           })),
@@ -108,6 +112,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
               h('input', {
                 type: 'checkbox',
                 checked: kinds.includes(kind),
+                disabled: !automation,
                 onChange: event => toggleKind(kind, event.target.checked),
               }),
               t(label))))),
@@ -117,6 +122,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
               key,
               type: 'button',
               className: 'bt-browser-duration-choice',
+              disabled: !automation,
               'aria-pressed': duration === key,
               onClick: () => setDuration(key),
             }, t(label))))),
@@ -124,6 +130,6 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
           h('button', {
             type: 'submit',
             className: 'bt-soft',
-            disabled: busy || !selectedBot || kinds.length === 0,
+            disabled: !automation || busy || !selectedBot || kinds.length === 0,
           }, busy ? t('Saving…') : t('Add'))))))
 }

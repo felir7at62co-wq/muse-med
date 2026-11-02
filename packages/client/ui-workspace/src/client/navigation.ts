@@ -61,6 +61,15 @@ export interface UiWorkspace {
    */
   connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>
   /**
+   * Restrict which blank Sessions New Session may reuse; fresh creation stays available.
+   * Every registered filter must accept a candidate; without filters all eligible blanks remain reusable.
+   * Filters run synchronously before acquisition; a thrown error rejects that connection.
+   * Explicit Session opening and saved-selection restoration do not apply these filters.
+   * @param filter - accepts a candidate Session identity when its blank may be reused.
+   * @returns an idempotent disposer for this registration, independent of identical callbacks.
+   */
+  registerBlankSessionFilter(filter: (sessionId: SessionId) => boolean): () => void
+  /**
    * Start a New Session flow and navigate to its Session; a creation the Host
    * refuses is shown through the Workspace notice and leaves the selection as it was.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
@@ -132,6 +141,7 @@ export class DirectoryBrowseError extends Error {
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  private readonly blankSessionFilters = new Set<{ readonly accepts: (sessionId: SessionId) => boolean }>()
   private readonly lifetime = new AbortController()
   private readonly selection = createSnapshotStore<MainSelection>(
     {}, { persist: { name: 'dsh.sessions.current' } },
@@ -182,6 +192,12 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return attempt
   }
 
+  registerBlankSessionFilter(filter: (sessionId: SessionId) => boolean): () => void {
+    const entry = { accepts: filter }
+    this.blankSessionFilters.add(entry)
+    return () => { this.blankSessionFilters.delete(entry) }
+  }
+
   private reuseOrCreateBlank(workspace: WorkspaceView): Promise<SessionId> {
     const archived = this.workspaces.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
@@ -189,6 +205,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       const summary = sessions.byId[id]
       if (summary === undefined || !summary.blank || summary.cwd !== workspace.path
         || !workspace.sessionIds.includes(id) || archived.includes(id)) continue
+      if ([...this.blankSessionFilters].some(filter => !filter.accepts(id))) continue
       return this.reuseBlank(workspace.workspaceId, id)
     }
     return this.sessions.create({ workspaceId: workspace.workspaceId })

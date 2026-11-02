@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
@@ -18,6 +18,9 @@ import { VOICE_BUNDLE } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
+import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
+import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
+import { AVATAR_LIBRARY_CSS } from './avatar-library.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
 import { Overlays } from './overlays.js'
@@ -32,7 +35,7 @@ import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
-import { classicWorkspaceTarget, freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
+import { freePriority, groupsFor, readMode, surfaceGroups, writeMode, surfaceSelections, ordinarySessionStarter, canReuseOrdinarySession } from './surface.js'
 import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
@@ -49,6 +52,7 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   const roster = createSource(EMPTY_ROSTER)
+  ctx.effect(() => ctx.uiWorkspace.registerBlankSessionFilter(id => canReuseOrdinarySession(id, roster.getSnapshot())), 'ds-bot: ordinary blank ownership')
   migrateStorage()
   const unreadStore = sharedMap(STORAGE.unread)
   const reactionStore = sharedMap(STORAGE.reactions)
@@ -62,6 +66,14 @@ export function apply(ctx) {
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
   const surface = createSource({ mode: readMode(), plain: false })
+  const selections = surfaceSelections()
+  let pendingSurfaceRestore = null
+  let surfaceMounted = true
+  ctx.effect(() => () => {
+    surfaceMounted = false
+    pendingSurfaceRestore?.()
+    pendingSurfaceRestore = null
+  }, 'ds-bot: cancel deferred surface navigation')
   // DSH Agent Session ids from the last pull, so a reload already knows the main
   // view is a plain Session before the team answers.
   let agentSessionCache = new Set()
@@ -157,6 +169,7 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector and capability states change without a new revision.
     const live = {}
+    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.feishuBotIds !== undefined && JSON.stringify(value.feishuBotIds) !== JSON.stringify(current.feishuBotIds ?? [])) live.feishuBotIds = value.feishuBotIds
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
@@ -321,7 +334,7 @@ export function apply(ctx) {
       document.body.dataset.btLayout = layout
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${width}|${flatWidth}|${prefs.thinking}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
@@ -378,8 +391,17 @@ export function apply(ctx) {
   }
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView })
+  const ordinaryStarter = ordinarySessionStarter({
+    create: options => ctx.sessions.create(options),
+    open: (id) => { setPlain(true); show(id) },
+    current: mainView,
+    isActive: () => surfaceMounted && surface.getSnapshot().mode === 'agent',
+    remember: id => selections.remember('agent', id, roster.getSnapshot()),
+  })
+  ctx.effect(() => () => ordinaryStarter.dispose(), 'ds-bot: cancel ordinary Session navigation')
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
+    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     adoptableSessions: () => adoptableSessions(ctx.sessions.list.getSnapshot(), roster.getSnapshot()),
     adoptSession: async (payload) => {
       const result = await after(call('adopt-session', payload))
@@ -470,33 +492,39 @@ export function apply(ctx) {
     // surface closes first so nothing stale reopens on the way back.
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
-      if (surface.getSnapshot().mode === mode) return
-      if (mode === 'agent') {
-        const target = classicWorkspaceTarget(surface.getSnapshot().mode, mode, mainView(), roster.getSnapshot())
-        if (target !== undefined) void call('attach-current-workspace', target).catch(quietly('attach current workspace'))
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
-      }
+      const previous = surface.getSnapshot().mode
+      if (previous === mode) return
+      pendingSurfaceRestore?.()
+      pendingSurfaceRestore = null
+      ordinaryStarter.cancel()
+      selections.remember(previous, mainView(), roster.getSnapshot())
+      ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
-      if (mode !== 'bot') return
-      // Back in Bot mode the view must hold a team conversation; an outside
-      // Session left over from Agent mode would wear the Bot skin without one.
-      const home = () => {
+      const restore = () => {
+        if (surface.getSnapshot().mode !== mode) return
         const snapshot = roster.getSnapshot()
-        if (!snapshot.ready || !snapshot.mainBotId) return
-        const list = ctx.sessions.list.getSnapshot()
-        const main = Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
-        if (main !== undefined && snapshot.byId[main] === undefined && snapshot.roomsById[main] === undefined) {
-          actions.openSession(snapshot.mainBotId)
+        const target = selections.target(mode, ctx.sessions.list.getSnapshot(), snapshot)
+        if (target !== undefined) {
+          setPlain(mode === 'agent')
+          show(target)
+        } else if (mode === 'agent') {
+          const workspaceId = workspaceOf(mainView()) ?? workspaces?.list?.getSnapshot()?.items?.[0]?.workspaceId
+          if (workspaceId === undefined) ctx.uiWorkspace.startSession()
+          else void ordinaryStarter.start(workspaceId).catch(error => {
+            if (surfaceMounted && surface.getSnapshot().mode === 'agent') actions.reportError(error, 'surface')
+          })
         }
       }
-      if (roster.getSnapshot().ready) home()
+      if (roster.getSnapshot().ready) restore()
       else {
         const off = roster.subscribe(() => {
           if (!roster.getSnapshot().ready) return
           off()
-          home()
+          pendingSurfaceRestore = null
+          restore()
         })
+        pendingSurfaceRestore = off
       }
     },
     markUnread: id => writeUnread(id, true),
@@ -565,8 +593,8 @@ export function apply(ctx) {
         await bridge.views.hold(botId, true)
         return result
       } : undefined,
-      browserGiveBack: bridge.views ? async botId => {
-        const result = await call('browser-give-back', { botId })
+      browserGiveBack: bridge.views ? async (botId, answer = {}) => {
+        const result = await call('browser-give-back', { botId, ...answer })
         await bridge.views.hold(botId, false)
         return result
       } : undefined,
@@ -794,10 +822,12 @@ export function apply(ctx) {
   // group re-skins the session itself. Each step returns a disposer from slots.inject,
   // so a surface change withdraws the whole group and the outlets re-render.
   const installShell = () => [
-    () => ctx.layout.retainSidebarRail?.(),
     () => installCompiledStyles(SHELL_CSS, 'shell'),
     () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
     () => installCompiledStyles(SECRET_CSS, 'secrets'),
+    () => installCompiledStyles(LEARNING_CSS, 'learning'),
+    () => installCompiledStyles(HANDOFF_CSS, 'handoff'),
+    () => installCompiledStyles(AVATAR_LIBRARY_CSS, 'avatars'),
     () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS, 'models'),
     () => installCompiledStyles(USAGE_CSS, 'usage'),
     () => installCompiledStyles(SCHEDULE_CSS, 'schedules'),
@@ -832,6 +862,7 @@ export function apply(ctx) {
     // A side question is not a transcript row. After its snapshot turn closes it
     // sits on that turn's tail, ahead of the time separator.
     () => shadow('conversation.chat.turnTail', { id: 'bot-btw', order: 800, priority: BOT_PRIORITY, inject: face }, BtwTurnTail),
+    () => shadow('conversation.chat.turnTail', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningTurnTail),
     // Keep the Host's compaction and context evidence visible.
     () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
     ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
@@ -854,8 +885,11 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
+    () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
+    () => shadow('conversation.input.dock', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningDock),
   ]
-  // The return button belongs to neither group: it renders only in Agent mode.
+  // Both modes keep the selector and the native collapsed rail available.
+  ctx.effect(() => ctx.layout.retainSidebarRail?.(), 'ds-bot: mode selector rail')
   ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
@@ -888,6 +922,7 @@ export function apply(ctx) {
       // workspace picker, or a fork of a Session the same Agent owns. An existing
       // Session the user opened from the sidebar keeps its team tools and stays out.
       const row = list.byId[main]
+      if (row?.origin === 'subagent') return
       // The client list maps the fork's parent to `parentId`; the raw field is
       // the fallback for shapes that skip the mapping.
       const parent = row?.parentId ?? row?.parentSessionId

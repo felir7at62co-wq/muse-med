@@ -5,13 +5,13 @@ import { load } from 'js-yaml'
 
 /** Source pin and deployment choices recorded in the packaged artifact. */
 export const museBotDesktopCompatibility = Object.freeze({
-  upstreamCommit: 'de55888a93983fc51c94f7d22bc94b4f8293205d',
+  upstreamCommit: 'f823773b07ec6ca29d60b31c31af30218a68000d',
   brand: 'Muse Bot',
   agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator',
   contextManagement: 'host',
   goals: 'host',
   memoryReview: true,
-  autoSessionBots: true,
+  autoSessionBots: false,
   sessionBotSyncIntervalMs: 30000,
   updateCheck: false,
   github: false,
@@ -27,13 +27,13 @@ export const museBotDesktopCompatibility = Object.freeze({
 export function applyMuseBotDesktopCompatibility(directory) {
   const manifestPath = join(directory, 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  if (manifest.name !== 'ds-bot' || manifest.version !== '0.2.2' || manifest.license !== 'Apache-2.0') {
+  if (manifest.name !== 'ds-bot' || manifest.version !== '0.2.4' || manifest.license !== 'Apache-2.0') {
     throw new Error('community plugins: Muse Bot package requires a new source review')
   }
   const patch = load(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'))
   const expected = [{ insert: [{ id: 'muse-bot', name: 'ds-bot', config: {
     agentPreset: 'short-drama', mainAgentPreset: 'bot-coordinator', contextManagement: 'host', goals: 'host', memoryReview: true,
-    autoSessionBots: true, sessionBotSyncIntervalMs: 30000, github: false, updateCheck: false,
+    autoSessionBots: false, sessionBotSyncIntervalMs: 30000, github: false, updateCheck: false,
   } }] }]
   if (JSON.stringify(patch) !== JSON.stringify(expected)) {
     throw new Error('community plugins: Muse Bot composition must preserve the Muse profile services')
@@ -44,7 +44,7 @@ export function applyMuseBotDesktopCompatibility(directory) {
   delete manifest.exports['./web-search']
   manifest.description = 'Muse Bot: native persistent team workspaces for Muse'
   manifest.files = [
-    'index.js', 'src/host/', 'src/shared/', 'client.js', 'cordis.patch.yml',
+    'index.js', 'src/host/', 'src/shared/', 'src/office/', 'client.js', 'office.js', 'cordis.patch.yml',
     'README.md', 'README.zh.md', 'MUSE_SOURCE.json', 'LICENSE', 'NOTICE',
   ]
   if (!readFileSync(join(directory, 'NOTICE'), 'utf8').trim()) {

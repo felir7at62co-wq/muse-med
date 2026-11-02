@@ -202,6 +202,8 @@ Dependencies between community plugins must match versions in the validated tarb
 
 Development Harness state defaults to `apps/desktop/.desktop-build/development/home`, the disposable npm project lives at `apps/desktop/.desktop-build/development/project`, and Electron browser data lives at `apps/desktop/.desktop-build/development/electron-user-data`. Sessions, settings, credentials, package links, and browser data therefore stay out of the user's normal Harness home. An explicit `DSH_HOME` replaces only the development Harness home. Renderer DevTools opens automatically; Main, Renderer, and dsh Host debugging listen on ports 9229, 9222, and 9230. `DSH_DESKTOP_MAIN_INSPECT_PORT`, `DSH_DESKTOP_RENDERER_DEBUG_PORT`, and `DSH_DESKTOP_HOST_INSPECT_PORT` replace those ports, while `DSH_DESKTOP_OPEN_DEVTOOLS=0` keeps the detached Renderer tools closed.
 
+`DSH_DESKTOP_USER_PATCH_FILE` selects one existing regular file to copy into the rebuilt development profile as `cordis.patch.yml` before Electron starts. The launcher copies its bytes without filtering or logging contents and leaves the source unchanged; select a patch compatible with the current bundles. The project directory uses mode `0700` and the copied patch `0600` on POSIX. Linked sources, linked project directories and non-regular targets are refused.
+
 `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` can select an already prepared primary runtime for local development. The launcher resolves it to an absolute path, checks its platform and architecture, and runs the existing runtime smoke checks before starting. Invalid overrides fail without downloading a replacement. The supplied runtime must retain its matching adjacent resource directories; without an override, development still prepares the complete locked payload.
 
 After an explicit build, `start:desktop` reconstructs the disposable project and launches the existing artifacts without building again:
@@ -490,6 +492,8 @@ macOS packaging writes `Contents/Resources/app-update.yml` while assembling the 
 An unpacked artifact contains Electron, the materialized dsh production tree, pnpm, and the shell application. Installer size and filesystem size differ; release qualification measures both, plus the profile’s plugin storage and first-launch latency. The runtime trades more application files for eliminating core package installation on the user’s machine.
 
 ## Updates
+
+On macOS, installation preparation waits for the product window to leave fullscreen before requesting confirmation or stopping the Host. A missing transition after five seconds reports a localized retry instruction and leaves the Host running; closing the window cancels preparation. Windows fullscreen is unchanged.
 
 The update page uses a white card, a pale gray status panel, and a rounded blue download bar; verification and installation show their status without an invented percentage. The packaged updater uses the product's version-derived GitHub Releases channel.
 

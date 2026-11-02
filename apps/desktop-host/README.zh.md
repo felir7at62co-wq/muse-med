@@ -7,6 +7,8 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 [English](README.md) | 中文
 
+Host 等待应用收尾完成并通过 IPC 送达关闭确认后，才显式退出进程。已卸载插件遗留的附带事件循环句柄不会拖延已经完成的关闭。收尾或确认发送失败时不允许该退出；启动失败仍保留自身诊断状态。[桌面应用](../desktop/README.zh.md)仍要求收到关闭确认且进程成功退出后才安装更新。
+
 ## Bot 记忆
 
 Desktop 使用[内置 Muse Bot 记忆](../../third_party/plugins/ds-bot/README.zh.md)跨会话保存笔记，无需另行安装记忆服务。使用已移除的 `muse-hindsight` 插件或 `hindsight_memory` 工具的自定义覆盖文件须按[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-bot-memory/guide.zh.md)调整。

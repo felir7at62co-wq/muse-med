@@ -63,3 +63,22 @@ test('a saved legacy grok theme becomes the mono theme', () => {
   assert.deepEqual(JSON.parse(storage.getItem(STORAGE.prefs)), { theme: 'mono', accent: '#123456' })
   migrateStorage(memoryStorage({ 'ds-bot:prefs': 'not json' }))
 })
+
+test('legacy theme migration retains thinking off and never replaces a current false preference', () => {
+  const storage = memoryStorage({
+    'ds-bot:prefs': JSON.stringify({ theme: 'grok', thinking: false }),
+    'dsh-bot:prefs': JSON.stringify({ theme: 'paper', thinking: true }),
+  })
+  migrateStorage(storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.prefs)), { theme: 'mono', thinking: false })
+  migrateStorage(storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.prefs)), { theme: 'mono', thinking: false })
+})
+
+test('mode selection migration keeps the ordinary Session and Bot selections separate', () => {
+  const selections = { agent: 'ordinary-fixture-session', bot: 'fixture-bot' }
+  const storage = memoryStorage({ 'dsh-bot:surface-selections': JSON.stringify(selections) })
+  migrateStorage(storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.surfaceSelections)), selections)
+  assert.equal(storage.getItem('dsh-bot:surface-selections'), null)
+})

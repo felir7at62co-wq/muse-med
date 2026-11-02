@@ -1,6 +1,7 @@
 /** Prepare the disposable npm-project view used by an unpackaged Electron shell. */
 
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -28,6 +29,39 @@ interface PackageManifest {
   readonly version?: string
   readonly main?: string
   readonly dependencies?: Readonly<Record<string, string>>
+}
+
+/**
+ * Copy an explicitly selected user patch into the prepared development profile without changing its source.
+ * Existing regular targets are replaced atomically; links and other file types are refused.
+ * The project and copied patch use owner-only permissions. Contents are copied without filtering or logging.
+ * @param projectDir - Prepared development project directory, which must not be a link.
+ * @param sourceFile - Existing regular file to copy, or undefined to leave the profile unchanged.
+ */
+export function copyDevelopmentUserPatch(projectDir: string, sourceFile: string | undefined): void {
+  if (sourceFile === undefined) return
+  const target = join(projectDir, 'cordis.patch.yml')
+  if (!lstatSync(sourceFile).isFile()) throw new Error('desktop development: user patch source must be a regular file')
+  if (!lstatSync(projectDir).isDirectory()) throw new Error('desktop development: project must be a directory, not a link')
+  let targetExists = false
+  try {
+    if (!lstatSync(target).isFile()) throw new Error('desktop development: user patch target must be a regular file')
+    targetExists = true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (targetExists && realpathSync(sourceFile) === realpathSync(target)) {
+    throw new Error('desktop development: user patch source must differ from its target')
+  }
+  chmodSync(projectDir, 0o700)
+  const staging = mkdtempSync(join(projectDir, '.user-patch-'))
+  try {
+    const temporary = join(staging, 'cordis.patch.yml')
+    writeFileSync(temporary, readFileSync(sourceFile), { flag: 'wx', mode: 0o600 })
+    renameSync(temporary, target)
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
+  }
 }
 
 /** Inputs whose locations differ between the launcher and isolated tests. */
@@ -230,6 +264,7 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   try {
     removeOwnedPath(options.projectDir)
     createDevelopmentProjectMetadata(options.projectDir, options.release)
+    chmodSync(options.projectDir, 0o700)
     mkdirSync(destinationModules, { recursive: true })
     const names = [
       ...mirrorDependencyLinks(options.dependencyDir, destinationModules),

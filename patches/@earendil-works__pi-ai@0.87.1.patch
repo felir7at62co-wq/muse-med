@@ -66,7 +66,16 @@ diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
                      output.usage = parseChunkUsage(choice.usage, model);
                  }
                  if (choice.finish_reason) {
-@@ -437,7 +441,6 @@
+@@ -433,11 +437,15 @@
+                             if (!block.name && name) {
+                                 block.name = name;
+                             }
++                            // Gemini OpenAI-compatible endpoints require this signature on replay.
++                            const geminiThoughtSignature = toolCall.extra_content?.google?.thought_signature;
++                            if (typeof geminiThoughtSignature === "string" && geminiThoughtSignature.length > 0) {
++                                block.thoughtSignature = geminiThoughtSignature;
++                            }
+                             let delta = "";
                              if (toolCall.function?.arguments) {
                                  delta = toolCall.function.arguments;
                                  block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;
@@ -74,6 +83,24 @@ diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
                              }
                              else if (toolCall.custom?.input) {
                                  const nextInput = getCustomToolCallInput(block) + toolCall.custom.input;
+@@ -1028,6 +1036,9 @@
+                             },
+                         };
+                     }
++                    const geminiThoughtSignature = tc.thoughtSignature && !parseLegacyEncryptedReasoningDetail(tc.thoughtSignature)
++                        ? tc.thoughtSignature
++                        : undefined;
+                     return {
+                         id: tc.id,
+                         type: "function",
+@@ -1035,6 +1046,7 @@
+                             name: tc.name,
+                             arguments: JSON.stringify(tc.arguments),
+                         },
++                        ...(geminiThoughtSignature && { extra_content: { google: { thought_signature: geminiThoughtSignature } } }),
+                     };
+                 });
+             }
 diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
 index 43e463dbfd1e6cc437ebc680468036f47678de26..f4259772e289c326697ea7f2ece25954bfb5a520 100644
 --- a/dist/api/openai-responses-shared.js

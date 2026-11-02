@@ -1,0 +1,14 @@
+version: 1
+scenario: skill-root-isolation
+profile: headless
+composition: skill-root-isolation
+recording: authored
+writerOutput: true
+header:
+  class: skill-root-isolation
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+platform: posix
+workspace:
+  setup: skill-root-isolation

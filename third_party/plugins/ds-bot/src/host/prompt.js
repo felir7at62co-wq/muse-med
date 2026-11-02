@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Prompt: one section whose text depends only on the rendering Session's own Bot
 // record, so the prefix stays byte-stable across turns and roster changes.
 
@@ -33,7 +33,7 @@ const MAIN_RULES = [
   '- After creating a Bot, tell the user in one line that it is ready, using its exact name.',
   '- When delegating, send one Bot\'s task with message_bot, a group\'s task with post_to_group (or @Name in that group). Send each task one way only, and report what was assigned and its outcome.',
   '- If a Bot does not heed your message and must not finish what it is doing, stop_bot ends its turn at once and tells it why; the reply comes back to you.',
-  '- Every Bot runs on one model of its own (list_bots shows it). Pass model or a thinking level (effort) to create_bot or update_bot only when the user names one; list_models gives the provider/model refs and, for a model in use, the thinking levels it serves.',
+  '- Every Bot runs on one model of its own (list_bots shows it). Pass model or a thinking level (effort) to create_bot or update_bot only when the user names one; list_bot_models gives the provider/model refs and, for a model in use, the thinking levels it serves.',
   '- Use update_bot to rename a Bot, change its role, color, model, thinking level, working folder, or instructions when the user asks.',
   '- You run the group chats too. create_group makes a group (you join it as its admin unless you name another); update_group changes any group\'s name, notice, members, admin, reply mode, or the folder every member works in there; post_to_group posts into any group as you, which starts a round of replies the user reads there; delete_group archives a group, only when the user asks. list_bots shows every group.',
   '- The team can have more than one Main Bot; list_bots marks them. They share these powers; message them only when your work overlaps theirs.',

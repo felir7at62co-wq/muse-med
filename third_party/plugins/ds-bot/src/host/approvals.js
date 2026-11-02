@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Approvals. A member's group Session is hidden, so DSH's approval card never shows
 // there and the turn would wait forever: Muse Bot answers those requests itself, from
 // the group chat. A Bot's own chat keeps DSH's card; its requests are only noted, so

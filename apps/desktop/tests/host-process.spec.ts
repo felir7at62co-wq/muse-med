@@ -191,6 +191,32 @@ describe('desktop host process', () => {
     expect(failure).not.toHaveBeenCalled()
   })
 
+  it('accepts a cleaned Host exit despite leftover plugin handles only after shutdown acknowledgement', async () => {
+    const shutdownModule = new URL('../../desktop-host/src/shutdown.ts', import.meta.url).href
+    const runtime = projectWithHost(`
+      import { shutdownDesktopHost } from ${JSON.stringify(shutdownModule)}
+      import { writeFileSync } from 'node:fs'
+      import { join } from 'node:path'
+      // Simulate a disposed plugin whose incidental timer would prevent natural Node exit.
+      setInterval(() => {}, 1000)
+      process.send({ type: 'ready', hostProtocolVersion: ${DESKTOP_HOST_PROTOCOL_VERSION}, url: 'http://127.0.0.1:1/' })
+      const application = Promise.resolve({ shutdown: { shutdown: async () => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+        writeFileSync(join(process.argv[3], 'stopped'), 'cleaned')
+      } } })
+      process.on('message', message => {
+        if (message.type !== 'shutdown') return
+        void shutdownDesktopHost(application, () => new Promise((resolve, reject) => {
+          process.send({ type: 'shutdown-complete' }, error => error === null ? resolve() : reject(error))
+        }))
+      })
+    `)
+    const host = hostProcess(runtime)
+    await host.start()
+    await host.stop(true)
+    expect(existsSync(join(runtime, 'stopped'))).toBe(true)
+  })
+
   it('passes external dependencies and package-manager paths to the Host', async () => {
     const runtime = projectWithHost(HTTP_HOST.replace('runtime: process.argv[2]',
       'pnpm: process.argv[5], nodeBin: process.argv[6], primaryRuntime: process.argv[4], runtime: process.argv[2]'))

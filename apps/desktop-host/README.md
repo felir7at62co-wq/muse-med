@@ -7,6 +7,8 @@ description: "Product-owned Muse Desktop Host configuration and agent preset def
 
 English | [中文](README.zh.md)
 
+The Host awaits application teardown and IPC delivery of its shutdown acknowledgement before explicitly exiting. Incidental event-loop handles retained by disposed plugins cannot delay a completed shutdown. Failed teardown or acknowledgement does not authorize that exit; startup failure retains its own diagnostic status. The [Desktop application](../desktop/README.md) still requires the acknowledgement and a successful process exit before installing an update.
+
 ## Bot memory
 
 Desktop uses the [built-in Muse Bot memory](../../third_party/plugins/ds-bot/README.md) for persistent notes across conversations, without a separate memory service. Custom overlays using the removed `muse-hindsight` plugin or `hindsight_memory` tool must follow the [migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-bot-memory/guide.md).

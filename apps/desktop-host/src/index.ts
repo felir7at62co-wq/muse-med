@@ -18,6 +18,7 @@ import * as desktopOffice from './office.ts'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
+import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { attentionSoundForEvent } from './attention-sound.ts'
@@ -173,16 +174,7 @@ async function main(): Promise<void> {
     if (!process.connected || process.send === undefined) { resolve(); return }
     process.send(message, (error) => { if (error === null) resolve(); else reject(error) })
   })
-  const stop = (): Promise<void> => stopping ??= (async () => {
-    // Startup failure is reported by main; shutdown only owns a tree that booted.
-    const running = await application.catch(() => undefined)
-    await running?.shutdown.shutdown(0)
-    await send({ type: 'shutdown-complete' })
-    if (process.connected) {
-      if (process.disconnect === undefined) throw new Error('desktop host: connected IPC has no disconnect method')
-      process.disconnect()
-    }
-  })()
+  const stop = (): Promise<void> => stopping ??= shutdownDesktopHost(application, () => send({ type: 'shutdown-complete' }))
   process.on('message', (message: unknown) => {
     if (typeof message !== 'object' || message === null || !('type' in message)) return
     if (message.type === 'shutdown') { void stop(); return }

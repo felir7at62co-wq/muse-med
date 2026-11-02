@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // The context steward. Once a Bot's conversation passes its check line, a separate,
 // small model call reads the latest messages and decides one thing: has the work
 // reached a stopping point (move on to a fresh part), or is it still under way

@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Builds client.js, the browser half, from the modules in src/client.
 //
 //   node scripts/build-client.mjs           writes client.js
@@ -18,6 +18,7 @@ const OUTPUT = join(PLUGIN, 'client.js')
 const SPIDER_IMAGE = join(PLUGIN, 'src/client/assets/muse-spider-body.png')
 const SPIDER_MODULE = join(PLUGIN, 'src/client/muse-spider-art.js')
 const PLATFORM_MODULES = ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives']
+const normalizeLines = text => text.split('\n').map(line => line.trimEnd()).join('\n')
 
 export async function bundleClient() {
   const result = await build({
@@ -39,12 +40,12 @@ export async function bundleClient() {
   if (result.warnings.length > 0) throw new Error(`esbuild warnings:\n${result.warnings.map(warning => warning.text).join('\n')}`)
   return [
     '// Generated from src/client by `npm run build` (scripts/build-client.mjs). Do not edit by hand.',
-    '// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.',
+    '// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.',
     'window.__ModuleLoader__.load({',
     '  id: \'ds-bot\',',
     '  factory: (require) => {',
     'const module = { exports: {} }',
-    result.outputFiles[0].text.trimEnd(),
+    normalizeLines(result.outputFiles[0].text).trimEnd(),
     // The loader gets a plain exports object tagged as a module, as the tsdown preset
     // emits, rather than esbuild's getter-based `__esModule` object.
     'return Object.defineProperty({ ...module.exports }, Symbol.toStringTag, { value: \'Module\' })',
@@ -52,6 +53,27 @@ export async function bundleClient() {
     '})',
     '',
   ].join('\n')
+}
+
+const OFFICE_OUTPUT = join(PLUGIN, 'office.js')
+
+export async function bundleOffice() {
+  const result = await build({
+    absWorkingDir: PLUGIN,
+    entryPoints: ['src/office/cli.js'],
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'es2022',
+    charset: 'utf8',
+    write: false,
+    logLevel: 'silent',
+    banner: {
+      js: '#!/usr/bin/env node\n// Generated from src/office by `npm run build` (scripts/build-client.mjs). Do not edit by hand.',
+    },
+  })
+  if (result.warnings.length > 0) throw new Error(`esbuild warnings:\n${result.warnings.map(warning => warning.text).join('\n')}`)
+  return normalizeLines(result.outputFiles[0].text)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -62,14 +84,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeFileSync(SPIDER_MODULE, spiderModule)
   }
   const next = await bundleClient()
+  const office = await bundleOffice()
   if (process.argv.includes('--check')) {
-    let current = null
+    let current = null, currentOffice = null
     try { current = readFileSync(OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
-    if (current !== next) {
-      console.error('client.js is stale: run `npm run build` in ds-bot and commit the result')
+    try { currentOffice = readFileSync(OFFICE_OUTPUT, 'utf8') } catch { /* missing counts as stale */ }
+    if (current !== next || currentOffice !== office) {
+      console.error('client.js or office.js is stale: run `npm run build` in ds-bot and commit the result')
       process.exit(1)
     }
   } else {
     writeFileSync(OUTPUT, next)
+    writeFileSync(OFFICE_OUTPUT, office)
   }
 }

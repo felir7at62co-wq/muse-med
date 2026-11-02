@@ -1,9 +1,11 @@
 /** Exercise native Main Bot identity and roster output through the Headless Session runner. */
+import { install as installPrivacy } from '../../../third_party/plugins/ds-bot/src/host/privacy.js'
 import { install as installPrompt } from '../../../third_party/plugins/ds-bot/src/host/prompt.js'
 import { install as installTools } from '../../../third_party/plugins/ds-bot/src/host/tools.js'
 import { install as installMemory } from '../../../third_party/plugins/ds-bot/src/host/memory.js'
 import { install as installStore } from '../../../third_party/plugins/ds-bot/src/host/store.js'
 import { install as installModels } from '../../../third_party/plugins/ds-bot/src/host/models.js'
+import { resolveMuseConfig } from '../../../third_party/plugins/ds-bot/src/host/muse-config.js'
 import { MuseTeamService } from '../../../third_party/plugins/ds-bot/src/host/muse-team.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
@@ -85,7 +87,7 @@ export async function apply(ctx) {
       },
       workspaceRegistry: { list: () => [{ id: 'drama-workspace', sessionIds: ['episode-editor'] }], archivedSessionIds: [] },
     },
-    config: { goals: 'host', autoSessionBots: true, sessionBotSyncIntervalMs: 30000 },
+    config: resolveMuseConfig(),
     home: memoryHome,
     statePath,
     sessionFolder: () => '/project/drama',
@@ -126,6 +128,12 @@ export async function apply(ctx) {
   assert.deepEqual(rt.modelView(rt.botOf(independentBot.id)), {})
   rt.museTeam = new MuseTeamService(rt, () => 1783352044766)
   ctx.effect(() => () => rt.museTeam.dispose(), 'Muse Bot snapshot: Session identity service')
+  const beforeDiscovery = JSON.stringify(state.bots)
+  await rt.museTeam.syncSessionsAsBots()
+  assert.equal(JSON.stringify(state.bots), beforeDiscovery)
+  assert.equal(rt.botOf('episode-editor'), undefined)
+  assert.match(readFileSync(join(ownMemory, 'MEMORY.md'), 'utf8'), /用户偏好克制表演/)
+  installPrivacy(rt)
   installPrompt(rt)
   installTools(rt)
   installMemory({ ...rt, config: { ...rt.config, memoryReview: true }, readOnly: () => 'Read-only recorded Session' })

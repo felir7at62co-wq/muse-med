@@ -8,6 +8,8 @@
 
 源码清单中 desktop: false 的条目仅保留用于显式兼容工作，默认构建、桌面打包与开发加载均排除。Codex 订阅包含在产品构建中；不会仅因订阅插件而选择可选 Codex CLI peer。--only dsh-codex-subscription 可单独构建其经过审核的产物。
 
+构建工具链使用独立 workspace 配置，仅跳过 deep-view 的四个 Host peer 的自动安装；暂存目录仍提供本仓库已构建的实际 Host 依赖。DS Bot 0.2.4 同时构建浏览器模块与独立 Office CLI，保留 Office skills；桌面包将该 CLI 从应用归档中解包以供执行。
+
 ## 构建
 
 使用已安装依赖、且已构建当前 Host 与 Client 包的源码仓库。在仓库根目录运行：

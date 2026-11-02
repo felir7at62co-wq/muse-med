@@ -12,7 +12,7 @@ export function resolveMuseConfig(config = {}) {
     contextManagement: config.contextManagement ?? 'host',
     goals: config.goals ?? 'host',
     memoryReview: config.memoryReview ?? true,
-    autoSessionBots: config.autoSessionBots ?? true,
+    autoSessionBots: config.autoSessionBots ?? false,
     sessionBotSyncIntervalMs: config.sessionBotSyncIntervalMs ?? 30000,
     github: config.github ?? false,
     updateCheck: false,

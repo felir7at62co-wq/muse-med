@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Bot state owns durable residency; the Harness owns tool selection and execution.
 
 /** Validate exact tool names from saved state, API requests, or model arguments.

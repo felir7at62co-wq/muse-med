@@ -65,7 +65,7 @@ function runtime(model) {
   const selected = []
   const saved = []
   const state = { bots: { selected: bot, other }, rooms: {}, mainBotIds: [] }
-  const rt = { state, defaults: {}, botOf: id => state.bots[id], chatOf: id => id,
+  const rt = { checkPrivacyChange: async (_bot, change) => { assert.equal(change.flag, undefined); assert.equal(change.moving, false) }, state, defaults: {}, botOf: id => state.bots[id], chatOf: id => id,
     groupSessionsOf: () => [], warn() {}, save: async () => saved.push(structuredClone(state)) }
   rt.ctx = {
     on() {},
@@ -187,8 +187,8 @@ function streamedStep(turn, step, chunks, status = 'running') {
   return { turn, step, status, blocks: state.blocks.filter(Boolean), time: state.firstVisibleTime }
 }
 
-function presentation(bot, prefs, steps, tool, actions) {
-  const roster = { bots: [bot], byId: { [bot.id]: bot }, rooms: [], roomsById: {}, exchangeTurns: {}, prefs }
+function presentation(bot, prefs, steps, tool, actions, rosterPatch = {}) {
+  const roster = { bots: [bot], byId: { [bot.id]: bot }, rooms: [], roomsById: {}, exchangeTurns: {}, prefs, ...rosterPatch }
   const common = { sessionId: bot.id, useRoster: select => select(roster), actions }
   return h('div', null,
     steps.map(data => h(AssistantCell, { ...common, key: data.step,
@@ -218,21 +218,69 @@ for (const prefs of [{}, { thinking: true }, { thinking: false }]) {
     assert.equal(view.container.textContent.includes(summary), expected)
     assert.equal(view.container.querySelectorAll('details.bt-think').length, expected ? 1 : 0)
     steps[0] = { ...steps[0], status: 'settled' }
+    await view.render(presentation(bot, prefs, steps, undefined, actions))
+    assert.equal(view.container.textContent.includes(summary), expected)
+    assert.equal(view.container.querySelectorAll('details.bt-think').length, expected ? 1 : 0)
     const pendingTool = { phase: 'start', turn: 1, name: 'probe_value', callId: 'probe-1', argsRaw: '{"value":17}', subCalls: [] }
     await view.render(presentation(bot, prefs, steps, pendingTool, actions))
-    assert.match(view.container.querySelector('[data-tool-activity]').textContent, /probe_value.*Result pending/)
+    assert.equal(view.container.querySelector('[data-tool-activity]'), null)
+    assert.equal(view.container.textContent.includes('Tool activity'), false)
+    assert.ok(notes.get('tool:probe-1'), 'a running ordinary tool still reports progress to the activity row')
     assert.equal(view.container.textContent.includes('{"value":17}'), false)
     const returnedTool = { kind: 'tool-result', turn: 1, name: 'probe_value', callId: 'probe-1',
-      call: { name: 'probe_value', argsRaw: '{"value":17}' }, content: [{ type: 'text', text: '17' }], isError: false }
+      call: { name: 'probe_value', argsRaw: '{"value":17}' }, content: [{ type: 'text', text: 'Private fixture tool output' }], isError: false }
     steps.push(streamedStep(1, 2, [
       { type: 'block-start', index: 0, blockType: 'text' },
       { type: 'text-delta', index: 0, text: 'The value is 17.' },
     ]))
     await view.render(presentation(bot, prefs, steps, returnedTool, actions))
-    assert.match(view.container.querySelector('[data-tool-activity]').textContent, /probe_value.*Result returned/)
+    assert.equal(view.container.querySelector('[data-tool-activity]'), null)
+    assert.equal(view.container.textContent.includes('Tool activity'), false)
+    assert.equal(view.container.textContent.includes('Private fixture tool output'), false)
+    assert.equal(notes.has('tool:probe-1'), false, 'settled ordinary tools release their activity note')
     assert.equal(view.container.querySelector('[data-reply]').textContent, 'The value is 17.')
     assert.equal(view.container.textContent.split(summary).length - 1, expected ? 1 : 0)
     assert.ok([...notes.values()].some(value => value.text === true))
     assert.equal(view.container.textContent.includes('Weighing the options'), false)
+    const history = await mount(t)
+    const settledSteps = steps.map(step => ({ ...step, status: 'settled' }))
+    await history.render(presentation(bot, prefs, settledSteps, returnedTool, actions))
+    assert.equal(history.container.querySelector('[data-tool-activity]'), null)
+    assert.equal(history.container.textContent.includes('Tool activity'), false)
+    assert.equal(history.container.textContent.includes('Private fixture tool output'), false)
+    assert.equal(history.container.textContent.split(summary).length - 1, expected ? 1 : 0)
+    assert.equal(history.container.querySelectorAll('details.bt-think').length, expected ? 1 : 0)
+    assert.equal(history.container.querySelector('[data-reply]').textContent, 'The value is 17.')
+  })
+}
+
+for (const thinking of [false, true]) {
+  void test(`question cards remain interactive with thinking ${thinking} and no ordinary tool log`, async t => {
+    const { bot } = runtime('gemini-3.1-pro')
+    const view = await mount(t)
+    const answered = []
+    const cards = []
+    const actions = {
+      noteLive() {},
+      noteCards: (sessionId, callIds, delta) => cards.push({ sessionId, callIds: [...callIds], delta }),
+      answerQuestion: async (...args) => answered.push(structuredClone(args)),
+      dismissQuestion: async () => {},
+    }
+    const question = { id: 'fixture-question', callId: 'ask-1', question: 'Which fixture should be used?',
+      options: [{ label: 'First fixture' }], allowCustom: true }
+    const roster = { questions: { [bot.id]: question } }
+    const ordinary = { phase: 'start', turn: 1, name: 'probe_value', callId: 'probe-1', argsRaw: '{}', subCalls: [] }
+    const pending = { phase: 'start', turn: 1, name: 'ask_user', callId: 'ask-1', argsRaw: '{}', subCalls: [ordinary] }
+    await view.render(presentation(bot, { thinking }, [], pending, actions, roster))
+    assert.equal(view.container.querySelector('[data-tool-activity]'), null)
+    assert.equal(view.container.querySelector('.bt-q-title').textContent, question.question)
+    assert.deepEqual(cards.at(-1), { sessionId: bot.id, callIds: ['ask-1'], delta: 1 })
+    const settled = { kind: 'tool-result', turn: 1, name: 'ask_user', callId: 'ask-1',
+      call: { name: 'ask_user', argsRaw: '{}' }, content: [], isError: false }
+    await view.render(presentation(bot, { thinking }, [], settled, actions, roster))
+    assert.equal(view.container.querySelector('[data-tool-activity]'), null)
+    assert.equal(view.container.querySelector('.bt-q-title').textContent, question.question)
+    await act(async () => view.container.querySelector('.bt-q-opt').click())
+    assert.deepEqual(answered, [[bot.id, question.id, { selected: ['First fixture'], custom: '' }]])
   })
 }

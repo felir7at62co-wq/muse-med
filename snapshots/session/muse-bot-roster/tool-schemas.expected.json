@@ -307,7 +307,7 @@
           },
           "scope": {
             "type": "string",
-            "description": "Omit for yours, the team's, and in a group chat the group's; \"own\", \"group\", \"team\", or a Bot's name (Main Bots only)"
+            "description": "Omit for yours, the team's, and in a group chat the group's; \"own\", \"group\", \"team\", or a Bot's name (Main Bots; private Bots may read public Bots)"
           }
         }
       }

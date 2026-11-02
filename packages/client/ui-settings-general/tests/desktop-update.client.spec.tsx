@@ -177,3 +177,14 @@ it.each([
     expect((await screen.findByRole('tooltip')).textContent).toBe(label)
   } finally { f.view.unmount(); f.status.resolve({ phase: 'idle' }) }
 })
+
+it.each([zh, en])('explains a fullscreen preparation failure in the active Web locale', async (dictionary) => {
+  const f = fixture()
+  try {
+    f.view.rerender(<f.Indicator dictionary={dictionary} />)
+    await f.emit({ phase: 'error', failure: 'fullscreen-timeout' })
+    fireEvent.focus(screen.getByRole('button'))
+    expect((await screen.findByRole('tooltip')).textContent).toBe(dictionary['desktop.update.fullscreenTimeout'])
+    expect(f.open).not.toHaveBeenCalled()
+  } finally { f.view.unmount(); f.status.resolve({ phase: 'idle' }) }
+})

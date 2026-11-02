@@ -662,6 +662,88 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.retain).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { denied: ['bot'], expected: 'ordinary', reused: 'ordinary' },
+    { denied: ['bot', 'ordinary'], expected: 'created-a', reused: undefined },
+    { denied: [], expected: 'bot', reused: 'bot' },
+  ])('filters reusable blanks without blocking creation: $denied', async ({ denied, expected, reused }) => {
+    const b = bench({
+      sessions: sessionState([
+        summary('bot', { blank: true, cwd: '/w/a' }),
+        summary('ordinary', { blank: true, cwd: '/w/a' }),
+      ], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('bot'), sid('ordinary')])]),
+    })
+    const release = b.uiWorkspace.registerBlankSessionFilter(id => !denied.includes(id))
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid(expected))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), ...reused === undefined ? {} : { sessionId: sid(reused) } })
+    release()
+    b.sessions.create.mockClear()
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('bot'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('bot') })
+  })
+
+  it('keeps repeated registrations independent and applies every blank filter', async () => {
+    const b = bench({
+      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('blank')])]),
+    })
+    const deny = () => false
+    const first = b.uiWorkspace.registerBlankSessionFilter(deny)
+    const second = b.uiWorkspace.registerBlankSessionFilter(deny)
+    const allow = b.uiWorkspace.registerBlankSessionFilter(() => true)
+    first()
+    first()
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('created-a'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
+    second()
+    b.sessions.create.mockClear()
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('blank'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('blank') })
+    allow()
+  })
+
+  it('releases a plugin blank filter when its Cordis fiber unloads', async () => {
+    const b = bench({
+      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('blank')])]),
+    })
+    const fiber = b.ctx.plugin((scope) => {
+      scope.effect(() => b.uiWorkspace.registerBlankSessionFilter(() => false))
+    })
+    await fiber.await()
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('created-a'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
+    await fiber.dispose()
+    b.sessions.create.mockClear()
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('blank'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('blank') })
+  })
+
+  it('refuses acquisition when a blank filter throws instead of reusing the Session', async () => {
+    const b = bench({
+      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('blank')])]),
+    })
+    const release = b.uiWorkspace.registerBlankSessionFilter(() => { throw new Error('ownership unavailable') })
+    await expect(b.uiWorkspace.connectWorkspace(wid('a'))).rejects.toThrow('ownership unavailable')
+    expect(b.sessions.create).not.toHaveBeenCalled()
+    release()
+  })
+
+  it('restores an explicitly saved blank even when New Session filters reject its reuse', async () => {
+    persistSelection({ sessionId: sid('bot') })
+    const b = bench({
+      sessions: sessionState([summary('bot', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('bot')])]),
+    })
+    const release = b.uiWorkspace.registerBlankSessionFilter(() => false)
+    b.sessions.list.set(sessionState([summary('bot', { blank: true, cwd: '/w/a' })]))
+    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('bot'), { source: 'mainView' }) })
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('bot') })
+    release()
+  })
+
   it('reports a refused explicit Session creation through the Workspace notice', async () => {
     const b = bench({ workspaces: workspaceState([workspace('a')]), sessions: sessionState() })
     // Startup restoration creates its own Session first and stays quiet on failure (pinned above).

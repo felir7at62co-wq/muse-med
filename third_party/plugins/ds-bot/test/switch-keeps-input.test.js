@@ -33,7 +33,7 @@ const INACTIVE = 'cannot get required service "sessions" in inactive context'
 
 // `fail.create`/`fail.resolve`/`fail.flush`: true fails with the inactive-context
 // error; an Error value fails with it, so an ordinary error is testable too.
-async function start({ fail = {}, services = {}, home: reuse } = {}) {
+async function start({ fail = {}, services = {}, home: reuse, config = {}, initialState = TEAM } = {}) {
   const root = reuse === undefined
     ? realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-switch-')))
     : join(reuse, '..', '..')
@@ -41,7 +41,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
-  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(initialState))
 
   // The real inbox is durable; the fake keeps it in a file so a "restart" sees it.
   const inboxPath = join(home, 'fake-inbox.json')
@@ -65,6 +65,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const errorOf = value => (value instanceof Error ? value : new Error(INACTIVE))
   let flushes = 0
   const created = []
+  const selected = []
   const resolved = []
   const archived = []
   const cwds = new Map()
@@ -114,7 +115,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
       list: () => [{ id: 'w1', path: team }],
       resolveByPath: async () => undefined,
       create: async path => ({ id: 'w-new', path }),
-      archiveSession: async (sessionId) => { archived.push(sessionId) },
+      archiveSession: async (sessionId, options) => { archived.push([sessionId, options]) },
     },
     sessionController: {
       create: async (options) => {
@@ -129,7 +130,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
         resolved.push(sessionId)
         return { agent: agentOf(sessionId) }
       },
-      selectModel: async () => {},
+      selectModel: async options => { selected.push(options) },
       page: async () => ({ records: [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
@@ -148,7 +149,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, legacyConfig({ home }))
+  const rt = createRuntime(ctx, legacyConfig({ home, ...config }))
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
@@ -161,7 +162,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
     if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
   await tool('list_bots', {}, 'a')
-  return { ctx, rt, root, home, team, project, created, resolved, archived, agentOf, call, tool, preStep, state, warnings, infos, fail, stop }
+  return { ctx, rt, root, home, team, project, created, selected, resolved, archived, agentOf, call, tool, preStep, state, warnings, infos, fail, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -190,6 +191,104 @@ const moveWriter = async (host, input, step = 2) => {
   assert.equal((await host.tool('update_bot', { work_dir: host.project }, 'b')).includes('From your next step on'), true)
   assert.deepEqual(await host.preStep('b', input, step), { kind: 'reject' })
 }
+
+test('Host context management still moves an idle group member to its saved working folder', async (t) => {
+  const initialState = structuredClone(TEAM)
+  Object.assign(initialState.bots.b, { model: 'deepseek/flash', effort: 'low', agentPreset: 'standard' })
+  initialState.rooms.room = { id: 'room', name: 'Room', members: ['a', 'b'], admin: 'a', mode: 'admin', sessions: { b: 'group-b' }, segments: { b: [{ sessionId: 'group-past', endedAt: 1 }] } }
+  const goal = { id: 'host-goal', phase: 'complete', objective: 'Preserve this Host goal' }
+  const host = await start({ initialState, config: { contextManagement: 'host' }, services: { ...services, goals: { get: () => goal }, tokenMeter: { measure: () => ({ totalTokens: 1_000_000 }) } } })
+  t.after(host.stop)
+  let modelRequests = 0
+  host.ctx.llm.stream = () => { modelRequests++; throw new Error('No model request is needed for this fixture') }
+  host.ctx.llm.listProviders = () => [{ id: 'deepseek' }]
+  host.ctx.llm.listModels = async () => [{ id: 'flash' }]
+  host.ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 }, reasoning: { efforts: [{ id: 'low', name: 'Low' }] } })
+  const memoryDir = join(host.home, 'memory', 'bots', 'b')
+  mkdirSync(memoryDir, { recursive: true })
+  const memoryPath = join(memoryDir, 'MEMORY.md')
+  writeFileSync(memoryPath, '- Preserve the character continuity.\n')
+  const memoryBefore = readFileSync(memoryPath, 'utf8')
+  const botBefore = structuredClone(host.rt.botOf('b'))
+  goal.phase = 'active'
+  const blocked = await host.call('update-room', { id: 'room', workDir: host.project })
+  assert.equal(blocked.ok, false)
+  assert.match(blocked.error.message, /任务仍在当前会话/)
+  assert.equal(host.state().rooms.room.workDir, undefined)
+  assert.equal(host.created.length, 0)
+  goal.phase = 'complete'
+  const change = await host.call('update-room', { id: 'room', workDir: host.project })
+  assert.equal(change.ok, true)
+  assert.equal(host.created.length, 0, 'the saved folder applies at the member\'s next group turn')
+  for (const phase of ['active', 'paused', 'blocked']) {
+    goal.phase = phase
+    assert.equal(await host.preStep('group-b'), 'next', 'saved settings cannot move an unfinished Host goal')
+    assert.equal(host.created.length, 0)
+  }
+  goal.phase = 'complete'
+  host.rt.state.rooms.room.workDir = join(host.project, 'missing')
+  assert.equal(await host.preStep('group-b'), 'next', 'a missing target folder does not fall back to a different Host workspace')
+  assert.equal(host.created.length, 0)
+  host.rt.state.rooms.room.workDir = host.project
+  assert.equal(await host.preStep('group-b', [], 2), 'next', 'the current group turn stays in its original Session')
+  assert.equal(host.created.length, 0)
+  assert.deepEqual(await host.preStep('group-b', [said('carry', 'Continue the group task')]), { kind: 'reject' })
+  await until(() => host.state().rooms.room.sessions.b === 's1' && host.state().switching['group-b'] === undefined)
+  assert.deepEqual(host.created, [{ cwd: host.project, agentPreset: 'standard' }])
+  assert.deepEqual(host.selected, [{ sessionId: 's1', provider: 'deepseek', model: 'flash', saveDefault: false, reasoningEffort: 'low' }])
+  const saved = host.state()
+  assert.deepEqual(saved.rooms.room.members, ['a', 'b'])
+  assert.deepEqual(saved.rooms.room.segments.b.map(part => part.sessionId), ['group-past', 'group-b'])
+  assert.equal(saved.rooms.room.admin, 'a')
+  assert.equal(saved.rooms.room.mode, 'admin')
+  assert.deepEqual(saved.bots.b, botBefore)
+  assert.equal(host.rt.selfOf('s1'), 'b')
+  assert.equal(host.rt.selfOf('group-b'), 'b')
+  assert.equal(readFileSync(memoryPath, 'utf8'), memoryBefore)
+  assert.deepEqual(goal, { id: 'host-goal', phase: 'complete', objective: 'Preserve this Host goal' })
+  assert.ok(host.archived.some(([id]) => id === 'group-b'))
+  const fresh = host.agentOf('s1')
+  const forwarded = fresh.calls.filter(([kind]) => kind === 'followup' || kind === 'inject').map(([, message]) => text(message))
+  assert.equal(forwarded.filter(value => value === 'Continue the group task').length, 1)
+  fresh.session.requestHeader = () => ({ config: { provider: 'deepseek', model: 'flash' } })
+  assert.equal(await host.preStep('s1'), 'next', 'context pressure still belongs to the Host')
+  for (const listener of host.ctx.listeners.get('agent/request-error') ?? []) {
+    assert.equal(await listener({ agent: fresh, failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(1000) }, async () => 'host-fallback'), 'host-fallback')
+  }
+  assert.equal(host.created.length, 1, 'overflow does not start Bot-managed parts')
+  assert.equal(modelRequests, 0)
+})
+
+test('a Host folder move keeps its original Session when the goal service is unavailable', async (t) => {
+  const initialState = structuredClone(TEAM)
+  initialState.rooms.room = { id: 'room', name: 'Room', members: ['a', 'b'], sessions: { b: 'group-b' } }
+  const host = await start({ initialState, config: { contextManagement: 'host' }, services })
+  t.after(host.stop)
+  host.rt.state.rooms.room.workDir = host.project
+  assert.equal(await host.preStep('group-b'), 'next')
+  assert.equal(host.rt.roomOf('room').sessions.b, 'group-b')
+  assert.equal(host.created.length, 0)
+  assert.deepEqual([...host.rt.switchJobs()], [])
+})
+
+test('a Host folder move rechecks its goal after waiting for the original Session to become idle', async (t) => {
+  const initialState = structuredClone(TEAM)
+  initialState.rooms.room = { id: 'room', name: 'Room', members: ['a', 'b'], sessions: { b: 'group-b' } }
+  const goal = { phase: 'complete' }
+  const host = await start({ initialState, config: { contextManagement: 'host' }, services: { ...services, goals: { get: () => goal } } })
+  t.after(host.stop)
+  host.rt.state.rooms.room.workDir = host.project
+  const member = host.agentOf('group-b')
+  member.whenIdle = async () => { goal.phase = 'active' }
+  assert.deepEqual(await host.preStep('group-b', [said('carry', 'Keep this input in its original Session')]), { kind: 'reject' })
+  await until(() => [...host.rt.switchJobs()].length === 0)
+  assert.equal(host.rt.roomOf('room').sessions.b, 'group-b')
+  assert.equal(host.created.length, 0)
+  assert.deepEqual(host.archived, [])
+  const forwarded = member.calls.filter(([kind]) => kind === 'followup' || kind === 'inject').map(([, message]) => text(message))
+  assert.deepEqual(forwarded, ['Keep this input in its original Session'])
+  assert.deepEqual(host.state().switching, {})
+})
 
 test('a move that fails while the plugin unloads hands its input back to the part it left', async (t) => {
   // The first flush writes the fresh part's handoff; the second moves the input.
@@ -301,7 +400,7 @@ test('a marked earlier part hands its kept input on after a restart, once, and i
   assert.equal(delivered.filter(id => id === 'e-carry').length, 0) // already pending — not sent twice
   assert.equal(delivered.filter(id => id === 'e-held').length, 1)
   assert.deepEqual(inboxTexts(second.agentOf('b')), [])
-  assert.ok(second.archived.includes('b'))
+  assert.deepEqual(second.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(second.state().switching, {})
 })
 
@@ -327,6 +426,42 @@ test('a marked part that stayed current is woken for its kept input, once, in or
   ])
   assert.deepEqual(inboxTexts(second.agentOf('b')), [PAUSE, 'keep me', 'and me'])
   assert.deepEqual(second.state().switching, {})
+})
+
+// #571: archiving with stopActivity drops the tasks the earlier part still owns, so
+// the archive waits for the task move the switch started.
+test('an earlier part is stopped only after its tasks moved to the fresh part', async (t) => {
+  const host = await start({ services })
+  t.after(host.stop)
+  const order = []
+  let release
+  const moved = new Promise(resolve => { release = resolve })
+  host.rt.moveSchedules = async (from, to) => { order.push(['move', from, to]); await moved }
+  const archive = host.ctx.workspaceRegistry.archiveSession
+  host.ctx.workspaceRegistry.archiveSession = async (id, options) => { order.push(['archive', id]); return archive(id, options) }
+  await moveWriter(host, [])
+  await until(() => order.length >= 1)
+  await settle()
+  assert.deepEqual(order, [['move', 'b', 's1']])
+  release()
+  await until(() => order.some(([kind]) => kind === 'archive'))
+  assert.deepEqual(order, [['move', 'b', 's1'], ['archive', 'b']])
+})
+
+test('a failed task move leaves the earlier part unarchived and marked for retry', async (t) => {
+  const host = await start({ services })
+  t.after(host.stop)
+  host.rt.moveSchedules = async () => { throw new Error('task storage unavailable') }
+  await moveWriter(host, [])
+  await until(() => host.warnings.some(line => line.includes('task storage unavailable')))
+  await settle()
+  assert.deepEqual(host.archived, [])
+  assert.deepEqual(host.state().switching, { b: { botId: 'b' } })
+
+  host.rt.moveSchedules = async () => {}
+  await host.rt.heldBack()
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  assert.deepEqual(host.state().switching, {})
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {

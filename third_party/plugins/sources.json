@@ -55,8 +55,8 @@
   },
   "ds-bot": {
     "repository": "https://github.com/Fei2411/DS-Bot",
-    "version": "0.2.2",
-    "commit": "de55888a93983fc51c94f7d22bc94b4f8293205d",
+    "version": "0.2.4",
+    "commit": "f823773b07ec6ca29d60b31c31af30218a68000d",
     "license": "Apache-2.0"
   }
 }

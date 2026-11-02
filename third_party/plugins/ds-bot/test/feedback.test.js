@@ -14,6 +14,12 @@ function page(window, { visible = true, available = true } = {}) {
   const notes = []
   const events = []
   const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useMemo: make => make(),
+  useCallback: fn => fn,
+  useId: () => 'dv-id',
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
     useState: initial => [initial, (next) => { if (typeof next === 'string') notes.push(next) }],

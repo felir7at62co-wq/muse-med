@@ -210,8 +210,8 @@ export class FileSystemSkillProvider implements SkillProvider {
   /**
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
-   * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation. Discovery
+   * @returns candidates from readable roots with stable ranks; root or watcher
+   *   failures make the observation incomplete and retryable. Discovery
    *   cancellation and its configured deadline reject without publishing partial results.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
@@ -243,8 +243,15 @@ export class FileSystemSkillProvider implements SkillProvider {
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
       options.signal.throwIfAborted()
-      for (const skill of await discoverRoot(root, this.ctx, this.name, options.signal)) {
-        candidates.push(skill)
+      try {
+        const discovered = await discoverRoot(root, this.ctx, this.name, options.signal)
+        options.signal.throwIfAborted()
+        candidates.push(...discovered)
+      } catch (error) {
+        options.signal.throwIfAborted()
+        if (this.disposal !== undefined) throw error
+        complete = false
+        this.ctx.logger.warn(`skill root "${root.path}" skipped: ${errorMessage(error)}. Other roots remain available; check this directory's permissions and symlinks. Discovery retries on the next lookup.`)
       }
     }
     options.signal.throwIfAborted()

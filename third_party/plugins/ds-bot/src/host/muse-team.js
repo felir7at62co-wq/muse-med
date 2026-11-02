@@ -93,7 +93,8 @@ export class MuseTeamService {
   }
 
   /**
-   * Register visible independent Sessions using list metadata without restoring their Agents.
+   * Refresh saved automatic entries and optionally register independent Sessions from cold metadata.
+   * Disabling discovery retains identity and settings while refreshing source availability.
    * Existing ownership is retained; unavailable automatic entries remain saved but are hidden.
    * Invalid metadata is isolated. Listing or batch-save failures reject the request, and a
    * failed save restores the complete batch. Concurrent callers share the reconciliation.
@@ -101,12 +102,13 @@ export class MuseTeamService {
    * @returns {Promise<{created:string[],failures:{sessionId:string,message:string}[]}>} Newly saved Bot ids and per-item failures.
    */
   syncSessionsAsBots(signal) {
-    if (this.runtime.config.autoSessionBots === false) return Promise.resolve(emptySync())
     if (this.sessionBotsFlight !== undefined) return this.sessionBotsFlight
     const flight = this.serialize(async () => {
       const rt = this.runtime
       await rt.load()
       if (rt.readOnly() !== undefined) return emptySync()
+      const discover = rt.config.autoSessionBots !== false
+      if (!discover && !Object.values(rt.state.bots).some(bot => bot.autoSessionBot === true)) return emptySync()
       if ((rt.pendingTeamSessionCreates ?? 0) > 0) { this.invalidateSessionBots(); return emptySync() }
       signal?.throwIfAborted()
       const archives = [...(rt.ctx.workspaceRegistry.archivedSessionIds ?? [])].sort()
@@ -143,7 +145,7 @@ export class MuseTeamService {
               const item = listed.get(sessionId)
               try {
                 const patch = { sessionArchived: archived.has(sessionId), sessionMissing: item === undefined }
-                if (item !== undefined && !patch.sessionArchived) {
+                if (discover && item !== undefined && !patch.sessionArchived) {
                   const metadata = this.sessionMetadata(item, workspaceOf)
                   patch.workDir = metadata.workDir
                   patch.workspaceId = metadata.workspace?.id
@@ -175,7 +177,7 @@ export class MuseTeamService {
                 rt.warn('Muse Bot could not synchronize Session %s: %s', sessionId, error)
               }
             }
-            for (const item of items) {
+            for (const item of discover ? items : []) {
               const sessionId = item.sessionId
               if (archived.has(sessionId) || rt.teamSessionIds?.has(sessionId) || owned.has(sessionId)) continue
               try {

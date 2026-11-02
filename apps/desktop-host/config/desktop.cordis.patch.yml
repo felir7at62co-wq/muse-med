@@ -202,7 +202,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, video_inspect]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_bot_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, video_inspect]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -281,7 +281,7 @@
           - id: coordination
             title: 团队任务与跟进
             description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。
-            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question, ask_user, list_bots, message_bot, create_bot, update_bot, stop_bot, list_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability]
+            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question, ask_user, list_bots, message_bot, create_bot, update_bot, stop_bot, list_bot_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability]
           - id: computer-use
             title: 电脑与软件操作
             description: 查看本机应用窗口与截图，根据任务点击、输入和滚动，再读取实际结果。

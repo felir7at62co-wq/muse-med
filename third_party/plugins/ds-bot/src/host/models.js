@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Models. Independent Bots own their model settings; automatically listed Session
 // Bots follow the native Session's selection. A new independent Bot inherits Muse's
 // selected route and thinking level. The Session keeps the selection durably.

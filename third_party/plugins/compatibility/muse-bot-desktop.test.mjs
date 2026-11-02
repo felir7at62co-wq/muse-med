@@ -21,6 +21,7 @@ function staged(run) {
 test('qualifies the native plugin without changing its retained manifest or attribution', () => {
   const original = readFileSync(join(source, 'package.json'))
   assert.equal(museBotDesktopCompatibility.memoryReview, true)
+  assert.equal(museBotDesktopCompatibility.autoSessionBots, false)
   staged(directory => {
     const patch = readFileSync(join(directory, 'cordis.patch.yml'), 'utf8')
     assert.match(patch, /memoryReview: true/u)
@@ -28,11 +29,14 @@ test('qualifies the native plugin without changing its retained manifest or attr
     assert.equal(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'), patch)
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
     assert.equal(manifest.name, 'ds-bot')
-    assert.equal(manifest.version, '0.2.2')
+    assert.equal(manifest.version, '0.2.4')
     assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-web'], undefined)
     assert.equal(manifest.exports['./web-search'], undefined)
     assert.equal(manifest.exports['./client'], './client.js')
     assert.ok(manifest.files.includes('NOTICE'))
+    assert.ok(manifest.files.includes('src/office/'))
+    assert.ok(manifest.files.includes('office.js'))
+    assert.equal(manifest.dependencies['deep-view'], '0.1.0')
     assert.ok(!manifest.files.includes('web-search.js'))
     assert.equal(readFileSync(join(directory, 'NOTICE'), 'utf8'), readFileSync(join(source, 'NOTICE'), 'utf8'))
   })
@@ -43,6 +47,14 @@ test('rejects an older bundle that disables the restored memory review default',
   staged(directory => {
     const path = join(directory, 'cordis.patch.yml')
     writeFileSync(path, readFileSync(path, 'utf8').replace('memoryReview: true', 'memoryReview: false'))
+    assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
+  })
+})
+
+test('rejects a bundle that registers native Sessions as Bots automatically', () => {
+  staged(directory => {
+    const path = join(directory, 'cordis.patch.yml')
+    writeFileSync(path, readFileSync(path, 'utf8').replace('autoSessionBots: false', 'autoSessionBots: true'))
     assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
   })
 })

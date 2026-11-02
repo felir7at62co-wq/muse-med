@@ -9,7 +9,7 @@ import { pnpmInvocation } from '../../../scripts/pnpm-invocation.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import type { DesktopRelease } from '../src/release.ts'
 import { developmentRuntimeDirectory, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
-import { prepareDevelopmentProject } from './development-project.ts'
+import { copyDevelopmentUserPatch, prepareDevelopmentProject } from './development-project.ts'
 import { prepareDevelopmentApp } from './development-app.ts'
 import { preparePrimaryRuntime, smokePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { prepareDevelopmentRuntime } from './development-runtime.ts'
@@ -129,6 +129,7 @@ async function main(): Promise<void> {
     release,
     target: resolveDesktopBuildTarget(),
   })
+  copyDevelopmentUserPatch(join(DEVELOPMENT_ROOT, 'project'), process.env.DSH_DESKTOP_USER_PATCH_FILE)
   const primaryRuntime = await prepareDevelopmentRuntime(process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR, {
     prepare: preparePrimaryRuntime,
     verify: smokePrimaryRuntime,

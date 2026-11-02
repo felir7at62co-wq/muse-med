@@ -589,6 +589,9 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await mkdir(dirname(target), { recursive: true })
     await copyFile(editingCordisSkill, target)
   },
+  async 'skill-root-isolation'(cwd) {
+    await workspaceSetups['editing-cordis-skill']!(cwd)
+  },
   async 'muse-minimal-writing'(cwd) {
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
     await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })

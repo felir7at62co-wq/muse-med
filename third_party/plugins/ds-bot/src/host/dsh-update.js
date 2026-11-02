@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // DSH updates: a released Muse Bot may name the DSH release it was verified
 // against (`dsBot.verifiedDsh` in package.json); a release that names none
 // offers nothing. The newest released bot wins: offering that version and

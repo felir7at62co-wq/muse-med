@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Muse product details and application update actions.
 import { createElement as h, useEffect, useState } from 'react'
 import { t } from './i18n.js'

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { legacyContext, legacyConfig } from './legacy-ctx.js'
+import { thinkingShown } from '../src/client/themes.js'
 
 function start(state, { config = {}, services } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-install-'))
@@ -25,8 +26,36 @@ function start(state, { config = {}, services } = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, call, stop, applyResult }
+  return { ctx, call, stop, applyResult, home }
 }
+
+test('thinking display stays off after saving and loading the saved team', async (t) => {
+  const first = start({ version: 1, mainBotId: 'm1', bots: { m1: { id: 'm1', name: 'Chief' } }, rooms: {}, prefs: {} })
+  t.after(first.stop)
+  await first.call('set-prefs', { accent: '#123456', motion: 'quiet' })
+  const initial = await first.call('state')
+  assert.equal(initial.ok, true, JSON.stringify(initial))
+  assert.equal(thinkingShown(initial.value.prefs), true)
+
+  for (const thinking of [false, true, false]) {
+    const response = await first.call('set-prefs', { thinking })
+    assert.equal(response.ok, true)
+    assert.equal(response.value.thinking, thinking)
+    assert.equal(thinkingShown((await first.call('state')).value.prefs), thinking)
+    const saved = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+    assert.equal(saved.prefs.thinking, thinking)
+    const reopened = start(saved)
+    t.after(reopened.stop)
+    const prefs = (await reopened.call('state')).value.prefs
+    assert.equal(thinkingShown(prefs), thinking)
+    assert.equal(prefs.accent, '#123456')
+    assert.equal(prefs.motion, 'quiet')
+  }
+
+  const reset = await first.call('set-prefs', { thinking: null })
+  assert.equal('thinking' in reset.value, false)
+  assert.equal(thinkingShown(reset.value), true)
+})
 
 // Listeners run, and tools are listed, in the order they are registered.
 test('apply registers listeners, tools, and effects in a fixed order', (t) => {
@@ -40,6 +69,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on credentials/reference-updated',
     'on settings/document-updated',
     'on session/event',
+    'on tools/execute',
     'effect ds-bot: agent tool restrict retry',
     'on agent/disposed',
     'on agent/created',
@@ -59,7 +89,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool create_bot',
     'tool update_bot',
     'on tools/execute',
-    'tool list_models',
+    'tool list_bot_models',
     'tool create_group',
     'tool update_group',
     'tool delete_group',
@@ -112,6 +142,8 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: connectors',
     'on agent/created',
     'effect ds-bot: capabilities',
+    'on agent/status',
+    'effect ds-bot: learning',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: dsh update install',
@@ -173,12 +205,12 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal((await call('set-prefs', { flatWidth: 70 })).value.flatWidth, 70)
   assert.equal('flatWidth' in (await call('set-prefs', { flatWidth: 100 })).value, false)
   assert.deepEqual((await call('set-prefs', { flatWidth: 40 })).error, { code: 'bot/invalid', message: 'Flat text width must be a whole percent from 50 to 100', details: {} })
-  // The thinking switch stores only true; false, null and unknown values leave nothing.
+  // The thinking switch preserves explicit booleans and clears the preference on null.
   assert.equal('thinking' in (await call('set-prefs', { thinking: 'yes' })).value, false)
   assert.equal('thinking' in (await call('set-prefs', { thinking: 1 })).value, false)
   assert.equal((await call('set-prefs', { thinking: true })).value.thinking, true)
   assert.equal((await call('set-prefs', { thinking: 'yes' })).value.thinking, true)
-  assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
+  assert.equal((await call('set-prefs', { thinking: false })).value.thinking, false)
   await call('set-prefs', { thinking: true })
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
   // A refusal from the team code keeps its message for the user.
@@ -224,7 +256,39 @@ test('in the Desktop profile read_browser is the last tool and reads through the
   assert.match(text, /Hello from the page/)
   assert.match(text, /\[1\] link "More" → https:\/\/example\.com\/more/)
   assert.equal((await call('state', {})).value.browser, true)
+  assert.equal((await call('state', {})).value.browserAutomation, false)
 })
+
+test('the roster reports no browser automation when no optional plugin is configured', async t => {
+  const { ctx, call, stop } = start(TEAM, { config: { browser: false } })
+  t.after(stop)
+  const state = (await call('state', {})).value
+  assert.equal(state.browser, false)
+  assert.equal(state.browserAutomation, false)
+  assert.equal(ctx.registeredTools.has('browser_open'), false)
+  assert.equal(ctx.registeredTools.has('browser_task'), false)
+})
+
+for (const id of [undefined, 'fixture-browser']) {
+  test(`a mounted mock browser plugin ${id === undefined ? 'without' : 'with'} an id advertises automation separately from reads`, async t => {
+    const { ctx, call, stop } = start(TEAM, { config: {
+      browser: false,
+      browserPluginApi: {
+        ...(id === undefined ? {} : { id }),
+        tools: [{
+          name: 'browser_fixture_probe',
+          needsBrowser: false,
+          execute() { throw new Error('The mock browser must not execute') },
+        }],
+      },
+    } })
+    t.after(stop)
+    const state = (await call('state', {})).value
+    assert.equal(state.browser, false)
+    assert.equal(state.browserAutomation, true)
+    assert.equal(ctx.registeredTools.has('browser_fixture_probe'), true)
+  })
+}
 
 test('browser takeover and give-back are user-only and publish hold state', async t => {
   const previous = process.env.DS_BOT_APP

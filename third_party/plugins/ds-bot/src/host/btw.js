@@ -1,6 +1,6 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Aside cards (btw) are the earlier single-shot aside: the ask path is gone,
-// but existing cards stay where they are and stay readable. This file keeps
+// but existing cards stay readable until the user deletes them. This file keeps
 // their files, their turn placement, and the shared snapshot/model-call
 // helpers that side chats (side.js) use.
 // Cards live in a file per Bot and part (<home>/btw/<botId>/<partId>.json), not
@@ -211,6 +211,7 @@ export function install(rt) {
   const cards = new Map()
   const reading = new Map()
   let writing = Promise.resolve()
+  let deleting = Promise.resolve()
 
   const listOf = (botId, partId) => cards.get(botId)?.get(partId) ?? []
 
@@ -252,7 +253,10 @@ export function install(rt) {
       }
       try {
         const parsed = JSON.parse(await readFile(partFile(botId, partId), 'utf8'))
-        if (Array.isArray(parsed)) list = parsed.filter(card => card !== null && typeof card === 'object' && !Array.isArray(card))
+        if (Array.isArray(parsed)) {
+          list = parsed.filter(card => card !== null && typeof card === 'object' && !Array.isArray(card))
+            .map(card => ({ ...card, botId, partId }))
+        }
       } catch (error) {
         if (error?.code !== 'ENOENT') rt.warn('ds-bot: unreadable btw cards %s: %s', partFile(botId, partId), error?.code ?? error)
       }
@@ -317,8 +321,33 @@ export function install(rt) {
     return view
   }
 
-  // Plugin unload; only the queued file write has to finish.
+  // Deleting a card removes only that saved aside. The whole read-modify-write
+  // is queued so two cards deleted together cannot restore each other. A state
+  // save afterwards bumps the revision, so every window polls the new lists.
+  function btwDelete({ sessionId, cardId }) {
+    const run = deleting.then(async () => {
+      const { botId } = locatePrivate(rt, sessionId, "Side chat is only available in a Bot's private chat.")
+      const list = await readPart(botId, sessionId)
+      const next = list.filter(card => card?.id !== cardId)
+      if (next.length === list.length) return { deleted: false }
+      const byBot = cards.get(botId)
+      byBot.set(sessionId, next)
+      try {
+        await writePart(botId, sessionId)
+      } catch (error) {
+        byBot.set(sessionId, list)
+        throw error
+      }
+      await rt.save()
+      return { deleted: true }
+    })
+    deleting = run.catch(() => {})
+    return run
+  }
+
+  // Plugin unload; queued deletes and their file writes have to finish.
   async function btwDispose() {
+    await deleting
     await writing
   }
 
@@ -340,5 +369,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { btwDispose, btwView, btwPartCards: readPart })
+  Object.assign(rt, { btwDelete, btwDispose, btwView, btwPartCards: readPart })
 }

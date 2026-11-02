@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // DS Bot: a team of long-lived Bots on top of ordinary dsh root Sessions.
 // Every Bot is one root Session; the roster, rooms, and the bot-to-bot exchange log live
 // in one JSON file under DSH_HOME so they survive restarts without new Session event types.
@@ -15,6 +15,7 @@ import * as requests from './src/host/requests.js'
 import * as delivery from './src/host/delivery.js'
 import * as roster from './src/host/roster.js'
 import * as folders from './src/host/folders.js'
+import * as privacy from './src/host/privacy.js'
 import * as agents from './src/host/agents.js'
 import * as museTeam from './src/host/muse-team.js'
 import * as toolResidency from './src/host/tool-residency.js'
@@ -28,11 +29,13 @@ import * as resume from './src/host/resume.js'
 import * as memory from './src/host/memory.js'
 import * as parts from './src/host/parts.js'
 import * as images from './src/host/images.js'
+import * as avatarLibrary from './src/host/avatar-library.js'
 import * as browser from './src/host/browser.js'
 import * as browserPlugins from './src/host/browser-plugins.js'
 import * as secrets from './src/host/secrets.js'
 import * as connectors from './src/host/connectors.js'
 import * as capabilities from './src/host/capabilities.js'
+import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
 import * as update from './src/host/update.js'
@@ -40,6 +43,7 @@ import * as dshUpdate from './src/host/dsh-update.js'
 import * as thinking from './src/host/thinking.js'
 import * as channel from './src/host/channel.js'
 import * as feed from './src/host/feed.js'
+import * as officeSkills from './src/host/office-skills.js'
 
 export { COLORS } from './src/host/constants.js'
 export { resolveMuseConfig } from './src/host/muse-config.js'
@@ -51,8 +55,9 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // Each module's install(rt) registers its listeners, tools, and effects, and puts on `rt`
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
-// usage meters model requests after every listener that rewrites them.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, handoffs, requests, delivery, roster, folders, agents, museTeam, toolResidency, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, secrets, connectors, capabilities, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel]
+// usage meters model requests after every listener that rewrites them. privacy checks a
+// call before the hooks of tools do, so a closed call never reaches a card they show.
+const MODULES = [diagnostics, store, models, providers, permissions, turns, handoffs, requests, delivery, roster, folders, privacy, agents, museTeam, toolResidency, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

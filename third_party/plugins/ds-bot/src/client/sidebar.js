@@ -1,9 +1,10 @@
 // Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { botDisplayName, isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, SignOutIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, PeopleIcon, GearIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, SignOutIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
@@ -530,27 +531,31 @@ export function FooterAccount(props) {
   return h('span', { className: 'bt-foot-account' }, h(AccountLauncher, { ...props, seat: false }))
 }
 
-// The only entry registered in every mode: in Agent mode the whole Bot surface is
-// withdrawn, and this button in the shell's own footer is the way back.
+// The same mode selector stays beside Muse's account entry in either surface.
 export function BotReturn({ wide, useSurface, actions }) {
   const mode = useSurface(value => value.mode)
-  if (mode !== 'agent') return null
-  return h('button', { type: 'button', className: 'bt-return', 'data-collapsed': !wide, 'aria-label': t('DS Bot'), title: t('DS Bot'), onClick: () => actions.setSurface('bot') },
-    h(BotMark, { look: MAIN_LOOK, size: 20 }),
-    wide ? h('span', { className: 'bt-return-name' }, t('DS Bot')) : null)
+  const choices = [['agent', 'Conversations', SidebarIcon], ['bot', 'Bots', PeopleIcon]]
+  return h('div', { className: 'bt-mode-switch', 'data-muse-mode-switch': '', 'data-collapsed': !wide, role: 'group', 'aria-label': t('Workspace mode') },
+    choices.map(([id, label, Icon]) => h(Tooltip, { key: id, label: t(label), disabled: wide, side: 'top', portal: true },
+      h('button', { type: 'button', 'aria-pressed': mode === id, 'aria-label': t(label), onClick: () => actions.setSurface(id) },
+      wide ? t(label) : h(Icon)))))
 }
 
-// Agent mode has none of the shell-group styles, so the return button carries its own.
+// This stylesheet belongs to neither surface, so the shared account row never moves.
 export const RETURN_CSS = `
-.bt-return{display:flex;box-sizing:border-box;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-width:0;min-height:36px;padding:0 4px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
-.bt-return[data-collapsed=true]{width:36px;justify-content:center;padding:0}
-.bt-return:hover{background:rgba(127,127,127,.14)}
-.bt-return:active{transform:scale(.96)}
-.bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
-.bt-return .bt-mark svg{width:100%;height:100%;overflow:visible}
-/* Shell styles carry --bt-ink-deepseek and Agent mode withdraws them; pin it here. */
-.bt-return .bt-mark{--bt-ink-deepseek:#4D6BFE}
-.bt-return-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-mode-switch{display:inline-flex;flex:none;gap:2px;padding:3px;border:1px solid var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.18));border-radius:9px;color:var(--dsw-alias-label-primary,inherit)}
+.bt-mode-switch button{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:30px;padding:0 10px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-mode-switch button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}
+.bt-mode-switch button[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.18));font-weight:500}
+.bt-mode-switch button:focus-visible{outline:2px solid var(--dsw-alias-label-primary,currentColor);outline-offset:2px}
+.bt-mode-switch[data-collapsed=true]{gap:0;padding:2px;border:0}
+.bt-mode-switch[data-collapsed=true] button{min-width:20px;width:20px;height:30px;padding:0}
+.bt-mode-switch[data-collapsed=true] svg{width:14px;height:14px}
+[class*="_footArea"]:has([data-muse-mode-switch]){display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+[class*="_footArea"]:has([data-muse-mode-switch])>[class*="_settingsArea"]{grid-column:1;grid-row:1;min-width:0}
+[class*="_footArea"]:has([data-muse-mode-switch])>[class*="_footerActions"]{grid-column:2;grid-row:1;width:auto}
+[class*="_collapsed"] [class*="_footArea"]:has([data-muse-mode-switch]){grid-template-columns:1fr;gap:4px;justify-items:center}
+[class*="_collapsed"] [class*="_footArea"]:has([data-muse-mode-switch])>[class*="_footerActions"]{grid-column:1;grid-row:2}
 `
 
 export function BrandMark({ size = 24 }) {

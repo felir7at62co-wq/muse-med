@@ -1,0 +1,23 @@
+- id: llm-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    customSkillDirs:
+      - !!js process.getBuiltinModule('node:path').join(process.cwd(), '.dsh/skills')
+      - !!js process.getBuiltinModule('node:path').join(process.cwd(), 'broken-skills')
+    watch: false
+- insert:
+    - id: snapshot-skill-root-isolation
+      name: '../../../packages/test-support/session-snapshot/tests/fixtures/skill-root-isolation.ts'

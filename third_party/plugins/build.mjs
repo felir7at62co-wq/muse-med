@@ -80,7 +80,7 @@ for (const entry of readdirSync(join(repository, 'vendor'), { withFileTypes: tru
 const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
 const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
-run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
+run([pnpm, 'install', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
 const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
 for (const name of values.only ? [values.only] : desktopSources) {
@@ -211,6 +211,10 @@ export function codexFilesystemPath(value) {
     }
     if (name === 'dsh-codex-subscription') {
       writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n## @heroicons/react ${tools.dependencies['@heroicons/react']}\n\n${readFileSync(join(toolchain, 'node_modules/@heroicons/react/LICENSE'), 'utf8')}`)
+    }
+    if (name === 'ds-bot') {
+      const licenses = ['deep-view', '@xmldom/xmldom'].map(dependency => `## ${dependency} ${tools.dependencies[dependency]}\n\n${readFileSync(join(toolchain, 'node_modules', dependency, 'LICENSE'), 'utf8')}`)
+      writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n${licenses.join('\n\n')}`)
     }
     rmSync(join(directory, 'lib/tsconfig.tsbuildinfo'), { force: true })
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({

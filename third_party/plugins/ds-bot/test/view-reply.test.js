@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from '../src/shared/views.js'
+import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -52,8 +52,8 @@ async function start() {
     return register(options)
   }
   apply(ctx, { home, ensureMuseSpecialist: false })
-  const agent = { id: 'writer-now', session: { id: 'writer-now' }, ctx: { tools: ctx.tools, effect: (execute, label) => ctx.effect(execute, label) } }
-  for (const listener of ctx.listeners.get('agent/created') ?? []) await listener({ agent })
+  // show_view lives in the agent scope; a Bot agent appearing registers it.
+  await ctx.emitAsync('agent/created', { agent: ctx.scopeAgent('writer-now') })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {

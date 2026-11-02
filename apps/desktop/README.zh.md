@@ -204,6 +204,8 @@ pnpm run dev:desktop
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
+`DSH_DESKTOP_USER_PATCH_FILE` 显式选择一个已有普通文件，在开发 profile 重建后、Electron 启动前复制为其中的 `cordis.patch.yml`。启动器按字节复制，不过滤或记录内容，也不修改源文件；所选 patch 需兼容当前 bundle。POSIX 上项目目录权限为 `0700`，复制后的 patch 为 `0600`。源文件链接、项目目录链接以及非普通文件的目标均被拒绝。
+
 `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` 可以为本地开发选择已准备的 primary runtime。启动器会将其解析为绝对路径，检查平台和架构，并在启动前执行现有运行时自检。无效路径直接失败，不下载替代环境。该运行时必须保留匹配的相邻资源目录；未设置覆盖时，开发启动仍准备完整的锁定运行环境。
 
 显式构建完成后，`start:desktop` 会重新生成一次性项目，并跳过构建直接启动已有产物：
@@ -494,6 +496,8 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 未压缩产物包含 Electron、物化后的 dsh 生产依赖树、pnpm，以及壳应用。安装包大小与文件系统占用不同；发布验收需要测量两者，以及 profile 插件存储和首次启动耗时。此布局用更多应用内文件换取消除用户机器上的核心包安装过程。
 
 ## 更新
+
+在 macOS 上，安装准备先等待产品窗口退出全屏，再请求确认或停止 Host。五秒内未收到切换完成事件时，显示本地化重试提示并保留 Host 运行；窗口关闭则取消准备。Windows 的全屏状态保持不变。
 
 更新页使用冷白色卡片、浅灰状态面板与圆角蓝色下载进度条；校验和安装阶段显示状态，不补造百分比。打包后的更新器使用按产品版本推导的 GitHub Releases 通道。
 

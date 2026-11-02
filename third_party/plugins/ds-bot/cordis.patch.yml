@@ -8,7 +8,7 @@
         contextManagement: host
         goals: host
         memoryReview: true
-        autoSessionBots: true
+        autoSessionBots: false
         sessionBotSyncIntervalMs: 30000
         github: false
         updateCheck: false

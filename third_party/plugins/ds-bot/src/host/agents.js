@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // The DSH Agent: a team's one plain dsh entry, listed beside the Bots but not one of
 // them. Its Sessions are ordinary root Sessions in the Muse Bot workspace, so they get
 // the whole dsh conversation surface and none of the team tools.

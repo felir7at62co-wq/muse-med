@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { MuseTeamService, install } from '../src/host/muse-team.js'
+import { resolveMuseConfig } from '../src/host/muse-config.js'
 import { nameProblem } from '../src/shared/mentions.js'
 
 const row = (sessionId, title = `Project ${sessionId}`, extra = {}) => ({
@@ -373,4 +374,71 @@ test('Session listeners only invalidate and never register while a factory is cr
     assert.equal(f.rt.museTeam.sessionBotsDirty, true)
   }
   assert.deepEqual([f.calls.list, f.calls.save], [1, 0])
+})
+
+// Keep registered identities and memory references when automatic discovery is disabled.
+test('separate conversation mode refreshes availability without registering or changing saved identity and settings', async t => {
+  const f = start(t)
+  f.rt.config = resolveMuseConfig()
+  f.items.push(row('ordinary'), row('fork', 'A normal branch'), row('legacy', 'A different source title'))
+  f.state.bots.legacy = { id: 'legacy', sessionId: 'legacy', name: 'Earlier Session Bot', autoSessionBot: true,
+    memory: true, role: '', instructions: '', capabilities: [], segments: [{ sessionId: 'earlier-part' }],
+    sessionArchived: false, sessionMissing: false, modelSource: 'session', model: 'native/retained', effort: 'low', workDir: '/retained' }
+  f.state.bots.writer = { id: 'writer', sessionId: 'writer-current', name: 'My writer', private: true,
+    instructions: 'Keep the established voice', memory: true, capabilities: ['existing-plugin'] }
+  f.state.mainBotIds.push('writer')
+  f.state.rooms.team = { id: 'team', members: ['writer', 'legacy'], sessions: { legacy: 'legacy-group' } }
+  f.state.memory = { legacy: { enabled: true, path: 'memory/bots/legacy/MEMORY.md' }, writer: { enabled: true } }
+  const before = structuredClone(f.state)
+  for (let pass = 0; pass < 3; pass++) {
+    f.service.invalidateSessionBots()
+    assert.deepEqual(await f.service.syncSessionsAsBots(), { created: [], failures: [] })
+  }
+  assert.equal(f.rt.config.autoSessionBots, false)
+  assert.deepEqual(f.state, before)
+  assert.deepEqual(f.calls, { list: 3, resolve: 0, save: 0, index: 0 })
+  assert.equal(f.service.isSessionBotVisible(f.state.bots.legacy), true)
+  assert.equal(f.service.isSessionBotVisible(f.state.bots.writer), true)
+})
+
+test('separate conversation mode keeps saved automatic identities when sources are archived, missing and restored', async t => {
+  const f = start(t)
+  f.rt.config = resolveMuseConfig()
+  f.items.push(row('legacy'), row('ordinary'))
+  const bot = { id: 'legacy', sessionId: 'legacy', name: 'My retained Bot', autoSessionBot: true,
+    model: 'native/chosen', effort: 'high', memory: true, instructions: 'Retain these instructions',
+    capabilities: ['saved-skill'], sessionArchived: false, sessionMissing: false }
+  f.state.bots.legacy = bot
+  const retained = structuredClone(bot)
+  f.ctx.workspaceRegistry.archivedSessionIds.push('legacy')
+  await f.service.syncSessionsAsBots()
+  assert.equal(bot.sessionArchived, true)
+  assert.equal(f.service.isSessionBotVisible(bot), false)
+  f.items.splice(0, 1)
+  f.service.invalidateSessionBots()
+  await f.service.syncSessionsAsBots()
+  assert.equal(bot.sessionMissing, true)
+  f.ctx.workspaceRegistry.archivedSessionIds.length = 0
+  f.items.push(row('legacy', 'A source title that should not rename the Bot'))
+  await f.service.syncSessionsAsBots()
+  assert.deepEqual(bot, retained)
+  assert.equal(f.service.isSessionBotVisible(bot), true)
+  assert.deepEqual(Object.keys(f.state.bots), ['legacy'])
+  assert.equal(f.calls.resolve, 0)
+})
+
+test('separate conversation mode rolls back availability when the saved metadata update fails', async t => {
+  const f = start(t)
+  f.rt.config = resolveMuseConfig()
+  f.state.bots.legacy = { id: 'legacy', sessionId: 'legacy', name: 'Retained', autoSessionBot: true,
+    sessionArchived: false, sessionMissing: false }
+  const before = structuredClone(f.state.bots)
+  const save = f.rt.save
+  let fail = true
+  f.rt.save = async () => { if (fail) { fail = false; throw new Error('disk unavailable') } return save() }
+  await assert.rejects(f.service.syncSessionsAsBots(), /disk unavailable/)
+  assert.deepEqual(f.state.bots, before)
+  await f.service.syncSessionsAsBots()
+  assert.equal(f.state.bots.legacy.sessionMissing, true)
+  assert.equal(f.calls.resolve, 0)
 })

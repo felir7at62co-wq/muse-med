@@ -8,6 +8,7 @@ import { SettingsDialog } from './settings.js'
 import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { MemoryDialog } from './memory-panel.js'
+import { useViewport } from './motion.js'
 import { useLinger } from './motion.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
@@ -15,6 +16,15 @@ const DIALOG_EXIT_MS = 160
 const MENU_EXIT_MS = 120
 
 export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useVideoUi, actions }) {
+  useViewport()
+  const [viewport, setViewport] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const resize = () => setViewport(window.innerWidth)
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [])
+  const sidebarWidth = document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? 0
+  const panelRoom = Math.max(0, viewport - sidebarWidth)
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
@@ -47,7 +57,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const owner = memory ? memoryOwner(memory) : null
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   return h(Fragment, null,
-    pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useVideoUi }), document.body) : null,
+    pane ? createPortal(h(BotPanel, { pane, leaving: open === null, room: panelRoom, overlay: panelRoom < 780, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useVideoUi }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: ui.newChat, mode: ui.newChat, roster, actions }), document.body) : null,
     ui.palette ? createPortal(h(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, roster, actions }), document.body) : null,
