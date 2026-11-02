@@ -626,6 +626,10 @@ def verify_readback(plan: dict, result: dict) -> dict:
         content = notice.get('attributes', {}).get('content')
         if not isinstance(content, str) or json.loads(content).get('text') != '内容由AI生成':
             raise ValueError('The selected editable AI notice was not saved')
+        size = notice.get('attributes', {}).get('font_size')
+        if (isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size)
+                or not math.isclose(size, plan['draft_style']['watermark']['font_size_ui'])):
+            raise ValueError('Saved AI notice size differs from the selected draft style')
         timing(notice, 0, plan['native_duration_us'])
         record_span('watermark', watermark_id, 0, plan['duration_us'], notice)
         expected_text_ids.add(watermark_id)

@@ -142,6 +142,31 @@ class AaDraftTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'size or position'):
                 aa.verify_readback(plan, result)
 
+    def test_watermark_readback_keeps_selected_sizes_and_rejects_a_different_saved_size(self):
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'visual_medium': 'photorealistic'}}), encoding='utf-8')
+        for selected, expected in ((None, 7), (6, 6), (8, 8)):
+            document = json.loads(self.timeline.read_text())
+            document['delivery']['visual_medium'] = 'photorealistic'
+            document['delivery']['draft_style'] = ({} if selected is None else {
+                'watermark': {'font_size_ui': selected}})
+            self.timeline.write_text(json.dumps(document), encoding='utf-8')
+            plan, _ = self.plan()
+            self.assertEqual(plan['draft_style']['watermark']['font_size_ui'], expected)
+            result, rows = self.saved(plan)
+            result['watermark_segment_id'] = 'watermark'
+            notice = {'id': 'watermark', 'type': 'text', 'attributes': {
+                'content': json.dumps({'text': '内容由AI生成'}), 'font_size': expected},
+                'timeline': {'start.ms': 0, 'duration.ms': plan['native_duration_us'] / 1000}}
+            rows.append(notice)
+            result['full'] = rows
+            with self.subTest(selected=selected):
+                aa.verify_readback(plan, result)
+            for actual in (7 if expected != 7 else 6, None, True, '7', float('nan')):
+                notice['attributes']['font_size'] = actual
+                with self.subTest(selected=selected, actual=actual), self.assertRaisesRegex(ValueError, 'AI notice size'):
+                    aa.verify_readback(plan, result)
+
     def test_overlay_report_retains_source_text_and_only_adds_selected_cues(self):
         selected = self.project / 'resolved.srt'
         selected.write_text('1\n00:00:01,201 --> 00:00:01,899\n五十二\n', encoding='utf-8')
@@ -386,7 +411,9 @@ class AaDraftTests(unittest.TestCase):
             else:
                 result['timeline'].append({'id': kind + '-track', 'type': 'track', 'attributes': {'segments': [identifier]}})
         result['watermark_segment_id'] = 'watermark'
-        rows.append({'id': 'watermark', 'type': 'text', 'attributes': {'content': json.dumps({'text': '内容由AI生成'})},
+        rows.append({'id': 'watermark', 'type': 'text', 'attributes': {
+                         'content': json.dumps({'text': '内容由AI生成'}),
+                         'font_size': plan['draft_style']['watermark']['font_size_ui']},
                      'timeline': {'start.ms': 0, 'duration.ms': 4000}})
         result['events'] = [{'step': 'ending-effect-screen', 'arguments': [
             'draft', 'video', 'mix-mode', '--ref', plan['ref'], '--seg-id', 'ending_effect',
@@ -519,7 +546,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4').as_posix(), 'C:/dir one/原片.mp4')
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 
