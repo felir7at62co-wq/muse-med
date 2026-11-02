@@ -30,7 +30,7 @@ export interface Config {
 }
 
 /** Require an explicit threshold in the mounting composition. */
-export const Config: z<Config> = z.object({
+export const Config: z<Config, Required<Config>> = z.object({
   repeatedPropertyLimit: z.number().required(),
   recoveryAttempts: z.number().default(0),
 })
@@ -70,11 +70,12 @@ class ResponseDetector {
  * @param config - explicit deployment threshold, validated before any request.
  */
 export function apply(ctx: Context, config: Config): void {
-  const limit = config.repeatedPropertyLimit
+  const settings = Config(config)
+  const limit = settings.repeatedPropertyLimit
   if (!Number.isSafeInteger(limit) || limit < 2) {
     throw new Error('tool-argument-loop: repeatedPropertyLimit must be an explicit safe integer >= 2')
   }
-  const recoveryAttempts = config.recoveryAttempts ?? 0
+  const recoveryAttempts = settings.recoveryAttempts
   if (!Number.isSafeInteger(recoveryAttempts) || recoveryAttempts < 0) {
     throw new Error('tool-argument-loop: recoveryAttempts must be a non-negative safe integer')
   }
@@ -98,7 +99,6 @@ export function apply(ctx: Context, config: Config): void {
       if (failure.code !== TOOL_ARGUMENT_LOOP || recovery?.pending !== true) return next()
       recovery.pending = false
       signal.throwIfAborted()
-      if (!active) throw new LlmError(failure.message, TOOL_ARGUMENT_LOOP)
       return Promise.resolve({ kind: 'retry' })
     }, { prepend: true })
     ctx.on('llm/stream', (options, next) => {

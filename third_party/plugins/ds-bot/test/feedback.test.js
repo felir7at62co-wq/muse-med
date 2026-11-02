@@ -9,11 +9,10 @@ const bundle = await build({
   bundle: true, format: 'cjs', platform: 'node', write: false,
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
-const ISSUES = 'https://github.com/Fei2411/DeepSeek-Bot/issues/new'
-
-// Settings → Feedback in a window whose `open` is `open`, with every state change kept.
-function page(window) {
+// Settings → Feedback delegates to the existing Muse draft for the visible conversation.
+function page(window, { visible = true, available = true } = {}) {
   const notes = []
+  const events = []
   const react = {
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
     Fragment: 'fragment',
@@ -32,47 +31,68 @@ function page(window) {
       throw new Error(`no platform module ${name}`)
     },
   })
-  const actions = { diagnostics: async () => ({ markdown: '| DS Bot | 0.1.6 |', issuesUrl: ISSUES, entries: [], total: 0 }) }
+  const ctx = {
+    sessions: { list: { getSnapshot: () => ({ byId: {
+      background: { id: 'background', retainedBy: { mainView: 0 } },
+      current: { id: 'current', retainedBy: { mainView: visible ? 1 : 0 } },
+    } }) } },
+    get: name => name === 'feedbackUi' && available
+      ? { openSession: id => events.push(['draft', id]) }
+      : undefined,
+  }
+  const actions = {
+    diagnostics: async () => ({ markdown: '| Muse Bot | 0.2.2 |', entries: [], total: 0 }),
+    openFeedback: () => module.exports.openMuseFeedback(ctx, () => events.push(['close-settings'])),
+  }
   let pending
   const run = (promise) => { pending = promise; return promise }
   const tree = module.exports.FeedbackPage({ actions, run, Section: 'section', Row: 'row' })
-  const find = node => (Array.isArray(node) ? node.flatMap(find) : node && typeof node === 'object' ? [...(node.props?.className === 'bt-fb-primary' ? [node] : []), ...find(node.children)] : [])
+  const find = node => (Array.isArray(node) ? node.flatMap(find) : node && typeof node === 'object'
+    ? [...(node.type === 'button' && node.children.includes('Open feedback form') ? [node] : []), ...find(node.children)] : [])
   return {
     notes,
+    events,
     report: async () => {
-      find(tree)[0].props.onClick()
+      const buttons = find(tree)
+      assert.equal(buttons.length, 1)
+      buttons[0].props.onClick()
       await pending
     },
   }
 }
 
-// 公开#182: the Desktop hands only an http(s) address to the system browser and returns
-// null for every window.open. The blank window reserved for the issue got nothing, and
-// the page said the browser blocked the new window.
-test('on the Desktop, "Report on GitHub" hands the issue address to the system browser', async () => {
+test('on the Desktop, one feedback click opens one native draft for the visible conversation', async () => {
   const opened = []
   const window = { dshDesktop: { protocolVersion: 1 }, open: (url = '') => { opened.push(String(url)); return null } }
-  const { notes, report } = page(window)
+  const { notes, events, report } = page(window)
   await report()
-  assert.equal(opened.length, 1)
-  assert.ok(opened[0].startsWith(`${ISSUES}?template=bug.yml`))
-  assert.equal(notes.some(note => /blocked the new window/.test(note)), false)
-  assert.ok(notes.includes('Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.'))
+  assert.deepEqual(events, [['close-settings'], ['draft', 'current']])
+  assert.deepEqual(opened, [])
+  assert.deepEqual(notes, [])
 })
 
-test('in a browser, the window reserved in the click gets the issue address', async () => {
+test('in a browser, feedback uses the same Muse draft without reserving or navigating a window', async () => {
   const reserved = { location: { href: '' } }
-  const window = { open: () => reserved }
-  const { notes, report } = page(window)
+  let opened = 0
+  const window = { open: () => { opened += 1; return reserved } }
+  const { events, report } = page(window)
   await report()
-  assert.equal(reserved.opener, null)
-  assert.ok(reserved.location.href.startsWith(`${ISSUES}?template=bug.yml`))
-  assert.ok(notes.includes('Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.'))
+  assert.deepEqual(events, [['close-settings'], ['draft', 'current']])
+  assert.equal(opened, 0)
+  assert.equal(reserved.location.href, '')
+  assert.equal(reserved.opener, undefined)
 })
 
-test('in a browser that blocks the window, the page offers the link instead', async () => {
-  const { notes, report } = page({ open: () => null })
-  await report()
-  assert.ok(notes.includes('The browser blocked the new window.'))
-  assert.ok(notes.some(note => note.startsWith(`${ISSUES}?template=bug.yml`)))
+test('an unavailable draft service or missing visible conversation reports failure without a fallback submission', async () => {
+  for (const [options, message] of [
+    [{ available: false }, /Feedback is unavailable/],
+    [{ visible: false }, /Open a conversation/],
+  ]) {
+    let opened = 0
+    const { events, notes, report } = page({ open: () => { opened += 1; return null } }, options)
+    await assert.rejects(report(), message)
+    assert.deepEqual(events, [])
+    assert.deepEqual(notes, [])
+    assert.equal(opened, 0)
+  }
 })

@@ -79,7 +79,7 @@ async function digest(path: string): Promise<{ size: number; sha256: string; sha
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { target: { type: 'string' }, artifacts: { type: 'string' }, output: { type: 'string' },
-    'source-commit': { type: 'string' }, 'from-version': { type: 'string', default: '1.1.6' } } })
+    'source-commit': { type: 'string' }, 'from-version': { type: 'string', default: '1.2.1' } } })
   const target = values.target ?? process.env.MUSE_RELEASE_TARGET
   assert.ok(target === 'mac-arm64' || target === 'win-x64', 'Candidate update: unsupported target')
   const native = desktopTargetPlatform(target)

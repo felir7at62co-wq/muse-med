@@ -24,7 +24,7 @@ interface AcceptanceIdentity {
   readonly sourceCommit: string
 }
 
-const PREVIOUS_VERSION = '1.1.6'
+const PREVIOUS_VERSION = '1.2.1'
 
 /**
  * Resolve the published baseline whose original installer bytes qualify replacement upgrades.
@@ -38,16 +38,16 @@ export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target
   manifestResource: MediaResource
 } {
   const windows = target === 'win-x64'
-  const filename = windows ? 'muse-med-1.1.6-win-x64.exe' : 'muse-med-1.1.6-mac-arm64.dmg'
+  const filename = `muse-med-${PREVIOUS_VERSION}-${windows ? 'win-x64.exe' : 'mac-arm64.dmg'}`
   return { target, version: PREVIOUS_VERSION, resource: {
-    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/${filename}`,
-    bytes: windows ? 763909506 : 781147422,
-    sha256: windows ? '4a8793c20127134a8f764aa59babe61723f4f89ec2d86580fcf52fc6b4749292'
-      : 'd5485e651dfcc5700c9e978c871dcc48d524d0d37e36fb32695ce1e7904a56ba',
+    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/${filename}`,
+    bytes: windows ? 767995857 : 820124899,
+    sha256: windows ? '84e68b2b477f3b8f3585ba2e18de32bad8069b6a2be57ff897545a75d9f2c37c'
+      : 'd9f9b8cb1e157df07a8375a82f14eebde30fa2ee1752b55ac5b4cec200b8bf4f',
   }, manifestResource: {
     filename: 'muse-desktop-builds.json',
-    url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/muse-desktop-builds.json',
-    bytes: 2458, sha256: '72bd6cc6f8debe99265d7a3dd3e91d67d66a11d8294c0eece3e695ae4f466c42',
+    url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/muse-desktop-builds.json`,
+    bytes: 2504, sha256: '31f1fbe47e3c5d8c38d1b33f025f1834e171c2c2da041c2492c1dc4e97c1e33c',
   } }
 }
 
@@ -59,14 +59,12 @@ export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target
  */
 export function museAcceptancePreviousIdentity(value: unknown, target: AcceptanceIdentity['target']): AcceptanceIdentity {
   const previous = museAcceptancePreviousRelease(target)
-  assert.ok(record(value) && value.version === previous.version && typeof value.sourceCommit === 'string'
-    && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && Array.isArray(value.builds),
+  assert.ok(record(value) && value.schemaVersion === 1 && value.version === previous.version && typeof value.sourceCommit === 'string'
+    && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && record(value.builds),
   'Installer acceptance: invalid previous release manifest')
-  const builds: unknown[] = value.builds
-  const selected = builds.filter(build => record(build) && build.target === target)
-  assert.equal(selected.length, 1, 'Installer acceptance: missing or duplicate previous target build')
+  assert.ok(Object.hasOwn(value.builds, target), 'Installer acceptance: missing previous target build')
   const identity: AcceptanceIdentity = { target, version: previous.version, sourceCommit: value.sourceCommit }
-  const digest = museAcceptanceArtifact(selected[0], identity, previous.resource.filename)
+  const digest = museAcceptanceArtifact(value.builds[target], identity, previous.resource.filename)
   assert.equal(digest.size, previous.resource.bytes, 'Installer acceptance: previous manifest installer size differs')
   assert.equal(digest.sha256, previous.resource.sha256, 'Installer acceptance: previous manifest installer checksum differs')
   return identity

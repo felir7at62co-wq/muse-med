@@ -10,6 +10,12 @@ function document(name: string, description: string, keywords?: string[]): ToolS
 }
 
 describe('local tool metadata search', () => {
+  it('does not interpret empty normalized catalog names as explicit mentions', () => {
+    const index = new ToolSearchIndex([document('  ', 'Read content'), document('read', 'Read content')], ranking)
+    expect(index.explicitNames('content')).toEqual([])
+    expect(index.explicitNames('read content')).toEqual(['read'])
+  })
+
   it('finds Chinese task words in descriptions and configurable keywords', () => {
     const index = new ToolSearchIndex([
       document('video_inspect', '查看视频中的人物动作与转场', ['抽帧', '镜头变化']),
@@ -28,6 +34,35 @@ describe('local tool metadata search', () => {
     const matches = index.search('  MCP__MEDIA__READ-FRAME  ', 2)
     expect(matches.map(match => match.name)).toEqual(['mcp__media__read-frame', 'other'])
     expect(matches.every(match => Number.isFinite(match.score) && match.score > 0)).toBe(true)
+  })
+
+  it('prioritizes a tool named inside a longer request over repeated description matches', () => {
+    const index = new ToolSearchIndex([
+      document('mcp__media__read-frame', 'Read an image'),
+      document('other', 'mcp__media__read-frame '.repeat(20)),
+    ], ranking)
+    expect(index.search('请使用 MCP__MEDIA__READ-FRAME 查看人物', 1)[0]?.name).toBe('mcp__media__read-frame')
+    expect(index.search('Use mcp__media__read-frame, please', 1)[0]?.name).toBe('mcp__media__read-frame')
+  })
+
+  it('prioritizes configured Chinese and English aliases inside task requests', () => {
+    const index = new ToolSearchIndex([
+      document('frame_reader', 'Review pictures', ['原图核对', 'frame lookup']),
+      document('other', `${'原图核对 '.repeat(20)}${'frame lookup '.repeat(20)}`),
+    ], ranking)
+    expect(index.search('帮我做一次原图核对看看人物动作', 1)[0]?.name).toBe('frame_reader')
+    expect(index.search('Please run FRAME LOOKUP for this scene', 1)[0]?.name).toBe('frame_reader')
+  })
+
+  it('does not treat a tool-name substring as an explicit name mention', () => {
+    const index = new ToolSearchIndex([
+      document('read', 'Other text'), document('read_source', 'Load saved text'),
+      document('reader', 'Load more text'),
+    ], ranking)
+    expect(index.search('Use read_source now', 1)[0]?.name).toBe('read_source')
+    expect(index.search('Use reader now', 1)[0]?.name).toBe('reader')
+    expect(index.explicitNames('Use read_source now')).toEqual(['read_source'])
+    expect(index.explicitNames('saved text')).toEqual([])
   })
 
   it('matches identifier fragments and fullwidth query text', () => {

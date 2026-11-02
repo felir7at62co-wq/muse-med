@@ -100,7 +100,7 @@ export function SidebarRoot({
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   const toggleLabel = collapsed ? t('toggle.open') : t('toggle.collapse')
-  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   // Only the region retains wide geometry during collapse; window controls follow the live column.
   const [settled, setSettled] = useState(collapsed)
   useEffect(() => {

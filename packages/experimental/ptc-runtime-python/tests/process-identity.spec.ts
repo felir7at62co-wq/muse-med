@@ -9,7 +9,9 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     readFileSync(...args: Parameters<typeof actual.readFileSync>) {
-      if (args[0] === '/proc/123/stat' && String(args[1]) === 'utf8') return procRead(args[0])
+      const options = args[1]
+      const encoding = typeof options === 'string' ? options : options?.encoding
+      if (args[0] === '/proc/123/stat' && encoding === 'utf8') return procRead(args[0])
       return actual.readFileSync(...args)
     },
   }

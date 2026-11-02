@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { fakeAttachments, fakeContext } from './fake-ctx.js'
+import { fakeAttachments } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 import { MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
@@ -28,7 +29,7 @@ const seed = (room = {}, extraRooms = {}) => ({
 async function start(t, room, services, extraRooms) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms)))
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
@@ -60,7 +61,7 @@ async function start(t, room, services, extraRooms) {
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
-  apply(ctx, { home })
+  apply(ctx, legacyConfig({ home }))
   t.after(async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })

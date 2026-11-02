@@ -3041,7 +3041,7 @@ A fixed foreground workflow starts one fresh structured child per round; the mod
 
 ### `tool_search`
 
-按任务或精确名称查找已获准但未预先加载的工具，匹配工具的完整定义在下一步可用。不传参数时列出能力分类，不加载工具。仅提供 capability 时浏览并加载分类，也可结合 query 缩小搜索范围。结果存在省略时应缩小查询范围。搜索不执行工具。
+按任务或精确名称查找已获准但未预先加载的工具，匹配工具的完整定义在下一步可用。不传参数时列出能力分类，不加载工具。仅提供 capability 时浏览并加载分类，也可结合 query 缩小搜索范围。分类查询零命中时也会搜索全库。结果存在省略时可使用 next_offset 翻页或缩小查询范围。零命中不代表该能力不可用。搜索不执行工具。
 
 ```json
 {
@@ -3054,6 +3054,10 @@ A fixed foreground workflow starts one fresh structured child per round; the mod
     "capability": {
       "type": "string",
       "description": "Optional capability id from the directory. Omit to search across groups."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
     },
     "limit": {
       "type": "integer",

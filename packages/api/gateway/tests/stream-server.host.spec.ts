@@ -766,7 +766,7 @@ function holdPings(socket: WebSocket): {
 function holdImmediateChecks(): { readonly checks: (() => void)[]; readonly restore: () => void } {
   const schedule = globalThis.setImmediate
   const checks: (() => void)[] = []
-  const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback, ...args) => {
+  const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback: (...args: unknown[]) => void, ...args: unknown[]) => {
     checks.push(() => { callback(...args) })
     return schedule(() => {})
   })

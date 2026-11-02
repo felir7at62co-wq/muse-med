@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 import { ROOM_REPLY_TIMEOUT_MS } from '../src/host/constants.js'
 
 // Chief in its own chat 'a'; Writer, the admin of group 'r1', speaks there from 'gb'.
@@ -27,7 +27,7 @@ const seed = () => ({
 async function start() {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-status-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed()))
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   const agents = new Map()
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
@@ -61,7 +61,7 @@ async function start() {
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
-  apply(ctx, { home })
+  apply(ctx, legacyConfig({ home }))
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {

@@ -51,7 +51,7 @@ function start() {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  apply(ctx, { home, ensureMuseSpecialist: false })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {

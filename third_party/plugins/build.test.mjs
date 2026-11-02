@@ -212,14 +212,14 @@ test('builds ffmpeg twice from source into identical licensed tarballs', () => {
   }
 })
 
-test('builds opaque Codex picker surfaces and records their reviewed overlay in the tarball', () => {
+test('builds opaque Codex picker surfaces without inheriting workspace module lookup', () => {
   const output = mkdtempSync(join(tmpdir(), 'muse-codex-menu-build-'))
   const retainedStylesPath = join(import.meta.dirname, 'dsh-codex-subscription/src/client-styles.js')
   const retainedStyles = readFileSync(retainedStylesPath, 'utf8')
   try {
     const result = spawnSync(process.execPath,
       [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-codex-subscription', '--out', output],
-      { cwd: root, stdio: 'inherit' })
+      { cwd: root, stdio: 'inherit', env: { ...process.env, NODE_PATH: join(root, 'node_modules') } })
     assert.equal(result.signal, null, 'Codex staging build finishes without a signal')
     assert.equal(result.status, 0, 'Codex staging build succeeds')
     const tarball = join(output, readdirSync(output).find(file => file.endsWith('.tgz')))

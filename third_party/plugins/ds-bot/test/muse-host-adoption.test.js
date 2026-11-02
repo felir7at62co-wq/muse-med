@@ -233,7 +233,7 @@ test('native model selection remains authoritative through refresh until a UI or
   assert.equal(bot.modelSource, 'session')
   await rt.updateBot('source', { effort: 'high' }, 'chief')
   assert.equal(bot.modelSource, 'bot')
-  assert.deepEqual(selected, [{ sessionId: 'source', provider: 'muse', model: 'new-choice', reasoningEffort: 'high' }])
+  assert.deepEqual(selected, [{ sessionId: 'source', provider: 'muse', model: 'new-choice', reasoningEffort: 'high', saveDefault: false }])
 })
 
 test('explicit native Session switching preserves stable Bot identity and all old running work', async t => {

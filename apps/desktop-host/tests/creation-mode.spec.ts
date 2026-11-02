@@ -142,7 +142,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
+      'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
@@ -266,7 +267,8 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
     expect(loaded?.content).not.toContain('Unapproved scoped instructions')
     expect(loaded?.content).not.toContain('当前创作模式的执行限制')
     expect(loaded?.content).toContain('音视频语音转写')
-    for (const name of ['audio-transcribe']) {
+    for (const name of ['audio-transcribe', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
+      expect(CreationSkills.CREATION_SKILL_NAMES).toContain(name)
       expect(names).toContain(name)
       const specialized = await skills.get(name, { scope: f.agent })
       const bundled = await f.ctx.skills.get(name)

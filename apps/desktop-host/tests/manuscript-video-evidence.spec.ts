@@ -36,7 +36,7 @@ import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptVideoPacketContent, planManusc
 
 function literalSourceTimeline(rows: { start: number; end: number; text: string }[]): VideoSourceTimeline {
   return { advisory: true, semantic_assessment: 'not_performed', source: { review_id: VideoReviewId('literal-test'),
-    episode: '4', path: '/source.mp4', source_version: 'v1', duration_seconds: 64, scanned_until: 64, scan_complete: true },
+    episode: '4', path: '/source.mp4', source_version: 'v1', follow_up: { status: 'active' }, duration_seconds: 64, scanned_until: 64, scan_complete: true },
   scope: { start_seconds: 0, end_seconds: 64, full_episode: true, window_seconds: 8 }, material_sha256: 'literal-material',
   windows: [{ window_id: 'all', start_seconds: 0, end_seconds: 64, event_notes: [], speech_segment_ids: [],
     continuous_speech_candidate_indexes: [], frames: [0, 15, 40].map((time, index) => ({ frame_id: `F${index}`, time,
@@ -77,7 +77,7 @@ const materialSchema = z.object({ manuscript_video_evidence: z.object({ advisory
     manuscript: z.object({ current: z.object({ text: z.string() }),
       previous: z.object({ text: z.string() }).nullable(), next: z.object({ text: z.string() }).nullable() }),
     anchors: z.array(z.object({ source_text: z.string() })).default([]),
-    source: z.object({ episode: z.string() }).default({ episode: '' }),
+    source: z.object({ episode: z.string(), follow_up: z.object({ status: z.string(), reason: z.string().optional() }).optional() }).default({ episode: '' }),
     source_candidates: z.array(z.unknown()).default([]),
     speech_unavailable: z.object({ reference: z.object({ path: z.string() }) }).optional(),
     image_selection_scope: z.string().optional(), source_ending_ref: z.string().optional(),
@@ -593,6 +593,73 @@ it('reports ambiguous sources without choosing the latest review or blocking the
   expect(f.evidence()[0]?.scenes[0]?.source_candidates).toHaveLength(2)
   expect(f.adapter.requests[1]?.messages.flatMap(message => message.content.filter(block => block.type === 'image'))).toHaveLength(0)
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('照常交付')
+})
+
+it('omits a closed EP47 from new draft candidates without reading its source and restores it after reopening', async () => {
+  const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md',
+    content: '第47集\n47-1 家 日 内\n甲：你好。' }), textResponse('照常交付。')])
+  const source = await f.addReview('第47集'), original = reviewsOf(f.ctx, f.agent.session)[source.path]
+  assert.ok(original, 'The fixture needs its saved source revision')
+  const observed = original.frames[0]?.observation
+  assert.ok(observed, 'The fixture needs actual saved observations')
+  saveReview(f.ctx, f.agent.session, { ...original, duration: 125, scanned_until: 125,
+    follow_up: { status: 'closed', reason: '旧任务停止跟进。' },
+    frames: Array.from({ length: 125 }, (_, index) => ({ id: `F${String(index + 1).padStart(5, '0')}`,
+      time: index, reasons: ['appearance_change'], image: f.image, exposed: index < 12,
+      ...index < 12 ? { observation: observed } : {} })) })
+  const saved = JSON.stringify(reviewsOf(f.ctx, f.agent.session)), stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  const sourceReads = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === source.path) throw Error('Closed source must not be read for another task')
+    return stat(...args)
+  })
+  await f.run('处理另一部剧第47集，保存为draft.md。')
+  expect(f.evidence()).toEqual([])
+  expect(f.evidenceContent()).toEqual([])
+  expect(sourceReads.mock.calls.some(([target]) => target.displayPath === source.path)).toBe(false)
+  expect(JSON.stringify(reviewsOf(f.ctx, f.agent.session))).toBe(saved)
+  sourceReads.mockRestore()
+  const closed = reviewsOf(f.ctx, f.agent.session)[source.path]
+  assert.ok(closed, 'Closing must preserve the source and observations')
+  saveReview(f.ctx, f.agent.session, { ...closed, follow_up: { status: 'active' } })
+  await f.run('继续核对当前稿。')
+  expect(f.evidence().at(-1)?.scenes[0]?.source).toMatchObject({ episode: '第47集', follow_up: { status: 'active' } })
+  expect(reviewsOf(f.ctx, f.agent.session)[source.path]?.frames.filter(frame => frame.observation === undefined)).toHaveLength(113)
+})
+
+it('honors explicit current-task reads of a closed review by identity without reopening it', async () => {
+  const f = await fixture([
+    toolCallResponse('use-source', 'video_inspect', { review_id: 'source.mp4', method: 'timeline' }),
+    toolCallResponse('write-draft', 'write', { file_path: 'draft.md', content: '第47集\n47-1 家 日 内\n甲：你好。' }),
+    textResponse('完成。'),
+  ])
+  f.ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Fixture source access', parameters: {
+    review_id: { type: 'string', required: true }, method: { type: 'string', required: true },
+  }, output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'Source read.' }] }, execute: async () => true }))
+  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  assert.ok(review, 'The fixture needs its source revision')
+  saveReview(f.ctx, f.agent.session, { ...review, follow_up: { status: 'closed', reason: '停止自动跟进。' } })
+  await f.run('按本次读取的来源核对第47集，保存为draft.md。')
+  expect(f.evidence()[0]?.scenes[0]?.source).toMatchObject({ episode: '第47集', follow_up: { status: 'closed' } })
+  expect(f.evidence()[0]?.scenes[0]?.images.returned).toBeGreaterThan(0)
+  expect(reviewsOf(f.ctx, f.agent.session)[source.path]?.follow_up?.status).toBe('closed')
+})
+
+it.each(['close', 'reopen', 'status', 'list'])('does not treat %s bookkeeping as current-task source use', async (method) => {
+  const f = await fixture([
+    ...method === 'close' ? [toolCallResponse('earlier-source-use', 'video_inspect', { file_path: 'source.mp4', method: 'timeline' })] : [],
+    toolCallResponse('control-source', 'video_inspect', { file_path: 'source.mp4', method }),
+    toolCallResponse('write-draft', 'write', { file_path: 'draft.md', content: '第47集\n47-1 家 日 内\n甲：你好。' }),
+    textResponse('完成。'),
+  ])
+  f.ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Fixture bookkeeping receipt', parameters: {
+    file_path: { type: 'string', required: true }, method: { type: 'string', required: true },
+  }, output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'Bookkeeping read.' }] }, execute: async () => true }))
+  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  assert.ok(review, 'The fixture needs its source revision')
+  saveReview(f.ctx, f.agent.session, { ...review, follow_up: { status: 'closed' } })
+  await f.run('记录状态后处理另一部剧第47集，保存为draft.md。')
+  expect(f.evidence()).toEqual([])
+  expect(f.evidenceContent()).toEqual([])
 })
 
 it('retains explicit ASR failure and a whole-source index without pretending unaligned images are local evidence', async () => {
@@ -1207,13 +1274,14 @@ it('keeps multiple same-episode read sources ambiguous without selecting the ear
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('照常交付')
 })
 
-it.each(['partial', 'truncated'])('does not treat a %s native read as a complete baseline', async (kind) => {
-  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...kind === 'partial' ? { limit: 2 } : {} }),
+it.each(['partial', 'truncated', 'column'])('does not treat a %s native read as a complete baseline', async (kind) => {
+  const options = kind === 'partial' ? { limit: 2 } : kind === 'column' ? { column: 2 } : {}
+  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...options }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('正常交付。')])
   await writeFile(join(f.root, 'source.md'), `第4集\n4-1 家 日 内\n甲：${kind === 'truncated' ? '长'.repeat(12_000) : '原句'}。\n`)
   await f.run('精修后保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
-  expect(report?.status).toBe(kind)
+  expect(report?.status).toBe(kind === 'column' ? 'partial' : kind)
   expect(report?.hunks).toEqual([])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads[0]?.text).toBeUndefined()
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('正常交付')

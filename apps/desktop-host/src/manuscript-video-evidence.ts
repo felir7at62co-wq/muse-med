@@ -5,7 +5,7 @@ import { diffLines } from 'diff'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, ImageBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import { readVideoSourceTimeline, videoReviewSummaries, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
+import { readVideoSourceTimeline, videoReviewSummaries, type VideoReviewSummary, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Config } from './manuscript-revisions.ts'
@@ -16,7 +16,8 @@ import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCan
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
   planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
 
-const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional() })
+const callArguments = z.object({ file_path: z.string().optional(), draft_path: z.string().optional(),
+  review_id: z.string().optional(), method: z.string().optional() })
 type CallArguments = z.infer<typeof callArguments>
 type DeclaredOutputs = ReturnType<typeof manuscriptDeclaredOutputs>
 interface MessageMaterialCache {
@@ -111,19 +112,26 @@ function receipts(messages: readonly Message[], cache: MaterialCache): Receipt[]
     }))
 }
 
-function videoTaskSourcePaths(messages: readonly Message[], cwd: string, boundary: number, cache: MaterialCache) {
+function videoTaskSourcePaths(messages: readonly Message[], cwd: string, boundary: number, cache: MaterialCache,
+  sources: readonly VideoReviewSummary[]) {
   const firstUser = messages.findIndex(message => message.role === 'user' && message.source.kind === 'user')
   const start = boundary < 0 ? firstUser : boundary
-  const calls = new Map<string, string>(), paths = new Set<string>()
+  const calls = new Map<string, { path: string; close: boolean }>(), paths = new Set<string>()
   for (const message of messages.slice(Math.max(0, start))) {
     if (message.role === 'assistant') for (const block of message.content) {
       if (block.type !== 'tool-call' || block.name !== 'video_inspect') continue
       const args = readArguments(block, cache)
-      if (args?.file_path !== undefined) calls.set(block.id, resolve(cwd, args.file_path))
+      if (args === undefined || ['reopen', 'list', 'status'].includes(args.method ?? '')) continue
+      const path = args.file_path === undefined ? sources.find(source => source.review_id === args.review_id)?.path
+        : resolve(cwd, args.file_path)
+      if (path !== undefined) calls.set(block.id, { path, close: args.method === 'close' })
     }
     if (message.role === 'tool' && !message.isError) {
-      const path = calls.get(message.toolCallId)
-      if (path !== undefined) paths.add(path)
+      const source = calls.get(message.toolCallId)
+      if (source !== undefined) {
+        if (source.close) paths.delete(source.path)
+        else paths.add(source.path)
+      }
     }
   }
   return { paths, requireCurrentSource: boundary > firstUser }
@@ -530,10 +538,11 @@ export class ManuscriptVideoEvidence {
     const prior = receipts(messages, cache)
     const outputBoundary = messages.findLastIndex(message => message.role === 'user' && message.source.kind === 'user'
       && declaredOutputs(message, cwd, cache).length > 0)
-    const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache)
+    const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache, sources)
+    const automaticSources = sources.filter(source => source.follow_up.status === 'active' || sourceScope.paths.has(source.path))
     const transcriptCandidates = manuscriptVideoReadCandidates(ctx, agent.session)
     const registered = registeredPaths(outputBoundary < 0 ? messages : messages.slice(outputBoundary), cwd, cache)
-    if (!sources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
+    if (!automaticSources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
     const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
     if (offloaded.length) {
@@ -608,7 +617,7 @@ export class ManuscriptVideoEvidence {
         && manuscriptEpisodeNumber(scene.episode) !== undefined
         && manuscriptEpisodeNumber(scene.episode) !== manuscriptEpisodeNumber(singleCurrent.episode),
       sources: singleCurrent !== undefined && manuscriptEpisodeNumber(scene.episode) !== undefined ? [singleCurrent]
-        : sources.filter((source) => {
+        : automaticSources.filter((source) => {
           const episode = manuscriptEpisodeNumber(scene.episode)
           return episode !== undefined && episode === manuscriptEpisodeNumber(source.episode)
             && (!sourceScope.requireCurrentSource || sourceScope.paths.has(source.path))
@@ -692,7 +701,7 @@ export class ManuscriptVideoEvidence {
         if (source === undefined || timeline === undefined) {
           reports.push({ manuscript, ...readMaterial, source_alignment: entry.sources.length ? 'ambiguous_episode_sources'
             : sourceScope.requireCurrentSource ? 'no_current_task_video_source' : 'no_matching_episode_source',
-          source_candidates: entry.sources.length ? entry.sources : sources, semantic_assessment: 'not_performed' })
+          source_candidates: entry.sources.length ? entry.sources : automaticSources, semantic_assessment: 'not_performed' })
           continue
         }
         const location = entry.location ?? manuscriptSourceWindows(entry.scene, timeline)

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-resident-question
+profile: headless
+composition: muse-resident-question
+recording: authored
+writerOutput: true
+header:
+  class: muse-resident-question
+  pin: true

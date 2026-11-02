@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url'
 const plugin = resolve(import.meta.dirname, '..')
 const above = (start) => {
   for (let dir = start; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, 'packages/bundle/web-app/package.json')) && existsSync(join(dir, 'apps/cli/package.json'))) return dir
     if (existsSync(join(dir, 'deepseek-harness'))) return join(dir, 'deepseek-harness')
     if (dirname(dir) === dir) return undefined
   }
@@ -33,15 +34,22 @@ const findHarness = () => {
 const harness = findHarness()
 // Tests that load other harness packages (jsdom) read the same checkout.
 process.env.DSH_HARNESS = harness
-// A checkout links the packages into its base bundle; an npm install has them at its root.
-const base = resolve(harness, 'packages/bundle/base/package.json')
-const anchor = pathToFileURL(existsSync(base) ? base : resolve(harness, 'package.json')).href
+// The Web profile composes both bundles; neither bundle alone carries every peer.
+const anchors = ['packages/bundle/web-app/package.json', 'packages/bundle/base/package.json']
+  .map(path => resolve(harness, path)).filter(existsSync).map(path => pathToFileURL(path).href)
+if (anchors.length === 0) anchors.push(pathToFileURL(resolve(harness, 'package.json')).href)
 const pluginUrl = `${pathToFileURL(plugin).href}/`
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith('@deepseek-ai/') && context.parentURL?.startsWith(pluginUrl)) {
-      return nextResolve(specifier, { ...context, parentURL: anchor })
+      for (const [index, anchor] of anchors.entries()) {
+        try {
+          return nextResolve(specifier, { ...context, parentURL: anchor })
+        } catch (error) {
+          if (error?.code !== 'ERR_MODULE_NOT_FOUND' || index === anchors.length - 1) throw error
+        }
+      }
     }
     return nextResolve(specifier, context)
   },

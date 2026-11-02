@@ -1,5 +1,6 @@
 """Offline package regression tests; no real project or provider access."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -56,6 +57,12 @@ class Resources(unittest.TestCase):
         for name, data in {
             "_confirmed_episodes.json": {"confirmed": [{"episode": 1}]},
             "confirmed-films.json": {"films": {"01": "export/master.mp4"}},
+            "film-reviews.json": {"films": {"01": {
+                "source": "export/master.mp4",
+                "sha256": hashlib.sha256(b"offline video fixture").hexdigest(),
+                "reviewed": True, "reviewed_at": "2026-10-30 12:00",
+                "picture": "ok", "audio": "ok", "subtitle": "ok", "spec": "ok", "issues": [],
+            }}},
             "主角.json": {"male": ["lead_m.png"], "female": ["lead_f.png"]},
         }.items():
             (cfg / name).write_text(json.dumps(data), encoding="utf-8")
@@ -99,6 +106,11 @@ class Resources(unittest.TestCase):
         master.parent.mkdir(parents=True)
         master.write_bytes(b"upstream must survive")
         (project / "_probe/delivery-config/confirmed-films.json").write_text(json.dumps({"films": {"01": str(master)}}), encoding="utf-8")
+        (project / "_probe/delivery-config/film-reviews.json").write_text(json.dumps({"films": {"01": {
+            "source": str(master),
+            "sha256": hashlib.sha256(master.read_bytes()).hexdigest(),
+            "reviewed": True, "picture": "ok", "audio": "ok", "subtitle": "ok", "spec": "ok", "issues": [],
+        }}}), encoding="utf-8")
         with self.assertRaises(SystemExit):
             self.assemble(self.delivery(), project, out)
         self.assertEqual(master.read_bytes(), b"upstream must survive")

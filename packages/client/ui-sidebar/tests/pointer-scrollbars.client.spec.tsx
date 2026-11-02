@@ -6,7 +6,7 @@
  * has no file: module URL to read the sheet through).
  */
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { SidebarRootComponentProps, SidebarSectionOwnerProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
@@ -27,8 +27,13 @@ type AttentionSnapshot = Parameters<Parameters<SidebarRootComponentProps['useSes
 const noAttention: AttentionSnapshot = new Map()
 const useSessionStatus: SidebarRootComponentProps['useSessionStatus'] = selector => selector(noAttention)
 
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+})
+
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 

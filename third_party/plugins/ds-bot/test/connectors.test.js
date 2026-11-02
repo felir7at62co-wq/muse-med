@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { signIn } from '../src/host/connectors.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const fresh = () => `ghp_${randomBytes(16).toString('hex')}`
 const answer = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body })
@@ -49,7 +49,7 @@ function setup({ fail = false, github = { api: 'https://gh.test' } } = {}) {
     import: async name => { assert.equal(name, '@deepseek-ai/dsh-mcp-client'); return { default: plugin } },
     unwrapExports: exports => exports.default,
   }
-  const ctx = fakeContext({ services: { loader } })
+  const ctx = legacyContext({ services: { loader } })
   ctx.plugin = (given, config) => {
     assert.equal(given, plugin)
     const mount = { config, disposed: false }
@@ -60,7 +60,7 @@ function setup({ fail = false, github = { api: 'https://gh.test' } } = {}) {
     }
   }
   capture(ctx)
-  apply(ctx, { home, github })
+  apply(ctx, legacyConfig({ home, github }))
   return { ctx, home, mounts }
 }
 
@@ -152,9 +152,9 @@ test('deleting GITHUB_TOKEN on the Secrets page unmounts GitHub', async (t) => {
 
 test('github: false hides the connector', async (t) => {
   const home = teamHome()
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   capture(ctx)
-  apply(ctx, { home, github: false })
+  apply(ctx, legacyConfig({ home, github: false }))
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   assert.deepEqual((await call(ctx, 'state', {})).value.connectors, [])
 })

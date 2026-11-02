@@ -7,16 +7,20 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './build-exe-for-python-sdk-native-pty.ts'
-import { copyOfficeSidecar, OFFICE_ASSET_IGNORES } from './build-exe-for-python-sdk-office.ts'
+import { restoreRuntimeDependencies } from './build-exe-for-python-sdk-dependencies.ts'
+import { copyOfficeSidecar, OFFICE_ASSET_IGNORES, restoreOfficeDeployment } from './build-exe-for-python-sdk-office.ts'
 import { preparePrimaryRuntime, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime/prepare.ts'
 
 const root = resolve(import.meta.dirname, '..')
+// Legacy deployment changes pnpm's installed dependency state; retain the installed build tool before deployment.
+const PKG_CLI = realpathSync(fileURLToPath(import.meta.resolve('@yao-pkg/pkg/lib-es5/bin.js')))
 
 /** The closure manifest whose dependencies define the executable. */
 const DEPLOY_ROOT_PACKAGE = 'dsh-python-runtime-closure'
@@ -306,6 +310,14 @@ class SingleExeBuild {
     ])
     await this.restoreLegacyHoists()
     await this.materializeStagedLinks()
+    if (!this.cli.dryRun) {
+      const restored = await restoreRuntimeDependencies(resolve(root, 'python/sdk-runtime'), this.staging)
+      console.log(`build-exe-for-python-sdk: restored ${String(restored.length)} transitive runtime packages`)
+      for (const target of this.cli.targets) {
+        const platform = target.platform === 'macos' ? 'darwin' : target.platform === 'win' ? 'win32' : target.platform
+        await restoreOfficeDeployment(root, this.staging, { platform, arch: target.arch })
+      }
+    }
     if (this.cli.dryRun) {
       for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
     } else {
@@ -430,9 +442,8 @@ class SingleExeBuild {
     const product = target.platform === 'win' ? `${productBase}.exe` : productBase
     await this.prepareNativePty(target)
     if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
-    await this.runPnpm(`pkg ${target.spec}`, [
-      'exec',
-      'pkg',
+    await this.run(`pkg ${target.spec}`, process.execPath, [
+      PKG_CLI,
       this.staging,
       '--sea',
       '--targets',
@@ -529,7 +540,23 @@ class SingleExeBuild {
           + `target ${target.platform}-${target.arch} does not match host ${host.platform}-${host.arch}.`,
         )
       }
-      resolveWindowsNodePtyAddons(join(this.staging, 'node_modules', 'node-pty'), target.arch)
+      // pnpm deploy does not run dependency lifecycle scripts, so the ConPTY
+      // prebuilds materialized by the workspace install never reach the staging;
+      // copy them from the workspace package like the Linux manylinux fallback.
+      const stagedPty = join(this.staging, 'node_modules', 'node-pty')
+      const stagedPrebuilds = join(stagedPty, 'prebuilds', 'win32-x64')
+      if (!existsSync(join(stagedPrebuilds, 'conpty.node'))) {
+        await mkdir(stagedPrebuilds, { recursive: true })
+        await copyFile(
+          join(packageDirectory, 'prebuilds', 'win32-x64', 'conpty.node'),
+          join(stagedPrebuilds, 'conpty.node'),
+        )
+        await copyFile(
+          join(packageDirectory, 'prebuilds', 'win32-x64', 'conpty_console_list.node'),
+          join(stagedPrebuilds, 'conpty_console_list.node'),
+        )
+      }
+      resolveWindowsNodePtyAddons(stagedPty, target.arch)
       return
     }
     if (target.platform !== 'linux') return

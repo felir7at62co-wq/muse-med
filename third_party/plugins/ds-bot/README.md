@@ -14,7 +14,7 @@ When a Bot starts a new conversation part in a registered workspace, that part a
 
 Settings → Bots → Use an existing conversation remains available when automatic registration is disabled. It registers the selected Session in place and opens its original conversation; the Session title supplies its default Bot name. The user can assign the Main Bot role in the same settings page. A Main Bot coordinates the work and can execute simple tasks directly, delegating where useful. Main Bots appear in order at the top of the sidebar, with at most three per row; ordinary pinned Bots remain in the list. Opening a Bot or conversation preserves the sidebar's current expanded or collapsed state at every window width. On desktop, Bot mode keeps the same 56px avatar rail as Web when collapsed; leaving Bot mode restores the native collapse behavior.
 
-New teams use the DS Bot Chief of Staff role in the `bot-coordinator` preset, with Muse as a separate `short-drama` specialist. Existing Bot identities and Sessions keep their current presets and history. The shared team workspace retains Muse's bundled short-drama tools. Its settings omit generic plugin and capability creation entries; the account footer remains owned by Muse. Bots can still discover and load their existing skills and use attached capabilities. Host tools, permissions and saved capability definitions are unchanged. The About page identifies Muse Bot and keeps upstream attribution inside a collapsed open-source license disclosure.
+New teams use the DS Bot Chief of Staff role in the `bot-coordinator` preset, with Muse as a separate `short-drama` specialist. Existing Bot identities and Sessions keep their current presets and history. The shared team workspace retains Muse's bundled short-drama tools. Its settings omit generic plugin and capability creation entries; the account footer remains owned by Muse. Bots can still discover and load their existing skills and use attached capabilities. Host tools, permissions and saved capability definitions are unchanged. The About page shows Muse Bot product information without a repository or license section.
 
 Open Settings → Feedback to fill in Muse's existing Session feedback form. The user chooses the content and submits it; opening the form does not send feedback or diagnostics. The same page can preview, copy and save local diagnostics.
 
@@ -67,7 +67,17 @@ Run the owning build checks from the repository root:
 pnpm --dir third_party/plugins/toolchain run test:bot
 ```
 
+The repository development dependencies pin `esbuild` to the version declared by this plugin. Run the retained keyless tests against this checkout's built Harness peers from the repository root:
+
+```sh
+DSH_HARNESS="$PWD" node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test "third_party/plugins/ds-bot/test/*.test.js"
+```
+
+Retained upstream team fixtures explicitly select their original coordinator, preset, Bot-managed context and memory review. Question and view fixtures use an existing team without automatically creating a specialist. `muse-host.test.js` separately checks the default coordinator and Muse specialist setup. The test resolver uses the actual Web and base profile bundle dependencies; its regression checks compare the resolved modules with those profile consumers.
+
 The package checks validate the native composition, browser entry, source metadata and retained attribution. The recorded-session case exercises the actual roster tool with isolated state. They do not establish paid-provider availability, creative quality, or authenticated account acceptance; desktop verification covers Host activation and the Muse Bot interface separately.
+
+Source lint covers `src`, entry modules, scripts and tests. The generated `client.js` is excluded from lint; `node scripts/build-client.mjs --check` verifies it against `src/client` with the declared esbuild version.
 
 ## License and attribution
 

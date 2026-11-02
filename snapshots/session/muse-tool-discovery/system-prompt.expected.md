@@ -33,4 +33,4 @@ Some authorized tools are not loaded upfront. Missing initial definitions or loc
 
 Available capability groups (an empty or cropped directory does not limit global search):
 
-{"capabilities":[{"id":"fixture","title":"Test capability","description":"Deterministic discovery replay."}],"omitted_capabilities":0}
+{"capabilities":[{"id":"fixture","title":"Test capability","description":"Deterministic discovery replay."},{"id":"uncategorized","title":"Other authorized tools","description":"Browse authorized tools not assigned to another capability."}],"omitted_capabilities":0}

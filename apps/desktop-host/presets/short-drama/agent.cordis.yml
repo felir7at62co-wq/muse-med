@@ -220,7 +220,7 @@
         thresholdChars: 8192
         headChars: 4096
         tailChars: 1024
-        preserveToolNames: [skill]
+        preserveToolNames: []
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 - id: delegation

@@ -10,7 +10,7 @@ import { installLocale, t, hostText } from '../src/client/i18n.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { outputFiles } = await build({
-  stdin: { contents: "export { BrandName, BrandMark, BotReturn, TeamSidebar } from './src/client/sidebar.js'; export { AboutPage } from './src/client/about.js'; export { ModelChoiceDock, DeepSeekSignIn } from './src/client/model-menu.js'; export { FeedbackPage, openMuseFeedback } from './src/client/feedback.js'; export { CharacterGrid } from './src/client/bot-settings.js'", resolveDir: root },
+  stdin: { contents: "export { BrandName, BrandMark, BotReturn, TeamSidebar } from './src/client/sidebar.js'; export { AboutPage } from './src/client/about.js'; export { ModelChoiceDock, DeepSeekSignIn } from './src/client/model-menu.js'; export { FeedbackPage, openMuseFeedback } from './src/client/feedback.js'; export { CharacterGrid } from './src/client/bot-settings.js'; export { installLocale } from './src/client/i18n.js'", resolveDir: root },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -90,14 +90,23 @@ test('about does not offer the upstream updater or GitHub issue flow even with u
   assert.equal(find(tree, node => node.props?.className === 'bt-about-name')[0].children[0], 'Muse Bot')
   assert.equal(find(tree, node => node.props?.className === 'bt-about-version').length, 0, 'plugin version is not the Muse application version')
   assert.deepEqual(find(tree, node => node.type === 'button').map(node => textOf(node)), ['Open'])
-  assert.equal(find(tree, node => node.props?.href).length, 1, 'the sole repository link belongs to explicit third-party credits')
-  assert.match(textOf(tree), /DS Bot · Fei2411 and contributors Apache-2.0/)
-  const notices = find(tree, node => node.type === 'details')
-  assert.equal(notices.length, 1)
-  assert.equal(notices[0].props.open, undefined, 'source attribution stays available in a disclosure that starts closed')
-  assert.equal(textOf(notices[0].children[0]), 'View license notices')
-  assert.match(textOf(notices[0]), /DS Bot · Fei2411 and contributors Apache-2.0/)
+  assert.equal(find(tree, node => node.props?.href).length, 0)
+  assert.equal(find(tree, node => node.type === 'details').length, 0)
+  assert.equal(find(tree, node => node.props?.title === 'Open-source licenses').length, 0)
+  assert.doesNotMatch(textOf(tree), /DS Bot|Fei2411|Apache-2.0|Muse repository|Muse license/)
   assert.deepEqual(calls, [])
+})
+
+test('the Chinese About page omits the license section while the package retains upstream notices', () => {
+  const off = ui.installLocale(chineseLocale())
+  try {
+    const tree = ui.AboutPage({ useUpdate: read => read({}), actions: {}, run: read => read, Section: 'section', Row: 'row' })
+    assert.equal(find(tree, node => node.props?.href).length, 0)
+    assert.equal(find(tree, node => node.type === 'details').length, 0)
+    assert.doesNotMatch(textOf(tree), /开源软件许可|Muse 仓库|Muse 许可证|上游许可说明|DS Bot|Fei2411|Apache-2.0/)
+  } finally { off() }
+  assert.match(readFileSync(new URL('../LICENSE', import.meta.url), 'utf8'), /Apache License/)
+  assert.match(readFileSync(new URL('../NOTICE', import.meta.url), 'utf8'), /Copyright 2026 Fei2411 and the DS Bot contributors/)
 })
 
 test('Muse app update status remains actionable through its own app actions', () => {

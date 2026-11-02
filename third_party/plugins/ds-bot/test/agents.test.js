@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve() }
 
@@ -14,7 +14,7 @@ const flush = async () => { for (let index = 0; index < 8; index += 1) await Pro
 function start(team, { config = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-agents-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   const workspaces = new Map()
   const created = []
   const archived = []
@@ -64,7 +64,7 @@ function start(team, { config = {} } = {}) {
     route = options
     return register(options)
   }
-  apply(ctx, { home, ...config })
+  apply(ctx, legacyConfig({ home, ...config }))
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()

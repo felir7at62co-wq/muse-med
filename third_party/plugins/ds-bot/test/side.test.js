@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { SIDE_MARKER } from '../src/host/side.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const assistant = (...blocks) => ({ role: 'assistant', content: blocks })
@@ -132,7 +132,7 @@ async function setup({ state = team(), scripts = [], gate = false, messages, seq
   const gates = []
   const queue = [...scripts]
   const services = {}
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   services.sessionProjections = projectionRegistry(ctx)
   ctx.llm = {
     listProviders: () => [],
@@ -174,7 +174,7 @@ async function setup({ state = team(), scripts = [], gate = false, messages, seq
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, legacyConfig({ home, github: false, diagnosticsFile: false }))
   let notices = 0
   const saved = rt.stateSaved
   rt.stateSaved = () => { notices += 1; saved?.() }
@@ -488,7 +488,7 @@ test('a restart marks an entry that was still answering as failed', async (t) =>
   t.after(() => env.stop())
   const [live, old] = chatOf(env.rt, 'chat').entries
   assert.equal(live.status, 'failed')
-  assert.equal(live.error, 'DS Bot restarted before this answer finished.')
+  assert.equal(live.error, 'Muse Bot restarted before this answer finished.')
   assert.equal(typeof live.finishedAt, 'number')
   assert.equal(old.status, 'done')
   const file = chatsFile(env.home)

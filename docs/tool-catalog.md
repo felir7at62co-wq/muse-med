@@ -3037,7 +3037,7 @@ Source: [`packages/core/tool-discovery/src/index.ts`](../packages/core/tool-disc
 
 ### `tool_search`
 
-Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.
+Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.
 
 ```json
 {
@@ -3050,6 +3050,10 @@ Find authorized tools not loaded upfront by task or exact name; matching full de
     "capability": {
       "type": "string",
       "description": "Optional capability id from the directory. Omit to search across groups."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
     },
     "limit": {
       "type": "integer",

@@ -1,4 +1,4 @@
-/** Muse exposes one creative Agent without preset or plugin-management navigation. */
+/** Muse keeps creative and coordinator presets out of mode and plugin-management navigation. */
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -24,9 +24,9 @@ beforeAll(async () => {
     default: string
     selectablePresets: string[]
   }
-  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama'] })
+  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama', 'bot-coordinator'] })
   const definitions: PresetDefinition[] = []
-  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
+  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal', 'bot-coordinator']) {
     const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as {
       name?: string
       description?: string
@@ -66,7 +66,7 @@ it('hides preset selection, mode labels and plugin management for the unified Ag
   await openSettings(page, 'en')
   expect(await page.getByRole('button', { name: 'Agent presets', exact: true }).count()).toBe(0)
   expect(await page.getByRole('button', { name: 'Built-in plugins', exact: true }).count()).toBe(0)
-  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'bot-coordinator'])
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'unified-agent-settings.png') })
   expect(consoleWatch.pageErrors).toEqual([])
 })

@@ -551,7 +551,6 @@ async function awaitGeneratedImage(client: JubianClient, assetId: number,
           && wireText(row.hsAssetStatus)?.trim().toLowerCase() === 'active' && row.isUsed === 0)
         if (candidates.length !== 1) throw new JubianError('CONTRACT_CHANGED', 'No unique active unselected image candidate for the accepted parent')
         const generation = readImageGeneration(candidates[0])
-        if (generation?.status === 'failed') return failedImageReadback(generation, now() - started)
         if (generation !== null && generation.status !== 'succeeded') {
           throw new JubianError('CONTRACT_CHANGED', 'Generated image task is not confirmed successful')
         }

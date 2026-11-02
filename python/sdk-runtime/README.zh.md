@@ -50,6 +50,8 @@ Python bootstrap 从相邻目录解析 Office kit，让原生辅助程序与 URL
 
 生产部署允许工作区中不属于运行时闭包的补丁保持未使用；闭包内包的补丁仍必须成功应用。此例外仅用于部署命令，仓库安装仍拒绝未使用的补丁。
 
+运行时闭包直接包含与 Office 技能提供者版本一致的 `@deepseek-ai/libreoffice-kit`。旧式部署后，构建器从已安装的构建工作区补齐缺失的生产依赖和目标 Office 引擎，并保留嵌套依赖版本及共享 peer 依赖。打包直接调用预先安装的 `pkg` JavaScript 入口，不会在生产部署后要求 pnpm 重新安装构建依赖。
+
 在仓库根目录运行 `pnpm exec tsx scripts/build-exe-for-python-sdk.ts`，会校验闭包、构建包、部署无符号链接的文件树、打包所选目标，并把可执行程序及伴随文件同步到本模块。`scripts/build-python-release.py` 按仓库根版本暂存发布形态的 wheel 包，并将 `deepseek-harness-sdk` 固定到完全相同的运行时版本。
 
 已安装 wheel 包冒烟测试会在检出目录外创建干净的虚拟环境，验证分发物与可执行程序的来源，然后覆盖默认及自定义 SDK profile、外部插件、MCP、原生工具、直接 JSON-RPC、检入快照，以及可信运行中的真实提供方。Office 场景会迁移完整的目标载荷目录，并使用所需的平台引擎转换 DOCX：使用目标已声明的原生引擎，未声明原生引擎时使用 WASM。另见 [Python 贡献者工作流](../development.zh.md) 与 [installed-wheel 测试决策](../../.agents/notes/implemented/testing/2026-08-23-installed-python-wheel-black-box-ci.zh.md)。

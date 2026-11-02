@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -21,6 +22,8 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
+import * as CreationSkills from '../../desktop-host/src/creation-skills.ts'
+import { prepareDesktopSmokeSkills } from '../scripts/smoke-runtime.ts'
 import { desktopSkillDirectories } from '../../desktop-host/src/bundled-skills.ts'
 
 const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
@@ -33,12 +36,13 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
     const bundled = join(root, 'bundled')
     const legacy = join(root, 'legacy')
     const inherited = join(root, 'inherited-bundle')
-    const workspace = join(root, 'workspace')
-    const user = join(root, 'muse', 'skills')
+    const home = join(root, 'muse')
+    const layout = prepareDesktopSmokeSkills(home)
+    const workspace = layout.cwd
+    const user = join(home, 'skills')
     const product = join(root, 'product')
     const custom = join(root, 'custom')
     ctx.provide('dirs', [custom])
-    await mkdir(join(workspace, '.git'), { recursive: true })
     await mkdir(product, { recursive: true })
     for (const [directory, name] of [[user, 'user-creative'], [custom, 'custom-creative'],
       [join(workspace, '.muse/skills'), 'project-muse'], [join(workspace, '.dsh/skills'), 'project-dsh'],
@@ -79,6 +83,12 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
     const presetRoot = join(root, 'presets')
     await mkdir(join(presetRoot, 'product-skills'), { recursive: true })
     await writeFile(join(presetRoot, 'product-skills', 'agent.cordis.yml'), yaml.dump(skillRows))
+    const creationRows = yaml.load(await readFile(new URL('../../desktop-host/presets/creation/agent.cordis.yml', import.meta.url), 'utf8'),
+      { schema: entryListSchema }) as Array<{ id: string }>
+    const creationSkillRows = creationRows.filter(row => row.id === 'creation-skills')
+    expect(creationSkillRows).toHaveLength(1)
+    await mkdir(join(presetRoot, 'creation-skills'), { recursive: true })
+    await writeFile(join(presetRoot, 'creation-skills', 'agent.cordis.yml'), yaml.dump(creationSkillRows))
     await symlink(fileURLToPath(new URL('../../../packages/bundle/base/node_modules', import.meta.url)),
       join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
     const config = join(root, 'cordis.yml')
@@ -90,15 +100,19 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
         customSkillDirs: desktopSkillDirectories(product, user, configuredSkillProvider?.config) } },
       { id: 'presets', name: 'test:presets', config: { default: 'product-skills' } },
       { id: 'preset-product-skills', name: 'test:native', config: { id: 'product-skills', directory: join(presetRoot, 'product-skills') } },
+      { id: 'preset-creation-skills', name: 'test:native', config: { id: 'creation-skills', directory: join(presetRoot, 'creation-skills') } },
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    ctx.loader.builtins.group = Group
     const modules = new Map<string, unknown>([
       ['test:llm', Llm], ['test:sessions', Sessions], ['test:projections', SessionProjections],
       ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', AgentRegistry],
       ['test:loop', AgentLoop], ['test:skills', Skills], ['test:presets', AgentPresets],
       ['test:native', NativePreset],
+      ['@deepseek-ai/dsh-skill', Skills],
+      ['@deepseek-ai/dsh-desktop-host/creation-skills', CreationSkills],
       ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem], ['@deepseek-ai/dsh-tool-skill', ToolSkill],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
@@ -112,12 +126,44 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    const handle = await ctx.agents.create({ sessionId: SessionId('product-skill-scope'), meta: { cwd: workspace },
-      setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx) } })
-    const options = { scope: scopeOf(handle.agent.ctx), cwd: workspace }
-    expect((await ctx.skills.list(options)).map(skill => skill.name)).toEqual(['custom-creative', 'project-agents', 'project-dsh', 'project-muse', 'shared-skill', 'user-creative'])
-    const content: unknown = expect.stringContaining('product body')
-    expect(await ctx.skills.get('shared-skill', options)).toMatchObject({ source: 'bundled', content })
+    const expectedNames = ['custom-creative', 'project-agents', 'project-dsh', 'project-muse', 'shared-skill', 'user-creative',
+      ...layout.selected.map(skill => skill.name)].sort()
+    for (const id of ['product-skills', 'creation-skills']) {
+      const handle = await ctx.agents.create({ sessionId: SessionId('product-skill-scope-' + id), meta: { cwd: workspace, agentPreset: id },
+        setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, id) } })
+      try {
+        const registry = id === 'creation-skills' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
+        if (registry === undefined) throw new Error('The actual creation skill registry is missing')
+        const options = { scope: scopeOf(handle.agent.ctx), cwd: workspace }
+        expect((await registry.list(options)).map(skill => skill.name)).toEqual(id === 'creation-skills'
+          ? expectedNames.filter(name => name !== 'shared-skill') : expectedNames)
+        if (id === 'creation-skills') expect(await registry.get('shared-skill', options)).toBeUndefined()
+        else {
+          const loaded = await registry.get('shared-skill', options)
+          expect(loaded?.source).toBe('bundled')
+          expect(loaded?.content).toContain('product body')
+        }
+        for (const skill of layout.selected) {
+          const loaded = await registry.get(skill.name, options)
+          expect(loaded?.source).toBe(skill.source)
+          expect(loaded?.content).toContain('# ' + skill.name)
+          expect(await realpath(loaded!.path!)).toBe(await realpath(skill.path))
+        }
+        expect(await registry.get('desktop-shared-only', options)).toBeUndefined()
+        // Using the product home as cwd activates its shared-looking folders as project roots.
+        const wrongCwd = { ...options, cwd: home }
+        expect((await registry.list(wrongCwd)).some(skill => skill.name === 'desktop-shared-only')).toBe(true)
+        expect(await realpath((await registry.get('desktop-user-skill', wrongCwd))!.path!))
+          .not.toBe(await realpath(layout.selected[0]!.path))
+        const remove = ctx.skills.register({ name: 'unreviewed-authoring', description: 'Runtime-only authoring',
+          source: 'runtime', content: 'Runtime authoring instructions' })
+        try {
+          const runtimeSkill = await registry.get('unreviewed-authoring', options)
+          if (id === 'creation-skills') expect(runtimeSkill).toBeUndefined()
+          else expect(runtimeSkill).toMatchObject({ source: 'runtime', content: 'Runtime authoring instructions' })
+        } finally { remove() }
+      } finally { await handle.dispose() }
+    }
     const preserved = await readFile(join(custom, 'custom-creative', 'SKILL.md'), 'utf8')
     await ctx.fiber.dispose()
     const restarted = new Context()
@@ -125,9 +171,7 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
       await restarted.plugin(Skills)
       await restarted.plugin(SkillFilesystem, { ...hostConfig, bundledSkillDir: bundled, watch: false,
         customSkillDirs: [product, user, custom] })
-      expect((await restarted.skills.list({ cwd: workspace })).map(skill => skill.name)).toEqual([
-        'custom-creative', 'project-agents', 'project-dsh', 'project-muse', 'shared-skill', 'user-creative',
-      ])
+      expect((await restarted.skills.list({ cwd: workspace })).map(skill => skill.name)).toEqual(expectedNames)
       expect(await readFile(join(custom, 'custom-creative', 'SKILL.md'), 'utf8')).toBe(preserved)
     } finally { await restarted.fiber.dispose() }
 

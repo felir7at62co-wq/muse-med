@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { lineText } from '../src/host/groups.js'
-import { fakeAttachments, fakeContext } from './fake-ctx.js'
+import { fakeAttachments } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
 // session/event listener, so a round runs with no model. Prompts land in the
@@ -14,7 +15,7 @@ import { fakeAttachments, fakeContext } from './fake-ctx.js'
 // or steered into the next step.
 // `home`: start on the data of an earlier run, as after a restart.
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   const workspaces = new Map()
   const sent = []
   const inboxes = new Map()
@@ -72,7 +73,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, legacyConfig({ home }))
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -600,7 +601,8 @@ test('a long post goes to the group as a file, and reaches the member with its p
   const { call, emit, relay, answer, stop, sent, ctx, rt } = start()
   t.after(stop)
   const store = fakeAttachments()
-  ctx.get = name => (name === 'attachments' ? store : undefined)
+  const get = ctx.get.bind(ctx)
+  ctx.get = name => (name === 'attachments' ? store : get(name))
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
   const long = `${Array.from({ length: 400 }, (_, at) => `第 ${at + 1} 行：${'报告内容。'.repeat(10)}`).join('\n')}\n结尾`

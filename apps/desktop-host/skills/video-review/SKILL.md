@@ -1,6 +1,6 @@
 ---
 name: video-review
-description: 查看、核对或分析本地视频画面、动作、字幕与交付质量；使用时间码抽帧及已有语音转写。
+description: 查看、核对或分析本地视频画面、动作、字幕与交付质量；使用时间码抽帧及已有语音转写。成片交付前应按本技能审查并登记 film-reviews.json。
 ---
 
 # 视频核对
@@ -20,3 +20,38 @@ PTC 每轮返回一个小批抽帧结果，创作模式默认四帧；读到该�
 对白和字幕需要使用已授权的 `audio_transcribe`，字幕校时传 `purpose: "subtitles"`，转剧本提取对白传 `purpose: "screenplay"`，然后按原始时间码与画面核对。`video_inspect strategy=scene_dialogue` 可结合同一原片的 `transcript_path` 返回发声中点及原始片段起止时间、短原句和可选声学编号，便于核对口型、画外声和多轮对白；编号不是人物姓名。当前没有独立音频观察通道，ASR 不是试听；声线、音色、环境声、语气及口型同步没有实际观察依据时保留待核实，不能只凭画面或台词稿宣称音频一致。生成新声线与参考音频沿用项目的声音约定。
 
 向用户展示成片时返回可打开的项目文件链接，使用视频预览核对。播放失败先报告真实连接或编码问题；未经核实不重生成视频或重复付费提交。
+
+## 成片交付前的审查钩子（提示性）
+
+交付完整成片（用 tweet-drama-delivery 组装交付目录、或向用户宣告某集成片交付）之前，应先完成本技能对该集**实际母版**的审查并登记。这是**提示性**钩子：没有登记或登记过期时，交付脚本 `assemble_delivery.py` 会醒目提示但照常组装，**不拦截交付**——自动化流水线不会因此停下。看到提示就补审、更新登记。
+
+审查四个维度，逐项给结论 `ok` / `issues` / `unverified`：
+
+1. **画面**：`video_inspect` 对实际成片 scan 后逐批查看关键帧，记录人物、动作、神态、道具与转场疑点；对照正式角色/场景资产核对身份与画风。抽帧看过的区间与未核区间分开记录，不把概览当全片。
+2. **声音（重点：BGM 音量）**：`drama_render verify` 回读成片音视频流与静音检查；`drama_render audio_preview`（或 drama_bgm 的 generation.json）核对 BGM 增益与混音——BGM 过小听不见、过大压对白、整段静音都算 issues，不能默认通过。听感未实际核对的记 unverified。
+3. **字幕**：`drama_render verify` 的字幕越界检查 + `subtitle_layout` 实测字形；核字幕校时与画面烧字是否一致。
+4. **规格**：`drama_render verify` 实测分辨率、帧率、码率、时长与音视频流是否与项目交付规格一致。
+
+然后登记 `<项目>\_probe\delivery-config\film-reviews.json`（按集，`01`/`02` 两位集号）：
+
+```json
+{"films": {
+  "01": {
+    "source": "export/<剧名>_第01集_成片.mp4",
+    "sha256": "<当前母版字节的64位小写十六进制摘要>",
+    "reviewed": true,
+    "reviewed_at": "YYYY-MM-DD HH:MM",
+    "picture": "ok",
+    "audio": "issues",
+    "subtitle": "ok",
+    "spec": "ok",
+    "bgm_gain_db": -6.2,
+    "issues": [{"item": "bgm_volume", "time": "00:12-00:18", "detail": "实测 BGM 增益过低，该段几乎听不见", "fix": "提高 BGM 增益后重新 render 并复查"}]
+  }
+}}
+```
+
+- `source` 是相对项目根目录的母版路径，`sha256` 必须按**当前母版字节**计算（用交付脚本同款 sha256 或 read 后自行计算，登记为**小写十六进制**；PowerShell 的 Get-FileHash/certutil 输出大写，登记前先转小写）；母版字节一变，旧登记即失效，交付脚本会提示审查过期，应重新审查并更新。
+- 四维都要给结论：带 `unverified` 的登记不完整，应补核该维度；有 `issues` 要逐条写明测量值/时间码与修法。修掉后复查并更新结论；用户明确接受现状时，把决定写进 issues 或改回 `ok`，不能删掉 issue 凑通过。
+- 审查登记不等于用户确认：用户确认仍走 `_confirmed_episodes.json` 与 `confirmed-films.json`。
+- 登记是审查证据、不是放行条：脚本只提示不拦截，空结论或造假登记解决不了实际交付问题，反而会误导后续复核。
