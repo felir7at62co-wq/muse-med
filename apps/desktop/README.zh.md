@@ -263,7 +263,7 @@ Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-source
 
 未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
-CI 仅对锁定的私有仓库下载使用鉴权；正常准备流程仍校验大小和 SHA-256。 安装验收通过 `--previous-release-cache` 使用鉴权预热的基线缓存，仍须匹配原安装包与清单的哈希。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器加密精确候选与允许的验收证据，不写更新 feed，日志不含 URL 或密钥。发布者解密后须独立审阅、核验构建，再正式推广。
+CI 仅对锁定的私有仓库下载使用鉴权；正常准备流程仍校验大小和 SHA-256。 安装验收通过 `--previous-release-cache` 使用鉴权预热的基线缓存，仍须匹配原安装包与清单的哈希。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器排除图片，拒绝含已知环境秘密、上传凭据或常见密钥格式的文本证据，然后加密精确候选与验收文本；不写更新 feed，日志不含 URL 或密钥。发布者解密后须独立审阅、核验构建，再正式推广。
 
 候选下载验收使用当前更新器，分别注入已安装版本 1.2.2、1.2.5 和 1.2.6 的身份，不执行这些旧版本的更新器二进制。旧客户端若卡在任务检查阶段，仍需正常退出 Muse 后直接安装已校验的最新安装包；发布新 feed 无法修复安装前正在执行的旧代码。
 
@@ -414,7 +414,7 @@ pnpm run package:desktop:win:x64:unsigned
 
 该命令要求设置 `DSH_DESKTOP_APP_ID` 并具备常规构建依赖，包括编译原生模块所需的 Python 和 Visual C++ 构建工具。Python 不在 `PATH` 中时，将 `PYTHON` 设置为其可执行文件路径。命令将安装包写入 `.desktop-build/targets/win-x64/unsigned-artifacts/`，记录 GitHub Releases 更新源且不含 publisher name，清除签名凭据，且不生成发布完成记录。它不需要 EV 凭据或更新源地址。签名打包和上传命令仍遵循正式发布要求。
 
-macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:arm64 -- --unsigned` 或 `pnpm run package:desktop:mac:x64 -- --unsigned`。使用 UTF-8 的 `.env.macos`，包含 `DSH_DESKTOP_APP_ID=cn.muse.med` 和 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`。这类构建省略 Developer ID 签名、钥匙串导入和 Apple 公证，但会对完整应用进行 ad-hoc 签名，打包成功前必须通过 `codesign --verify --deep --strict`。DMG/ZIP 及 GitHub 更新元数据写到该目标的 `unsigned-artifacts/`，仍验证组装后的运行时。macOS 打包为签名和未签名构建准备从源码编译且架构匹配的 FFmpeg/ffprobe 载荷。未签名产物没有签名发布完成记录，通过 GitHub Releases 显式发布；COS 上传命令仍要求签名记录。用户需要在 Windows 允许未验证的发布者，或在 macOS 首次尝试打开后到“隐私与安全性”批准 Muse。
+macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:arm64 -- --unsigned` 或 `pnpm run package:desktop:mac:x64 -- --unsigned`。使用 UTF-8 的 `.env.macos`，包含 `DSH_DESKTOP_APP_ID=cn.muse.med` 和 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`。这类构建省略 Developer ID 签名、钥匙串导入和 Apple 公证，但会对完整应用进行 ad-hoc 签名，打包成功前必须通过 `codesign --verify --deep --strict`。DMG/ZIP 及 GitHub 更新元数据写到该目标的 `unsigned-artifacts/`，仍验证组装后的运行时。macOS 打包为签名和未签名构建准备从源码编译且架构匹配的 FFmpeg/ffprobe 载荷。未签名产物没有签名发布完成记录，须通过 GitHub Releases 或 Muse TOS 镜像显式发布；COS 上传命令仍要求签名记录。用户需要在 Windows 允许未验证的发布者，或在 macOS 首次尝试打开后到“隐私与安全性”批准 Muse。
 
 ad-hoc macOS 构建包含封装在签名内、绑定版本的手动更新标记。更新沿用配置的主源和备用源，选择完全匹配架构的 DMG，验证 SHA-512 和大小，再以只读方式挂载，验证应用标识、发布版本、可执行文件架构及完整代码签名，不执行其中的应用。用户另行确认后，更新器复验文件字节，沿用既有任务停止保护，打开已校验的 DMG 并退出 Muse。请将 Muse 拖入“应用程序”并替换原应用，复制完成后重新打开；账号数据、会话和设置保存在应用之外。稍后更新会保留运行任务，校验或安装包打开失败仍保留重试与 Host 恢复。这一路径不会自动替换应用，也不会把 ad-hoc 签名当成发布者身份认证。Developer ID 构建继续使用 Squirrel 的原生签名验证。[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-manual-mac-update/guide.zh.md)说明了早期未封装签名安装包的迁移方式。
 

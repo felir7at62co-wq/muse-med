@@ -10,7 +10,7 @@ import { readDesktopProductConfig } from './desktop-build-version.mjs'
 import { createMuseMirrorPlan } from './muse-release-mirror.mjs'
 
 const REPOSITORY = 'felir7at62co-wq/muse-med'
-const EVIDENCE_EXTENSIONS = new Set(['.json', '.jsonl', '.log', '.png', '.txt', '.xml'])
+const EVIDENCE_EXTENSIONS = new Set(['.json', '.jsonl', '.log', '.txt', '.xml'])
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'payload', 'installed', 'installation', 'resources', 'credentials', 'profiles'])
 class ExportFailure extends Error {}
 const requireExport = (condition, message) => { if (!condition) throw new ExportFailure(`Muse candidate export: ${message}`) }
@@ -126,6 +126,18 @@ async function stageEvidence(root, runner, stage, identity) {
   requireExport(updater > 0, 'missing updater UI evidence')
 }
 
+async function auditTextEvidence(directory, secrets) {
+  for (const name of await readdir(directory)) {
+    const path = join(directory, name)
+    const entry = await lstat(path)
+    if (entry.isDirectory()) { await auditTextEvidence(path, secrets); continue }
+    const text = await readFile(path, 'utf8')
+    requireExport(!secrets.some(value => text.includes(value))
+      && !/-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|X-(?:Amz|Tos)-Signature=|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}|\bsk-[A-Za-z0-9_-]{20,}|\bBearer\s+[A-Za-z0-9._~+/-]{8,}/iu.test(text),
+    'evidence contains secret data')
+  }
+}
+
 async function put(object, body, fetchImpl, now, expiry) {
   requireExport(now() < expiry, 'export authorization expired')
   let response
@@ -138,7 +150,7 @@ async function put(object, body, fetchImpl, now, expiry) {
   requireExport(response.ok, `upload failed (HTTP ${status})`)
 }
 
-/** Encrypt and export only the exact candidate and native acceptance evidence from an authorized CI run.
+/** Encrypt the exact candidate and text-only native acceptance evidence after rejecting known secrets and credential patterns.
  * @param {{root?: string, environment?: NodeJS.ProcessEnv, platform?: NodeJS.Platform, fetchImpl?: typeof fetch, now?: () => number}} options - Build roots and isolated adapters for offline qualification.
  * @returns {Promise<{version: string, target: string, commit: string, runId: string, exportId: string, encryptedBytes: number, encryptedSha256: string, ivHex: string, authTagHex: string}>} Non-secret transfer metadata after both private objects upload.
  */
@@ -168,6 +180,10 @@ export async function exportMuseCiCandidate({ root = resolve(import.meta.dirname
     await createMuseMirrorPlan({ version, sourceCommit: config.expectedCommit, targets: ['win-x64'],
       artifactDirectories: { 'win-x64': join(stage, 'candidate') } })
     await stageEvidence(root, runner, stage, config)
+    const secrets = [config.encryptionKeyHex, config.objects.candidate.url, config.objects.transfer.url,
+      ...Object.entries(environment).flatMap(([name, value]) => /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/iu.test(name)
+        && typeof value === 'string' && value.length >= 8 ? [value] : [])]
+    await auditTextEvidence(join(stage, 'evidence'), secrets)
     const key = Buffer.from(config.encryptionKeyHex, 'hex'), iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', key, iv)
     key.fill(0)

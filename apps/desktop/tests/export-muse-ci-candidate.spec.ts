@@ -34,6 +34,7 @@ async function fixture() {
   await mkdir(join(installed, 'processes'), { recursive: true })
   await writeFile(join(installed, 'acceptance.json'), JSON.stringify(report))
   await writeFile(join(installed, 'processes', 'events.jsonl'), '{"passed":true}\n')
+  await writeFile(join(installed, 'processes', 'unreviewed.png'), 'unreviewed screenshot fixture')
   for (const fromVersion of ['1.2.2', '1.2.5', '1.2.6']) {
     const path = join(runner, `muse-candidate-update-${fromVersion}`)
     await mkdir(path)
@@ -91,6 +92,7 @@ it('round-trips exact candidate bytes and bounded evidence through authenticated
   expect(await readFile(join(restored, 'evidence', 'runner', 'muse-installer-acceptance-fake', 'acceptance.json'), 'utf8')).toContain('"success":true')
   await expect(readFile(join(restored, 'evidence', 'desktop', 'installer-tests/run-fixture/payload/ordinary-config.json'))).rejects.toThrow()
   await expect(readFile(join(restored, 'evidence', 'desktop', 'installer-tests/run-fixture/fixture.exe'))).rejects.toThrow()
+  await expect(readFile(join(restored, 'evidence', 'runner', 'muse-installer-acceptance-fake', 'processes', 'unreviewed.png'))).rejects.toThrow()
   expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
 })
 
@@ -151,6 +153,27 @@ it('redacts network and HTTP failure details, stops before transfer and removes 
     await expect(exportMuseCiCandidate({ ...f.options, fetchImpl })).rejects.toThrow(kind === 'network'
       ? /^Muse candidate export: upload transport failed$/u : /^Muse candidate export: upload failed \(HTTP 403\)$/u)
     expect(calls).toBe(1)
+    expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
+  }
+})
+
+it('refuses secret-bearing text evidence before either upload', async () => {
+  for (const secret of ['environment', 'encryption-key', 'signed-url', 'private-key', 'github-token', 'bearer-token']) {
+    const f = await fixture()
+    const samples = {
+      environment: 'fixture-sensitive-value-4829',
+      'encryption-key': f.config.encryptionKeyHex,
+      'signed-url': f.config.objects.candidate.url,
+      'private-key': '-----BEGIN PRIVATE KEY-----\nfixture-private-bytes',
+      'github-token': `ghp_${'x'.repeat(36)}`,
+      'bearer-token': 'Authorization: Bearer fixture-live-token-4829',
+    }
+    const environment = { ...f.environment, MUSE_TEST_SECRET: samples.environment }
+    await writeFile(join(f.installed, 'processes', 'output.log'), samples[secret as keyof typeof samples])
+    let calls = 0
+    const fetchImpl: typeof fetch = async () => { calls++; return new Response() }
+    await expect(exportMuseCiCandidate({ ...f.options, environment, fetchImpl })).rejects.toThrow('Muse candidate export: evidence contains secret data')
+    expect(calls).toBe(0)
     expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
   }
 })
