@@ -65,6 +65,12 @@ beforeEach(async () => {
 })
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
+it('rejects an absent material inventory instead of inferring an empty page', async () => {
+  const { client } = stubClient(() => null)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
+
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
 function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
   let reads = 0

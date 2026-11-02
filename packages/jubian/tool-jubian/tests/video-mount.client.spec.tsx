@@ -117,3 +117,23 @@ it('reuses the Session selector in Bot details and survives a missing or replace
   expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
   await dispose()
 })
+
+it('retains a replacement directory when its previous session scope finishes disposing', async () => {
+  const b = await bench(async () => ({ ok: true, value: true }))
+  onTestFinished(cleanup)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  await vi.waitFor(() => { expect(b.ctx.get('jubianVideoUi')).toBeDefined() })
+  const service = b.ctx.jubianVideoUi
+  const first = render(service.render(SessionId('present')))
+  first.unmount()
+  const replacement = new Context()
+  onTestFinished(async () => { await replacement.fiber.dispose() })
+  b.sessionScopes.set(SessionId('present'), replacement)
+  const second = render(service.render(SessionId('present')))
+  await vi.waitFor(() => { expect(b.remote.catalogue).toHaveBeenCalledTimes(2) })
+  await b.sessionScope.fiber.dispose()
+  second.unmount()
+  render(service.render(SessionId('present')))
+  expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
+  await dispose()
+})

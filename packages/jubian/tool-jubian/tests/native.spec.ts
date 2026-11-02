@@ -692,6 +692,21 @@ describe('prepare_video', () => {
     expect(await prepareVideoMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
   })
+
+  it('accepts string material identities without changing their parent bindings', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {},
+      subjectPage: () => ({ total: SUBJECT_ROWS.length, rows: SUBJECT_ROWS.map(row => ({ ...row, id: String(row.id) })) }) }
+    expect(await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
+  })
+
+  it('rejects an invalid subject total before preparing a generation', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {},
+      subjectPage: () => ({ total: 'invalid', rows: SUBJECT_ROWS }) }
+    await expect(prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
   it('requires explicit reselection after marker labels change even when their keys stay the same', async () => {
     const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
     const directory = await project()
