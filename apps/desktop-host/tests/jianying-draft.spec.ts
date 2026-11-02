@@ -1,4 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -8,6 +10,7 @@ import { execFile } from 'node:child_process'
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
@@ -15,7 +18,7 @@ import * as Draft from '../src/jianying-draft.ts'
 const fakePython = `
 const fs = require('node:fs'), path = require('node:path');
 const [request, root, failure] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(request, 'utf8'));
+const input = JSON.parse(fs.readFileSync(request, 'utf8').replace(/^\\uFEFF/u, ''));
 if (failure) { console.log(JSON.stringify({ success:false,drafts_created:0,drafts:[],error:'save rejected' })); process.exit(0); }
 const target = path.join(root, input.name_prefix + String(input.episode).padStart(2, '0'));
 fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
@@ -28,10 +31,11 @@ const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
 const runFile = promisify(execFile)
 
 it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
-  ['animation_3d', 'utf8'], ['animation_3d', 'utf8-bom'],
-  ['photorealistic', 'utf8'], ['photorealistic', 'utf8-bom'],
+  ['animation_3d', 'utf8', 'project'], ['animation_3d', 'utf8-bom', 'project'],
+  ['photorealistic', 'utf8', 'project'], ['photorealistic', 'utf8-bom', 'project'],
+  ['photorealistic', 'utf8', 'default'], ['photorealistic', 'utf8', 'subtitle-only'],
 ] as const)(
-  'generates separate editable tracks through the native Host tool and packaged Python: %s with %s inputs', async (medium, encoding) => {
+  'generates separate editable tracks through the native Host tool and packaged Python: %s with %s inputs and %s style', async (medium, encoding, styleCase) => {
     if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
     const f = await fixture()
     try {
@@ -50,12 +54,15 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       }
       await writeFile(subtitles, `${prefix}1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n`)
       await writeFile(timeline, `${prefix}${JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
-        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24 } })}`)
+        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24,
+          ...(styleCase === 'subtitle-only' ? { draft_style: { subtitle: { font_size_ui: 11 } } } : {}) } })}`)
       const photorealistic = medium === 'photorealistic'
-      if (photorealistic) {
+      const projectStyle = photorealistic && styleCase !== 'default'
+      if (projectStyle) {
         await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ project_bible: {
-          visual_medium: medium, delivery: { draft_style: { watermark: { font_size_ui: 7 },
-            subtitle: { font_family: '山海经', font_size_ui: 11, border_width_ui: 20, transform_y: -0.465625 } } },
+          visual_medium: medium, delivery: { draft_style: { watermark: { font_size_ui: styleCase === 'subtitle-only' ? 8 : 7 },
+            subtitle: { font_family: '山海经', font_size_ui: styleCase === 'subtitle-only' ? 18 : 11,
+              border_width_ui: 20, transform_y: -0.465625 } } },
         } }))
       }
       const request = { project: f.root, episode: 95,
@@ -64,14 +71,24 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
           ending_audio: resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3') } : {}) }
       await writeFile(f.input.request_file, `${prefix}${JSON.stringify(request)}`)
       const inputs = [video, audio, bgm, subtitles, timeline, ...(photorealistic ? [
-        join(f.root, 'project_config.json'),
         resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3'),
-      ] : [])]
+      ] : []), ...(projectStyle ? [join(f.root, 'project_config.json')] : [])]
       const inputBytes = await Promise.all(inputs.map(file => readFile(file)))
       const requestBytes = await readFile(f.input.request_file)
-      await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+      const config: Draft.Config = { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
-        graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
+        graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 }
+      if (styleCase === 'subtitle-only') {
+        const file = join(f.root, 'cordis.yml')
+        await writeFile(file, JSON.stringify([{ name: 'cordis:draft', config }]))
+        await f.ctx.plugin(Loader)
+        f.ctx.loader.builtins.include = Include
+        f.ctx.loader.builtins.draft = Draft
+        await f.ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(file).href } })
+        await f.ctx.loader.await()
+        for (const entry of f.ctx.loader.entries()) await entry.fiber?.await()
+        expect([...f.ctx.loader.entries()].find(entry => entry.options.name === 'cordis:draft')?.fiber).toBeDefined()
+      } else await f.ctx.plugin(Draft, config)
       const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-runtime'), signal: f.signal })
       expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
@@ -79,7 +96,15 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         library: { name: 'pyJianYingDraft' } })
       const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
         duration: number
-        tracks: { type: string; name: string; segments: { volume: number; material_id: string }[] }[]
+        tracks: {
+          type: string
+          name: string
+          segments: {
+            volume: number
+            material_id: string
+            clip?: { transform: { x: number; y: number } }
+          }[]
+        }[]
         materials: { texts: { id: string; content: string }[] }
       }
       expect(content.duration).toBe(photorealistic ? 4000000 : 2000000)
@@ -96,12 +121,26 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         const text = content.materials.texts.find(material => material.id === mark)
         expect(text).toBeDefined()
         const serialized = JSON.parse(text!.content) as { styles: { size: number }[] }
-        expect(serialized.styles[0]?.size).toBe(7)
+        const watermarkSize = styleCase === 'subtitle-only' ? 8 : 7
+        expect(serialized.styles[0]?.size).toBe(watermarkSize)
+        const markSegment = content.tracks.find(track => track.name === 'AI内容标识')?.segments[0]
+        const estimatedWidth = '内容由AI生成'.length * 44 * 854 / 1920 * watermarkSize / 6
+        expect(markSegment?.clip?.transform.x).toBeCloseTo(0.90 - estimatedWidth / 480)
+        expect(markSegment?.clip?.transform.y).toBe(-0.8625)
+        const dialogueText = content.materials.texts.find(material => material.content.includes('原生草稿回归'))
+        expect(dialogueText).toBeDefined()
+        const dialogueStyle = (JSON.parse(dialogueText?.content ?? '{}') as { styles: { size: number }[] }).styles[0]
+        expect(dialogueStyle?.size).toBe(11)
+        if (styleCase === 'subtitle-only') expect(dialogueStyle).not.toHaveProperty('font')
         const review = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'muse-review.json'), 'utf8')) as {
-          subtitle_font: { requested: string; status: string; resolved: string }
+          subtitle_font: { requested: string | null; status: string; resolved: string }
         }
-        expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'fallback', resolved: '剪映系统默认字体' }))
-        expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
+        if (styleCase === 'project') {
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'fallback', resolved: '剪映系统默认字体' }))
+          expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
+        } else {
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: null, status: 'default' }))
+        }
       }
       const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
       const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
@@ -389,8 +428,9 @@ it.runIf(process.platform === 'win32')('runs embedded source audio through the s
     argv: [process.execPath, '-e', script, f.input.request_file, f.input.drafts_dir] }))
   try {
     await writeFile(f.input.request_file, '\ufeff' + JSON.stringify({ episode: 95, name_prefix: 'candidate-', audio_mode: 'embedded' }))
-    await f.ctx.plugin(Draft, { ...f.config, ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
-      windowsPowerShellPath: 'C:\\Windows\\powershell.exe' })
+    await f.ctx.plugin(Draft, Object.assign({}, f.config, {
+      ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
+      windowsPowerShellPath: 'C:\\Windows\\powershell.exe' }))
     const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('aa-source-audio'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)

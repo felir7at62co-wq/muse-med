@@ -187,8 +187,8 @@ export function deliveryPolicyFor(delivery: TimelineDelivery = DEFAULT_DELIVERY)
  * Resolve a timeline snapshot against the current project's explicit medium.
  * @param project - Absolute project root.
  * @param snapshot - Delivery metadata read from the timeline, if present.
- * Subtitle, audio and draft-style sections inherit independently: a saved section (even `{}`)
- * wins over the current project section; only a missing section inherits it.
+ * Subtitle, audio and draft-style sections inherit independently: an empty saved section resets it.
+ * A nonempty draft-style snapshot also inherits an omitted watermark without changing its subtitles.
  * Omitted fields inside the selected section retain deployment/legacy defaults.
  * @returns Snapshot geometry and selected sections, or legacy geometry when absent.
  * @throws {Error} When project and snapshot explicitly select different media.
@@ -200,6 +200,10 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
     throw new Error('时间线 delivery.visual_medium 与 project_bible.visual_medium 冲突；请重跑 prepare，禁止沿用旧时间线。')
   }
   const visualMedium = snapshot?.visual_medium ?? current.visual_medium
+  const savedDraftStyle = snapshot?.draft_style
+  const selectedDraftStyle = savedDraftStyle === undefined ? current.draft_style
+    : Object.keys(savedDraftStyle).length > 0 && savedDraftStyle.watermark === undefined && current.draft_style?.watermark !== undefined
+      ? { ...savedDraftStyle, watermark: current.draft_style.watermark } : savedDraftStyle
   const delivery: TimelineDelivery = {
     ...(snapshot ?? DEFAULT_DELIVERY),
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
@@ -207,7 +211,7 @@ export async function resolveDeliveryPolicy(project: string, snapshot?: Timeline
     ...(snapshot?.subtitle_visual !== undefined || current.subtitle_visual === undefined
       ? {} : { subtitle_visual: current.subtitle_visual }),
     ...(snapshot?.audio !== undefined || current.audio === undefined ? {} : { audio: current.audio }),
-    ...(snapshot?.draft_style !== undefined || current.draft_style === undefined ? {} : { draft_style: current.draft_style }),
+    ...(selectedDraftStyle === undefined ? {} : { draft_style: selectedDraftStyle }),
   }
   // A legacy timeline may retain different geometry from the current project.
   // Validate the inherited margin against the frame that will actually be rendered.

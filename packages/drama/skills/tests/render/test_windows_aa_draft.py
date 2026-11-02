@@ -142,6 +142,91 @@ class AaDraftTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'size or position'):
                 aa.verify_readback(plan, result)
 
+    def test_watermark_readback_reports_sizes_without_blocking_the_saved_candidate(self):
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'visual_medium': 'photorealistic'}}), encoding='utf-8')
+        for selected, expected in ((None, 7), (6, 6), (8, 8)):
+            document = json.loads(self.timeline.read_text())
+            document['delivery']['visual_medium'] = 'photorealistic'
+            document['delivery']['draft_style'] = ({} if selected is None else {
+                'watermark': {'font_size_ui': selected}})
+            self.timeline.write_text(json.dumps(document), encoding='utf-8')
+            plan, _ = self.plan()
+            self.assertEqual(plan['draft_style']['watermark']['font_size_ui'], expected)
+            result, rows = self.saved(plan)
+            result['watermark_segment_id'] = 'watermark'
+            notice = {'id': 'watermark', 'type': 'text', 'attributes': {
+                'content': json.dumps({'text': '内容由AI生成'}), 'font_size': expected},
+                'timeline': {'start.ms': 0, 'duration.ms': plan['native_duration_us'] / 1000}}
+            rows.append(notice)
+            result['full'] = rows
+            with self.subTest(selected=selected):
+                verification = aa.verify_readback(plan, result)
+                self.assertEqual(verification['watermark_font_size'], {
+                    'status': 'matched', 'requested_font_size_ui': expected, 'saved_font_size_ui': expected})
+                self.assertEqual(verification['warnings'], [])
+            for actual, status in ((7 if expected != 7 else 6, 'mismatch'), (6.5, 'mismatch'),
+                                   (None, 'unverified'), (True, 'unverified'), ('7', 'unverified'),
+                                   (float('nan'), 'unverified'), (float('inf'), 'unverified')):
+                notice['attributes']['font_size'] = actual
+                with self.subTest(selected=selected, actual=actual):
+                    verification = aa.verify_readback(plan, result)
+                    self.assertEqual(verification['watermark_font_size'], {
+                        'status': status, 'requested_font_size_ui': expected,
+                        'saved_font_size_ui': actual if status == 'mismatch' else None})
+                    self.assertEqual(len(verification['warnings']), 1)
+                    self.assertIn('AI 内容标识字号', verification['warnings'][0])
+                    json.dumps(verification, allow_nan=False)
+
+    def test_generate_request_preserves_candidate_and_propagates_watermark_size_warnings(self):
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'visual_medium': 'photorealistic'}}), encoding='utf-8')
+        document = json.loads(self.timeline.read_text())
+        document['delivery']['visual_medium'] = 'photorealistic'
+        self.timeline.write_text(json.dumps(document), encoding='utf-8')
+
+        for actual, status in ((None, 'unverified'), (6, 'mismatch')):
+            def save_native(arguments):
+                plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+                result, rows = self.saved(plan)
+                notice = {'id': 'watermark', 'type': 'text', 'attributes': {
+                    'content': json.dumps({'text': '内容由AI生成'})},
+                    'timeline': {'start.ms': 0, 'duration.ms': plan['native_duration_us'] / 1000}}
+                if actual is not None:
+                    notice['attributes']['font_size'] = actual
+                rows.append(notice)
+                result.update(full=rows, watermark_segment_id='watermark',
+                              draft_id='watermark-fixture', runtime={'cli_version': 'fixture'})
+                candidate = Path(plan['draft_path'])
+                candidate.mkdir()
+                (candidate / 'draft_content.json').write_bytes(b'{}\n')
+                receipt = Path(arguments[arguments.index('-ResultPath') + 1])
+                receipt.write_text(json.dumps(result), encoding='utf-8')
+                return subprocess.CompletedProcess(arguments, 0, '', '')
+
+            request = {**self.request, 'name_prefix': f'AA-{status}-'}
+            with self.subTest(status=status), \
+                    patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                    patch.object(aa, 'native_run', side_effect=save_native) as native:
+                result = aa.generate_request(request, str(self.drafts))
+                native.assert_called_once()
+                self.assertTrue(result['success'])
+                self.assertEqual(result['drafts_created'], 1)
+                self.assertEqual(result['quality'], 'needs_review')
+                candidate = result['drafts'][0]
+                self.assertTrue(candidate['success'])
+                self.assertEqual(candidate['quality'], 'needs_review')
+                self.assertEqual((Path(candidate['path']) / 'draft_content.json').read_bytes(), b'{}\n')
+                review = json.loads(Path(candidate['review_path']).read_text(encoding='utf-8'))
+                self.assertEqual(review['status'], 'needs_review')
+                self.assertEqual(result['verification']['watermark_font_size']['status'], status)
+                self.assertEqual(review['verification'], result['verification'])
+                warnings = [warning for warning in result['warnings'] if 'AI 内容标识字号' in warning]
+                self.assertEqual(len(warnings), 1)
+                self.assertIn(warnings[0], candidate['warnings'])
+                self.assertIn(warnings[0], review['warnings'])
+                self.assertFalse(result['editor_open_verified'])
+
     def test_overlay_report_retains_source_text_and_only_adds_selected_cues(self):
         selected = self.project / 'resolved.srt'
         selected.write_text('1\n00:00:01,201 --> 00:00:01,899\n五十二\n', encoding='utf-8')
@@ -253,6 +338,8 @@ class AaDraftTests(unittest.TestCase):
         self.assertLessEqual(verification['subtitle_timing']['max_endpoint_offset_us'], 18_000)
         self.assertFalse(verification['editor_open_verified'])
         self.assertFalse(verification['listening_verified'])
+        self.assertEqual(verification['watermark_font_size'], {'status': 'not_applicable'})
+        self.assertEqual(verification['warnings'], [])
 
     def test_rejects_independent_audio_and_existing_draft_before_native_commands(self):
         for change in [{'audio': str(self.sources[0])}, {'audio_mode': 'independent'}]:
@@ -386,7 +473,9 @@ class AaDraftTests(unittest.TestCase):
             else:
                 result['timeline'].append({'id': kind + '-track', 'type': 'track', 'attributes': {'segments': [identifier]}})
         result['watermark_segment_id'] = 'watermark'
-        rows.append({'id': 'watermark', 'type': 'text', 'attributes': {'content': json.dumps({'text': '内容由AI生成'})},
+        rows.append({'id': 'watermark', 'type': 'text', 'attributes': {
+                         'content': json.dumps({'text': '内容由AI生成'}),
+                         'font_size': plan['draft_style']['watermark']['font_size_ui']},
                      'timeline': {'start.ms': 0, 'duration.ms': 4000}})
         result['events'] = [{'step': 'ending-effect-screen', 'arguments': [
             'draft', 'video', 'mix-mode', '--ref', plan['ref'], '--seg-id', 'ending_effect',
@@ -519,7 +608,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4').as_posix(), 'C:/dir one/原片.mp4')
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 

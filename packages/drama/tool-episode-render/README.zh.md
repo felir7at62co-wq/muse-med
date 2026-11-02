@@ -144,7 +144,7 @@ kind: "package-reference"
 
 通过 `drama_project.changes.delivery.draft_style` 设置可编辑剪映排版，例如 `{"watermark":{"font_size_ui":7},"subtitle":{"font_family":"山海经","font_size_ui":11,"border_width_ui":20,"transform_y":-0.465625}}`。字号使用大于零且不超过 100 的编辑器 UI 单位；黑描边使用 0–100 的 UI 单位，纵坐标为 -1–1。字体名去除首尾空白后须为 1–128 字符且不含控制字符。保存请求不证明编辑器资源可用或已获使用许可，也不会安装或下载字体。
 
-`prepare` 将该可选节保存在 `timeline.delivery.draft_style`；已保存的整节（包括 `{}`）优先于当前项目值。所选节缺少的字段沿用草稿默认，不从另一节补字段。修改项目后重跑 `prepare` 才采用新值。此节不改变正式成片 ASS 或混音设置，动画仍不增加水印或片尾。草稿导出器负责字体解析并报告回退；检查候选和其 review，不把请求字族当作已验证外观。
+`prepare` 将该可选节保存在 `timeline.delivery.draft_style`。已保存的非空节若缺少 `watermark`，继承项目水印节；正文字幕仍优先选择快照，不从项目补齐其缺失字段。显式整节 `{}` 重置全部草稿排版，`watermark: {}` 则只重置水印；AI 水印默认使用 UI 字号 7。仍支持明确自定义其他字号。修改项目后重跑 `prepare` 才采用新值。此节不改变正式成片 ASS 或混音设置，动画仍不增加水印或片尾。草稿导出器负责字体解析并报告回退；检查候选和其 review，不把请求字族当作已验证外观。
 
 <a id="subtitle-visual"></a>
 ### 共享字幕视觉目标与真实画幅预览
