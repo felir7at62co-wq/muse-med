@@ -302,6 +302,8 @@ class ReadArgs(TypedDict):
     file_path: str
     # 1-based first line to return. Defaults to 1.
     offset: NotRequired[float]
+    # 1-based Unicode code point column in the first line. Use the continuation cursor for a partial line.
+    column: NotRequired[float]
     # Maximum number of lines to return. Defaults to 2000.
     limit: NotRequired[float]
     # Additional keys beyond those declared are allowed.
@@ -310,11 +312,19 @@ class ReadOutputLines(TypedDict):
     number: int
     text: str
 
+class ReadOutputContinuation(TypedDict):
+    offset: int
+    column: int
+
 class ReadOutput(TypedDict):
     path: str
     offset: int
+    column: NotRequired[int]
     lines: list[ReadOutputLines]
     totalLines: int
+    continuation: NotRequired[ReadOutputContinuation]
+    versionBefore: NotRequired[str]
+    versionAfter: NotRequired[str]
 
 class ReadImageArgs(TypedDict):
     # Path to the image file, resolved by the filesystem backend.
