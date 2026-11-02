@@ -13,6 +13,10 @@ on:
         description: Copy both verified installers into existing exact-commit drafts; requires target all
         type: boolean
         default: false
+      export_candidate_to_tos:
+        description: Export an encrypted Windows candidate with a short-lived object-scoped upload secret
+        type: boolean
+        default: false
       verify_hongguo_live:
         description: Require complete Hongguo downloads from the genuine installed application
         type: boolean
@@ -70,6 +74,15 @@ jobs:
         run: npm ci --prefix services/muse-accounts --ignore-scripts
       - name: Install locked Bot runtime dependencies
         run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+      - name: Cache the locked private Hongguo source resource
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download hongguo-source-runtime-9869b8571b45 --repo felir7at62co-wq/muse-med --pattern hongguo-source-runtime-1.tgz --dir apps/desktop/.desktop-build/downloads
+      - name: Cache the locked private Windows FFmpeg resource
+        if: matrix.target == 'win-x64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Build Host peers for plugin packaging
@@ -146,7 +159,14 @@ jobs:
           MUSE_FANQIE_LIVE_TITLE: 摆烂摆烂，誓做修仙界第一关系户
           MUSE_FANQIE_LIVE_AUTHOR: 倒荷
         run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
+      - name: Export the encrypted Windows candidate and acceptance to TOS
+        if: github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos
+        env:
+          MUSE_RELEASE_TARGET: ${{ matrix.target }}
+          MUSE_CI_TOS_CANDIDATE_UPLOAD: ${{ secrets.MUSE_CI_TOS_CANDIDATE_UPLOAD }}
+        run: node apps/desktop/scripts/export-muse-ci-candidate.mjs
       - name: Upload installers, update metadata and build identity
+        if: "!(inputs.export_candidate_to_tos && matrix.target == 'win-x64')"
         uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-${{ github.sha }}
@@ -161,7 +181,7 @@ jobs:
           compression-level: 0
           retention-days: 30
       - name: Retain native installer acceptance evidence
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
         uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
@@ -176,7 +196,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Retain packaging diagnostics
-        if: always()
+        if: always() && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
         uses: actions/upload-artifact@v6
         with:
           name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
@@ -184,7 +204,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Retain Windows installer UI evidence
-        if: always() && matrix.target == 'win-x64'
+        if: always() && matrix.target == 'win-x64' && !inputs.export_candidate_to_tos
         uses: actions/upload-artifact@v6
         with:
           name: muse-win-x64-installer-ui-${{ github.sha }}

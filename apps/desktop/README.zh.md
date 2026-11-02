@@ -263,6 +263,8 @@ Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-source
 
 未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
+CI 仅对锁定的私有仓库下载使用鉴权；正常准备流程仍校验大小和 SHA-256。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器加密精确候选与允许的验收证据，不写更新 feed，日志不含 URL 或密钥。发布者解密后须独立审阅、核验构建，再正式推广。
+
 候选下载验收使用当前更新器，分别注入已安装版本 1.2.2、1.2.5 和 1.2.6 的身份，不执行这些旧版本的更新器二进制。旧客户端若卡在任务检查阶段，仍需正常退出 Muse 后直接安装已校验的最新安装包；发布新 feed 无法修复安装前正在执行的旧代码。
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
