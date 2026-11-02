@@ -82,7 +82,7 @@ jobs:
         if: matrix.target == 'win-x64'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads
+        run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads/media
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Build Host peers for plugin packaging

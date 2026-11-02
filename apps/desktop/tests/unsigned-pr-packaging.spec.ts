@@ -1,11 +1,14 @@
-/** Check the unsigned PR workflow against electron-builder's signing policy. */
+/** Check unsigned desktop workflow ordering, resource caches and signing policy. */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { load } from 'js-yaml'
 import { expect, it } from 'vitest'
+import { desktopTargetBuildPaths } from '../scripts/desktop-build-paths.mjs'
 import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
-import { desktopElectronBuilderEnvironment } from '../scripts/package-target.ts'
+import { desktopElectronBuilderEnvironment, desktopPrepareMediaRuntimeArguments, resolveDesktopPackageTarget } from '../scripts/package-target.ts'
 
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected workflow mapping')
@@ -46,4 +49,22 @@ it('allows ad-hoc resource sealing for unsigned PR packages without publisher si
   const config = createElectronBuilderConfig({ DSH_DESKTOP_APP_ID: 'cn.muse.med',
     DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false', DSH_DESKTOP_UNSIGNED: '1' }, 'darwin', 'arm64')
   expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false })
+})
+
+it('prewarms private Windows FFmpeg in the cache read by media packaging', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const preload = steps.map((step: unknown) => record(step)).find(step => step.name === 'Cache the locked private Windows FFmpeg resource')
+  if (!preload || typeof preload.run !== 'string') throw new Error('Expected private FFmpeg preload')
+  const args = desktopPrepareMediaRuntimeArguments(resolveDesktopPackageTarget('win-x64', 'win32', 'x64'),
+    desktopTargetBuildPaths('win-x64'), false)
+  if (!args || args.indexOf('--cache') < 0) throw new Error('Expected Windows media cache')
+  const cache = args[args.indexOf('--cache') + 1]
+  if (!cache) throw new Error('Expected media cache argument')
+  const expectedCache = relative(fileURLToPath(new URL('../../../', import.meta.url)), cache).replaceAll('\\', '/')
+  expect(preload.run.match(/ --dir ([^\s]+)$/u)?.[1]).toBe(expectedCache)
+  expect(steps.indexOf(preload)).toBeLessThan(steps.findIndex((step: unknown) => record(step).name === 'Build and verify the assembled application'))
+  expect(preload.if).toBe("matrix.target == 'win-x64'")
+  expect(record(preload.env).GH_TOKEN).toBe('${{ github.token }}')
 })
