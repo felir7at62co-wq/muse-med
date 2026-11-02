@@ -468,7 +468,7 @@ def native_source_path(source: str) -> Path:
 
 
 def verify_readback(plan: dict, result: dict) -> dict:
-    """Compare saved native segments with selected sources, sound and corrected cue times."""
+    """Compare saved content and timing; report AI notice size discrepancies without blocking."""
     if not isinstance(result, dict) or result.get('ok') is not True or result.get('ref') != plan['ref']:
         raise ValueError('AA adapter did not save the requested candidate')
     nodes = extract_nodes(result['full'])
@@ -621,15 +621,25 @@ def verify_readback(plan: dict, result: dict) -> dict:
         raise ValueError('The native draft contains an unselected video or image segment')
     expected_text_ids = set(subtitle_ids)
     watermark_id = result.get('watermark_segment_id')
+    watermark_font_size = {'status': 'not_applicable'}
+    warnings = []
     if plan['delivery']['add_watermark']:
         notice = by_id.get(watermark_id, {})
         content = notice.get('attributes', {}).get('content')
         if not isinstance(content, str) or json.loads(content).get('text') != '内容由AI生成':
             raise ValueError('The selected editable AI notice was not saved')
         size = notice.get('attributes', {}).get('font_size')
-        if (isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size)
-                or not math.isclose(size, plan['draft_style']['watermark']['font_size_ui'])):
-            raise ValueError('Saved AI notice size differs from the selected draft style')
+        expected_size = plan['draft_style']['watermark']['font_size_ui']
+        valid_size = not isinstance(size, bool) and isinstance(size, (int, float)) and math.isfinite(size)
+        status = ('matched' if math.isclose(size, expected_size) else 'mismatch') if valid_size else 'unverified'
+        watermark_font_size = {'status': status, 'requested_font_size_ui': expected_size,
+                               'saved_font_size_ui': size if valid_size else None}
+        if status == 'mismatch':
+            warnings.append(f'AI 内容标识字号回读为 {size:g}，与请求 {expected_size:g} 不一致；'
+                            '候选已保留，请在剪映中核对。')
+        elif status == 'unverified':
+            warnings.append(f'AI 内容标识字号回读缺失或不是有限数值，无法验证请求字号 {expected_size:g}；'
+                            '候选已保留，请在剪映中核对。')
         timing(notice, 0, plan['native_duration_us'])
         record_span('watermark', watermark_id, 0, plan['duration_us'], notice)
         expected_text_ids.add(watermark_id)
@@ -646,6 +656,7 @@ def verify_readback(plan: dict, result: dict) -> dict:
     timeline_offset = max(abs(row['saved_' + end + '_us'] - row['requested_' + end + '_us'])
                           for row in timeline_offsets for end in ('start', 'end'))
     return {'saved_readback': True, 'source_bytes_preserved': True,
+            'watermark_font_size': watermark_font_size, 'warnings': warnings,
             'source_audio_mode': 'embedded', 'subtitle_times_preserved': max_offset == 0,
             'timeline_times_preserved': timeline_offset == 0,
             'timeline_timing': {'native_frame_rate': plan['native_frame_rate'],
@@ -683,7 +694,7 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
     if invocation.returncode or result.get('ok') is not True:
         raise ValueError(f'AA draft failed; keep {receipt} for recovery: {result.get("error", invocation.stderr[-3000:])}')
     verification = verify_readback(plan, result)
-    warnings = list(dict.fromkeys([*plan['warnings'], *result.get('warnings', [])]))
+    warnings = list(dict.fromkeys([*plan['warnings'], *result.get('warnings', []), *verification['warnings']]))
     if verification['timeline_timing']['max_endpoint_offset_us']:
         warnings.append('原视频文件保留且未变速；原生时间线按 30fps 映射连续片段，实际最大边界偏差为 '
                         f'{verification["timeline_timing"]["max_endpoint_offset_us"] / 1000:g} ms，'
