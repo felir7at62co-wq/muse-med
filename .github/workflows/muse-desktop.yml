@@ -64,17 +64,22 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version: ${{ matrix.target == 'win-x64' && '26.13.0' || '24' }}
       - name: Check the candidate export network route
         if: matrix.target == 'win-x64' && inputs.export_candidate_to_tos
         run: >-
           node --input-type=module -e "const started = Date.now();
-          try { const response = await fetch('https://muse.tos-s3-cn-beijing.volces.com/',
+          const runtime = { node: process.versions.node, undici: process.versions.undici };
+          console.log(JSON.stringify({ stage: 'muse-ci-http-runtime', ...runtime }));
+          const [major, minor] = String(runtime.undici).split('.').map(Number);
+          if (!(major > 8 || (major === 8 && minor >= 6))) {
+          console.error('Muse CI requires Undici 8.6 or newer'); process.exitCode = 1;
+          } else { try { const response = await fetch('https://muse.tos-s3-cn-beijing.volces.com/',
           { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(30000) });
           const status = response.status; await response.body?.cancel();
           console.log(JSON.stringify({ stage: 'muse-tos-route-check', status, elapsedMs: Date.now() - started }));
           if (status !== 200 && status !== 403) process.exitCode = 1;
-          } catch { console.error('Muse TOS route check failed before packaging'); process.exitCode = 1; }"
+          } catch { console.error('Muse TOS route check failed before packaging'); process.exitCode = 1; } }"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

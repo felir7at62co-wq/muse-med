@@ -1,5 +1,5 @@
 /** Check unsigned desktop workflow ordering, resource caches and signing policy. */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -73,6 +73,9 @@ it('checks the unauthenticated TOS route before building an encrypted export', (
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps
   if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const setup = steps.map((step: unknown) => record(step)).find(step => step.uses === 'actions/setup-node@v6')
+  if (!setup) throw new Error('Expected CI Node setup')
+  expect(record(setup.with)['node-version']).toBe("${{ matrix.target == 'win-x64' && '26.13.0' || '24' }}")
   const route = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check the candidate export network route')
   if (!route || typeof route.run !== 'string') throw new Error('Expected TOS route check')
   expect(route.if).toBe("matrix.target == 'win-x64' && inputs.export_candidate_to_tos")
@@ -80,4 +83,30 @@ it('checks the unauthenticated TOS route before building an encrypted export', (
   expect(route.run).toContain("method: 'HEAD'")
   expect(route.run).toContain('https://muse.tos-s3-cn-beijing.volces.com/')
   expect(steps.indexOf(route)).toBeLessThan(steps.findIndex((step: unknown) => record(step).name === 'Build and verify the assembled application'))
+})
+
+it('refuses an unfixed HTTP parser before contacting the export route', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const route = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check the candidate export network route')
+  if (!route || typeof route.run !== 'string') throw new Error('Expected route command')
+  const prefix = 'node --input-type=module -e "'
+  expect(route.run.startsWith(prefix) && route.run.endsWith('"')).toBe(true)
+  const command = route.run.slice(prefix.length, -1)
+  for (const [version, accepted] of [['7.30.1', false], ['8.12.2', true]] as const) {
+    const script = `Object.defineProperty(process.versions, 'undici', { value: ${JSON.stringify(version)} });
+      let fetchCalls = 0;
+      globalThis.fetch = async () => { fetchCalls++; return new Response(null, { status: 200 }); };
+      ${command}; console.log(JSON.stringify({ fetchCalls }));`
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf8', timeout: 10_000,
+      env: Object.fromEntries(Object.entries(process.env)
+        .filter(([name]) => !/KEY|SECRET|TOKEN|PASSWORD|NODE_OPTIONS|BASH_ENV/iu.test(name))),
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.signal).toBeNull()
+    expect(result.status).toBe(accepted ? 0 : 1)
+    expect(JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}')).toEqual({ fetchCalls: accepted ? 1 : 0 })
+  }
 })
