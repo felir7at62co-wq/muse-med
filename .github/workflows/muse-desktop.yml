@@ -68,6 +68,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install model gateway dependencies
         run: npm ci --prefix services/muse-accounts --ignore-scripts
+      - name: Install locked Bot runtime dependencies
+        run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Build Host peers for plugin packaging
