@@ -228,12 +228,10 @@ export function installAssembledBootEnv(): void {
     Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
     Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
-    vi.stubGlobal('matchMedia', (query: string): MediaQueryList => ({
+    vi.stubGlobal('matchMedia', (query: string) => ({
       matches: false,
       media: query,
       onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
       addEventListener: () => {},
       removeEventListener: () => {},
       dispatchEvent: () => true,
