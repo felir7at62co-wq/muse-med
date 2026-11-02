@@ -172,7 +172,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Thinking level for the model, as list_models shows it. Only when the user names one."
+            "description": "Thinking level for the model, as list_bot_models shows it. Only when the user names one."
           },
           "work_dir": {
             "type": "string",
@@ -496,6 +496,14 @@
       }
     },
     {
+      "name": "list_bot_models",
+      "description": "List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "list_bots",
       "description": "List every Bot on the user's team with its role, what it does and what it is doing right now, and the group chats you can see.",
       "parameters": {
@@ -506,14 +514,6 @@
     {
       "name": "list_capabilities",
       "description": "List shared MCP servers, skills, and packs, plus the capabilities attached to you.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "list_models",
-      "description": "List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -768,7 +768,7 @@
           },
           "view": {
             "type": "object",
-            "description": "One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: \"formula\" }. Display: text ({ text: Markdown, tone?: \"muted\" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { \"=\": \"expression\" } over input ids and let names: numbers, 'text', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs' values to you).",
+            "description": "One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: \"formula\" }. Display: text ({ text: Markdown, tone?: \"muted\" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --view-ink, --view-ink-2, --view-line, --view-card, --view-accent, --view-green, --view-star, --view-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { \"=\": \"expression\" } over input ids and let names: numbers, 'text', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs' values to you).",
             "additionalProperties": true
           },
           "await_reply": {
@@ -1038,7 +1038,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Thinking level for the Bot's model, as list_models shows; an empty string returns to the model's default"
+            "description": "Thinking level for the Bot's model, as list_bot_models shows; an empty string returns to the model's default"
           },
           "work_dir": {
             "type": "string",

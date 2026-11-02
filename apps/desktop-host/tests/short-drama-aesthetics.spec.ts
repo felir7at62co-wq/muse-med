@@ -77,6 +77,9 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('视频包之间不共享上下文')
     expect(system).toContain('同一时空内衔接清楚的连续段落')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
+    expect(system).toContain('所有资产图默认16:9横版')
+    expect(system).toContain('用户明确指定其他比例时按指定执行')
+    expect(system).toContain('资产图比例与视频成片比例分别处理')
     for (const requirement of ['人物角色资产图：16:9横版白底', '五官清晰的面部特写',
       '完整保留头部、发型和双脚', '仅将右侧可见脸部覆盖为纯白', '背面保留后脑与发型', '严禁无头、截头']) {
       expect(system).toContain(requirement)
