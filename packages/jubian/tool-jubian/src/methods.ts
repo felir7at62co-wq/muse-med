@@ -1390,11 +1390,31 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
-/** Reject reuse of an existing card identity in a creation request. */
+/** Reject existing card IDs and unverified material bindings before creation. */
 function assertNewStoryboard(body: Record<string, unknown>): void {
   for (const field of ['id', 'storyboardId']) {
     if (body[field] !== undefined && body[field] !== null && body[field] !== '' && body[field] !== 0) {
       throw new JubianError('INVALID_ARGUMENT', 'Existing card IDs cannot be created again; use edit_preview → edit_apply')
+    }
+  }
+  let config: unknown = body.modelConfig
+  if (typeof config === 'string') {
+    try { config = JSON.parse(config) }
+    catch { throw new JubianError('INVALID_ARGUMENT', 'Invalid modelConfig JSON') }
+  }
+  const modelMaterials = config && typeof config === 'object' && !Array.isArray(config)
+    ? (config as Record<string, unknown>).materialList : undefined
+  for (const raw of [body.storyboardMaterialList, modelMaterials]) {
+    let materials: unknown = raw
+    if (typeof materials === 'string') {
+      try { materials = JSON.parse(materials) }
+      catch { throw new JubianError('INVALID_ARGUMENT', 'Invalid storyboard material list JSON') }
+    }
+    if (materials === undefined || materials === null) continue
+    if (!Array.isArray(materials) || materials.length > 0) {
+      throw new JubianError('INVALID_ARGUMENT',
+        'UNVERIFIED_STORYBOARD_MATERIALS: create the card with empty material lists, read back its ID, '
+        + 'then use select_assets with official project asset IDs; bind audio with audio_preview → audio_apply; no POST sent')
     }
   }
 }

@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`records the refusal and recovers through official subject selection without generating > unverified material refusal before creation 1`] = `
+{
+  "content": [
+    {
+      "text": "Error: Jubian tool call is missing an argument it cannot run without: UNVERIFIED_STORYBOARD_MATERIALS: create the card with empty material lists, read back its ID, then use select_assets with official project asset IDs; bind audio with audio_preview → audio_apply; no POST sent",
+      "type": "text",
+    },
+  ],
+  "isError": true,
+}
+`;
