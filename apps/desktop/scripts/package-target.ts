@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
+import { pnpmInvocation } from '../../../scripts/pnpm-invocation.ts'
 import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
@@ -374,9 +375,10 @@ function runPnpm(
   if (pnpmEntry === undefined || pnpmEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
-  if (run !== undefined) return run.run(args.join(' '), process.execPath, [pnpmEntry, ...args], { cwd, env })
+  const invocation = pnpmInvocation(args, { npm_execpath: pnpmEntry })
+  if (run !== undefined) return run.run(args.join(' '), invocation.command, invocation.args, { cwd, env })
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [pnpmEntry, ...args], {
+    const child = spawn(invocation.command, invocation.args, {
       cwd,
       env,
       stdio: 'inherit',

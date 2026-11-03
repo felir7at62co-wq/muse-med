@@ -60,6 +60,14 @@ function supervisor(failure?: string) {
   return { run, stages }
 }
 
+it('runs packaging stages directly with a native pnpm executable', async () => {
+  const { run } = supervisor()
+  const pnpm = 'C:\\Program Files\\pnpm\\pnpm.exe'
+  vi.stubEnv('npm_execpath', pnpm)
+  await packageTarget(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64'), environment, run)
+  expect(run.run.mock.calls[0]?.slice(0, 3)).toEqual(['run build:official', pnpm, ['run', 'build:official']])
+})
+
 it('requires one signing preflight before building, then records only the complete release', async () => {
   const { run, stages } = supervisor()
   await packageTarget(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64'), environment, run)
