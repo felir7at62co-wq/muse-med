@@ -99,6 +99,28 @@ function Measure-MuseJianyingDraftPixels($Screen, $Background, [int]$Left, [int]
     return $count
 }
 
+function Test-MuseJianyingSearchIcon($Screen) {
+    $mask = @(
+        '.........#......'
+        '......#######...'
+        '....###....###..'
+        '....##.......##.'
+        '...##.........#.'
+        '...#..........##'
+        '...#..........##'
+        '..##.......#####'
+    )
+    $differences = 0
+    for ($y = 0; $y -lt $mask.Count; $y++) {
+        for ($x = 0; $x -lt $mask[$y].Length; $x++) {
+            $pixel = $Screen.GetPixel(917 + $x, 321 + $y)
+            $lit = $pixel.R -ge 95 -and $pixel.G -ge 95 -and $pixel.B -ge 95
+            if ($lit -ne ($mask[$y][$x] -eq '#')) { $differences++ }
+        }
+    }
+    return $differences -le 8
+}
+
 function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$TimeoutMs, [string]$Mode = 'Exact') {
     [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Foundation, ContentType = WindowsRuntime]
     [void][Windows.Storage.Streams.DataWriter, Windows.Foundation, ContentType = WindowsRuntime]
@@ -154,10 +176,13 @@ function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$Timeo
             if ($Mode -eq 'Search') {
                 $x = 813
                 $pixel = $screen.GetPixel($x, $headerY - 7)
-                if ($pixel.R -gt 12 -or $pixel.G -gt 12 -or $pixel.B -gt 12) {
-                    throw 'The Jianying local draft search field is not visible'
+                if ($pixel.R -le 12 -and $pixel.G -le 12 -and $pixel.B -le 12) {
+                    return [pscustomobject]@{ X = $rect.Left + $x; Y = $rect.Top + $headerY; Collapsed = $false }
                 }
-                return [pscustomobject]@{ X = $rect.Left + $x; Y = $rect.Top + $headerY }
+                if (Test-MuseJianyingSearchIcon $screen) {
+                    return [pscustomobject]@{ X = $rect.Left + 926; Y = $rect.Top + 329; Collapsed = $true }
+                }
+                throw 'The Jianying local draft search field is not visible'
             }
             $listTitle = @($result.Lines | Where-Object {
                 $first = ($_.Words | Select-Object -First 1).BoundingRect
@@ -174,7 +199,7 @@ function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$Timeo
                 $thumbnail = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 3) ($gridX + 45) ($headerY + 75) ($headerY + 115)
                 $below = Measure-MuseJianyingDraftPixels $screen $background ($gridX - 5) ($width - 36) ($headerY + 125) ($height - 25)
                 if ($listTitle.Count -ne 1 -or $thumbnail -lt 32 -or $below -gt 25) { return }
-                return [pscustomobject]@{ X = $rect.Left + $gridX + 72; Y = $rect.Top + $headerY + 98 }
+                return [pscustomobject]@{ X = $rect.Left + $gridX + 18; Y = $rect.Top + $headerY + 94; DoubleClick = $true }
             }
             # Grid captions are truncated and sometimes missed by OCR. The exact search
             # and registered draft are checked separately from this single-card check.
@@ -292,6 +317,19 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
         if ($null -eq $point) {
             $search = Find-MuseJianyingDraftText $homeWindow $DraftName ([Math]::Max(1, $TimeoutMs - [int]$elapsed.ElapsedMilliseconds)) 'Search'
             if ($elapsed.ElapsedMilliseconds -ge $TimeoutMs) { throw 'Jianying draft search timed out' }
+            if ($search.Collapsed) {
+                if (-not [MuseJianyingDraftWindow]::ClickOwned($homeWindow.Handle, $search.X, $search.Y)) {
+                    throw 'The Jianying draft search button is no longer available'
+                }
+                $expandDeadline = [Math]::Min($TimeoutMs, $elapsed.ElapsedMilliseconds + 2000)
+                do {
+                    Start-Sleep -Milliseconds 150
+                    $remaining = [int]($expandDeadline - $elapsed.ElapsedMilliseconds)
+                    if ($remaining -le 0) { break }
+                    $search = Find-MuseJianyingDraftText $homeWindow $DraftName $remaining 'Search'
+                } while ($search.Collapsed)
+                if ($search.Collapsed) { throw 'The Jianying draft search field did not expand' }
+            }
             Confirm-MuseJianyingDraftSearch $homeWindow $search $DraftName -Write
             $tileDeadline = [Math]::Min($TimeoutMs, $elapsed.ElapsedMilliseconds + 10000)
             while ($elapsed.ElapsedMilliseconds -lt $tileDeadline) {
@@ -303,7 +341,8 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
             if ($null -eq $point) { throw 'The exact draft search did not show one isolated matching draft within 10 seconds' }
             Confirm-MuseJianyingDraftSearch $homeWindow $search $DraftName
             $confirmed = Find-MuseJianyingDraftText $homeWindow $DraftName ([Math]::Max(1, $TimeoutMs - [int]$elapsed.ElapsedMilliseconds)) 'Tile'
-            if ($null -eq $confirmed -or $confirmed.X -ne $point.X -or $confirmed.Y -ne $point.Y) {
+            if ($null -eq $confirmed -or $confirmed.X -ne $point.X -or $confirmed.Y -ne $point.Y -or
+                $confirmed.DoubleClick -ne $point.DoubleClick) {
                 throw 'The exact filtered draft changed before opening'
             }
         }
@@ -311,6 +350,15 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
             -not [MuseJianyingDraftWindow]::ClickOwned($homeWindow.Handle, $point.X, $point.Y)) {
             throw 'The selected Jianying draft is no longer at the verified location'
         }
+        if ($point.DoubleClick) {
+            Start-Sleep -Milliseconds 70
+            if ($elapsed.ElapsedMilliseconds -lt $TimeoutMs -and [MuseJianyingDraftWindow]::GetForegroundWindow() -eq $homeWindow.Handle) {
+                if (-not [MuseJianyingDraftWindow]::ClickOwned($homeWindow.Handle, $point.X, $point.Y)) {
+                    throw 'The selected Jianying list row changed before opening'
+                }
+            }
+        }
+        $editorDeadline = [Math]::Min($TimeoutMs, $elapsed.ElapsedMilliseconds + 8000)
         do {
             $editors = @(Get-MuseJianyingWindows | Where-Object Kind -eq 'Editor')
             if ($editors.Count -gt 1) { throw 'Several Jianying editors appeared after opening the selected draft' }
@@ -319,8 +367,8 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
                 return $editors[0]
             }
             Start-Sleep -Milliseconds 100
-        } while ($elapsed.ElapsedMilliseconds -lt $TimeoutMs)
-        throw 'The editor for the selected Jianying draft did not become active'
+        } while ($elapsed.ElapsedMilliseconds -lt $editorDeadline)
+        throw 'The editor for the selected Jianying draft did not become active within eight seconds'
     } finally {
         if ($dpi -ne [IntPtr]::Zero) { [void][MuseJianyingDraftWindow]::SetThreadDpiAwarenessContext($dpi) }
     }
