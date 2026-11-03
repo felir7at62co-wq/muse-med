@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
-import { answerSender, failureLine, turnFailure } from './turns.js'
+import { answerSender, failureLine, partialTurnReply, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
@@ -355,17 +355,17 @@ export function install(rt) {
     if (reason.kind === 'aborted') {
       // The turn was stopped before it could answer: the sender is told, as it is told
       // when Muse Bot watches the turn end.
-      answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`)
+      answerSender(rt, sessionId, asker, partialTurnReply(name, said, reason))
       return
     }
     // The turn ended with what it said: the answer goes up the way a finished turn's
     // does, with the results that came back for it and the text it held. A work that
     // still waits for what it handed on keeps its part until that comes back.
     if (rt.waitsWork(workId)) {
-      rt.holdWork(workId, said)
+      rt.holdWork(workId, partialTurnReply(name, said, reason))
       return
     }
-    const text = rt.answerText(workId, said, name)
+    const text = partialTurnReply(name, rt.answerText(workId, said, name), reason)
     const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
     answerSender(rt, sessionId, asker, text, long)
   }

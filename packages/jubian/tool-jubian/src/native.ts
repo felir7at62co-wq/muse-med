@@ -611,9 +611,10 @@ signal?: AbortSignal): Promise<Record<string, unknown>> {
     next: (voiceContinuityReview.status === 'dialogue_without_voice_reference'
       ? '本卡有对白但没有声线参考；跨包角色请先核对首包声音并绑定后续包。' : '')
       + 'existing_video_sources 保留原卡历史成片；提取或复用时先采用已核实来源，查询未完成不等于没有成片。'
-      + '准备预览不代表用户要求新生成；仅在已授权制作范围内生成。生成前请按系统提示词中的固定自检清单自主核对本次提交。'
-      + 'prepare 只写 preview：不 PUT、不创建任务、不收费。自主检查后调用 submit_video 或 submit_video_batch，'
-      + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。` }
+      + 'prepare 只写 preview：不 PUT、不创建任务、不收费。用户最新请求若为只预览或先看，到此展示结果，'
+      + '不沿用此前制作授权进入付费提交，也不因缺素材额外生图。'
+      + '仅当本次请求包含已授权生成时，按系统提示词中的固定自检清单核对后调用 submit_video 或 submit_video_batch，'
+      + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。预算和预览指纹不代表提交授权。` }
 }
 
 /**
@@ -748,7 +749,7 @@ Record<string, unknown>[] {
     })
 }
 
-/** Recorded compacted-prompt or images-then-audio requests prevent another charge after re-preparing. */
+/** Recorded trimmed/compacted prompts or images-then-audio requests prevent another charge after re-preparing. */
 async function recordedLegacyKey(ledger: JubianLedger, preview: NativeVideoPreview):
 Promise<{ key: string; outcome: string } | null> {
   const { materials } = storyboardMaterials(preview.payload)
@@ -757,7 +758,7 @@ Promise<{ key: string; outcome: string } | null> {
   const config = object(JSON.parse(String(preview.payload.modelConfig)))
   const seen = new Set([preview.idempotencyKey])
   for (const order of [materials, grouped]) {
-    for (const prompt of [config.prompt, normalizedPrompt(config.prompt)]) {
+    for (const prompt of [config.prompt, String(config.prompt).trim(), normalizedPrompt(config.prompt)]) {
       const payload = { ...preview.payload, storyboardMaterialList: order,
         modelConfig: JSON.stringify({ ...config, prompt, materialList: order }) }
       const key = stableSha256(submissionSemantics(payload))

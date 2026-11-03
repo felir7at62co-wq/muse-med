@@ -225,7 +225,7 @@ inherited process environment (read-only, highest)
 | `jubian_media` | `download` | 免费且不需要凭证；写入一个本地文件 |
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
 
-免费 prepare_video 结果的 next 简短提醒按系统提示词的固定自检清单核对本次提交，并保留准备不创建生成任务、不收费及原 fingerprint 提交方式的说明。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
+免费 `prepare_video` 结果让 Agent 按用户最新请求决定后续：只预览时到此展示结果，即使此前已有制作授权。仅当本次请求包含已授权生成时，才按系统提示词的固定自检清单核对后，以原 fingerprint 调用 `submit_video` 或 `submit_video_batch`。准备不创建生成任务、不收费；预算或预览指纹不代表提交授权。提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
 
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
 - `jubian_character_reference_authorize` 仅在普通 Muse 会话中显示。它核对当前项目、角色与待审核图，再直接请已登录用户声明本人委托生成并上传、拥有本项目一次衍生生图权利；不会批准公共库使用或发出付费请求。

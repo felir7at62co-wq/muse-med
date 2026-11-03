@@ -4,22 +4,6 @@
 
 `video_review_evidence.py <project> <source> --start <seconds> --end <seconds> --output <new-directory>` creates source-bound local evidence with Pillow and local FFmpeg/FFprobe, configurable through `--ffmpeg`, `--ffprobe`, `--fps` and `--timeout`. Source and output resolve inside the project; an existing output directory is refused. It checks the measured interval, preserves the original video, extracts a continuous clip retaining audio when present, and writes sampled frames, six-frame contact sheets and `evidence.json` with source and evidence SHA-256 values. Extraction fails if the source changes, a media process fails or times out, or no frames are sampled; partial outputs are not acceptance records. `review_status` remains `pending`. Sheet times are nominal sample-bin centers; continuous motion, sound, source requirements and reference images still require actual review. No network or generation request is made.
 
-Input:
-
-- Project root.
-- Optional episode range.
-
-Output:
-
-- Status table by episode.
-- Missing artifact list.
-- Suggested next resume command/skill.
-
-Acceptance:
-
-- Existing good artifacts are preserved.
-- Failed or missing artifacts are isolated clearly.
-
 ## Local evidence diagnostic
 
 Run `python -B scripts/inspect_evidence.py <project>` from the loaded skill directory. The standard-library-only helper reads `transcript/jobs/*.json`, the referenced in-project source files, `transcript/raw/<stem>-v<version>.{txt,json,srt}`, and `qa/EP*-review.md`; it writes JSON to stdout only. Receipt `sourceSha256` identifies source media; `sha256` identifies extracted audio and cannot substitute for it. External paths require review and are not hashed automatically.
@@ -27,3 +11,11 @@ Run `python -B scripts/inspect_evidence.py <project>` from the loaded skill dire
 `review_for_active_sources` means a completed receipt matches its current source file, all three raw outputs are nonempty, and the JSON has structurally timed words. It does not verify selected-master lineage, utterance completeness, speaker identity, subtitle alignment, SRT validity or actual sound. Pending local snapshots and completed receipts missing outputs suggest `inspect_original_receipt`; this is a read-only recovery suggestion, never permission to upload or submit again. Malformed receipts remain individual diagnostic rows rather than preventing inspection of other evidence.
 
 The latest level-two review section is checked for an explicit final-delivery claim and unfinished audio verification in the same paragraph or list item. Matches report `delivery_claim_with_unchecked_audio` with the excerpt. This limited text check does not read the video's images or sound and cannot establish acceptance from the absence of warnings. The helper's successful exit means inspection ran, not that the project passed QA; invalid project paths return a nonzero exit.
+
+## Episode path discovery
+
+Add `--episodes 1-7` to the local evidence diagnostic to recursively list episode-marked directory and file candidates anywhere below the project root. Comma-separated selections such as `1,3-5` are also accepted, with at most 100 distinct episode numbers between 1 and 9999. Without this option no recursive artifact scan runs. The scanner recognizes case-insensitive `EP01` tokens and `第01集` in relative path components or filenames; `EP01-P2/分镜.docx` belongs to episode 1, while `EP10` does not match episode 1. A relative path naming different episodes, such as `EP01/第02集/分镜.docx`, is ambiguous even if only one of those episodes was requested. Names alone do not establish which file is a final deliverable.
+
+The additional `artifact_scan` JSON contains `status`, `requested_episodes`, `limits`, `entries_examined`, `candidates`, `episodes`, and bounded diagnostic `issues`. Each candidate has its relative `path`, `kind` (`file` or `directory`), named `episodes`, and `episode_match` (`unambiguous` or `ambiguous`). Each requested episode has `candidate_paths`, `ambiguous_candidate_paths`, `discovery`, and `acceptance: "not_evaluated"`. Discovery is `candidates_found`, `ambiguous_candidates`, `not_found_in_scan`, or `unknown_partial_scan`. The last two mean no candidate was found in the completed or partial traversal, respectively; neither means the episode was not produced. A matching unrelated file or empty directory remains only a candidate. No Word, media or other candidate contents are opened, and no completion or quality verdict is issued.
+
+Traversal defaults to `--max-entries 5000 --max-depth 12 --max-candidates 200`; adjustable ceilings are 100000 entries, 64 descended directory levels and 10000 candidates. Entry counts include all examined directory entries, not only matching paths. The root is depth zero; a directory listed beyond the descent limit remains a candidate but is not opened. The scanner does not follow symbolic links or Windows reparse points, including directory junctions. A skipped link, scan error, or reached limit makes `status: "partial"`; absent episode candidates then use `unknown_partial_scan`. At most 20 issue rows are retained, with `issue_count` and `issues_omitted` reporting the full count. `status: "complete"` means this bounded traversal exhausted its paths without omissions, never that production or acceptance is complete. Partial scans still exit successfully with explicit diagnostics; invalid episode selections and scan limits return a nonzero exit.

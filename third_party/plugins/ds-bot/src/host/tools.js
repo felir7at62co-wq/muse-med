@@ -300,12 +300,12 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'create_bot',
-    description: 'Main Bot only. Create a new Bot on the user\'s team. It appears in the sidebar and greets the user.',
+    description: 'Main Bot only. Create a persistent Bot for a new ongoing specialist role. Check list_bots and reuse a suitable Bot first; use subagent tools for short, bounded tasks. Creation starts a greeting, not the assigned work. Send the actual task once afterward with message_bot to establish its reply back to you.',
     parameters: {
       name: { type: 'string', required: true, description: 'Short display name, e.g. "Researcher" or "Editor"' },
       role: { type: 'string', required: true, description: 'Two-to-four character role label shown under the name' },
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
-      brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
+      brief: { type: 'string', description: 'Background explaining why the user wants this ongoing role. This is not a task assignment; send the self-contained task afterward with message_bot to receive its result.' },
       preset: { type: 'string', description: 'Registered agent preset for the new Bot. Defaults to short-drama for Muse specialist work; bot-coordinator supplies general coordination.' },
       resident_tools: { type: 'array', items: { type: 'string' }, description: 'Exact tool names to keep resident for this Bot. Tools remain subject to its existing permissions; it can later search, pin or release them with tool_search and tool_context.' },
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
