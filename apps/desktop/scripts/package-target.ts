@@ -593,13 +593,9 @@ export async function packageTarget(
     S1: async () => { await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT) },
     S2: async () => { await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT) },
     S3: async () => {
-      await execute([
-        '--dir',
-        'apps/desktop-host',
-        'pack',
-        '--pack-destination',
-        buildPaths.packedDsh,
-      ], buildEnv, REPOSITORY_ROOT)
+      for (const directory of ['apps/desktop-host', 'packages/host/muse-market']) {
+        await execute(['--dir', directory, 'pack', '--pack-destination', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+      }
     },
     S4: async () => {
       await execute([
