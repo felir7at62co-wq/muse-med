@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
+import { pnpmInvocation } from '../../scripts/pnpm-invocation.ts'
 import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
@@ -29,7 +30,7 @@ if (!pnpm) throw new Error('community plugins: invoke through pnpm --dir third_p
 const output = resolve(values.out)
 mkdirSync(output, { recursive: true })
 
-function run(args, cwd, environment = {}) {
+function run(args, cwd, environment = {}, command = process.execPath) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
   Reflect.deleteProperty(env, 'MUSE_HOME')
   Reflect.deleteProperty(env, 'MUSE_MED_HOME')
@@ -38,9 +39,14 @@ function run(args, cwd, environment = {}) {
     env.DSH_HOME = environment.DSH_HOME ?? join(dirname(cwd), 'test-home')
     env.CODEX_HOME = environment.CODEX_HOME ?? join(env.DSH_HOME, 'codex')
   }
-  const result = spawnSync(process.execPath, args, { cwd, env, stdio: 'inherit' })
+  const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`community plugins: ${args.join(' ')} failed (${result.status ?? result.signal})`)
+}
+
+function runPnpm(args, cwd) {
+  const invocation = pnpmInvocation(args, { npm_execpath: pnpm })
+  run(invocation.args, cwd, {}, invocation.command)
 }
 
 function linkPackage(modules, name, directory, links) {
@@ -79,7 +85,7 @@ for (const entry of readdirSync(join(repository, 'vendor'), { withFileTypes: tru
 const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
 const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
-run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
+runPnpm(['install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
 const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
 for (const name of values.only ? [values.only] : desktopSources) {
@@ -247,7 +253,7 @@ export function codexFilesystemPath(value) {
     if (name === 'dshmarket') {
       run(['--input-type=module', '-e', "const catalog = await import('dshmarket/catalog'); if (typeof catalog.loadRegistry !== 'function') throw new Error('missing catalog export')"], directory)
     }
-    run([pnpm, '--ignore-workspace', 'pack', '--pack-destination', output], directory)
+    runPnpm(['--ignore-workspace', 'pack', '--pack-destination', output], directory)
   } finally {
     for (const link of links.reverse()) unlinkSync(link)
     rmSync(staging, { recursive: true, force: true })

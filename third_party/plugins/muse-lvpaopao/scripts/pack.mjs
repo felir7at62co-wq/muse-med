@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { pnpmInvocation } from '../../../../scripts/pnpm-invocation.ts';
 import { buildLvpaopao } from './build.mjs';
 import { copyNativeResources } from './native-resources.mjs';
 
@@ -31,7 +32,8 @@ try {
   mkdirSync(archives);
   const cli = process.env.npm_execpath;
   const packArgs = ['pack', '--pack-destination', archives];
-  const result = spawnSync(cli ? process.execPath : 'npm', cli ? [cli, ...packArgs] : packArgs, {
+  const invocation = cli ? pnpmInvocation(packArgs) : { command: 'npm', args: packArgs };
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: staging, encoding: 'utf8', env: { ...process.env, npm_config_ignore_scripts: 'true' },
   });
   if (result.error) throw result.error;
