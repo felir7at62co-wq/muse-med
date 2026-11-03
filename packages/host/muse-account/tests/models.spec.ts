@@ -617,9 +617,11 @@ it('requires the signed-in Muse route even when the old direct provider has a ke
   models = new MuseModels(fixture.ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     internalModelsOnly: true, excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
   const signal = new AbortController().signal
+  const { reasoningEffort, ...initialRoute } = fixture.initialSelection
   const request = () => agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request',
     { turn: 1, step: 1, signal },
-    () => Promise.resolve(fixture.initialSelection))
+    () => Promise.resolve({ ...initialRoute,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) }) }))
   const attemptDirect = async () => await assemble(fixture.ctx, {
     provider: 'deepseek-official', model: 'deepseek-flash', messages: [],
   })
