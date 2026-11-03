@@ -9,6 +9,7 @@
     "src/css-modules.d.ts",
     "src/client/index.ts",
     "src/client/JubianTokenSection.tsx",
+    "src/client/VideoRecoverySection.tsx",
     "src/client/locales.ts",
     "src/client/mount.ts",
     "src/client/VideoModelSelect.tsx",
@@ -29,6 +30,9 @@
     },
     {
       "path": "../../client/ui-settings/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-workspace"
     },
     {
       "path": "../../client/ui-slots"

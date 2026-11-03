@@ -55,3 +55,61 @@
   align-items: center;
   gap: 8px;
 }
+
+.recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.recoveryTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.recoveryReports,
+.recoveryReport {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.recoveryReport {
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.recovery .actions {
+  flex-wrap: wrap;
+}
+
+.recovery .label {
+  margin: 0;
+}
+
+.recoveryLoading {
+  display: grid;
+  place-items: center;
+}
+
+.recoveryReasonInput {
+  composes: input;
+  height: auto;
+  padding: 8px 12px;
+  resize: vertical;
+}
+
+.recoveryReason {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}

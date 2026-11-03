@@ -22,7 +22,7 @@ import { STORYBOARD_WRITE_REMINDER } from './storyboard-edit.ts'
 import { resolvePromptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewConfig } from './prompt-risk.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-character-reference'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
@@ -55,6 +55,7 @@ import { JubianVideoSelection } from './video-session.ts'
 export { JubianVideoSelection } from './video-session.ts'
 export { productionRows, readProductionLibrary, productionCard, publishProductionCard } from './production.ts'
 export type { ProductionLibraryEntry, ProductionCardInput } from './production.ts'
+export type { ApprovedClipDraftService } from './types.ts'
 export type { VideoModelOption, SessionVideoSelection } from './video-session-types.ts'
 import { need, requireArguments, requireKey } from './write.ts'
 import {
@@ -69,9 +70,13 @@ import type {
   CharacterReferenceQaUploadRequest,
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
+import { isProjectVideoIntent, reviewRecoveredVideo, runVideoRecovery } from './video-recovery.ts'
+import { checkVideoMedia } from './video-media-check.ts'
+import { JubianVideoRecovery } from './video-recovery-service.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
 
 export { JubianToken } from './token.ts'
+export { JubianVideoRecovery } from './video-recovery-service.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
 export type { ImageRouteConfig } from './image.ts'
 
@@ -80,6 +85,10 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig {
+  /** Serve the authenticated recovery settings in the local desktop application. */
+  videoRecoverySettings?: boolean
+  /** Opt-in project and original batch submission keys for startup recovery. */
+  videoRecovery?: { projectDir: string; keys?: string[]; ffmpegPath: string; decodeTimeoutMs?: number }
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -658,6 +667,69 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })))
   const storedCredential = async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
   const client = configuredJubianClient(storedCredential, config, process.cwd())
+  const recovery = config.videoRecovery
+  if (recovery !== undefined) {
+    const decodeTimeoutMs = recovery.decodeTimeoutMs ?? watchConfig.watchTimeoutMs
+    if (!isAbsolute(recovery.projectDir) || !isAbsolute(recovery.ffmpegPath)
+      || !Number.isSafeInteger(decodeTimeoutMs) || decodeTimeoutMs < 1 || decodeTimeoutMs > 86400000
+      || (recovery.keys !== undefined && (!Array.isArray(recovery.keys)
+        || recovery.keys.length === 0 || recovery.keys.some(key => typeof key !== 'string' || !key.trim())))) {
+      throw new TypeError('videoRecovery requires absolute projectDir and ffmpegPath, a valid decode timeout and valid optional submission keys')
+    }
+    const recoveryClient = configuredJubianClient(storedCredential, config, recovery.projectDir)
+    ctx.effect(() => registerJubianTool(defineTool({
+      name: 'jubian_video_review',
+      description: '读取本项目的视频质检报告或记录人工通过、退回。先 read 获取摘要和 digest。决定须由用户在当前会话发送完整命令：approve 或 reject、原 key、digest，以空格分隔。',
+      parameters: {
+        action: { type: 'string', enum: ['read', 'approve', 'reject'], required: true },
+        idempotency_key: { type: 'string', required: true },
+        digest: { type: 'string' },
+      },
+      output: { schema: { type: 'object', additionalProperties: true },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute: async (args, exec) => {
+        const session = exec.agent?.session
+        const cwd = session?.header.cwd
+        if (!session || cwd === undefined || resolve(cwd) !== resolve(recovery.projectDir)
+          || (recovery.keys !== undefined
+            ? !recovery.keys.includes(args.idempotency_key)
+            : !isProjectVideoIntent(await ledger.find(args.idempotency_key), recovery.projectDir))) {
+          throw new Error('Video review requires the configured project session and submission key')
+        }
+        if (args.action === 'read') return await reviewRecoveredVideo(recovery.projectDir, args.idempotency_key)
+        const message = session.deriveMessages().findLast(item => item.role === 'user' && item.source.kind === 'user')
+        const text = message?.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+        if (!args.digest || text?.trim() !== `${args.action} ${args.idempotency_key} ${args.digest}`) {
+          throw new Error('Video review requires the exact decision, submission key and report digest from the user')
+        }
+        exec.signal.throwIfAborted()
+        return await reviewRecoveredVideo(recovery.projectDir, args.idempotency_key,
+          { action: args.action, digest: args.digest })
+      },
+    })))
+    ctx.effect(() => {
+      const controller = new AbortController()
+      const done = runVideoRecovery(recoveryClient, ledger, recovery.projectDir, recovery.keys,
+        watchConfig.watchPollIntervalMs, controller.signal, () => {
+          console.warn('Jubian video recovery check failed; retrying')
+        }, (url, signal) => checkVideoMedia(url, recovery.ffmpegPath, decodeTimeoutMs, signal))
+      return async () => {
+        controller.abort()
+        await done
+      }
+    })
+  }
+  if (config.videoRecoverySettings === true) {
+    await ctx.plugin(JubianVideoRecovery, {
+      ledger,
+      settingsPath: join(home, 'jubian', 'video-recovery.json'),
+      clientForProject: (directory: string) => configuredJubianClient(storedCredential, config, directory),
+      ffmpegPath: recovery?.ffmpegPath ?? process.env.DSH_FFMPEG_PATH,
+      intervalMs: watchConfig.watchPollIntervalMs,
+      decodeTimeoutMs: recovery?.decodeTimeoutMs ?? watchConfig.watchTimeoutMs,
+      ...(recovery === undefined ? {} : { fixed: recovery }),
+    })
+  }
   const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
@@ -1035,12 +1107,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     parameters: {
       method: { type: 'string', required: true,
         enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
+          'submit_video_batch', 'reconcile_video', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
+          + 'reconcile_video=按 project_dir 和原 idempotency_key 只读恢复批量提交任务；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
           + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,

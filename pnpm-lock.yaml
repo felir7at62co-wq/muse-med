@@ -11118,6 +11118,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: workspace:*
+        version: link:../../client/ui-workspace
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:*
         version: link:../../credentials/credentials

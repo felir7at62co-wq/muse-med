@@ -51,6 +51,10 @@ export interface JubianLedgerRecord {
   at: string
   /** Canonical hash of the request body. */
   request_sha256: string
+  /** Related video tasks observed before a native batch submission. */
+  before_task_ids?: string[]
+  /** Local frozen preview used to reconcile a native batch intent. */
+  video_preview_path?: string
   /** Accepted quote or operator estimate reserved before the request. */
   quoted_amount: string | null
   /** Currency unit of the accepted reservation, when one was available. */
@@ -74,6 +78,10 @@ export interface JubianLedgerBegin {
   idempotencyKey: string
   method: JubianLedgerMethod
   requestSha256: string
+  /** Related video tasks observed before dispatch. */
+  beforeTaskIds?: string[]
+  /** Local frozen preview path to retain with the intent. */
+  videoPreviewPath?: string
   scriptId?: number
   quotedAmount?: string
   quoteUnit?: string
@@ -171,11 +179,18 @@ function foldState(lines: Record<string, unknown>[]): FoldedLedgerRecord {
   let resumed = false
   for (const line of lines) {
     if (line.phase === 'begin') {
+      const beforeTaskIds = line.before_task_ids
+      if (beforeTaskIds !== undefined
+        && (!Array.isArray(beforeTaskIds) || !beforeTaskIds.every((id: unknown): id is string => typeof id === 'string'))) {
+        throw new Error('Jubian ledger: invalid pre-dispatch task IDs')
+      }
       record = {
         record_id: String(line.record_id), idempotency_key: String(line.idempotency_key),
         method: line.method as JubianLedgerMethod,
         script_id: typeof line.script_id === 'number' ? line.script_id : null,
         at: String(line.at), request_sha256: String(line.request_sha256),
+        ...(beforeTaskIds === undefined ? {} : { before_task_ids: beforeTaskIds }),
+        ...(typeof line.video_preview_path === 'string' ? { video_preview_path: line.video_preview_path } : {}),
         quoted_amount: (line.quoted_amount as string | null) ?? null,
         quote_unit: (line.quote_unit as string | null) ?? null,
         quote_standard_id: (line.quote_standard_id as number | null) ?? null,
@@ -340,6 +355,8 @@ export class JubianLedger {
     const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
     return { record_id, idempotency_key: input.idempotencyKey, method: input.method,
       script_id: input.scriptId ?? null, at: now.toISOString(), request_sha256: input.requestSha256,
+      ...(input.beforeTaskIds === undefined ? {} : { before_task_ids: input.beforeTaskIds }),
+      ...(input.videoPreviewPath === undefined ? {} : { video_preview_path: input.videoPreviewPath }),
       quoted_amount: input.quotedAmount ?? null, quote_unit: input.quoteUnit ?? null,
       quote_standard_id: input.quoteStandardId ?? null, quote_observed_at: input.quoteObservedAt ?? null,
       http_status: null, application_code: null, response_sha256: null, outcome: null }

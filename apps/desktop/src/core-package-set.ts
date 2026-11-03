@@ -52,10 +52,13 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'skills/media-link-import/scripts/import_media.py',
 ] as const
 
-/** Shot-writing skills required from their independently packed resource package. */
+/** Shot-writing and native delivery files required from the independently packed drama resources. */
 export const DESKTOP_DRAMA_SKILL_RUNTIME_FILES = [
   'skills/shot-script-creator-16-9-3d/SKILL.md',
   'skills/shot-script-creator-9-16/SKILL.md',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export.ps1',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export-folder.ps1',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export-open.ps1',
 ] as const
 
 /** Muse entry, native IM client and Session routing files required from the Feishu tarball. */

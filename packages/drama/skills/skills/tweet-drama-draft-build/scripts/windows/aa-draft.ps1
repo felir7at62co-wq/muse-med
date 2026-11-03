@@ -141,6 +141,10 @@ try {
     }
   }
   if (-not $cli) { throw 'Installed Jianying lyra-cli.exe is unavailable; no alternate renderer was used' }
+  $hash = [Security.Cryptography.SHA256]::Create()
+  $cliStream = [IO.File]::OpenRead($cli)
+  try { $cliSha256 = [BitConverter]::ToString($hash.ComputeHash($cliStream)).Replace('-', '').ToLowerInvariant() }
+  finally { $cliStream.Dispose(); $hash.Dispose() }
   $version = Invoke-Native @('--version') -HelpText
   Require-Flags @('draft','project','create') @('--ref','--dir')
   Require-Flags @('draft','video','add') @('--ref','--resource','--start','--duration','--track','--width','--height')
@@ -149,7 +153,12 @@ try {
   Require-Flags @('draft','text','style') @('--ref','--seg-id','--size','--color','--outline-width')
   Require-Flags @('draft','text','translate') @('--ref','--seg-id','--x','--y')
   $configHelp = Invoke-Native @('draft','config','--help') -HelpText
-  if ($configHelp -notmatch '--ratio') { throw 'Installed Jianying cannot set the draft aspect ratio' }
+  $hasWidth = $configHelp -match '--width(?:[ =,\r\n]|$)'
+  $hasHeight = $configHelp -match '--height(?:[ =,\r\n]|$)'
+  $originalCanvas = $null -eq $plan.ratio -and -not ($hasWidth -and $hasHeight)
+  if ($null -ne $plan.ratio -and $configHelp -notmatch '--ratio') {
+    throw 'Installed Jianying cannot set the draft aspect ratio'
+  }
   if ($null -ne $plan.bgm -or $null -ne $plan.ending_audio) {
     Require-Flags @('draft','audio','add') @('--ref','--kind','--resource','--start','--duration')
     Require-Flags @('draft','audio','volume') @('--ref','--seg-id','--linear')
@@ -162,13 +171,17 @@ try {
   if (@($existing.projects | Where-Object { $_.ref -ceq $ref -or $_.name -ceq $plan.name -or $_.draft_name -ceq $plan.name }).Count -gt 0) { throw "Candidate already registered: $ref" }
   $created = Invoke-Step 'create' @('draft','project','create','--ref',$ref,'--dir',[string]$plan.drafts_dir)
   if ($created.ref -cne $ref) { throw 'Created project reference differs from the requested candidate' }
-  Invoke-Step 'canvas' @('draft','config','--ref',$ref,'--ratio',[string]$plan.ratio) | Out-Null
-  $geometry = @('draft','config','--ref',$ref)
-  foreach ($field in @('width','height','fps')) {
-    if ($configHelp -match ('--' + $field + '(?:[ =,\r\n]|$)')) { $geometry += @("--$field",[string]$plan.delivery.$field) }
-    else { $warnings.Add("Installed Jianying config has no --$field; verify actual editor geometry before delivery") }
+  if ($null -ne $plan.ratio) {
+    Invoke-Step 'canvas' @('draft','config','--ref',$ref,'--ratio',[string]$plan.ratio) | Out-Null
   }
-  if ($geometry.Count -gt 4) { Invoke-Step 'geometry' $geometry | Out-Null }
+  if (-not $originalCanvas) {
+    $geometry = @('draft','config','--ref',$ref)
+    foreach ($field in @('width','height','fps')) {
+      if ($configHelp -match ('--' + $field + '(?:[ =,\r\n]|$)')) { $geometry += @("--$field",[string]$plan.delivery.$field) }
+      else { $warnings.Add("Installed Jianying config has no --$field; verify actual editor geometry before delivery") }
+    }
+    if ($geometry.Count -gt 4) { Invoke-Step 'geometry' $geometry | Out-Null }
+  }
   if ($null -ne $plan.draft_style.subtitle.editor_y) {
     $canvas = Invoke-Step 'canvas-readback' @('draft','extract','--ref',$ref,'--scope','full')
     $rows = @($canvas.json_result | ConvertFrom-Json | Where-Object { $_.type -eq 'draft' })
@@ -182,6 +195,18 @@ try {
     $id = Segment-Id $added
     $bodyIds.Add($id)
     Set-Volume $id 'video' $plan.audio.master_gain
+  }
+  if ($originalCanvas) {
+    # Native original canvas can be stored as 0x0. The Python readback checks
+    # that the single source has the requested dimensions and neutral layout.
+    $canvas = Invoke-Step 'original-canvas-readback' @('draft','extract','--ref',$ref,'--scope','full')
+    $rows = @($canvas.json_result | ConvertFrom-Json | Where-Object { $_.type -eq 'draft' })
+    if ($rows.Count -ne 1) { throw 'Cannot read the native original canvas' }
+    $width = $rows[0].attributes.width
+    $height = $rows[0].attributes.height
+    if (-not (($width -eq 0 -and $height -eq 0) -or ($width -eq $plan.delivery.width -and $height -eq $plan.delivery.height))) {
+      throw 'Native original canvas did not preserve the selected source dimensions'
+    }
   }
   $bgmId = $null
   if ($null -ne $plan.bgm) {
@@ -238,8 +263,8 @@ try {
   $timeline = Invoke-Step 'readback-timeline' @('draft','extract','--ref',$ref,'--scope','timeline')
   if (-not (Test-Path -LiteralPath (Join-Path $draftPath 'draft_content.json') -PathType Leaf)) { throw 'Jianying did not save the project at the requested draft root' }
   Save-Result ([ordered]@{ ok = $true; state = 'saved'; backend = 'aa-jianying'; ref = $ref; path = $draftPath; draft_id = $created.draft_id;
-    runtime = @{ cli = $cli; version = $version; cli_sha256 = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant() };
-    body_segment_ids = $bodyIds.ToArray(); subtitle_segment_ids = $subtitleIds.ToArray();
+    runtime = @{ cli = $cli; version = $version; cli_sha256 = $cliSha256 };
+    original_canvas = $originalCanvas; body_segment_ids = $bodyIds.ToArray(); subtitle_segment_ids = $subtitleIds.ToArray();
     bgm_segment_id = $bgmId; ending_image_segment_id = $endingImageId; ending_audio_segment_id = $endingAudioId;
     ending_effect_segment_id = $endingEffectId;
     watermark_segment_id = $watermarkId;

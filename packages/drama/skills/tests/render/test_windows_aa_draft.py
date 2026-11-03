@@ -63,6 +63,37 @@ class AaDraftTests(unittest.TestCase):
     def plan(self):
         return aa.prepare_plan(self.request, str(self.drafts))
 
+    def test_approved_dialogue_free_clip_preserves_custom_geometry_audio_and_bytes(self):
+        source = self.sources[0]
+        sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+        request = {key: value for key, value in self.request.items() if key not in ('timeline', 'subtitle_srt')}
+        request.update(videos=[str(source)], approved_clip_sha256=sha256)
+        with patch.object(aa, 'probe', return_value={'duration_us': 2_100_000, 'video_duration_us': 2_000_000,
+                                                   'video': True, 'audio': True, 'width': 864, 'height': 496}):
+            plan, _ = aa.prepare_plan(request, str(self.drafts))
+            self.assertIsNone(plan['ratio'])
+            self.assertEqual((plan['delivery']['width'], plan['delivery']['height']), (864, 496))
+            self.assertEqual(plan['duration_us'], 2_000_000)
+            self.assertEqual(plan['subtitles'], [])
+            self.assertEqual(plan['audio']['master_gain'], 1)
+            self.assertEqual(plan['videos'][0]['source_sha256'], sha256)
+            self.assertEqual(Path(plan['videos'][0]['path']).read_bytes(), source.read_bytes())
+            result, _ = self.saved(plan)
+            full = json.loads(result['full']['json_result'])
+            full[0]['attributes'] = {'width': 0, 'height': 0}
+            result['full']['json_result'] = json.dumps(full)
+            with self.assertRaisesRegex(ValueError, 'canvas aspect ratio'):
+                aa.verify_readback(plan, result)
+            result['original_canvas'] = True
+            verified = aa.verify_readback(plan, result)
+            self.assertEqual(verified['geometry']['adaptive_source_canvas'], {'width': 864, 'height': 496})
+            full[1]['layout']['scale_x'] = 0.9
+            result['full']['json_result'] = json.dumps(full)
+            with self.assertRaisesRegex(ValueError, 'neutral layout'):
+                aa.verify_readback(plan, result)
+            with self.assertRaisesRegex(ValueError, 'approved clip hash changed'):
+                aa.prepare_plan({**request, 'approved_clip_sha256': '0' * 64}, str(self.drafts))
+
     def test_bgm_ceiling_keeps_embedded_source_gain_independent(self):
         timeline = json.loads(self.timeline.read_text())
         timeline['delivery']['audio'] = {'master_gain': 0.8, 'bgm_gain': 3}
@@ -519,7 +550,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4').as_posix(), 'C:/dir one/原片.mp4')
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 

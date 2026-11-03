@@ -178,13 +178,15 @@ def require_file(value, field: str) -> Path:
     return path
 
 
-def native_ratio(width: int, height: int) -> str:
+def native_ratio(width: int, height: int, *, allow_custom: bool = False) -> str | None:
     """Map exact dimensions to the installed CLI's named aspect ratios."""
     for ratio in ('16:9', '9:16', '4:3', '3:4', '1:1', '2:1', '2.35:1', '1.85:1',
                   '1.125:2.436', '4:5', '21:9', '128:27'):
         numerator, denominator = map(Fraction, ratio.split(':'))
         if Fraction(width, height) == numerator / denominator:
             return ratio
+    if allow_custom:
+        return None
     raise ValueError('The installed Jianying CLI cannot configure this custom aspect ratio')
 
 
@@ -287,9 +289,30 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
         raise ValueError('videos must contain the selected episode files in shot order')
     sources = [require_file(path, 'videos') for path in inputs]
     check_videos(find_project(project, str(project)), sources)
-    timeline_path = require_file(request['timeline'], 'timeline')
-    subtitle_path = require_file(request['subtitle_srt'], 'subtitle_srt')
-    timeline = json.loads(timeline_path.read_text(encoding='utf-8-sig'))
+    approved_digest = request.get('approved_clip_sha256')
+    approved = 'approved_clip_sha256' in request
+    approved_subtitle_digest = request.get('approved_clip_subtitle_sha256')
+    timeline_path = None
+    subtitle_path = require_file(request['subtitle_srt'], 'subtitle_srt') if not approved or 'subtitle_srt' in request else None
+    if approved:
+        if (not isinstance(approved_digest, str) or not re.fullmatch(r'[a-f0-9]{64}', approved_digest)
+                or len(sources) != 1 or any(key in request for key in
+                                           ('timeline', 'subtitle_overlay_report', 'bgm', 'ending_audio', 'ending_effect'))):
+            raise ValueError('Approved clip drafts require exactly one hash-bound clip and no external timeline or ending')
+        if subtitle_path is not None and file_hash(subtitle_path) != approved_subtitle_digest:
+            raise ValueError('The subtitle file changed before approved clip draft preparation')
+        if file_hash(sources[0]) != approved_digest:
+            raise ValueError('The approved clip hash changed before draft preparation')
+        measured = probe(sources[0])
+        if not measured['video']:
+            raise ValueError('The approved clip has no video stream')
+        timeline = {'clips': [{'shot': 1, 'start_us': 0,
+                               'duration_us': measured['video_duration_us'] or measured['duration_us']}],
+                    'delivery': {'width': measured['width'], 'height': measured['height'],
+                                 'fps': NATIVE_FRAME_RATE, 'audio': {'master_gain': 1}}}
+    else:
+        timeline_path = require_file(request['timeline'], 'timeline')
+        timeline = json.loads(timeline_path.read_text(encoding='utf-8-sig'))
     clips = timeline.get('clips') if isinstance(timeline, dict) else None
     if not isinstance(clips, list) or len(clips) != len(sources):
         raise ValueError('Timeline clips and selected videos must match one-to-one')
@@ -307,9 +330,9 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
             raise ValueError('This AA source-preserving mode requires unretimed clips beginning at source time zero')
         cursor += row['duration_us']
     policy = _policy.resolve_delivery(timeline, project)
-    ratio = native_ratio(policy['width'], policy['height'])
-    policy = {**policy, 'ending_duration_us': 2_000_000 if ratio == '9:16' else 0}
-    if policy['visual_medium'] is None:
+    ratio = native_ratio(policy['width'], policy['height'], allow_custom=approved)
+    policy = {**policy, 'ending_duration_us': 2_000_000 if ratio == '9:16' and not approved else 0}
+    if policy['visual_medium'] is None and not approved:
         policy['warnings'] = [
             'visual_medium is missing; retaining the legacy AI mark. Windows AA adds an ending only for 9:16.'
             if warning == _policy.LEGACY_WARNING else warning for warning in policy['warnings']]
@@ -317,9 +340,9 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     _policy.reject_animation_ending(timeline, cursor, policy)
     if clock['included']:
         raise ValueError('Embedded-audio mode requires body-only source selections; an included ending must be prepared separately')
-    overlay = read_subtitle_overlay_report(request)
+    overlay = None if approved else read_subtitle_overlay_report(request)
     empty_overlay = overlay is not None and overlay['overlay_cue_count'] == 0
-    cues = parse_subtitles(subtitle_path, allow_empty=empty_overlay)
+    cues = [] if subtitle_path is None else parse_subtitles(subtitle_path, allow_empty=empty_overlay)
     if overlay is not None and len(cues) != overlay['overlay_cue_count']:
         raise ValueError('The selected SRT cue count differs from the subtitle overlay report')
     if empty_overlay:
@@ -330,6 +353,10 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     if any(cue['start_us'] < 0 or cue['end_us'] > clock['body_end_us'] for cue in cues):
         raise ValueError('Subtitle times must remain inside the selected episode body')
     parent = project / 'editing/draft-materials'
+    if approved and (project / 'editing').resolve() != project / 'editing':
+        raise ValueError('The approved clip materials require a project-owned editing directory')
+    if approved and parent.resolve() != parent:
+        raise ValueError('The approved clip materials require a project-owned draft-materials directory')
     parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f'ep{episode:02d}-aa-', dir=parent))
     hashes = []
@@ -344,8 +371,14 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
         hashes.append({'source': str(source), 'retained': str(destination), 'sha256': digest})
         return destination
 
-    retain(timeline_path, 'timeline.json')
-    retain(subtitle_path, 'subtitles.srt')
+    if timeline_path is None:
+        (stage / 'timeline.json').write_text(json.dumps(timeline, ensure_ascii=False) + '\n', encoding='utf-8')
+    else:
+        retain(timeline_path, 'timeline.json')
+    if subtitle_path is not None:
+        retained_subtitle = retain(subtitle_path, 'subtitles.srt')
+        if approved and file_hash(retained_subtitle) != approved_subtitle_digest:
+            raise ValueError('The retained subtitles differ from the selected bytes')
     if overlay is not None:
         retain(Path(overlay['source_path']), 'subtitle-overlay-report.json')
     by_shot = dict(zip(sorted(shots), sources))
@@ -354,6 +387,9 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     for row in ordered:
         original = by_shot[row['shot']]
         retained = retain(original, f'video/shot_{row["shot"]:03d}{original.suffix}')
+        retained_sha = file_hash(retained)
+        if approved and retained_sha != approved_digest:
+            raise ValueError('The retained draft clip no longer matches the approved bytes')
         measured = probe(retained)
         if not measured['video']:
             raise ValueError(f'The selected body source is not a video: {original}')
@@ -363,7 +399,7 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
             warnings.append(f'镜头 {row["shot"]} 没有内嵌音频流；未伪造或替换声音，请核对这是否符合原片。')
         videos.append({'shot': row['shot'], 'path': str(retained), 'original': str(original),
                        'width': measured['width'], 'height': measured['height'],
-                       'source_sha256': file_hash(retained), 'start_us': row['start_us'],
+                       'source_sha256': retained_sha, 'start_us': row['start_us'],
                        'duration_us': row['duration_us'], 'has_audio': measured['audio']})
     plan = {'schema_version': 1, 'audio_mode': 'embedded', 'name': name, 'ref': 'local://' + name,
             'ratio': ratio,
@@ -433,7 +469,7 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
                                      'width': measured['width'], 'height': measured['height'],
                                      'duration_us': target_duration, 'speed': source_duration / target_duration,
                                      'blend_resource_id': resource}
-    for suffix in ('.review.txt', '.blocked'):
+    for suffix in (() if subtitle_path is None else ('.review.txt', '.blocked')):
         note = Path(str(subtitle_path) + suffix)
         if note.is_file():
             retain(note, 'subtitles.srt' + suffix)
@@ -474,7 +510,15 @@ def verify_readback(plan: dict, result: dict) -> dict:
     nodes = extract_nodes(result['full'])
     by_id = {row['id']: row for row in nodes if isinstance(row.get('id'), str)}
     canvases = [row['attributes'] for row in nodes if row.get('type') == 'draft']
-    if len(canvases) != 1 or native_ratio(canvases[0]['width'], canvases[0]['height']) != plan['ratio']:
+    if len(canvases) != 1:
+        raise ValueError('The saved native draft has no unique canvas')
+    canvas = canvases[0]
+    size = canvas.get('width'), canvas.get('height')
+    expected_size = plan['delivery']['width'], plan['delivery']['height']
+    adaptive_canvas = (plan['ratio'] is None and result.get('original_canvas') is True
+                       and len(plan['videos']) == 1 and size == (0, 0))
+    if ((plan['ratio'] is None and not adaptive_canvas and size != expected_size)
+            or (plan['ratio'] is not None and native_ratio(*size) != plan['ratio'])):
         raise ValueError('The saved native canvas aspect ratio differs from the selected project')
     tracks = {}
     for row in extract_nodes(result['timeline']):
@@ -530,6 +574,8 @@ def verify_readback(plan: dict, result: dict) -> dict:
             raise ValueError('A saved body segment changed source audio gain or playback speed')
         timing(row, selected['start_us'], selected['duration_us'])
         geometry(row, selected)
+        if adaptive_canvas and (selected['width'], selected['height']) != expected_size:
+            raise ValueError('The adaptive canvas source differs from the requested dimensions')
         actual = row['timeline']
         actual_start = round(Fraction(str(actual['start.ms'])) * NATIVE_FRAME_RATE / 1000)
         actual_end = round(Fraction(str(actual['start.ms'] + actual['duration.ms'])) * NATIVE_FRAME_RATE / 1000)
@@ -649,8 +695,10 @@ def verify_readback(plan: dict, result: dict) -> dict:
                                 'continuous_body_verified': True, 'source_retimed': False},
             'subtitle_timing': {'native_frame_rate': plan['native_frame_rate'],
                                 'max_endpoint_offset_us': max_offset, 'cues': subtitle_offsets},
-            'geometry': {'canvas': canvases[0], 'source_dimensions_and_neutral_layout_verified': True,
-                         'visual_verified': False},
+            'geometry': {'canvas': canvas, 'source_dimensions_and_neutral_layout_verified': True,
+                         'visual_verified': False,
+                         **({'adaptive_source_canvas': {'width': expected_size[0], 'height': expected_size[1]}}
+                            if adaptive_canvas else {})},
             'independent_bgm_verified': 'bgm' in plan,
             'ending_effect_mix_mode': ({'resource_id': plan['ending_effect']['blend_resource_id'],
                                        'command_applied': True, 'visual_verified': False}

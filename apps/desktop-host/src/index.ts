@@ -113,6 +113,15 @@ async function desktopComposition(
       customSkillDirs: desktopSkillDirectories(productSkillDir, userSkillDir, configuredSkillFilesystem?.config),
     },
   }])
+  const recovery = process.env.MUSE_VIDEO_RECOVERY
+  if (recovery !== undefined) {
+    const jubianConfig: unknown = rows.get('tool-jubian')?.config
+    if (typeof jubianConfig !== 'object' || jubianConfig === null || Array.isArray(jubianConfig)) {
+      throw new Error('muse-med: video recovery requires the Desktop Jubian tool')
+    }
+    const videoRecovery: unknown = JSON.parse(recovery)
+    layers.push([{ id: 'tool-jubian', config: { ...jubianConfig, videoRecovery } }])
+  }
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
   return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: bundledBridgeModules(runtimeDir) }
@@ -227,6 +236,7 @@ async function main(): Promise<void> {
     source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
+    jianyingDraft: { automaticExportTimeoutMs: 180_000 },
   })
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })

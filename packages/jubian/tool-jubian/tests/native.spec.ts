@@ -1,17 +1,22 @@
+import { createHash } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
-import { positiveInteger, prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
+import { storyboardMethod } from '../src/methods.ts'
+import { reviewRecoveredVideo } from '../src/video-recovery.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
 const URL_GUEST = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/guest.jpg'
@@ -1126,10 +1131,14 @@ describe('submit_video', () => {
     expect(String(result.next)).toContain('已被提供方受理')
   })
 
-  it('submits exactly one PUT and claims the task it created', async () => {
+  it('records the preview and task snapshot before the single PUT and recovers its task from a reopened ledger', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
-    const { previewPath, idempotencyKey } = await prepared(provider)
-    provider.onPut = (payload) => {
+    const { directory, previewPath, idempotencyKey } = await prepared(provider)
+    const reopened = new JubianLedger({ root: ledger.root })
+    provider.onPut = async (payload) => {
+      expect(await reopened.find(idempotencyKey)).toMatchObject({
+        method: 'storyboard_native_submit', outcome: null, before_task_ids: [], video_preview_path: previewPath,
+      })
       provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }]
       provider.subtasks['335343'] = [childOf(payload)]
     }
@@ -1138,7 +1147,9 @@ describe('submit_video', () => {
     expect(putCalls(provider)).toHaveLength(1)
     expect(putCalls(provider)[0]?.body?.isGenerate).toBe(1)
     expect(result).toMatchObject({ replayed: false, outcome: 'accepted', status: 'submitted', task_id: '335343' })
-    expect((await ledger.find(idempotencyKey))?.method).toBe('storyboard_native_submit')
+    expect(await recoverVideoSubmission(clientFor(provider), reopened, directory, idempotencyKey))
+      .toMatchObject({ replayed: true, outcome: 'accepted', status: 'submitted', task_id: '335343' })
+    expect(putCalls(provider)).toHaveLength(1)
   })
 
 
@@ -1710,10 +1721,25 @@ describe('submit_video_batch', () => {
     expect(replay.results.map(item => item.replayed)).toEqual([true, true])
   })
 
-  it('keeps one unknown result on its original key and never resends the batch', async () => {
+  it('reconciles a late provider task after reopening the ledger without resending the batch', async () => {
     const { provider, items } = await batch()
+    provider.calls.length = 0
+    await expect(submitVideoMethod(clientFor(provider), ledger, items[0]!, undefined, true))
+      .rejects.toThrow('No recorded video submission for this key')
+    expect(provider.calls).toHaveLength(0)
+    expect(await ledger.find(items[0]!.idempotency_key)).toBeUndefined()
+    let revealTask: (() => void) | undefined
     provider.onPut = (payload) => {
-      if (payload.id === 916954) throw new Error('lost connection')
+      if (payload.id === 916954) {
+        revealTask = () => {
+          provider.tasks.push({ id: 335344, scriptId: 2708, storyboardId: 916954, taskType: 1, taskStatus: 'succeeded' })
+          provider.subtasks['335344'] = [childOf(payload, {
+            aigcVideoTaskId: 335344, storyboardId: 916954, taskStatus: 'succeeded',
+            resultList: [{ tosVideoUrl: 'https://101.aigc.jubianai.net/generated.mp4' }],
+          })]
+        }
+        throw new Error('lost connection')
+      }
       provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
       provider.subtasks['335343'] = [childOf(payload)]
     }
@@ -1723,8 +1749,92 @@ describe('submit_video_batch', () => {
     expect(result.results[1]).toMatchObject({ put_error: { code: 'NETWORK_ERROR' } })
     expect((await ledger.find(items[1]!.idempotency_key))?.outcome).toBe('unknown')
     provider.calls.length = 0
-    await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    revealTask?.()
+    const reopened = new JubianLedger({ root: join(root, 'ledger') })
+    expect(await reopened.find(items[1]!.idempotency_key)).toMatchObject({ before_task_ids: [] })
+    const item = items[1]!
+    const projectDir = dirname(dirname(item.preview_path))
+    const recovery = { method: 'reconcile_video', idempotency_key: item.idempotency_key }
+    await expect(storyboardMethod(clientFor(provider), reopened, { ...recovery, project_dir: root }))
+      .resolves.toMatchObject({ status: 'reconcile_required', task_id: null })
+    expect(provider.calls).toHaveLength(0)
+    const replay = await storyboardMethod(clientFor(provider), reopened, { ...recovery, project_dir: projectDir })
     expect(putCalls(provider)).toHaveLength(0)
+    expect(replay).toMatchObject({
+      status: 'submitted', replayed: true, task_id: '335344',
+    })
+    const ffmpeg = process.env.MUSE_RECOVERY_TEST_FFMPEG
+    const mediaPath = join(root, 'recovery-fixture.mp4')
+    if (ffmpeg) {
+      await promisify(execFile)(ffmpeg, ['-nostdin', '-v', 'error', '-f', 'lavfi',
+        '-i', 'color=c=blue:s=64x64:r=10', '-f', 'lavfi', '-i', 'sine=frequency=440',
+        '-t', '1', '-c:v', 'libx264', '-c:a', 'aac', mediaPath], { timeout: 10_000, windowsHide: true })
+    }
+    const expectedMediaDigest = ffmpeg
+      ? 'sha256:' + createHash('sha256').update(await readFile(mediaPath)).digest('hex')
+      : 'fixture-media'
+    const child = `
+      import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+      import { runVideoRecovery } from './packages/jubian/tool-jubian/src/video-recovery.ts'
+      import { readFile } from 'node:fs/promises'
+      import { checkVideoMedia } from './packages/jubian/tool-jubian/src/video-media-check.ts'
+      const { tasks, subtasks, projectDir, ledgerDir, key, ffmpeg, mediaPath } = JSON.parse(process.argv[1])
+      if (ffmpeg) globalThis.fetch = async url => {
+        if (url !== 'https://101.aigc.jubianai.net/generated.mp4') throw new Error('Unexpected media URL')
+        return new Response(await readFile(mediaPath))
+      }
+      const calls = []
+      const client = new JubianClient({ credential: async () => 'fixture-token', fetch: async (url, init) => {
+        const path = new URL(url).pathname
+        calls.push(init.method)
+        if (init.method === 'PUT') throw new Error('Recovery sent a paid request')
+        const data = path.endsWith('/sub/list')
+          ? { total: 1, rows: subtasks[JSON.parse(init.body).aigcVideoTaskId] }
+          : path.endsWith('/task/list') ? { total: tasks.length, rows: tasks }
+          : tasks.find(task => String(task.id) === path.split('/').pop())
+        return Response.json({ code: 200, data })
+      } })
+      const failures = []
+      await runVideoRecovery(client, new JubianLedger({ root: ledgerDir }), projectDir,
+        [key], 10, AbortSignal.timeout(8000), failed => failures.push(failed),
+        ffmpeg ? (url, signal) => checkVideoMedia(url, ffmpeg, 5000, signal)
+          : async () => ({ sha256: 'fixture-media', video: true, audio: true }))
+      console.log(JSON.stringify({ calls, failures }))
+    `
+    const recover = async () => {
+      const { stdout } = await promisify(execFile)(process.execPath,
+        ['--import', 'tsx/esm', '--input-type=module', '-e', child, JSON.stringify({
+          tasks: provider.tasks, subtasks: provider.subtasks, projectDir,
+          ledgerDir: join(root, 'ledger'), key: item.idempotency_key, ffmpeg, mediaPath,
+        })], {
+          env: { ...process.env, TSX_TSCONFIG_PATH: 'tsconfig.base.json' },
+          timeout: 10_000, windowsHide: true,
+        })
+      return JSON.parse(stdout)
+    }
+    const recovered = await recover()
+    expect(recovered.failures).toEqual([])
+    expect(recovered.calls).toContain('GET')
+    expect(recovered.calls).not.toContain('PUT')
+    const reviewDir = join(projectDir, 'video_tasks', 'review')
+    const reports = await readdir(reviewDir)
+    expect(reports).toHaveLength(1)
+    expect(JSON.parse(await readFile(join(reviewDir, reports[0]!), 'utf8'))).toMatchObject({
+      task_id: 335344, status: 'awaiting_review',
+      media_checks: [{ sha256: expectedMediaDigest, video: true, audio: true }],
+    })
+    const report = await reviewRecoveredVideo(projectDir, item.idempotency_key)
+    expect(typeof report.digest).toBe('string')
+    const digest = String(report.digest)
+    await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'reject', digest: 'stale' }))
+      .rejects.toThrow('report changed')
+    await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'approve', digest }))
+      .resolves.toMatchObject({ decision: { action: 'approve', digest } })
+    await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'approve', digest }))
+      .resolves.toMatchObject({ decision: { action: 'approve', digest } })
+    await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'reject', digest }))
+      .rejects.toThrow('different video review decision')
+    expect(await recover()).toEqual({ calls: [], failures: [] })
   })
 
   it('records a parsed response without a success application code as unknown', async () => {

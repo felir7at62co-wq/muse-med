@@ -213,10 +213,13 @@ describe('desktop package-set selection', () => {
     expect(() => { assertDesktopHostPackageFiles([...files, ...disabled]) }).not.toThrow()
   })
 
-  it('requires both shot-writing skills from the drama resource package', () => {
+  it('requires shot-writing skills and all native delivery scripts from the drama resource package', () => {
     const files = [
       'package/skills/shot-script-creator-16-9-3d/SKILL.md',
       'package/skills/shot-script-creator-9-16/SKILL.md',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export.ps1',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export-folder.ps1',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export-open.ps1',
     ]
     expect(() => { assertDesktopDramaSkillPackageFiles(files) }).not.toThrow()
     for (const required of files) {

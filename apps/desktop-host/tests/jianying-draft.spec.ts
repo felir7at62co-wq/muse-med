@@ -15,7 +15,7 @@ import * as Draft from '../src/jianying-draft.ts'
 const fakePython = `
 const fs = require('node:fs'), path = require('node:path');
 const [request, root, failure] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(request, 'utf8'));
+const input = JSON.parse(fs.readFileSync(request, 'utf8').replace(/^\\uFEFF/u, ''));
 if (failure) { console.log(JSON.stringify({ success:false,drafts_created:0,drafts:[],error:'save rejected' })); process.exit(0); }
 const target = path.join(root, input.name_prefix + String(input.episode).padStart(2, '0'));
 fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));

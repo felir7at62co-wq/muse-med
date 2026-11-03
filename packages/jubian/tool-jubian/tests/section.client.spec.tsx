@@ -16,6 +16,8 @@ import type {
   JubianTokenStatus,
 } from '../src/client/JubianTokenSection.tsx'
 import { en, type JubianLocaleKey } from '../src/client/locales.ts'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { VideoRecoveryReview, VideoRecoveryStatus } from '../src/types.ts'
 
 afterEach(cleanup)
 
@@ -180,5 +182,72 @@ describe('JubianTokenSection — writes', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: en.save }).hasAttribute('disabled')).toBe(false)
     })
+  })
+})
+
+describe('Jubian recovery delivery', () => {
+  it.each(['derivative', 'original'] as const)('exports an approved %s again and displays the updated verification', async (source) => {
+    const sha256 = 'sha256:' + 'a'.repeat(64)
+    const report: VideoRecoveryReview = {
+      idempotencyKey: 'reviewed-video',
+      taskId: 744521,
+      status: 'awaiting_review',
+      digest: 'approved-digest',
+      mediaChecks: [{ sha256, video: true, audio: true }],
+      ...(source === 'derivative' ? { derivative: { path: 'video_tasks/review/derivative.mp4', sha256 } } : {}),
+      decision: 'approve',
+      delivery: {
+        draft: { name: 'Approved video', path: 'drafts/approved-video' },
+        export: { path: 'exports/previous.mp4', sha256: 'previous-hash', videoSimilarity: 1, audioSimilarity: 1 },
+      },
+    }
+    const status: VideoRecoveryStatus = {
+      enabled: true, configurable: true, decoderAvailable: true, automaticExportAvailable: true,
+      projectDir: '/project', reports: [
+        report,
+        { idempotencyKey: 'unhashed-original', taskId: 744524, status: 'awaiting_review', digest: 'unhashed-digest',
+          decision: 'approve', mediaChecks: [{ sha256: 'unknown', video: true, audio: true }] },
+        { ...report, idempotencyKey: 'rejected-video', decision: 'reject' },
+        { idempotencyKey: 'failed-original', taskId: 744522, status: 'awaiting_review', digest: 'failed-digest',
+          decision: 'approve', mediaChecks: [{ sha256, video: true, audio: false }] },
+        { idempotencyKey: 'ambiguous-original', taskId: 744523, status: 'awaiting_review', digest: 'ambiguous-digest',
+          decision: 'approve', mediaChecks: [{ sha256, video: true, audio: true }, { sha256: 'failed', video: true, audio: false }] },
+      ],
+    }
+    const delivery = Promise.withResolvers<RemoteResult<VideoRecoveryReview>>()
+    const deliverApprovedClip = vi.fn(() => delivery.promise)
+    render(<JubianTokenSection {...props({
+      recovery: {
+        status: async () => ({ ok: true, value: status }),
+        configure: async () => ({ ok: true, value: status }),
+        review: async () => ({ ok: true, value: report }),
+        adopt: async () => ({ ok: true, value: report }),
+        createDraft: async () => ({ ok: true, value: report }),
+        verifyExport: async () => ({ ok: true, value: report }),
+        deliverApprovedClip,
+      },
+    })} />)
+
+    const button = await screen.findByRole('button', { name: en.recoveryDeliverClip })
+    fireEvent.click(button)
+    expect(deliverApprovedClip).toHaveBeenCalledExactlyOnceWith({
+      idempotencyKey: 'reviewed-video', digest: 'approved-digest',
+    })
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText(en.recoveryDeliveringClip)).toBeDefined()
+
+    delivery.resolve({
+      ok: true,
+      value: {
+        ...report,
+        delivery: {
+          draft: { name: 'Approved video', path: 'drafts/approved-video' },
+          export: { path: 'exports/updated.mp4', sha256: 'updated-hash', videoSimilarity: 0.98, audioSimilarity: 0.99 },
+        },
+      },
+    })
+    expect(await screen.findByText('exports/updated.mp4')).toBeDefined()
+    expect(screen.queryByText(en.recoveryDeliveringClip)).toBeNull()
+    expect(button.hasAttribute('disabled')).toBe(false)
   })
 })
