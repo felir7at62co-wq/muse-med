@@ -115,13 +115,14 @@ export function apply(ctx) {
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
     const skills = await skillRegistry.list({ scope: handle.agent, cwd: workspace })
+    const custom = skills.find(skill => skill.name === 'desktop-user-skill')
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
       }
-      if (skills.some(skill => !creationSkillNames.has(skill.name))) {
+      if (skills.some(skill => !creationSkillNames.has(skill.name) && skill !== custom)) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
     }
@@ -184,9 +185,8 @@ export function apply(ctx) {
         throw new Error('desktop runtime: cordis authoring skill is not mounted')
       }
     }
-    const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
-      || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
+    if (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
+      || skills.some(skill => skill.name === 'desktop-legacy-only')) {
       throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
         + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
         + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))

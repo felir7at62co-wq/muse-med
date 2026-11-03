@@ -123,7 +123,7 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
+  const creationSkills = [...skills]
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
