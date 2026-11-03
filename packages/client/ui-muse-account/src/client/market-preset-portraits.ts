@@ -64,11 +64,14 @@ const entries = {
   'workflow-automation': ['masters', '流程自动化', 'Workflow Automation Engineer', '工作流自动化|自动化流程|工作流|流程编排|任务编排|workflow automation|workflow orchestration|workflow|automation'],
 } satisfies Record<MarketPresetPortraitId, PortraitEntry>
 
-/** Catalog order also resolves equal-strength recommendations. */
-export const marketPresetPortraits: readonly MarketPresetPortrait[] = (Object.keys(entries) as MarketPresetPortraitId[]).map((id) => {
+function catalogPortrait(id: MarketPresetPortraitId): MarketPresetPortrait {
   const [group, name, nameEn] = entries[id]
   return { id, name, nameEn, group }
-})
+}
+
+/** Catalog order also resolves equal-strength recommendations. */
+export const marketPresetPortraits: readonly MarketPresetPortrait[] =
+  (Object.keys(entries) as MarketPresetPortraitId[]).map(catalogPortrait)
 
 type PortraitLabelKey = `presetPortrait.${MarketPresetPortraitId}`
 
@@ -104,8 +107,7 @@ const matchers = marketPresetPortraits.map(portrait => ({
     }),
 }))
 
-const fallback = marketPresetPortraits.find(portrait => portrait.id === 'screenplay-editor')
-if (!fallback) throw new Error('Missing screenplay editor portrait')
+const fallback = catalogPortrait('screenplay-editor')
 
 /** Recommend a preset from bilingual purpose and manifest metadata. Higher-specificity
  * phrases outrank generic terms, with explicit purpose and title weighted above summaries.
