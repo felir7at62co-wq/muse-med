@@ -346,23 +346,26 @@ test('a turn that ended without saying anything says it finished', async (t) => 
   assert.equal(second.agentOf('b').calls.length, 0)
 })
 
-test('a turn that ended on the token limit gives what it said', async (t) => {
+for (const kind of ['max-tokens', 'aborted']) test(`a turn ending with ${kind} recovered after restart keeps its partial output and reports incomplete work`, async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
   const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
-  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }))
+  const reason = kind === 'aborted' ? { kind, reason: { kind: 'user' } } : { kind }
+  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', reason))
   await first.stop()
 
   const second = await start(home, logs)
-  second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  second.emit('b', 'turn/end', { turn: 1, reason })
   t.mock.timers.tick(3000)
   await settle(() => second.agentOf('a').calls.length === 1)
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /The plan is ready, up to the limit\./)
+  assert.match(text(reply), /assigned work is not confirmed complete/)
+  assert.match(text(reply), kind === 'max-tokens' ? /output token limit/ : /was stopped/)
   // The work is settled, and the request is not run again.
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)

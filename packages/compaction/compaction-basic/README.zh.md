@@ -218,13 +218,13 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 - [error: how it was resolved, plus any related user feedback]
 
 ## Pending Jobs
-- [explicitly requested work not yet completed]
+- [every requested item not yet completed or verified; delegated items with exact scope, owner, identifiers, progress, pending replies, output locations, and completion checks]
 
 ## Current Work
 - [precisely what was in progress at this checkpoint]
 
 ## Next Step
-- [the single next action, directly in line with the most recent request, or "(none)"]
+- [the single next action toward the unfinished objective, incorporating the latest steering, or "(none)" only when nothing remains]
 
 ## Critical Context
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
@@ -232,6 +232,8 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 Rules:
 - Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
+- Preserve the full unfinished objective across status questions and corrections unless the user explicitly cancels or replaces it. Distinguish requested scope, assigned scope, reported progress, and verified completion; a finished turn, idle agent, or partial reply does not establish task completion.
+- Preserve the existing todo and active goal state when present, including unfinished items and the next continuation. Treat current files, tool results, and durable session state as evidence to check before repeating work; do not invent completion or perform pending work in this summary.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
 - If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.

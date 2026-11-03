@@ -201,11 +201,20 @@ test('a corrupt agents field resets instead of crashing the view', async (t) => 
   assert.deepEqual(view.agents, [])
 })
 
-test('TEAM_TOOLS names exactly the tools ds-bot registers', async (t) => {
+test('TEAM_TOOLS includes global team tools and the Bot-scoped view', async (t) => {
   // read_browser registers only in the Desktop profile; the flag stands in for it.
-  const { stop, ctx } = start(TEAM, { config: { browser: true } })
+  const { stop, ctx, createdAgents } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual([...ctx.registeredTools.keys()].sort(), [...TEAM_TOOLS].sort())
+  assert.deepEqual([...ctx.registeredTools.keys()].sort(), TEAM_TOOLS.filter(name => name !== 'show_view').sort())
+  const scoped = new Map()
+  const agent = { session: { id: 'm1' }, ctx: { effect: execute => execute(), tools: { register: tool => {
+    scoped.set(tool.name, tool)
+    return () => scoped.delete(tool.name)
+  } } } }
+  await Promise.all(createdAgents({ agent }))
+  assert.deepEqual([...scoped.keys()], ['show_view'])
+  ctx.emit('agent/disposed', { agent })
+  assert.equal(scoped.size, 0)
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {

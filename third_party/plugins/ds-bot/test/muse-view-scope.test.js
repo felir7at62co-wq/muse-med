@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { install as installTools } from '../src/host/tools.js'
@@ -10,7 +11,7 @@ import { install as installAgents } from '../src/host/agents.js'
 
 const owner = createRequire(import.meta.url)
 const toolPeers = createRequire(owner.resolve('@deepseek-ai/dsh-tools/package.json'))
-const { createScope, scopeTarget } = await import(toolPeers.resolve('@deepseek-ai/dsh-scope'))
+const { createScope, scopeTarget } = await import(pathToFileURL(toolPeers.resolve('@deepseek-ai/dsh-scope')).href)
 
 async function setup(t) {
   const ctx = new Context()
