@@ -756,6 +756,22 @@ describe('UiWorkspaceService', () => {
     expect(b.selectPanel).toHaveBeenCalledWith(null)
   })
 
+  it('creates a new preset task in the current workspace even when it has a blank task', async () => {
+    const current = summary('blank', { blank: true, cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.create.mockClear()
+    await b.uiWorkspace.startPresetSession('market-release')
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('current'), agentPreset: 'market-release' })
+    expect(b.sessions.retain).toHaveBeenLastCalledWith(sid('created-current'), { source: 'mainView' })
+  })
+
+  it('requires a workspace before creating a preset task', async () => {
+    const b = bench()
+    await expect(b.uiWorkspace.startPresetSession('market-release')).rejects.toThrow('workspace-required')
+    expect(b.sessions.create).not.toHaveBeenCalled()
+  })
+
   describe('startSession draft initialization', () => {
     it.each<{ name: string; options: DraftInitializationOptions }>([
       { name: 'plain text', options: { prompt: '草稿 🧭\nsecond line', clearPreviousDraft: true } },

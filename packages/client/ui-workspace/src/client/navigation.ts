@@ -68,6 +68,13 @@ export interface UiWorkspace {
    */
   startSession(workspaceId?: WorkspaceId, options?: StartSessionOptions): void
   /**
+   * Create a new Session with the requested Agent preset in the current or most recent Workspace.
+   * @param agentPreset - selectable Agent preset for the new Session.
+   * @returns completion; a superseded request may create a Session without opening it.
+   * @throws `workspace-required` when there is no Workspace, or a Session creation error.
+   */
+  startPresetSession(agentPreset: string): Promise<void>
+  /**
    * Archive a Session and clear it when it is the current selection.
    * @param sessionId - Session to archive.
    * @param options - `stopActivity` asks the Host to stop the Session's running work instead of refusing.
@@ -230,16 +237,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const draftOptions = options === undefined ? undefined : { ...options }
     const initializeDraft = draftOptions !== undefined
       && (draftOptions.prompt !== undefined || draftOptions.clearPreviousDraft === true)
-    const workspace = this.workspaces.list.getSnapshot()
-    const sessions = this.sessions.list.getSnapshot()
-    const current = this.mainReference?.sessionId
-    const currentWorkspaceId = current === undefined
-      ? undefined
-      : workspace.items.find(item => item.sessionIds.includes(current))?.workspaceId
-    const recent = workspace.phase === 'ready' && sessions.phase === 'ready'
-      ? recentWorkspace(workspace.items, sessions.byId)
-      : undefined
-    const target = workspaceId ?? currentWorkspaceId ?? recent
+    const target = workspaceId ?? this.currentOrRecentWorkspace()
     if (target === undefined) {
       if (initializeDraft) {
         this.notify({ kind: 'createFailed', message: this.ctx.locale.bind('workspace')('draft.workspaceRequired') })
@@ -255,6 +253,23 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     } : undefined).catch(
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )
+  }
+
+  async startPresetSession(agentPreset: string): Promise<void> {
+    const workspaceId = this.currentOrRecentWorkspace()
+    if (workspaceId === undefined) throw new Error('workspace-required')
+    const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+    const sessionId = await this.sessions.create({ workspaceId, agentPreset })
+    if (!navigation.aborted) this.replaceMain(sessionId, navigation, 'reveal')
+  }
+
+  private currentOrRecentWorkspace(): WorkspaceId | undefined {
+    const workspace = this.workspaces.list.getSnapshot()
+    const current = this.mainReference?.sessionId
+    const selected = current === undefined ? undefined : workspace.items.find(item => item.sessionIds.includes(current))?.workspaceId
+    if (selected !== undefined) return selected
+    const sessions = this.sessions.list.getSnapshot()
+    return workspace.phase === 'ready' && sessions.phase === 'ready' ? recentWorkspace(workspace.items, sessions.byId) : undefined
   }
 
   private prepareDraft(binding: SessionBinding, options: DraftInitializationOptions): void {

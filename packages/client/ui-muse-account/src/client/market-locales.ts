@@ -3,6 +3,7 @@ import { marketPresetPortraitLabelsEn, marketPresetPortraitLabelsZh } from './ma
 
 export const marketZh = {
   runBot: '启动 Bot', botTaskCreated: '已创建 Bot 任务',
+  'error.workspace-required': '请先打开一个工作区，再启动 Bot',
   legacySource: 'Muse 首批资源', legacyUnavailable: '首批资源暂时无法读取',
   legacyDownload: '下载原始资源包',
   legacyBotIntroduction: '我是{role}。{description}',
@@ -93,6 +94,7 @@ export type MarketLocaleKey = keyof typeof marketZh
 /** English market copy with the same keys as Chinese. */
 export const marketEn = {
   runBot: 'Run Bot', botTaskCreated: 'Bot task created',
+  'error.workspace-required': 'Open a workspace before starting the Bot.',
   browserManagePublishers: 'Manage publishers', browserLegacy: 'First-batch resources', browserWorkbench: 'Workbench', lightTheme: 'Light', darkTheme: 'Dark',
   browserSignIn: 'Sign in to Muse', browserAccount: 'My account', browserSignInHint: 'Sign in to view team drafts, upload publications and download resources.',
   browserDownload: 'Download ZIP', archiveDownloaded: 'Download started. Import the ZIP in Muse before enabling it.',

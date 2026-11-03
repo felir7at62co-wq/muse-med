@@ -1,6 +1,5 @@
 /** Generated Remote mounting and main-area registration for the Muse market. */
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import marketRemote from '@deepseek-ai/dsh-muse-market/remote'
 import type MuseMarket from '@deepseek-ai/dsh-muse-market'
@@ -53,13 +52,8 @@ export async function mountMuseMarket(ctx: Context): Promise<() => Promise<void>
     const onOpen = (): void => { context.layout.selectPanel(panelId) }
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: panelId, locale: 'settings.museMarket',
       inject: () => {
-        const sessions = context.get('sessions')
         const workspace = context.get('uiWorkspace')
-        const onRunBot: MarketSectionProps['onRunBot'] = sessions && workspace ? async (id) => {
-          const navigation = context.layout.beginNavigation()
-          const sessionId = await sessions.create({ agentPreset: `market-${id}` })
-          if (!navigation.aborted) workspace.openSession(sessionId)
-        } : undefined
+        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? id => workspace.startPresetSession(`market-${id}`) : undefined
         return { actions, reportOutcome: feedback.report, ...(onRunBot ? { onRunBot } : {}) }
       } }, MarketPage))
     context.slots.inject('sidebar.panellist', () => context.slots.register({ name: 'sidebar.panellist', id: panelId,

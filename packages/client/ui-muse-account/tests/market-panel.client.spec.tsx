@@ -26,11 +26,9 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   const locale = new LocaleRuntime(ctx); locale.setLocale('zh')
   ctx.provide('locale', locale)
   const selectPanel = vi.fn(), disposeRemote = vi.fn(async () => {})
-  const navigation = new AbortController()
-  const create = vi.fn(async () => 'new-task'), openSession = vi.fn()
-  ctx.provide('layout', { selectPanel, beginNavigation: () => navigation.signal })
-  ctx.provide('sessions', { create })
-  ctx.provide('uiWorkspace', { openSession })
+  const startPresetSession = vi.fn(async () => {})
+  ctx.provide('layout', { selectPanel })
+  ctx.provide('uiWorkspace', { startPresetSession })
   ctx.provide('remote', { $mount: vi.fn(async () => disposeRemote), museMarket: {} })
   ctx.provide('remote.museMarket', {})
   const slots = ctx.get('slots') as SlotRegistry
@@ -44,8 +42,7 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   const main = slots.entries('main')[0]?.inject?.() as { onRunBot: (id: MarketRelease['id']) => Promise<void> }
   const installId = 'a'.repeat(64) as MarketRelease['id']
   await main.onRunBot(installId)
-  expect(create).toHaveBeenCalledExactlyOnceWith({ agentPreset: `market-${installId}` })
-  expect(openSession).toHaveBeenCalledExactlyOnceWith('new-task')
+  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`)
   expect(slots.entries('sidebar.panellist')[0]?.options.id).toBe('muse-market')
   expect(resolveSlotLabel(slots.entries('sidebar.panellist')[0]?.options.label)).toBe('Bot 与 Skills 市场')
   const shortcut = slots.entries('settings.section')[0]!
