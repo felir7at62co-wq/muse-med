@@ -28,6 +28,7 @@ export type MarketSectionProps = PropsLocale<'settings.museMarket'> & InjectFace
   initialView?: 'discover' | 'publish'
   /** Shell-owned feedback survives navigation away from this page. */
   reportOutcome: (key: MarketLocaleKey, failed: boolean) => void
+  onRunBot?: (id: MarketInstallation['release']['id']) => Promise<void>
   /** Display-only data keyed by immutable release ID; supplied separately from package manifests. */
   presentations?: Readonly<Record<string, MarketPresentation>>
   /** Separate media adapter; omitted until the generation service is connected. */
@@ -39,7 +40,7 @@ export type MarketSectionProps = PropsLocale<'settings.museMarket'> & InjectFace
  * @returns Market page content.
  */
 export function MarketSection(props: MarketSectionProps): ReactNode {
-  const { t, actions, presentations, characterGeneration, reportOutcome } = props
+  const { t, actions, presentations, characterGeneration, reportOutcome, onRunBot } = props
   const hostActions = props.mode === 'web' ? undefined : props.actions
   const webActions = props.mode === 'web' ? props.actions : undefined
   const [signedIn, setSignedIn] = useState<boolean>()
@@ -267,6 +268,8 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
           <Button variant="outline" onClick={() => { setDetail(release) }}>{t('details')}</Button>
           {webActions ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(current => downloadRelease(release, current), 'archiveDownloaded')}>{t('browserDownload')}</Button> : hostActions && (!local ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(async (current) => { const item = await hostActions.install(release.id); if (current()) acceptInstallation(item) })}>{t('download')}</Button> : <>
             <span>{t(local.enabled ? 'enabled' : 'disabled')}</span><Button variant={local.enabled ? 'outline' : 'primary'} disabled={busy} onClick={() => void run(async (current) => { const item = await hostActions.enable(local.release.id, !local.enabled); if (current()) acceptInstallation(item) })}>{t(local.enabled ? 'disable' : 'enable')}</Button>
+            {local.enabled && local.release.manifest.kind === 'bot' && onRunBot && tab !== 'publish' && <Button variant="primary"
+              disabled={busy} onClick={() => void run(() => onRunBot(local.release.id), 'botTaskCreated')}>{t('runBot')}</Button>}
             <Button disabled={busy} onClick={() => void run(() => exportFile(local, hostActions))}>{t('export')}</Button>
             {!local.enabled && <Button disabled={busy} onClick={() => void run(async (current) => { await hostActions.remove(local.release.id); if (current()) setInstalled(previous => previous.filter(row => row.release.id !== local.release.id)) })}>{t('remove')}</Button>}
             {tab === 'publish' && <Button disabled={busy || !publisher} onClick={() => void run(current => upload(local, current, hostActions), 'draft')}>{t('upload')}</Button>}

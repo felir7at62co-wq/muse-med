@@ -1,10 +1,13 @@
 /** Generated Remote mounting and main-area registration for the Muse market. */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import marketRemote from '@deepseek-ai/dsh-muse-market/remote'
 import type MuseMarket from '@deepseek-ai/dsh-muse-market'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
+import type { MarketSectionProps } from './MarketSection.tsx'
 import { createMarketFeedback, MarketFeedbackOverlay } from './market-feedback.tsx'
 import { marketZh, marketEn, type MarketLocaleKey } from './market-locales.ts'
 
@@ -49,7 +52,16 @@ export async function mountMuseMarket(ctx: Context): Promise<() => Promise<void>
     const panelId = 'muse-market' as MainPanelId
     const onOpen = (): void => { context.layout.selectPanel(panelId) }
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: panelId, locale: 'settings.museMarket',
-      inject: () => ({ actions, reportOutcome: feedback.report }) }, MarketPage))
+      inject: () => {
+        const sessions = context.get('sessions')
+        const workspace = context.get('uiWorkspace')
+        const onRunBot: MarketSectionProps['onRunBot'] = sessions && workspace ? async (id) => {
+          const navigation = context.layout.beginNavigation()
+          const sessionId = await sessions.create({ agentPreset: `market-${id}` })
+          if (!navigation.aborted) workspace.openSession(sessionId)
+        } : undefined
+        return { actions, reportOutcome: feedback.report, ...(onRunBot ? { onRunBot } : {}) }
+      } }, MarketPage))
     context.slots.inject('sidebar.panellist', () => context.slots.register({ name: 'sidebar.panellist', id: panelId,
       order: 20, locale: 'settings.museMarket', label: () => t('nav') }, MarketPanelIcon))
     context.slots.inject('settings.section', () => context.slots.register({ name: 'settings.section', id: 'muse-market', order: 13,

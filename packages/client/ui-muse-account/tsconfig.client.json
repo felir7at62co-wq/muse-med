@@ -16,6 +16,9 @@
       "path": "../../api/remotes/tsconfig.client.json"
     },
     {
+      "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
       "path": "../../client/locale/tsconfig.client.json"
     },
     {
@@ -44,6 +47,9 @@
     },
     {
       "path": "../ui-sidebar"
+    },
+    {
+      "path": "../ui-workspace"
     },
     {
       "path": "../../host/muse-market"

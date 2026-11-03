@@ -873,7 +873,8 @@ describe('create', () => {
   it('publishes a created identity without implicitly retaining its binding', async ({ bench }) => {
     const b = bench()
     b.mock.remote.session.create.mockResolvedValue(ok({ sessionId: sid('born') }))
-    const born = await b.svc.create({ workspaceId: 'ws' as never })
+    const born = await b.svc.create({ workspaceId: 'ws' as never, agentPreset: 'review' })
+    expect(b.mock.remote.session.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'ws', agentPreset: 'review' })
     // Synchronously after resolution — the draft hand-off contract: the
     // create echo IS the entity entering the client's view (blank row +
     // catalog publication), no notifier flush in between.

@@ -57,6 +57,26 @@ it('recognizes a ZIP import by digest and enables its local identity from the cl
   expect(h.actions.enable).toHaveBeenCalledWith(localId, true)
 })
 
+it('starts only an enabled Bot and passes the installed ID', async () => {
+  const h = harness()
+  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
+  const localId = bot.sha256 as MarketRelease['id']
+  const installation = { release: { ...bot, id: localId }, enabled: false }
+  h.actions.catalog.mockResolvedValue([bot, release])
+  h.actions.installed.mockResolvedValue([installation, { release, enabled: true }])
+  h.actions.enable.mockResolvedValueOnce({ ...installation, enabled: true })
+  const onRunBot = vi.fn(async () => {})
+  render(<MarketSection {...h.props} onRunBot={onRunBot} />)
+  const enable = await screen.findByRole('button', { name: 'enable' })
+  expect(screen.queryByRole('button', { name: 'runBot' })).toBeNull()
+  await waitFor(() => { expect(enable.hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(enable)
+  const start = await screen.findByRole('button', { name: 'runBot' })
+  await waitFor(() => { expect(start.hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(start)
+  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(localId)
+})
+
 it('does not upload when entering the creator form and renders bounded failures', async () => {
   const h = harness(); h.actions.identity.mockRejectedValue(Error('secret response with cookie'))
   render(<MarketSection {...h.props} />)

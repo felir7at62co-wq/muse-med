@@ -27,6 +27,8 @@ This client plugin adds a Muse account entry to the Desktop sidebar and Settings
 
 The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions.
 
+Run Bot opens a new task bound to the enabled Bot version on its card. It leaves the current task and the default Agent unchanged.
+
 The [standalone website](../../../apps/market-web/README.md) uses the same market page through an explicit browser adapter. It previews ZIP metadata locally, uploads only after confirmation and downloads a digest-verified archive. Browser downloads do not install or enable a capability. Private cloud cards use local sample artwork only for the two exact handoff archive digests; presentation remains outside release metadata. A local ZIP import can match a later cloud listing by archive digest while enablement keeps its existing local identifier.
 
 Creator center separates cloud releases from local packages. Preparing or exporting stays local; uploading creates a private cloud draft with a different identity, retaining the same upload request key for retries. Team membership and administrator status come from the server. Submission, approval, rejection with a required note and withdrawal use the displayed revision and show only server-confirmed states. Cloud conflicts refresh the list without automatically retrying a transition. These controls do not implement authorization in the browser.
