@@ -66,7 +66,8 @@ export function apply(ctx) {
       }))
     }
     for (const handle of handles) {
-    const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    const schemas = ctx.tools.schemas(handle.agent)
+    const names = new Set(schemas.map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
@@ -98,7 +99,8 @@ export function apply(ctx) {
         throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
-        if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
+        const tool = assembly.tools.find(tool => tool.name === name) ?? schemas.find(tool => tool.name === name)
+        if (tool?.description !== description) {
           throw new Error('desktop runtime: editing model tool description changed: ' + name)
         }
       }

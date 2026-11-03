@@ -578,6 +578,22 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('checks deferred editing descriptions in the authorized tool schemas', async () => {
+  const f = fixture()
+  const name = 'mcp__muse-account__muse_account_status'
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== name)
+    return result
+  })
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => schemas(key).map(tool => tool.name === name
+    ? { ...tool, description: editingModelInput.tools[name] } : tool))
+  await f.apply(f.ctx)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
