@@ -2082,3 +2082,73 @@ it('uses the current video when the original result URL is absent on a returned 
     estimated_cost_cny: '1.00', estimate_basis: 'Offline source fixture' })
   expect(calls.at(-1)?.body).toMatchObject({ videoUrl: 'https://example.test/current.mp4' })
 })
+
+
+describe('storyboard creation material identity', () => {
+  it.each([
+    ['create', '林子明', 'hall'], ['create_batch', '林子明', 'hall'],
+    ['create', '周慧兰', 'rifle'], ['create_batch', '周慧兰', 'rifle'],
+    ['create', '新闻记者与摄像人员', 'truck'], ['create_batch', '新闻记者与摄像人员', 'truck'],
+  ] as const)('rejects unchecked %s references labelled %s before any creation request', async (method, name, image) => {
+    const { client, calls } = stubClient(() => 916953)
+    const material = { materialKey: 'asset_81285', assetId: 'unrelated-subject', materialAssetId: 83670,
+      assetName: name, fileName: name, materialType: 'image',
+      materialUrl: 'https://example.test/unrelated/' + image + '.jpg', sortOrder: 1 }
+    const body = { scriptId: 2708, episodeId: 1, storyboardName: 'identity-reproduction', sortOrder: 1,
+      modelConfig: JSON.stringify({ prompt: '@[' + name + '](asset_81285) 入画', materialList: [material] }),
+      storyboardMaterialList: [material] }
+    const args: MethodArgs = method === 'create'
+      ? { method, idempotency_key: 'unchecked-' + image, body }
+      : { method, script_id: 2708, storyboards: [{ idempotency_key: 'unchecked-batch-' + image, body }] }
+    await expect(storyboardMethod(client, ledger, args)).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+})
+
+
+it.each([
+  { storyboardMaterialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] },
+  { storyboardMaterialList: '[{"materialUrl":"https://example.test/wrong.jpg"}]' },
+  { modelConfig: { prompt: 'ready', materialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] } },
+  { modelConfig: JSON.stringify({ prompt: 'ready', materialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] }) },
+  { modelConfig: { prompt: 'ready', materialList: '[{"materialUrl":"https://example.test/wrong.jpg"}]' } },
+])('rejects unverified references supplied through a frozen body: %j', async (overrides) => {
+  const bodyPath = join(root, 'unverified-body.json')
+  await writeFile(bodyPath, JSON.stringify({ scriptId: 2708, ...overrides }))
+  const { client, calls } = stubClient(() => 1)
+  await expect(storyboardMethod(client, ledger, { method: 'create', body_path: bodyPath,
+    idempotency_key: 'unchecked-file' })).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+  expect(calls).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it('preflights every batch material list before creating the first card', async () => {
+  const { client, calls } = stubClient(() => 1)
+  const base = { scriptId: 2708, episodeId: 1, sortOrder: 0, modelConfig: { prompt: '@[林子明](lead)' } }
+  await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708, storyboards: [
+    { idempotency_key: 'good-before-bad', body: { ...base, storyboardName: 'P1' } },
+    { idempotency_key: 'bad-after-good', body: { ...base, storyboardName: 'P2',
+      storyboardMaterialList: [{ fileName: '林子明', materialUrl: 'https://example.test/hall.jpg' }] } },
+  ] })).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+  expect(calls).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([undefined, null, [], '[]', 'null'])('accepts empty creation references without losing the prompt: %j', async (materials) => {
+  const { client, calls } = stubClient(() => 916953)
+  const body = { scriptId: 2708, storyboardMaterialList: materials,
+    modelConfig: JSON.stringify({ prompt: '@[林子明](lead) 入画', materialList: materials }) }
+  await storyboardMethod(client, ledger, { method: 'create', body, idempotency_key: 'empty-bindings' })
+  expect(calls[0]?.body).toEqual({ ...body, isGenerate: 0 })
+})
+
+it.each([
+  { modelConfig: '{' }, { storyboardMaterialList: '{' }, { modelConfig: { materialList: '{' } },
+  { storyboardMaterialList: {} }, { modelConfig: { materialList: false } },
+])('refuses malformed creation reference fields before writing: %j', async (overrides) => {
+  const { client, calls } = stubClient(() => 1)
+  await expect(storyboardMethod(client, ledger, { method: 'create',
+    body: { scriptId: 2708, ...overrides }, idempotency_key: 'malformed-refs' })).rejects.toThrow()
+  expect(calls).toEqual([])
+})
