@@ -84,6 +84,8 @@
   name: '@deepseek-ai/dsh-tool-skill'
   config:
     scopedCatalogOwner: true
+    catalogSourceLimits:
+      muse-market: 3
 - id: drama-gate
   name: '@deepseek-ai/dsh-guard-drama'
 - id: character-reference

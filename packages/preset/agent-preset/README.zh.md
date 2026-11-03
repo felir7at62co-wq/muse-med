@@ -1,5 +1,5 @@
 ---
-description: "在普通 Cordis YAML 中定义 Agent 的子插件列表。可同时声明多个 preset，由会话选择。声明会提前加载，修改只影响之后创建的 Agent。"
+description: "在普通 Cordis YAML 中定义 Agent 的子插件列表。可同时声明多个 preset，由会话选择。声明默认提前加载，也可延后到首次绑定。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-在普通 Cordis YAML 中定义 Agent 的子插件列表。可同时声明多个 preset，由会话选择。声明会提前加载，修改只影响之后创建的 Agent。
+在普通 Cordis YAML 中定义 Agent 的子插件列表。可同时声明多个 preset，由会话选择。声明默认提前加载，也可延后到首次绑定；修改只影响之后创建的 Agent。
 
 ## 目录
 
@@ -44,6 +44,7 @@ kind: "package-reference"
 | `name` | 未设置 | 展示名称 |
 | `description` | 未设置 | 展示说明 |
 | `order` | 未设置 | 列表排序 |
+| `activation` | `eager` | `on-demand` 在首次绑定时加载插件，而非声明时加载 |
 
 声明行的 `id` 是 Loader 编辑地址；`config.id` 是会话保存的 preset 标识符。子插件可省略行 ID，由 Loader 分配。
 

@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "files": [
+    "src/main.tsx",
+    "src/api.ts",
+    "src/styles.d.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/client/ui-muse-account/tsconfig.client.json"
+    },
+    {
+      "path": "../../packages/client/ui-primitives"
+    },
+    {
+      "path": "../../packages/host/muse-market"
+    }
+  ]
+}

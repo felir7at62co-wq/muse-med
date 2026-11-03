@@ -20,6 +20,7 @@ import {
   type SkillInvocationSource,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
+import { invokedSkillNames, selectCatalogSkills } from './catalog-selection.ts'
 
 export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills']
@@ -38,6 +39,8 @@ export interface SkillCatalogSource {
   readonly form: 'catalog'
   /** Marks a replacement catalog rather than this session's first publication. */
   readonly update?: true
+  /** Source-specific exposure limits apply; unlisted skills may still be permitted. */
+  readonly bounded?: true
   /** Exactly the entries this message published, in catalog order. */
   readonly entries: readonly { readonly name: string; readonly description: string }[]
 }
@@ -65,12 +68,15 @@ export interface Config {
   catalogDescriptionMaxLength?: number
   /** Preserve this scoped loader's catalog through other Host loader listeners; defaults to false. */
   scopedCatalogOwner?: boolean
+  /** Maximum advertised summaries per provider source; omitted sources remain unbounded. Does not change invocation permissions. */
+  catalogSourceLimits?: Readonly<Record<string, number>>
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
   scopedCatalogOwner: z.boolean().default(false),
+  catalogSourceLimits: z.dict(z.natural().min(1)).default({}),
 })
 
 /**
@@ -82,13 +88,22 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   const scopedCatalogOwner = config.scopedCatalogOwner ?? false
+  const catalogSourceLimits = config.catalogSourceLimits ?? {}
+  const bounded = Object.keys(catalogSourceLimits).length > 0
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
+  for (const [source, limit] of Object.entries(catalogSourceLimits)) {
+    assertPositiveInteger(`catalogSourceLimits.${source}`, limit)
+  }
 
   const skillTool = defineTool({
     name: 'skill',
-    description: 'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
+    description: bounded
+      ? 'Load the full instructions for a permitted skill. Use an exact name from the selected summaries or supplied by the user before acting on the task.'
+      : 'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
     parameters: {
-      name: { type: 'string', required: true, description: 'The exact skill name from the available skills list.' },
+      name: { type: 'string', required: true, description: bounded
+        ? 'The exact skill name from a listed summary or supplied by the user.'
+        : 'The exact skill name from the available skills list.' },
     },
     output: {
       schema: {
@@ -172,8 +187,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     }, 'tool-skill.catalog-owner')
   }
 
-  // User-explicit skill invocation: a claimed user message whose first line
-  // starts with `/<name>` naming a user-invocable skill is a deterministic
+  // User-explicit skill invocation: a claimed user message containing a bounded
+  // `/<name>` gesture naming a user-invocable skill is a deterministic
   // load gesture. The rendered body enters this step as injected
   // instructions context appended after every other injection — background
   // first (workspace rules, runtime policy, the catalog), the material the
@@ -249,24 +264,26 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       return decision
     }
-    const skills = snapshot.skills.filter(isModelInvocable)
+    const skills = selectCatalogSkills(snapshot.skills.filter(isModelInvocable), decision.messages,
+      bounded && history.latestEntries === undefined ? agent.session.deriveMessages() : [], catalogSourceLimits,
+      history.latestEntries?.map(entry => entry.name))
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
-    const digest = digestCatalogEntries(entries)
+    const digest = digestCatalogEntries(entries, bounded)
     const existing = catalogMessage(decision.messages)
     if (history.visibleDigest === digest) {
       return existing === undefined
         ? decision
         : { ...decision, messages: decision.messages.filter(message => message.id !== existing.message.id) }
     }
-    if (existing !== undefined && digestCatalogEntries(existing.entries) === digest) return decision
+    if (existing !== undefined && digestCatalogEntries(existing.entries, existing.bounded) === digest) return decision
     if (!history.published && skills.length === 0) {
       return existing === undefined
         ? decision
         : { ...decision, messages: decision.messages.filter(message => message.id !== existing.message.id) }
     }
     const catalog = history.published
-      ? renderCatalogUpdate(entries)
-      : renderCatalogMessage(entries)
+      ? renderCatalogUpdate(entries, bounded)
+      : renderCatalogMessage(entries, bounded)
     return {
       ...decision,
       messages: existing === undefined
@@ -276,19 +293,22 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {
+function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded: boolean): UserMessage {
   return createUserMessage({
     content: [{
       type: 'text',
       text: [
         '<system-reminder>',
-        'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
+        bounded
+          ? 'A skill is a reusable set of task-specific instructions. The following is a selected set of skill summaries for this task, not the complete directory of permitted skills:'
+          : 'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
         '',
         '<available_skills>',
         ...renderCatalogEntries(entries),
         '</available_skills>',
         '',
         "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
+        ...(bounded ? ['Other permitted skills may be loaded by an exact name supplied by the user. Do not invent skill names; ask the user to choose another skill if these summaries do not match the task.'] : []),
         'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
         '</system-reminder>',
       ].join('\n'),
@@ -297,18 +317,21 @@ function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessa
       kind: 'skill-catalog',
       form: 'catalog',
       entries,
+      ...(bounded ? { bounded: true as const } : {}),
     },
   })
 }
 
-function renderCatalogUpdate(entries: SkillCatalogSource['entries']): UserMessage {
+function renderCatalogUpdate(entries: SkillCatalogSource['entries'], bounded: boolean): UserMessage {
   const availability = entries.length === 0
     ? [
       'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
       'A user may still invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool for it.',
     ]
     : [
-      'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
+      bounded
+        ? 'These are selected summaries, not all permitted skills. Use a listed skill when it matches the task; another permitted skill may be loaded by an exact name supplied by the user. Do not invent skill names.'
+        : 'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
       'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
     ]
   return createUserMessage({
@@ -316,7 +339,9 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries']): UserMessag
       type: 'text',
       text: [
         '<system-reminder>',
-        'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
+        bounded
+          ? 'The selected skill summaries changed. This selection replaces earlier recommended summaries; it is not the complete directory of permitted skills:'
+          : 'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
         '',
         '<available_skills>',
         ...renderCatalogEntries(entries),
@@ -331,6 +356,7 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries']): UserMessag
       form: 'catalog',
       update: true,
       entries,
+      ...(bounded ? { bounded: true as const } : {}),
     },
   })
 }
@@ -346,16 +372,16 @@ function renderCatalogEntries(entries: SkillCatalogSource['entries']): string[] 
 }
 
 /**
- * Catalog identity over the durable entry list rather than the rendered prose.
- * The entries are what changes; the surrounding `<system-reminder>` framing is
- * written for the model and must not decide whether a republish is needed.
+ * Catalog identity over the durable entry list and its bounded interpretation.
+ * Surrounding `<system-reminder>` prose does not decide whether a republish is
+ * needed; changing between complete and selected summaries does.
  */
-function digestCatalogEntries(entries: SkillCatalogSource['entries']): string {
+function digestCatalogEntries(entries: SkillCatalogSource['entries'], bounded = false): string {
   // JSON per entry rather than a separator character: every separator is itself
   // a legal description character, so only quoting makes the boundary exact.
   const canonical = entries.map(entry => JSON.stringify([entry.name, entry.description])).join('\n')
   return createHash('sha256')
-    .update(canonical)
+    .update(bounded ? `bounded\n${canonical}` : canonical)
     .digest('hex')
 }
 
@@ -371,6 +397,8 @@ function digestCatalogEntries(entries: SkillCatalogSource['entries']): string {
  * subsequent turn of that session.
  */
 function readCatalogEntries(source: unknown): SkillCatalogSource['entries'] | undefined {
+  const bounded = (source as { bounded?: unknown }).bounded
+  if (bounded !== undefined && bounded !== true) return undefined
   const entries = (source as { entries?: unknown }).entries
   if (!Array.isArray(entries)) return undefined
   const readable: { name: string; description: string }[] = []
@@ -383,9 +411,14 @@ function readCatalogEntries(source: unknown): SkillCatalogSource['entries'] | un
   return readable
 }
 
-function catalogHistory(agent: Agent): { visibleDigest?: string; published: boolean } {
+function catalogHistory(agent: Agent): {
+  visibleDigest?: string
+  published: boolean
+  latestEntries: SkillCatalogSource['entries'] | undefined
+} {
   const visible = new Set(agent.session.surface.nodes)
   let published = false
+  let latestEntries: SkillCatalogSource['entries'] | undefined
   for (let index = agent.session.seq - 1; index >= 0; index -= 1) {
     // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = agent.session.eventAt(SessionSeq(index))
@@ -395,20 +428,21 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
     if (event.type !== 'user/message' || event.data.source.kind !== 'skill-catalog') continue
     const entries = readCatalogEntries(event.data.source)
     if (entries === undefined) continue
-    const digest = digestCatalogEntries(entries)
+    latestEntries ??= entries
+    const digest = digestCatalogEntries(entries, event.data.source.bounded === true)
     published = true
-    if (visible.has(event.seq)) return { visibleDigest: digest, published }
+    if (visible.has(event.seq)) return { visibleDigest: digest, published, latestEntries }
   }
-  return { published }
+  return { published, latestEntries }
 }
 
 function catalogMessage(
   messages: readonly UserMessage[],
-): { message: UserMessage; entries: SkillCatalogSource['entries'] } | undefined {
+): { message: UserMessage; entries: SkillCatalogSource['entries']; bounded: boolean } | undefined {
   for (const message of messages) {
     if (message.source.kind !== 'skill-catalog') continue
     const entries = readCatalogEntries(message.source)
-    if (entries !== undefined) return { message, entries }
+    if (entries !== undefined) return { message, entries, bounded: message.source.bounded === true }
   }
   return undefined
 }
@@ -422,35 +456,4 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`tool-skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
-}
-
-/**
- * A whitespace-bounded `/name` token (the public skill-name grammar) anywhere
- * in the text — the same word-boundary shape the transcript chip decoration
- * uses, so a gesture reads as one wherever it sits in the sentence. A second
- * `/` or any non-boundary character breaks the match, which keeps file paths
- * (`/usr/bin`) and fractions (`5/8`) out.
- */
-const SKILL_GESTURE = /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g
-
-/**
- * `/name` gesture tokens from the claimed user messages, deduplicated in
- * first-seen order. Every text block of direct user input is scanned; no
- * other source can forge a gesture.
- * @param messages - the step's claimed batch.
- * @returns candidate skill names, unvalidated against the registry.
- */
-function invokedSkillNames(messages: readonly UserMessage[]): string[] {
-  const names: string[] = []
-  for (const message of messages) {
-    if ((message.source as { kind?: unknown }).kind !== 'user') continue
-    for (const block of message.content) {
-      if (block.type !== 'text') continue
-      for (const match of block.text.matchAll(SKILL_GESTURE)) {
-        const name = match[2]
-        if (name !== undefined && !names.includes(name)) names.push(name)
-      }
-    }
-  }
-  return names
 }

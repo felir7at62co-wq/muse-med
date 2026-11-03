@@ -54,6 +54,7 @@
     "@deepseek-ai/dsh-launch-environment": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-muse-market": "workspace:*",
     "@deepseek-ai/dsh-perception-bgm": "workspace:*",
     "@deepseek-ai/dsh-schedule": "workspace:*",
     "@deepseek-ai/dsh-screenplay-project": "workspace:*",

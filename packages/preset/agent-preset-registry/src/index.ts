@@ -40,7 +40,7 @@ interface Generation {
 interface Definition {
   config: PresetDefinition
   context: Context
-  ready: Promise<void>
+  ready: Promise<void> | undefined
   generation?: Generation
   /** Mount failure; unset while a tree is mounted, whose rows {@link AgentPresetRegistry.diagnostic} re-audits on read. */
   broken?: string
@@ -87,29 +87,31 @@ export class AgentPresetRegistry extends TypertRemoteService {
     return this.config.selectablePresets === undefined || this.config.selectablePresets.includes(id)
   }
 
-  /** Register and eagerly load a definition; activation failure remains visible in the roster.
+  /** Register a definition and load it immediately unless it requests on-demand activation.
    * @param definition Parsed configuration supplied by the declaring plugin.
-   * @returns Definition disposer after activation or its diagnostic settles; the declaring plugin owns it.
+   * @returns Definition disposer after eager activation settles, or immediately for an on-demand definition.
    */
   async register(definition: PresetDefinition): Promise<() => Promise<void>> {
     const context = this.ctx
     if (!definition.id.trim()) throw new Error('Preset id must not be empty')
     if (this.definitions.has(definition.id)) throw new Error(`Duplicate agent preset: ${definition.id}`)
-    const record: Definition = { config: definition, context, ready: Promise.resolve() }
+    const record: Definition = { config: definition, context, ready: undefined }
     this.definitions.set(definition.id, record)
     let disposed = false
     const unregister = async (): Promise<void> => {
       if (disposed) return
       disposed = true
       this.definitions.delete(definition.id)
-      await record.ready
+      if (record.ready !== undefined) await record.ready
       if (record.generation !== undefined) {
         record.generation.retired = true
         await this.collect(record.generation)
       }
     }
-    record.ready = this.activate(record)
-    await record.ready
+    if (definition.activation !== 'on-demand') {
+      record.ready = this.activate(record)
+      await record.ready
+    }
     return unregister
   }
 
@@ -137,7 +139,8 @@ export class AgentPresetRegistry extends TypertRemoteService {
   /**
    * Current activation diagnostic of a definition.
    *
-   * A mount failure is final. A mounted tree is re-audited on every read: a
+   * An unactivated on-demand definition has no diagnostic. A mount failure is
+   * final. A mounted tree is re-audited on every read: a
    * row waiting for a Host service activates by itself once that provider
    * finishes, so the audit waits for the Host Loader tree to settle before
    * reporting the row as unusable. Callers therefore must not run inside a
@@ -279,6 +282,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
       const record = this.definitions.get(wanted)
       if (record === undefined) throw new RemoteError('agent-preset/not-found', `Unknown agent preset: ${wanted}`,
         { agentPreset: wanted, available: [...this.definitions.keys()] })
+      if (record.ready === undefined) record.ready = Promise.resolve().then(() => this.activate(record))
       const broken = await this.diagnostic(record)
       if (this.definitions.get(wanted) !== record) continue
       const generation = record.generation

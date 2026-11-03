@@ -51,6 +51,11 @@
   config:
     includeDefaultRoots: false
 
+- id: tool-skill
+  config:
+    catalogSourceLimits:
+      muse-market: 3
+
 # These optional settings providers are not part of the Muse product.
 - id: agent-notes
   disabled: true
@@ -177,3 +182,11 @@
       name: '@deepseek-ai/dsh-client-ui-muse-account'
       config:
         feedbackUrl: !!js new URL('/feedback', process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn').href
+
+    - id: muse-market
+      name: '@deepseek-ai/dsh-muse-market'
+      config:
+        baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+        allowedPlugins:
+          - '@deepseek-ai/dsh-persona'
+          - '@deepseek-ai/dsh-tool-skill'

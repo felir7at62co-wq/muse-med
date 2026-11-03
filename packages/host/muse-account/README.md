@@ -107,6 +107,8 @@ The authenticated `museAccount` Remote namespace carries [Settings UI](../../cli
 
 Account gateway requests resolve the current global fetch when no transport is injected; an explicitly injected transport remains fixed for the client lifetime.
 
+The `./session` export gives trusted Host integrations origin-bound session reads, serialized writes and revision-checked removal. It is not a Remote or model tool; callers must keep the returned cookie out of UI responses and Session events. The [market Host](../muse-market/README.md) uses this export for authenticated publication requests.
+
 Verified account status exposes administrator navigation only when the current gateway returns strict `admin: true` and the exact `/admin` path. The Host converts that path to its configured origin; it discards other administrator destinations. Locally cached status never reports administrator navigation, and login persistence stores only username, environment and workspace label beside the existing session fields.
 
 The authenticated `museAccount.feedback` Remote receives Typert-validated identifiers and ratings, verifies the live feedback target, captures the origin-bound account revision, and rechecks it after preparing the text. It sends one same-origin JSON POST to `/api/muse.feedback` with the captured cookie and Origin header, without following redirects or retrying unknown writes. A receipt must match the username and exact submitted title, body, and category. Switching accounts during submission reports an account-change result; check the original account inbox. Muse Desktop disables the upstream Session-log delivery plugin. The typed Host `/feedback <text>` command retains its local recording behavior.

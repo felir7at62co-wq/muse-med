@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description.
+Agents can discover and load skills during a session. A durable catalog advertises names and capped descriptions before the first request when model-invocable skills exist and the `skill` tool is visible. The catalog is complete by default; optional source limits select summaries without restricting invocation permissions. Users can invoke user-invocable skills with `/name`, which injects full instructions into that step. Changed entries or exposure mode append a replacement catalog; an empty catalog retires old names.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Use it when agents should discover and load skills during a session. Skip it whe
 
 ### Mount and configure
 
-Load the plugin together with the skill registry and at least one provider. Configure the catalog description length and scoped-loader catalog ownership below.
+Load the plugin together with the skill registry and at least one provider. Configure the catalog description length, optional source limits, and scoped-loader catalog ownership below.
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -45,15 +45,18 @@ Load the plugin together with the skill registry and at least one provider. Conf
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
 | `scopedCatalogOwner` | `false` | Let this scoped loader own its catalog across other tool-skill instances and recheck its visibility after discovery |
+| `catalogSourceLimits` | `{}` | Optional positive integer limits on advertised summaries per exact skill source; omitted sources remain unbounded |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
+Source limits are opt-in. The [Muse Desktop composition](../../../apps/desktop-host/config/desktop.cordis.patch.yml) sets `catalogSourceLimits: { muse-market: 3 }`, so it advertises at most three market summaries while preserving every eligible summary from other sources. This limits model-facing catalog exposure, not permission: the tool can still load an unlisted model-invocable skill by its exact name. The human-facing [`skills/list` catalog](../../api/session-controller/README.md) remains complete for the session's user-invocable skills and does not apply these limits. Zero, negative, and fractional limits fail configuration validation.
+
 ### What the model gets
 
-- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped description; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
+- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing selected skill names and capped descriptions; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone. Without source limits, every eligible summary is selected.
 - **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
 - **Explicit user invocation.** While this exact `skill` tool is visible, a `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
-- **Live catalog updates.** Later membership, description, or visibility changes append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
+- **Live catalog updates.** Later membership, description, visibility, task selection, or exposure-mode changes append a replacement catalog; removing every skill appends an empty catalog that retires older names. Bounded catalogs identify their entries as selected summaries, not the complete permission list.
 
 ### Observable success and failures
 
@@ -71,21 +74,30 @@ This section explains how the catalog and the invocation boundary are built; the
 
 ### Design concept
 
-The package is built on two ideas. First, the catalog is a durable projection, diffed by a digest over the published entries rather than the rendered prose, so the `<system-reminder>` framing can never force a republish and consumers never re-parse the `<available_skills>` block. Second, one canonical rendering serves both load paths — the tool result and the user-explicit injection — through `renderSkillContent` shared from `dsh-skill`, so the model sees the same `<skill_content>` shape regardless of who initiated the load.
+The catalog is a durable projection whose digest covers the published entries and bounded exposure mode, not the rendered prose. Consumers read its recorded entries instead of parsing `<available_skills>`. One canonical rendering serves both the tool result and user-explicit injection through `renderSkillContent` shared from `dsh-skill`, so both load paths produce the same `<skill_content>` instructions.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: tool registration, catalog and gesture pre-step listeners, rendering and digest |
+| [`src/catalog-selection.ts`](src/catalog-selection.ts) | Source-bounded summary selection and the shared explicit-gesture parser |
 
 ### Catalog lifecycle
 
-At each eligible `agent/pre-step`, the plugin snapshots the calling session's skill catalog, applies exact `skill` tool visibility, filters to model-invocable skills, and compares a digest of the entries against the newest visible `skill-catalog` message in the session log. When the digest changed, it hands the `enter` decision a durable user-role message containing the complete replacement catalog; an empty replacement explicitly retires earlier names. An incomplete provider snapshot retains an existing visible last-good catalog. Without one, preparation fails explicitly before dispatching a model request; the next user retry attempts discovery again. The visibility check compares against the exact tool definition this plugin registered, so an unrelated scoped same-name shadow removes both the schema and its guidance. A visible active loader with `scopedCatalogOwner: true` owns the catalog for its skill registry and rechecks visibility after discovery; other instances leave that catalog intact. Without this opt-in, an ancestor treats a nested loader as a same-name shadow. The plugin works mounted globally or inside one agent's composition.
+At each eligible `agent/pre-step`, the plugin snapshots the calling session's skills, checks exact `skill` tool visibility, filters to model-invocable skills, and applies configured source limits. It compares the entries and exposure mode against the newest visible `skill-catalog` message in the session log. A changed digest contributes a durable replacement to the `enter` decision; an empty replacement explicitly retires earlier names. An incomplete provider snapshot retains an existing visible last-good catalog. Without one, preparation fails before dispatching a model request; the next user retry attempts discovery again.
+
+The visibility check compares the exact registered tool definition, so an unrelated scoped same-name shadow removes both the schema and its guidance. A visible active loader with `scopedCatalogOwner: true` owns its registry's catalog and rechecks visibility after discovery; other instances leave that catalog intact. Without this opt-in, an ancestor treats a nested loader as a same-name shadow. The plugin works globally or inside one agent's composition.
+
+When source limits are configured, the durable source carries optional `bounded: true`, even when every summary fits. Its absence identifies a complete catalog and preserves compatibility with earlier records. Other persisted values are not accepted as a usable catalog. Switching bounded mode republishes the catalog even when the entries are unchanged; the [persistence acknowledgement](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.md) records the optional-field compatibility.
+
+### Summary selection
+
+Each limited source is selected independently. The latest accepted direct user message supplies lexical intent. Explicit `/name` gestures in that message take priority, then deterministic matches against names and descriptions choose the remaining summaries. A tool-only continuation retains still-eligible names from the most recent durable catalog and fills vacated slots in registry order, even if compaction hides the original user message. Without a prior catalog, visible direct user history supplies the fallback. Matching normalizes case and character width and includes adjacent Han character pairs; ties and the final catalog preserve registry order. Host injections and assistant text never supply ranking intent. Selection does not load bodies, perform semantic search, or use process-local state, so restoring the same history and registry produces the same selection.
 
 ### Invocation boundary
 
-The `/name` gesture listener scans only claimed user messages while this plugin's exact `skill` definition is visible: a whitespace-bounded token naming a user-invocable skill in the workspace catalog injects the same `<skill_content>` rendering as a `user`-role instructions context appended after every other injection. It rechecks tool visibility after loading, so a hidden or shadowed consumer cannot inject stale instructions. Unknown names and user-disabled skills stay ordinary prose. This is the only entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose.
+The `/name` gesture listener scans every claimed direct user message while this plugin's exact `skill` definition is visible: a whitespace-bounded token naming a user-invocable skill in the workspace catalog injects the same `<skill_content>` rendering as a `user`-role instructions context appended after every other injection. Source limits do not cap the number of explicitly invoked bodies. The listener rechecks tool visibility after loading, so a hidden or shadowed consumer cannot inject stale instructions. Unknown names and user-disabled skills stay ordinary prose. This is the only entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose.
 
 </details>
 
@@ -99,6 +111,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Skill subsystem reference](../../../docs/subsystems/skills.md) — the registry and provider vocabulary behind the catalog.
 - [skill package](../skill/README.md) — the registry and the shared `renderSkillContent` rendering.
 - [Generated tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill) — the exact `skill` schema the model receives.
+- [Bounded catalog persistence acknowledgement](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.md) — optional exposure-mode metadata and earlier-record compatibility.
 - [User-explicit skill invocation Agent Note](../../../.agents/notes/archived/feature/2026-08-08-user-explicit-skill-invocation.md) — the `/name` gesture design.
 
 -----
@@ -110,7 +123,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names. The template's closing sentence is the rule against double-loading: the user-explicit gesture boundary (the pre-step listener below) injects the same `renderSkillContent` output (shared from `@deepseek-ai/dsh-skill`) inline, and the catalog tells the model to follow that block instead of re-loading the skill through the tool; the replacement-catalog template carries the same anti-double-loading rule in both arms, including the emptied catalog.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives a durable user-role catalog before the first request. The default template below includes every eligible summary. Configured source limits use the bounded templates instead, with one data-dependent line per selected summary. Changes append replacements; an empty replacement explicitly retires older names. Every template tells the model to follow a user-invoked `<skill_content>` block instead of loading that skill again.
 
 ##### Skill catalog template
 
@@ -127,19 +140,64 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 </system-reminder>
 ```
 
+##### Bounded initial catalog template
+
+```markdown
+<system-reminder>
+A skill is a reusable set of task-specific instructions. The following is a selected set of skill summaries for this task, not the complete directory of permitted skills:
+
+<available_skills>
+- `<name>`: <normalized-and-capped-description>
+</available_skills>
+
+If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+Other permitted skills may be loaded by an exact name supplied by the user. Do not invent skill names; ask the user to choose another skill if these summaries do not match the task.
+A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.
+</system-reminder>
+```
+
+##### Bounded replacement catalog template
+
+```markdown
+<system-reminder>
+The selected skill summaries changed. This selection replaces earlier recommended summaries; it is not the complete directory of permitted skills:
+
+<available_skills>
+- `<name>`: <normalized-and-capped-description>
+</available_skills>
+
+These are selected summaries, not all permitted skills. Use a listed skill when it matches the task; another permitted skill may be loaded by an exact name supplied by the user. Do not invent skill names.
+A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.
+</system-reminder>
+```
+
+##### Empty bounded replacement catalog template
+
+```markdown
+<system-reminder>
+The selected skill summaries changed. This selection replaces earlier recommended summaries; it is not the complete directory of permitted skills:
+
+<available_skills>
+</available_skills>
+
+No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.
+A user may still invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool for it.
+</system-reminder>
+```
+
 #### Token effect
 
-Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when the list is empty or the tool is hidden or shadowed. Each actual catalog change adds one retained complete replacement message.
+Repeated input cost scales with the advertised summary count and `catalogDescriptionMaxLength`; source limits cap only their own summaries, not other sources or loaded bodies. No initial catalog tokens are sent when the list is empty or the tool is hidden or shadowed. Each changed selection or exposure mode adds one retained replacement message.
 
 #### KV Cache effect
 
-The initial durable catalog is appended after the existing reusable prefix. Dynamic changes are append-only history after that catalog, so earlier reusable tokens stay intact while each newly appended catalog and later turns form a new suffix. A new or resumed instance with a changed digest may affect cache reuse from the newly appended catalog position.
+The initial durable catalog follows the existing reusable prefix. Changed entries or bounded mode append history, preserving earlier reusable tokens and forming a new suffix. Unchanged tool continuations and restored histories do not republish the same catalog. A changed digest may affect cache reuse from the newly appended catalog position.
 
 ### Tool schema
 
 #### What the model sees
 
-The model sees the generated [`skill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill).
+The model sees the generated [`skill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill) by default. Bounded mode changes the tool description to `Load the full instructions for a permitted skill. Use an exact name from the selected summaries or supplied by the user before acting on the task.` and the `name` parameter description to `The exact skill name from a listed summary or supplied by the user.` The accepted parameters and invocation permissions stay unchanged.
 
 #### Token effect
 
@@ -227,7 +285,7 @@ A whitespace-bounded `/name` token anywhere in a claimed user message, naming a 
 
 #### Token effect
 
-Each gesture adds one rendered skill body to that turn as injected context — the same size as the tool result for the same skill, paid deterministically at the user's request instead of at the model's discretion. Repeated gestures for one skill within one step inject once.
+Each gesture adds one rendered skill body to that turn as injected context — the same size as the tool result for the same skill, paid deterministically at the user's request instead of at the model's discretion. Repeated gestures for one skill within one step inject once. Catalog source limits do not limit these bodies.
 
 #### KV Cache effect
 
@@ -241,10 +299,11 @@ Append-only; the injection lands after the reusable request prefix inside the st
 These limits define when the catalog or the loader is a poor fit. They are current package constraints, not a task backlog.
 
 - **The catalog omits `whenToUse`, source, and provider metadata** — routing is based only on name and a capped description; `whenToUse` remains provider metadata and is not rendered by the loaded wrapper either.
+- **Bounded selection is lexical, not semantic retrieval** — synonyms or indirect task descriptions can omit a relevant summary. The tool has no directory-search operation; a user can choose a skill from the complete human-facing catalog or supply its exact name. Exposure limits are not invocation authorization.
 - **Loaded instruction bodies have no size cap** — a provider can return a skill large enough to consume substantial next-step context; only catalog descriptions are truncated.
 - **Resources are guidance, not attachments** — the tool reports a base directory/URL/opaque hint but neither enumerates nor fetches referenced files for the model.
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
-- **Catalog replacement is whole-list** — one changed name or description appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
+- **Catalog replacement is whole-list** — a changed selection, description, or bounded mode appends every currently advertised summary; token cost remains proportional to that catalog.
 - **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.
 
 <a id="dev-note"></a>

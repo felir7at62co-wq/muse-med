@@ -165,6 +165,13 @@ body[data-ds-dark-theme] {
 
 body {
   --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
+  --dsw-alias-market-accent-fill: #7441dc;
+  --dsw-alias-market-accent-hover: #6030c2;
+  --dsw-alias-market-accent-label: #6931cb;
+  --dsw-alias-market-on-accent: #ffffff;
+  --dsw-alias-market-surface: #f7f3ff;
+  --dsw-alias-market-surface-hover: #eee6ff;
+  --dsw-alias-market-border: #d9cbef;
   --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-100);
   --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);
   --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-700);
@@ -283,6 +290,13 @@ body {
 
 body[data-ds-dark-theme] {
   --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);
+  --dsw-alias-market-accent-fill: #7441dc;
+  --dsw-alias-market-accent-hover: #8654eb;
+  --dsw-alias-market-accent-label: #ccb5ff;
+  --dsw-alias-market-on-accent: #ffffff;
+  --dsw-alias-market-surface: #25212f;
+  --dsw-alias-market-surface-hover: #332942;
+  --dsw-alias-market-border: #70558e;
   --dsw-alias-bg-document-preview: var(--dsw-static-neutral-bluish-950);
   --dsw-alias-bg-document-selection: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);
   --dsw-alias-label-document-preview: var(--dsw-static-neutral-bluish-300);

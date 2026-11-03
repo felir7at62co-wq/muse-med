@@ -1,0 +1,91 @@
+{
+  "fixtureOnly": true,
+  "note": "这些是本地模拟记录；日期固定以便重现。ZIP 未上传、未审核，不是线上发行。实际导入以 Host 返回值为准。",
+  "installations": [
+    {
+      "release": {
+        "id": "f10f9df6c7b45d6950ee52aa5375416cec6eb020af8df84d646ab5f00af054fc",
+        "publisherId": "0000000000000000",
+        "publisher": "Local",
+        "manifest": {
+          "formatVersion": 1,
+          "kind": "bot",
+          "name": "storyboard-director",
+          "title": "分镜导演（本地样例）",
+          "description": "仅供联调的分镜审阅 Bot，未上传或公开发布。",
+          "version": "1.0.0",
+          "license": "MIT",
+          "category": "script",
+          "examples": [
+            "Review a supplied storyboard."
+          ],
+          "requirements": [],
+          "skills": [
+            {
+              "name": "storyboard-review",
+              "path": "skills/storyboard-review/SKILL.md"
+            }
+          ],
+          "plugins": [
+            {
+              "name": "@deepseek-ai/dsh-persona",
+              "config": {
+                "prefix": "Help review the supplied fictional storyboard. Ask for missing inputs; do not invent production results."
+              }
+            },
+            {
+              "name": "@deepseek-ai/dsh-tool-skill",
+              "config": {
+                "scopedCatalogOwner": true,
+                "catalogSourceLimits": {
+                  "muse-market": 3
+                }
+              }
+            }
+          ]
+        },
+        "sha256": "f10f9df6c7b45d6950ee52aa5375416cec6eb020af8df84d646ab5f00af054fc",
+        "bytes": 937,
+        "status": "draft",
+        "reviewNote": "",
+        "revision": 1,
+        "createdAt": "2026-11-02T00:00:00.000Z"
+      },
+      "enabled": false
+    },
+    {
+      "release": {
+        "id": "6a046668b9c690d85f4802cef398d8148ed9231e37acf29d82ce0d79e93b51c8",
+        "publisherId": "0000000000000000",
+        "publisher": "Local",
+        "manifest": {
+          "formatVersion": 1,
+          "kind": "skill",
+          "name": "storyboard-starter",
+          "title": "分镜审阅技能（本地样例）",
+          "description": "仅供导入、启用与调用联调，未上传或公开发布。",
+          "version": "1.0.0",
+          "license": "MIT",
+          "category": "script",
+          "examples": [
+            "Review a supplied storyboard."
+          ],
+          "requirements": [],
+          "skills": [
+            {
+              "name": "storyboard-starter",
+              "path": "skills/storyboard-starter/SKILL.md"
+            }
+          ]
+        },
+        "sha256": "6a046668b9c690d85f4802cef398d8148ed9231e37acf29d82ce0d79e93b51c8",
+        "bytes": 1132,
+        "status": "draft",
+        "reviewNote": "",
+        "revision": 1,
+        "createdAt": "2026-11-02T00:00:00.000Z"
+      },
+      "enabled": false
+    }
+  ]
+}

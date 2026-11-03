@@ -45,6 +45,24 @@ describe('declarative preset revisions', () => {
       selectablePresets: ['creation'] })).toThrow('default agent preset must be selectable')
   })
 
+  it('lists on-demand presets without activating plugins and shares their first activation', async () => {
+    const ctx = await setup()
+    const declaration = await declare(ctx, { ...contribution('deferred'), activation: 'on-demand' })
+    expect(await ctx.agentPresets.list()).toEqual([{ id: 'deferred' }])
+    await ctx.agentPresets.readDocument('deferred')
+    expect(await ctx.agentPresets.resolve('deferred')).toEqual({ id: 'deferred' })
+    expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+    const [first, second] = await Promise.all([
+      agentOn(ctx, 'first-deferred', 'deferred'), agentOn(ctx, 'second-deferred', 'deferred'),
+    ])
+    expect(ctx.agentPresets.inspectCompositions()).toHaveLength(1)
+    expect(ctx.tools.schemas(first).map(row => row.name)).toEqual(['deferred'])
+    expect(ctx.tools.schemas(second).map(row => row.name)).toEqual(['deferred'])
+    await declaration.dispose()
+    expect(await ctx.agentPresets.list()).toEqual([])
+    expect(ctx.agentPresets.inspectCompositions()).toHaveLength(1)
+  })
+
   it('eagerly scopes tool and prompt registrations and shares one revision across Agents', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))
@@ -175,6 +193,32 @@ describe('declarative preset revisions', () => {
     })
     await expect(ctx.agentPresets.readDocument('absent')).rejects.toThrow('Unknown agent preset: absent')
   })
+})
+
+it('activates an on-demand cold read once and releases its retired effects', async () => {
+  const ctx = await setup()
+  const declaration = await declare(ctx, { ...contribution('cold-read'), activation: 'on-demand' })
+  const lease = await ctx.agentPresets.acquireScope('cold-read')
+  expect(ctx.agentPresets.inspectCompositions()).toHaveLength(1)
+  await declaration.dispose()
+  expect(ctx.agentPresets.inspectCompositions()).toHaveLength(1)
+  await lease[Symbol.asyncDispose]()
+  expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+})
+
+it('reports an on-demand activation failure only when a binding starts it', async () => {
+  const ctx = await setup()
+  const unused = await declare(ctx, { id: 'unused', activation: 'on-demand', plugins: [{ name: 'missing-unused-plugin' }] })
+  await unused.dispose()
+  expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+  await declare(ctx, { id: 'broken-deferred', activation: 'on-demand', plugins: [{ name: 'missing-deferred-plugin' }] })
+  expect(await ctx.agentPresets.resolve('broken-deferred')).toEqual({ id: 'broken-deferred' })
+  expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+  const scope = createScope(ctx, {})
+  await expect(ctx.agentPresets.mount(scope.ctx, 'broken-deferred')).rejects.toThrow()
+  expect((await ctx.agentPresets.list())[0]?.broken).toBeTypeOf('string')
+  expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+  await scope.dispose()
 })
 
 it('retains a retired revision for an in-flight cold read', async () => {

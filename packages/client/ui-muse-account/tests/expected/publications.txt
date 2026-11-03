@@ -1,0 +1,86 @@
+[
+  [
+    {
+      "status": "私有草稿",
+      "actions": [
+        "查看详情",
+        "下载到本机",
+        "提交审核"
+      ]
+    },
+    {
+      "status": "待审核",
+      "actions": [
+        "查看详情",
+        "下载到本机",
+        "审核通过",
+        "退回修改"
+      ]
+    },
+    {
+      "status": "已公开发布",
+      "actions": [
+        "查看详情",
+        "下载到本机",
+        "下架发行"
+      ]
+    },
+    {
+      "status": "已退回",
+      "actions": [
+        "查看详情",
+        "下载到本机",
+        "提交审核"
+      ]
+    },
+    {
+      "status": "已下架",
+      "actions": [
+        "查看详情",
+        "下载到本机"
+      ]
+    }
+  ],
+  [
+    {
+      "status": "Private draft",
+      "actions": [
+        "View details",
+        "Download locally",
+        "Submit for review"
+      ]
+    },
+    {
+      "status": "Pending review",
+      "actions": [
+        "View details",
+        "Download locally",
+        "Approve publication",
+        "Request changes"
+      ]
+    },
+    {
+      "status": "Published",
+      "actions": [
+        "View details",
+        "Download locally",
+        "Withdraw release"
+      ]
+    },
+    {
+      "status": "Rejected",
+      "actions": [
+        "View details",
+        "Download locally",
+        "Submit for review"
+      ]
+    },
+    {
+      "status": "Withdrawn",
+      "actions": [
+        "View details",
+        "Download locally"
+      ]
+    }
+  ]
+]

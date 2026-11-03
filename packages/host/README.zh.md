@@ -37,6 +37,7 @@ kind: "package-group"
 | [`product-telemetry-otel/`](product-telemetry-otel/README.zh.md) | 通过 OTLP/HTTP 显式上报产品使用事件 | `ctx.productTelemetry` |
 | [`feishu-settings/`](feishu-settings/README.zh.md) | 桌面版飞书设置及扫码注册页面 | Remote `feishuSetup` |
 | [`muse-account/`](muse-account/README.zh.md) | 桌面版 MUSE 登录与授权知识库阅读 | Remote `museAccount`；MCP 工具 |
+| [`muse-market/`](muse-market/README.zh.md) | Bot 与 Skill 发布、经校验的安装及显式启用 | Remote `museMarket` |
 
 -----
 
