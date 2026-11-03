@@ -87,6 +87,18 @@ function Wait-MuseJianyingOcr($Operation, $Type, $AsTask, [int]$TimeoutMs) {
     return $task.Result
 }
 
+function Measure-MuseJianyingDraftPixels($Screen, $Background, [int]$Left, [int]$Right, [int]$Top, [int]$Bottom) {
+    $count = 0
+    for ($y = $Top; $y -lt $Bottom; $y += 5) {
+        for ($x = $Left; $x -lt $Right; $x += 5) {
+            $pixel = $Screen.GetPixel($x, $y)
+            if (([Math]::Abs($pixel.R - $Background.R) + [Math]::Abs($pixel.G - $Background.G) +
+                [Math]::Abs($pixel.B - $Background.B)) -gt 22) { $count++ }
+        }
+    }
+    return $count
+}
+
 function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$TimeoutMs, [string]$Mode = 'Exact') {
     [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Foundation, ContentType = WindowsRuntime]
     [void][Windows.Storage.Streams.DataWriter, Windows.Foundation, ContentType = WindowsRuntime]
@@ -147,27 +159,29 @@ function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$Timeo
                 }
                 return [pscustomobject]@{ X = $rect.Left + $x; Y = $rect.Top + $headerY }
             }
-            $visible = @($result.Lines | Where-Object {
+            $listTitle = @($result.Lines | Where-Object {
                 $first = ($_.Words | Select-Object -First 1).BoundingRect
                 $last = ($_.Words | Select-Object -Last 1).BoundingRect
                 -not [string]::IsNullOrWhiteSpace($_.Text) -and
-                    $first.X -ge $gridX - 4 -and $first.X -le $gridX + 4 -and
-                    $first.Y -ge $headerY + 134 -and $first.Y -le $headerY + 149 -and
-                    $last.X + $last.Width -le $gridX + 109
+                    $first.X -ge $gridX + 50 -and $first.X -le $gridX + 78 -and
+                    $first.Y -ge $headerY + 82 -and $first.Y -le $headerY + 105 -and
+                    $last.X + $last.Width -le $gridX + 370
             })
-            if ($visible.Count -ne 1) { return }
             $background = $screen.GetPixel($width - 40, $height - 40)
-            $inside = 0
-            $outside = 0
-            for ($y = $headerY + 26; $y -lt $height - 25; $y += 5) {
-                for ($x = $gridX - 5; $x -lt $width - 36; $x += 5) {
-                    $pixel = $screen.GetPixel($x, $y)
-                    if (([Math]::Abs($pixel.R - $background.R) + [Math]::Abs($pixel.G - $background.G) +
-                        [Math]::Abs($pixel.B - $background.B)) -le 22) { continue }
-                    if ($x -lt $gridX + 109 -and $y -lt $headerY + 179) { $inside++ } else { $outside++ }
-                }
+            if ($listTitle.Count -gt 0) {
+                # The Chinese OCR engine can misread Latin title characters. The
+                # clipboard confirms the title, and the row must be isolated.
+                $thumbnail = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 3) ($gridX + 45) ($headerY + 75) ($headerY + 115)
+                $below = Measure-MuseJianyingDraftPixels $screen $background ($gridX - 5) ($width - 36) ($headerY + 125) ($height - 25)
+                if ($listTitle.Count -ne 1 -or $thumbnail -lt 32 -or $below -gt 25) { return }
+                return [pscustomobject]@{ X = $rect.Left + $gridX + 72; Y = $rect.Top + $headerY + 98 }
             }
-            if ($inside -lt 100 -or $outside -gt 35) { return }
+            # Grid captions are truncated and sometimes missed by OCR. The exact search
+            # and registered draft are checked separately from this single-card check.
+            $inside = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 5) ($gridX + 100) ($headerY + 32) ($headerY + 132)
+            $right = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 114) ($width - 36) ($headerY + 26) ($height - 25)
+            $below = Measure-MuseJianyingDraftPixels $screen $background ($gridX - 5) ($gridX + 114) ($headerY + 179) ($height - 25)
+            if ($inside -lt 100 -or $right -gt 35 -or $below -gt 25) { return }
             return [pscustomobject]@{ X = $rect.Left + $gridX + 48; Y = $rect.Top + $headerY + 82 }
         }
         $matches = @($result.Lines | Where-Object { $_.Text -ceq $DraftName })
@@ -255,11 +269,17 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     $dpi = [MuseJianyingDraftWindow]::SetThreadDpiAwarenessContext([IntPtr](-4))
     try {
-        $windows = @(Get-MuseJianyingWindows)
-        if (@($windows | Where-Object Kind -eq 'Editor').Count -gt 0) {
-            throw 'Return to the Jianying home page before opening the selected draft'
-        }
-        $homes = @($windows | Where-Object Kind -eq 'Home')
+        $homeDeadline = [Math]::Min($TimeoutMs, 2000)
+        do {
+            $windows = @(Get-MuseJianyingWindows)
+            if (@($windows | Where-Object Kind -eq 'Editor').Count -gt 0) {
+                throw 'Return to the Jianying home page before opening the selected draft'
+            }
+            $homes = @($windows | Where-Object Kind -eq 'Home')
+            if ($homes.Count -gt 1) { throw 'Exactly one visible Jianying home page is required' }
+            if ($homes.Count -eq 1 -or $elapsed.ElapsedMilliseconds -ge $homeDeadline) { break }
+            Start-Sleep -Milliseconds 100
+        } while ($elapsed.ElapsedMilliseconds -lt $homeDeadline)
         if ($homes.Count -ne 1) { throw 'Exactly one visible Jianying home page is required' }
         $homeWindow = $homes[0]
         if ([MuseJianyingDraftWindow]::GetForegroundWindow() -ne $homeWindow.Handle) {
@@ -280,10 +300,12 @@ function Open-MuseJianyingDraft([string]$DraftName, [int]$TimeoutMs) {
                 if ($null -ne $point) { break }
                 Start-Sleep -Milliseconds 100
             }
-            if ($null -eq $point) { throw 'The exact draft search did not show one isolated matching thumbnail within 10 seconds' }
+            if ($null -eq $point) { throw 'The exact draft search did not show one isolated matching draft within 10 seconds' }
             Confirm-MuseJianyingDraftSearch $homeWindow $search $DraftName
-            $point = Find-MuseJianyingDraftText $homeWindow $DraftName ([Math]::Max(1, $TimeoutMs - [int]$elapsed.ElapsedMilliseconds)) 'Tile'
-            if ($null -eq $point) { throw 'The exact filtered draft thumbnail changed before opening' }
+            $confirmed = Find-MuseJianyingDraftText $homeWindow $DraftName ([Math]::Max(1, $TimeoutMs - [int]$elapsed.ElapsedMilliseconds)) 'Tile'
+            if ($null -eq $confirmed -or $confirmed.X -ne $point.X -or $confirmed.Y -ne $point.Y) {
+                throw 'The exact filtered draft changed before opening'
+            }
         }
         if ($elapsed.ElapsedMilliseconds -ge $TimeoutMs -or
             -not [MuseJianyingDraftWindow]::ClickOwned($homeWindow.Handle, $point.X, $point.Y)) {
