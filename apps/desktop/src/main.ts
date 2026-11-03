@@ -2,6 +2,7 @@ import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-prod
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
+import { readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
@@ -65,15 +66,20 @@ import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 import { DesktopCompletionNotice } from './completion-notice.ts'
 import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
+import { SUPERMUSE_WINDOWS_APP_ID } from '../scripts/supermuse-identity.mjs'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
-applyDesktopProductIdentity(app)
+const installedWindowsManifest: unknown = app.isPackaged && process.platform === 'win32'
+  ? JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) : undefined
+const supermuse = typeof installedWindowsManifest === 'object' && installedWindowsManifest !== null
+  && 'dshDesktopAppId' in installedWindowsManifest && installedWindowsManifest.dshDesktopAppId === SUPERMUSE_WINDOWS_APP_ID
+applyDesktopProductIdentity(app, supermuse)
 
 // The independent product never imports a parent DSH installation's credentials or sessions.
 const productHome = process.env.MUSE_MED_HOME
 if (app.isPackaged) {
-  const isolatedHome = productHome?.trim() ? resolve(productHome) : productHomeFor(homedir())
+  const isolatedHome = productHome?.trim() ? resolve(productHome) : productHomeFor(homedir(), supermuse)
   process.env.DSH_HOME = isolatedHome
   // Muse-first defaults (the muse skill root, the user AGENTS.md mapping, the Jubian
   // ledger) resolve this variable first; pointing it at the product home keeps those
@@ -1525,7 +1531,7 @@ async function main(): Promise<void> {
     window.focus()
   }
 
-  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+  if (!supermuse && (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1')) app.setAsDefaultProtocolClient('dsh')
   app.on('open-url', (event, url) => {
     event.preventDefault()
     if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
@@ -1583,7 +1589,7 @@ async function main(): Promise<void> {
   })
 
   mainWindow = createMainWindow()
-  const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
+  const manifest: unknown = installedWindowsManifest ?? JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
   if (process.platform === 'win32' && app.isPackaged && 'dshDesktopAppId' in manifest
     && typeof manifest.dshDesktopAppId === 'string' && manifest.dshDesktopAppId.trim() !== '') {

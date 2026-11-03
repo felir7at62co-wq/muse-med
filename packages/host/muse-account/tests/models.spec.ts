@@ -611,6 +611,35 @@ it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct 
   ))
 })
 
+it('requires the signed-in Muse route even when the old direct provider has a key', async () => {
+  const fixture = await oldSessionFixture(true)
+  const server = await mockServer([{ events: textEvents }])
+  models = new MuseModels(fixture.ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    internalModelsOnly: true, excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  const signal = new AbortController().signal
+  const request = () => agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request',
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve(fixture.initialSelection))
+  const attemptDirect = async () => await assemble(fixture.ctx, {
+    provider: 'deepseek-official', model: 'deepseek-flash', messages: [],
+  })
+  await models.refresh()
+  await expect(request()).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+  await expect(attemptDirect()).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  await models.refresh()
+  await expect(attemptDirect()).rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+  const rerouted = await request()
+  expect(rerouted).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(rerouted)
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
+    .toEqual(rerouted)
+  const result = await assemble(fixture.ctx, { ...rerouted, messages: [] })
+  expect(result.finish).toEqual({ kind: 'stop' })
+  expect(server.paths).toEqual(['/api/desktop-models/deepseek-official/chat/completions'])
+  expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
+})
 it('preserves an existing direct session with its own configured key', async () => {
   const fixture = await oldSessionFixture(true)
   await login()

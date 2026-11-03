@@ -66,6 +66,16 @@
 - id: ui-permission
   disabled: false
 
+# The Desktop account catalog owns model transport in Supermuse.
+- id: llm-pi-ai
+  disabled: true
+
+- id: llm-deepseek
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
 - id: ui-settings-models
   config:
     welcomeNotice: false
@@ -164,6 +174,7 @@
       inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+        internalModelsOnly: true
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }

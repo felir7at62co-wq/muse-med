@@ -35,3 +35,8 @@ it('prefers the current home once it exists', async () => {
 
   expect(productHomeFor(home)).toBe(join(home, '.muse'))
 })
+
+it('uses a separate Supermuse home even when regular Muse homes exist', async () => {
+  const home = await userHome('.muse-med', '.muse')
+  expect(productHomeFor(home, true)).toBe(join(home, '.supermuse'))
+})

@@ -61,6 +61,15 @@ describe('desktop product identity', () => {
     expect(existsSync(userData)).toBe(true)
   })
 
+  it('gives Supermuse a separate Electron data directory and lock identity', () => {
+    const appData = scratchAppData()
+    const application = recordedApplication(appData)
+    applyDesktopProductIdentity(application, true)
+    expect(application.calls).toContain('setName:Supermuse')
+    expect(application.calls).toContain(`setPath:userData:${join(appData, 'Supermuse')}`)
+    expect(existsSync(join(appData, DESKTOP_PRODUCT_NAME))).toBe(false)
+  })
+
   it('keeps a launcher-provided user-data-dir instead of moving that storage', () => {
     const application = recordedApplication(scratchAppData(), true)
 

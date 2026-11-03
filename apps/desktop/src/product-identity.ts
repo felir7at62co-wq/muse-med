@@ -2,6 +2,7 @@
 
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { SUPERMUSE_WINDOWS_PRODUCT_NAME } from '../scripts/supermuse-identity.mjs'
 import { readDesktopProductVersion } from '../scripts/desktop-build-version.mjs'
 
 /** Application name and userData directory the product owns. */
@@ -45,11 +46,13 @@ export interface DesktopProductIdentityApplication {
  * A launch that already received `--user-data-dir` keeps that directory: Chromium's switch
  * already isolates it, and the development launcher passes one.
  * @param application - Electron application singleton.
+ * @param supermuse - Whether this packaged Windows app uses the isolated Supermuse identity.
  */
-export function applyDesktopProductIdentity(application: DesktopProductIdentityApplication): void {
-  application.setName(DESKTOP_PRODUCT_NAME)
+export function applyDesktopProductIdentity(application: DesktopProductIdentityApplication, supermuse = false): void {
+  const name = supermuse ? SUPERMUSE_WINDOWS_PRODUCT_NAME : DESKTOP_PRODUCT_NAME
+  application.setName(name)
   if (application.commandLine.hasSwitch('user-data-dir')) return
-  const userData = join(application.getPath('appData'), DESKTOP_PRODUCT_NAME)
+  const userData = join(application.getPath('appData'), name)
   // app.setPath documents an Error for a directory that does not exist, and the
   // single-instance files are created inside it.
   mkdirSync(userData, { recursive: true })

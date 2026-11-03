@@ -31,6 +31,20 @@ describe('installer preparation preserves application dependencies', () => {
     })])
   })
 
+  it('isolates Supermuse installation and disables the ordinary Muse update feed', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'cn.aigcpipeline.supermuse.acceptance',
+      DSH_DESKTOP_UNSIGNED: '1',
+    }, 'win32', 'x64')
+    expect(config.productName).toBe('Supermuse')
+    expect(config.extraMetadata).toMatchObject({ name: 'supermuse', dshDesktopAppId: config.appId })
+    expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
+    expect(config.win.executableName).toBe('Supermuse')
+    expect(config.protocols).toEqual([])
+    expect(config.publish).toBeNull()
+  })
+
   it('keeps nested video assets in the main Windows installer payload', async () => {
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     const config = createElectronBuilderConfig({

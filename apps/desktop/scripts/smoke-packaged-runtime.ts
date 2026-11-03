@@ -7,6 +7,7 @@ import { verifyWindowsCode } from './windows-runtime-signature.mjs'
 import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { resolveDesktopPackageTarget } from './package-target.ts'
 import { resolveDesktopAppId } from './desktop-release-environment.mjs'
+import { SUPERMUSE_WINDOWS_APP_ID, SUPERMUSE_WINDOWS_PRODUCT_NAME } from './supermuse-identity.mjs'
 import { verifyMacOSAdHocSignature } from './verify-macos-signature.mjs'
 
 const paths = resolveDesktopTargetBuildPaths()
@@ -17,7 +18,8 @@ const artifacts = values.unsigned ? paths.unsignedArtifacts : paths.artifacts
 const application = windows ? join(artifacts, 'win-unpacked')
   : join(artifacts, target === 'mac-arm64' ? 'mac-arm64' : 'mac', 'muse-med.app', 'Contents')
 const resources = join(application, windows ? 'resources' : 'Resources')
-const executable = windows ? join(application, 'muse-med.exe') : join(application, 'MacOS', 'muse-med')
+const windowsExecutable = process.env.DSH_DESKTOP_APP_ID === SUPERMUSE_WINDOWS_APP_ID ? SUPERMUSE_WINDOWS_PRODUCT_NAME : 'muse-med'
+const executable = windows ? join(application, windowsExecutable + '.exe') : join(application, 'MacOS', 'muse-med')
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)

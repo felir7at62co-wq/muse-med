@@ -114,6 +114,8 @@ export interface MuseModelsOptions {
   readonly sessionFile: string
   readonly requestTimeoutMs: number
   readonly fetcher?: typeof fetch
+  /** Refuse model dispatch outside the live Muse account catalog. */
+  readonly internalModelsOnly?: boolean
   readonly excludedModelPrefixes?: readonly string[]
   readonly excludedModels?: readonly { providerId: string; modelId: string }[]
   readonly excludedProviderIds?: readonly string[]
@@ -138,6 +140,7 @@ export class MuseModels {
   private readonly stop = new AbortController()
   private readonly adapter: PiAiAdapter
   private readonly disposeRequestRoute: () => void
+  private readonly disposeStreamRoute: (() => void) | undefined
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
     const adapterOptions: PiAiAdapterOptions = {
@@ -177,8 +180,14 @@ export class MuseModels {
       (provider, model) => this.directStream(adapterOptions, provider, model))
     this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
       const config = await next()
-      return await this.repairRequestRoute(agent, config, signal)
+      return options.internalModelsOnly
+        ? await this.internalRequestRoute(agent, config, signal)
+        : await this.repairRequestRoute(agent, config, signal)
     }, { prepend: true })
+    this.disposeStreamRoute = options.internalModelsOnly ? ctx.on('llm/stream', (request, next) => {
+      if (!this.profiles.has(request.provider)) throw this.internalRouteUnavailable()
+      return next()
+    }, { prepend: true }) : undefined
   }
 
   private directStream(adapterOptions: PiAiAdapterOptions, provider: string, model: string): DirectStream | undefined {
@@ -203,6 +212,7 @@ export class MuseModels {
     this.stop.abort()
     this.authorization.abort()
     this.disposeRequestRoute()
+    this.disposeStreamRoute?.()
     this.registration?.()
     this.registration = undefined
     this.profiles = new Map()
@@ -345,6 +355,51 @@ export class MuseModels {
     this.signature = signature
   }
 
+  private internalRouteUnavailable(): LlmError {
+    return new LlmError(this.profiles.size === 0
+      ? 'Sign in to Muse to use the account model catalog'
+      : 'Select a model from the Muse account catalog',
+    this.profiles.size === 0 ? 'MISSING_CREDENTIAL' : 'UNKNOWN_MODEL')
+  }
+
+  private async internalRequestRoute(agent: Agent, config: LlmCallConfig, signal: AbortSignal): Promise<LlmCallConfig> {
+    if (this.profiles.has(config.provider)) return config
+    const revision = this.revision
+    const selection = await this.internalReplacement(config)
+    signal.throwIfAborted()
+    if (!selection || revision !== this.revision || !this.profiles.has(selection.provider)) {
+      throw this.internalRouteUnavailable()
+    }
+    const { reasoningEffort: previousEffort, ...controls } = config
+    const selected = await this.ctx.get('sessionController')?.selectModelIfCurrent({
+      sessionId: agent.id, ...selection, saveDefault: false,
+    }, {
+      provider: config.provider, model: config.model,
+      ...(previousEffort === undefined ? {} : { reasoningEffort: previousEffort }),
+    })
+    signal.throwIfAborted()
+    const reasoningEffort = selected?.selected.reasoningEffort
+    return { ...controls, ...selection,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) }) }
+  }
+
+  private async internalReplacement(config: LlmCallConfig): Promise<{ provider: string; model: string } | undefined> {
+    const preferred = this.ctx.agentDefaultModel.currentSelection()
+    const matching = 'muse-cloud-' + config.provider
+    const providers = [...new Set([matching, preferred.provider, ...this.profiles.keys()])]
+      .filter(provider => this.profiles.has(provider) && this.providerSelectable(provider))
+    let fallback: { provider: string; model: string } | undefined
+    for (const provider of providers) {
+      const models = (await this.ctx.llm.listModels(provider)).filter(model => model.selectable !== false)
+      const preferredId = provider === matching ? config.model : provider === preferred.provider ? preferred.model : undefined
+      const preferredModel = models.find(model => model.id === preferredId)
+      if (preferredModel) return { provider, model: preferredModel.id }
+      const [first] = models
+      if (first && fallback === undefined) fallback = { provider, model: first.id }
+    }
+    return fallback
+  }
+
   private async directRouteMissingCredential(provider: string): Promise<boolean> {
     const credentials = this.ctx.get('credentials')
     const settings = this.ctx.get('settings')
@@ -422,7 +477,7 @@ export class MuseModels {
       if (this.providerSelectable(provider) && models?.length) selectable[provider] = { ...profile, models }
     }
     const matchingCloud = user.provider ? `muse-cloud-${user.provider}` : undefined
-    if (user.provider && !user.provider.startsWith('muse-cloud-')
+    if (!this.options.internalModelsOnly && user.provider && !user.provider.startsWith('muse-cloud-')
       && (!matchingCloud || !selectable[matchingCloud] || !await this.directRouteMissingCredential(user.provider))) return
     if (user.provider && selectable[user.provider]?.models?.some(model => model.id === user.model)) return
     const first = matchingCloud && selectable[matchingCloud]

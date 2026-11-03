@@ -84,9 +84,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()
     }
-    expect(rows.find(row => row.id === 'codex-subscription')).toMatchObject({ name: 'dsh-codex-subscription' })
-    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-codex-subscription')
-    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-codex-subscription')
+    expect(rows.find(row => row.id === 'codex-subscription')).toBeUndefined()
+    expect(profile.layers.map(layer => layer.packageName)).not.toContain('dsh-codex-subscription')
+    expect(readFileSync(join(project, 'package.json'), 'utf8')).not.toContain('dsh-codex-subscription')
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])
@@ -94,7 +94,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
+        remoteAccess: true, internalModelsOnly: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }], requestTimeoutMs: 60000,
         excludedModels: [
           { providerId: 'yunying', modelId: 'claude-opus-5-5' },
@@ -124,6 +124,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
           contextChars: 24, maxMatches: 100,
         },
         sessionVideoSelection: true,
+        videoRecoverySettings: true,
         defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
       } },
     ])

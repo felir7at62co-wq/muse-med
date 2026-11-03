@@ -41,6 +41,8 @@ export interface Config {
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
+  /** Use only this signed-in Muse account's registered model routes. */
+  readonly internalModelsOnly: boolean
   /** Model ID prefixes excluded from the account-supplied catalog. */
   readonly excludedModelPrefixes: string[]
   /** Exact account provider/model pairs hidden from the selectable catalog. */
@@ -89,6 +91,7 @@ export interface Config {
 export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'baseUrl'>>, Config> = Schema.object({
   baseUrl: Schema.string().required(),
   modelRefreshMs: Schema.number().step(1).min(10_000).max(3_600_000).default(60_000),
+  internalModelsOnly: Schema.boolean().default(false),
   excludedModelPrefixes: Schema.array(Schema.string()).default([]),
   excludedModels: Schema.array(Schema.object({
     providerId: Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/).required(),
@@ -133,6 +136,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     reportIntervalMs: config.activityReportIntervalMs, requestTimeoutMs: config.activityRequestTimeoutMs })
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
+    internalModelsOnly: config.internalModelsOnly,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
     excludedProviderIds: config.excludedProviderIds, hiddenProviderIds: config.hiddenProviderIds,
     visibleModels: config.visibleModels,
