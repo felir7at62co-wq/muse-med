@@ -36,6 +36,7 @@ export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
+  const workspace = join(home, 'workspace')
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   try {
@@ -61,7 +62,7 @@ export function apply(ctx) {
   try {
     for (let index = 0; index < 2; index++) {
       handles.push(await ctx.agents.create({
-        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: home, agentPreset: id },
+        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: workspace, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
     }
@@ -113,7 +114,7 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
-    const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
+    const skills = await skillRegistry.list({ scope: handle.agent, cwd: workspace })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
@@ -147,7 +148,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: workspace })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
@@ -209,7 +210,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: workspace })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -256,6 +257,7 @@ export async function smokeDesktopRuntime(
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     createPluginProfile(profile)
+    mkdirSync(join(home, 'workspace'), { recursive: true })
     for (const [directory, name] of [
       ['skills', 'desktop-user-skill'], ['.agents/skills', 'desktop-user-skill'],
       ['.agents/skills', 'desktop-legacy-only'], ['.dsh/skills', 'desktop-legacy-only'],

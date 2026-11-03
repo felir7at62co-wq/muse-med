@@ -233,9 +233,9 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: join(f.home, 'workspace') })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: join(f.home, 'workspace') })
   expect(f.dispose).toHaveBeenCalledTimes(14)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
@@ -588,8 +588,9 @@ it('checks deferred editing descriptions in the authorized tool schemas', async 
     return result
   })
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => schemas(key).map(tool => tool.name === name
-    ? { ...tool, description: editingModelInput.tools[name] } : tool))
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
+    ? [...schemas(key), { name, description: editingModelInput.tools[name] }]
+    : schemas(key))
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
@@ -697,7 +698,7 @@ it('loads the transcription and shot-writing skills through the scoped registry'
   await f.apply(f.ctx)
   for (const name of ['audio-transcribe',
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: join(f.home, 'workspace') })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)
