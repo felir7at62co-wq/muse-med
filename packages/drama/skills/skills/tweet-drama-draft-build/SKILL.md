@@ -44,7 +44,7 @@ Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加�
 ## 字幕交付样式
 
 - **先复用云端时间轴**：优先查找当前选定视频已有的已完成云转写收据、原始 JSON 与字幕文件，核对源文件 SHA-256 和剪辑位置。同源、时间有效的结果直接复用，不因制作草稿或纠错再提交转写。未结束任务沿原收据查询；缺少可用结果时才按已有费用授权调用 `audio_transcribe start`，用途为 `subtitles`，不换 ID 或用途重复提交。收据映射与现有脚本用法见[云转写字幕](references/cloud-subtitles.md)。
-- **剧本纠字，声音定时间**：对照剧本纠正云转写的人名、同音字和明显错字，只写派生字幕文字，保留原始收据、识别 JSON 和对应实际字词起止时间。纠错后不按字数重算或均分时长；视频实际漏说、改说或额外发声时先核听，不能把剧本未说出的内容补成字幕，也不把真实说错的话伪装成识别错字。存疑处保留待核说明，不要求提示清零。
+- **剧本纠字，声音定时间**：先从正式剧本核对逐镜台词计划，不用分镜提示词或转写结果代替剧本。使用随包 `align_subtitles.py` 和 `drama_render subtitles`，不自写脚本把匹配失败的识别文字直接放进成品。等长换字也会列在 `script_text_differences`，时间对齐成功不代表文字一致。核听确认的错字只改派生字幕文字，保留原始收据、识别 JSON 和实测字词时间；实际漏说、改说或额外发声单独记录，不补成未说过的台词。
 - 已核实错字可将[纠错映射](references/cloud-subtitles.md#corrections-and-measured-spans)传给 `align_subtitles.py --corrections`：按原始词序、源视频与转写摘要定位，显式替换错字并保留该词原始时间；这不表示脚本已经核听。
 - **沿真实切点落位**：显示字幕按语义分条，起止取对应的已有字词边界；只有整句时间时先保留整句，不按字数猜内部切点。整集时间由镜头内时间按实际入点裁切、平移，明确变速时按实际速度换算；更换源视频或剪辑时更新受影响的字幕。脚本若因识别错字漏掉句首或句尾，核对原云时间轴后修正派生对齐，不能把缩短后的匹配区间当作完整句时间。文字纠错本身不改变声音时间。
 - **离线只作显式选择**：用户确需离线且自行准备好依赖和模型时，可传 `--model-dir`，或 `--model-url` 与固定 `--model-sha256`。默认安装包不含 Whisper 模型与推理依赖；不自动下载安装。独立脚本仍支持 `MUSE_WHISPER_MODEL_DIR` 的模型解析，以及 `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper` 和 `--cache-dir` 缓存配置。离线识别保持单线程、temperature 0。
@@ -52,7 +52,7 @@ Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加�
 - 不合并不同说话人的句子；动作和未发声的心理描写不出字幕。
 - **逐镜核对覆盖情况**：读取 `subtitle_line_coverage`、`subtitle_timing` 及实际音轨；漏句、额外发声、未核实和阅读速度问题只作提示，Muse 自行选择重听、重对齐或保留候选，不要求警告清零或用户逐项审批。
 
-最终渲染和草稿导入前，对完整显示字幕调用 `drama_render method=speech_coverage`，传同一 `shots`、`timeline`、`subtitle_srt` 和 `speech_transcripts` 收据映射。它逐个实际识别字词与最终字幕双向比较，包含一两个字、剧本外发声、有字无对应识别及时间不一致，不用波形猜词。逐项核听后补字幕或明确记录不加的理由；额外发声另存字幕，不擅改正式剧本。需要保留决定时，用返回的 `evidence_sha256` 绑定 `speech_decisions` 中各 finding ID、decision、reason、observed_text 和实际核听区间；源、转写或 SRT 变化后重新比较，不复用旧决定。`listening_verified=false` 始终表示工具未作声学验收，即使识别全部匹配也不能写成听看通过。没有证据时保留未核实提示，不自动购买转写。
+最终渲染和草稿导入前，先按[完整显示字幕文字核对](references/cloud-subtitles.md#final-display-text-review)比较正式台词和实际选用的 SRT，再对同一份完整显示字幕调用 `drama_render method=speech_coverage`，传同一 `shots`、`timeline`、`subtitle_srt` 和 `speech_transcripts` 收据映射。前者能发现转写和字幕都写错的字；后者比较已有识别词与字幕。核听后补字幕或记录采用真实改说、漏说或额外发声的理由，不改正式剧本。需要保留决定时，用返回的 `evidence_sha256` 绑定 `speech_decisions` 中各 finding ID、decision、reason、observed_text 和实际核听区间；源、转写或 SRT 变化后重新比较，不复用旧决定。没有原稿或未核实的差异时，允许保留待核草稿，不将它标为字幕已核对的最终交付。`listening_verified=false` 表示工具未作声学验收，不自动购买转写。
 
 MP4 与草稿复用同一最终文本和词级时间；长句只在已有同源字词切点按语义分条，不按字数均分，不逐条缩小字号。同一时刻重复 cue 和字幕无发声都需实际复看。保留源画面烧字时，声文核对用包含该文字的完整显示 SRT，真正叠加仍使用 `resolved_srt` 与其报告；不能把已保留的像素文字误报成漏字或再次叠上。
 

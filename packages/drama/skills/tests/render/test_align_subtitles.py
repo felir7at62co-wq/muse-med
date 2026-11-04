@@ -35,6 +35,61 @@ def timeline(text, start, seconds_per_char):
              start + (index + 1) * seconds_per_char) for index, char in enumerate(text)]
 
 
+class ScriptTextReviewTests(unittest.TestCase):
+    def review(self, subtitle):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / 'lines.json'
+            plan.write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['今晚盲品会。', '带好材料。']}]}), encoding='utf-8')
+            srt = root / 'selected.srt'
+            srt.write_text(subtitle, encoding='utf-8-sig')
+            before = srt.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '40',
+                    '--lines', 'lines.json', '--review-srt', 'selected.srt']
+            with io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+                with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output):
+                    ALIGN.main()
+                output.seek(0)
+                report = json.load(output)
+            self.assertEqual(srt.read_bytes(), before)
+            self.assertEqual(set(root.iterdir()), {plan, srt})
+            return report
+
+    def test_selected_srt_reports_a_replaced_character_across_different_splits(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:10,590\n今晚\n\n'
+                             '2\n00:00:10,590 --> 00:00:12,590\n芒品会 带好材料\n')
+        self.assertEqual(report['status'], 'needs_review')
+        self.assertFalse(report['listening_verified'])
+        self.assertEqual(report['episode'], 40)
+        self.assertEqual(report['findings'], [{
+            'kind': 'replace', 'script': '盲', 'subtitle': '芒', 'shots': [1], 'cue_scope': 'changed',
+            'cues': [{'cue': 2, 'start': '00:00:10,590', 'end': '00:00:12,590'}],
+        }])
+
+    def test_matching_words_ignore_punctuation_and_merging(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:12,590\n今晚盲品会，带好材料\n')
+        self.assertEqual(report['status'], 'text_matches')
+        self.assertEqual(report['findings'], [])
+
+    def test_missing_speech_uses_only_adjacent_cue_as_context(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:12,590\n今晚盲品会\n')
+        finding, = report['findings']
+        self.assertEqual((finding['kind'], finding['script'], finding['cue_scope']), ('delete', '带好材料', 'adjacent'))
+
+    def test_rejects_invalid_timing_instead_of_reporting_a_match(self):
+        with self.assertRaisesRegex(SystemExit, '没有有效的时码'):
+            self.review('1\n00:00:12,590 --> 00:00:09,950\n今晚盲品会 带好材料\n')
+
+    def test_combined_recognition_flags_substitution_without_moving_measured_cues(self):
+        lines = ['今晚盲品会的预约函', '带好材料']
+        chars = timeline('今晚芒品会的预约函带好材料', 1.0, 0.2)
+        anchors = ALIGN.anchor(lines, chars)
+        differences = []
+        self.assertEqual(ALIGN.missing_script_speech(lines, anchors, chars, substitutions=differences), [])
+        self.assertEqual(differences, [{'line': 1, 'script': '盲', 'recognized': '芒', 'start': 1.4, 'end': 1.6}])
+        self.assertEqual(ALIGN.place(lines, anchors, 5), (anchors, ALIGN.ALL_ALIGNED))
+
+
 class NormaliseTests(unittest.TestCase):
     def test_drops_punctuation_and_spaces(self):
         self.assertEqual(ALIGN.normalise('他说 A1，。 '), '他说A1')
@@ -532,7 +587,34 @@ class CloudCorrectionTests(unittest.TestCase):
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
             self.assertEqual(result['strategy'], 'asr_aligned')
             self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '程昭宁你回来啦'}])
+            self.assertNotIn('script_text_differences', result)
             self.assertEqual(result['correction_evidence']['transcript_sha256'], correction['transcript_sha256'])
+            self.assertEqual(transcript.read_bytes(), before)
+
+    def test_cli_retains_script_cues_and_reports_an_unreviewed_cloud_substitution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, _ = self.source(root)
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['城昭宁你回家拉']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            before = transcript.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=3.0), \
+                    patch.object(ALIGN, 'transcribe', side_effect=AssertionError('no new recognition')):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertEqual(result['strategy'], 'asr_aligned')
+            self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '城昭宁你回家拉'}])
+            self.assertEqual(result['script_text_differences'], [
+                {'line': 1, 'script': '家', 'recognized': '来', 'start': 1.4, 'end': 2.1},
+            ])
+            self.assertIn('待核听', output.getvalue())
             self.assertEqual(transcript.read_bytes(), before)
 
     def test_cli_stale_correction_returns_missing_evidence_without_guessing(self):
