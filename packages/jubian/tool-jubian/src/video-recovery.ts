@@ -99,12 +99,12 @@ async function optionalReport(path: string): Promise<string | undefined> {
   }
 }
 
-async function artifactHash(path: string): Promise<string> {
+async function artifactHash(path: string, signal?: AbortSignal): Promise<string> {
   try {
     await regularReport(path)
     const hash = createHash('sha256')
     let size = 0
-    for await (const bytes of createReadStream(path)) {
+    for await (const bytes of createReadStream(path, { signal })) {
       if (!Buffer.isBuffer(bytes)) throw new Error('Managed video must be read as bytes')
       size += bytes.length
       if (size > MEDIA_LIMITS.video) throw new Error('Managed video exceeds the media limit')
@@ -302,6 +302,108 @@ export async function materializeApprovedProviderVideo(projectDir: string, taskI
   if (await artifactHash(path) !== digest) throw new Error('Managed video bytes differ from the approved output')
   signal.throwIfAborted()
   return path
+}
+
+const approvedVideoDeliverySchema = z.object({ path: z.string(), sha256: sha256Schema })
+
+function directDeliveryPath(taskId: number, reviewDigest: string): string {
+  return 'exports/Supermuse-approved-' + String(taskId) + '-' + reviewDigest + '.mp4'
+}
+
+function directDeliveryReceipt(projectDir: string, reviewDigest: string): string {
+  return join(projectDir, 'video_tasks', 'review', reviewDigest + '.direct-delivery.json')
+}
+
+/**
+ * Read a direct MP4 delivery receipt for the active approval.
+ * @param projectDir - Authorized project directory.
+ * @param taskId - Approved provider task ID.
+ * @param reviewDigest - Exact approved report digest.
+ * @param sha256 - Approved media hash.
+ * @returns The recorded delivery when its filename and hash match the approval.
+ */
+export async function readApprovedVideoDelivery(projectDir: string, taskId: number, reviewDigest: string, sha256: string) {
+  const source = await optionalReport(directDeliveryReceipt(projectDir, reviewDigest))
+  if (source === undefined) return undefined
+  const receipt = approvedVideoDeliverySchema.parse(JSON.parse(source))
+  if (receipt.path !== directDeliveryPath(taskId, reviewDigest) || receipt.sha256 !== sha256) {
+    throw new Error('Direct delivery receipt does not match the approved video')
+  }
+  return receipt
+}
+
+async function assertExportDirectory(directory: string): Promise<void> {
+  const folder = await lstat(directory)
+  if (!folder.isDirectory() || folder.isSymbolicLink() || relative(directory, await realpath(directory)) !== '') {
+    throw new Error('The project exports directory must be local')
+  }
+}
+
+async function approvedDestinationExists(path: string): Promise<boolean> {
+  try {
+    await regularReport(path)
+    return true
+  } catch (error) {
+    if (!missing(error)) throw error
+    return false
+  }
+}
+
+async function copyApprovedVideo(source: string, destination: string, sha256: string, signal: AbortSignal): Promise<void> {
+  const temporary = destination + '.' + randomUUID() + '.tmp'
+  const capture = { opened: false }
+  const output = createWriteStream(temporary, { flags: 'wx', mode: 0o600, flush: true })
+  output.once('open', () => { capture.opened = true })
+  try {
+    const input = createReadStream(source, { end: MEDIA_LIMITS.video })
+    await pipeline(input, output, { signal })
+    if (await artifactHash(temporary, signal) !== sha256) throw new Error('Approved media changed during direct delivery')
+    await assertExportDirectory(dirname(destination))
+    signal.throwIfAborted()
+    try { await link(temporary, destination) } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
+    }
+  } finally {
+    if (capture.opened) await unlink(temporary)
+  }
+}
+
+/**
+ * Publish an exact approved MP4 and its durable delivery receipt without an editor.
+ * @param projectDir - Authorized project directory.
+ * @param taskId - Approved provider task ID.
+ * @param reviewDigest - Exact approved report digest.
+ * @param source - Absolute path of the project-owned reviewed video.
+ * @param sha256 - Approved media hash.
+ * @param signal - Cancellation of the local copy and verification.
+ * @returns The verified project-relative MP4 path and bare SHA-256 digest.
+ */
+export async function publishApprovedVideo(projectDir: string, taskId: number, reviewDigest: string, source: string,
+  sha256: string, signal: AbortSignal) {
+  const receiptPath = directDeliveryReceipt(projectDir, reviewDigest)
+  await reportDirectory(receiptPath, false)
+  const previous = await readApprovedVideoDelivery(projectDir, taskId, reviewDigest, sha256)
+  if (relative(source, await realpath(source)) !== '' || await artifactHash(source, signal) !== sha256) {
+    throw new Error('Approved media changed before direct delivery')
+  }
+
+  const path = directDeliveryPath(taskId, reviewDigest)
+  const destination = join(projectDir, path)
+  const directory = dirname(destination)
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  await assertExportDirectory(directory)
+  if (!await approvedDestinationExists(destination)) {
+    await copyApprovedVideo(source, destination, sha256, signal)
+  }
+  if (await artifactHash(destination, signal) !== sha256) {
+    throw new Error('Direct delivery destination already contains different bytes')
+  }
+  signal.throwIfAborted()
+  const receipt = { path, sha256 }
+  if (previous !== undefined || await publishOnce(receiptPath, receipt)) return receipt
+  const concurrent = await readApprovedVideoDelivery(projectDir, taskId, reviewDigest, sha256)
+  if (concurrent === undefined) throw new Error('Direct delivery receipt changed during publication')
+  return concurrent
 }
 
 // Cancellation can change across awaits within a single worker iteration.

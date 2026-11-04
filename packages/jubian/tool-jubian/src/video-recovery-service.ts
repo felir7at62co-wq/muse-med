@@ -9,7 +9,10 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { z } from 'zod'
 import { verifyApprovedClipExport } from './approved-clip-export.ts'
 import { checkVideoMedia, decodeVideoFile } from './video-media-check.ts'
-import { adoptRecoveredVideo, isProjectVideoIntent, materializeApprovedProviderVideo, reviewRecoveredVideo, runVideoRecovery } from './video-recovery.ts'
+import {
+  adoptRecoveredVideo, isProjectVideoIntent, materializeApprovedProviderVideo, publishApprovedVideo,
+  readApprovedVideoDelivery, reviewRecoveredVideo, runVideoRecovery,
+} from './video-recovery.ts'
 import type {
   ApprovedClipDeliveryInput, ApprovedClipDraftService, VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput, VideoRecoveryReview,
   VideoRecoveryReviewInput, VideoRecoveryStatus,
@@ -147,12 +150,15 @@ function deliveryPath(project: string, report: VideoRecoveryReview): string {
 }
 
 async function withDelivery(project: string, report: VideoRecoveryReview): Promise<VideoRecoveryReview> {
-  if (approvedSourceSha(report) === undefined) return report
+  const sha256 = approvedSourceSha(report)
+  if (sha256 === undefined) return report
+  const directDelivery = await readApprovedVideoDelivery(project, report.taskId, report.digest, sha256)
+  const current = directDelivery === undefined ? report : { ...report, directDelivery }
   const path = deliveryPath(project, report)
-  if (!await regularFile(path)) return report
+  if (!await regularFile(path)) return current
   const saved: unknown = JSON.parse(await readFile(path, 'utf8'))
   const { draft, export: verified } = deliverySchema.parse(saved)
-  return { ...report, delivery: { draft, ...(verified === undefined ? {} : { export: verified }) } }
+  return { ...current, delivery: { draft, ...(verified === undefined ? {} : { export: verified }) } }
 }
 
 /** Project recovery settings and explicit human decisions over the authenticated Gateway. */
@@ -312,6 +318,26 @@ export class JubianVideoRecovery extends TypertRemoteService {
       } catch (error) {
         if (error instanceof RemoteError) throw error
         throw refusal('Could not adopt this project video for review', error)
+      }
+    })
+  }
+
+  /**
+   * Publish the exact approved MP4 as a project export without an editor.
+   * @param input - Submission key and its approved review digest.
+   * @returns The report with the direct delivery receipt.
+   */
+  @Remote
+  async deliverApprovedMp4(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview> {
+    return await this.enqueue(async () => {
+      try {
+        const { project, report, source, sha256 } = await this.approvedClip(input)
+        const signal = this.ctx.invocation?.signal ?? new AbortController().signal
+        const directDelivery = await publishApprovedVideo(project, report.taskId, report.digest, source, sha256, signal)
+        return { ...report, directDelivery }
+      } catch (error) {
+        if (error instanceof RemoteError) throw error
+        throw refusal(error instanceof Error ? error.message : 'Could not deliver the approved MP4', error)
       }
     })
   }

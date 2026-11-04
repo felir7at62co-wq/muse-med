@@ -225,6 +225,7 @@ describe('Jubian recovery delivery', () => {
         createDraft: async () => ({ ok: true, value: report }),
         verifyExport: async () => ({ ok: true, value: report }),
         deliverApprovedClip,
+        deliverApprovedMp4: async () => ({ ok: true, value: report }),
       },
     })} />)
 
@@ -249,5 +250,57 @@ describe('Jubian recovery delivery', () => {
     expect(await screen.findByText('exports/updated.mp4')).toBeDefined()
     expect(screen.queryByText(en.recoveryDeliveringClip)).toBeNull()
     expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('delivers an approved MP4 without a decoder or Jianying and restores the receipt on refresh', async () => {
+    const sha256 = 'a'.repeat(64)
+    const report: VideoRecoveryReview = {
+      idempotencyKey: 'direct-video', taskId: 744522, status: 'awaiting_review', digest: 'approved-digest',
+      mediaChecks: [{ sha256: 'sha256:' + sha256, video: true, audio: true }], decision: 'approve',
+    }
+    const directDelivery = { path: 'exports/direct.mp4', sha256 }
+    const delivered = { ...report, directDelivery }
+    const status: VideoRecoveryStatus = {
+      enabled: true, configurable: true, decoderAvailable: false, projectDir: '/project', reports: [report],
+    }
+    const load = vi.fn()
+      .mockResolvedValueOnce({ ok: true, value: status })
+      .mockResolvedValueOnce({ ok: true, value: { ...status, reports: [delivered] } })
+    const delivery = Promise.withResolvers<RemoteResult<VideoRecoveryReview>>()
+    const deliverApprovedMp4 = vi.fn(() => delivery.promise)
+    const deliverApprovedClip = vi.fn(async () => ({ ok: true, value: report }) as const)
+    render(<JubianTokenSection {...props({
+      recovery: {
+        status: load,
+        configure: async () => ({ ok: true, value: status }),
+        review: async () => ({ ok: true, value: report }),
+        adopt: async () => ({ ok: true, value: report }),
+        createDraft: async () => ({ ok: true, value: report }),
+        verifyExport: async () => ({ ok: true, value: report }),
+        deliverApprovedClip,
+        deliverApprovedMp4,
+      },
+    })} />)
+
+    const direct = await screen.findByRole('button', { name: en.recoveryDeliverMp4 })
+    expect(screen.queryByRole('button', { name: en.recoveryDeliverClip })).toBeNull()
+    expect(screen.getByText(en.recoveryDecoderUnavailable)).toBeDefined()
+    expect(direct.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(direct)
+    expect(deliverApprovedMp4).toHaveBeenCalledExactlyOnceWith({
+      idempotencyKey: report.idempotencyKey, digest: report.digest,
+    })
+    expect(deliverApprovedClip).not.toHaveBeenCalled()
+    expect(direct.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText(en.recoveryDeliveringMp4)).toBeDefined()
+
+    delivery.resolve({ ok: true, value: delivered })
+    expect(await screen.findByText(en.recoveryMp4Delivered)).toBeDefined()
+    expect(screen.getByText(directDelivery.path)).toBeDefined()
+    expect(screen.getByText(en.recoveryMp4Digest.replace('{digest}', sha256))).toBeDefined()
+    expect(direct.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryRefresh }))
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+    expect(screen.getByText(directDelivery.path)).toBeDefined()
   })
 })

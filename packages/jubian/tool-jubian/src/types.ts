@@ -59,7 +59,7 @@ export interface VideoRecoveryAdoptionInput {
   readonly path: string
 }
 
-/** Exact approved report selected for draft creation. */
+/** Exact approved report selected for delivery. */
 export interface ApprovedClipDeliveryInput {
   readonly idempotencyKey: string
   readonly digest: string
@@ -74,6 +74,13 @@ export interface ApprovedClipDelivery {
     readonly videoSimilarity: number
     readonly audioSimilarity: number
   }
+}
+
+/** Project-relative MP4 delivered with the exact bytes approved in the review. */
+export interface ApprovedClipDirectDelivery {
+  readonly path: string
+  /** Lowercase hexadecimal SHA-256 of the delivered file. */
+  readonly sha256: string
 }
 
 /** Host provider for creating editable local drafts from approved media. */
@@ -116,6 +123,7 @@ export interface VideoRecoveryReview {
   /** The checked project-local derivative, when adopted. */
   readonly derivative?: { readonly path: string; readonly sha256: string }
   readonly delivery?: ApprovedClipDelivery
+  readonly directDelivery?: ApprovedClipDirectDelivery
   readonly decision: 'approve' | 'reject' | null
   /** Recorded operator feedback, when supplied for a rejection. */
   readonly reason?: string

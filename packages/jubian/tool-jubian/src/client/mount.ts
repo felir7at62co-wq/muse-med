@@ -156,6 +156,7 @@ function registerSection(ctx: ClientContext): void {
         createDraft: input => remote.createDraft(input),
         verifyExport: input => remote.verifyExport(input),
         deliverApprovedClip: input => remote.deliverApprovedClip(input),
+        deliverApprovedMp4: input => remote.deliverApprovedMp4(input),
         ...(pick === undefined ? {} : { pickDirectory: pick }),
       }
     }

@@ -237,6 +237,124 @@ it.skipIf(!ffmpeg || mode === 'record')('recovers, reviews and delivers project 
   expect(restartedConsole.pageErrors).toEqual([])
 })
 
+it.skipIf(!ffmpeg || mode === 'record')('delivers the approved original MP4 without a Jianying provider', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-direct-mp4-web-')))
+  let scaffold: WebScaffold | undefined
+  const resources: { browser?: Browser } = {}
+  onTestFinished(async () => {
+    try {
+      await resources.browser?.close()
+    } finally {
+      try {
+        await scaffold?.close()
+      } finally {
+        vi.unstubAllEnvs()
+        await rm(root, { recursive: true, force: true, maxRetries: 3 })
+      }
+    }
+  })
+  vi.stubEnv('DSH_FFMPEG_PATH', undefined)
+  const harnessHome = join(root, 'home')
+  const projectDir = join(root, 'video-project')
+  const tasksDir = join(projectDir, 'video_tasks')
+  const reviewDir = join(tasksDir, 'review')
+  const ledgerRoot = join(harnessHome, 'jubian', 'ledger')
+  const exportsDir = join(projectDir, 'exports')
+  const overlay = join(root, 'jubian.overlay.json')
+  await writeFile(overlay, JSON.stringify([{ insert: [{
+    id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian',
+    config: { videoRecoverySettings: true, workspaceSecrets: false, baseUrl: 'http://127.0.0.1:0' },
+  }] }]))
+  await mkdir(reviewDir, { recursive: true })
+  await writeFile(join(projectDir, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+  const key = 'fixture-approved-original'
+  const task = 335345
+  const ledger = new JubianLedger({ root: ledgerRoot })
+  await ledger.beginManyChecked([key], async () => [{
+    idempotencyKey: key, method: 'storyboard_native_submit', scriptId: 2708,
+    videoPreviewPath: join(tasksDir, `${key}.storyboard-native.prepared.json`), beforeTaskIds: [],
+    requestSha256: 'sha256:' + createHash('sha256').update(key).digest('hex'),
+  }])
+  await writeFile(join(harnessHome, 'jubian', 'video-recovery.json'), JSON.stringify({ enabled: true, projectDir }))
+  const generated = join(root, 'provider-output.mp4')
+  await promisify(execFile)(ffmpeg!, [
+    '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=96x54:rate=24',
+    '-f', 'lavfi', '-i', 'sine=frequency=421:sample_rate=32000',
+    '-t', '2', '-c:v', 'mpeg4', '-q:v', '2', '-c:a', 'aac', generated,
+  ], { windowsHide: true })
+  const source = await readFile(generated)
+  const mediaHash = createHash('sha256').update(source).digest('hex')
+  await writeFile(join(reviewDir, `original-${mediaHash}.mp4`), source)
+  const reportPath = join(reviewDir, createHash('sha256').update(key).digest('hex') + '.json')
+  const report = JSON.stringify({
+    idempotency_key: key, task_id: task, status: 'awaiting_review',
+    media_checks: [{ sha256: 'sha256:' + mediaHash, video: true, audio: true }],
+  })
+  const digest = createHash('sha256').update(report).digest('hex')
+  const approval = JSON.stringify({ action: 'approve', digest })
+  await writeFile(reportPath, report)
+  await writeFile(reportPath + '.decision.json', approval)
+
+  const boot = () => launchWebScaffold({ extraOverlayPath: overlay, extraInstallAnchors: [JUBIAN_MANIFEST], harnessHome })
+  scaffold = await boot()
+  expect(scaffold.ctx.get('approvedClipDraft')).toBeUndefined()
+  const recovery = scaffold.ctx.get('jubianVideoRecovery')
+  expect(recovery).toBeDefined()
+  expect((await recovery!.status()).decoderAvailable).toBe(false)
+  await expect(recovery!.deliverApprovedMp4({ idempotencyKey: key, digest: '0'.repeat(64) })).rejects.toThrow()
+  await expect(readdir(exportsDir)).rejects.toMatchObject({ code: 'ENOENT' })
+  const executablePath = process.env.DSH_PLAYWRIGHT_EXECUTABLE_PATH
+  const browser = await chromium.launch(executablePath === undefined ? {} : { executablePath })
+  resources.browser = browser
+  const page = await newEnglishPage(browser)
+  let currentPage = page
+  onTestFailed(() => saveFailureShot(currentPage, 'muse-jubian-direct-mp4'))
+  const console = watchConsole(page)
+  await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+  const settings = await openJubianSettings(page)
+  const ready = settings.getByRole('article').filter({ hasText: 'Task 335345' })
+  await ready.getByText('Approved', { exact: true }).waitFor()
+  expect(await ready.getByRole('button', { name: 'Deliver with Jianying', exact: true }).count()).toBe(0)
+  await ready.getByRole('button', { name: 'Deliver MP4 directly', exact: true }).click()
+  await ready.getByText('MP4 delivered directly', { exact: true }).waitFor()
+  await ready.getByText('SHA-256 ' + mediaHash, { exact: true }).waitFor()
+  const outputs = await readdir(exportsDir)
+  expect(outputs).toHaveLength(1)
+  const exportPath = 'exports/' + outputs[0]!
+  await ready.getByText(exportPath, { exact: true }).waitFor()
+  expect(await readFile(join(projectDir, exportPath))).toEqual(source)
+  expect(await readFile(reportPath, 'utf8')).toBe(report)
+  expect(await readFile(reportPath + '.decision.json', 'utf8')).toBe(approval)
+  expect(console.pageErrors).toEqual([])
+
+  await page.close()
+  await scaffold.close()
+  scaffold = undefined
+  await unlink(join(harnessHome, 'profiles', 'scaffold', 'node_modules', '@deepseek-ai', 'dsh-tool-jubian'))
+  scaffold = await boot()
+  expect(scaffold.ctx.get('approvedClipDraft')).toBeUndefined()
+  currentPage = await newEnglishPage(browser)
+  const restartedConsole = watchConsole(currentPage)
+  await currentPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+  const restored = await openJubianSettings(currentPage)
+  const row = restored.getByRole('article').filter({ hasText: 'Task 335345' })
+  await row.getByText('Approved', { exact: true }).waitFor()
+  await row.getByText('MP4 delivered directly', { exact: true }).waitFor()
+  await row.getByText(exportPath, { exact: true }).waitFor()
+  await row.getByText('SHA-256 ' + mediaHash, { exact: true }).waitFor()
+  expect(await readFile(reportPath, 'utf8')).toBe(report)
+  expect(await readFile(reportPath + '.decision.json', 'utf8')).toBe(approval)
+  expect(await readdir(exportsDir)).toEqual(outputs)
+  const restoredStatus = await scaffold.ctx.get('jubianVideoRecovery')?.status()
+  expect(restoredStatus?.reports[0]).toMatchObject({ digest, directDelivery: { path: exportPath, sha256: mediaHash } })
+  expect(restartedConsole.pageErrors).toEqual([])
+  if (mode === 'refresh') await mkdir(expected, { recursive: true })
+  const aria = await captureStableAria(currentPage, '[aria-label="Project video recovery"]', root, {
+    replacements: [[projectDir.replaceAll('\\', '\\\\'), '{{project}}'], [projectDir, '{{project}}'],
+      [exportPath, '{{direct-export}}'], [mediaHash, '{{media-sha256}}']],
+  })
+  await compareOrRefreshGolden(join(expected, 'direct-delivery.expected.md'), aria, mode)
+})
 async function openJubianSettings(page: Page) {
   await openSettings(page, 'en')
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })

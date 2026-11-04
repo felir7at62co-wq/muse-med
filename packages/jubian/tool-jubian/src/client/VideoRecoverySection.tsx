@@ -49,6 +49,12 @@ export interface VideoRecoveryControls {
    * @returns The updated report with verified delivery.
    */
   deliverApprovedClip: (input: ApprovedClipDeliveryInput) => Promise<RemoteResult<VideoRecoveryReview>>
+  /**
+   * Deliver the exact approved MP4 into the project's exports folder.
+   * @param input - Report key and approved digest.
+   * @returns The updated report with the direct MP4 receipt.
+   */
+  deliverApprovedMp4: (input: ApprovedClipDeliveryInput) => Promise<RemoteResult<VideoRecoveryReview>>
   /** Open the available directory chooser. */
   pickDirectory?: () => Promise<string | null>
 }
@@ -62,6 +68,7 @@ const actionLabels = {
   verifyExport: 'recoveryVerifyExport',
 } as const
 type ReportAction = keyof typeof actionLabels
+type DeliveryMethod = 'mp4' | 'jianying'
 
 function remoteValue<T>(result: RemoteResult<T>): T {
   if (!result.ok) throw new Error(result.error.message || result.error.code)
@@ -93,7 +100,7 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
   const [notice, setNotice] = useState<string>()
   const [pending, setPending] = useState<{ action: ReportAction; report: VideoRecoveryReview }>()
   const [reviewError, setReviewError] = useState<string>()
-  const [activeDelivery, setActiveDelivery] = useState<string>()
+  const [activeDelivery, setActiveDelivery] = useState<{ key: string; method: DeliveryMethod }>()
   const [reviewReason, setReviewReason] = useState('')
   const [mediaPath, setMediaPath] = useState('')
 
@@ -161,11 +168,12 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
         : row),
     }))
   }
-  const deliver = async (report: VideoRecoveryReview) => {
-    setActiveDelivery(report.idempotencyKey)
+  const deliver = async (report: VideoRecoveryReview, method: DeliveryMethod) => {
+    setActiveDelivery({ key: report.idempotencyKey, method })
     try {
       await run(async () => {
-        const saved = remoteValue(await controls.deliverApprovedClip({ idempotencyKey: report.idempotencyKey, digest: report.digest }))
+        const input = { idempotencyKey: report.idempotencyKey, digest: report.digest }
+        const saved = remoteValue(await (method === 'mp4' ? controls.deliverApprovedMp4(input) : controls.deliverApprovedClip(input)))
         updateReport(report, saved)
       })
     } finally {
@@ -277,6 +285,22 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
               ))}
               {canDeliver(report) && (
                 <div className={css.field}>
+                  {report.directDelivery && (
+                    <>
+                      <p className={css.recoveryTitle}>{t('recoveryMp4Delivered')}</p>
+                      <p className={css.label}>{report.directDelivery.path}</p>
+                      <p className={css.label}>{t('recoveryMp4Digest', { digest: report.directDelivery.sha256 })}</p>
+                    </>
+                  )}
+                  <div className={css.actions}>
+                    <Button variant="outline" size="sm" disabled={busy}
+                      onClick={() => { void deliver(report, 'mp4') }}>
+                      {t('recoveryDeliverMp4')}
+                    </Button>
+                    {activeDelivery?.key === report.idempotencyKey && activeDelivery.method === 'mp4' && (
+                      <p className={css.label} role="status">{t('recoveryDeliveringMp4')}</p>
+                    )}
+                  </div>
                   {report.delivery && (
                     <>
                       <p className={css.recoveryTitle}>{t('recoveryDraftCreated', { name: report.delivery.draft.name })}</p>
@@ -296,10 +320,10 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
                   {state.automaticExportAvailable && (
                     <div className={css.actions}>
                       <Button variant="primary" size="sm" disabled={busy}
-                        onClick={() => { void deliver(report) }}>
+                        onClick={() => { void deliver(report, 'jianying') }}>
                         {t('recoveryDeliverClip')}
                       </Button>
-                      {activeDelivery === report.idempotencyKey && (
+                      {activeDelivery?.key === report.idempotencyKey && activeDelivery.method === 'jianying' && (
                         <p className={css.label} role="status">{t('recoveryDeliveringClip')}</p>
                       )}
                     </div>

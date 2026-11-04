@@ -18,6 +18,7 @@
     - paragraph: Output 1
     - paragraph: Video decodes
     - paragraph: Audio decodes
+    - button "Deliver MP4 directly"
     - paragraph: Jianying draft Fixture draft 335343
     - paragraph: {{project}}\fixture-draft
     - paragraph: Jianying export verified
