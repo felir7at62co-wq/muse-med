@@ -109,7 +109,8 @@ async function expectDirectVisit(ctx: Context, agent: Agent, counter: number) {
   const [message, metadata] = result.content
   expect(message).toEqual({ type: 'text', text: `Visit ${counter}: direct` })
   if (metadata?.type !== 'text') throw new Error('Missing browser visit metadata')
-  expect(JSON.parse(metadata.text)).toEqual({ counter, pid: expect.any(Number) })
+  const expectedPid: unknown = expect.any(Number)
+  expect(JSON.parse(metadata.text)).toEqual({ counter, pid: expectedPid })
 }
 
 function resource(ctx: Context, agent: Agent | undefined, name = 'read_mcp_resource', server = 'browser-fixture', callId = name) {
