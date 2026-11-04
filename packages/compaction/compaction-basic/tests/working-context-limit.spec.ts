@@ -817,4 +817,35 @@ describe('final working-context admission', () => {
     expect(adapter.requests).toHaveLength(0)
     expect(lastReason(agent)?.kind).toBe('aborted')
   })
+
+  it('rejects metadata that completes just before plugin disposal', async () => {
+    const { ctx, agent, adapter, compactionFiber } = await harness()
+    const metadata = Promise.withResolvers<LlmResolvedModelInfo>()
+    const entered = Promise.withResolvers<undefined>()
+    class DisposeAfterMetadata extends Promise<LlmResolvedModelInfo> {
+      override finally(onfinally?: (() => void) | null): Promise<LlmResolvedModelInfo> {
+        return super.finally(onfinally).then(async (info) => {
+          await compactionFiber.dispose()
+          return info
+        })
+      }
+    }
+    const completed = new DisposeAfterMetadata((resolve, reject) => {
+      void metadata.promise.then(resolve, reject)
+    })
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation(() => {
+      entered.resolve(undefined)
+      return completed
+    })
+    const run = send(agent)
+    await entered.promise
+    const cancelled = vi.spyOn(agent, 'cancel')
+    metadata.resolve({
+      provider: 'mock', id: 'limited', name: 'limited', context: { contextWindow: 10_000 }, defaultMaxTokens: 256,
+    })
+    await run
+    expect(cancelled).not.toHaveBeenCalled()
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
 })

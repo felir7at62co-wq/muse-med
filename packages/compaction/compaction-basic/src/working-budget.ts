@@ -100,8 +100,8 @@ export function registerWorkingBudget(
         const info = await ctx.llm.resolveModelInfo(options.provider, options.model, signal)
           .finally(() => { pending.delete(signal) })
         signal.throwIfAborted()
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal aborts pending metadata resolution.
-        /* v8 ignore if -- disposal aborts the pending agent before metadata resolution resumes. */ if (!active) throw stopped('unavailable')
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal may run after finally clears pending.
+        if (!active) throw stopped('unavailable')
         delete request.safeInputBudget
         if (info.context !== undefined) {
           const window = info.context.contextWindow

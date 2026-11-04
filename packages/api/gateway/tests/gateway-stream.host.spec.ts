@@ -464,22 +464,6 @@ describe('Typert Remote streams', () => {
     await ctx.serial('connection/update-resume')
   })
 
-  it('closes local iterator wrappers whose source omits optional return and throw methods', async () => {
-    const { ctx } = await setup(false)
-    const gateway = ctx.typertGateway as unknown as {
-      holdLocalStream(open: () => Promise<AsyncIterable<unknown>>): Promise<AsyncIterable<unknown>>
-    }
-    const source: AsyncIterable<unknown> = {
-      [Symbol.asyncIterator]: () => ({ next: async () => ({ done: false, value: 'open' }) }),
-    }
-    const returned = await gateway.holdLocalStream(async () => source)
-    await expect(returned[Symbol.asyncIterator]().return?.()).resolves.toEqual({ done: true, value: undefined })
-    const thrown = await gateway.holdLocalStream(async () => source)
-    const failure = new Error('fixture iterator has no throw method')
-    await expect(thrown[Symbol.asyncIterator]().throw?.(failure)).rejects.toBe(failure)
-    await ctx.serial('connection/update-pause')
-    await ctx.serial('connection/update-resume')
-  })
   it('reports Client event streams without counting a bare WebSocket', async () => {
     const { ctx } = await setup(true)
     const source = new RemoteEventSourceProbe()

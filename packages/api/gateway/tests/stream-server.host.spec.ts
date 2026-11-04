@@ -1,9 +1,10 @@
 import { once } from 'node:events'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf, type PeerId, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import WebSocket from 'ws'
+import WebSocket, { WebSocketServer } from 'ws'
 import {
   RemoteStreamMuxServer,
   type RemoteStreamFailureMapper,
@@ -33,22 +34,39 @@ afterEach(async () => {
 
 describe('Remote stream mux server carrier lifecycle', () => {
   it('terminates an upgrade completed after update admission was paused', async () => {
-    const mux = new RemoteStreamMuxServer(async () => (async function* () {})(), mapFailure, 2_000, 262_144)
-    const server = (mux as unknown as {
-      server: { handleUpgrade: (request: unknown, socket: unknown, head: unknown, done: (socket: WebSocket) => void) => void }
-    }).server
-    let complete: ((socket: WebSocket) => void) | undefined
-    vi.spyOn(server, 'handleUpgrade').mockImplementation((_request, _socket, _head, done) => { complete = done })
+    const entry = await startMux(async () => (async function* () {})())
+    const intercepted = Promise.withResolvers<WebSocket>()
+    let complete: (() => void) | undefined
+    const upgrade = vi.spyOn(WebSocketServer.prototype, 'handleUpgrade')
+    upgrade.mockImplementation(function (
+      this: WebSocketServer, request: IncomingMessage, socket: Duplex, head: Buffer,
+      done: Parameters<WebSocketServer['handleUpgrade']>[3],
+    ) {
+      upgrade.mockRestore()
+      this.handleUpgrade(request, socket, head, (websocket) => {
+        complete = () => { done(websocket, request) }
+        intercepted.resolve(websocket)
+      })
+    })
+    const client = new WebSocket(entry.url)
+    const opened = once(client, 'open')
+    void opened.catch(() => undefined)
     try {
-      const request = {} as Parameters<RemoteStreamMuxServer['handleUpgrade']>[0]
-      const socket = {} as Parameters<RemoteStreamMuxServer['handleUpgrade']>[1]
-      mux.handleUpgrade(request, socket, Buffer.alloc(0), {} as PeerScope)
-      expect(complete).toBeDefined()
-      await mux.pause()
-      const terminate = vi.fn()
-      complete?.({ terminate } as unknown as WebSocket)
-      expect(terminate).toHaveBeenCalledOnce()
-    } finally { await mux.close() }
+      const websocket = await intercepted.promise
+      await opened
+      const terminate = vi.spyOn(websocket, 'terminate')
+      await entry.mux.pause()
+      const count = terminate.mock.calls.length
+      complete?.()
+      expect(terminate).toHaveBeenCalledTimes(count + 1)
+    } finally {
+      if (client.readyState !== WebSocket.CLOSED) {
+        const closed = new Promise<undefined>((resolve) => { client.once('close', () => { resolve(undefined) }) })
+        client.on('error', () => undefined)
+        client.terminate()
+        await closed
+      }
+    }
   })
 
   it('pauses new socket streams and waits for cancelled stream cleanup before resuming', async () => {
