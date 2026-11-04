@@ -898,6 +898,7 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-creation-stage-diagnostics',
   'muse-creation-tool-argument-recovery',
   'muse-editing-tool-catalog',
+  'muse-resident-view',
   'muse-script-refinement',
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
