@@ -406,7 +406,7 @@
       "kind": "event",
       "event": "agent/inbox/spliced",
       "surface": false,
-      "digest": "36d9e021c14447252c9a0dc79d33b396c264282f755903159327fe325ee6ef31",
+      "digest": "4b9599858dc5a5a9d7f120e4b57ea2d0ff3171245b369dd39afa9dabdb475bf5",
       "schema": {
         "root": 0,
         "nodes": [
@@ -931,11 +931,11 @@
               177,
               179,
               187,
-              190,
-              192,
-              193,
-              195,
+              191,
+              194,
+              196,
               197,
+              199,
               201,
               203,
               211,
@@ -3002,18 +3002,73 @@
             "kind": "object",
             "properties": [
               {
+                "name": "bounded",
+                "type": 27,
+                "optional": true
+              },
+              {
+                "name": "entries",
+                "type": 188,
+                "optional": false
+              },
+              {
+                "name": "form",
+                "type": 129,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 190,
+                "optional": false
+              },
+              {
+                "name": "update",
+                "type": 27,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 189
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "skill-catalog"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
                 "name": "callId",
                 "type": 7,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 188,
+                "type": 192,
                 "optional": false
               },
               {
                 "name": "outcome",
-                "type": 189,
+                "type": 193,
                 "optional": false
               }
             ],
@@ -3037,7 +3092,7 @@
               },
               {
                 "name": "kind",
-                "type": 191,
+                "type": 195,
                 "optional": false
               }
             ],
@@ -3078,7 +3133,7 @@
               },
               {
                 "name": "kind",
-                "type": 194,
+                "type": 198,
                 "optional": false
               },
               {
@@ -3108,7 +3163,7 @@
               },
               {
                 "name": "kind",
-                "type": 196,
+                "type": 200,
                 "optional": false
               },
               {
@@ -3137,56 +3192,6 @@
           {
             "kind": "literal",
             "value": "webhook"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "entries",
-                "type": 198,
-                "optional": false
-              },
-              {
-                "name": "form",
-                "type": 129,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 200,
-                "optional": false
-              },
-              {
-                "name": "update",
-                "type": 27,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "array",
-            "element": 199
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 7,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "skill-catalog"
           },
           {
             "kind": "object",
@@ -6761,7 +6766,7 @@
       "kind": "event",
       "event": "developer/message",
       "surface": true,
-      "digest": "2905955547068b8519caf2470abf2861fdc41ddba2fa8d762d454c5436e29761",
+      "digest": "86570a1d97f83ba130d5754ff29bfb9d484d52ec8ce6ea7742c0ccbd9a3455f6",
       "schema": {
         "root": 0,
         "nodes": [
@@ -7287,11 +7292,11 @@
               177,
               179,
               187,
-              190,
-              192,
-              193,
-              195,
+              191,
+              194,
+              196,
               197,
+              199,
               201,
               203,
               211,
@@ -9362,18 +9367,73 @@
             "kind": "object",
             "properties": [
               {
+                "name": "bounded",
+                "type": 26,
+                "optional": true
+              },
+              {
+                "name": "entries",
+                "type": 188,
+                "optional": false
+              },
+              {
+                "name": "form",
+                "type": 128,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 190,
+                "optional": false
+              },
+              {
+                "name": "update",
+                "type": 26,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 189
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "skill-catalog"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
                 "name": "callId",
                 "type": 7,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 188,
+                "type": 192,
                 "optional": false
               },
               {
                 "name": "outcome",
-                "type": 189,
+                "type": 193,
                 "optional": false
               }
             ],
@@ -9397,7 +9457,7 @@
               },
               {
                 "name": "kind",
-                "type": 191,
+                "type": 195,
                 "optional": false
               }
             ],
@@ -9438,7 +9498,7 @@
               },
               {
                 "name": "kind",
-                "type": 194,
+                "type": 198,
                 "optional": false
               },
               {
@@ -9468,7 +9528,7 @@
               },
               {
                 "name": "kind",
-                "type": 196,
+                "type": 200,
                 "optional": false
               },
               {
@@ -9497,56 +9557,6 @@
           {
             "kind": "literal",
             "value": "webhook"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "entries",
-                "type": 198,
-                "optional": false
-              },
-              {
-                "name": "form",
-                "type": 128,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 200,
-                "optional": false
-              },
-              {
-                "name": "update",
-                "type": 26,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "array",
-            "element": 199
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 7,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 7,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "skill-catalog"
           },
           {
             "kind": "object",
@@ -12638,7 +12648,7 @@
       "kind": "event",
       "event": "session/title-llm-request",
       "surface": false,
-      "digest": "887a4e5f9db8d6ac0451a64438ab53ae322bb3c18841db64e152abd39b31554b",
+      "digest": "1b4648416a7646623c1af3190cfda7a0e8cdc600440becb2da3d5e314fdc413f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -13175,16 +13185,13 @@
               110,
               111,
               120,
-              123,
               124,
-              126,
               127,
               128,
+              130,
               131,
-              134,
+              132,
               135,
-              136,
-              137,
               138,
               139,
               140,
@@ -13194,24 +13201,27 @@
               144,
               145,
               146,
+              147,
               148,
               149,
               150,
+              151,
               152,
-              153,
               154,
               155,
               156,
               157,
               158,
               159,
-              160,
               161,
               162,
               163,
               164,
               165,
               166,
+              167,
+              168,
+              169,
               170,
               172,
               173,
@@ -14115,18 +14125,73 @@
             "kind": "object",
             "properties": [
               {
+                "name": "bounded",
+                "type": 27,
+                "optional": true
+              },
+              {
+                "name": "entries",
+                "type": 121,
+                "optional": false
+              },
+              {
+                "name": "form",
+                "type": 46,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 123,
+                "optional": false
+              },
+              {
+                "name": "update",
+                "type": 27,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 122
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 10,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "skill-catalog"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
                 "name": "callId",
                 "type": 10,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 121,
+                "type": 125,
                 "optional": false
               },
               {
                 "name": "outcome",
-                "type": 122,
+                "type": 126,
                 "optional": false
               }
             ],
@@ -14171,7 +14236,7 @@
               },
               {
                 "name": "kind",
-                "type": 125,
+                "type": 129,
                 "optional": false
               },
               {
@@ -14233,12 +14298,12 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 130,
+                "type": 134,
                 "optional": false
               },
               {
@@ -14267,12 +14332,12 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 133,
+                "type": 137,
                 "optional": false
               },
               {
@@ -14296,7 +14361,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14317,7 +14382,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14338,7 +14403,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14359,7 +14424,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14380,7 +14445,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14401,7 +14466,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14422,7 +14487,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14443,7 +14508,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14464,7 +14529,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14485,7 +14550,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14506,7 +14571,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14527,7 +14592,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14547,53 +14612,8 @@
             "kind": "object",
             "properties": [
               {
-                "name": "deliveryId",
-                "type": 10,
-                "optional": false
-              },
-              {
                 "name": "form",
-                "type": 129,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 147,
-                "optional": false
-              },
-              {
-                "name": "provider",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "ruleId",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "source",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "summary",
-                "type": 10,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "webhook"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14614,7 +14634,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
@@ -14635,12 +14655,12 @@
             "properties": [
               {
                 "name": "form",
-                "type": 129,
+                "type": 133,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 151,
+                "type": 153,
                 "optional": false
               },
               {
@@ -14739,6 +14759,51 @@
             "kind": "object",
             "properties": [
               {
+                "name": "deliveryId",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "form",
+                "type": 133,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 160,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "ruleId",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "source",
+                "type": 10,
+                "optional": false
+              },
+              {
+                "name": "summary",
+                "type": 10,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "webhook"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
                 "name": "form",
                 "type": 118,
                 "optional": false
@@ -14878,56 +14943,6 @@
               }
             ],
             "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "entries",
-                "type": 167,
-                "optional": false
-              },
-              {
-                "name": "form",
-                "type": 46,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 169,
-                "optional": false
-              },
-              {
-                "name": "update",
-                "type": 27,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "array",
-            "element": 168
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 10,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "skill-catalog"
           },
           {
             "kind": "object",
@@ -15187,7 +15202,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15203,7 +15218,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15219,7 +15234,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15235,7 +15250,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15251,7 +15266,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15377,7 +15392,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15393,7 +15408,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15409,7 +15424,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15425,7 +15440,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15441,7 +15456,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15457,7 +15472,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15473,7 +15488,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15489,7 +15504,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -15505,7 +15520,7 @@
             "properties": [
               {
                 "name": "form",
-                "type": 132,
+                "type": 136,
                 "optional": false
               },
               {
@@ -19821,7 +19836,7 @@
       "kind": "event",
       "event": "user/message",
       "surface": true,
-      "digest": "7d890878cfad3f9b08b4657f31badbd9c8d5d7f69af360935090ab352d65db14",
+      "digest": "fcdab486414b444359406acad9066f78a3918325afa9e89f27bd2d07f18211cc",
       "schema": {
         "root": 0,
         "nodes": [
@@ -20318,11 +20333,11 @@
               173,
               174,
               182,
-              185,
-              187,
-              188,
-              190,
+              186,
+              189,
+              191,
               192,
+              194,
               196,
               198,
               206,
@@ -22329,18 +22344,73 @@
             "kind": "object",
             "properties": [
               {
+                "name": "bounded",
+                "type": 25,
+                "optional": true
+              },
+              {
+                "name": "entries",
+                "type": 183,
+                "optional": false
+              },
+              {
+                "name": "form",
+                "type": 124,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 185,
+                "optional": false
+              },
+              {
+                "name": "update",
+                "type": 25,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 184
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "description",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "skill-catalog"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
                 "name": "callId",
                 "type": 5,
                 "optional": false
               },
               {
                 "name": "kind",
-                "type": 183,
+                "type": 187,
                 "optional": false
               },
               {
                 "name": "outcome",
-                "type": 184,
+                "type": 188,
                 "optional": false
               }
             ],
@@ -22364,7 +22434,7 @@
               },
               {
                 "name": "kind",
-                "type": 186,
+                "type": 190,
                 "optional": false
               }
             ],
@@ -22405,7 +22475,7 @@
               },
               {
                 "name": "kind",
-                "type": 189,
+                "type": 193,
                 "optional": false
               },
               {
@@ -22435,7 +22505,7 @@
               },
               {
                 "name": "kind",
-                "type": 191,
+                "type": 195,
                 "optional": false
               },
               {
@@ -22464,56 +22534,6 @@
           {
             "kind": "literal",
             "value": "webhook"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "entries",
-                "type": 193,
-                "optional": false
-              },
-              {
-                "name": "form",
-                "type": 124,
-                "optional": false
-              },
-              {
-                "name": "kind",
-                "type": 195,
-                "optional": false
-              },
-              {
-                "name": "update",
-                "type": 25,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "array",
-            "element": 194
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "description",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "name",
-                "type": 5,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "skill-catalog"
           },
           {
             "kind": "object",
@@ -23790,11 +23810,6 @@
       ]
     },
     {
-      "digest": "0f7b5bce98a219dc42c0846aea1e6537d00c7f6b78d4df2a4b29b3ae19c15683",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce",
       "names": [],
       "sources": []
@@ -23840,6 +23855,11 @@
     },
     {
       "digest": "12a0cfa619ac4a5fc6c3e8e359c8dae15769edc61497a575935c78d5842f8e42",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "12c69ff4a5c1b1b7f930623f04ef79c9087a01c119529ac8532af7633be3d944",
       "names": [],
       "sources": []
     },
@@ -23988,6 +24008,11 @@
       "sources": []
     },
     {
+      "digest": "1b4648416a7646623c1af3190cfda7a0e8cdc600440becb2da3d5e314fdc413f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "1b5649238876e28811e80f10ec67a00c197ad3babd4ecc61a22b09064b88c597",
       "names": [],
       "sources": [
@@ -24120,6 +24145,15 @@
       "sources": []
     },
     {
+      "digest": "20820636529d1928297da0be1e8631547be41f00e8ec9086a2e0c95ae29e360f",
+      "names": [
+        "packages/llm/llm/src/message.ts#DeveloperMessage"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:157"
+      ]
+    },
+    {
       "digest": "20a57544bbf204dacd1ae6beb2ab29444365c3c869f2afdf489dcdcbc3d9c8c5",
       "names": [],
       "sources": [
@@ -24139,15 +24173,6 @@
       "digest": "2142e391b9ccb60d487afcf373ce74db98d952f69e8289eddb352a7e16e996c5",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "2146edbe1a44b220364030b3853cfe22ca076ad8352c09041dc5901d7a668a03",
-      "names": [
-        "packages/llm/llm/src/message.ts#MessageSource"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:136"
-      ]
     },
     {
       "digest": "2152caf1a71e588e4df2358a806dea24936c1c47131134f01a12939d12cdc0c0",
@@ -24187,6 +24212,15 @@
       "digest": "24b10f7cdae64928f89c49afc2eca0af9eb4a2f135e16f3416e6b8461fef1748",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "24b911c79538795755bbfcdb94a368ba8975121360666a02e9a39387b47f2e61",
+      "names": [
+        "packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"
+      ],
+      "sources": [
+        "packages/session/session-title-llm/src/index.ts:34"
+      ]
     },
     {
       "digest": "24ce31aa528272e59f21cd26da9eca08968bcc97529756a749bfdab71746d9c8",
@@ -24238,15 +24272,6 @@
       "sources": []
     },
     {
-      "digest": "27ca15e20d6a5050a951de97e6c4143eeeefdf1c6f72af46e60fd8407d08bb9c",
-      "names": [
-        "packages/llm/llm/src/message.ts#UserMessage"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:162"
-      ]
-    },
-    {
       "digest": "287211846beea1eccb5f9acee00d20388a38fcb2e95858fa2332d6f58529379a",
       "names": [],
       "sources": [
@@ -24255,11 +24280,6 @@
     },
     {
       "digest": "28936c614bd4e7e2774806edcbb3cbfd3ee643ac1cbf0bbdff43d915505a8fe3",
-      "names": [],
-      "sources": []
-    },
-    {
-      "digest": "2905955547068b8519caf2470abf2861fdc41ddba2fa8d762d454c5436e29761",
       "names": [],
       "sources": []
     },
@@ -24479,11 +24499,6 @@
       "sources": []
     },
     {
-      "digest": "36d9e021c14447252c9a0dc79d33b396c264282f755903159327fe325ee6ef31",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006",
       "names": [],
       "sources": []
@@ -24540,15 +24555,6 @@
       ],
       "sources": [
         "packages/feedback/message-feedback/src/types.ts:17"
-      ]
-    },
-    {
-      "digest": "39e32f237d2af9ffe0833a9551e78f224306116a0255922310e680a6598e60c6",
-      "names": [
-        "packages/llm/llm/src/message.ts#DeveloperMessage"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:157"
       ]
     },
     {
@@ -24648,6 +24654,13 @@
       ]
     },
     {
+      "digest": "3e9a5ca4cfdb52298567ab18a4c4366a0a779ad0700d81eb758ee556a9942905",
+      "names": [],
+      "sources": [
+        "packages/core/session/src/types.ts:315"
+      ]
+    },
+    {
       "digest": "3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796",
       "names": [],
       "sources": []
@@ -24670,13 +24683,6 @@
       "digest": "408927267422a7b2beb6df354ff7c1406d929a5646554f48adf85eb8372f811c",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "424b21b5cae98788b7d71aff377aebb4ac369017f186b2b883ba450924678349",
-      "names": [],
-      "sources": [
-        "packages/core/agent/src/types.ts:96"
-      ]
     },
     {
       "digest": "42e0916e0dda5f6d1e7bb05d8514717147c036a79c9f36085683469516c1fd3f",
@@ -24806,6 +24812,11 @@
     },
     {
       "digest": "4b7ddaf3710b88ff9b8df66304f5f97bf03688fd19730eedc2e9535203c820ea",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "4b9599858dc5a5a9d7f120e4b57ea2d0ff3171245b369dd39afa9dabdb475bf5",
       "names": [],
       "sources": []
     },
@@ -24945,13 +24956,6 @@
       "digest": "516da4cdd6d2f1e5ce488e648578ca51f40e458f707b803e5b24de870e799415",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "5186557c16eaab6113e3526a7f0cb1b99a5d2c612b6ffaa0d1dd6589a5464f2a",
-      "names": [],
-      "sources": [
-        "packages/core/session/src/types.ts:315"
-      ]
     },
     {
       "digest": "51edec100659da3a9bd9c3f6ba1180f5e64ec9a1585e5057080df45c180bd357",
@@ -25267,6 +25271,13 @@
       ]
     },
     {
+      "digest": "6656aa6a09362511b5ec60c43a53cd343ed7685afb97700498f82318a5d95681",
+      "names": [],
+      "sources": [
+        "packages/core/agent/src/types.ts:96"
+      ]
+    },
+    {
       "digest": "66ba70f6f068da443f969a0b947a013c3addd776b9b60a0a393759c19825e9a2",
       "names": [
         "packages/llm/llm/src/types.ts#ToolSchema"
@@ -25449,15 +25460,6 @@
       "sources": []
     },
     {
-      "digest": "70cbb6076b284aa6b74c21753f02d3c7671baf9808c0174ec1317bc222ad095c",
-      "names": [
-        "packages/llm/llm/src/message.ts#Message"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:196"
-      ]
-    },
-    {
       "digest": "71086620fbf5aaf452fdee70f76c0752fc5585e9e993ae4664841027fafcf7db",
       "names": [],
       "sources": []
@@ -25603,9 +25605,13 @@
       ]
     },
     {
-      "digest": "7d890878cfad3f9b08b4657f31badbd9c8d5d7f69af360935090ab352d65db14",
-      "names": [],
-      "sources": []
+      "digest": "7d68e392b5fda011b4767dca648264c5fbce7b375ae81d3bfd150dcb3377140b",
+      "names": [
+        "packages/llm/llm/src/message.ts#MessageSource"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:136"
+      ]
     },
     {
       "digest": "7df62978a2b7de8540e714152297743e0a622209a46a5ac9513fc0fad73ca23b",
@@ -25697,7 +25703,7 @@
       "digest": "83079c8a3f733ac3fa603eefa0fbb4737ca4d8b69e7e2e7298b60f9ac4098693",
       "names": [],
       "sources": [
-        "packages/skill/tool-skill/src/index.ts:42"
+        "packages/skill/tool-skill/src/index.ts:45"
       ]
     },
     {
@@ -25777,6 +25783,11 @@
       "sources": []
     },
     {
+      "digest": "86570a1d97f83ba130d5754ff29bfb9d484d52ec8ce6ea7742c0ccbd9a3455f6",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "86d1d0e9cfebb240421187e3dc37fb71cc38a1501885cf32f8f9adef7b0a2bde",
       "names": [
         "packages/subagent/subagent/src/descriptor.ts#SubagentDescriptorData"
@@ -25801,11 +25812,6 @@
     },
     {
       "digest": "87b1a33564b9a4d63b00988a524c12259243953aebb9c9a05127d87b27464df9",
-      "names": [],
-      "sources": []
-    },
-    {
-      "digest": "887a4e5f9db8d6ac0451a64438ab53ae322bb3c18841db64e152abd39b31554b",
       "names": [],
       "sources": []
     },
@@ -25859,6 +25865,15 @@
       "digest": "8af841fc9b265ade3441caf9fe40dd24db24226befba48150e6d0eeccc1389c3",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "8b1a575dd239bbebfb332ae4a511644b38df232d8f5319647f1614c972ee6343",
+      "names": [
+        "packages/llm/llm/src/message.ts#Message"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:196"
+      ]
     },
     {
       "digest": "8bb8c3751a6ce64b61aba1ec7ae798c00a5803c4d868a0430873216c6569ed52",
@@ -26470,11 +26485,6 @@
       "sources": []
     },
     {
-      "digest": "b15bd6661a7be1d6a31bb8bf89c11040e4c76d47e9ef1f20603a73dfbb25a78f",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "b1664fa89f8eab49a14e7e3168d8bc4da4aa9fd76332f6c4a053d839e5276ae7",
       "names": [],
       "sources": []
@@ -26775,6 +26785,15 @@
       ]
     },
     {
+      "digest": "c3470f68a0526ec6d30e505b69ab33ada919d0327d25cbc7436145ba2f8d839a",
+      "names": [
+        "packages/skill/tool-skill/src/index.ts#SkillCatalogSource"
+      ],
+      "sources": [
+        "packages/skill/tool-skill/src/index.ts:37"
+      ]
+    },
+    {
       "digest": "c36c97875983ee4ddd08eb8dc413ae62f748f0702afcbdbae872dbd46165a357",
       "names": [
         "packages/llm/llm/src/call-config.ts#LlmCallConfig"
@@ -26790,6 +26809,11 @@
     },
     {
       "digest": "c49291d32f05eb0fc332dcf0d3d1d4ad4282c248d59519842f8e1ef90ff9cdc0",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "c4e7894bbd0a14392c270c2a68121960fcb659e2e7e7838efe260091d559554e",
       "names": [],
       "sources": []
     },
@@ -26928,15 +26952,6 @@
       "digest": "d28765f87d6b6ab408e0b2f3e7e297791b004b806d8e302c49903ebae815feb2",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "d341b3ffeeea6b2c513f9cd37f35ae5a0ddc2daf4e6e4587535a6b26c99cf3b2",
-      "names": [
-        "packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"
-      ],
-      "sources": [
-        "packages/session/session-title-llm/src/index.ts:34"
-      ]
     },
     {
       "digest": "d4b739491689cc6bb13d07ffac1a32239875abda364c0d5edd8f74faf5e9c00d",
@@ -27275,6 +27290,15 @@
       "sources": []
     },
     {
+      "digest": "ee5542d9856d012bc026dbbaef4e68f1327dda6c69366e2ac40d88622b688cde",
+      "names": [
+        "packages/llm/llm/src/message.ts#UserMessage"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:162"
+      ]
+    },
+    {
       "digest": "ee577a0cc18664c9daee50e9455153321155604f8f1817362f8f4a4b6fb9e1ad",
       "names": [],
       "sources": []
@@ -27522,13 +27546,9 @@
       "sources": []
     },
     {
-      "digest": "fc2ae6962f9f8801c2b1e414668e1e17cbb7544c4f39381198977a38bd10c093",
-      "names": [
-        "packages/skill/tool-skill/src/index.ts#SkillCatalogSource"
-      ],
-      "sources": [
-        "packages/skill/tool-skill/src/index.ts:36"
-      ]
+      "digest": "fcdab486414b444359406acad9066f78a3918325afa9e89f27bd2d07f18211cc",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "fcf427290c6213c2a7feb57492d832ce324f5b9737a759f424dab69e6bd101a0",

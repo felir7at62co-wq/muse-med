@@ -28,6 +28,8 @@ flowchart LR
   svc_museAccount["ctx.museAccount<br/>Muse authenticated account operations"]
   pkg_tool_audio_transcribe["tool-audio-transcribe"]
   pkg_ui_muse_account["ui-muse-account"]
+  pkg_muse_market["muse-market"]
+  svc_museMarket["ctx.museMarket<br/>Muse market publication and local activation"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
   pkg_dsh_bridge["dsh-bridge"]
   pkg_hmr["hmr"]
@@ -382,6 +384,7 @@ flowchart LR
   pkg_message_feedback --> svc_messageFeedback
   pkg_muse_account --> svc_museAccount
   pkg_muse_account --> svc_museDesktopBridge
+  pkg_muse_market --> svc_museMarket
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_otel --> svc_otel
   pkg_permission_presets --> svc_permissionPresets
@@ -521,6 +524,7 @@ flowchart LR
   svc_museAccount --> pkg_tool_jubian
   svc_museAccount --> pkg_ui_muse_account
   svc_museDesktopBridge --> pkg_muse_account
+  svc_museMarket --> pkg_ui_muse_account
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
@@ -628,6 +632,7 @@ flowchart LR
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
+| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | `ui-muse-account` | - | The Host owns package validation, installation and retained session versions; the market UI uses Remote actions. The separate cloud profile owns publication review and publisher access. |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | The pinned bridge creates account-bound tunnels to the local Host; Muse Account owns connection refresh and disposal without cancelling agent turns. |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | Owns module and exact configuration watchers; application mutations share its queue and automatic reloads await the application file lock. |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | Races public registry responses on the Host; the Client owns the initial registry recommendation. |

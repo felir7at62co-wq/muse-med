@@ -1352,6 +1352,279 @@ describe('dsh-tool-skill', () => {
   })
 })
 
+describe('source-bounded runtime catalogs', () => {
+  function directUser(text: string): UserMessage {
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  }
+
+  async function commitStep(ctx: Context, agent: Agent, messages: UserMessage[]): Promise<void> {
+    const decision = await proposeStep(ctx, agent, messages)
+    if (decision.kind !== 'enter') throw new Error('expected catalog step admission')
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
+
+  it('publishes three of one hundred market summaries while preserving native sources without loading bodies', async () => {
+    const home = await tempDir('bounded-large-catalog')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 3 } })
+    let getCalls = 0
+    ctx.skills.registerProvider(() => ({
+      name: 'bounded-market-probe',
+      async list() {
+        return Array.from({ length: 100 }, (_, index) => ({
+          name: `market-${String(index).padStart(3, '0')}`,
+          description: index >= 70 && index <= 72 ? 'Create Word documents' : 'Other tasks',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: 'bounded-market-probe', source: 'muse-market', rank: 1, locator: index,
+        }))
+      },
+      async get(candidate) {
+        getCalls += 1
+        return { ...candidate, content: 'Body must stay unloaded.' }
+      },
+    }))
+    for (const source of ['runtime', 'bundled', 'custom']) {
+      ctx.skills.register({ name: `native-${source}`, description: 'Native skill', source, content: 'Native body.' })
+    }
+    const session = Session.create(SessionId('bounded-large-catalog'))
+    openMessageTurn(session)
+    await commitStep(ctx, sessionAgent(session), [directUser('Word documents')])
+
+    const catalog = catalogMessages(session).at(-1)
+    if (catalog?.data.source.kind !== 'skill-catalog') throw new Error('expected durable bounded catalog')
+    expect(catalog.data.source.bounded).toBe(true)
+    expect(catalog.data.source.entries.map(entry => entry.name)).toEqual([
+      'market-070', 'market-071', 'market-072', 'native-bundled', 'native-custom', 'native-runtime',
+    ])
+    expect(getCalls).toBe(0)
+    expect(JSON.stringify(catalog.data.content)).not.toContain('Body must stay unloaded.')
+    expect(JSON.stringify(catalog.data.content)).not.toContain('Native body.')
+    await ctx.fiber.dispose()
+  })
+
+  it('marks durable selected catalogs and describes both initial and replacement lists as incomplete', async () => {
+    const home = await tempDir('bounded-prompt-copy')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    for (const name of ['drawing', 'word']) {
+      ctx.skills.register({ name, description: name, source: 'muse-market', content: `${name} body` })
+    }
+    const session = Session.create(SessionId('bounded-prompt-copy'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await commitStep(ctx, agent, [directUser('drawing')])
+    await commitStep(ctx, agent, [directUser('word')])
+
+    const catalogs = catalogMessages(session)
+    expect(catalogs).toHaveLength(2)
+    for (const catalog of catalogs) {
+      expect(catalog.data.source).toMatchObject({ kind: 'skill-catalog', bounded: true })
+      const text = JSON.stringify(catalog.data.content)
+      expect(text).toContain('not the complete directory of permitted skills')
+      expect(text).not.toContain('This complete catalog')
+      expect(text).not.toContain('Use only names in this replacement catalog')
+      expect(text).toContain('exact name supplied by the user')
+    }
+    expect(catalogs[1]?.data.source).toMatchObject({ update: true })
+    await ctx.fiber.dispose()
+  })
+
+  it('loads permitted exact names outside a bounded catalog and still enforces invocation policy', async () => {
+    const home = await tempDir('bounded-call-policy')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    const getCalls: string[] = []
+    ctx.skills.registerProvider(() => ({
+      name: 'bounded-policy-probe',
+      async list() {
+        return ['advertised', 'unlisted', 'denied', 'policy-race'].map(name => ({
+          name, description: name,
+          invocation: { modelInvocable: name !== 'denied', userInvocable: true },
+          provider: 'bounded-policy-probe', source: 'muse-market', rank: 1, locator: name,
+        }))
+      },
+      async get(candidate) {
+        getCalls.push(candidate.name)
+        return {
+          ...candidate,
+          invocation: { modelInvocable: candidate.name !== 'policy-race', userInvocable: true },
+          content: `${candidate.name} instructions`,
+        }
+      },
+    }))
+    const session = Session.create(SessionId('bounded-call-policy'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await commitStep(ctx, agent, [directUser('advertised')])
+    const catalog = catalogMessages(session)[0]
+    expect(catalog?.data.source).toMatchObject({ entries: [{ name: 'advertised', description: 'advertised' }] })
+    expect(getCalls).toEqual([])
+
+    const unlisted = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('bounded-unlisted'),
+      name: 'skill', arguments: { name: 'unlisted' }, agent })
+    const denied = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('bounded-denied'),
+      name: 'skill', arguments: { name: 'denied' }, agent })
+    const raced = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('bounded-race'),
+      name: 'skill', arguments: { name: 'policy-race' }, agent })
+    expect(unlisted.isError).toBe(false)
+    expect(JSON.stringify(unlisted.content)).toContain('unlisted instructions')
+    expect(denied.isError).toBe(true)
+    expect(raced.isError).toBe(true)
+    expect(getCalls).toEqual(['unlisted', 'policy-race'])
+    expect(JSON.stringify(denied.content)).toContain('is not available for model invocation')
+    expect(JSON.stringify(raced.content)).not.toContain('policy-race instructions')
+    await ctx.fiber.dispose()
+  })
+
+  it('restores bounded selection from durable user intent without duplicate continuation catalogs', async () => {
+    const home = await tempDir('bounded-resume')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    for (const name of ['drawing', 'word']) {
+      ctx.skills.register({ name, description: name, source: 'muse-market', content: `${name} body` })
+    }
+    const session = Session.create(SessionId('bounded-resume'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await commitStep(ctx, agent, [directUser('word')])
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(1)
+
+    const restoredId = SessionId('bounded-restored')
+    const restored = Session.create(restoredId, session.snapshotEvents(), { ...session.header, id: restoredId })
+    const restoredAgent = sessionAgent(restored)
+    await fireStep(ctx, restoredAgent, 1, 3)
+    expect(catalogMessages(restored)).toHaveLength(1)
+    expect(catalogMessages(restored)[0]?.data.source).toMatchObject({
+      bounded: true, entries: [{ name: 'word', description: 'word' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it.each([false, true])('keeps bounded continuation selection when compaction hides the latest user and hidesCatalog=%s', async (hideCatalog) => {
+    const home = await tempDir('bounded-compacted-intent')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    try {
+      ctx.skills.register({ name: 'drawing', description: 'drawing', source: 'muse-market', content: 'drawing body' })
+      const removeWord = ctx.skills.register({ name: 'word', description: 'word', source: 'muse-market', content: 'word body' })
+      ctx.skills.register({ name: 'zeta', description: 'zeta', source: 'muse-market', content: 'zeta body' })
+      const session = Session.create(SessionId('bounded-compacted-intent'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+      await commitStep(ctx, agent, [directUser('drawing')])
+      await commitStep(ctx, agent, [directUser('/word now')])
+      const selected = catalogMessages(session).at(-1)!
+      expect(selected.data.source).toMatchObject({ bounded: true, entries: [{ name: 'word' }] })
+      const users = session.snapshotEvents().filter(event => event.type === 'user/message')
+      const latestUser = users.findLast(event => event.data.source.kind === 'user')!
+      const invocation = users.findLast(event => event.data.source.kind === 'skill-invocation')!
+      const replaced = hideCatalog ? [latestUser.seq, selected.seq, invocation.seq] : [latestUser.seq]
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'Continue the Word document task from compacted history.' }],
+        source: checkpointSource('bounded-compacted-intent'),
+      }), {
+        surfaceOp: { op: 'replace', startSeq: latestUser.seq, endSeq: hideCatalog ? invocation.seq : latestUser.seq },
+        sourceEventSeqs: replaced,
+      })
+      // The older visible drawing request must not rerank this tool-only continuation.
+      expect(session.deriveMessages().some(message => message.source.kind === 'user'
+        && message.content.some(block => block.type === 'text' && block.text === '/word now'))).toBe(false)
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(session)).toHaveLength(hideCatalog ? 3 : 2)
+      expect(catalogMessages(session).at(-1)?.data.source).toMatchObject({ bounded: true, entries: [{ name: 'word' }] })
+      expect(session.snapshotEvents().filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'skill-invocation')).toHaveLength(1)
+      if (hideCatalog) expect(JSON.stringify(session.deriveMessages())).not.toContain('word body')
+
+      removeWord()
+      await fireStep(ctx, agent, 1, 4)
+      expect(catalogMessages(session).at(-1)?.data.source).toMatchObject({ entries: [{ name: 'drawing' }] })
+      await commitStep(ctx, agent, [directUser('zeta')])
+      expect(catalogMessages(session).at(-1)?.data.source).toMatchObject({ entries: [{ name: 'zeta' }] })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each([true, false])('replaces identical entries when bounded mode changes from %s', async (initialBounded) => {
+    const home = await tempDir('bounded-mode-change')
+    const first = await setup(home, initialBounded ? { catalogSourceLimits: { 'muse-market': 3 } } : {})
+    first.skills.register({ name: 'same-skill', description: 'Same summary', source: 'muse-market', content: 'Body' })
+    const session = Session.create(SessionId('bounded-mode-change'))
+    openMessageTurn(session)
+    await fireStep(first, sessionAgent(session), 1, 1)
+    await first.fiber.dispose()
+
+    const second = await setup(home, initialBounded ? {} : { catalogSourceLimits: { 'muse-market': 3 } })
+    second.skills.register({ name: 'same-skill', description: 'Same summary', source: 'muse-market', content: 'Body' })
+    await fireStep(second, sessionAgent(session), 1, 2)
+    const catalogs = catalogMessages(session)
+    expect(catalogs).toHaveLength(2)
+    expect(catalogs[0]?.data.source).toMatchObject({ entries: [{ name: 'same-skill', description: 'Same summary' }] })
+    expect(catalogs[1]?.data.source).toMatchObject({ update: true, entries: [{ name: 'same-skill', description: 'Same summary' }] })
+    if (initialBounded) {
+      expect(catalogs[0]?.data.source).toHaveProperty('bounded', true)
+      expect(catalogs[1]?.data.source).not.toHaveProperty('bounded')
+    } else {
+      expect(catalogs[0]?.data.source).not.toHaveProperty('bounded')
+      expect(catalogs[1]?.data.source).toHaveProperty('bounded', true)
+    }
+    await fireStep(second, sessionAgent(session), 1, 3)
+    expect(catalogMessages(session)).toHaveLength(2)
+    await second.fiber.dispose()
+  })
+
+  it.each([0, -1, 1.5])('rejects a source entry limit of %s before registration', async (limit) => {
+    const home = await tempDir('bounded-invalid-limit')
+    const ctx = await setup(home)
+    try {
+      await expect(ctx.plugin(toolSkill, { catalogSourceLimits: { 'muse-market': limit } }))
+        .rejects.toThrow(/catalogSourceLimits|muse-market/)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each([false, 'true', 0, null])('does not accept malformed persisted bounded=%s as a last-good catalog', async (bounded) => {
+    const home = await tempDir('bounded-malformed-last-good')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 3 } })
+    ctx.skills.registerProvider(() => ({
+      name: 'bounded-incomplete',
+      async list() { throw new Error('provider unavailable') },
+      async get() { return undefined },
+    }))
+    const session = Session.create(SessionId('bounded-malformed-last-good'))
+    openMessageTurn(session)
+    session.append('user/message', createUserMessage({
+      content: catalogContent(['- `old-skill`: Old skill']),
+      source: { kind: 'skill-catalog', form: 'catalog', bounded,
+        entries: [{ name: 'old-skill', description: 'Old skill' }] } as never,
+    }), { surfaceOp: 'append' })
+
+    await expect(fireStep(ctx, sessionAgent(session), 1, 1)).rejects.toThrow('Skill preparation did not complete')
+    expect(catalogMessages(session)).toHaveLength(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('skips an invalid bounded marker when deciding whether the live catalog is a first publication', async () => {
+    const home = await tempDir('bounded-malformed-publication')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 3 } })
+    ctx.skills.register({ name: 'live-skill', description: 'Live skill', source: 'muse-market', content: 'Live body' })
+    const session = Session.create(SessionId('bounded-malformed-publication'))
+    openMessageTurn(session)
+    session.append('user/message', createUserMessage({
+      content: catalogContent(['- `live-skill`: Live skill']),
+      source: { kind: 'skill-catalog', form: 'catalog', bounded: false,
+        entries: [{ name: 'live-skill', description: 'Live skill' }] } as never,
+    }), { surfaceOp: 'append' })
+    await fireStep(ctx, sessionAgent(session), 1, 1)
+
+    const catalogs = catalogMessages(session)
+    expect(catalogs).toHaveLength(2)
+    expect(catalogs[1]?.data.source).toMatchObject({ bounded: true, entries: [{ name: 'live-skill', description: 'Live skill' }] })
+    expect(catalogs[1]?.data.source).not.toHaveProperty('update')
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('user-explicit invocation injection', () => {
   async function writePolicySkill(root: string, name: string, description: string, policy: string, body: string): Promise<void> {
     const dir = join(root, name)

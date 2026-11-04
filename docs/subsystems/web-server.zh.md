@@ -211,6 +211,103 @@ abstract createTunnel(options: MuseDesktopTunnelOptions): MuseDesktopTunnel
 
 Source: [`packages/host/muse-account/src/desktop-bridge.ts`](../../packages/host/muse-account/src/desktop-bridge.ts)
 
+<a id="ctxmusemarket--musemarket"></a>
+
+### `ctx.museMarket` — `MuseMarket`
+
+Cloud directory and immutable release files; installation and enablement are distinct.
+
+```ts cordis-catalog
+/** Resolve the exact enabled Bot release requested by the Host-synthesized child plugin.
+ * @param releaseId Installed Bot release identifier.
+ * @returns Provider backed by the verified, enabled release; rejects an unavailable release.
+ */
+async botSkillProvider(releaseId: string): Promise<SkillProvider>
+
+/** Search public releases or the signed-in creator's drafts.
+ * @param q Search text.
+ * @param kind Bot or Skill filter; empty selects both.
+ * @param mine Whether to include the creator's private releases.
+ * @returns Matching release metadata.
+ */
+@Remote('catalog') async catalog(q: string, kind: string, mine: boolean): Promise<MarketRelease[]>
+
+/** Read signed-in publisher membership and administrator status.
+ * @returns Account-safe publication privileges.
+ */
+@Remote('identity') async identity(): Promise<{ publishers: { id: string; title: string }[]; admin: boolean }>
+
+/** List local release files and their independent activation states.
+ * @returns Downloaded releases, including disabled versions.
+ */
+@Remote('installed') async installed(): Promise<MarketInstallation[]>
+
+/** List local authoring sources without reading or uploading their resources.
+ * @returns Discoverable Skill names and configured Bot identities.
+ */
+@Remote('sources') async sources(): Promise<{ website: string; skills: { name: string; description: string }[]; bots: { id: string; name: string }[] }>
+
+/** Prepare selected local resources for inspection and export before any upload.
+ * @param metadata Creator-entered publication information; execution fields are rebuilt from selected sources.
+ * @param skillNames Explicit local Skill selection.
+ * @param botId Local Bot identity, or empty for a standalone Skill.
+ * @returns A disabled local publication available for export and private draft upload.
+ */
+@Remote('prepare') async prepare(metadata: MarketManifest, skillNames: string[], botId: string): Promise<MarketInstallation>
+
+/** Download a selected release into local storage without enabling it.
+ * @param id Selected cloud release identity.
+ * @returns Verified local installation.
+ */
+@Remote('install') async install(id: MarketReleaseId): Promise<MarketInstallation>
+
+/** Import an explicitly selected local publication without uploading it.
+ * @param base64 Complete publication archive encoded by the local file picker.
+ * @returns The disabled local installation.
+ */
+@Remote('importPackage') async importPackage(base64: string): Promise<MarketInstallation>
+
+/** Enable or disable an installed release with explicit resource verification.
+ * @param id Installed release identity.
+ * @param enabled Requested enablement.
+ * @returns Persisted activation choice.
+ */
+@Remote('enable') async enable(id: MarketReleaseId, enabled: boolean): Promise<MarketInstallation>
+
+/** Remove an unused, disabled local installation while retaining shared cache files.
+ * @param id Installed release identity.
+ * @returns Completion after the ledger update.
+ */
+@Remote('remove') async remove(id: MarketReleaseId): Promise<void>
+
+/** Export exact local publication bytes to a user-requested download.
+ * @param id Installed release identity.
+ * @returns Filename and encoded publication archive.
+ */
+@Remote('exportPackage') async exportPackage(id: MarketReleaseId): Promise<{ name: string; base64: string }>
+
+/** Upload a selected installed release as a private cloud draft.
+ * @param id Installed release identity.
+ * @param publisherId Explicitly selected publisher.
+ * @param requestId Stable upload idempotency key.
+ * @returns The cloud draft; public submission is a separate action.
+ */
+@Remote('publishDraft') async publishDraft(id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string): Promise<MarketRelease>
+
+/** Submit a draft, review it, or withdraw a publication using the current revision.
+ * @param id Cloud release identity.
+ * @param revision Revision shown in the creator or administrator view.
+ * @param action Explicit submit, approve, reject or withdraw action.
+ * @param note Review reason.
+ * @returns Updated cloud release.
+ */
+@Remote('review') async review(id: MarketReleaseId, revision: number, action: string, note: string): Promise<MarketRelease>
+```
+
+Types: [SkillProvider](skills.zh.md)
+
+Source: [`packages/host/muse-market/src/index.ts`](../../packages/host/muse-market/src/index.ts)
+
 <a id="ctxwebserver--webserver"></a>
 
 ### `ctx.webServer` — `WebServer`

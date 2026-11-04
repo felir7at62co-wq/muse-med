@@ -35,6 +35,24 @@
     },
     {
       "path": "../ui-message-feedback"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../ui-layout"
+    },
+    {
+      "path": "../ui-sidebar"
+    },
+    {
+      "path": "../ui-workspace"
+    },
+    {
+      "path": "../../host/muse-market"
+    },
+    {
+      "path": "../../util/crypto"
     }
   ],
   "files": [
@@ -45,6 +63,28 @@
     "src/client/locales.ts",
     "src/client/MuseAccountLauncher.tsx",
     "src/client/MuseAccountOnboarding.tsx",
-    "src/client/MuseAccountSection.tsx"
+    "src/client/MuseAccountSection.tsx",
+    "src/client/MarketAnimation.tsx",
+    "src/client/MarketAuthorPreview.tsx",
+    "src/client/MarketCharacter.tsx",
+    "src/client/MarketCatalogArtwork.tsx",
+    "src/client/MarketCharacterGenerator.tsx",
+    "src/client/MarketPage.tsx",
+    "src/client/MarketReleaseDetails.tsx",
+    "src/client/MarketSection.tsx",
+    "src/client/market-character-generation.ts",
+    "src/client/market-feedback.tsx",
+    "src/client/market-locales.ts",
+    "src/client/market-mount.ts",
+    "src/client/MarketPublications.tsx",
+    "src/client/market-errors.ts",
+    "src/client/market-web-types.ts",
+    "src/client/market-stock-art.ts",
+    "src/client/market-preset-portraits.ts",
+    "src/client/market-preset-portrait-urls.ts",
+    "src/client/market-download.ts",
+    "src/client/MarketReleaseCard.tsx",
+    "src/client/MarketBrowserUpload.tsx",
+    "src/client/MarketContributionCard.tsx"
   ]
 }

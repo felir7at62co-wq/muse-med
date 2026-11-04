@@ -500,9 +500,9 @@ Source: [`packages/core/agent-loop/src/index.ts`](../../packages/core/agent-loop
 Registry of YAML-declared presets and the revisions live Agents retain.
 
 ```ts cordis-catalog
-/** Register and eagerly load a definition; activation failure remains visible in the roster.
+/** Register a definition and load it immediately unless it requests on-demand activation.
  * @param definition Parsed configuration supplied by the declaring plugin.
- * @returns Definition disposer after activation or its diagnostic settles; the declaring plugin owns it.
+ * @returns Definition disposer after eager activation settles, or immediately for an on-demand definition.
  */
 async register(definition: PresetDefinition): Promise<() => Promise<void>>
 

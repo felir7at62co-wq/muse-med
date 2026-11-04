@@ -37,6 +37,7 @@ The packages play the host roles; each package README owns its contract and conf
 | [`product-telemetry-otel/`](product-telemetry-otel/README.md) | Explicit product usage events over OTLP/HTTP | `ctx.productTelemetry` |
 | [`feishu-settings/`](feishu-settings/README.md) | Desktop Feishu setup and QR registration Settings page | Remote `feishuSetup` |
 | [`muse-account/`](muse-account/README.md) | Desktop MUSE sign-in and authorized knowledge-base reading | Remote `museAccount`; MCP tools |
+| [`muse-market/`](muse-market/README.md) | Bot and Skill publication, verified installation and explicit enablement | Remote `museMarket` |
 
 -----
 

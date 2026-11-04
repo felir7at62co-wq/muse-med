@@ -1,10 +1,11 @@
-/** Verify one exact unsigned build across all release targets and prepare its public mirror. */
+/** Verify exact Muse builds and prepare their public release mirror. */
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dump, load } from 'js-yaml'
-import { desktopUpdateChannel, desktopUpdateMetadataFilename, resolveDesktopMuseUpdateSources } from './desktop-auto-update-environment.mjs'
+import { desktopBuildRecordFilename, desktopUpdateChannel, desktopUpdateMetadataFilename, resolveDesktopAutoUpdateConfig, resolveDesktopMuseUpdateSources } from './desktop-auto-update-environment.mjs'
+import { inspectWindowsRuntimeSignature } from './windows-runtime-signature.mjs'
 
 const TARGETS = {
   'mac-arm64': { platform: 'darwin', arch: 'arm64', os: 'mac' },
@@ -38,14 +39,26 @@ async function fileDigests(path) {
 }
 
 /**
+ * Hash the full artifact inventory after packaging checks have passed.
+ * @param {string} target Desktop release target.
+ * @param {string} version Muse product version.
+ * @param {string} artifactsRoot Completed target's artifact directory.
+ * @returns {Promise<Record<string, {size: number, sha256: string, sha512: string}>>} Hashes by filename.
+ */
+export async function collectMuseArtifactHashes(target, version, artifactsRoot) {
+  const artifacts = {}
+  for (const filename of artifactNames(target, version)) artifacts[filename] = await fileDigests(join(artifactsRoot, filename))
+  return artifacts
+}
+
+/**
  * Record hashes after the complete unsigned packaging checks have passed.
  * @param {{target: string, version: string, sourceCommit: string, artifactsRoot: string}} options - Exact completed build and artifact directory.
  * @returns {Promise<object>} Public build identity written beside the artifacts.
  */
 export async function recordMuseUnsignedBuild({ target, version, sourceCommit, artifactsRoot }) {
   if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error('Muse mirror: an exact source commit is required')
-  const artifacts = {}
-  for (const filename of artifactNames(target, version)) artifacts[filename] = await fileDigests(join(artifactsRoot, filename))
+  const artifacts = await collectMuseArtifactHashes(target, version, artifactsRoot)
   const record = { schemaVersion: 1, target, version, sourceCommit, unsigned: true, artifacts }
   await writeFile(join(artifactsRoot, 'unsigned-build.json'), `${JSON.stringify(record, null, 2)}\n`)
   return record
@@ -61,22 +74,33 @@ function contentType(filename) {
 /**
  * Validate the selected builds before producing upload operations; omission selects both platforms.
  * Mac publication metadata retains its ZIP first and adds the verified DMG without rewriting build inputs.
- * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean, targets?: string[]}} options - Exact release, selected supported targets and completed target directories.
+ * @param {{version: string, sourceCommit: string, artifactDirectories: Record<string, string>, legacyRcDiscovery?: boolean, targets?: string[], signedWindows?: {dshVersion: string, certificateThumbprint: string, inspect?: typeof inspectWindowsRuntimeSignature}}} options - Exact release, completed target directories and optional Windows signature requirements.
  * @returns {Promise<{version: string, sourceCommit: string, artifacts: object[], metadata: object[], githubMetadata: object[]}>} Immutable binaries and channel metadata ordered separately for publication.
  */
 export async function createMuseMirrorPlan({ version, sourceCommit, artifactDirectories, legacyRcDiscovery = false,
-  targets = Object.keys(TARGETS) }) {
+  targets = Object.keys(TARGETS), signedWindows }) {
   if (!/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error('Muse mirror: an exact source commit is required')
   if (!Array.isArray(targets) || targets.length === 0 || new Set(targets).size !== targets.length
     || targets.some(target => !Object.hasOwn(TARGETS, target))) throw new Error('Muse mirror: invalid release targets')
+  if (signedWindows !== undefined && (targets.length !== 1 || targets[0] !== 'win-x64'
+    || !signedWindows.dshVersion || !/^[A-Fa-f0-9]{40}$/u.test(signedWindows.certificateThumbprint))) {
+    throw new Error('Muse mirror: signed publication requires only win-x64 and the configured Windows certificate')
+  }
   const artifacts = [], updates = {}
   for (const target of targets) {
     const { platform } = targetSettings(target)
     const root = artifactDirectories[target]
     if (typeof root !== 'string' || root === '') throw new Error(`Muse mirror: missing ${target} artifact directory`)
-    const record = object(JSON.parse(await readFile(join(root, 'unsigned-build.json'), 'utf8')), 'build record')
-    if (record.schemaVersion !== 1 || record.target !== target || record.version !== version
-      || record.sourceCommit !== sourceCommit || record.unsigned !== true) throw new Error(`Muse mirror: ${target} belongs to another build`)
+    const recordName = signedWindows === undefined ? 'unsigned-build.json' : desktopBuildRecordFilename(target)
+    const record = object(JSON.parse(await readFile(join(root, recordName), 'utf8')), 'build record')
+    const matchingIdentity = record.schemaVersion === 1 && record.target === target && record.version === version
+    if (!matchingIdentity || (signedWindows === undefined
+      ? record.sourceCommit !== sourceCommit || record.unsigned !== true
+      : record.commit !== sourceCommit || record.dirty !== false || record.dshVersion !== signedWindows.dshVersion
+        || record.environment !== 'production'
+        || record.publicUrl !== resolveDesktopAutoUpdateConfig({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'production' }, platform, TARGETS[target].arch).publicUrl)) {
+      throw new Error(`Muse mirror: ${target} belongs to another build`)
+    }
     const recordedFiles = object(record.artifacts, 'artifact hashes')
     for (const filename of artifactNames(target, version)) {
       const path = join(root, filename), digest = await fileDigests(path)
@@ -96,6 +120,13 @@ export async function createMuseMirrorPlan({ version, sourceCommit, artifactDire
     const binary = artifacts.find(file => file.key.startsWith(`releases/${version}/${target}/`) && file.filename === payloadName)
     if (!binary || info.url !== payloadName || update.path !== payloadName || update.sha512 !== binary.sha512
       || binary.sha512 !== info.sha512 || binary.size !== info.size) throw new Error(`Muse mirror: ${target} update checksum differs from its payload`)
+    if (signedWindows !== undefined) {
+      const signature = await (signedWindows.inspect ?? inspectWindowsRuntimeSignature)(binary.path)
+      if (signature.status !== 'Valid' || !signature.timestamped
+        || signature.thumbprint?.toUpperCase() !== signedWindows.certificateThumbprint.toUpperCase()) {
+        throw new Error('Muse mirror: installer requires a valid timestamped Authenticode signature from the configured certificate')
+      }
+    }
     updates[target] = update
   }
   const channel = desktopUpdateChannel(version)

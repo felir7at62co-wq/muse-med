@@ -1,0 +1,10 @@
+- insert:
+    - id: market-http
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: '127.0.0.1'
+        port: !!js Number(process.env.MUSE_MARKET_PORT)
+    - id: market-catalog
+      name: '@deepseek-ai/dsh-muse-market/cloud-host'
+      config:
+        policyFile: !!js process.env.MUSE_MARKET_POLICY

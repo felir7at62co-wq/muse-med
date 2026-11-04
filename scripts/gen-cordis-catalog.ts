@@ -61,6 +61,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   connection: 'web-server.md',
   museDesktopBridge: 'web-server.md',
   museAccount: 'web-server.md',
+  museMarket: 'web-server.md',
   pluginManager: 'boot.md',
   pluginRegistryProbe: 'boot.md',
   configEditor: 'boot.md',
@@ -857,6 +858,11 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  MarketRelease: 'Cloud release records are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketInstallation: 'Local activation records are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketManifest: 'Portable publication metadata is owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketReleaseId: 'Immutable release identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketPublisherId: 'Authenticated publisher identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterReferenceAuthorityRequest: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterLibraryStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',

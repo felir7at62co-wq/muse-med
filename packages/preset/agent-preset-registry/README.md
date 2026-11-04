@@ -56,7 +56,7 @@ Historical Muse preset ids `short-drama-local` and `editing` resolve to `short-d
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-Each declaration eagerly creates a registry-owned scope and an in-memory Loader tree. Updating or removing a declaration retires its previous revision. Agents, children and temporary historical reads retain references; releasing the final reference disposes the retired tree. Plugin registrations inherit the preset scope, and the Agent scope’s parent link controls visibility. The Host continues to share the Agent loop.
+Declarations eagerly create a registry-owned scope and an in-memory Loader tree by default. `activation: on-demand` defers that work until the first binding; listing, resolving metadata and reading the declaration do not activate plugins. Concurrent first bindings share one activation, and its failures are reported when binding. Updating or removing a declaration retires its previous revision. Agents, children and temporary historical reads retain references; releasing the final reference disposes the retired tree. Plugin registrations inherit the preset scope, and the Agent scope’s parent link controls visibility. The Host continues to share the Agent loop.
 
 A preset service provider and its consumers must share one `cordis:group` isolation realm. Entry-local isolation does not propagate through the Agent registration scope: ordinary Context lookup outside the group, including `agent.ctx`, still selects the Host realm. `agentPresets.serviceFor()` explicitly inspects the retained composition; it does not change ordinary service lookup.
 

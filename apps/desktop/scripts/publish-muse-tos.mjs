@@ -1,16 +1,19 @@
 /** Publish selected exact Muse builds to TOS, verifying public bytes before channel promotion. */
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createReadStream } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, X509Certificate } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { finished } from 'node:stream/promises'
 import { createMuseMirrorPlan } from './muse-release-mirror.mjs'
 import { readDesktopProductConfig } from './desktop-build-version.mjs'
+import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 
 const { values } = parseArgs({ options: {
   version: { type: 'string' }, commit: { type: 'string' },
   'mac-arm64': { type: 'string' }, 'win-x64': { type: 'string' },
   targets: { type: 'string' },
+  'signed-windows': { type: 'boolean', default: false },
   'dry-run': { type: 'boolean', default: false },
 } })
 
@@ -23,10 +26,28 @@ function required(name) {
 async function main() {
   const product = readDesktopProductConfig()
   if (values.version !== product.version) throw new Error('Muse TOS: release version differs from the current product version')
+  let signedWindows
+  if (values['signed-windows']) {
+    if (process.platform !== 'win32' || values.targets !== 'win-x64') {
+      throw new Error('Muse TOS: --signed-windows requires Windows and --targets win-x64')
+    }
+    const environment = loadDesktopPackageEnvironment('win32')
+    const certificatePath = environment.DSH_DESKTOP_WINDOWS_CER_FILE
+    if (!certificatePath) throw new Error('Muse TOS: DSH_DESKTOP_WINDOWS_CER_FILE must identify the public release certificate')
+    const [desktop, dsh, certificate] = await Promise.all([
+      readFile(new URL('../package.json', import.meta.url), 'utf8').then(JSON.parse),
+      readFile(new URL('../../../package.json', import.meta.url), 'utf8').then(JSON.parse),
+      readFile(certificatePath).then(bytes => new X509Certificate(bytes)),
+    ])
+    if (typeof dsh.version !== 'string' || dsh.version !== desktop.version) {
+      throw new Error('Muse TOS: Desktop and dsh package versions must match')
+    }
+    signedWindows = { dshVersion: dsh.version, certificateThumbprint: certificate.fingerprint.replaceAll(':', '') }
+  }
   const plan = await createMuseMirrorPlan({ version: values.version, sourceCommit: values.commit,
     artifactDirectories: Object.fromEntries(['mac-arm64', 'win-x64'].map(target => [target, values[target]])),
     ...(values.targets === undefined ? {} : { targets: values.targets.split(',') }),
-    legacyRcDiscovery: product.legacyRcDiscovery })
+    legacyRcDiscovery: product.legacyRcDiscovery, signedWindows })
   if (values['dry-run']) {
     console.log(JSON.stringify({ stage: 'validated', version: plan.version, sourceCommit: plan.sourceCommit,
       binaries: plan.artifacts.map(file => ({ key: file.key, sha256: file.sha256, size: file.size })), feeds: plan.metadata.map(file => file.key) }))

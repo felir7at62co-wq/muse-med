@@ -1,0 +1,32 @@
+[
+  {
+    "title": "生成动画形象",
+    "mode": "模拟生成流程：返回预制分镜导演素材，不会根据输入实时绘图，也不会上传",
+    "failure": "本次未完成，原有形象和已选候选仍保留",
+    "actions": [
+      "生成候选形象",
+      "重试"
+    ],
+    "outcome": [
+      {
+        "text": "形象生成未完成，请重试",
+        "failed": true
+      }
+    ]
+  },
+  {
+    "title": "Generate animated character",
+    "mode": "Simulated workflow: returns prepared director artwork, without drawing from your input or uploading.",
+    "failure": "This attempt did not complete. Your existing character and selected portrait are retained.",
+    "actions": [
+      "Generate portraits",
+      "Retry"
+    ],
+    "outcome": [
+      {
+        "text": "Character generation did not complete. Try again.",
+        "failed": true
+      }
+    ]
+  }
+]

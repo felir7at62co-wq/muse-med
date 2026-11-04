@@ -1,0 +1,6 @@
+{
+  "limits": { "archiveBytes": 16777216, "expandedBytes": 67108864, "fileCount": 512 },
+  "allowedPlugins": ["@deepseek-ai/dsh-persona", "@deepseek-ai/dsh-tool-skill"],
+  "requestTimeoutMs": 60000,
+  "metadataBytes": 16777216
+}

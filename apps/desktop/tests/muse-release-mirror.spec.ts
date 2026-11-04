@@ -41,7 +41,63 @@ async function fixture(version = '1.0.2') {
   return { version, sourceCommit, artifactDirectories, legacyRcDiscovery: true }
 }
 
+const signingThumbprint = 'D'.repeat(40)
+
+async function signedWindowsFixture() {
+  const f = await fixture()
+  const directory = f.artifactDirectories['win-x64']!
+  const { artifacts } = JSON.parse(await readFile(join(directory, 'unsigned-build.json'), 'utf8'))
+  const recordPath = join(directory, 'win-x64-release.json')
+  const record = { schemaVersion: 1, version: f.version, target: 'win-x64', commit: f.sourceCommit, dirty: false,
+    dshVersion: '0.2.1-alpha.1', environment: 'production', publicUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/',
+    artifacts }
+  await writeFile(recordPath, JSON.stringify(record))
+  const inspect = vi.fn<(path: string) => Promise<{ status: string; timestamped: boolean; thumbprint: string | null }>>()
+    .mockResolvedValue({ status: 'Valid', timestamped: true, thumbprint: signingThumbprint.toLowerCase() })
+  const options = { ...f, targets: ['win-x64'], signedWindows: { dshVersion: record.dshVersion, certificateThumbprint: signingThumbprint, inspect } }
+  return { directory, recordPath, record, inspect, options }
+}
+
 describe('Muse release mirror validation', () => {
+  it('prepares a signed production Windows release from the matching artifact record', async () => {
+    const f = await signedWindowsFixture()
+    const plan = await createMuseMirrorPlan(f.options)
+    expect(f.inspect).toHaveBeenCalledExactlyOnceWith(join(f.directory, 'muse-med-1.0.2-win-x64.exe'))
+    expect(plan.artifacts.map(file => file.filename)).toEqual(['muse-med-1.0.2-win-x64.exe', 'muse-med-1.0.2-win-x64.exe.blockmap'])
+    expect(plan.metadata.map(file => file.filename)).toEqual(['latest.yml', 'rc.yml'])
+  })
+
+  it.each([
+    { schemaVersion: 2 }, { target: 'mac-arm64' }, { version: '1.0.1' }, { commit: 'b'.repeat(40) },
+    { dirty: true }, { environment: 'test' }, { dshVersion: '0.1.0' }, { publicUrl: 'https://wrong.example/' },
+  ])('refuses a signed release with a mismatched completion field %j', async (change) => {
+    const f = await signedWindowsFixture()
+    await writeFile(f.recordPath, JSON.stringify({ ...f.record, ...change }))
+    await expect(createMuseMirrorPlan(f.options)).rejects.toThrow('belongs to another build')
+    expect(f.inspect).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: 'NotSigned', timestamped: false, thumbprint: null },
+    { status: 'Valid', timestamped: false, thumbprint: signingThumbprint },
+    { status: 'Valid', timestamped: true, thumbprint: 'c'.repeat(40) },
+  ])('refuses an installer whose signature verification returned %j', async (signature) => {
+    const f = await signedWindowsFixture()
+    f.inspect.mockResolvedValue(signature)
+    await expect(createMuseMirrorPlan(f.options)).rejects.toThrow('valid timestamped Authenticode signature from the configured certificate')
+  })
+
+  it('does not accept an unsigned manifest, a Mac target or changed blockmap in signed Windows mode', async () => {
+    const f = await signedWindowsFixture()
+    await expect(createMuseMirrorPlan({ ...f.options, targets: ['mac-arm64', 'win-x64'] })).rejects.toThrow('requires only win-x64')
+    await rm(f.recordPath)
+    await expect(createMuseMirrorPlan(f.options)).rejects.toThrow('win-x64-release.json')
+    await writeFile(f.recordPath, JSON.stringify(f.record))
+    await writeFile(join(f.directory, 'muse-med-1.0.2-win-x64.exe.blockmap'), 'substituted blockmap')
+    await expect(createMuseMirrorPlan(f.options)).rejects.toThrow('changed after packaging verification')
+    expect(f.inspect).not.toHaveBeenCalled()
+  })
+
   it('publishes only explicitly selected Windows files and leaves Mac feeds outside the plan', async () => {
     const f = await fixture()
     const plan = await createMuseMirrorPlan({ ...f, targets: ['win-x64'],

@@ -263,6 +263,8 @@ Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-source
 
 未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
+发布已签名的 Windows 正式版时，将 `DSH_DESKTOP_AUTO_UPDATE_ENV` 设为 `production` 后打包，省略 `--unsigned`。向 TOS 发布工具传入 `--signed-windows --targets win-x64`，并将 `--win-x64` 指向签名产物目录。`win-x64-release.json` 完成记录须与干净的源码提交、Muse 版本、内置 dsh 版本，以及安装器、blockmap 和更新元数据的哈希一致。发布工具还会在 Windows 上验证 Authenticode 信任和时间戳，并将签名者与 `.env.windows` 中 `DSH_DESKTOP_WINDOWS_CER_FILE` 指定的公开证书核对。`--dry-run` 执行相同的本地校验，无须加载上传凭据。
+
 Windows CI 为构建工具选择 Node 26.13.0，并要求 Undici 8.6 或更新版本，以避开 [HTTP 解析器暂停时崩溃](https://github.com/nodejs/undici/issues/5360)；目标运行时按各自的发布锁准备。CI 仅对锁定的私有仓库下载使用鉴权，并将 Windows FFmpeg 放入媒体准备缓存；正常准备流程仍校验大小和 SHA-256。 安装验收通过 `--previous-release-cache` 使用鉴权预热的基线缓存，仍须匹配原安装包与清单的哈希。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器排除图片，拒绝含已知环境秘密、上传凭据或常见密钥格式的文本证据，然后加密精确候选与验收文本；不写更新 feed，日志不含 URL 或密钥。构建前会检查网络连通性。每次 PUT 使用上传凭据剩余有效期；待传元数据先于密文写入，因此仅有元数据不代表传输完成。发布者须独立审阅、核验完整解密构建，再正式推广。
 
 候选下载验收使用当前更新器，分别注入已安装版本 1.2.2、1.2.5 和 1.2.6 的身份，不执行这些旧版本的更新器二进制。旧客户端若卡在任务检查阶段，仍需正常退出 Muse 后直接安装已校验的最新安装包；发布新 feed 无法修复安装前正在执行的旧代码。
