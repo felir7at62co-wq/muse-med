@@ -115,7 +115,7 @@ export class ToolDiscoveryRuntime extends Service {
 
   private preferred(agent: Agent, fallback: readonly string[]): readonly string[] {
     const cached = this.pins.get(agent)
-    return cached?.provider === this.provider(agent) ? cached?.names ?? fallback : fallback
+    return cached !== undefined && cached.provider === this.provider(agent) ? cached.names : fallback
   }
 
   private provider(agent: Agent): ToolResidencyProvider | undefined {

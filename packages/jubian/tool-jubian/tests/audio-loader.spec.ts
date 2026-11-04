@@ -72,7 +72,9 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       audio_references: [{ material_key: 'zhou-voice', material_url: audio.materialUrl,
         duration_seconds: null, duration_basis: 'unavailable', duration_verified: false }] })
     expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
-      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList'])
+      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
+      'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324',
+      'GET /prod-api/admin/aigc/video/task/list'])
   } finally {
     fetch.mockRestore()
     await ctx?.fiber.dispose()

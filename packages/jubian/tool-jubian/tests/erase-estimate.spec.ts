@@ -70,7 +70,7 @@ describe('caller-declared erasure reservations', () => {
 
   it.each([
     { model_id: MODELS[0], cataloguePrice: 0.505, unit: '元/分钟', expectedQuote: '0.51' },
-    { model_id: MODELS[1], cataloguePrice: 0, unit: '元/条', expectedQuote: '0.01' },
+    { model_id: MODELS[1], cataloguePrice: 0, unit: '元/条', expectedQuote: '0.00' },
   ])('uses the live catalogue for $model_id without a caller estimate', async ({ model_id,
     cataloguePrice, unit, expectedQuote }) => {
     const catalogue = [{ id: model_id === MODELS[0] ? 26 : 67,
@@ -81,7 +81,7 @@ describe('caller-declared erasure reservations', () => {
     const result = await storyboardMethod(client, ledger, args)
     expect(result).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001',
       budget: { status: 'authorized' } })
-    expect(result.next).toContain('实际结算')
+    expect(result.next).toContain(cataloguePrice === 0 ? '最终结算以供应商账单为准' : '实际结算')
     expect(paidCalls()).toHaveLength(1)
     expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ quoted_amount: expectedQuote,
       quote_unit: 'CNY', outcome: 'accepted' })

@@ -112,7 +112,7 @@ async function search(f: Awaited<ReturnType<typeof fixture>>, agent: Agent, quer
 const resultSchema = z.object({
   loaded: z.array(z.object({ name: z.string(), description: z.string(), capabilities: z.array(z.string()) })),
   capabilities: z.array(z.object({ id: z.string(), title: z.string(), description: z.string(), tool_count: z.number() })),
-  matched: z.number(), omitted: z.number(),
+  matched: z.number(), omitted: z.number(), omitted_capabilities: z.number(),
   search_scope: z.enum(['directory', 'capability', 'global']), global_fallback: z.boolean(),
   next_offset: z.number().optional(),
 })
@@ -873,4 +873,88 @@ describe('Loader-composed tool discovery', () => {
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
+})
+
+
+it('keeps malformed and unrelated persisted dispatch receipts from loading tools', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-receipts-'))
+  const f = await fixture(root)
+  try {
+    const handle = await f.ctx.agents.create({ sessionId: SessionId('receipt-validation'), meta: { cwd: root },
+      agentOptions: { provider: 'mock', model: 'mock' } })
+    const agent = handle.agent
+    const dispatch = { rootCallId: ToolCallId('root'), parentCallId: ToolCallId('root'), subCallId: ToolCallId('nested'),
+      arguments: {}, isError: false }
+    for (const [name, text] of [['tool_search', 'not json'], ['tool_search', '{}'], ['tool_context', '{}'], ['other', '{}']] as const) {
+      agent.session.append('tool/ptc-dispatch', { ...dispatch, name, content: [{ type: 'text', text }] })
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+    }
+    agent.session.append('tool/ptc-dispatch', { ...dispatch, name: 'tool_context', content: [{ type: 'text',
+      text: JSON.stringify({ operation: 'load', tools: ['export_word'], retained: [] }) }] })
+    expect(f.ctx.toolDiscovery.state(agent).loaded).toEqual(['export_word'])
+    await handle.dispose()
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+it.each([
+  [{ id: ' ', title: 'Empty', description: '', tools: ['video_*'] }],
+  [{ id: 'uncategorized', title: 'Reserved', description: '', tools: ['video_*'] }],
+  [{ id: 'same', title: 'A', description: '', tools: ['video_*'] },
+    { id: 'same', title: 'B', description: '', tools: ['export_word'] }],
+  [{ id: 'bad', title: 'Invalid prefix', description: '', tools: ['video_*_middle'] }],
+].map(capabilities => ({ capabilities })))('rejects invalid discovery categories at activation: %j', async ({ capabilities }) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-config-'))
+  try { await expect(fixture(root, { capabilities })).rejects.toThrow() }
+  finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.each([300, 900])('bounds oversized directory names and descriptions within %s characters', async (length) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-directory-budget-'))
+  const f = await fixture(root, { maxResultChars: 256, capabilities: [
+    { id: 'video', title: 'V'.repeat(length), description: 'Description'.repeat(100), tools: ['video_*'] },
+    { id: 'delivery', title: 'Word', description: 'Description'.repeat(100), tools: ['export_word'] },
+  ] })
+  try {
+    const agent = await f.create('directory-budget')
+    const result = await discover(f, agent, {})
+    expect(result.text.length).toBeLessThanOrEqual(256)
+    expect(result.value.omitted_capabilities).toBeGreaterThan(0)
+    expect(result.value.loaded).toEqual([])
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+it('rejects discovery and context changes without an agent and renders optional call labels', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-no-agent-'))
+  const f = await fixture(root)
+  try {
+    for (const [name, args] of [['tool_search', { query: 'video' }], ['tool_context', { operation: 'status' }]] as const) {
+      const result = await f.ctx.tools.execute({ name, arguments: args, callId: ToolCallId(name),
+        signal: new AbortController().signal })
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain('requires an agent session')
+    }
+    const search = f.ctx.tools.get('tool_search')
+    expect(search?.presentCall?.({ query: 'video' })).toMatchObject({ rawInput: 'video' })
+    expect(search?.presentCall?.({ capability: 'video' })).toMatchObject({ rawInput: 'video' })
+    expect(search?.presentCall?.({})).toMatchObject({ rawInput: '' })
+    expect(f.ctx.tools.get('tool_context')?.presentCall?.({ operation: 'status' })).toMatchObject({ rawInput: 'status' })
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+
+it('restores discovery around existing agents and uses empty state without its projection', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-reload-'))
+  const f = await fixture(root)
+  try {
+    const agent = await f.create('reload-discovery')
+    expect((await manage(f, agent, 'load', [' ']))?.isError).toBe(true)
+    const entry = [...f.ctx.loader.entries()].find(row => row.options.id === 'discovery')
+    if (!entry?.fiber) throw new Error('Missing discovery fixture entry')
+    const read = vi.spyOn(f.ctx.sessionProjections, 'stateOf').mockReturnValue(undefined)
+    try { expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] }) }
+    finally { read.mockRestore() }
+    await entry.fiber.dispose()
+    await f.ctx.plugin(Discovery, { alwaysLoad: ['base_read'] })
+    expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
 })

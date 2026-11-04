@@ -516,12 +516,12 @@ function projectRootOfPreview(previewPath: string): string {
 /** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
-  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) if (match[1] !== undefined) names.add(match[1].trim())
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) names.add((match[1] as string).trim())
   for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
-    if (match[1] !== undefined) names.add(match[1].trim())
+    names.add((match[1] as string).trim())
   }
   for (const match of prompt.matchAll(/^[ \t]*(?:人物|角色|角色名|出镜人物)\s*[：:]\s*([^\n\r]+)/gmu)) {
-    for (const raw of (match[1] ?? '').split(/[、，,；;\/|]/u)) {
+    for (const raw of (match[1] as string).split(/[、，,；;\/|]/u)) {
       const entry = raw.trim()
       if (/^(?:不要|不得|禁止|避免|排除|不出现)/u.test(entry)
         || /[（(][^）)]*(?:不要|不得|禁止|避免|排除|不出现|不说话|不发声|无台词|没有台词)[^）)]*[）)]/u.test(entry)) continue

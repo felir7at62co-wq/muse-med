@@ -25,6 +25,10 @@ describe('CI workflow', () => {
         description: 'Copy both verified installers into existing exact-commit drafts; requires target all',
         type: 'boolean', default: false,
       },
+      export_candidate_to_tos: {
+        description: 'Export an encrypted Windows candidate with a short-lived object-scoped upload secret',
+        type: 'boolean', default: false,
+      },
       verify_hongguo_live: {
         description: 'Require complete Hongguo downloads from the genuine installed application', type: 'boolean', default: false,
       },

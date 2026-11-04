@@ -173,7 +173,7 @@ it('disposal waits for an active GitHub check to stop', async () => {
 })
 
 it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+ssh://git@github.com/acme/connected.git'])(
-  'installs %s through real Git and pnpm with private repository SSH fallback', async (spec) => {
+  'installs %s through real Git and pnpm with configured repository transport', async (spec) => {
     const pnpm = fileURLToPath(new URL('../../../../apps/desktop/node_modules/pnpm/bin/pnpm.mjs', import.meta.url))
     const env = { GIT_CONFIG_GLOBAL: '', GIT_CONFIG_NOSYSTEM: '1' }
     const { manager, dir, connection } = await fixture('startup', false, undefined, {}, {
@@ -214,18 +214,18 @@ it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+
     const address = proxy.address()
     if (address === null || typeof address === 'string') throw new Error('proxy did not bind a TCP port')
     const proxyUrl = `http://127.0.0.1:${String(address.port)}`
-    writeFileSync(env.GIT_CONFIG_GLOBAL, `[url "${pathToFileURL(repository).href}"]\n insteadOf = ssh://git@github.com/acme/connected.git\n insteadOf = git@github.com:acme/connected.git\n[url "${proxyUrl}/"]\n insteadOf = https://github.com/\n[http]\n proxy =\n`)
-    // pnpm probes HTTPS with Node before falling back to SSH, even for an SSH spec.
-    // Route that HTTP request to our proxy too; Git's URL rewrite alone cannot isolate it.
+    writeFileSync(env.GIT_CONFIG_GLOBAL, `[url "${pathToFileURL(repository).href}"]\n insteadOf = ssh://git@github.com/acme/connected.git\n insteadOf = git@github.com:acme/connected.git\n insteadOf = https://github.com/acme/connected.git\n[url "${proxyUrl}/"]\n insteadOf = https://github.com/\n[http]\n proxy =\n`)
+    // pnpm 12 uses canonical HTTPS for hosted repositories; its archive probe uses Node rather than Git.
+    // Git's private configuration and the proxy must therefore isolate both request paths.
     const manifest = readProfileManifest('test', dir)
     delete manifest.dependencies
     writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
-    writeFileSync(join(dir, '.npmrc'), `store-dir=${join(dir, 'store').replaceAll('\\', '/')}\nhttps-proxy=${proxyUrl}\nproxy=${proxyUrl}\nnoproxy=\n`)
+    writeFileSync(join(dir, '.npmrc'), `store-dir=${join(dir, 'store').replaceAll('\\', '/')}\nhttps-proxy=${proxyUrl}\nproxy=${proxyUrl}\nnoproxy=\nfetch-retries=0\nfetch-timeout=5000\n`)
     const result = await manager.installBundle(spec, { enabled: false })
     expect(result.error).toBeUndefined()
     expect(result).toMatchObject({ changed: true, bundle: name, packageResult: { exitCode: 0 } })
     expect(readProfileManifest('test', dir).dependencies).toHaveProperty(name)
-    expect(requests).toContain('github.com:443')
+    expect(requests).toContain('codeload.github.com:443')
   },
 )
 
