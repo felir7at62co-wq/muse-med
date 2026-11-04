@@ -22,7 +22,7 @@ const visual: DeliverySubtitleVisual = { schema_version: 1, reference_width: 320
   font_size_px: 30, outline_px: 2, center_y_ratio: 0.65, max_width_ratio: 0.8, font_family: 'Arial' }
 
 async function fixture(profile: DeliverySubtitleVisual | { readonly schema_version?: never } | undefined,
-  config: { ffmpegPath?: string; ffprobePath?: string; fontsDir?: string; subtitleFontFamily?: string } = {},
+  config: Pick<Render.Config, 'ffmpegPath' | 'ffprobePath' | 'fontsDir' | 'subtitleFontFamily' | 'normalizeSubtitleText'> = {},
   shutdown?: () => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'drama-layout-loader-')), ctx = new Context()
   onTestFinished(async () => { await shutdown?.(); await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
@@ -118,6 +118,20 @@ it('runs standalone layout through Loader, returns a closed compact schema and p
   const entry = [...input.ctx.loader.entries()].find(item => item.options.name === '@deepseek-ai/dsh-tool-episode-render')
   await entry?.fiber?.dispose()
   expect(input.ctx.tools.get('drama_render')).toBeUndefined()
+})
+
+it('measures normalized display text without rewriting the authored subtitle', async () => {
+  const input = await fixture(visual, { normalizeSubtitleText: true }), external = externalStub(input.output)
+  const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: external.channel })
+  onTestFinished(() => { factory.mockRestore() })
+  const subtitle = join(input.root, 'editing', '01.srt')
+  const authored = '1\n00:00:00,000 --> 00:00:00,400\n你好，\n世界！\n'
+  await writeFile(subtitle, authored)
+  const result = await invoke(input.tool, { method: 'subtitle_layout', project: input.root, episode: 1,
+    timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt' })
+  const saved = JSON.parse(await readFile(result.subtitle_layout?.report_path ?? '', 'utf8')) as SubtitleLayoutReport
+  expect(saved.entries.map(entry => entry.text)).toEqual(['你好 世界'])
+  expect(await readFile(subtitle, 'utf8')).toBe(authored)
 })
 
 it('keeps native render output when its advisory layout subprocess fails and exposes complete error evidence', async () => {

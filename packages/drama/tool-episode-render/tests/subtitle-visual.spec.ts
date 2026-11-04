@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { buildAssHeader, subtitleRenderStyle } from '../src/delivery.ts'
 import { parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
 import { activeSubtitleVisual, parseSubtitleVisual } from '../src/subtitle-visual.ts'
@@ -87,6 +87,20 @@ describe('explicit shared subtitle visual intent', () => {
     expect((await resolveDeliveryPolicy(project, geometry, visual)).delivery.subtitle_visual).toBeUndefined()
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: { subtitle_visual: {} } } }))
     expect((await readProjectDelivery(project, visual)).subtitle_visual).toEqual({})
+  })
+
+  it('requires a configured visual before enforcing the product subtitle policy', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'subtitle-force-missing-default-'))
+    onTestFinished(async () => { await rm(project, { recursive: true, force: true }) })
+    await expect(readProjectDelivery(project, undefined, true)).rejects.toThrow('产品字幕视觉配置缺失')
+  })
+
+  it('keeps legacy defaults when a project file omits its bible and no deployment visual is set', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'subtitle-no-bible-'))
+    onTestFinished(async () => { await rm(project, { recursive: true, force: true }) })
+    await writeFile(join(project, 'project_config.json'), JSON.stringify({ unrelated: true }))
+    expect((await readProjectDelivery(project)).subtitle_visual).toBeUndefined()
+    expect((await readProjectDelivery(project, visual)).subtitle_visual).toEqual(visual)
   })
 
   it('applies the product visual to EP46-shaped existing projects with geometry but no subtitle settings', async () => {

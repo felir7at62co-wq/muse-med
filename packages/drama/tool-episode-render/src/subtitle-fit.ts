@@ -49,9 +49,16 @@ export async function fitSubtitleCues(
     }
     const original = Array.from(cue.text), indices = original.flatMap((char, index) => /\s/u.test(char) ? [] : [index])
     const boundaries = [0]
-    for (const word of words) boundaries.push((boundaries.at(-1) ?? 0) + Array.from(word.text).length)
-    const segment = (from: number, to: number): string => original.slice(indices[boundaries[from] ?? 0],
-      (indices[(boundaries[to] ?? 0) - 1] ?? -1) + 1).join('').trim()
+    let count = 0
+    for (const word of words) {
+      count += Array.from(word.text).length
+      boundaries.push(count)
+    }
+    // matchedWords proves that the matched word lengths cover every non-space cue character.
+    const segment = (from: number, to: number): string => original.slice(
+      indices[boundaries[from] as number],
+      (indices[(boundaries[to] as number) - 1] as number) + 1,
+    ).join('').trim()
     const pieces: SubtitleCue[] = []
     let start = 0
     while (start < words.length) {
@@ -63,9 +70,9 @@ export async function fitSubtitleCues(
         if (measured) { best = mid; low = mid + 1 } else high = mid - 1
       }
       if (best === start) break
-      const next = best === words.length ? cue.endSeconds : words[best]?.start_seconds
-      const begin = start === 0 ? cue.startSeconds : words[start]?.start_seconds
-      if (begin === undefined || next === undefined || next <= begin || next > cue.endSeconds) break
+      // matchedWords already proved that every boundary exists, advances and stays inside the cue.
+      const next = best === words.length ? cue.endSeconds : (words[best] as SpeechCoverageWord).start_seconds
+      const begin = start === 0 ? cue.startSeconds : (words[start] as SpeechCoverageWord).start_seconds
       pieces.push({ ...cue, text: segment(start, best), startSeconds: begin, endSeconds: next })
       start = best
     }
