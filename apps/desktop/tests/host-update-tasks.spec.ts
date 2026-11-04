@@ -82,7 +82,6 @@ describe('Desktop Host update task protection', () => {
       expect(await inspect('lock')).toBe(false)
       await aborted.promise
       await inspect('unlock')
-      await response.body?.cancel()
     } finally {
       server.closeAllConnections()
       server.close()

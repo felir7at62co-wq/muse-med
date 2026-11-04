@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { createMessage, createSystemMessage, createUserMessage, LlmAdapter, LlmError, resolveRetryPolicy, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createMessage, createSystemMessage, createUserMessage, isAgentLoopRequest, LlmAdapter, LlmError, markAgentLoopRequest, resolveRetryPolicy, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import BasicCompactionEngine, { type BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { resolveConfig } from '../src/config.ts'
 import { summarizeWithLlm } from '../src/summarizer.ts'
@@ -204,6 +205,154 @@ describe('final working-context admission', () => {
     expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_PERSISTENCE_FAILED' } })
   })
 
+  it.each([0, 1.5, 256])('refuses an unusable model context window (%s)', async (window) => {
+    const { ctx, agent, adapter } = await harness()
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: 'mock', id: 'limited', name: 'limited', context: { contextWindow: window }, defaultMaxTokens: 256,
+    })
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('refuses a model window entirely consumed by configured headroom', async () => {
+    const { ctx, agent, adapter } = await harness({ adaptiveBudget: false, headroomTokens: 10_000 })
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: 'mock', id: 'limited', name: 'limited', context: { contextWindow: 5_000 }, defaultMaxTokens: 256,
+    })
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('admits a model with no declared output cap using its full context window', async () => {
+    const { agent, adapter } = await harness()
+    vi.spyOn(adapter, 'resolveModel').mockImplementation(async (provider, model) => ({
+      provider, id: model, name: model, context: { contextWindow: 10_000 },
+    }))
+    await send(agent, 'short request')
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.maxTokens).toBeUndefined()
+    expect(agent.session.requestContext()).toMatchObject({ contextWindow: 10_000, workingTokenLimit: 1_000 })
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('does not duplicate identical measured context supplied earlier in the stream', async () => {
+    const { ctx, agent, adapter } = await harness({}, { seed: [] })
+    ctx.on('llm/stream', (options, next) => {
+      if (isAgentLoopRequest(options) && options.purpose === undefined) {
+        const measured = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
+        agent.session.append('request/context', {
+          provider: options.provider, model: options.model, contextWindow: 10_000,
+          workingTokenLimit: 1_000, workingContextTokens: measured,
+        })
+      }
+      return next()
+    }, { prepend: true })
+    await send(agent, 'short request')
+    expect(adapter.requests).toHaveLength(1)
+    const contexts = agent.session.snapshotEvents().filter(event => event.type === 'request/context')
+    expect(contexts).toHaveLength(2)
+    expect(contexts.filter(event => event.data.workingContextTokens !== undefined)).toHaveLength(1)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('delegates a marked request without a cancellation signal', async () => {
+    const { ctx, agent, adapter } = await harness({}, { seed: [] })
+    const request = markAgentLoopRequest({ provider: 'mock', model: 'limited',
+      sessionId: agent.session.id, messages: [createUserMessage({
+        content: [{ type: 'text', text: 'one-shot input' }], source: { kind: 'user' },
+      })],
+    })
+    for await (const _chunk of ctx.llm.stream(request)) { /* Drain the delegated request. */ }
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'request/context')).toHaveLength(0)
+  })
+
+  it('rejects a marked request that reuses another session ID with the live loop signal', async () => {
+    const { ctx, agent, adapter } = await harness({}, { seed: [] })
+    const foreignFailures: string[] = []
+    ctx.on('agent/request', async ({ signal }, next) => {
+      const config = await next()
+      const foreign = markAgentLoopRequest({ provider: 'mock', model: 'limited',
+        sessionId: SessionId('foreign-session'), signal, messages: [],
+      })
+      try {
+        for await (const _chunk of ctx.llm.stream(foreign)) { /* Consume or reject the foreign stream. */ }
+      } catch (error) {
+        if (error instanceof LlmError) foreignFailures.push(error.code)
+      }
+      return config
+    })
+    await send(agent, 'short request')
+    expect(foreignFailures).toEqual(['CONTEXT_BUDGET_UNAVAILABLE'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('uses retained context below the safe model budget when overflow retries are disabled', async () => {
+    const { agent, adapter } = await harness({ maxOverflowRetries: 0 })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(1)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('blocks over-budget retained context when overflow retries are disabled', async () => {
+    const { agent, adapter } = await harness({ maxOverflowRetries: 0 }, { contextWindow: 3_000 })
+    await send(agent, 'N'.repeat(20_000))
+    expect(adapter.summaries).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
+  })
+
+  it('blocks an unknown safe budget when overflow retries are disabled', async () => {
+    const { agent, adapter } = await harness({ maxOverflowRetries: 0, workingTokenLimit: 1_000, modelPolicies: [] },
+      { model: 'unknown-context' })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('retains history when a model without context capacity cannot summarize', async () => {
+    const { agent, adapter } = await harness({ workingTokenLimit: 1_000, modelPolicies: [] },
+      { model: 'unknown-context' })
+    await send(agent)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('stops recovery if the persisted request header is unavailable', async () => {
+    const { ctx, agent, adapter } = await harness()
+    ctx.on('agent/request-error', ({ agent: current }, next) => {
+      const header = vi.spyOn(current.session, 'requestHeader').mockReturnValue(undefined)
+      return next().finally(() => { header.mockRestore() })
+    }, { prepend: true })
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('refuses to retry after a compactor leaves an unmatched checkpoint bracket', async () => {
+    const { ctx, agent, adapter } = await harness()
+    const compact = ctx.get('compaction') as BasicCompactionEngine
+    vi.spyOn(compact, 'compactIfNeeded').mockImplementation(async (current) => {
+      if (current.session.snapshotEvents().some(event => event.type === 'assistant/attempt')) {
+        current.session.append('compaction/start', { compactionId: CompactionId('incomplete-recovery'), turn: null })
+      }
+      return null
+    })
+    await send(agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(1)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_PERSISTENCE_FAILED' } })
+  })
+
   it.each(['compaction/start', 'compaction/summary'] as const)('does not fall back after a failed %s write', async (failedType) => {
     const { agent, adapter } = await harness()
     const append = agent.session.append.bind(agent.session)
@@ -299,6 +448,25 @@ describe('final working-context admission', () => {
     await summarizeWithLlm(ctx, config, { messages: [message] }, agent)
     expect(adapter.summaries).toHaveLength(1)
     expect(adapter.summaries[0]).toMatchObject({ model: 'bounded-summary', maxTokens: 4_096 })
+  })
+
+  it('uses a safe estimate when measured history nodes are missing or do not derive a message', async () => {
+    const { agent, adapter, ctx } = await harness()
+    const nodes = ctx.tokenMeter.measure(agent.session).nodes
+    const missing = nodes[0]?.seq
+    const nonMessage = nodes[1]?.seq
+    if (missing === undefined || nonMessage === undefined) throw new Error('fixture requires two priced nodes')
+    // Existing Session history reads can race a rebuilt surface during summarization.
+    const eventAt = agent.session.eventAt.bind(agent.session)
+    vi.spyOn(agent.session, 'eventAt').mockImplementation(seq => seq === missing ? undefined : eventAt(seq))
+    const derive = agent.session.deriveEventMessage.bind(agent.session)
+    vi.spyOn(agent.session, 'deriveEventMessage').mockImplementation(event =>
+      event.seq === nonMessage ? null : derive(event))
+    const config = resolveConfig({ adaptiveBudget: true, headroomTokens: 0, maxTokens: 64,
+      summarizationProvider: 'mock', summarizationModel: 'limited' })
+    const message = createUserMessage({ content: [{ type: 'text', text: 'short checkpoint' }], source: { kind: 'user' } })
+    await summarizeWithLlm(ctx, config, { messages: [message] }, agent)
+    expect(adapter.summaries).toHaveLength(1)
   })
 
   it('keeps an adapter without context metadata usable within the configured fixed budget', async () => {
@@ -635,5 +803,49 @@ describe('final working-context admission', () => {
     expect(adapter.summaries).toHaveLength(1)
     expect(agent.session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
     expect(lastReason(agent)?.kind).toBe('aborted')
+  })
+
+  it('drains recovery already cancelled before plugin disposal', async () => {
+    const { agent, adapter, compactionFiber } = await harness()
+    adapter.summaryMode = 'wait-for-abort'
+    const run = send(agent)
+    await adapter.summaryEntered.promise
+    agent.cancel({ kind: 'user' })
+    await compactionFiber.dispose()
+    await run
+    expect(agent.status).toBe('idle')
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)?.kind).toBe('aborted')
+  })
+
+  it('rejects metadata that completes just before plugin disposal', async () => {
+    const { ctx, agent, adapter, compactionFiber } = await harness()
+    const metadata = Promise.withResolvers<LlmResolvedModelInfo>()
+    const entered = Promise.withResolvers<undefined>()
+    class DisposeAfterMetadata extends Promise<LlmResolvedModelInfo> {
+      override finally(onfinally?: (() => void) | null): Promise<LlmResolvedModelInfo> {
+        return super.finally(onfinally).then(async (info) => {
+          await compactionFiber.dispose()
+          return info
+        })
+      }
+    }
+    const completed = new DisposeAfterMetadata((resolve, reject) => {
+      void metadata.promise.then(resolve, reject)
+    })
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation(() => {
+      entered.resolve(undefined)
+      return completed
+    })
+    const run = send(agent)
+    await entered.promise
+    const cancelled = vi.spyOn(agent, 'cancel')
+    metadata.resolve({
+      provider: 'mock', id: 'limited', name: 'limited', context: { contextWindow: 10_000 }, defaultMaxTokens: 256,
+    })
+    await run
+    expect(cancelled).not.toHaveBeenCalled()
+    expect(adapter.requests).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
   })
 })

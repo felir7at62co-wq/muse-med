@@ -496,6 +496,7 @@ export function resolveProfiles(
       : Object.entries(source.modelOverrides ?? {})
     const googleThoughtSummaries = new Set<string>()
     for (const [id, model] of modelSettings) {
+      /* v8 ignore if -- schema validation rejects non-boolean input before typed profile resolution. */
       if (model.googleThoughtSummaries !== undefined && typeof model.googleThoughtSummaries !== 'boolean') {
         throw new Error(`llm-pi-ai: provider "${provider}" model "${id}" googleThoughtSummaries must be a boolean`)
       }

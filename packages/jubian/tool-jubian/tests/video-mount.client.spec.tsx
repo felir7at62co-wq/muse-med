@@ -75,6 +75,23 @@ it('shares a directory for a session binding and releases its projection before 
   expect(b.slots.entries('conversation.input.right')).toHaveLength(0)
 })
 
+it('keeps a replacement session directory when the old scope disposes later', async () => {
+  const b = await bench(async () => ({ ok: true, value: true }))
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
+  const entry = b.slots.entries('conversation.input.right')[0]!
+  const inject = entry.inject as (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
+  const old = inject(SessionId('present'))
+  const replacementScope = new Context()
+  onTestFinished(() => replacementScope.fiber.dispose())
+  b.sessionScopes.set(SessionId('present'), replacementScope)
+  const replacement = inject(SessionId('present'))
+  expect(replacement.hooks.videoState).not.toBe(old.hooks.videoState)
+  await b.sessionScope.fiber.dispose()
+  expect(inject(SessionId('present')).hooks.videoState).toBe(replacement.hooks.videoState)
+  await dispose()
+})
+
 it.each(['disabled', 'refused', 'disposed'] as const)('does not register a composer picker when availability is %s', async (mode) => {
   const pending = Promise.withResolvers<RemoteResult<boolean>>()
   const b = await bench(() => pending.promise)
