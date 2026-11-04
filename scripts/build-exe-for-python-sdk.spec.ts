@@ -43,6 +43,12 @@ describe('Python runtime executable builder CLI', () => {
     expect(cliManifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subprocess-local')
     expect(cliManifest.devDependencies).toHaveProperty('@deepseek-ai/dsh-subprocess-local')
     expect(runtimeManifest.dependencies).toHaveProperty('@deepseek-ai/dsh-subprocess-local')
+    const officeManifest = JSON.parse(readFileSync(resolve(root, 'packages/skill/skill-office/package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    const officeVersion = officeManifest.dependencies['@deepseek-ai/libreoffice-kit']
+    expect(officeVersion).toBeTypeOf('string')
+    expect(runtimeManifest.dependencies?.['@deepseek-ai/libreoffice-kit']).toBe(officeVersion)
     expect(bootstrap).toContain("import('@deepseek-ai/dsh/lib/bin.js')")
     expect(bootstrap).toContain('await runCli()')
     expect(bootstrap).toContain("import('@deepseek-ai/dsh-subprocess-local/runner')")
@@ -65,7 +71,8 @@ describe('Python runtime executable builder CLI', () => {
     expect(result.stdout.split('--config.allow-unused-patches=true')).toHaveLength(2)
     expect(result.stdout).not.toContain(resolve(root, 'python/sdk-runtime/runtime-bootstrap.mjs'))
     expect(result.stdout).toContain('"bin":"runtime-bootstrap.mjs"')
-    expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs exec pkg`)
+    expect(result.stdout).toContain(join('pkg', 'lib-es5', 'bin.js'))
+    expect(result.stdout).not.toContain('exec pkg')
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })
 
@@ -99,7 +106,7 @@ describe('Python runtime executable builder CLI', () => {
     )
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('exec pkg')
+    expect(result.stdout).toContain(join('pkg', 'lib-es5', 'bin.js'))
     expect(result.stdout).toContain('--sea --targets node24-macos-x64')
     expect(result.stdout).toContain('prepare Python and Office skills for mac-x64')
     expect(result.stdout).toContain(join(root, 'dist-exe', 'macos-x64'))
