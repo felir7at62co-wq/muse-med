@@ -1,20 +1,22 @@
 /**
- * Enforce the MIT license declaration for repository-owned DSH npm packages.
+ * Enforce MIT declarations and the one attributed Codex-derived DSH package.
  * @module scripts/verify-dsh-package-licenses
  */
 
-import { globSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { dirname, resolve, sep } from 'node:path'
 import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
+const CODEX_DISCOVERY_MANIFEST = 'packages/core/tool-discovery/package.json'
+const CODEX_DISCOVERY_LICENSE = 'MIT AND Apache-2.0'
 
 /** Result of checking every DSH package reachable through the root workspace list. */
 export interface DshPackageLicenseReport {
   /** Number of DSH package manifests checked. */
   packageCount: number
-  /** Repository-relative diagnostics for non-MIT declarations. */
+  /** Repository-relative diagnostics for unsupported or incomplete license declarations. */
   failures: string[]
 }
 
@@ -50,6 +52,28 @@ function printable(value: unknown): string {
   return value === undefined ? 'undefined' : JSON.stringify(value)
 }
 
+/** Keep the sole mixed-license exception tied to its shipped attribution and both license texts. */
+function attributedCodexDiscovery(root: string, file: string, manifest: Record<string, unknown>): boolean {
+  const files = manifest.files
+  if (file.split(sep).join('/') !== CODEX_DISCOVERY_MANIFEST
+    || manifest.name !== '@deepseek-ai/dsh-tool-discovery'
+    || manifest.license !== CODEX_DISCOVERY_LICENSE
+    || !isStringArray(files)
+    || !['LICENSE', 'LICENSE-Codex', 'NOTICE'].every(name => files.includes(name))) return false
+  const directory = resolve(root, dirname(file))
+  const ownLicensePath = resolve(directory, 'LICENSE')
+  const codexLicensePath = resolve(directory, 'LICENSE-Codex')
+  const noticePath = resolve(directory, 'NOTICE')
+  if (![ownLicensePath, codexLicensePath, noticePath].every(existsSync)) return false
+  const ownLicense = readFileSync(ownLicensePath, 'utf8')
+  const codexLicense = readFileSync(codexLicensePath, 'utf8')
+  const notice = readFileSync(noticePath, 'utf8')
+  return ownLicense === readFileSync(resolve(root, 'LICENSE'), 'utf8')
+    && /Apache License\r?\n\s+Version 2\.0/u.test(codexLicense)
+    && notice.includes('The tool discovery instructions are adapted from OpenAI Codex under Apache-2.0.')
+    && notice.includes('The Apache-2.0 license is reproduced in LICENSE-Codex.')
+}
+
 /**
  * Check every DSH npm package declared by the repository workspace.
  * @param root - absolute repository root containing the workspace package.json.
@@ -65,10 +89,16 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     if (typeof name !== 'string' || !DSH_PACKAGE_NAME.test(name)) continue
 
     packageCount++
+    const normalizedFile = file.split(sep).join('/')
+    if (normalizedFile === CODEX_DISCOVERY_MANIFEST) {
+      if (!attributedCodexDiscovery(root, file, manifest)) failures.push(
+        `${normalizedFile}: ${name} must declare "license": "${CODEX_DISCOVERY_LICENSE}" and ship LICENSE, LICENSE-Codex, and NOTICE with Codex attribution.`,
+      )
+      continue
+    }
     const privateResource = isDramaSkillsResourcePackage(dirname(file).split(sep).join('/'), name)
       && manifest.private === true && manifest.license === 'UNLICENSED'
     if (manifest.license !== 'MIT' && !privateResource) {
-      const normalizedFile = file.split(sep).join('/')
       failures.push(
         `${normalizedFile}: ${name} must declare "license": "MIT"; found ${printable(manifest.license)}.`,
       )
