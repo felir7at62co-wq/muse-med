@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,85 @@ sys.path.insert(0, str(SCRIPTS))
 spec = importlib.util.spec_from_file_location('windows_aa_draft_tests', SCRIPTS / 'windows_aa_draft.py')
 aa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aa)
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'Requires Windows PowerShell and System.Drawing')
+class JianyingFilteredDraftTests(unittest.TestCase):
+    def test_grid_and_list_select_only_an_isolated_result(self):
+        fixture = '''
+param([string]$ProductScript)
+$ErrorActionPreference = 'Stop'
+. $ProductScript
+
+$bitmap = [Drawing.Bitmap]::new(1168, 780)
+$graphics = [Drawing.Graphics]::FromImage($bitmap)
+$background = [Drawing.Color]::FromArgb(28, 28, 28)
+$backgroundBrush = [Drawing.SolidBrush]::new($background)
+$lines = @([pscustomobject]@{
+    Text = 'OCR text'
+    Words = @([pscustomobject]@{
+        BoundingRect = [pscustomobject]@{ X = 306; Y = 419; Width = 52 }
+    })
+})
+try {
+    $graphics.Clear($background)
+    foreach ($x in 954, 964) {
+        foreach ($y in 324, 331) { $bitmap.SetPixel($x, $y, [Drawing.Color]::White) }
+    }
+    $bitmap.SetPixel(959, 324, [Drawing.Color]::White)
+    $empty = Find-MuseJianyingFilteredDraft $bitmap @() 246 328
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 361, 98, 98)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 246, 468, 32, 8)
+    $graphics.FillEllipse([Drawing.Brushes]::RoyalBlue, 364, 449, 50, 36)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 362, 468, 8, 4)
+    $grid = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 449, 98, 40)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 359, 468, 32, 8)
+    $flatTile = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 468, 98, 12)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 359, 361, 98, 98)
+    $twoColumns = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 361, 98, 98)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 513, 98, 98)
+    $twoRows = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+
+    $graphics.Clear($background)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 954, 324, 11, 1)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 954, 331, 11, 1)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 402, 46, 42)
+    $list = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    [ordered]@{
+        grid = $grid
+        list = $list
+        emptyRejected = $null -eq $empty
+        flatTileRejected = $null -eq $flatTile
+        twoColumnsRejected = $null -eq $twoColumns
+        twoRowsRejected = $null -eq $twoRows
+    } | ConvertTo-Json -Compress
+} finally {
+    $backgroundBrush.Dispose()
+    $graphics.Dispose()
+    $bitmap.Dispose()
+}
+'''
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / 'filtered-draft-fixture.ps1'
+            script.write_text(fixture, encoding='ascii')
+            result = subprocess.run(
+                [str(powershell), '-NoProfile', '-NonInteractive', '-STA', '-File', str(script),
+                 str(SCRIPTS / 'windows/native-export-open.ps1')],
+                capture_output=True, text=True, encoding='utf-8', timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            'grid': {'X': 294, 'Y': 410, 'DoubleClick': False},
+            'list': {'X': 264, 'Y': 422, 'DoubleClick': True},
+            'emptyRejected': True,
+            'flatTileRejected': True,
+            'twoColumnsRejected': True,
+            'twoRowsRejected': True,
+        })
 
 
 class AaDraftTests(unittest.TestCase):

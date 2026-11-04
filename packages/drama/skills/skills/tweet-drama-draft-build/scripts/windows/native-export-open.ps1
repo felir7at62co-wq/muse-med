@@ -121,6 +121,78 @@ function Test-MuseJianyingSearchIcon($Screen) {
     return $differences -le 8
 }
 
+function Test-MuseJianyingGridIcon($Screen) {
+    # The toggle shows four squares in grid view and two bars in list view.
+    foreach ($x in 954, 964) {
+        foreach ($y in 324, 331) {
+            $pixel = $Screen.GetPixel($x, $y)
+            if ($pixel.R -lt 95 -or $pixel.G -lt 95 -or $pixel.B -lt 95) { return $false }
+        }
+    }
+    foreach ($x in 960, 961) {
+        foreach ($y in 324, 331) {
+            $pixel = $Screen.GetPixel($x, $y)
+            if ($pixel.R -ge 95 -and $pixel.G -ge 95 -and $pixel.B -ge 95) { return $false }
+        }
+    }
+    return $true
+}
+
+function Test-MuseJianyingGridCaption($Screen, [int]$Left, [int]$Top) {
+    $ink = 0
+    $bottom = [Math]::Min($Top + 120, $Screen.Height - 1)
+    for ($y = $Top + 107; $y -lt $bottom; $y += 2) {
+        for ($x = $Left; $x -lt $Left + 98; $x += 2) {
+            $pixel = $Screen.GetPixel($x, $y)
+            if ($pixel.R -ge 115 -and $pixel.G -ge 115 -and $pixel.B -ge 115 -and
+                [Math]::Abs($pixel.R - $pixel.G) -le 35 -and [Math]::Abs($pixel.R - $pixel.B) -le 35) {
+                $ink++
+                if ($ink -ge 18) { return $true }
+            }
+        }
+    }
+    return $false
+}
+
+function Find-MuseJianyingFilteredDraft($Screen, $Lines, [int]$GridX, [int]$HeaderY) {
+    $background = $Screen.GetPixel($Screen.Width - 40, $Screen.Height - 40)
+    if (Test-MuseJianyingGridIcon $Screen) {
+        $firstTop = $HeaderY + 33
+        $inside = Measure-MuseJianyingDraftPixels $Screen $background ($GridX + 5) ($GridX + 95) ($firstTop + 5) ($firstTop + 95)
+        if ($inside -lt 100 -or -not (Test-MuseJianyingGridCaption $Screen $GridX $firstTop)) { return }
+
+        # Captions detect cards with dark previews. Opposite thumbnail edges
+        # detect a card before its caption renders without counting cursor glow.
+        for ($row = 0; $row -lt 3; $row++) {
+            $top = $firstTop + $row * 152
+            for ($column = 0; $column -lt 8; $column++) {
+                if ($row -eq 0 -and $column -eq 0) { continue }
+                $left = $GridX + [int][Math]::Round($column * 112.6)
+                if (Test-MuseJianyingGridCaption $Screen $left $top) { return }
+                $leftEdge = Measure-MuseJianyingDraftPixels $Screen $background ($left + 7) ($left + 20) ($top + 7) ($top + 89)
+                $rightEdge = Measure-MuseJianyingDraftPixels $Screen $background ($left + 77) ($left + 90) ($top + 7) ($top + 89)
+                if ($leftEdge -ge 13 -and $rightEdge -ge 13) { return }
+            }
+        }
+        return [pscustomobject]@{ X = $GridX + 48; Y = $HeaderY + 82; DoubleClick = $false }
+    }
+
+    # The exact clipboard value confirms the title even if OCR misreads it.
+    $listTitle = @($Lines | Where-Object {
+        $first = ($_.Words | Select-Object -First 1).BoundingRect
+        $last = ($_.Words | Select-Object -Last 1).BoundingRect
+        -not [string]::IsNullOrWhiteSpace($_.Text) -and
+            $first.X -ge $GridX + 50 -and $first.X -le $GridX + 78 -and
+            $first.Y -ge $HeaderY + 82 -and $first.Y -le $HeaderY + 105 -and
+            $last.X + $last.Width -le $GridX + 370
+    })
+    if ($listTitle.Count -ne 1) { return }
+    $thumbnail = Measure-MuseJianyingDraftPixels $Screen $background ($GridX + 3) ($GridX + 45) ($HeaderY + 75) ($HeaderY + 115)
+    $below = Measure-MuseJianyingDraftPixels $Screen $background ($GridX - 5) ($Screen.Width - 36) ($HeaderY + 125) ($Screen.Height - 25)
+    if ($thumbnail -lt 32 -or $below -gt 25) { return }
+    return [pscustomobject]@{ X = $GridX + 18; Y = $HeaderY + 94; DoubleClick = $true }
+}
+
 function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$TimeoutMs, [string]$Mode = 'Exact') {
     [void][Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Foundation, ContentType = WindowsRuntime]
     [void][Windows.Storage.Streams.DataWriter, Windows.Foundation, ContentType = WindowsRuntime]
@@ -184,30 +256,13 @@ function Find-MuseJianyingDraftText($homeWindow, [string]$DraftName, [int]$Timeo
                 }
                 throw 'The Jianying local draft search field is not visible'
             }
-            $listTitle = @($result.Lines | Where-Object {
-                $first = ($_.Words | Select-Object -First 1).BoundingRect
-                $last = ($_.Words | Select-Object -Last 1).BoundingRect
-                -not [string]::IsNullOrWhiteSpace($_.Text) -and
-                    $first.X -ge $gridX + 50 -and $first.X -le $gridX + 78 -and
-                    $first.Y -ge $headerY + 82 -and $first.Y -le $headerY + 105 -and
-                    $last.X + $last.Width -le $gridX + 370
-            })
-            $background = $screen.GetPixel($width - 40, $height - 40)
-            if ($listTitle.Count -gt 0) {
-                # The Chinese OCR engine can misread Latin title characters. The
-                # clipboard confirms the title, and the row must be isolated.
-                $thumbnail = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 3) ($gridX + 45) ($headerY + 75) ($headerY + 115)
-                $below = Measure-MuseJianyingDraftPixels $screen $background ($gridX - 5) ($width - 36) ($headerY + 125) ($height - 25)
-                if ($listTitle.Count -ne 1 -or $thumbnail -lt 32 -or $below -gt 25) { return }
-                return [pscustomobject]@{ X = $rect.Left + $gridX + 18; Y = $rect.Top + $headerY + 94; DoubleClick = $true }
+            $point = Find-MuseJianyingFilteredDraft $screen $result.Lines $gridX $headerY
+            if ($null -ne $point) {
+                $point.X += $rect.Left
+                $point.Y += $rect.Top
+                return $point
             }
-            # Grid captions are truncated and sometimes missed by OCR. The exact search
-            # and registered draft are checked separately from this single-card check.
-            $inside = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 5) ($gridX + 100) ($headerY + 32) ($headerY + 132)
-            $right = Measure-MuseJianyingDraftPixels $screen $background ($gridX + 114) ($width - 36) ($headerY + 26) ($height - 25)
-            $below = Measure-MuseJianyingDraftPixels $screen $background ($gridX - 5) ($gridX + 114) ($headerY + 179) ($height - 25)
-            if ($inside -lt 100 -or $right -gt 35 -or $below -gt 25) { return }
-            return [pscustomobject]@{ X = $rect.Left + $gridX + 48; Y = $rect.Top + $headerY + 82 }
+            return
         }
         $matches = @($result.Lines | Where-Object { $_.Text -ceq $DraftName })
         if ($matches.Count -gt 1) { throw 'Several visible Jianying titles match the selected draft' }
