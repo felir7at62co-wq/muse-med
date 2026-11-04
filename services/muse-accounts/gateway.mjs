@@ -286,14 +286,14 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   }
   if(workspaceMode==='desktop'&&!context){
    if(await maintenance()){reply(res,503,'Muse 正在维护，请稍后重试。',{'retry-after':'30'});return;}
-   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online');
+   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online'),mobile=new URL(req.url,publicOrigin).searchParams.get('mobile')==='1';
    if(!mount&&path==='/'&&req.method==='GET'&&available.length===1){reply(res,303,'',{location:desktopPrefix(available[0].id)+new URL(req.url,publicOrigin).search});return;}
    if(!mount&&path==='/computers'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices)),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
+    reply(res,200,page('选择电脑',desktopPicker(devices,undefined,{mobile})),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
    }
    if(await desktopRelay.forward(req,res,s))return;
    if(path==='/'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId)),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId,{mobile})),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
    }else reply(res,503,JSON.stringify({error:!mount&&available.length>1?'desktop-selection-required':'desktop-offline',message:!mount&&available.length>1?'请先选择要操作的电脑':'您的电脑上的 Muse 未启动'}),{'content-type':'application/json; charset=utf-8','retry-after':'5'});
    return;
   }

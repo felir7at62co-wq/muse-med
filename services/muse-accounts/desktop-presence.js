@@ -7,7 +7,7 @@
  document.head.append(style);
  const banner=document.createElement('nav');banner.id='muse-desktop-context';banner.setAttribute('aria-label','当前电脑');
  const name=document.createElement('span');name.textContent='电脑：'+computerName;
- function switchLink(){const link=document.createElement('a');link.href='/computers';link.target='_blank';link.rel='noopener';link.textContent='切换电脑';link.title='打开电脑列表，保留当前会话';link.style.color='inherit';return link;}
+ function switchLink(){const link=document.createElement('a');link.href='/computers'+(new URL(location.href).searchParams.get('mobile')==='1'?'?mobile=1':'');link.target='_blank';link.rel='noopener';link.textContent='切换电脑';link.title='打开电脑列表，保留当前会话';link.style.color='inherit';return link;}
  banner.append(name,switchLink());document.body.append(banner);
  let pending, timer, stopped = false, dialog;
  function dismiss() { if (dialog) { dialog.close(); dialog.remove(); dialog = undefined; } }

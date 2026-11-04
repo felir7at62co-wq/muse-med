@@ -1,11 +1,13 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
+import { createWebTaskSender } from './web-submissions.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
 export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+  const sendTask = createWebTaskSender(call)
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   // An action that shows the panel lands the yield with it: when a folded
@@ -105,7 +107,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
     updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
     continueRoom: roomId => after(call('room-continue', { roomId })),
-    send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
+    send: (sessionId, text) => after(sendTask(sessionId, text, partFor(sessionId))),
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
     answerView: (sessionId, viewId, action, values) => after(call('view-reply', { sessionId: partFor(sessionId), viewId, action, values })),

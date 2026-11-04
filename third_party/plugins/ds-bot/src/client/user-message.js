@@ -128,7 +128,7 @@ export const USER_MESSAGE_CSS = `
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
-.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;max-width:100%;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
 .bt-ufile-icon{flex:none;width:28px;height:28px}
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

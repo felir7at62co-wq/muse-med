@@ -129,4 +129,12 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+@media(max-width:640px){
+  .bt-q-inline .dv-q{max-width:100%}
+  .bt-q-dock>.dv-view{flex-shrink:0}
+}
+@media(max-width:640px) and (pointer:coarse){
+  .dv-q button{min-height:44px}
+  .dv-q :is(input,textarea,select){font-size:16px}
+}
 `

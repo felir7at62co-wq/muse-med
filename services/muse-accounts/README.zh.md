@@ -166,6 +166,8 @@ HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按�
 
 桥接每隔 `heartbeatIntervalMs`（15 秒）向在线桌面发送 Ping；`heartbeatTimeoutMs`（30 秒）内没有 Pong 时，将桌面标为离线并关闭浏览器的观察连接。选择页与入口页面可见时每五秒查询状态。聊天页显示当前电脑；**切换电脑** 在新标签页打开选择页，保留当前标签页。另一台电脑在线时，断线标签页仍等待原来的 UUID。断线与登录过期提示会保留当前工作区和未发送内容；重连移除提示，不刷新页面。只有完整、未压缩的入口 GET 页面会加入观察脚本；HEAD、部分响应、压缩内容和事件流保留原始字节。本地 Host 响应或 WebSocket 升级失败只结束对应浏览器请求，桌面控制连接保持可用。
 
+手机入口使用所选电脑的 `/desktop/<installation-UUID>/?mobile=1` 地址。电脑选择与重连会保留手机模式及所选安装实例。相对 manifest、启动地址和作用域让添加到主屏幕的入口绑定这台电脑；媒体 Range 请求与 Bot 事件流使用同一个经过账号认证的挂载路径。
+
 桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成与 Chromium 测试验证了电脑选择、独立标签页、隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
 
 浏览器表单页使用 `Referrer-Policy: same-origin`，使同源导航 POST 保留 Origin 供 CSRF 校验。跨源与 null 源写入仍被拒绝。仓库安装为该夹具提供 `ws`；独立网关部署仍安装此目录自身的依赖。从仓库根目录运行 `node --test services/muse-accounts/desktop-{devices,remote,tunnel}.test.mjs` 验证传输和存储；构建 Host、Client 与 Web 后，运行 `pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts` 检查登录、标签页、草稿和响应式页面。

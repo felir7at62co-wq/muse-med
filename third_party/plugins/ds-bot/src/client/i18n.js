@@ -56,6 +56,8 @@ const ZH = {
   'Normal': '正常',
   'Lively': '活泼',
   Settings: '设置',
+  'Could not confirm this message. Reconnect and send it again to check its receipt.': '暂时无法确认是否已发送，恢复连接后再次发送会先核对回执',
+  'Could not save the send receipt. Your message has not been sent.': '无法保存发送回执，消息尚未发送',
   Usage: '用量',
   Account: '账户',
   Cancel: '取消',
@@ -1162,6 +1164,9 @@ const HOST_ERRORS = [
   [/^Memory cannot change now: [\s\S]*$/, '现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队'],
 ]
 const HOST_ZH = {
+  'The message request identifier is invalid.': '消息请求标识无效',
+  'This message request identifier was already used for different content.': '此发送回执已用于其他内容，请先核对原消息',
+  'The computer has not confirmed this message.': '电脑尚未确认接收这条消息',
   'Request failed': '请求失败',
   'Permissions are not available in this DeepSeek Harness': '这个 DeepSeek Harness 不支持权限设置',
   'Avatar images must be PNG, JPEG, WebP, or GIF': '头像图片必须是 PNG、JPEG、WebP 或 GIF',

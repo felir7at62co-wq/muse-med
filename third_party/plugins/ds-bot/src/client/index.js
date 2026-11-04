@@ -46,6 +46,7 @@ import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-m
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { adoptableSessions } from './session-adoption.js'
+import { closePhoneSidebar } from './phone-navigation.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -390,7 +391,11 @@ export function apply(ctx) {
     return ids
   }
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
-  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView })
+  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => {
+    expected = target
+    ctx.uiWorkspace.openSession(target)
+    closePhoneSidebar(ctx.layout)
+  }, current: mainView })
   const ordinaryStarter = ordinarySessionStarter({
     create: options => ctx.sessions.create(options),
     open: (id) => { setPlain(true); show(id) },
