@@ -20,7 +20,7 @@ it.each([
     await writeFile(manifest, JSON.stringify({ name: 'pnpm', bin }))
     await mkdir(dirname(join(root, launcher)), { recursive: true })
     await writeFile(join(root, launcher), '')
-    expect(resolvePnpmEntrypoint(manifest)).toBe(await realpath(join(root, launcher)))
+    expect(await realpath(resolvePnpmEntrypoint(manifest))).toBe(await realpath(join(root, launcher)))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
