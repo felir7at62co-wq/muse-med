@@ -123,6 +123,9 @@ it('validates model-scoped Google thought summaries and protocol', () => {
   expect(configWith({ googleThoughtSummaries: true })).not.toThrow()
   expect(configWith({ googleThoughtSummaries: false })).not.toThrow()
   expect(configWith({ googleThoughtSummaries: 'yes' })).toThrow()
+  expect(() => resolveProfiles({ example: { api: 'openai-completions', baseURL: 'https://example.test',
+    models: [{ id: 'm', googleThoughtSummaries: 'yes' }] } } as unknown as Parameters<typeof resolveProfiles>[0]))
+    .toThrow(/googleThoughtSummaries must be a boolean/)
   const good = resolveProfiles({ example: { api: 'openai-completions', baseURL: 'https://example.test',
     models: [{ id: 'm', googleThoughtSummaries: true }, { id: 'other' }] } })
   expect(good.get('example')?.googleThoughtSummaries).toEqual(new Set(['m']))
