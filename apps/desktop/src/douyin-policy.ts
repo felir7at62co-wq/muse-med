@@ -58,6 +58,7 @@ export function parseDouyinRequest(value: unknown): DouyinDesktopRequest | undef
   const v = value as Record<string, unknown>
   if (
     v.type !== 'douyin-browser' ||
+    (v.background !== undefined && v.background !== true) ||
     !['prepare', 'download', 'release'].includes(String(v.action)) ||
     typeof v.requestId !== 'string' ||
     !/^[a-f0-9-]{36}$/.test(v.requestId) ||

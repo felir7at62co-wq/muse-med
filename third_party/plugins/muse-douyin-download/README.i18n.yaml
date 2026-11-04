@@ -2,18 +2,42 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-douyin-download/README.md
+/:
+  en: a36f9bbec06e685b
+  zh: 54b2f0001e209e9e
 /muse-douyin-data-and-download-tools:
-  en: 84e856f2e2390be7
-  zh: 61d843e99b78a61a
-/muse-douyin-data-and-download-tools/runtime-and-configuration:
-  en: ccf019501ed69228
-  zh: 52a4449ccce8aca0
-/muse-douyin-data-and-download-tools/page-data-and-optional-downloads:
-  en: 1eda73047f3f0451
-  zh: abab80cb6852b318
-/muse-douyin-data-and-download-tools/internal-playback-and-results:
-  en: 989190e395b21a3b
-  zh: af24233c315a988f
-/muse-douyin-data-and-download-tools/validation-and-packaging:
-  en: 2f7407a225916fdf
-  zh: b7ebefcc6da965f7
+  en: 12777b13651eb34a
+  zh: 264ba5b65c8777a1
+/muse-douyin-data-and-download-tools/summary:
+  en: 9cfc10acc42f5889
+  zh: a37da8f599a2fe08
+/muse-douyin-data-and-download-tools/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: 5858bdca59a90cbb
+/muse-douyin-data-and-download-tools/use-this-package:
+  en: 7934908f80e3aebd
+  zh: 16d9732acb62b381
+/muse-douyin-data-and-download-tools/use-this-package/persistent-downloads:
+  en: c9d49a0c95034bf2
+  zh: b640fd6c6111771b
+/muse-douyin-data-and-download-tools/use-this-package/runtime-and-configuration:
+  en: 1a719f2887fe40b4
+  zh: 257a33099b014452
+/muse-douyin-data-and-download-tools/use-this-package/page-data-and-optional-downloads:
+  en: 4634697e2fff899d
+  zh: 8d057d9286d13d6e
+/muse-douyin-data-and-download-tools/use-this-package/internal-playback-and-results:
+  en: 809943790525de69
+  zh: c89181f1e02fbda0
+/muse-douyin-data-and-download-tools/understand-the-implementation:
+  en: 7456db3afc2fb2ae
+  zh: bf0ae6a9b6317510
+/muse-douyin-data-and-download-tools/model-experience:
+  en: d11b2e2e969dfe2c
+  zh: 2f070c168f32299c
+/muse-douyin-data-and-download-tools/known-limitations-and-deferred-work:
+  en: 25ff4620034b03d4
+  zh: 92e80c425ebcab4b
+/muse-douyin-data-and-download-tools/dev-note:
+  en: e9db395d73d1d6ec
+  zh: 4eff6835972ae33b

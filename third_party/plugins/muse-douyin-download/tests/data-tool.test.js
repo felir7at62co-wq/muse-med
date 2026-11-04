@@ -116,7 +116,7 @@ test('a public share-resolution failure enters the existing normal browser downl
   const scope = install({ version: 4, async download() { native++; return receipt; } },
     { status: 'blocked', message: 'Share link resolution failed; open it in your browser and provide the final video page.' });
   try {
-    assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
+    assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
     assert.equal(native, 1);
   } finally { await scope.dispose(); }
 });
@@ -128,7 +128,7 @@ test('the new bridge retains existing verified internal-browser download fallbac
   } }, { status: 'blocked', message: 'ACCESS_RESTRICTED' });
   try {
     assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
-    assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
+    assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
     assert.equal(native, 2);
     assert.equal(scope.calls.process.length, 2);
   } finally { await scope.dispose(); }

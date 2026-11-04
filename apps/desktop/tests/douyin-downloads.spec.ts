@@ -103,7 +103,7 @@ async function prepared() {
     workspace: `cwd:${root}`,
     sessionId: 'session-a',
   })
-  await vi.advanceTimersByTimeAsync(100)
+  await vi.advanceTimersByTimeAsync(request.background === true ? 200 : 100)
   expect((await pending).code).toBe('PREPARED')
 }
 async function transfer() {
@@ -436,6 +436,7 @@ it.each(['oversize', 'interrupted', 'redirect', 'truncated'])(
       item.emit('done', {}, 'interrupted')
     } else item.complete()
     expect((await result).code).toBe('INCOMPLETE_MEDIA')
+    await controller.request(owner as never, { ...request, action: 'release' })
     expect(existsSync(item.path)).toBe(false)
   },
 )
@@ -563,8 +564,9 @@ it.each(['document', 'session', 'owner', 'cancel'])('revokes metadata selection 
   if (change === 'document') guest.emit('did-start-navigation', {}, page, false, true)
   if (change === 'session') controller.activeSession(owner as never, 'session-b')
   if (change === 'owner') owner.isDestroyed = () => true
-  if (change === 'cancel') await controller.request(owner as never, { ...request, action: 'release' })
+  const releasing = change === 'cancel' ? controller.request(owner as never, { ...request, action: 'release' }) : undefined
   lookup.resolve(['1.1.1.1'])
+  await releasing
   await vi.advanceTimersByTimeAsync(100)
   expect(guest.downloadURL).not.toHaveBeenCalled()
   expect((await result).code).toBe(change === 'document' ? 'DOCUMENT_CHANGED'
@@ -794,8 +796,12 @@ it('denies private redirect resolution and cannot issue a download after cancell
   controller.activeSession(owner as never, 'session-a')
   const { result, debug } = await providerTransfer()
   await fixtureResponse(debug)
-  await controller.request(owner as never, { ...request, action: 'release' })
+  const releasing = controller.request(owner as never, { ...request, action: 'release' })
+  let released = false
+  void releasing.then(() => { released = true })
+  expect(released).toBe(false)
   dns.resolve(['1.1.1.1'])
+  await releasing
   await vi.advanceTimersByTimeAsync(100)
   expect((await result).code).toBe('CANCELLED')
   expect(guest.downloadURL).not.toHaveBeenCalled()
@@ -907,4 +913,122 @@ it('joins native cancellation before removing the selected provider download', a
   expect(released).toBe(true)
   expect(existsSync(item.path)).toBe(false)
   expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+})
+
+function background() {
+  request = { ...request, background: true }
+  const lease = { owner: owner as never, guest: guest as never, lease: randomUUID() as never,
+    workspace: `cwd:${root}`, sessionId: request.sessionId, taskId: request.taskId,
+    prepareRequestId: request.requestId, close: vi.fn(async () => {}), needsUserAction: vi.fn(async () => false) }
+  const reserve = vi.fn(() => lease)
+  controller = new DesktopDouyinDownloads(open, async () => ['1.1.1.1'], reserve)
+  return { lease, reserve }
+}
+
+it('admits only the private true background flag at the Host IPC parser', () => {
+  expect(parseDouyinRequest({ ...request, background: true })?.background).toBe(true)
+  for (const background of [false, 'true', null, {}, 1]) expect(parseDouyinRequest({ ...request, background })).toBeUndefined()
+})
+
+it('keeps a Main-owned background task across chat changes and Renderer lease release without opening Sidebar', async () => {
+  const { reserve } = background()
+  await prepared()
+  expect(reserve).toHaveBeenCalledExactlyOnceWith(owner, request)
+  expect(open).not.toHaveBeenCalled()
+  controller.activeSession(owner as never, 'session-b')
+  controller.released('lease-a' as never)
+  await vi.advanceTimersByTimeAsync(100)
+  expect(controller.isActive).toBe(true)
+  const { background: mode, ...visibleRequest } = request
+  expect(mode).toBe(true)
+  expect((await controller.request(owner as never, { ...visibleRequest, action: 'download', targetVideoId: id })).code)
+    .toBe('SESSION_NOT_VISIBLE')
+  expect((await controller.request(web() as never, { ...request, action: 'download', targetVideoId: id })).code).toBe('GRANT_MISMATCH')
+  expect((await controller.request(owner as never, { ...request, action: 'download', targetVideoId: '7690000000000000000' })).code)
+    .toBe('GRANT_MISMATCH')
+  await controller.request(owner as never, { ...request, action: 'release' })
+})
+
+it.each(['owner', 'session', 'workspace', 'task', 'request'] as const)('rejects a background reservation with a foreign %s', async (field) => {
+  const { lease, reserve } = background()
+  if (field === 'owner') lease.owner = web() as never
+  if (field === 'session') lease.sessionId = 'session-b'
+  if (field === 'workspace') lease.workspace = 'cwd:/foreign'
+  if (field === 'task') lease.taskId = randomUUID() as never
+  if (field === 'request') lease.prepareRequestId = randomUUID()
+  const result = await controller.request(owner as never, request)
+  expect(result.code).toBe('BACKGROUND_UNAVAILABLE')
+  await controller.dispose()
+  expect(reserve).toHaveBeenCalledOnce()
+  expect(lease.close).toHaveBeenCalledOnce()
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it('does not let a Renderer guest satisfy an unsupported background request', async () => {
+  request = { ...request, background: true }
+  const operation = controller.request(owner as never, request)
+  controller.attached({ owner: owner as never, guest: guest as never, lease: 'lease-a' as never,
+    workspace: `cwd:${root}`, sessionId: request.sessionId })
+  expect((await operation).code).toBe('BACKGROUND_UNAVAILABLE')
+  expect(open).not.toHaveBeenCalled()
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it('returns a login/verification code before preparing a background grant and never submits the challenge', async () => {
+  const { lease } = background()
+  lease.needsUserAction.mockResolvedValue(true)
+  const operation = controller.request(owner as never, request)
+  await vi.advanceTimersByTimeAsync(100)
+  expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+  await controller.request(owner as never, { ...request, action: 'release' })
+  expect(lease.close).toHaveBeenCalledOnce()
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it('joins background guest destruction and an in-flight probe before returning cancellation', async () => {
+  const { lease } = background()
+  const probe = Promise.withResolvers<boolean>(), destroyed = Promise.withResolvers<undefined>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  lease.close.mockImplementation(() => destroyed.promise)
+  const operation = controller.request(owner as never, request)
+  await vi.advanceTimersByTimeAsync(100)
+  const released = vi.fn()
+  const releasing = controller.request(owner as never, { ...request, action: 'release' }).then(released)
+  try {
+    expect((await operation).code).toBe('CANCELLED')
+    expect(lease.close).toHaveBeenCalledOnce()
+    probe.resolve(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(released).not.toHaveBeenCalled()
+    destroyed.resolve(undefined)
+    await releasing
+    expect(released).toHaveBeenCalledOnce()
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    probe.resolve(false); destroyed.resolve(undefined); await releasing
+  }
+})
+
+it('joins background native completion and guest destruction on Host disposal', async () => {
+  const { lease } = background()
+  const destroyed = Promise.withResolvers<undefined>()
+  lease.close.mockImplementation(() => destroyed.promise)
+  const { result } = await transfer()
+  class DeferredItem extends Item { override cancel() { this.state = 'cancelling' } }
+  const item = new DeferredItem()
+  expect(controller.accept(item as never, guest as never)).toBe(true)
+  const disposed = vi.fn(), disposal = controller.dispose().then(disposed)
+  try {
+    expect((await result).code).toBe('HOST_DISCONNECTED')
+    expect(item.state).toBe('cancelling')
+    destroyed.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(disposed).not.toHaveBeenCalled()
+    item.state = 'cancelled'; item.emit('done', {}, 'cancelled')
+    await disposal
+    expect(disposed).toHaveBeenCalledOnce()
+    expect(existsSync(item.path)).toBe(false)
+  } finally {
+    destroyed.resolve(undefined); item.state = 'cancelled'; item.emit('done', {}, 'cancelled'); await disposal
+  }
 })

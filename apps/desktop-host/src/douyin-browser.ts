@@ -16,6 +16,8 @@ import { installDesktopDouyinData, type DouyinDataMethod } from './douyin-data.t
 
 interface BrowserAcquisition {
   readonly version: 4
+  /** A background request never falls back to a Renderer-owned Sidebar guest. */
+  readonly supportsBackgroundDownload: true
   /** Observe normal-page data with the initiating Agent's cancellation and workspace lifetime. */
   readonly data: DouyinDataMethod
   /**
@@ -24,9 +26,11 @@ interface BrowserAcquisition {
    * @param signal - tool lifetime.
    * @param maxDownloadBytes - validated tool deployment's per-video file bound.
    * @param nativeTimeoutMs - resolved transfer and independent verification budgets.
+   * @param options - Internal opt-in to an isolated Main-owned background guest.
    * @returns verified receipt or explicit failure.
    */
-  download(agent: Agent, url: string, signal: AbortSignal, maxDownloadBytes: number, nativeTimeoutMs: number): Promise<object>
+  download(agent: Agent, url: string, signal: AbortSignal, maxDownloadBytes: number, nativeTimeoutMs: number,
+    options?: { readonly background: true }): Promise<object>
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -61,7 +65,13 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
   const lifetime = new AbortController()
   const downloads = new Set<Promise<object>>()
   let closing = false
-  const taskLifetimes = new Map<string, AbortController>()
+  const taskLifetimes = new Map<string, { agent: Agent; controller: AbortController; release: () => Promise<DouyinDesktopResult> }>()
+  ctx.on('agent/disposed', ({ agent }) => {
+    for (const task of taskLifetimes.values()) if (task.agent === agent) {
+      task.controller.abort('OWNER_LOST')
+      void task.release()
+    }
+  })
   const answer = (value: unknown): void => {
     if (
       typeof value === 'object' &&
@@ -75,7 +85,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         'code' in value && typeof value.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(value.code)
           ? value.code
           : 'CANCELLED'
-      taskLifetimes.get(value.taskId)?.abort(reason)
+      taskLifetimes.get(value.taskId)?.controller.abort(reason)
       return
     }
     const result = resultOf(value)
@@ -102,9 +112,11 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         finish('HOST_UNAVAILABLE')
         return
       }
-      process.send(request, (error) => {
-        if (error !== null) finish('HOST_UNAVAILABLE')
-      })
+      try {
+        process.send(request, (error) => { if (error !== null) finish('HOST_UNAVAILABLE') })
+      } catch (_error) {
+        finish('HOST_UNAVAILABLE')
+      }
     })
   const disconnect = (): void => {
     lifetime.abort()
@@ -123,9 +135,10 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
     'douyin: settle transport on Host shutdown',
   )
   const acquire = async (agent: Agent, url: string, callerSignal: AbortSignal,
-    maxDownloadBytes: number, nativeTimeoutMs: number): Promise<object> => {
+    maxDownloadBytes: number, nativeTimeoutMs: number, options: { readonly background: true } | undefined,
+    ownerSignal: AbortSignal): Promise<object> => {
     const taskLifetime = new AbortController()
-    const signal = AbortSignal.any([callerSignal, lifetime.signal, taskLifetime.signal])
+    const signal = AbortSignal.any([callerSignal, ownerSignal, lifetime.signal, taskLifetime.signal])
     const taskId = randomUUID() as DouyinTaskId
     const workspace = agent.session.header.cwd
     if (typeof workspace !== 'string') return { status: 'blocked', code: 'WORKSPACE_UNAVAILABLE' }
@@ -160,9 +173,10 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         ? /^\/[A-Za-z0-9_-]+\/?$/.test(page.pathname)
         : ['www.douyin.com', 'www.iesdouyin.com'].includes(page.hostname) && target)
     if (!official) return { status: 'blocked', code: 'INVALID_URL' }
-    taskLifetimes.set(taskId, taskLifetime)
-    const base = { type: 'douyin-browser' as const, taskId, sessionId: agent.id, cwd, url, maxDownloadBytes, nativeTimeoutMs }
+    const base = { type: 'douyin-browser' as const, taskId, sessionId: agent.id, cwd, url, maxDownloadBytes, nativeTimeoutMs,
+      ...(options?.background === true ? { background: true as const } : {}) }
     const release = (): Promise<DouyinDesktopResult> => send({ ...base, requestId: randomUUID(), action: 'release' })
+    taskLifetimes.set(taskId, { agent, controller: taskLifetime, release })
     const abort = (): void => {
       if (!taskLifetime.signal.aborted) void release()
     }
@@ -185,9 +199,11 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         code:
           taskLifetime.signal.aborted && typeof revoked === 'string'
             ? revoked
-            : signal.aborted
-              ? 'CANCELLED'
-              : 'MEDIA_VERIFICATION_FAILED',
+            : ownerSignal.aborted
+              ? 'OWNER_LOST'
+              : signal.aborted
+                ? 'CANCELLED'
+                : 'MEDIA_VERIFICATION_FAILED',
         taskId,
       }
     } finally {
@@ -200,13 +216,20 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
     () =>
       ctx.provide('douyinBrowser', {
         version: 4,
+        supportsBackgroundDownload: true,
         data,
-        download(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs) {
-          const operation = acquire(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs)
+        download(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs, options) {
+          const owner = new AbortController()
+          const operation = acquire(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs, options, owner.signal)
           downloads.add(operation)
-          return operation.finally(() => {
-            downloads.delete(operation)
-          })
+          const dispose = agent.ctx.effect(() => async () => {
+            owner.abort()
+            await Promise.allSettled([operation])
+          }, 'douyin: originating Agent task')
+          return (async () => {
+            try { return await operation }
+            finally { downloads.delete(operation); await dispose() }
+          })()
         },
       }),
     'douyin: main-owned browser acquisition',

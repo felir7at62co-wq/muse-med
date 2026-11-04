@@ -21,6 +21,7 @@ import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.j
 import { loadSourceResearchPlugin } from './fixtures/source-research-plugin.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
 
 const patchPath = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 const row = loadOverlayPatches('desktop-discovery-catalog', patchPath)
@@ -107,6 +108,25 @@ it('keeps native delivery, project and memory tools deferred while giving each a
   }
   expect(config.alwaysLoad).toContain('ask_user_question')
   expect(config.alwaysLoad).toContain('ask_user')
+})
+
+it('recalls the registered Douyin task controls without making them resident', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(Prompt)
+    await ctx.plugin(Tools)
+    Douyin.apply(ctx, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null, settingsHome: null })
+    const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...ctx.tools.schemas()].map(schema => [schema.name, schema]))
+    const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
+      { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+    for (const [query, expected] of [['抖音后台下载', 'douyin_download'], ['恢复抖音下载', 'douyin_download_task']] as const) {
+      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain(expected)
+      expect(config.alwaysLoad).not.toContain(expected)
+      expect(capabilityMemberships(expected, config.capabilities ?? [])).toContain('data-sourcing')
+    }
+  } finally {
+    await ctx.fiber.dispose()
+  }
 })
 
 it('classifies the actual Bot team tool registrations without changing their permissions', async () => {

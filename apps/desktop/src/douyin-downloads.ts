@@ -8,6 +8,7 @@ import type {
   DouyinDesktopResult,
   DouyinVideoId,
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { DouyinTaskGuest } from './douyin-task-guests.ts'
 import { douyinMedia, douyinPage, mediaURLHash, targetVideoId, DOUYIN_PLAYER_PROBE } from './douyin-policy.ts'
 import {
   ProviderResponses,
@@ -29,7 +30,7 @@ export interface DouyinGuest {
 /**
  * @param lease - Main-issued browser reservation.
  * @param owner - Initiating application window.
- * @param sessionId - Selected owning Session.
+ * @param sessionId - Initiating owning Session.
  * @param cwd - Host-resolved workspace directory.
  * @returns Whether the reservation uses that Session and its canonical storage identity.
  */
@@ -48,6 +49,12 @@ interface Task {
   owner: WebContents
   phase: 'preparing' | 'ready' | 'observing' | 'downloading' | 'staged'
   lease?: DouyinGuest
+  backgroundGuest?: DouyinTaskGuest
+  readonly prepareRequestId: string
+  readonly pending: Set<Promise<unknown>>
+  checkingUserAction?: boolean
+  userActionChecked?: boolean
+  userActionDocument?: string
   target?: string
   response?: { url: string; status: number } | undefined
   observedResponses?: Map<string, number>
@@ -133,15 +140,21 @@ function stagingDirectory(cwd: string, task: string): string {
 export class DesktopDouyinDownloads {
   private task: Task | undefined
   private readonly active = new Map<WebContents, string | undefined>()
+  private readonly retiring = new Map<string, { task: Task; completion: Promise<void> }>()
   /** Main-to-owning-Host revocation; no renderer can provide this callback. */
   onRevoked?: (taskId: string, code: string) => void
 
-  /** @param guests - main-issued guest roster. @param open - existing Browser UI opener. */
   private readonly cleanups = new Set<Promise<void>>()
 
+  /**
+   * @param open - Existing visible Sidebar opener.
+   * @param addresses - Optional DNS resolver; production uses the leased Chromium session.
+   * @param openBackground - Main-owned private task guest factory, unavailable to Renderer IPC.
+   */
   constructor(
     private readonly open: (owner: WebContents, sessionId: string, url: string) => void,
     private readonly addresses?: (host: string) => Promise<readonly string[]>,
+    private readonly openBackground?: (owner: WebContents, request: DouyinDesktopRequest) => DouyinTaskGuest,
   ) {}
 
   /** @returns Whether a main-issued download task currently owns the native grant. */
@@ -149,11 +162,11 @@ export class DesktopDouyinDownloads {
     return this.task !== undefined
   }
 
-  /** @param owner - authenticated application window. @param session - selected Session, or absent. */
+  /** @param owner - Authenticated application window. @param session - Selected Session; only visible tasks follow it. */
   activeSession(owner: WebContents, session: unknown): void {
     if (session !== undefined && (typeof session !== 'string' || session.length > 256)) return
     this.active.set(owner, session)
-    if (this.task?.owner === owner && this.task.request.sessionId !== session) void this.revoke('SESSION_CHANGED')
+    if (this.task?.owner === owner && this.task.request.background !== true && this.task.request.sessionId !== session) void this.revoke('SESSION_CHANGED')
   }
 
   /** @param owner - application window. @param request - validated child request. @returns sanitized result. */
@@ -165,9 +178,13 @@ export class DesktopDouyinDownloads {
     })
     if (request.action === 'release') {
       if (this.matches(owner, request)) await this.revoke('CANCELLED')
+      else {
+        const previous = this.retiring.get(request.taskId)
+        if (previous !== undefined && this.matches(owner, request, previous.task)) await previous.completion
+      }
       return answer('RELEASED')
     }
-    if (this.active.get(owner) !== request.sessionId || owner.isDestroyed()) return answer('SESSION_NOT_VISIBLE')
+    if (owner.isDestroyed() || (request.background !== true && this.active.get(owner) !== request.sessionId)) return answer('SESSION_NOT_VISIBLE')
     if (request.action === 'prepare') {
       if (this.task !== undefined) return answer('BUSY')
       return new Promise((resolveResult) => {
@@ -175,6 +192,8 @@ export class DesktopDouyinDownloads {
           request,
           owner,
           phase: 'preparing',
+          prepareRequestId: request.requestId,
+          pending: new Set(),
           timer: setTimeout(() => {
             if (this.task === task) void this.revoke('EXPIRED')
           }, ASSOCIATION_MS),
@@ -185,7 +204,17 @@ export class DesktopDouyinDownloads {
         }
         this.task = task
         try {
-          this.open(owner, request.sessionId, request.url)
+          if (request.background === true) {
+            const lease = this.openBackground?.(owner, request)
+            if (lease === undefined || lease.taskId !== request.taskId || lease.prepareRequestId !== task.prepareRequestId
+              || !douyinGuestMatches(lease, owner, request.sessionId, request.cwd)) {
+              if (lease !== undefined) this.observe(task, lease.close(), 'LEASE_RELEASED')
+              void this.revoke('BACKGROUND_UNAVAILABLE')
+              return
+            }
+            task.backgroundGuest = lease
+            task.lease = lease
+          } else this.open(owner, request.sessionId, request.url)
         } catch (_error) {
           void this.revoke('UI_UNAVAILABLE')
         }
@@ -216,38 +245,32 @@ export class DesktopDouyinDownloads {
       if (task.documentEpoch !== 1 || targetVideoId(url) !== task.target) void this.revoke('DOCUMENT_CHANGED')
     }
     guest.on('did-start-navigation', task.navigation)
-    task.providerResponses = new ProviderResponses(
+    const providerResponses = new ProviderResponses(
       guest,
       target,
       () => task.documentEpoch ?? 0,
       (source) => {
         if (this.task === task && task.phase === 'observing' && source.documentEpoch === 1) {
           task.provider ??= source
-          void this.chooseProvider(task).catch(() => {
-            if (this.task === task) void this.revoke('PROVIDER_SOURCE_REJECTED')
-          })
+          this.observe(task, this.chooseProvider(task), 'PROVIDER_SOURCE_REJECTED')
         }
       },
       () => {
         if (this.task === task) void this.revoke('PROTECTED_MEDIA')
       },
     )
+    task.providerResponses = providerResponses
     return new Promise((resolveResult) => {
       task.reply = resolveResult
-      void task.providerResponses
-        ?.start()
+      this.observe(task, providerResponses.start()
         .then((available) => {
           task.providerAvailable = available
           if (this.task === task && task.phase === 'observing') guest.reload()
-        })
-        .catch(() => {
-          if (this.task === task) void this.revoke('PROVIDER_SOURCE_UNAVAILABLE')
-        })
+        }), 'PROVIDER_SOURCE_UNAVAILABLE')
     })
   }
 
-  private matches(owner: WebContents, request: DouyinDesktopRequest): boolean {
-    const task = this.task
+  private matches(owner: WebContents, request: DouyinDesktopRequest, task = this.task): boolean {
     return (
       task !== undefined &&
       task.owner === owner &&
@@ -256,14 +279,15 @@ export class DesktopDouyinDownloads {
       task.request.cwd === request.cwd &&
       task.request.url === request.url &&
       task.request.maxDownloadBytes === request.maxDownloadBytes &&
-      task.request.nativeTimeoutMs === request.nativeTimeoutMs
+      task.request.nativeTimeoutMs === request.nativeTimeoutMs &&
+      task.request.background === request.background
     )
   }
 
   private tick(): void {
     const task = this.task
     if (task === undefined) return
-    if (task.owner.isDestroyed() || this.active.get(task.owner) !== task.request.sessionId) {
+    if (task.owner.isDestroyed() || !this.ownerSessionMatches(task)) {
       void this.revoke('OWNER_LOST')
       return
     }
@@ -271,7 +295,21 @@ export class DesktopDouyinDownloads {
       void this.revoke('LEASE_RELEASED')
       return
     }
+    const userActionDocument = task.backgroundGuest?.guest.getURL()
+    if (task.phase === 'preparing' && task.userActionDocument !== userActionDocument) task.userActionChecked = false
+    if (task.backgroundGuest !== undefined && (task.phase === 'observing' || (task.phase === 'preparing' && !task.userActionChecked))
+      && !task.checkingUserAction && !task.backgroundGuest.guest.isLoadingMainFrame()) {
+      task.checkingUserAction = true
+      this.observe(task, task.backgroundGuest.needsUserAction().then((required) => {
+        if (this.task === task && userActionDocument !== undefined
+          && task.backgroundGuest?.guest.getURL() === userActionDocument) {
+          if (required) void this.revoke('LOGIN_OR_VERIFICATION_REQUIRED')
+          else { task.userActionChecked = true; task.userActionDocument = userActionDocument }
+        }
+      }).finally(() => { task.checkingUserAction = false }), 'BROWSER_PROBE_UNAVAILABLE')
+    }
     if (task.phase === 'preparing') {
+      if (task.backgroundGuest !== undefined && !task.userActionChecked) return
       // Only the new guest opened for this request may be associated by attach().
       if (task.lease === undefined) return
       if (task.lease.guest.isLoadingMainFrame()) return
@@ -295,13 +333,9 @@ export class DesktopDouyinDownloads {
       void this.revoke('TARGET_CHANGED')
     else if (task.phase === 'observing') {
       if (task.provider !== undefined)
-        void this.chooseProvider(task).catch(() => {
-          if (this.task === task) void this.revoke('PROVIDER_SOURCE_REJECTED')
-        })
+        this.observe(task, this.chooseProvider(task), 'PROVIDER_SOURCE_REJECTED')
       else
-        void this.choose(task).catch(() => {
-          if (this.task === task) void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
-        })
+        this.observe(task, this.choose(task), 'UNSUPPORTED_MEDIA_ASSOCIATION')
     }
   }
 
@@ -310,15 +344,16 @@ export class DesktopDouyinDownloads {
     const task = this.task
     if (
       task?.phase === 'preparing' &&
+      task.request.background !== true &&
       task.lease === undefined &&
       douyinGuestMatches(lease, task.owner, task.request.sessionId, task.request.cwd)
     )
       task.lease = lease
   }
 
-  /** @param lease - released guest. */
-  released(lease: DesktopBrowserLeaseId): void {
-    if (this.task?.lease?.lease === lease) void this.revoke('LEASE_RELEASED')
+  /** @param lease - Released guest. @param code - Fixed Main-owned revocation diagnostic. */
+  released(lease: DesktopBrowserLeaseId, code = 'LEASE_RELEASED'): void {
+    if (this.task?.lease?.lease === lease) void this.revoke(code)
   }
 
   /** @param details - ordinary response metadata from the leased session. */
@@ -354,9 +389,18 @@ export class DesktopDouyinDownloads {
     }
     task.observedResponses.set(details.url, details.statusCode)
     task.response = { url: details.url, status: details.statusCode }
-    void this.choose(task).catch(() => {
-      if (this.task === task) void this.revoke('UNSUPPORTED_MEDIA_ASSOCIATION')
-    })
+    this.observe(task, this.choose(task), 'UNSUPPORTED_MEDIA_ASSOCIATION')
+  }
+
+  private ownerSessionMatches(task: Task): boolean {
+    return task.request.background === true || this.active.get(task.owner) === task.request.sessionId
+  }
+
+  private observe(task: Task, operation: Promise<unknown>, failure: string): void {
+    const pending = operation.catch(() => {
+      if (this.task === task) void this.revoke(failure)
+    }).finally(() => { task.pending.delete(pending) })
+    task.pending.add(pending)
   }
 
   private isCurrent(task: Task, phase: Task['phase']): boolean {
@@ -380,7 +424,7 @@ export class DesktopDouyinDownloads {
     try {
       const player: unknown = await task.lease.guest.executeJavaScript(DOUYIN_PLAYER_PROBE)
       if (!this.isCurrent(task, 'observing') || task.documentEpoch !== epoch || task.owner.isDestroyed()
-        || this.active.get(task.owner) !== task.request.sessionId || task.lease.guest.isDestroyed()
+        || !this.ownerSessionMatches(task) || task.lease.guest.isDestroyed()
         || targetVideoId(task.lease.guest.getURL()) !== task.target) return
       if (typeof player !== 'object' || player === null) return
       const facts = player as Record<string, unknown>
@@ -400,7 +444,7 @@ export class DesktopDouyinDownloads {
           return
         }
         if (!this.isCurrent(task, 'observing') || task.documentEpoch !== 1 || task.owner.isDestroyed()
-          || this.active.get(task.owner) !== task.request.sessionId || task.lease.guest.isDestroyed()
+          || !this.ownerSessionMatches(task) || task.lease.guest.isDestroyed()
           || targetVideoId(task.lease.guest.getURL()) !== metadata.targetVideoId) return
         failureCode = 'MEDIA_STAGING_UNAVAILABLE'
         task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
@@ -469,7 +513,7 @@ export class DesktopDouyinDownloads {
       if (
         !this.isCurrent(task, 'observing') ||
         task.documentEpoch !== epoch ||
-        this.active.get(task.owner) !== task.request.sessionId ||
+        !this.ownerSessionMatches(task) ||
         task.lease.guest.isDestroyed() ||
         targetVideoId(task.lease.guest.getURL()) !== source.targetVideoId
       )
@@ -524,10 +568,7 @@ export class DesktopDouyinDownloads {
     })
     item.once('done', (_event, state) => {
       completion.resolve()
-      if (this.task !== task) {
-        this.cleanup(task)
-        return
-      }
+      if (this.task !== task) return
       if (
         state !== 'completed' ||
         item.getReceivedBytes() <= 0 ||
@@ -538,7 +579,7 @@ export class DesktopDouyinDownloads {
         item.getURL() !== item.getURLChain().at(-1) ||
         guest.isDestroyed() ||
         targetVideoId(guest.getURL()) !== task.target ||
-        this.active.get(task.owner) !== task.request.sessionId ||
+        !this.ownerSessionMatches(task) ||
         (task.association !== 'player-exact' && !task.transferResponses?.has(item.getURL()))
       ) {
         void this.revoke('INCOMPLETE_MEDIA')
@@ -629,7 +670,17 @@ export class DesktopDouyinDownloads {
     return !this.isCurrent(task, 'downloading')
   }
 
-  private async publicHost(url: string, guest: WebContents): Promise<boolean> {
+  private publicHost(url: string, guest: WebContents): Promise<boolean> {
+    const task = this.task
+    const operation = this.resolvePublicHost(url, guest)
+    if (task !== undefined) {
+      task.pending.add(operation)
+      void operation.then(() => { task.pending.delete(operation) }, () => { task.pending.delete(operation) })
+    }
+    return operation
+  }
+
+  private async resolvePublicHost(url: string, guest: WebContents): Promise<boolean> {
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
       const addresses = await Promise.race([
@@ -677,11 +728,12 @@ export class DesktopDouyinDownloads {
     task.reply = undefined
     reply?.({ type: 'douyin-browser-result', requestId: task.request.requestId, code })
     if (task.item !== undefined && task.item.getState() === 'progressing') task.item.cancel()
-    const cleanup = (task.completion ?? Promise.resolve()).then(() => {
-      this.cleanup(task)
-    })
+    const cleanup = Promise.allSettled([task.backgroundGuest?.close() ?? Promise.resolve(),
+      task.completion ?? Promise.resolve(), ...task.pending]).then(() => { this.cleanup(task) })
     this.cleanups.add(cleanup)
+    this.retiring.set(task.request.taskId, { task, completion: cleanup })
     return cleanup.finally(() => {
+      if (this.retiring.get(task.request.taskId)?.task === task) this.retiring.delete(task.request.taskId)
       this.cleanups.delete(cleanup)
     })
   }

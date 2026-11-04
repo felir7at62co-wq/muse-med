@@ -132,7 +132,7 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
       } } : {})
       const session = ctx.sessions.create(SessionId('native-file-effects'), { meta: { cwd: root } })
       installDesktopDouyinBrowser(ctx)
-      const operation = ctx.douyinBrowser.download({ id: session.id, session } as Agent,
+      const operation = ctx.douyinBrowser.download({ id: session.id, session, ctx } as Agent,
         `https://www.douyin.com/video/${id}`, cancellation.signal, 1024,
         mode === 'expired-verification' ? 1000 : mode === 'long-verification' ? 300_000 : 1_800_000)
       if (timedVerification) {

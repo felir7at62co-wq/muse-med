@@ -19,3 +19,11 @@
 - insert:
     - id: snapshot-douyin-player-metadata-transport
       name: './transport-fixture.mjs'
+
+# Durable task IDs include the real owning Session; the normal runner resumes this fixture-owned header.
+- id: headless-runner
+  inject: [headlessStartup, douyinReplayOwnerReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-douyin-player-metadata
+    json: !!js ctx.headlessStartup.json

@@ -517,6 +517,20 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+function expandDouyinExpectedReceipt(text: string, cwd: string): string {
+  const receipt = JSON.parse(text) as JsonObject
+  for (const field of ['path', 'receipt']) {
+    const value = receipt[field]
+    if (typeof value !== 'string' || !value.startsWith('{{cwd}}/source/media/douyin/')) {
+      throw new Error('Douyin expected receipt paths must remain under {{cwd}}/source/media/douyin/')
+    }
+    const suffix = value.slice('{{cwd}}/'.length)
+    if (!/^source\/media\/douyin\/\d{10,25}\.mp4(?:\.source\.json)?$/u.test(suffix)) throw new Error('Douyin expected receipt paths require a selected video filename')
+    receipt[field] = join(cwd, ...suffix.split('/'))
+  }
+  return `${JSON.stringify(receipt, null, 2)}\n`
+}
+
 async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
@@ -532,6 +546,17 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 }
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-douyin-media'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('Douyin tasks require their complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-douyin-tasks')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const directory = join(expectedRoot, 'source/media/douyin')
+    for (const file of await readdir(directory)) if (file.endsWith('.source.json')) {
+      const path = join(directory, file)
+      await writeFile(path, expandDouyinExpectedReceipt(await readFile(path, 'utf8'), await realpath(cwd)))
+    }
+    return { expectedRoot }
+  },
   async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
@@ -1096,6 +1121,18 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('Douyin expected workspace expands only the two declared media receipt paths', () => {
+    const cwd = join(tmpdir(), 'douyin-workspace-oracle')
+    const path = '{{cwd}}/source/media/douyin/7100000000000000001.mp4'
+    const document = { path, receipt: `${path}.source.json`, source: 'https://www.douyin.com/video/7100000000000000001', sha256: 'a'.repeat(64), title: '{{cwd}} is source data' }
+    expect(JSON.parse(expandDouyinExpectedReceipt(JSON.stringify(document), cwd))).toEqual({
+      ...document, path: join(cwd, 'source/media/douyin/7100000000000000001.mp4'), receipt: join(cwd, 'source/media/douyin/7100000000000000001.mp4.source.json'),
+    })
+    for (const invalid of ['/unowned/video.mp4', '{{cwd}}/source/media/douyin/../outside.mp4', '{{cwd}}/source/media/douyin/..\\outside.mp4']) {
+      expect(() => expandDouyinExpectedReceipt(JSON.stringify({ ...document, path: invalid }), cwd)).toThrow()
+    }
+  })
+
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
     const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
     const report = JSON.parse(template) as JsonObject

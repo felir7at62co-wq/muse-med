@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../python/scripts/download.py', import.meta.url))
   .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
-const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'nativeTimeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'maxComments']);
+const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'nativeTimeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'maxComments', 'taskMaxTasks', 'taskRegistryMaxBytes', 'taskLockTimeoutMs', 'taskLockPollMs', 'taskReceiptMaxBytes', 'taskOutputMaxBytes']);
 
 /** Validate deployment settings before registering tools. @param {object} config Settings. @returns {object} Explicit subprocess settings. */
 export function resolveConfig(config = {}) {
@@ -16,13 +16,14 @@ export function resolveConfig(config = {}) {
     ffmpegExecutable: process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null,
     settingsHome: process.env.DSH_HOME || process.env.MUSE_HOME || null,
     requestTimeoutMs: 30000, timeoutMs: 120000, nativeTimeoutMs: 1800000, maxDownloadBytes: 512 * 1024 ** 2, graceMs: 1000, maxVideos: 20, dataTimeoutMs: 30000, maxComments: 20,
+    taskMaxTasks: 1000, taskRegistryMaxBytes: 16777216, taskLockTimeoutMs: 5000, taskLockPollMs: 25, taskReceiptMaxBytes: 262144, taskOutputMaxBytes: 65536,
     ...config,
   };
   for (const field of ['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable']) {
     if (result[field] !== null && (typeof result[field] !== 'string' || !result[field].trim() || result[field].includes('\0'))) throw new TypeError(`${field} must name an executable or be null`);
   }
   if (result.settingsHome !== null && (typeof result.settingsHome !== 'string' || !isAbsolute(result.settingsHome))) throw new TypeError('settingsHome must be Muse’s absolute settings directory');
-  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['nativeTimeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['maxComments', 1, 200]]) {
+  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['nativeTimeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['maxComments', 1, 200], ['taskMaxTasks', 1, 10000], ['taskRegistryMaxBytes', 1024, 67108864], ['taskLockTimeoutMs', 100, 60000], ['taskLockPollMs', 1, 1000], ['taskReceiptMaxBytes', 1024, 1048576], ['taskOutputMaxBytes', 1024, 1048576]]) {
     if (!Number.isSafeInteger(result[field]) || result[field] < min || result[field] > max) throw new TypeError(`${field} must be an integer from ${min} to ${max}`);
   }
   if ((result.dataTimeoutMs + result.requestTimeoutMs + result.timeoutMs + 2 * result.nativeTimeoutMs + 390000) * result.maxVideos + 10000 > 2147483647) throw new TypeError('Combined Douyin tool deadline exceeds the Node timer range; reduce maxVideos or the deployment budgets');
@@ -61,7 +62,7 @@ export async function runDownloader(subprocess, config, argv, workspace, signal)
     const handle = subprocess.spawn({ argv, cwd: workspace, env: Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && !/KEY|SECRET|TOKEN|PASSWORD|COOKIE|PROXY|PYTHON|NODE_OPTIONS|SSL_CERT/i.test(key))), stdio: { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } }, graceMs: config.graceMs, signal: combined });
     const outcome = await handle.done;
     await handle.waitForExit?.();
-    combined.throwIfAborted();
+    if (outcome.exitCode !== 0 || outcome.signal) combined.throwIfAborted();
     if (outcome.signal) throw new Error('Douyin downloader terminated before completion');
     const output = handle.collected.stdout?.readFrom(0);
     if (!output || output.lossy || output.truncated) throw new Error('Douyin downloader returned incomplete output');

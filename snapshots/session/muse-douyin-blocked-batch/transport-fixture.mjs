@@ -1,11 +1,13 @@
 /** No-network acquisition failures passed through the real download tool and agent loop. */
 import { basename } from 'node:path'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { persistDouyinReplayOwner } from '../douyin-stable-owner.mjs'
 
 const { Service } = await importSnapshotPackage('@deepseek-ai/cordis',
   new URL('../../../apps/cli/package.json', import.meta.url))
 
 export const name = 'snapshot-douyin-blocked-transport'
+export const inject = ['sessions', 'sessionPersistence']
 
 class PublicFailure extends Service {
   constructor(ctx) { super(ctx, 'subprocess') }
@@ -39,6 +41,8 @@ class BrowserFailure extends Service {
 
 /** @param {import('@deepseek-ai/cordis').Context} ctx - Isolated profile context. */
 export async function apply(ctx) {
+  await persistDouyinReplayOwner(ctx, 'snapshot-douyin-blocked-batch')
   await ctx.plugin(PublicFailure)
   await ctx.plugin(BrowserFailure)
+  ctx.effect(() => ctx.provide('douyinReplayOwnerReady', true))
 }

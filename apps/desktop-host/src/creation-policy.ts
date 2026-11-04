@@ -20,6 +20,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'create_goal',
   'douyin_data',
   'douyin_download',
+  'douyin_download_task',
   'drama_assets',
   'drama_bgm',
   'drama_draft_dir',

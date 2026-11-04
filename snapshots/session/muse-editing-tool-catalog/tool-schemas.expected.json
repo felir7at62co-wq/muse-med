@@ -387,7 +387,7 @@
     },
     {
       "name": "douyin_download",
-      "description": "Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 6. Report blocked or partial results accurately",
+      "description": "Download selected official Douyin video/share URLs sequentially into this Session workspace, with file-backed decoding/hash receipts. mode:wait (default) waits; mode:background returns an accepted durable downloadTask.id, which is distinct from native browser taskId and in-memory jobId. Use douyin_download_task to inspect/resume/cancel. Public playback is tried first; authorized browser playback can run in an isolated background guest on a matching Host, without depending on the selected Session or sidebar. Login/verification pauses as waiting_user; resume explicitly after normal login. Source failures remain waiting_source, interrupted runs never replay automatically. No Cookie files, signed media URLs or bypass. Read-only refuses before network; blocked/partial is not completed",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -408,6 +408,14 @@
           "publicOnly": {
             "type": "boolean",
             "description": "Try public playback only; do not open the internal browser"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ],
+            "description": "wait waits for verified results (default); background accepts a durable task and returns immediately"
           }
         },
         "oneOf": [
@@ -422,6 +430,32 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "name": "douyin_download_task",
+      "description": "List this Session’s durable Douyin downloads or status/resume/cancel one downloadTask.id. Never use a native browser taskId or jobs jobId here. Resume explicitly rechecks the live owner, canonical workspace, current write policy and completed files’ hashes/receipt/video identity, skips only verified items, and starts a new owned job. It does not replay at startup or accept another Session/target path/media URL. Cancel waits for actual subprocess/native cleanup and preserves completed receipts. waiting_user/waiting_source/interrupted are unfinished states. Status/list remain read-only.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "status",
+              "resume",
+              "cancel"
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "description": "The persistent downloadTask.id from douyin_download, required except for list"
+          }
+        }
       }
     },
     {

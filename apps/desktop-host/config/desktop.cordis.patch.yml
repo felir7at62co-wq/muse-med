@@ -244,6 +244,8 @@
           source_snapshot: [选材快照, 数据采集, 榜单观测, 快照对比, 导入旧数据]
           source_report: [选材日报, 选材报告, 数据报告, 指标缺失, 覆盖率]
           work_mapping: [作品关系, 作品映射, 同名作品, 同IP, 改编关系, 续作核验, 人工确认]
+          douyin_download: [抖音下载, 下载视频, 抖音后台下载, 下载队列]
+          douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
           read_own_chat: [历史会话, 聊天记录, 之前说过, 自己的聊天]

@@ -105,6 +105,8 @@ node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 
 红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证在 Muse 内置浏览器面板中完成，不使用外部 profile 或 Cookie 文件导入。
 
+抖音下载任务归属到 Session，在 runner 重启后保留。[插件参考](muse-douyin-download/README.zh.md)说明回执核对、显式恢复及未完成状态；[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.zh.md)说明自定义组合及配套 Desktop 协议要求。
+
 ## 许可证
 
 再分发前请阅读各自保留的上游许可证和声明。构建保留 Codex PSD 编解码器声明，并包含内嵌 Heroicons 的完整许可证。运行时依赖在打包后的依赖图中保留各自许可证。Muse Med 不宣称这些项目由本团队创作或得到其背书。

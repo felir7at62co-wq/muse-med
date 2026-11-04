@@ -103,6 +103,8 @@ Download bundle packing accepts npm and pnpm lifecycle entries, resolves pnpm's 
 
 Hongguo defaults to the supplied source's legacy interfaces and accepts several series IDs. The operator must supply the original `config.json`, `devices.json`, and a working signing service through the package's documented configuration. Missing source configuration fails explicitly, and public preview episodes do not establish full-series availability. Douyin accepts a list of user-selected video links, verifies each download with FFmpeg, and reports blocked or partial batches. A list of videos alone does not establish complete coverage of a drama; platform login or verification takes place in Muse's internal Browser panel, without external profiles or Cookie-file import.
 
+Douyin preserves Session-owned download tasks across runner restarts. Its [plugin reference](muse-douyin-download/README.md) describes receipt checks, explicit recovery, and unfinished states; the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.md) covers custom compositions and matching Desktop peers.
+
 ## Licenses
 
 See each retained upstream license and notice before redistribution. The build preserves the Codex PSD codec notices and includes the full license of bundled Heroicons. Runtime dependencies retain their own licenses in the packaged dependency graph. Muse Med does not claim authorship or endorsement by these projects.

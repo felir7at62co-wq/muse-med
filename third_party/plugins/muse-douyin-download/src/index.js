@@ -1,17 +1,18 @@
 /** Session-scoped Muse tools for authorized Douyin data and verified media acquisition. */
 import { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 import { dataProperties, projectDataResult, resolveDataArgs } from './data.js';
+import { DouyinTasks } from './tasks.js';
 
 export { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 export { projectDataResult, resolveDataArgs } from './data.js';
 export const name = 'muse-douyin-download';
-export const inject = ['agents', 'tools', 'subprocess'];
+export const inject = ['agents', 'tools', 'subprocess', 'jobs', 'sandboxPolicy'];
 
 const properties = {
   url: { type: 'string', description: 'User-selected Douyin HTTPS video URL, modal_id page, or share link' },
   urls: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' }, description: 'Several user-selected video/share links, checked and downloaded separately; mutually exclusive with url' },
   publicOnly: { type: 'boolean', description: 'Try public playback only; do not open the internal browser' },
-
+  mode: { type: 'string', enum: ['wait', 'background'], description: 'wait waits for verified results (default); background accepts a durable task and returns immediately' },
 };
 
 /** Validate model-provided input before accessing credentials or spawning. @param {object} value Tool arguments. @returns {object} Validated arguments. */
@@ -22,6 +23,7 @@ export function validateArgs(value) {
   }
   if ((value.url === undefined) === (value.urls === undefined)) throw new TypeError('Choose either url or urls');
   const links = value.urls || [value.url];
+  if (value.mode !== undefined && !['wait', 'background'].includes(value.mode)) throw new TypeError('mode must be wait or background');
   if (!links.length || links.length > 100 || links.some(link => typeof link !== 'string' || !link.trim() || link.length > 8192)) throw new TypeError('Provide one to 100 Douyin video or share links');
   for (const link of links) {
     let url;
@@ -50,58 +52,55 @@ export function apply(ctx, config = {}) {
     running.add(operation);
     try { return await operation; } finally { running.delete(operation); }
   };
-  const acquireVideo = async (agent, url, publicOnly, signal) => {
+  const acquireVideo = async (agent, url, publicOnly, signal, options = { background: false }) => {
     signal.throwIfAborted();
     const unavailable = runtimeUnavailable(settings);
     if (unavailable) return unavailable;
     const workspace = agent.session.header.cwd;
     let result = await track(runDownloader(ctx.subprocess, settings, downloadCommand(settings, { url, publicOnly: true }, workspace), workspace, signal));
+    if (result.status === 'downloaded') return result;
     signal.throwIfAborted();
     if (result.status === 'blocked' && !publicOnly
       && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
-      if (browser?.version === 4) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs));
+      if (browser?.version === 4 && (!options.background || browser.supportsBackgroundDownload === true)) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs, ...(options.background ? [{ background: true }] : [])));
+      else if (options.background) result = { status: 'blocked', code: 'DESKTOP_BACKGROUND_UNAVAILABLE', message: 'Background browser download requires the matching Desktop Host capability; resume after updating the Host' };
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
     }
     return result;
   };
-  ctx.effect(() => async () => { lifetime.abort(new Error('Douyin plugin unloaded')); await Promise.allSettled([...running]); }, 'douyin: settle downloads on unload');
+  const tasks = new DouyinTasks(ctx, settings, { acquireVideo });
+  ctx.effect(() => async () => { lifetime.abort(new Error('Douyin plugin unloaded')); await tasks.dispose(); await Promise.allSettled([...running]); }, 'douyin: settle downloads on unload');
   ctx.effect(() => ctx.tools.register({
     name: 'douyin_download',
-    description: 'Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 6. Report blocked or partial results accurately',
+    description: 'Download selected official Douyin video/share URLs sequentially into this Session workspace, with file-backed decoding/hash receipts. mode:wait (default) waits; mode:background returns an accepted durable downloadTask.id, which is distinct from native browser taskId and in-memory jobId. Use douyin_download_task to inspect/resume/cancel. Public playback is tried first; authorized browser playback can run in an isolated background guest on a matching Host, without depending on the selected Session or sidebar. Login/verification pauses as waiting_user; resume explicitly after normal login. Source failures remain waiting_source, interrupted runs never replay automatically. No Cookie files, signed media URLs or bypass. Read-only refuses before network; blocked/partial is not completed',
     parameters: { type: 'object', additionalProperties: false, properties: { ...properties, urls: { ...properties.urls, maxItems: settings.maxVideos } }, oneOf: [{ required: ['url'] }, { required: ['urls'] }] },
-    output: { schema: { type: 'object', additionalProperties: true, properties: { status: { type: 'string', enum: ['downloaded', 'complete', 'partial', 'blocked'] } }, required: ['status'] },
+    output: { schema: { type: 'object', additionalProperties: true, properties: { status: { type: 'string', enum: ['queued', 'downloaded', 'complete', 'partial', 'blocked'] } }, required: ['status'] },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
     timeoutMs: (settings.timeoutMs + 2 * settings.nativeTimeoutMs + 390000) * settings.maxVideos + 10000,
     async execute(raw, exec) {
       const args = validateArgs(raw);
       const agent = ctx.agents.requireInitiator();
-      const signal = exec?.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal;
       const links = args.urls || [args.url];
       if (links.length > settings.maxVideos) throw new TypeError(`This deployment accepts at most ${settings.maxVideos} video links per call`);
       const unavailable = runtimeUnavailable(settings);
       if (unavailable) return args.url !== undefined ? unavailable : { status: 'blocked', requested: links.length, downloaded: 0,
         items: links.map((_url, index) => ({ index: index + 1, ...unavailable })) };
-      const items = [];
-      for (const url of links) {
-        signal.throwIfAborted();
-        try {
-          items.push(await acquireVideo(agent, url, args.publicOnly === true, signal));
-        }
-        catch (error) {
-          signal.throwIfAborted();
-          if (args.url !== undefined) throw error;
-          items.push({ status: 'blocked', message: error instanceof Error ? error.message : 'Douyin downloader failed before verification' });
-        }
-      }
-      if (args.url !== undefined) return items[0];
-      const downloaded = items.filter(item => item.status === 'downloaded').length;
-      return { status: downloaded === items.length ? 'complete' : downloaded > 0 ? 'partial' : 'blocked',
-        requested: links.length, downloaded, items: items.map((item, index) => ({ index: index + 1, ...item })) };
+      return tasks.download({ ...args, mode: args.mode ?? 'wait' }, agent, exec ?? {});
     },
     presentCall() { return { card: 'generic', title: '抖音视频下载', kind: 'execute' }; },
     presentResult(_args, result) { return { card: 'generic', title: '抖音视频下载', content: result.content }; },
   }), 'douyin: register video acquisition tool');
+  ctx.effect(() => ctx.tools.register({
+    name: 'douyin_download_task',
+    description: 'List this Session’s durable Douyin downloads or status/resume/cancel one downloadTask.id. Never use a native browser taskId or jobs jobId here. Resume explicitly rechecks the live owner, canonical workspace, current write policy and completed files’ hashes/receipt/video identity, skips only verified items, and starts a new owned job. It does not replay at startup or accept another Session/target path/media URL. Cancel waits for actual subprocess/native cleanup and preserves completed receipts. waiting_user/waiting_source/interrupted are unfinished states. Status/list remain read-only.',
+    parameters: { type: 'object', additionalProperties: false, required: ['action'], properties: { action: { type: 'string', enum: ['list', 'status', 'resume', 'cancel'] }, taskId: { type: 'string', description: 'The persistent downloadTask.id from douyin_download, required except for list' } } },
+    output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    timeoutMs: settings.nativeTimeoutMs + settings.graceMs + 10000,
+    execute: (args, exec) => tasks.control(args, ctx.agents.requireInitiator(), exec?.signal),
+    presentCall: () => ({ card: 'generic', title: '抖音下载任务', kind: 'execute' }),
+    presentResult: (_args, result) => ({ card: 'generic', title: '抖音下载任务', content: result.content }),
+  }), 'douyin: register persistent task controls');
   ctx.effect(() => ctx.tools.register({
     name: 'douyin_data',
     description: 'Read one or several selected Douyin works’ public-page data or your normally signed-in creator-page data, in link order. Counts preserve missing values as null and mark rounded displays; public play counts require observed official page data, and placeholder zero remains unavailable. Creator data requires ordinary login and an exact own-work list row with its matching modification permission and statistics identity. Unavailable ownership returns CREATOR_OWNERSHIP_UNVERIFIED. A login is not OAuth authorization. Comment content and pagination currently return COMMENTS_UNAVAILABLE; an observed total comment count remains separate. A commentCursor applies to one link only. Complete normal login or verification in MUSE’s internal official Browser when required. No credentials, arbitrary browser profiles or signed requests are accepted. download:true reuses the existing verified Douyin downloader for each same link and includes its separate result. Report partial results, unavailable fields and blocked source/comment/download results accurately',
