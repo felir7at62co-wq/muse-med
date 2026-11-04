@@ -105,6 +105,8 @@ Hongguo defaults to the supplied source's legacy interfaces and accepts several 
 
 Douyin preserves Session-owned download tasks across runner restarts. Its [plugin reference](muse-douyin-download/README.md) describes receipt checks, explicit recovery, and unfinished states; the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.md) covers custom compositions and matching Desktop peers.
 
+Lvpaopao's owned series jobs retain the existing per-episode manifest and original reconciliation keys. Its [reference](muse-lvpaopao/README.md) separates local progress from source availability; acquiring new playback information still requires a qualified logged-in WeChat runtime.
+
 ## Licenses
 
 See each retained upstream license and notice before redistribution. The build preserves the Codex PSD codec notices and includes the full license of bundled Heroicons. Runtime dependencies retain their own licenses in the packaged dependency graph. Muse Med does not claim authorship or endorsement by these projects.

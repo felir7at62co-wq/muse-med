@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "taskId": "84817d56f3ed4113d52398c7",
+  "selection": {
+    "srcAppId": "wx0000000000000002",
+    "dramaId": "fixture-series-02",
+    "title": "离线纸灯全集",
+    "episodeCount": 2,
+    "actualEpisodeNumbers": [1, 2],
+    "catalogComplete": true
+  },
+  "episodes": [
+    {
+      "episodeNo": 1,
+      "state": "pending",
+      "attempts": 0,
+      "requestKey": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "episodeNo": 2,
+      "state": "pending",
+      "attempts": 0,
+      "requestKey": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

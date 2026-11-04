@@ -45,10 +45,11 @@ export async function apply(ctx, config) {
       await mkdir(join(anchor, 'node_modules'))
       const linked = new Set()
       for (const manifestUrl of [new URL('../../../apps/cli/package.json', import.meta.url),
-        new URL('../../../apps/desktop-host/package.json', import.meta.url)]) {
+        new URL('../../../apps/desktop-host/package.json', import.meta.url),
+        new URL('../../../packages/jobs/jobs/package.json', import.meta.url)]) {
         const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
         const requireOwner = createRequire(manifestUrl)
-        for (const name of Object.keys(manifest.dependencies)) {
+        for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
           if (!name.startsWith('@deepseek-ai/dsh') || linked.has(name)) continue
           await mkdir(join(anchor, 'node_modules', '@deepseek-ai'), { recursive: true })
           await symlink(dirname(requireOwner.resolve(`${name}/package.json`)), join(anchor, 'node_modules', name),

@@ -22,6 +22,7 @@ import { loadSourceResearchPlugin } from './fixtures/source-research-plugin.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
+import { registerLvpaopaoCatalog } from './fixtures/lvpaopao-catalog.mjs'
 
 const patchPath = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 const row = loadOverlayPatches('desktop-discovery-catalog', patchPath)
@@ -124,6 +125,30 @@ it('recalls the registered Douyin task controls without making them resident', a
       expect(config.alwaysLoad).not.toContain(expected)
       expect(capabilityMemberships(expected, config.capabilities ?? [])).toContain('data-sourcing')
     }
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+it('recalls the registered Lvpaopao background controls without contacting the native bridge', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(Prompt)
+    await ctx.plugin(Tools)
+    registerLvpaopaoCatalog(ctx)
+    const registered = ctx.tools.schemas()
+    expect(registered.map(schema => schema.name)).toEqual(['lvpaopao'])
+    const schema = registered[0]
+    expect(schema?.parameters).toHaveProperty(['properties', 'action', 'enum'], expect.arrayContaining(['download_series', 'series_status', 'series_resume', 'series_cancel']))
+    expect(schema?.parameters).toHaveProperty(['properties', 'mode', 'enum'], ['wait', 'background'])
+    const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...registered].map(entry => [entry.name, entry]))
+    const index = new ToolSearchIndex([...schemas.values()].map(entry => ({ ...entry, keywords: config.keywords?.[entry.name] ?? [] })),
+      { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+    for (const query of ['绿泡泡后台下载', '绿泡泡恢复下载', '绿泡泡下载进度', '绿泡泡取消下载']) {
+      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('lvpaopao')
+    }
+    expect(config.alwaysLoad).not.toContain('lvpaopao')
+    expect(capabilityMemberships('lvpaopao', config.capabilities ?? [])).toContain('data-sourcing')
   } finally {
     await ctx.fiber.dispose()
   }

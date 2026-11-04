@@ -12,18 +12,21 @@ export type CatalogSelection = { readonly kind: 'selected'; readonly selection: 
 export interface CatalogLimits { readonly maxQueryChars: number; readonly maxEpisodeCount: number; readonly maxResultItems: number; readonly maxSeriesEpisodes: number }
 /** The caller supplies either a query or both previously selected identifiers. */
 export interface CatalogInput { readonly query?: string; readonly srcAppId?: string; readonly dramaId?: string }
+/** Identity selection performs no catalog or media acquisition; ambiguous titles remain unselected. */
+export type IdentitySelection = { readonly kind: 'selected'; readonly source: { readonly srcAppId: string; readonly dramaId: string } }
+  | { readonly kind: 'selection-required'; readonly candidates: readonly DramaCandidate[] }
 const normalized = (value: string): string => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 function accepted(result: Result): void { if (!result.ok) throw new BridgeError(result.status) }
 
 /**
- * Read the real catalog before starting any per-episode media operation.
+ * Select explicit source IDs or one complete exact-title search match without reading the catalog.
  * @param port - Borrowed, authenticated high-level native connection.
  * @param input - Exact title or explicit source identity selected from search.
  * @param limits - Bound directory size, query length and page width.
  * @param signal - Calling Session's cancellation.
- * @returns A selected source with actual numbers, or candidates requiring disambiguation.
+ * @returns The selected source identity, or candidates requiring disambiguation.
  */
-export async function resolveSeriesCatalog(port: RequestPort, input: CatalogInput, limits: CatalogLimits, signal: AbortSignal): Promise<CatalogSelection> {
+export async function resolveSeriesIdentity(port: RequestPort, input: CatalogInput, limits: CatalogLimits, signal: AbortSignal): Promise<IdentitySelection> {
   signal.throwIfAborted()
   let selection: { srcAppId: string; dramaId: string }
   if (input.srcAppId !== undefined || input.dramaId !== undefined) {
@@ -41,6 +44,21 @@ export async function resolveSeriesCatalog(port: RequestPort, input: CatalogInpu
     selection = { srcAppId: candidate.srcAppId, dramaId: candidate.originDramaId }
   }
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(selection.dramaId)) throw new BridgeError('invalid-arguments')
+  return { kind: 'selected', source: selection }
+}
+
+/**
+ * Read the complete observed catalog for one explicit or unambiguously selected identity.
+ * @param port - Borrowed authenticated connection.
+ * @param input - Exact title or previously selected source IDs.
+ * @param limits - Current metadata bounds.
+ * @param signal - Operation cancellation.
+ * @returns Actual episode selection, retaining partial/missing catalog metadata.
+ */
+export async function resolveSeriesCatalog(port: RequestPort, input: CatalogInput, limits: CatalogLimits, signal: AbortSignal): Promise<CatalogSelection> {
+  const identity = await resolveSeriesIdentity(port, input, limits, signal)
+  if (identity.kind === 'selection-required') return identity
+  const selection = identity.source
   const detail = projectResult('detail', await port.request('detail', selection, signal), limits)
   accepted(detail)
   if (detail.data.srcAppId !== selection.srcAppId || detail.data.dramaId !== selection.dramaId) throw new BridgeError('response-identity-mismatch')

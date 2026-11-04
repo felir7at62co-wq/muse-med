@@ -7,6 +7,7 @@ import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Agents from '@deepseek-ai/dsh-agent'
+import Jobs from '@deepseek-ai/dsh-jobs-local'
 import Sessions from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Policy, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -35,7 +36,7 @@ async function fixture(t, options = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'lvpaopao-session-')))
   const ctx = new Context(); const calls = [], spawns = []; let bridgeDisposed = 0
   t.after(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
-  await ctx.plugin(Agents); await ctx.plugin(Sessions); await ctx.plugin(Projections)
+  await ctx.plugin(Agents); await ctx.plugin(Sessions); await ctx.plugin(Projections); await ctx.plugin(Jobs)
   await ctx.plugin(Policy, { mode: 'workspace-write', workspaceRoot: root })
   class Bridge extends Service {
     constructor(scope) { super(scope, 'lvpaopaoBridge'); this.configuration = options.unconfigured ? undefined : Object.freeze({ ...config }) }

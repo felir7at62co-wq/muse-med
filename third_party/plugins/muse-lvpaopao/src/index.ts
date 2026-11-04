@@ -14,13 +14,15 @@ import { errorResult, outputSchema, projectResult, seriesResult, type Result, ty
 import { DownloadRequestPort, localDownload } from './download.ts'
 import { EpisodeDownloadRequestPort } from './episode-download.ts'
 import { authorizeOutput } from './output.ts'
-import { resolveSeriesCatalog } from './catalog.ts'
-import { runSeries, readStoredSeriesStatus, type EpisodeRequest, type SeriesFailure, type SeriesOptions } from './series.ts'
+import { resolveSeriesCatalog, resolveSeriesIdentity } from './catalog.ts'
+import { runSeries, readStoredSeriesStatus, type EpisodeRequest, type SeriesFailure, type SeriesSelection } from './series.ts'
+import { SeriesTasks, type SeriesTaskLimits } from './tasks.ts'
+import type {} from '@deepseek-ai/dsh-jobs'
 
 /** Agent-scoped metadata bounds; connection coordinates belong to the shared bridge. */
 export interface ToolLimits { readonly maxQueryChars: number; readonly maxEpisodeCount: number; readonly maxResultItems: number; readonly maxSeriesEpisodes: number }
 /** Configurable orchestration bounds, without host paths or credentials. */
-export interface PluginConfig extends ToolLimits {
+export interface PluginConfig extends ToolLimits, SeriesTaskLimits {
   readonly maxAttempts: number
   readonly retryDelayMs: number
   readonly seriesLockWaitMs: number
@@ -36,11 +38,16 @@ export const Config: Schema<PluginConfig> = Schema.object({
   retryDelayMs: Schema.number().step(1).min(0).max(60000).default(1000),
   seriesLockWaitMs: Schema.number().step(1).min(0).max(60000).default(5000),
   copyChunkBytes: Schema.number().step(1).min(1).max(8388608).default(1048576),
+  maxSeriesTasks: Schema.number().step(1).min(1).max(10000).default(1000),
+  maxTaskStateBytes: Schema.number().step(1).min(1024).max(67108864).default(16777216),
+  taskLockWaitMs: Schema.number().step(1).min(0).max(60000).default(5000),
+  maxSeriesJobOutputBytes: Schema.number().step(1).min(1024).max(1048576).default(65536),
+  seriesTaskWaitMs: Schema.number().step(1).min(1000).max(2147483647).default(86400000),
 })
 /** Loader identity; the model-visible name is lvpaopao. */
 export const name = 'muse-lvpaopao'
 /** Agent identity, local subprocess owner and shared native connection. */
-export const inject = ['tools', 'agents', 'subprocess', 'lvpaopaoBridge']
+export const inject = ['tools', 'agents', 'subprocess', 'lvpaopaoBridge', 'jobs', 'sandboxPolicy']
 
 function parameters(action: ToolAction, args: Parameters, limits: ToolLimits): Parameters {
   const allowed = action === 'status' ? [] : action === 'search' ? ['query']
@@ -85,8 +92,8 @@ function parameters(action: ToolAction, args: Parameters, limits: ToolLimits): P
   return { srcAppId: args.srcAppId, dramaId: args.dramaId }
 }
 /** Session-owned extension for series orchestration and exact per-episode copies. */
-export type ToolOperation = (action: 'download_episode' | 'download_status' | 'download_series' | 'series_status', params: Parameters,
-  signal: AbortSignal, outputDir?: string) => Promise<Result>
+export type ToolOperation = (action: 'download_episode' | 'download_status' | 'download_series' | 'series_status' | 'series_resume' | 'series_cancel', params: Parameters,
+  signal: AbortSignal, outputDir?: string, controls?: { readonly mode?: 'wait' | 'background'; readonly seriesTaskId?: string }) => Promise<Result>
 
 /**
  * Register the real tool with an injected high-level transport for composition tests.
@@ -102,9 +109,11 @@ export function registerLvpaopao(ctx: Context, port: RequestPort, config: ToolLi
   ctx.effect(() => async () => { lifetime.abort(); await Promise.allSettled([...operations]); await port.dispose() })
   ctx.tools.register(defineTool({
     name: 'lvpaopao',
-    description: 'Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.',
+    description: 'Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (selection-required when ambiguous) or selected source IDs. mode defaults to wait; background returns series-queued with owned data.seriesTask.id/state/jobId and continues after the tool returns. That outer ID differs from data.series.taskId. Repeating download_series refreshes the catalog and rechecks saved files. series_status is local-only: supply either seriesTaskId alone or source IDs with outputDir. series_resume and series_cancel accept only seriesTaskId and only its original live Session can control it. Resume rechecks current file permission and saved receipts, explicitly recovers the shared connection through status, then reconciles unknown episodes with their original download_status keys before safe same-key retries. Restart marks interrupted tasks without replay; use series_resume explicitly. A missing previously used manifest blocks recovery. Background tasks can report waiting_user or waiting_source; queued does not establish completion. Only account-playable episodes are downloaded; no purchases, ads or unlocks. Completion requires every actual catalog episode and verified local files; unknown catalog coverage stays incomplete. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.',
     parameters: {
-      action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings', 'engagement'] },
+      action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'series_resume', 'series_cancel', 'rankings', 'engagement'] },
+      mode: { type: 'string', enum: ['wait', 'background'], description: 'download_series: wait by default; background accepts an owned durable task without binding the finished tool signal.' },
+      seriesTaskId: { type: 'string', description: 'series_resume/series_cancel require only this outer data.seriesTask.id. series_status accepts it instead of source IDs/outputDir; never use data.series.taskId here.' },
       boardType: { type: 'integer', description: 'rankings: board type from returned boards; defaults to the app reputation board (6).' },
       pageIndex: { type: 'integer', description: 'rankings: zero-based page; defaults to 0.' },
       coldStartTime: { type: 'integer', description: 'rankings: reuse the returned timestamp with the same board and count for subsequent pages.' },
@@ -119,11 +128,18 @@ export function registerLvpaopao(ctx: Context, port: RequestPort, config: ToolLi
     },
     output: { schema: outputSchema, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
-      const { action, outputDir, ...rest } = args, active = AbortSignal.any([exec.signal, lifetime.signal])
+      const { action, outputDir, mode, seriesTaskId, ...rest } = args, active = AbortSignal.any([exec.signal, lifetime.signal])
       try {
         active.throwIfAborted()
-        const extended = action === 'download_episode' || action === 'download_status' || action === 'download_series' || action === 'series_status'
+        const extended = action === 'download_episode' || action === 'download_status' || action === 'download_series' || action === 'series_status' || action === 'series_resume' || action === 'series_cancel'
+        if (mode !== undefined && action !== 'download_series' || seriesTaskId !== undefined && !['series_status', 'series_resume', 'series_cancel'].includes(action)) throw new BridgeError('invalid-arguments')
         if (outputDir !== undefined && action !== 'download_first_episode' && !extended) throw new BridgeError('invalid-arguments')
+        if (action === 'series_resume' || action === 'series_cancel' || action === 'series_status' && seriesTaskId !== undefined) {
+          if (typeof seriesTaskId !== 'string' || !/^lvs-[a-f0-9]{32}$/.test(seriesTaskId) || outputDir !== undefined || Object.keys(rest).length !== 0 || operation === undefined) throw new BridgeError('invalid-arguments')
+          const work = operation(action, {}, active, undefined, { seriesTaskId })
+          operations.add(work)
+          try { return await work } finally { operations.delete(work) }
+        }
         const input = parameters(action, rest, config)
         if (action === 'engagement') {
           const work = readEngagement(port, input, config, active)
@@ -132,7 +148,7 @@ export function registerLvpaopao(ctx: Context, port: RequestPort, config: ToolLi
         }
         if (extended) {
           if (operation === undefined) throw new BridgeError('capability-not-ready')
-          const work = operation(action, input, active, outputDir)
+          const work = operation(action, input, active, outputDir, action === 'download_series' ? { mode: mode ?? 'wait' } : {})
           operations.add(work)
           // Persist series progress before ToolRuntime emits its outer cancellation result.
           try { return await work } finally { operations.delete(work) }
@@ -192,6 +208,42 @@ export function apply(ctx: Context, config: PluginConfig): void {
     const { session } = ctx.agents.requireInitiator(), policy = ctx.get('sandboxPolicy')?.resolve({ session })
     return await authorizeOutput(session, outputDir, policy, read ? 'read' : 'write')
   }
+  const bounds = (output: Awaited<ReturnType<typeof outputFor>>) => ({ output, lockDirectory: dshHomePath('lvpaopao', 'locks'), maxAttempts: config.maxAttempts,
+    retryDelayMs: config.retryDelayMs, lockWaitMs: config.seriesLockWaitMs, maxEpisodes: config.maxSeriesEpisodes })
+  const tasks = new SeriesTasks(ctx, config, {
+    resolveSource: (params, signal) => resolveSeriesIdentity(borrowed, params, config, signal),
+    catalog: (params, signal) => resolveSeriesCatalog(borrowed, params, config, signal),
+    async recover(signal) {
+      const result = projectResult('status', await borrowed.request('status', {}, signal), config)
+      if (!result.ok) throw new BridgeError(result.status)
+    },
+    localStatus: (params, output, signal) => readStoredSeriesStatus({ ...bounds(output), maxMediaBytes: 2147483648,
+      srcAppId: String(params.srcAppId), dramaId: String(params.dramaId) }, signal),
+    async run(selection: SeriesSelection, output, signal, beforeNative) {
+      const transport = await bridge.resolveConfiguration(signal)
+      if (!transport.downloadEnabled) throw new BridgeError('capability-not-ready')
+      const source = { srcAppId: selection.srcAppId, dramaId: selection.dramaId }
+      const nativeParams = (request: EpisodeRequest): Parameters => ({ ...source, episodeNo: request.episodeNo, idempotencyKey: request.requestKey })
+      const episode = (action: 'download_episode' | 'download_status', request: EpisodeRequest, active: AbortSignal) => withCopy(
+        new EpisodeDownloadRequestPort(borrowed, ctx.subprocess, transport, { output, directory: request.episodeDirectory, chunkBytes: config.copyChunkBytes,
+          maxMediaBytes: transport.maxMediaBytes, copyTimeoutMs: transport.copyTimeoutMs }), action, nativeParams(request), active)
+      return runSeries({ ...bounds(output), selection, maxMediaBytes: transport.maxMediaBytes }, {
+        async download(request, active) {
+          await beforeNative()
+          const result = localDownload(await episode('download_episode', request, active))
+          if (result === undefined) throw new BridgeError('download-local-verification-failed')
+          return result.media
+        },
+        async reconcile(request, active) {
+          await beforeNative()
+          const result = await episode('download_status', request, active), local = localDownload(result)
+          if (local !== undefined) return { kind: 'verified', media: local.media }
+          if (result !== null && typeof result === 'object' && 'status' in result && ['request-not-found', 'resume-available'].includes(String(result.status))) return { kind: 'retry' }
+          return { kind: 'unknown', code: 'series-reconciliation-required' }
+        }, classify: failure,
+      }, signal)
+    },
+  })
   registerLvpaopao(ctx, owned, config, async (params, signal, outputDir) => {
     const output = await outputFor(outputDir)
     const transport = await bridge.resolveConfiguration(signal)
@@ -213,36 +265,23 @@ export function apply(ctx: Context, config: PluginConfig): void {
     const copy = new DownloadRequestPort(borrowed, ctx.subprocess, transport, { enabled: true, outputDir: output.path, output,
       scpExecutable: transport.scpExecutable, copyTimeoutMs: transport.copyTimeoutMs, copyPollIntervalMs: transport.copyPollIntervalMs, maxMediaBytes: transport.maxMediaBytes })
     return await withCopy(copy, 'download_first_episode', params, signal)
-  }, async (action, params, signal, outputDir) => {
+  }, async (action, params, signal, outputDir, controls) => {
+    const agent = ctx.agents.requireInitiator()
+    if (action === 'series_resume' || action === 'series_cancel' || action === 'series_status' && controls?.seriesTaskId !== undefined) {
+      if (controls?.seriesTaskId === undefined) throw new BridgeError('invalid-arguments')
+      return action === 'series_resume' ? tasks.resume(controls.seriesTaskId, agent, signal)
+        : action === 'series_cancel' ? tasks.cancel(controls.seriesTaskId, agent, signal) : tasks.status(controls.seriesTaskId, agent, signal)
+    }
+    if (action === 'download_series') return tasks.download(params, controls?.mode ?? 'wait', agent, signal, outputDir)
     const output = await outputFor(outputDir, action === 'series_status')
-    const bounds = { output, lockDirectory: dshHomePath('lvpaopao', 'locks'), maxAttempts: config.maxAttempts,
-      retryDelayMs: config.retryDelayMs, lockWaitMs: config.seriesLockWaitMs, maxEpisodes: config.maxSeriesEpisodes }
-    if (action === 'series_status') return seriesResult(action, await readStoredSeriesStatus({ ...bounds, maxMediaBytes: 2147483648,
+    if (action === 'series_status') return seriesResult(action, await readStoredSeriesStatus({ ...bounds(output), maxMediaBytes: 2147483648,
       srcAppId: String(params.srcAppId), dramaId: String(params.dramaId) }, signal))
-    const selected = action === 'download_series' ? await resolveSeriesCatalog(borrowed, params, config, signal) : undefined
-    if (selected?.kind === 'selection-required') return { action, ok: false, status: 'selection-required', data: { candidates: [...selected.candidates] }, warnings: ['Select one returned source before downloading; no media request or output directory was created.'] }
     const transport = await bridge.resolveConfiguration(signal)
     if (!transport.downloadEnabled) throw new BridgeError('capability-not-ready')
-    const episode = (nativeAction: 'download_episode' | 'download_status', request: Parameters, directory: string, active: AbortSignal) => withCopy(
-      new EpisodeDownloadRequestPort(borrowed, ctx.subprocess, transport, { output, directory, chunkBytes: config.copyChunkBytes,
-        maxMediaBytes: transport.maxMediaBytes, copyTimeoutMs: transport.copyTimeoutMs }), nativeAction, request, active)
-    if (action !== 'download_series') return projectResult(action, await episode(action, params, join(output.path, `episode-${params.idempotencyKey}`), signal), config)
-    if (selected?.kind !== 'selected') throw new BridgeError('catalog-count-unconfirmed')
-    const options: SeriesOptions = { ...bounds, selection: selected.selection, maxMediaBytes: transport.maxMediaBytes }
-    const source = { srcAppId: selected.selection.srcAppId, dramaId: selected.selection.dramaId }
-    const nativeParams = (request: EpisodeRequest): Parameters => ({ ...source, episodeNo: request.episodeNo, idempotencyKey: request.requestKey })
-    return seriesResult(action, await runSeries(options, {
-      async download(request, active) {
-        const result = localDownload(await episode('download_episode', nativeParams(request), request.episodeDirectory, active))
-        if (result === undefined) throw new BridgeError('download-local-verification-failed')
-        return result.media
-      },
-      async reconcile(request, active) {
-        const result = await episode('download_status', nativeParams(request), request.episodeDirectory, active), local = localDownload(result)
-        if (local !== undefined) return { kind: 'verified', media: local.media }
-        if (result !== null && typeof result === 'object' && 'status' in result && ['request-not-found', 'resume-available'].includes(String(result.status))) return { kind: 'retry' }
-        return { kind: 'unknown', code: 'series-reconciliation-required' }
-      }, classify: failure,
-    }, signal))
+    const copy = new EpisodeDownloadRequestPort(borrowed, ctx.subprocess, transport, { output,
+      directory: join(output.path, `episode-${params.idempotencyKey}`), chunkBytes: config.copyChunkBytes,
+      maxMediaBytes: transport.maxMediaBytes, copyTimeoutMs: transport.copyTimeoutMs })
+    return projectResult(action, await withCopy(copy, action, params, signal), config)
   })
+  ctx.effect(() => () => tasks.dispose(), 'lvpaopao: settle owned series jobs without disposing the shared bridge')
 }

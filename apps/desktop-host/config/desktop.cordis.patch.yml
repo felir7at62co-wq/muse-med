@@ -234,7 +234,7 @@
           drama_draft_dir: [剪映目录, 剪映草稿目录, 草稿位置, 草稿路径]
           jianying_draft: [剪映草稿, 可编辑草稿, 创建剪映草稿, 导出剪映, 剪映工程]
           drama_bgm: [配乐, 背景音乐]
-          lvpaopao: [绿泡泡, 短剧选材, 剧目下载]
+          lvpaopao: [绿泡泡, 短剧选材, 剧目下载, 绿泡泡后台下载, 绿泡泡恢复下载, 绿泡泡下载进度, 绿泡泡取消下载]
           fanqie_search: [番茄小说, 搜小说, 搜书, 书名, 作者]
           fanqie_download_info: [番茄小说, 小说详情, 目录, 章节]
           fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]

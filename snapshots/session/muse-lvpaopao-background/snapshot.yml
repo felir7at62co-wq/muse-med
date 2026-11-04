@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-lvpaopao-background
+profile: headless
+composition: muse-lvpaopao-background
+recording: authored
+header:
+  class: muse-lvpaopao-background
+  pin: true
+writerOutput: true
+permission: workspace-write
+workspace:
+  setup: muse-lvpaopao-series
+  final: true

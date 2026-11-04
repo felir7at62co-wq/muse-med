@@ -33,9 +33,12 @@ test('setup failures explain the qualified runtime and one explicit status recov
 
 test('scoped consumer configuration exposes model limits without Windows or output coordinates', () => {
   assert.deepEqual(ConsumerConfig({}), { maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
-    maxSeriesEpisodes: 400, maxAttempts: 3, retryDelayMs: 1000, seriesLockWaitMs: 5000, copyChunkBytes: 1048576 })
-  assert.deepEqual(Object.keys(ConsumerConfig.dict).sort(), ['copyChunkBytes', 'maxAttempts', 'maxEpisodeCount', 'maxQueryChars', 'maxResultItems', 'maxSeriesEpisodes', 'retryDelayMs', 'seriesLockWaitMs'])
+    maxSeriesEpisodes: 400, maxAttempts: 3, retryDelayMs: 1000, seriesLockWaitMs: 5000, copyChunkBytes: 1048576,
+    maxSeriesTasks: 1000, maxTaskStateBytes: 16777216, taskLockWaitMs: 5000, maxSeriesJobOutputBytes: 65536, seriesTaskWaitMs: 86400000 })
+  assert.deepEqual(Object.keys(ConsumerConfig.dict).sort(), ['copyChunkBytes', 'maxAttempts', 'maxEpisodeCount', 'maxQueryChars', 'maxResultItems', 'maxSeriesEpisodes', 'maxSeriesJobOutputBytes', 'maxSeriesTasks', 'maxTaskStateBytes', 'retryDelayMs', 'seriesLockWaitMs', 'seriesTaskWaitMs', 'taskLockWaitMs'])
   assert.throws(() => ConsumerConfig({ maxEpisodeCount: 21 }))
+  for (const field of ['maxSeriesTasks', 'maxTaskStateBytes', 'maxSeriesJobOutputBytes', 'seriesTaskWaitMs']) assert.throws(() => ConsumerConfig({ [field]: 0 }))
+  assert.throws(() => ConsumerConfig({ taskLockWaitMs: -1 }))
 })
 
 test('configuration rejects host injection and invalid bounds before a process can start', () => {

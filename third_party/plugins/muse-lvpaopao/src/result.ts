@@ -4,9 +4,10 @@ import { BridgeError, type Action } from './port.ts'
 import type { SeriesResult } from './series.ts'
 import type { Config } from './config.ts'
 import { localDownload, type LocalMedia } from './download.ts'
+import type { SeriesTaskEnvelope } from './tasks.ts'
 
 /** Model actions include orchestration that never enters the native operation registry. */
-export type ToolAction = Action | 'download_series' | 'series_status'
+export type ToolAction = Action | 'download_series' | 'series_status' | 'series_resume' | 'series_cancel'
 type SeriesSummary = { -readonly [Key in keyof Omit<SeriesResult, 'episodes'>]: SeriesResult[Key] extends readonly number[] ? number[] : SeriesResult[Key] }
 
 const candidate = { type: 'object', additionalProperties: false, properties: {
@@ -14,7 +15,7 @@ const candidate = { type: 'object', additionalProperties: false, properties: {
 } } as const
 /** Canonical schema shared by Native and PTC callers. */
 export const outputSchema = { type: 'object', additionalProperties: false, properties: {
-  action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'rankings', 'engagement'] },
+  action: { type: 'string', required: true, enum: ['status', 'search', 'detail', 'episodes', 'download_first_episode', 'download_episode', 'download_status', 'download_series', 'series_status', 'series_resume', 'series_cancel', 'rankings', 'engagement'] },
   ok: { type: 'boolean', required: true }, status: { type: 'string', required: true },
   data: { type: 'object', required: true, additionalProperties: false, properties: {
     identityMatched: { type: 'boolean' }, ready: { type: 'boolean' }, appVersion: { type: 'string' },
@@ -45,6 +46,10 @@ export const outputSchema = { type: 'object', additionalProperties: false, prope
     } },
     engagement: engagementReportSchema, episodeEngagement: episodeEngagementSchema,
     supportedActions: { type: 'array', items: { type: 'string' } },
+    seriesTask: { type: 'object', additionalProperties: false, properties: {
+      id: { type: 'string', required: true }, state: { type: 'string', required: true, enum: ['queued', 'running', 'completed', 'waiting_user', 'waiting_source', 'interrupted', 'cancelled'] },
+      jobId: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+    } },
     series: { type: 'object', additionalProperties: false, properties: {
       taskId: { type: 'string', required: true }, taskDirectory: { type: 'string', required: true }, manifestPath: { type: 'string', required: true },
       status: { type: 'string', required: true, enum: ['complete', 'partial', 'cancelled'] },
@@ -80,6 +85,7 @@ export interface ResultData {
   boards?: { type: number; name: string }[]
   entries?: (Candidate & { rank: number })[]
   series?: SeriesSummary
+  seriesTask?: SeriesTaskEnvelope
   engagement?: EngagementReport; episodeEngagement?: EpisodeEngagement
   failurePhase?: 'before-call' | 'call-pending' | 'response-received' | 'projection'
   failureKind?: 'TypeError' | 'ReferenceError' | 'RangeError' | 'Error' | 'other'

@@ -531,6 +531,26 @@ function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   return `${JSON.stringify(receipt, null, 2)}\n`
 }
 
+function expandLvpaopaoExpectedMedia(text: string, cwd: string): string {
+  const document = JSON.parse(text) as JsonObject
+  const expand = (media: JsonObject): void => {
+    for (const field of ['localPath', 'receiptPath']) {
+      const value = media[field]
+      if (typeof value !== 'string' || !/^\{\{cwd\}\}\/downloads\/lvpaopao\/lvpaopao-[a-f0-9]{24}\/episodes\/\d{4}\/episode-\d{4}\.mp4(?:\.receipt\.json)?$/u.test(value)) {
+        throw new Error('Lvpaopao expected media paths require a saved series episode under {{cwd}}/downloads/lvpaopao/')
+      }
+      media[field] = join(cwd, ...value.slice('{{cwd}}/'.length).split('/'))
+    }
+  }
+  if (Array.isArray(document.episodes)) {
+    for (const episode of document.episodes as JsonObject[]) {
+      if (episode.media !== undefined) expand(episode.media as JsonObject)
+    }
+  } else if (document.kind === 'verified-episode-copy' && document.media !== undefined) expand(document.media as JsonObject)
+  else throw new Error('Lvpaopao expected JSON must be a series manifest or verified episode receipt')
+  return `${JSON.stringify(document, null, 2)}\n`
+}
+
 async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
@@ -546,6 +566,19 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 }
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-lvpaopao-series'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('Lvpaopao tasks require their complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-lvpaopao-tasks')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const directory = join(expectedRoot, 'downloads/lvpaopao')
+    for (const relative of await readdir(directory, { recursive: true })) {
+      if (relative.endsWith('manifest.json') || relative.endsWith('.receipt.json')) {
+        const path = join(directory, relative)
+        await writeFile(path, expandLvpaopaoExpectedMedia(await readFile(path, 'utf8'), await realpath(cwd)))
+      }
+    }
+    return { expectedRoot }
+  },
   async 'muse-douyin-media'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('Douyin tasks require their complete expected workspace')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-douyin-tasks')
@@ -1121,6 +1154,24 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('Lvpaopao expected workspace expands only saved media paths and keeps original keys', () => {
+    const cwd = join(tmpdir(), 'lvpaopao-workspace-oracle')
+    const prefix = '{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4'
+    const media = { localPath: prefix, receiptPath: `${prefix}.receipt.json`, sha256: 'a'.repeat(64) }
+    const document = { schemaVersion: 1, selection: { title: 'Keep {{cwd}} as source text' }, episodes: [
+      { episodeNo: 1, requestKey: '1'.repeat(64), media },
+    ] }
+    const expanded = JSON.parse(expandLvpaopaoExpectedMedia(JSON.stringify(document), cwd)) as JsonObject
+    expect(expanded).toEqual({ ...document, episodes: [{ ...document.episodes[0], media: {
+      ...media, localPath: join(cwd, prefix.slice('{{cwd}}/'.length)), receiptPath: join(cwd, `${prefix.slice('{{cwd}}/'.length)}.receipt.json`),
+    } }] })
+    const receipt = { kind: 'verified-episode-copy', idempotencyKey: '1'.repeat(64), media }
+    expect(JSON.parse(expandLvpaopaoExpectedMedia(JSON.stringify(receipt), cwd)).idempotencyKey).toBe(receipt.idempotencyKey)
+    for (const invalid of ['/unowned/episode.mp4', '{{cwd}}/downloads/lvpaopao/../outside.mp4', '{{cwd}}/downloads/lvpaopao/..\\outside.mp4']) {
+      expect(() => expandLvpaopaoExpectedMedia(JSON.stringify({ ...receipt, media: { ...media, localPath: invalid } }), cwd)).toThrow()
+    }
+  })
+
   it('Douyin expected workspace expands only the two declared media receipt paths', () => {
     const cwd = join(tmpdir(), 'douyin-workspace-oracle')
     const path = '{{cwd}}/source/media/douyin/7100000000000000001.mp4'

@@ -1,0 +1,25 @@
+# Real jobs, policy, persistence, Bridge, series reconciliation, and local media copies.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- id: headless-runner
+  inject: [headlessStartup, snapshotLvpaopaoTasksReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-lvpaopao-background
+    json: !!js ctx.headlessStartup.json
+- insert:
+    - id: offline-lvpaopao-subprocess
+      name: './subprocess-fixture.mjs'
+    - id: lvpaopao-bridge
+      name: '../muse-lvpaopao-series/bridge-plugin.mjs'
+      config:
+        connectionFile: !!js ctx.dshHomePath('lvpaopao', 'connection.json')
+        maxQueuedRequests: 4
+    - id: lvpaopao-background-fixture
+      name: './tasks-fixture.mjs'

@@ -1,0 +1,54 @@
+{
+  "title": "离线纸灯全集",
+  "localHelperLaunches": 2,
+  "nativeMethods": [
+    "search",
+    "detail",
+    "episodes",
+    "download_episode",
+    "status",
+    "detail",
+    "episodes",
+    "download_status",
+    "download_episode",
+    "download_episode"
+  ],
+  "completedEpisodes": [
+    1,
+    2
+  ],
+  "localFiles": [
+    {
+      "episodeNo": 1,
+      "bytes": 1545,
+      "sha256": "436c6451776fca6928b2d3b6b1eaca68816d132b9c11bfd8658a23ff21fffb43",
+      "attempts": 2,
+      "originalRequestKey": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "episodeNo": 2,
+      "bytes": 1545,
+      "sha256": "436c6451776fca6928b2d3b6b1eaca68816d132b9c11bfd8658a23ff21fffb43",
+      "attempts": 1,
+      "originalRequestKey": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "savedStatus": [
+    {
+      "action": "series_status",
+      "nativeRequests": 0,
+      "configurationResolutions": 0
+    },
+    {
+      "action": "series_status",
+      "nativeRequests": 0,
+      "configurationResolutions": 0
+    }
+  ],
+  "unknownAcquisitions": 0,
+  "completedAcquisitions": 2,
+  "originalRequestKeysRetained": true,
+  "sharedBridgeDisposedByTask": false,
+  "realExternalCalls": 0,
+  "cleanupAcknowledgements": 2
+}

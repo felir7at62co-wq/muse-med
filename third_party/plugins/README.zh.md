@@ -107,6 +107,8 @@ node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 
 抖音下载任务归属到 Session，在 runner 重启后保留。[插件参考](muse-douyin-download/README.zh.md)说明回执核对、显式恢复及未完成状态；[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.zh.md)说明自定义组合及配套 Desktop 协议要求。
 
+绿泡泡整剧 job 保留已有逐集 manifest 和原始对账 key。[插件参考](muse-lvpaopao/README.zh.md)区分本地进度与来源可用性；取得新的播放信息仍需要符合要求且已登录的微信运行环境。
+
 ## 许可证
 
 再分发前请阅读各自保留的上游许可证和声明。构建保留 Codex PSD 编解码器声明，并包含内嵌 Heroicons 的完整许可证。运行时依赖在打包后的依赖图中保留各自许可证。Muse Med 不宣称这些项目由本团队创作或得到其背书。

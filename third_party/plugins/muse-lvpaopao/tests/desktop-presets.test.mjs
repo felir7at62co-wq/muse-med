@@ -8,6 +8,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import { AgentRegistry } from '@deepseek-ai/dsh-agent'
 import LocalSubprocess from '@deepseek-ai/dsh-subprocess-local'
+import Jobs from '@deepseek-ai/dsh-jobs-local'
+import Projections from '@deepseek-ai/dsh-session-projection'
+import Policy from '@deepseek-ai/dsh-sandbox-policy'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { createRequire } from 'node:module'
 const { parse: parseYaml } = createRequire(new URL('../../../../apps/desktop-host/package.json', import.meta.url))('yaml')
@@ -34,6 +37,7 @@ test('loads one Host bridge and scopes Lvpaopao to the director without launchin
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(Projections); await ctx.plugin(Policy, { mode: 'workspace-write', workspaceRoot: directory }); await ctx.plugin(Jobs)
     await ctx.plugin(LocalSubprocess)
     let spawns = 0
     const spawn = ctx.subprocess.spawn.bind(ctx.subprocess)
