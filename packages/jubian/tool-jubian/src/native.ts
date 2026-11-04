@@ -128,6 +128,24 @@ function pageOf(response: JubianResponse): { rows: Record<string, unknown>[]; to
   return { rows: rows.map(object), total, hasMore }
 }
 
+/** Keep the total of a paged snapshot stable across both provider inventories. */
+function checkedPageTotal(current: number | null, next: number | null): number | null {
+  if (next === null) return current
+  if (next < 0 || (current !== null && next !== current)) throw new JubianError('CONTRACT_CHANGED')
+  return next
+}
+
+/** Reject a truncated or contradictory known-total snapshot before accepting it. */
+function knownSnapshotComplete(total: number, count: number, hasMore: boolean | null): boolean {
+  if (count > total) throw new JubianError('CONTRACT_CHANGED')
+  if (count === total) {
+    if (hasMore === true) throw new JubianError('CONTRACT_CHANGED')
+    return true
+  }
+  if (hasMore === false) throw new JubianError('CONTRACT_CHANGED')
+  return false
+}
+
 /**
  * Read every video task of one project as one complete snapshot.
  *
@@ -147,10 +165,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
       path: `/admin/aigc/video/task/list?scriptId=${scriptId}&pageNum=${pageNum}&pageSize=${TASK_PAGE_SIZE}`
         + '&orderByColumn=createTime&orderBy=desc' })
     const page = pageOf(response)
-    if (page.total !== null) {
-      if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
-      knownTotal = page.total
-    }
+    knownTotal = checkedPageTotal(knownTotal, page.total)
     if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
     for (const record of page.rows) {
       const taskId = taskIdOf(record)
@@ -160,12 +175,7 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
       collected.push(record)
     }
     if (knownTotal !== null) {
-      if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
-      if (collected.length === knownTotal) {
-        if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
-        return collected
-      }
-      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
+      if (knownSnapshotComplete(knownTotal, collected.length, page.hasMore)) return collected
       if (page.rows.length < TASK_PAGE_SIZE) throw new JubianError('CONTRACT_CHANGED')
     } else if (page.rows.length === 0) {
       return collected
@@ -192,10 +202,7 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
       path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=${pageNumber}`
         + `&pageNumber=${pageNumber}&pageSize=${SUBJECT_PAGE_SIZE}` })
     const page = pageOf(response)
-    if (page.total !== null) {
-      if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
-      knownTotal = page.total
-    }
+    knownTotal = checkedPageTotal(knownTotal, page.total)
     if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
     for (const row of page.rows) {
       const rawId = row.id ?? row.materialId
@@ -208,12 +215,7 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
     }
     collected.push(...page.rows)
     if (knownTotal !== null) {
-      if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
-      if (collected.length === knownTotal) {
-        if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
-        return collected
-      }
-      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
+      if (knownSnapshotComplete(knownTotal, collected.length, page.hasMore)) return collected
       if (page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
     } else if (page.rows.length === 0) {
       return collected
@@ -505,12 +507,13 @@ function projectRootOfPreview(previewPath: string): string {
 /** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
-  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) if (match[1] !== undefined) names.add(match[1].trim())
+  // Each pattern requires capture group 1, so every match supplies its label.
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) names.add((match[1] as string).trim())
   for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
-    if (match[1] !== undefined) names.add(match[1].trim())
+    names.add((match[1] as string).trim())
   }
   for (const match of prompt.matchAll(/^[ \t]*(?:人物|角色|角色名|出镜人物)\s*[：:]\s*([^\n\r]+)/gmu)) {
-    for (const raw of (match[1] ?? '').split(/[、，,；;\/|]/u)) {
+    for (const raw of (match[1] as string).split(/[、，,；;\/|]/u)) {
       const entry = raw.trim()
       if (/^(?:不要|不得|禁止|避免|排除|不出现)/u.test(entry)
         || /[（(][^）)]*(?:不要|不得|禁止|避免|排除|不出现|不说话|不发声|无台词|没有台词)[^）)]*[）)]/u.test(entry)) continue
