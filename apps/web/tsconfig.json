@@ -38,6 +38,8 @@
     "tests/workspace-file-drop.snapshot.ts",
     "tests/scaffold.ts",
     "tests/muse-drama-modes.e2e.ts",
+    "tests/muse-mobile-layout.e2e.ts",
+    "tests/muse-mobile-session.e2e.ts",
     "tests/connection-recovery.e2e.ts",
     "tests/server-restart.e2e.ts",
     "tests/voice-input.e2e.ts",

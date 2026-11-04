@@ -7,7 +7,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -618,7 +622,7 @@ var require_dom = __commonJS({
     var isHTMLVoidElement = conventions.isHTMLVoidElement;
     var MIME_TYPE = conventions.MIME_TYPE;
     var NAMESPACE = conventions.NAMESPACE;
-    var PDC = Symbol();
+    var PDC = /* @__PURE__ */ Symbol();
     var errors = require_errors();
     var DOMException = errors.DOMException;
     var DOMExceptionName = errors.DOMExceptionName;
@@ -1904,7 +1908,7 @@ var require_dom = __commonJS({
         }
       }
     }
-    walkDOM.STOP = Symbol("walkDOM.STOP");
+    walkDOM.STOP = /* @__PURE__ */ Symbol("walkDOM.STOP");
     walkDOM.ENTER = 0;
     walkDOM.EXIT = 1;
     function Document(symbol, options) {

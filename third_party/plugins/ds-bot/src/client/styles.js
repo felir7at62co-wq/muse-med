@@ -890,6 +890,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-set-row>.bt-set-copy{width:100%}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-panel{max-width:100vw}
 }
 /* Follow the visible viewport, not the layout one: dvh where the browser knows
    it (the earlier vh value is the fallback), and safe-area padding where
@@ -901,9 +902,13 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-settings-scroll{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
 .bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+body:has(>#muse-desktop-context){padding-top:calc(36px + env(safe-area-inset-top,0px))!important}
+body>#muse-desktop-context{top:env(safe-area-inset-top,0px)}
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input{font-size:16px}
+  .bt-q-opt,.bt-q-submit,.bt-q-btn,.bt-q-x{min-height:44px}
+  .bt-q-submit,.bt-q-btn,.bt-q-x{min-width:44px}
 }
 `
 
@@ -1097,6 +1102,12 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+@media (max-width:640px){
+  .bt-q-inline{min-width:0;max-width:100%}
+  .bt-q-inline .bt-q{max-width:100%}
+  .bt-q-dock{max-height:min(440px,52vh);max-height:min(440px,52dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .bt-q-dock>.bt-q{flex-shrink:0}
+}
 [class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
 [data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}
 [class*="_toBottomSlot"]>button{width:36px!important;height:36px!important;margin-top:-36px!important;background:var(--bt-main)!important;color:var(--bt-ink)!important;box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12)!important;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}

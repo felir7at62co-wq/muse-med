@@ -94,6 +94,8 @@ var ZH = {
   "Normal": "正常",
   "Lively": "活泼",
   Settings: "设置",
+  "Could not confirm this message. Reconnect and send it again to check its receipt.": "暂时无法确认是否已发送，恢复连接后再次发送会先核对回执",
+  "Could not save the send receipt. Your message has not been sent.": "无法保存发送回执，消息尚未发送",
   Usage: "用量",
   Account: "账户",
   Cancel: "取消",
@@ -1207,6 +1209,9 @@ var HOST_ERRORS = [
   [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"]
 ];
 var HOST_ZH = {
+  "The message request identifier is invalid.": "消息请求标识无效",
+  "This message request identifier was already used for different content.": "此发送回执已用于其他内容，请先核对原消息",
+  "The computer has not confirmed this message.": "电脑尚未确认接收这条消息",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
@@ -1623,8 +1628,94 @@ function countCards(state, sessionId, callIds, delta) {
   return { ...state, [sessionId]: own };
 }
 
+// src/client/web-submissions.js
+var PREFIX = "muse-bot.web-submission.v1:";
+var REFUSED = /* @__PURE__ */ new Set(["bot/invalid", "bot/refused", "bot/read-only", "bot/not-found", "bot/submission-conflict", "HTTP_400", "HTTP_401", "HTTP_403", "HTTP_413"]);
+var pendingError = (cause) => Object.assign(new Error(t("Could not confirm this message. Reconnect and send it again to check its receipt.")), { code: "bot/submission-unknown", cause });
+var storageError = (cause) => Object.assign(new Error(t("Could not save the send receipt. Your message has not been sent.")), { code: "bot/submission-storage", cause });
+var receiptStatus = (value, requestId) => {
+  if (value?.clientRequestId !== requestId || !["accepted", "missing", "unknown"].includes(value.status) || value.accepted !== (value.status === "accepted")) throw pendingError();
+  return value.status;
+};
+function createWebTaskSender(call2, options = {}) {
+  const active = /* @__PURE__ */ new Map();
+  const crypto = options.crypto ?? globalThis.crypto;
+  const scope = options.scope ?? globalThis.location?.pathname.match(/^\/desktop\/[^/]+\//)?.[0] ?? "/";
+  const storageOf = () => options.storage ?? globalThis.localStorage;
+  async function submit(identity, text, targetSessionId = identity) {
+    const content = text.trim();
+    const pendingKey = JSON.stringify([identity, content]);
+    if (active.has(pendingKey)) return active.get(pendingKey);
+    const operation = (async () => {
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pendingKey));
+      const fingerprint = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+      const key = PREFIX + encodeURIComponent(scope) + ":" + fingerprint;
+      let storage, record;
+      try {
+        storage = storageOf();
+        const saved = storage.getItem(key);
+        record = saved === null ? null : JSON.parse(saved);
+        if (record !== null && (typeof record !== "object" || Array.isArray(record) || typeof record.clientRequestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(record.clientRequestId) || typeof record.sessionId !== "string" || record.sessionId === "")) {
+          throw new Error("Invalid saved submission identity");
+        }
+      } catch (error) {
+        throw storageError(error);
+      }
+      const accepted = (result2) => {
+        try {
+          storage.removeItem(key);
+        } catch (error) {
+          void error;
+        }
+        return result2;
+      };
+      if (record !== null) {
+        let status;
+        try {
+          status = await call2("submission", { sessionId: record.sessionId, text: content, clientRequestId: record.clientRequestId });
+        } catch (error) {
+          throw pendingError(error);
+        }
+        const state = receiptStatus(status, record.clientRequestId);
+        if (state === "accepted") return accepted(status);
+        if (state !== "missing") throw pendingError();
+      } else {
+        record = { clientRequestId: crypto.randomUUID(), sessionId: targetSessionId };
+        try {
+          storage.setItem(key, JSON.stringify(record));
+        } catch (error) {
+          throw storageError(error);
+        }
+      }
+      const payload = { sessionId: record.sessionId, text: content, clientRequestId: record.clientRequestId };
+      let result;
+      try {
+        result = await call2("send", payload);
+      } catch (error) {
+        if (REFUSED.has(error?.code)) throw error;
+        try {
+          result = await call2("submission", payload);
+        } catch {
+          throw pendingError(error);
+        }
+        if (receiptStatus(result, record.clientRequestId) !== "accepted") throw pendingError(error);
+      }
+      if (receiptStatus(result, record.clientRequestId) !== "accepted") throw pendingError();
+      return accepted(result);
+    })();
+    active.set(pendingKey, operation);
+    try {
+      return await operation;
+    } finally {
+      active.delete(pendingKey);
+    }
+  }
+  return submit;
+}
+
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+  const sendTask = createWebTaskSender(call2);
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
@@ -1749,7 +1840,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     setMain: (id, main = true, options = {}) => after(call2("set-main", { id, main, ...options })),
     updateRoom: (id, patch) => after(call2("update-room", { id, ...patch })),
     continueRoom: (roomId) => after(call2("room-continue", { roomId })),
-    send: (sessionId, text) => after(call2("send", { sessionId: partFor(sessionId), text })),
+    send: (sessionId, text) => after(sendTask(sessionId, text, partFor(sessionId))),
     answerQuestion: (sessionId, questionId, answer) => after(call2("answer-question", { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: (sessionId) => after(call2("dismiss-question", { sessionId })),
     answerView: (sessionId, viewId, action, values) => after(call2("view-reply", { sessionId: partFor(sessionId), viewId, action, values })),
@@ -3343,6 +3434,7 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-set-row>.bt-set-copy{width:100%}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-panel{max-width:100vw}
 }
 /* Follow the visible viewport, not the layout one: dvh where the browser knows
    it (the earlier vh value is the fallback), and safe-area padding where
@@ -3354,9 +3446,13 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-settings-scroll{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .bt-voice-bar{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
 .bt-exchange .bt-dialog-foot{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+body:has(>#muse-desktop-context){padding-top:calc(36px + env(safe-area-inset-top,0px))!important}
+body>#muse-desktop-context{top:env(safe-area-inset-top,0px)}
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input{font-size:16px}
+  .bt-q-opt,.bt-q-submit,.bt-q-btn,.bt-q-x{min-height:44px}
+  .bt-q-submit,.bt-q-btn,.bt-q-x{min-width:44px}
 }
 `;
 var CONVERSATION_CSS = `
@@ -3549,6 +3645,12 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+@media (max-width:640px){
+  .bt-q-inline{min-width:0;max-width:100%}
+  .bt-q-inline .bt-q{max-width:100%}
+  .bt-q-dock{max-height:min(440px,52vh);max-height:min(440px,52dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .bt-q-dock>.bt-q{flex-shrink:0}
+}
 [class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
 [data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}
 [class*="_toBottomSlot"]>button{width:36px!important;height:36px!important;margin-top:-36px!important;background:var(--bt-main)!important;color:var(--bt-ink)!important;box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12)!important;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
@@ -6867,6 +6969,14 @@ body{
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
 body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
+@media(max-width:640px){
+  .bt-q-inline .dv-q{max-width:100%}
+  .bt-q-dock>.dv-view{flex-shrink:0}
+}
+@media(max-width:640px) and (pointer:coarse){
+  .dv-q button{min-height:44px}
+  .dv-q :is(input,textarea,select){font-size:16px}
+}
 `;
 
 // src/client/secret-card.js
@@ -9619,11 +9729,12 @@ function useLandOnMainBot(roster, useSessions, actions) {
   const lastBot = (0, import_react18.useRef)(null);
   (0, import_react18.useEffect)(() => {
     if (!roster.ready || !roster.mainBotId) return void 0;
+    const canLand = actions.prepareLanding();
     const [id, blank3] = mainView.split("|");
     const bot = id === "" ? void 0 : roster.byId[id];
     if (bot !== void 0) {
       lastBot.current = { botId: bot.id, sessionId: id };
-      if (currentPart(bot) !== id) actions.landOn(bot.id);
+      if (currentPart(bot) !== id) actions.landOn(bot.id, void 0, canLand);
       return void 0;
     }
     if (id !== "" && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
@@ -9631,7 +9742,7 @@ function useLandOnMainBot(roster, useSessions, actions) {
       return void 0;
     }
     const last = lastBot.current;
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400);
+    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last, canLand), last ? 0 : 400);
     return () => clearTimeout(timer);
   }, [mainView, roster]);
 }
@@ -19983,7 +20094,7 @@ var USER_MESSAGE_CSS = `
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
-.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;max-width:100%;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
 .bt-ufile-icon{flex:none;width:28px;height:28px}
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -20029,32 +20140,63 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 function listedOpener({ list, open, refresh, current }) {
   let drop = () => {
   };
-  return (target) => {
+  let version = 0;
+  let pending = false;
+  const cancel = () => {
     drop();
     drop = () => {
     };
+    pending = false;
+  };
+  const show2 = (target) => {
+    version += 1;
+    cancel();
     const listed = () => list.getSnapshot().byId?.[target] !== void 0;
-    if (listed()) {
-      open(target);
-      return;
-    }
     const from = current?.();
-    const off = list.subscribe(() => {
-      if (current?.() !== from) {
-        off();
-        drop = () => {
-        };
+    let opening = false;
+    pending = true;
+    const update = () => {
+      const main = current?.();
+      if (opening) {
+        if (current === void 0 || main === target || main !== from && main !== void 0) cancel();
+        return;
+      }
+      if (main !== from) {
+        cancel();
         return;
       }
       if (!listed()) return;
-      off();
-      drop = () => {
-      };
-      open(target);
-    });
-    drop = off;
-    refresh?.();
+      opening = true;
+      try {
+        open(target);
+      } catch (error) {
+        cancel();
+        throw error;
+      }
+      if (current === void 0 || current() === target) cancel();
+    };
+    drop = list.subscribe(update);
+    update();
+    if (!opening && pending) refresh?.();
   };
+  show2.guard = () => {
+    const at = version;
+    const from = current?.();
+    return () => at === version && !pending && current?.() === from;
+  };
+  show2.cancel = () => {
+    version += 1;
+    cancel();
+  };
+  return show2;
+}
+
+// src/client/phone-navigation.js
+function closePhoneSidebar(layout) {
+  if (window.innerWidth > 640) return;
+  const column = document.querySelector('[class*="_sidebarCol"]');
+  const frame = column?.parentElement;
+  if (frame && !frame.hasAttribute("data-sidebar-collapsed")) layout.toggleSidebar();
 }
 
 // src/client/index.js
@@ -20417,7 +20559,9 @@ function apply(ctx) {
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
     ctx.uiWorkspace.openSession(target);
+    closePhoneSidebar(ctx.layout);
   }, current: mainView });
+  ctx.effect(() => () => show2.cancel(), "ds-bot: cancel pending conversation navigation");
   const ordinaryStarter = ordinarySessionStarter({
     create: (options) => ctx.sessions.create(options),
     open: (id) => {
@@ -20442,6 +20586,7 @@ function apply(ctx) {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),
+    prepareLanding: () => show2.guard(),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
@@ -20506,9 +20651,11 @@ function apply(ctx) {
     },
     // `last` is the Bot conversation the view held before it cleared: when that part
     // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
+    landOn: async (id, last, canLand = show2.guard()) => {
+      if (!canLand()) return;
       if (last) await pull().catch(() => {
       });
+      if (!canLand()) return;
       const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
       setPlain(false);
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);

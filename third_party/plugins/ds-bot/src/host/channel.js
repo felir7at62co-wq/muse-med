@@ -8,6 +8,7 @@ import { handoffReply, questionReply, viewReply } from './parts.js'
 import { defaultRelayLimit } from './groups.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { createWebSubmissions } from './web-submissions.js'
 
 const LANGUAGES = { zh: 'Chinese (简体中文)', en: 'English' }
 const RUN_STATS = ['sessionStats', 'tokenUsage', 'contextPressure']
@@ -26,6 +27,11 @@ export function install(rt) {
   installBtw(rt)
   installSide(rt)
   const { ctx, state } = rt
+  const promptTarget = sessionId => {
+    const past = rt.pastOwners.get(sessionId)
+    return rt.botOf(sessionId) ? rt.chatOf(sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : sessionId
+  }
+  const submissions = createWebSubmissions(rt, promptTarget)
 
   // The DSH interface language of the last browser that asked for the team.
   let uiLocale
@@ -110,7 +116,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library'])
+  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'submission'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -441,12 +447,12 @@ export function install(rt) {
           return ok(true)
         }
         case 'send': {
+          if (body.clientRequestId !== undefined) return ok(await submissions.send(body))
           const text = String(body.text ?? '').trim()
           if (text === '' || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
           // A Bot id or an earlier part of its own chat means the current part.
-          const past = rt.pastOwners.get(body.sessionId)
-          const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
+          const sessionId = promptTarget(body.sessionId)
           await rt.ensureCapabilities(sessionId)
           await ctx.sessionController.prompt({
             requestId: randomUUID(),
@@ -456,6 +462,8 @@ export function install(rt) {
           }, AbortSignal.timeout(30_000))
           return ok(true)
         }
+        case 'submission':
+          return ok(await submissions.lookup(body))
         case 'btw-delete': {
           if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.cardId !== 'string' || body.cardId === '') return fail('Nothing to delete', 'bot/invalid')
           await rt.load()
