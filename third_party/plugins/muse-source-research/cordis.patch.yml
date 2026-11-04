@@ -1,0 +1,5 @@
+# Creative presets activate the research provider in their own scope.
+- insert:
+    - id: muse-source-research
+      name: muse-source-research
+      disabled: true

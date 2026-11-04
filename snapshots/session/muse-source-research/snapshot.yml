@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-source-research
+profile: headless
+composition: muse-source-research
+recording: authored
+header:
+  class: muse-source-research
+  pin: true
+permission: workspace-write
+workspace:
+  final: true
+writerOutput: true

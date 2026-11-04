@@ -96,6 +96,8 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'qimao_search',
   'read',
   'send_file',
+  'source_report',
+  'source_snapshot',
   'read_image',
   'read_mcp_resource',
   'schedule_create',

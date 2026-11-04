@@ -1,0 +1,10 @@
+# Preserve the shipped filesystem policy while fixing page and model responses.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: source-research-fixture
+      name: './research-fixture.mjs'

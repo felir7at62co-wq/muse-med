@@ -85,6 +85,10 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 Muse 自有的[七猫插件](muse-qimao-data/README.zh.md)使用 `parse5` 读取公开元数据，不执行网页脚本。作用域内工具提供已核验的榜单窗口、带筛选的书库分页、这些结果范围内的有限搜索及书籍详情；缺失指标保留未知。安装包保留 MIT 参考代码署名，通过自有源码清单进入 Desktop，无需从注册表替换包或全局启用工具。
 
+### 选材快照与报告
+
+Muse 自有的[选材研究插件](muse-source-research/README.zh.md)调用经过审查的元数据 client，将完整结果保存为工作区内不可变的版本化文件。比较保留缺失值、原始观察时间、采集范围及指标名称。报告标明输入快照和覆盖情况；旧文件明确标为导入证据。
+
 ### Muse 本地工具
 
 在仓库根目录通过独立[构建脚本](build-downloads.mjs)打包自有下载 bundle：

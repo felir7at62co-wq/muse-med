@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-source-research/README.md
+/:
+  en: 62f275cee2606862
+  zh: eca5a9e1f9d49885
+/muse-source-research:
+  en: 13658c530ae442f8
+  zh: 1f5a2a03957d3490
+/muse-source-research/summary:
+  en: 731b12dcaa0f5ed8
+  zh: b05f72330f0d9733
+/muse-source-research/table-of-contents:
+  en: 76368b6b1da79c80
+  zh: 5858bdca59a90cbb
+/muse-source-research/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/muse-source-research/use-this-package/activation-and-collection:
+  en: 25422c2b048e65d2
+  zh: 44d0e6fe3dba8ef0
+/muse-source-research/use-this-package/comparison-and-receipts:
+  en: f816e8fb1ee05500
+  zh: 3120f2682591e188
+/muse-source-research/use-this-package/configuration:
+  en: a941dbde64411ac8
+  zh: 62a0694408ea5c02
+/muse-source-research/understand-the-implementation:
+  en: 342ae317666de30d
+  zh: afed88507895975a
+/muse-source-research/model-experience:
+  en: 47af037118571b6d
+  zh: ef1c3fd398125688
+/muse-source-research/known-limitations-and-deferred-work:
+  en: fbef02e76abbbe1c
+  zh: 3fe05324f01ed595
+/muse-source-research/dev-note:
+  en: da00bb26b909e501
+  zh: d01b431db9b9866f

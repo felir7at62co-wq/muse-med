@@ -83,6 +83,10 @@ Search, detail, rankings, and collection filtering use public official metadata 
 
 The Muse-owned [Qimao plugin](muse-qimao-data/README.md) uses `parse5` to read public metadata without executing page scripts. Its scoped tools expose verified ranking windows, filtered library pages, bounded search within those results, and book details. Missing metrics remain unknown. The package retains its MIT reference attribution and enters Desktop through the owned source inventory; no registry substitution or global tool activation is required.
 
+### Selection snapshots and reports
+
+The Muse-owned [source research plugin](muse-source-research/README.md) calls the reviewed metadata clients and preserves their complete results in immutable, versioned workspace files. Its comparisons retain missing values, original observation times, collection scope, and metric labels. Reports identify their input snapshots and coverage; legacy files remain explicitly imported evidence.
+
 ### Muse local tools
 
 Build the owned download bundles from the repository root with the separate [builder](build-downloads.mjs):

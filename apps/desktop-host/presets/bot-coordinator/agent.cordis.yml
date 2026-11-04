@@ -309,6 +309,9 @@
 - id: muse-qimao-data
   name: muse-qimao-data
 
+- id: muse-source-research
+  name: muse-source-research
+
 # Download tools resolve media output inside the active conversation workspace.
 - id: muse-hongguo-download
   name: muse-hongguo-download
