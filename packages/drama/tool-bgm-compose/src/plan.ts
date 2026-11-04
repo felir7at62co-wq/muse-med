@@ -82,21 +82,21 @@ function trackDigest(value: string | undefined): string | undefined {
   return value.replace(/^sha256:/iu, '').toLowerCase()
 }
 
-function trackEvidence(segment: BgmBatchRow['segments'][number]): { digest: string | undefined; catalogId: string | undefined } {
+function trackEvidence(segment: BgmBatchRow['segments'][number]): { digests: string[]; catalogId: string | undefined } {
   const id = segment.track_id?.trim()
   const idDigest = trackDigest(id)
   return {
-    digest: trackDigest(segment.source_sha256) ?? idDigest,
+    digests: [trackDigest(segment.source_sha256), idDigest].filter(digest => digest !== undefined),
     catalogId: idDigest === undefined && id ? id : undefined,
   }
 }
 
 function sameTrack(project: string, left: BgmBatchRow['segments'][number], right: BgmBatchRow['segments'][number]): boolean {
   const a = trackEvidence(left), b = trackEvidence(right)
-  const compareDigests = a.digest !== undefined && b.digest !== undefined
+  const compareDigests = a.digests.length > 0 && b.digests.length > 0
   const compareCatalogIds = a.catalogId !== undefined && b.catalogId !== undefined
   if (compareDigests || compareCatalogIds) {
-    return (compareDigests && a.digest === b.digest) || (compareCatalogIds && a.catalogId === b.catalogId)
+    return a.digests.some(digest => b.digests.includes(digest)) || (compareCatalogIds && a.catalogId === b.catalogId)
   }
   return trackIdentity(project, left.source) === trackIdentity(project, right.source)
 }
