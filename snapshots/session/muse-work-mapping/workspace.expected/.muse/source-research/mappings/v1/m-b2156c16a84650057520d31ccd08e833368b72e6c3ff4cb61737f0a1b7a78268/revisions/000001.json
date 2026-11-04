@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "work_mapping_revision",
+  "adapterVersion": "1.0.0",
+  "mappingId": "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+  "proposalHash": "b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+  "proposalSha256": "1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4",
+  "revision": 1,
+  "priorRevision": 0,
+  "priorRevisionSha256": null,
+  "status": "confirmed",
+  "reviewedAt": "2026-11-04T14:00:00.000Z",
+  "reviewerSessionId": "snapshot-work-mapping-review",
+  "questionId": "work-mapping-1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4-r0",
+  "answer": {
+    "id": "work-mapping-1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4-r0",
+    "selected": [
+      "确认关系"
+    ]
+  },
+  "revisionHash": "2220d0fe02bf77ddc9070e996c58a77aa228691123cfbf5b3eddb891a0c9190b"
+}

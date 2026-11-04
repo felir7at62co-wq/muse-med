@@ -298,7 +298,7 @@
     },
     {
       "name": "source_report",
-      "description": "用已有snapshotIds生成不可覆盖的选材日报JSON和deliverables/选材日报/Markdown，记录全部输入ID/SHA、每个平台采集范围、缺页、未知指标、同口径共有字段变化；baselineIds可选，无基线不算增长。仅使用工具读取的真实快照；不接受模型JSON当官方数据，不计算假市场密度、蓝海或自动无AI/无S2结论。read按reportId校验读取。JSON已保存但Markdown失败时返回partial和具体receipt，可复核证据。",
+      "description": "用已有snapshotIds生成不可覆盖的选材日报JSON和deliverables/选材日报/Markdown，记录全部输入ID/SHA、每个平台采集范围、缺页、未知指标、同口径共有字段变化；baselineIds可选，无基线不算增长。可选mappingIds仅显式引用作品关系，报告保存当时的人审状态/revision/SHA；未审核提案保持未核实，后续改判不改旧报告。仅使用真实快照，不接受模型JSON当官方数据，不计算假市场密度、蓝海或自动无AI/无S2结论。read按reportId核验；JSON已保存但Markdown失败返回partial与具体receipt。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -335,6 +335,15 @@
           },
           "reportId": {
             "type": "string"
+          },
+          "mappingIds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "build可选：显式引用作品关系提案，保存构建时的人审revision/SHA/状态；不传时不添加映射内容"
           }
         }
       }
@@ -666,6 +675,119 @@
         "required": [
           "queries"
         ]
+      }
+    },
+    {
+      "name": "work_mapping",
+      "description": "用已保存红果/七猫快照的{snapshotId,itemId}两端提出关系，平台、ID、标题和SHA由工具核验；同名仅是未审核提案，不自动合并指标。propose/read/list/lookup管理直接关系，lookup恰选mappingId/sourceRef/sourceKey；sourceKey只查同平台ID的历史证据，不自动扩展旧确认到新快照。review和supersede必须提供预期提案SHA与revision，通过真实用户提问确认/拒绝/待核实；模型不能提交confirmed或decision。只读在提问前拒绝，取消、无回答服务、子agent或失效回答不写决定。决定追加不可覆盖的修订；改关系/证据另建提案。同系列不等于同作，来源未给季数仍未知；未命中只表示本证据未观察到，不推断全平台无AI或无S2，不做传递合并。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "propose",
+              "read",
+              "list",
+              "lookup",
+              "review",
+              "supersede"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+          },
+          "left": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "right": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "sourceRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "sourceKey": {
+            "type": "string",
+            "description": "lookup三选一：hongguo:<ID>或qimao:<ID>，仅返回该平台ID的历史提案及原快照证据，不自动扩展旧确认到新快照"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "same_work",
+              "adaptation_of",
+              "same_series",
+              "sequel_of"
+            ],
+            "description": "same_work同作；same_series同系列不等于同作；adaptation_of左侧改编自右侧；sequel_of左侧是右侧续作"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "propose必填模型理由，明确未核实；不能由同名自动确认"
+          },
+          "mappingId": {
+            "type": "string"
+          },
+          "expectedProposalSha256": {
+            "type": "string",
+            "description": "review/supersede必填：read返回的proposalSha256完整文件SHA-256"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "review初始0，supersede必须等于已存在最新revision；旧回答不能写入新revision"
+          }
+        }
       }
     },
     {

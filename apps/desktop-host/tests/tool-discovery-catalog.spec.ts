@@ -20,6 +20,7 @@ import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/searc
 import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.js'
 import { loadSourceResearchPlugin } from './fixtures/source-research-plugin.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 
 const patchPath = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 const row = loadOverlayPatches('desktop-discovery-catalog', patchPath)
@@ -148,21 +149,22 @@ it('discovers public Qimao data tools by Chinese requests while keeping them def
   }
 })
 
-it('discovers source snapshot and report tools by Chinese requests while keeping them deferred', async () => {
+it('discovers source snapshot, report and work relation tools by Chinese requests while keeping them deferred', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(Prompt)
     await ctx.plugin(Tools)
     await ctx.plugin(Agents)
     await ctx.plugin(LocalFileSystem)
+    await ctx.plugin(UserQuestionService)
     await ctx.plugin(await loadSourceResearchPlugin(ctx))
     const researchSchemas = ctx.tools.schemas()
-    expect(researchSchemas.map(schema => schema.name).sort()).toEqual(['source_report', 'source_snapshot'])
+    expect(researchSchemas.map(schema => schema.name).sort()).toEqual(['source_report', 'source_snapshot', 'work_mapping'])
     const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...researchSchemas].map(schema => [schema.name, schema]))
     const index = new ToolSearchIndex([...schemas.values()].map(schema => ({
       ...schema, keywords: config.keywords?.[schema.name] ?? [],
     })), { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
-    for (const [query, name] of [['选材快照', 'source_snapshot'], ['快照对比', 'source_snapshot'], ['选材日报', 'source_report']] as const) {
+    for (const [query, name] of [['选材快照', 'source_snapshot'], ['快照对比', 'source_snapshot'], ['选材日报', 'source_report'], ['同名作品', 'work_mapping'], ['改编关系', 'work_mapping']] as const) {
       expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain(name)
       expect(config.alwaysLoad).not.toContain(name)
       expect(capabilityMemberships(name, config.capabilities ?? [])).toContain('data-sourcing')

@@ -87,6 +87,8 @@ The Muse-owned [Qimao plugin](muse-qimao-data/README.md) uses `parse5` to read p
 
 The Muse-owned [source research plugin](muse-source-research/README.md) calls the reviewed metadata clients and preserves their complete results in immutable, versioned workspace files. Its comparisons retain missing values, original observation times, collection scope, and metric labels. Reports identify their input snapshots and coverage; legacy files remain explicitly imported evidence.
 
+Its work-mapping proposals bind both source references and evidence hashes to a human review. Confirmed, rejected, and deferred decisions retain their revision history. Reports may cite those decisions without inferring platform-wide absence of adaptations or sequels.
+
 ### Muse local tools
 
 Build the owned download bundles from the repository root with the separate [builder](build-downloads.mjs):

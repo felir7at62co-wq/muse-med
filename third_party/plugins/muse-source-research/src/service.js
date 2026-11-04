@@ -3,11 +3,14 @@ import { HongguoClient, resolveConfig as hongguoConfig } from 'muse-hongguo-sear
 import { QimaoClient, resolveConfig as qimaoConfig } from 'muse-qimao-data/client';
 import { ResearchStore, sha256, encode, failure } from './store.js';
 import { canonicalize, compareSnapshots, renderReport } from './canonical.js';
+import { WorkMappings, mappingReceipts, renderMappings } from './mappings.js';
 
 const ADAPTER_VERSION = '1.0.0';
 const BOARDS = ['hot-drama', 'hot-real-drama', 'hot-ai-drama', 'hot-comic-drama'];
-const defaults = { maxJsonBytes: 16777216, maxItems: 20000, maxSnapshots: 1000, maxReportInputs: 40, maxComparisonPairs: 100, maxReportInputBytes: 67108864, maxListEntries: 5000, maxReportBytes: 4194304, toolTimeoutMs: 300000 };
-const limits = { maxJsonBytes: 67108864, maxItems: 50000, maxSnapshots: 10000, maxReportInputs: 100, maxComparisonPairs: 1000, maxReportInputBytes: 268435456, maxListEntries: 20000, maxReportBytes: 16777216, toolTimeoutMs: 3600000 };
+const defaults = { maxJsonBytes: 16777216, maxItems: 20000, maxSnapshots: 1000, maxReportInputs: 40, maxComparisonPairs: 100, maxReportInputBytes: 67108864, maxListEntries: 5000, maxReportBytes: 4194304, toolTimeoutMs: 300000,
+  maxMappings: 1000, maxMappingRevisions: 100, maxMappingReasonChars: 2000, maxMappingExcerptChars: 500, maxMappingHistoryBytes: 16777216, maxMappingListBytes: 67108864 };
+const limits = { maxJsonBytes: 67108864, maxItems: 50000, maxSnapshots: 10000, maxReportInputs: 100, maxComparisonPairs: 1000, maxReportInputBytes: 268435456, maxListEntries: 20000, maxReportBytes: 16777216, toolTimeoutMs: 3600000,
+  maxMappings: 10000, maxMappingRevisions: 999999, maxMappingReasonChars: 20000, maxMappingExcerptChars: 20000, maxMappingHistoryBytes: 268435456, maxMappingListBytes: 268435456 };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function keys(value, allowed) { if (!object(value) || Object.keys(value).some(key => !allowed.includes(key))) throw failure('Research request has unknown fields or is not an object'); }
 function id(value, prefix) { if (typeof value !== 'string' || !new RegExp(`^${prefix}-[a-f0-9]{32}$`).test(value)) throw failure(`Invalid ${prefix === 's' ? 'snapshotId' : 'reportId'}`); return value; }
@@ -77,12 +80,13 @@ export class SourceResearch {
     this.lifetime = new AbortController();
     this.pending = new Set();
     this.publishing = new Map();
+    this.mappings = new WorkMappings(this);
   }
 
   /** @returns The optional Host sandbox policy service; sandboxed filesystems require it. */
   policyService() { return typeof this.ctx.get === 'function' ? this.ctx.get('sandboxPolicy') : this.ctx.sandboxPolicy; }
 
-  /** @param type snapshot or report. @param request Tool JSON. @param signal Tool cancellation. @returns Result after all reads/publication settle; denied writes fail before HTTP. */
+  /** @param type snapshot, report or mapping. @param request Tool JSON. @param signal Tool cancellation. @returns Result after all reads/publication settle; denied writes fail before HTTP or human review. */
   execute(type, request, signal) {
     const combined = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal;
     const pending = this.run(type, request, combined);
@@ -104,12 +108,25 @@ export class SourceResearch {
     signal.throwIfAborted();
     const fields = type === 'snapshot' ? {
       collect: ['platform', 'request'], import_legacy: ['path'], list: [], read: ['snapshotId'], compare: ['beforeId', 'afterId'],
-    } : { build: ['snapshotIds', 'baselineIds'], read: ['reportId'] };
+    } : type === 'mapping' ? {
+      propose: ['left', 'right', 'relation', 'reason'], read: ['mappingId'], list: [], lookup: ['mappingId', 'sourceRef', 'sourceKey'],
+      review: ['mappingId', 'expectedProposalSha256', 'expectedRevision'], supersede: ['mappingId', 'expectedProposalSha256', 'expectedRevision'],
+    } : type === 'report' ? { build: ['snapshotIds', 'baselineIds', 'mappingIds'], read: ['reportId'] } : {};
     if (!object(request) || !Object.hasOwn(fields, request.action)) throw failure('Unsupported source research action');
     keys(request, ['action', 'project', ...fields[request.action]]);
     const agent = this.ctx.agents.requireInitiator();
     const policy = this.policyService()?.resolve({ session: agent.session });
     const context = await this.store.context(agent.session.header.cwd, request.project, policy, signal);
+    if (type === 'mapping') {
+      switch (request.action) {
+        case 'propose': return this.mappings.propose(context, request);
+        case 'read': return this.mappings.read(context, request.mappingId);
+        case 'list': return this.mappings.list(context);
+        case 'lookup': return this.mappings.lookup(context, request);
+        case 'review': case 'supersede': return this.mappings.review(context, request, agent);
+        default: throw failure('Unsupported mapping action');
+      }
+    }
     if (type === 'snapshot') {
       switch (request.action) {
         case 'collect': return this.collect(context, request);
@@ -165,8 +182,8 @@ export class SourceResearch {
     });
   }
 
-  /** @param context Project execution context. @param kind Artifact directory category. @param publish Publication operation after capacity admission. @returns Its result; queued cancellation settles immediately without releasing the FIFO barrier early. */
-  async publishQueued(context, kind, publish) {
+  /** @param context Project execution context. @param kind Artifact queue category. @param publish Publication operation after capacity admission. @param admission Optional category-specific capacity validation. @returns Its result; queued cancellation settles immediately without releasing the FIFO barrier early. */
+  async publishQueued(context, kind, publish, admission) {
     // A canceled waiter settles immediately but its FIFO barrier releases only after its predecessor.
     const key = `${context.root.targetKey}:${kind}`;
     const previous = this.publishing.get(key) ?? Promise.resolve();
@@ -180,7 +197,8 @@ export class SourceResearch {
       await abortable(previous, context.signal);
       acquired = true;
       context.signal?.throwIfAborted();
-      await this.store.capacity(context, kind);
+      if (admission) await admission();
+      else await this.store.capacity(context, kind);
       return await publish();
     } finally {
       if (acquired) release();
@@ -241,7 +259,9 @@ export class SourceResearch {
     await this.store.writable(context);
     const snapshotIds = this.reportInputs(request.snapshotIds, 'snapshotIds');
     const baselineIds = request.baselineIds === undefined ? [] : this.reportInputs(request.baselineIds, 'baselineIds');
-    if (snapshotIds.length + baselineIds.length > this.config.maxReportInputs) throw failure('Combined report inputs exceed maxReportInputs', 'SOURCE_RESEARCH_LIMIT');
+    const mappingIds = request.mappingIds;
+    if (mappingIds !== undefined && (!Array.isArray(mappingIds) || mappingIds.length < 1 || new Set(mappingIds).size !== mappingIds.length || mappingIds.length > this.config.maxReportInputs)) throw failure('mappingIds must be unique mapping IDs within maxReportInputs', 'SOURCE_RESEARCH_LIMIT');
+    if (snapshotIds.length + baselineIds.length + (mappingIds?.length ?? 0) > this.config.maxReportInputs) throw failure('Combined report inputs exceed maxReportInputs', 'SOURCE_RESEARCH_LIMIT');
     const loaded = [];
     let bytes = 0;
     for (const snapshotId of [...new Set([...snapshotIds, ...baselineIds])]) {
@@ -256,15 +276,24 @@ export class SourceResearch {
     if (pairs.length > this.config.maxComparisonPairs) throw failure('Report comparisons exceed maxComparisonPairs', 'SOURCE_RESEARCH_LIMIT');
     const comparisons = pairs.map(([before, after]) => compareSnapshots(before.snapshot, after.snapshot));
     const inputReceipts = loaded.map(({ receipt }) => ({ snapshotId: receipt.snapshotId, sha256: receipt.sha256, platform: receipt.platform, evidenceKind: receipt.evidenceKind })), createdAt = new Date(this.now()).toISOString();
-    const markdown = renderReport(selected.map(value => value.snapshot), inputReceipts, comparisons, createdAt);
+    const states = [];
+    if (mappingIds !== undefined) for (const mappingId of mappingIds) {
+      const state = await this.mappings.read(context, mappingId);
+      bytes += Buffer.byteLength(encode(state));
+      if (bytes > this.config.maxReportInputBytes) throw failure('Report inputs exceed maxReportInputBytes', 'SOURCE_RESEARCH_LIMIT');
+      states.push(state);
+    }
+    const capturedMappings = mappingIds === undefined ? null : mappingReceipts(states);
+    const markdown = renderReport(selected.map(value => value.snapshot), inputReceipts, comparisons, createdAt) + (capturedMappings === null ? '' : renderMappings(capturedMappings));
     if (Buffer.byteLength(markdown) > this.config.maxReportBytes) throw failure('Report Markdown exceeds maxReportBytes', 'SOURCE_RESEARCH_LIMIT');
     const payload = { schemaVersion: 1, kind: 'source_report', adapterVersion: ADAPTER_VERSION, createdAt, snapshotIds, baselineIds,
-      inputReceipts, comparisons, markdownSha256: sha256(markdown) };
+      inputReceipts, comparisons, markdownSha256: sha256(markdown), ...(capturedMappings === null ? {} : { mappingIds, mappingReceipts: capturedMappings }) };
     const reportId = `r-${sha256(encode(payload)).slice(0, 32)}`;
     const markdownPath = `deliverables/选材日报/${createdAt.slice(0, 10)}-${reportId}.md`;
     const report = { ...payload, reportId, markdownPath };
     const stored = await this.publishQueued(context, 'reports', () => this.store.publish(context, `.muse/source-research/reports/v1/${reportId}.json`, encode(report)));
-    const receipt = { reportId, path: stored.path, sha256: stored.sha256, reused: stored.reused, markdownPath, markdownSha256: payload.markdownSha256, inputReceipts };
+    const receipt = { reportId, path: stored.path, sha256: stored.sha256, reused: stored.reused, markdownPath, markdownSha256: payload.markdownSha256, inputReceipts,
+      ...(capturedMappings === null ? {} : { mappingReceipts: capturedMappings }) };
     try {
       const rendered = await this.store.publish(context, markdownPath, markdown, this.config.maxReportBytes);
       return { ...receipt, markdownPath: rendered.path, status: 'complete' };

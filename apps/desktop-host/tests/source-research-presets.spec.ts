@@ -1,9 +1,10 @@
-/** Source snapshot and report tools stay scoped to the six nonminimal product presets. */
+/** Source snapshot, report and work relation tools stay scoped to the six nonminimal product presets. */
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import Agents from '@deepseek-ai/dsh-agent'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { parse as parseYaml } from 'yaml'
@@ -16,14 +17,16 @@ interface PresetRow {
   readonly name?: string
 }
 
-it('registers source snapshot and report tools in every nonminimal preset and disposes each contribution', async () => {
+it('registers source snapshot, report and work relation tools in every nonminimal preset and disposes each contribution', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
     await ctx.plugin(Agents)
+    await ctx.plugin(UserQuestionService)
     await ctx.plugin(LocalFileSystem)
     const SourceResearch = await loadSourceResearchPlugin(ctx)
+    expect(SourceResearch.inject).toContain('userQuestions')
     for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'bot-coordinator', 'minimal']) {
       const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {
         customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }],
@@ -37,7 +40,7 @@ it('registers source snapshot and report tools in every nonminimal preset and di
         if (preset === 'creation') await scope.ctx.plugin(CreationPolicy)
         if (row !== undefined) await scope.ctx.plugin(SourceResearch)
         expect(ctx.tools.schemas(key).map(tool => tool.name).sort(), preset).toEqual(preset === 'minimal' ? [] : [
-          'source_report', 'source_snapshot',
+          'source_report', 'source_snapshot', 'work_mapping',
         ])
         expect(ctx.tools.schemas()).toEqual([])
       } finally {

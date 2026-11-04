@@ -19,6 +19,8 @@ Desktop includes the [Qimao public metadata tools](../../third_party/plugins/mus
 
 The [source research tools](../../third_party/plugins/muse-source-research/README.md) save collection results as immutable workspace snapshots and build selection reports with their coverage and missing metrics. Comparisons require matching collection scopes and metric meanings. Legacy imports retain their original file hashes and do not establish fresh observations.
 
+Work relationship proposals cite saved snapshots and require an explicit human decision. Review revisions remain immutable; matching titles alone never confirm identity. A report can include selected mapping decisions with their recorded revisions.
+
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
 The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction, task and Bot-team tools resident, including Bot question, view and credential cards. Specialized screenplay, asset, production and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Existing session discoveries and explicit Bot tool pins continue to load their selected tools.

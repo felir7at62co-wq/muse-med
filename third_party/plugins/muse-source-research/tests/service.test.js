@@ -248,11 +248,11 @@ describe('source research through the real local filesystem', () => {
     await expect(f.service.store.read(context, target)).rejects.toMatchObject({ code: 'SOURCE_RESEARCH_STALE_READ' });
   });
 
-  it('registers two scoped object-schema tools, rejects extra model evidence, and disposes registrations', async () => {
+  it('registers three scoped object-schema tools, rejects extra model evidence, and disposes registrations', async () => {
     const f = await fixture(), definitions = [], cleanup = [];
     const host = { ...f.host, tools: { register(definition) { definitions.push(definition); return () => definitions.splice(definitions.indexOf(definition), 1); } }, effect(factory) { cleanup.push(factory()); } };
     apply(host, { qimao: { requestIntervalMs: 0 }, hongguo: { requestIntervalMs: 0 } });
-    expect(definitions.map(value => value.name)).toEqual(['source_snapshot', 'source_report']);
+    expect(definitions.map(value => value.name)).toEqual(['source_snapshot', 'source_report', 'work_mapping']);
     for (const definition of definitions) expect(definition.parameters).toMatchObject({ type: 'object', required: ['action'], additionalProperties: false });
     await expect(definitions[0].execute({ ...collect, sourceResult: {} }, { signal: signal() })).rejects.toThrow('unknown fields');
     for (const dispose of cleanup.reverse()) await dispose();

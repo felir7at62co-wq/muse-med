@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "kind": "source_report",
+  "adapterVersion": "1.0.0",
+  "createdAt": "2026-11-04T14:00:00.000Z",
+  "snapshotIds": [
+    "s-7aff160871ccfccaecfee2462775f994",
+    "s-2331249af61a819ece04ef3f341b90c8"
+  ],
+  "baselineIds": [],
+  "inputReceipts": [
+    {
+      "snapshotId": "s-7aff160871ccfccaecfee2462775f994",
+      "sha256": "04e417fc20fe49633be7a7a010a4bb7f88f4e73d7d12949e3e29a499d0476e85",
+      "platform": "qimao",
+      "evidenceKind": "official_public"
+    },
+    {
+      "snapshotId": "s-2331249af61a819ece04ef3f341b90c8",
+      "sha256": "af01d06e0e5bcbed28ea690d2143c57f3f4aaa3132c6d4903e03fefc7f829522",
+      "platform": "hongguo",
+      "evidenceKind": "official_public"
+    }
+  ],
+  "comparisons": [],
+  "markdownSha256": "460369582fb34a253139e0b6070f307f7a8a54abb951e03181851086e7ef1e96",
+  "mappingIds": [
+    "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268"
+  ],
+  "mappingReceipts": [
+    {
+      "mappingId": "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+      "proposalHash": "b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+      "proposalSha256": "1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4",
+      "revision": 1,
+      "revisionSha256": "0d5fcd362d55a000fa25f8e3fc5a630418baae986ffa6b3b3e69ce1e9eb7a7ad",
+      "status": "confirmed",
+      "proposal": {
+        "schemaVersion": 1,
+        "kind": "work_mapping_proposal",
+        "adapterVersion": "1.0.0",
+        "createdAt": "2026-11-04T14:00:00.000Z",
+        "left": {
+          "sourceRef": {
+            "snapshotId": "s-7aff160871ccfccaecfee2462775f994",
+            "itemId": "71000011"
+          },
+          "platform": "qimao",
+          "key": "qimao:71000011",
+          "title": "福星小厨娘",
+          "evidenceKind": "official_public",
+          "snapshotSha256": "04e417fc20fe49633be7a7a010a4bb7f88f4e73d7d12949e3e29a499d0476e85",
+          "url": "https://www.qimao.com/shuku/71000011/",
+          "author": "样例作者",
+          "description": "合成选材样本"
+        },
+        "right": {
+          "sourceRef": {
+            "snapshotId": "s-2331249af61a819ece04ef3f341b90c8",
+            "itemId": "7100000000000000011"
+          },
+          "platform": "hongguo",
+          "key": "hongguo:7100000000000000011",
+          "title": "福星小厨娘",
+          "evidenceKind": "official_public",
+          "snapshotSha256": "af01d06e0e5bcbed28ea690d2143c57f3f4aaa3132c6d4903e03fefc7f829522",
+          "url": "https://hongguoduanju.com/detail?series_id=7100000000000000011",
+          "author": null,
+          "description": "合成榜单样本"
+        },
+        "relation": "same_work",
+        "reason": "公开标题相同，仍需人工核验具体证据；同名本身不证明同一作品。",
+        "reasonVerified": false,
+        "mappingId": "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+        "proposalHash": "b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268"
+      },
+      "latestRevision": {
+        "schemaVersion": 1,
+        "kind": "work_mapping_revision",
+        "adapterVersion": "1.0.0",
+        "mappingId": "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+        "proposalHash": "b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
+        "proposalSha256": "1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4",
+        "revision": 1,
+        "priorRevision": 0,
+        "priorRevisionSha256": null,
+        "status": "confirmed",
+        "reviewedAt": "2026-11-04T14:00:00.000Z",
+        "reviewerSessionId": "snapshot-work-mapping-review",
+        "questionId": "work-mapping-1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4-r0",
+        "answer": {
+          "id": "work-mapping-1544ea30550f8636fe437a93c399c171bcb500eb8982756be39061cb1c4c01b4-r0",
+          "selected": [
+            "确认关系"
+          ]
+        },
+        "revisionHash": "2220d0fe02bf77ddc9070e996c58a77aa228691123cfbf5b3eddb891a0c9190b"
+      }
+    }
+  ],
+  "reportId": "r-48ff61717d51fcaedac526d4aa661536",
+  "markdownPath": "deliverables/选材日报/2026-11-04-r-48ff61717d51fcaedac526d4aa661536.md"
+}

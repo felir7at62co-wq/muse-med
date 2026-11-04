@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-work-mapping
+profile: headless
+composition: muse-work-mapping
+recording: authored
+header:
+  class: muse-work-mapping
+  pin: true
+permission: workspace-write
+workspace:
+  final: true
+writerOutput: true

@@ -114,6 +114,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'video_ocr',
   'web_fetch',
   'web_search',
+  'work_mapping',
   'write',
 ]
 const allowed = new Set(CREATION_TOOL_NAMES)

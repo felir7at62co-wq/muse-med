@@ -13,7 +13,7 @@
   "files": ["src/", "cordis.patch.yml", "SOURCE.json", "README.md", "README.zh.md", "README.i18n.yaml", "LICENSE"],
   "scripts": {
     "test": "vitest run --config vitest.config.mjs",
-    "check": "node --check src/index.js && node --check src/service.js && node --check src/canonical.js && node --check src/store.js",
+    "check": "node --check src/index.js && node --check src/service.js && node --check src/canonical.js && node --check src/store.js && node --check src/mappings.js",
     "package": "node scripts/pack.mjs"
   },
   "engines": { "node": "^22.19.0 || >=24.0.0" },
@@ -24,7 +24,8 @@
     "@deepseek-ai/dsh-brand": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-fs": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1"
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-user-questions": "0.2.1-alpha.1"
   },
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "license": "MIT"
