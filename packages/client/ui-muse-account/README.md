@@ -25,7 +25,7 @@ This client plugin adds a Muse account entry to the Desktop sidebar and Settings
 <a id="use-this-package"></a>
 ## Use this package
 
-The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions.
+The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Scroll long release details within the dialog while its title and close button stay visible. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions.
 
 Discovery shows published releases and the original Muse collection. A guide introduces discovery and installation on the first visit. Closing it saves the choice on the current client. **Market guide** opens it again.
 

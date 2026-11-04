@@ -64,7 +64,8 @@ async function fillSkillMetadata(page: Page, skill: Pick<MarketManifest, 'name' 
 it('guides new visitors, preserves portrait playback, previews locally and downloads exact publication bytes', async () => {
   const [bot, skill] = await Promise.all([fixture('storyboard-director', 'a'.repeat(32)), fixture('storyboard-starter', 'c'.repeat(32))])
   const audioPath = 'skills/audio-transcribe/SKILL.md'
-  const audioManifest = { ...skill.release.manifest, ...audioSkill, skills: [{ name: audioSkill.name, path: audioPath }] }
+  const examples = Array.from({ length: 8 }, (_, index) => '示例 ' + String(index + 1) + '：' + '转写结束后核对时间码、说话人和漏字。'.repeat(25))
+  const audioManifest = { ...skill.release.manifest, ...audioSkill, examples, skills: [{ name: audioSkill.name, path: audioPath }] }
   const audioBytes = createMarketPackage(audioManifest, {
     [audioPath]: Buffer.from('---\nname: audio-transcribe\ndescription: Transcribe audio clips.\n---\n\nReview the transcript.'),
   }, policy.limits, policy.allowedPlugins)
@@ -283,7 +284,25 @@ it('guides new visitors, preserves portrait playback, previews locally and downl
   await page.getByRole('textbox', { name: '搜索名称、用途或制作组', exact: true }).fill(audioSkill.name)
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   expect(await skillCoverGlyph(page.getByRole('img', { name: audioSkill.title, exact: true }))).toBe(audioPreviewGlyph)
-  await page.setViewportSize({ width: 390, height: 844 })
+  const viewAudioDetails = page.getByRole('article').filter({ has: page.getByRole('heading', { name: audioSkill.title, exact: true }) })
+    .getByRole('button', { name: '查看详情', exact: true })
+  const detail = page.getByRole('dialog', { name: audioSkill.title, exact: true })
+  const closeDetails = detail.getByRole('button', { name: '关闭详情', exact: true })
+  const finalExample = detail.getByText(examples.at(-1)!, { exact: true })
+  for (const viewport of [{ width: 1282, height: 821 }, { width: 390, height: 620 }]) {
+    await page.setViewportSize(viewport)
+    await viewAudioDetails.click()
+    const closeTop = await closeDetails.evaluate(element => element.getBoundingClientRect().top)
+    expect(closeTop).toBeGreaterThanOrEqual(0)
+    expect(await finalExample.evaluate(element => element.getBoundingClientRect().bottom)).toBeGreaterThan(viewport.height)
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('End')
+    await expect.poll(() => finalExample.evaluate(element => element.getBoundingClientRect().bottom)).toBeLessThan(viewport.height)
+    expect(await closeDetails.evaluate(element => element.getBoundingClientRect().top)).toBe(closeTop)
+    await page.keyboard.press('Escape')
+    await detail.waitFor({ state: 'hidden' })
+    expect(await viewAudioDetails.evaluate(element => element === document.activeElement)).toBe(true)
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
   expect(failures).toEqual([])
 })

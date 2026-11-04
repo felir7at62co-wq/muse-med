@@ -28,6 +28,7 @@
 .cardSummary { min-height: 48px; }
 .section .publisherLine { margin-top: auto; padding-top: 16px; border-top: 0.5px solid var(--dsw-alias-market-border); color: var(--dsw-alias-label-secondary); }
 .cardActions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.cardActions > button { min-inline-size: max-content; }
 .cardActions > button:first-child { flex: 1; }
 .cardActions > button:nth-child(2) { flex: 1; }
 .meta { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
@@ -61,6 +62,9 @@
 .section textarea, .section select, .field textarea { font: inherit; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); padding: 8px; }
 .section textarea { resize: vertical; }
 .section textarea:focus-visible, .section select:focus-visible, .section input:focus-visible, .field textarea:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
+.detailDialog { max-block-size: 100%; overflow-wrap: anywhere; }
+.detailContent, .detailContent > :has(> .detailBody) { min-block-size: 0; }
+.detailContent .detailBody { overflow-y: auto; overscroll-behavior-y: contain; }
 .detailBody { display: flex; flex-direction: column; gap: 20px; font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
 .reviewForm { --dsw-alias-button-primary-fill: var(--dsw-alias-market-accent-fill); --dsw-alias-button-primary-hover: var(--dsw-alias-market-accent-hover); --dsw-alias-label-primary-foreground: var(--dsw-alias-market-on-accent); }
 .detailBody p { margin: 0; }

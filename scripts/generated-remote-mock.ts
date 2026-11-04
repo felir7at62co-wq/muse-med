@@ -14,6 +14,7 @@ export function generatedRemoteMockPlugin(repositoryRoot: string) {
     ]],
     ['@deepseek-ai/dsh-muse-market/remote', [
       'packages/client/ui-muse-account/src/client/market-mount.ts',
+      'packages/client/ui-muse-account/tests/browser-plugin.client.spec.tsx',
       'packages/client/ui-muse-account/tests/market-panel.client.spec.tsx',
     ]],
     ['@deepseek-ai/dsh-feishu-settings/remote', [

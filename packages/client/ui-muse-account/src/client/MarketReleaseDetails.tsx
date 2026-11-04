@@ -7,7 +7,7 @@ import css from './MarketSection.module.css'
 
 /** Show version, usage and license information without changing installation state.
  * @param props Selected release, original Skill activation, localized labels and dismissal action.
- * @returns Accessible publication details, or a closed modal.
+ * @returns Publication details with a keyboard-scrollable body, or a closed modal.
  */
 export function MarketReleaseDetails({ release, enabledOriginalSkill, onClose, t }: {
   release: MarketRelease | undefined
@@ -15,8 +15,9 @@ export function MarketReleaseDetails({ release, enabledOriginalSkill, onClose, t
   onClose: () => void
   t: MarketSectionProps['t']
 }): ReactNode {
-  return <Modal open={Boolean(release)} onClose={onClose} title={release?.manifest.title ?? t('details')} closeLabel={t('close')}>
-    {release && <div className={css.detailBody}>
+  return <Modal open={Boolean(release)} onClose={onClose} title={release?.manifest.title ?? t('details')} closeLabel={t('close')}
+    className={css.detailDialog ?? ''} contentClassName={css.detailContent ?? ''}>
+    {release && <div className={css.detailBody} role="region" aria-label={t('details')} tabIndex={0}>
       <p>{release.manifest.description}</p>
       <dl className={css.detailFacts}>
         <dt>{t('publisher')}</dt><dd>{release.publisher}</dd>
