@@ -9,10 +9,6 @@ const revisions = await importSnapshotModule(
   new URL('../../../apps/desktop-host/src/manuscript-revisions.ts', import.meta.url),
   new URL('../../../apps/desktop-host/lib/manuscript-revisions.js', import.meta.url),
 )
-const reads = await importSnapshotModule(
-  new URL('../../../apps/desktop-host/src/manuscript-video-reads.ts', import.meta.url),
-  new URL('../../../apps/desktop-host/lib/manuscript-video-reads.js', import.meta.url),
-)
 const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present',
   new URL('../../../apps/desktop-host/package.json', import.meta.url))
 const { FsVersion } = await importSnapshotPackage('@deepseek-ai/dsh-fs',
@@ -54,7 +50,7 @@ export async function apply(ctx) {
     assert.equal(continued.meta.offset, first.meta.continuation.offset)
     assert.equal(continued.meta.column, first.meta.continuation.column)
     assert.equal(continued.meta.continuation, undefined)
-    const receipt = reads.manuscriptTextReadSnapshots(ctx, agent.session)?.reads[0]
+    const receipt = ctx.sessionProjections.stateOf(agent.session, 'manuscriptVideoReads')?.textReads[0]
     assert.equal(receipt?.status, 'partial')
     assert.equal(receipt.text, undefined)
     assert.equal(receipt.readTextSha256, undefined)
