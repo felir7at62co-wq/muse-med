@@ -1,16 +1,29 @@
 /** Exercise native Main Bot identity and roster output through the Headless Session runner. */
-import { install as installPrivacy } from '../../../third_party/plugins/ds-bot/src/host/privacy.js'
-import { install as installPrompt } from '../../../third_party/plugins/ds-bot/src/host/prompt.js'
-import { install as installTools } from '../../../third_party/plugins/ds-bot/src/host/tools.js'
-import { install as installMemory } from '../../../third_party/plugins/ds-bot/src/host/memory.js'
-import { install as installStore } from '../../../third_party/plugins/ds-bot/src/host/store.js'
-import { install as installModels } from '../../../third_party/plugins/ds-bot/src/host/models.js'
-import { resolveMuseConfig } from '../../../third_party/plugins/ds-bot/src/host/muse-config.js'
-import { MuseTeamService } from '../../../third_party/plugins/ds-bot/src/host/muse-team.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { importDsBotFixture } from '../../../apps/desktop/tests/fixtures/import-ds-bot-fixture.mjs'
+
+const [
+  { install: installPrivacy },
+  { install: installPrompt },
+  { install: installTools },
+  { install: installMemory },
+  { install: installStore },
+  { install: installModels },
+  { resolveMuseConfig },
+  { MuseTeamService },
+] = await importDsBotFixture(() => Promise.all([
+  import('../../../third_party/plugins/ds-bot/src/host/privacy.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/prompt.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/tools.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/memory.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/store.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/models.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/muse-config.js'),
+  import('../../../third_party/plugins/ds-bot/src/host/muse-team.js'),
+]))
 
 /** The fixture registers roster and memory without starting the browser-only Bot Host. */
 export const name = 'snapshot-muse-bot-roster'
