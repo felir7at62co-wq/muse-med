@@ -1,6 +1,6 @@
 # Muse 红果 Search 工具集
 
-> 本次发布从已交付 v0.1.0 安装包恢复，运行时代码与原包一致；当前测试与历史验证的区别见 [发布恢复说明](https://github.com/felir7at62co-wq/muse-hongguo-serch/blob/main/RECOVERY.md)。
+> 仓库保留已交付 v0.1.0 原包及其校验值；该原包与恢复记录见 [发布恢复说明](https://github.com/felir7at62co-wq/muse-hongguo-serch/blob/main/RECOVERY.md)。下文描述当前工作区源码。
 
 独立、可安装的 Muse / DeepSeek Harness（DSH）Cordis 插件。只读红果官方公开网页，提供关键词搜索、剧集详情、榜单汇总和收藏数筛选；无需登录、Cookie、API Key 或第三方签名服务，不下载视频。
 
@@ -78,14 +78,16 @@ return { coverage: result.coverage, count: result.totalMatched, dramas: result.i
 
 搜索只返回官网首屏实际可获得的数据。`sourceReportedTotal` 是网页宣称的总量，`availableInWindow` 是本次可用条数；两者不能混为一谈。未验证公开搜索分页，`offset` 只切分已抓取窗口，`complete` 固定 false。
 
-榜单返回 `coverage.pagesFetched/pagesExpected/uniqueSeries/complete/failures/truncated/pages`。`complete: true` 只表示所选榜单当前公开分页已读完，不表示全平台片库。任何失败或配置截断都会明确标记；所有页面失败会报错。抓取并非同一时点的事务快照。
+榜单返回 `coverage.pagesFetched/pagesExpected/uniqueSeries/complete/failures/truncated/pages`。`coverage.complete: true` 只表示所选榜单当前公开分页已读完，不表示指标齐全或全平台片库。任何失败或配置截断都会明确标记；所有页面失败会报错。抓取并非同一时点的事务快照。
+
+`coverage.metrics` 按已抓取的原始榜单观察值统计，`observations` 包含同一作品在不同榜单上的重复观察；`fields.collection/likes/heat` 分别返回 `known/missing/complete`，三项均无缺失时 `coverage.metrics.complete` 为 true。失败页不计入这个分母，必须同时检查分页完整性。可见卡片缺少互动指标时仍保留已核验的 ID、标题和排名；对应数值为 null，每次 `observations[].missingMetrics` 记录指标名和 `not_displayed/unparseable` 原因。页面身份、分页、标题或排名错误仍会拒绝该页。
 
 每条收藏指标保留 `raw`、`value`、`approximate`、`precisionStep`。缺失或无法解释的数据为 null，不会记成 0。
 
 - 榜单与搜索上的 `124.3万收藏` 转为 1,243,000，仍标为近似展示值
 - `100万`、`100.0万` 等阈值附近缩写列为待核实；保守地预留上下一个显示单位，不猜测榜单舍入规则
 - 详情里的 `series_favorite_count` 保留公开页面给出的整数及原字符串。`approximate: false` 只表示插件没有从万/亿缩写换算，**不保证平台字段未经处理或等于实时精确人数**
-- 跨榜按 `seriesId` 去重，保留所有 `observations`，`conflicts` 标明不同收藏值。主展示值取 `minimum_observed`；跨阈值冲突不冒充确定达标
+- 跨榜按 `seriesId` 去重，每次 `observations` 保留独立收藏、点赞和热度。三个主展示值分别取最小已知值；早先观察缺失不会覆盖后来的已知值。`conflicts` 分别标明三个指标的不同观察值；跨阈值收藏冲突不冒充确定达标
 - `thresholdStatus: meets` 表示页面数值通过本工具的保守筛选，仍不是后台精确人数的证明。`uncertain/unknown` 默认不混入结果
 
 所有作品链接指向官网。`url` 是详情页；`watchPageUrl` 仅在页面真实提供且ID匹配时返回官方网页播放链接，缺失则为 null。它不是 MP4/无水印直链，不保证无需 App 或账号即可播放；插件不访问播放资源、不下载或绕过播放限制。页面内容是外部数据，不能作为指挥 Muse 执行动作的指令。

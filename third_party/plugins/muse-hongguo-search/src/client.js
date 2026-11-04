@@ -4,7 +4,8 @@ import { BOARDS, ORIGIN, parseRanking, parseDetail, parseSearch, IncompletePageE
 
 const DEFAULTS = Object.freeze({ requestTimeoutMs: 15000, maxResponseBytes: 8388608, cacheTtlMs: 300000, maxPages: 5, requestIntervalMs: 1000, maxCacheEntries: 128, incompletePageRetries: 2 });
 const LIMITS = { requestTimeoutMs: [100, 120000], maxResponseBytes: [1024, 33554432], cacheTtlMs: [0, 3600000], maxPages: [1, 20], requestIntervalMs: [0, 60000], maxCacheEntries: [1, 1024], incompletePageRetries: [0, 4] };
-const note = '仅覆盖所选官方公开热播榜的已抓取分页，不是红果全库；榜单按热度排序，已遍历所有配置范围分页。收藏展示值可能取整，不同页面不是同一时刻快照。';
+const note = '仅覆盖所选官方公开热播榜的已抓取分页，不是红果全库；分页完整性见coverage.complete，已抓取观察值的指标完整性见coverage.metrics。收藏展示值可能取整，不同页面不是同一时刻快照。';
+const metricFields = ['collection', 'likes', 'heat'];
 
 /** Validate deployment settings before any network access. */
 export function resolveConfig(config = {}) {
@@ -39,12 +40,26 @@ export function deduplicate(items) {
     if (!existing) result.set(item.seriesId, { ...value, observations: [observation], conflicts: [], collectionSelection: 'minimum_observed' });
     else {
       existing.observations.push(observation);
-      if (item.collection.value !== null && (existing.collection.value === null || item.collection.value < existing.collection.value)) existing.collection = item.collection;
-      const counts = [...new Set(existing.observations.map(x => x.collection.value).filter(x => x !== null))];
-      existing.conflicts = counts.length > 1 ? [{ field: 'collection', values: counts.sort((a, b) => a - b) }] : [];
+      for (const field of metricFields) {
+        if (item[field].value !== null && (existing[field].value === null || item[field].value < existing[field].value)) existing[field] = item[field];
+      }
+      existing.conflicts = metricFields.flatMap(field => {
+        const counts = [...new Set(existing.observations.map(x => x[field].value).filter(x => x !== null))];
+        return counts.length > 1 ? [{ field, values: counts.sort((a, b) => a - b) }] : [];
+      });
     }
   }
   return [...result.values()];
+}
+
+/** Count known fields over fetched ranking observations, including repeated series on different boards. */
+function metricCoverage(items) {
+  const fields = Object.fromEntries(metricFields.map(field => {
+    const known = items.filter(item => item[field].value !== null).length;
+    return [field, { known, missing: items.length - known, complete: known === items.length }];
+  }));
+  return { scope: 'fetched_ranking_observations', observations: items.length,
+    complete: Object.values(fields).every(field => field.complete), fields };
 }
 
 /** Compare all observed collection counts; rounded values close to the threshold remain uncertain. */
@@ -191,7 +206,7 @@ export class HongguoClient {
     }
     if (!pages.length) throw new Error(`All official ranking pages failed: ${failures.map(x => `${x.board}/${x.page}: ${x.error}`).join('; ')}`);
     const items = deduplicate(all);
-    return { scope: 'public_rankings', items, coverage: { boards, pagesFetched: pages.length, pagesExpected: expected, uniqueSeries: items.length, complete: failures.length === 0 && !truncated, failures, truncated, pages }, fetchedAt: new Date(this.now()).toISOString(), fromCache: allCached, note };
+    return { scope: 'public_rankings', items, coverage: { boards, pagesFetched: pages.length, pagesExpected: expected, uniqueSeries: items.length, complete: failures.length === 0 && !truncated, metrics: metricCoverage(all), failures, truncated, pages }, fetchedAt: new Date(this.now()).toISOString(), fromCache: allCached, note };
   }
 
   async search(options, signal) {

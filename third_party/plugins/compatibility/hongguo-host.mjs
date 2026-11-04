@@ -1,9 +1,9 @@
-/** Qualify the recovered public metadata plugin without changing its retained source. */
+/** Qualify reviewed public metadata sources and their current Host peer. */
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const sourceFilesSha256 = 'acc2308582ddf63e2dab6865da7a73b0a4bb00e2d153ce7bf6370a07a4dae913'
+const sourceFilesSha256 = '66c8fb18a32c8ad05896fd37e50f3f1519486094004b56c8182a7b9f915e3cb9'
 const sourceBytes = readFileSync(new URL('./hongguo-source-files.json', import.meta.url))
 if (createHash('sha256').update(sourceBytes).digest('hex') !== sourceFilesSha256) throw new Error('community plugins: Hongguo source inventory requires review')
 const sourceFiles = JSON.parse(sourceBytes.toString('utf8'))
@@ -14,6 +14,7 @@ export const hongguoHostCompatibility = {
   activation: 'scoped creative presets; disabled global entry',
   tools: ['hongguo_search', 'hongguo_detail', 'hongguo_rankings', 'hongguo_collections'],
   credentialsRequired: false,
+  localChanges: ['retain ranking cards with unknown metrics', 'preserve multi-metric observations and field coverage'],
 }
 
 /**

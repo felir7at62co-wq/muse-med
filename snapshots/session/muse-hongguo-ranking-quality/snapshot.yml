@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-hongguo-ranking-quality
+profile: headless
+composition: muse-hongguo-ranking-quality
+recording: authored
+header:
+  class: muse-hongguo-ranking-quality
+  pin: true
+writerOutput: true

@@ -9,6 +9,16 @@ const nullable = type => ({ oneOf: [{ type }, { type: 'null' }] });
 const metricSchema = { type: 'object', additionalProperties: false,
   properties: { raw: nullable('string'), value: nullable('number'), approximate: { type: 'boolean' }, precisionStep: nullable('number') },
   required: ['raw', 'value', 'approximate', 'precisionStep'] };
+const missingMetricsSchema = { type: 'array', items: { type: 'object', additionalProperties: false,
+  properties: { field: { type: 'string', enum: ['collection', 'likes', 'heat'] }, reason: { type: 'string', enum: ['not_displayed', 'unparseable'] } },
+  required: ['field', 'reason'] } };
+const metricFieldCoverageSchema = { type: 'object', additionalProperties: false,
+  properties: { known: { type: 'integer' }, missing: { type: 'integer' }, complete: { type: 'boolean' } }, required: ['known', 'missing', 'complete'] };
+const metricCoverageSchema = { type: 'object', additionalProperties: false,
+  properties: { scope: { type: 'string', enum: ['fetched_ranking_observations'] }, observations: { type: 'integer' }, complete: { type: 'boolean' },
+    fields: { type: 'object', additionalProperties: false,
+      properties: { collection: metricFieldCoverageSchema, likes: metricFieldCoverageSchema, heat: metricFieldCoverageSchema }, required: ['collection', 'likes', 'heat'] } },
+  required: ['scope', 'observations', 'complete', 'fields'] };
 const itemSchema = { type: 'object', additionalProperties: true, properties: {
   seriesId: { type: 'string' }, title: { type: 'string' }, url: { type: 'string' },
   watchPageUrl: nullable('string'), urlKind: { type: 'string' }, watchPageKind: { type: 'string' }, coverUrl: nullable('string'), description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
@@ -16,7 +26,7 @@ const itemSchema = { type: 'object', additionalProperties: true, properties: {
   heat: { type: 'object', additionalProperties: true, properties: { raw: nullable('string'), value: nullable('number') } },
   rating: nullable('number'), scoreText: nullable('string'), sourceUrl: { type: 'string' }, fetchedAt: { type: 'string' },
   actors: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { name: { type: 'string' }, role: { type: 'string' } }, required: ['name', 'role'] } },
-  observations: { type: 'array', items: { type: 'object', additionalProperties: true, properties: { board: { type: 'string' }, page: { type: 'integer' }, rank: { type: 'integer' }, sourceUrl: { type: 'string' }, fetchedAt: { type: 'string' }, updateDate: nullable('string'), sourceFormat: { type: 'string' }, collection: metricSchema } } },
+  observations: { type: 'array', items: { type: 'object', additionalProperties: true, properties: { board: { type: 'string' }, page: { type: 'integer' }, rank: { type: 'integer' }, sourceUrl: { type: 'string' }, fetchedAt: { type: 'string' }, updateDate: nullable('string'), sourceFormat: { type: 'string' }, collection: metricSchema, likes: metricSchema, heat: metricSchema, missingMetrics: missingMetricsSchema } } },
   conflicts: { type: 'array', items: { type: 'object', additionalProperties: true, properties: { field: { type: 'string' }, values: { type: 'array', items: { type: 'number' } } } } },
   thresholdStatus: { type: 'string', enum: ['meets', 'below', 'uncertain', 'unknown'] },
 }, required: ['seriesId', 'title', 'url', 'collection'] };
@@ -25,6 +35,7 @@ const outputSchema = { type: 'object', additionalProperties: true, properties: {
   fetchedAt: { type: 'string' }, fromCache: { type: 'boolean' }, note: { type: 'string' },
   coverage: { type: 'object', additionalProperties: true, properties: {
     pagesFetched: { type: 'integer' }, pagesExpected: { type: 'integer' }, uniqueSeries: { type: 'integer' }, complete: { type: 'boolean' },
+    metrics: metricCoverageSchema,
     truncated: { type: 'boolean' }, failures: { type: 'array', items: { type: 'object', additionalProperties: true } },
   } },
 }, required: ['items', 'fetchedAt', 'fromCache'] };
@@ -58,7 +69,7 @@ export function apply(ctx, config = {}) {
       description: '当用户说找红果短剧、按剧名找剧时，先在红果官方公开关键词网页搜索，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。当前只获得首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量。不登录、不下载视频。',
       properties: { query: { type: 'string', description: '关键词，1–100字符' }, ...paging, ...common }, required: ['query'] },
     { name: 'hongguo_rankings', title: '读取红果热播榜', method: 'rankings',
-      description: '遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、更新文案、采集时间和冲突。coverage.complete只代表榜单分页，不代表全片库。',
+      description: '遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。',
       properties: { boards, ...common } },
     { name: 'hongguo_detail', title: '读取红果剧集详情', method: 'detail',
       description: '当用户想查某部红果剧的数据时，按搜索或榜单给出的seriesId读取官方公开详情：简介、演员、集数、收藏与点赞源字段。仅返回请求的ID；url是官网详情页；watchPageUrl如有则为网页实际链接的官方播放页，并非视频文件或保证可播放的直链。不返回用户评论或下载视频。source整数可能经过平台处理，不承诺后台精度。',

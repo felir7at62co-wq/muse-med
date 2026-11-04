@@ -115,6 +115,14 @@ function updateDate(data, html) {
   return match ? decodeEntities(match[1]) : null;
 }
 
+/** Preserve the three displayed counts and identify unknown source fields on each observation. */
+function rankingMetrics(collection, likes, heat) {
+  const metrics = { collection, likes, heat };
+  const missingMetrics = Object.entries(metrics).filter(([, count]) => count.value === null)
+    .map(([field, count]) => ({ field, reason: count.raw === null ? 'not_displayed' : 'unparseable' }));
+  return { ...metrics, missingMetrics };
+}
+
 /** Parse one ranking page, rejecting wrong-page/cached or changed responses. */
 export function parseRanking(html, { board, page, sourceUrl, fetchedAt }) {
   if (!BOARDS.includes(board)) throw new Error('Unknown ranking board');
@@ -132,10 +140,10 @@ export function parseRanking(html, { board, page, sourceUrl, fetchedAt }) {
   const updated = updateDate(data, html);
   const items = content.rankList.map(row => {
     if (!record(row) || !Number.isInteger(row.rank) || row.rank < 1) throw new Error('Invalid ranking entry');
-    return { ...baseItem(row), collection: parseCount(row.favoriteText), likes: parseCount(row.likeText, '点赞'),
-      heat: parseCount(row.heatText, '热度'), scoreText: text(row.scoreText) || null,
+    const metrics = rankingMetrics(parseCount(row.favoriteText), parseCount(row.likeText, '点赞'), parseCount(row.heatText, '热度'));
+    return { ...baseItem(row), collection: metrics.collection, likes: metrics.likes, heat: metrics.heat, scoreText: text(row.scoreText) || null,
       episodeCount: Array.isArray(row.episodeVids) ? row.episodeVids.length : null,
-      observation: { board, page, rank: row.rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'embedded_json', collection: parseCount(row.favoriteText) } };
+      observation: { board, page, rank: row.rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'embedded_json', ...metrics } };
   });
   if (items.length === 0) throw new Error('Ranking page unexpectedly empty');
   return { items, page, totalPages: pagination.totalPages, updateDate: updated };
@@ -192,19 +200,19 @@ function parseRenderedRanking(html, { board, page, sourceUrl, fetchedAt }) {
     if (!heading || !rankMatch) throw new Error('Rendered ranking title or rank missing');
     const rank = Number(rankMatch[1]);
     const engagement = [...body.matchAll(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi)].find(x => attr(x[1], 'aria-label') === '作品互动数据');
-    if (!engagement) throw new Error('Rendered ranking engagement fields missing');
-    const plain = visibleText(engagement[2]);
+    const plain = visibleText(engagement?.[2] ?? '');
     const metric = label => plain.match(new RegExp(`[\\d.,，]+(?:万|亿)?\\+?\\s*${label}`))?.[0] ?? null;
     const description = body.match(/<p\b[^>]*class="[^"]*pc-description-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const categories = body.match(/<p\b[^>]*class="[^"]*pc-categories-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const tags = [...categories.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)].map(x => visibleText(x[1]));
     const imageTag = body.match(/<img\b[^>]*>/)?.[0] ?? '';
-    const collection = parseCount(metric('收藏'));
+    const metrics = rankingMetrics(parseCount(metric('收藏')), parseCount(metric('点赞'), '点赞'),
+      parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').match(/[\d.,，]+(?:万|亿)?\+?\s*热度/)?.[0] ?? null, '热度'));
     const base = baseItem({ seriesId, title: visibleText(heading[2]), cover: attr(imageTag, 'src'), description: visibleText(description), tags });
     base.watchPageUrl = sourceWatchLink(body, seriesId);
-    items.push({ ...base, collection, likes: parseCount(metric('点赞'), '点赞'), heat: parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').match(/[\d.,，]+(?:万|亿)?\+?\s*热度/)?.[0] ?? null, '热度'),
+    items.push({ ...base, collection: metrics.collection, likes: metrics.likes, heat: metrics.heat,
       scoreText: plain.match(/评分\d+(?:\.\d+)?/)?.[0] ?? null, episodeCount: null,
-      observation: { board, page, rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'rendered_html', collection } });
+      observation: { board, page, rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'rendered_html', ...metrics } });
   }
   if (items.length === 0) throw new IncompletePageError();
   if (page < totalPages && items.length < 20) throw new IncompletePageError();

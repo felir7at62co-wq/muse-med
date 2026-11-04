@@ -197,7 +197,7 @@
     },
     {
       "name": "hongguo_rankings",
-      "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、更新文案、采集时间和冲突。coverage.complete只代表榜单分页，不代表全片库。",
+      "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
