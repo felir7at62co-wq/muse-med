@@ -915,7 +915,8 @@ describe('desktop main startup', () => {
     vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'inherited subtitle')
     vi.stubEnv('MUSE_WATERMARK_FONT_FAMILY', 'inherited watermark')
     vi.stubEnv('MUSE_DEFAULT_ENDING_EFFECT_FIT', undefined)
-    vi.stubEnv('MUSE_DEFAULT_SUBTITLE_VISUAL', undefined)
+    vi.stubEnv('MUSE_DEFAULT_SUBTITLE_VISUAL', JSON.stringify({ schema_version: 1, reference_width: 480,
+      reference_height: 854, font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }))
     vi.stubEnv('MUSE_FORCE_SUBTITLE_VISUAL', undefined)
     vi.stubEnv('MUSE_NORMALIZE_SUBTITLE_TEXT', undefined)
     await import('../src/main.ts')
@@ -937,7 +938,7 @@ describe('desktop main startup', () => {
     expect(process.env.MUSE_WATERMARK_FONT_FAMILY).toBe('Noto Sans CJK SC')
     expect(process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT).toBe('stretch_to_window')
     expect(JSON.parse(process.env.MUSE_DEFAULT_SUBTITLE_VISUAL ?? 'null')).toEqual({ schema_version: 1, reference_width: 480,
-      reference_height: 854, font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 })
+      reference_height: 854, font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 })
     expect(process.env.MUSE_NORMALIZE_SUBTITLE_TEXT).toBe('1')
     expect(process.env.MUSE_FORCE_SUBTITLE_VISUAL).toBe('1')
     expect(scrubbedParentEnv()).toMatchObject({ MUSE_FONTS_DIR: join(media, 'fonts'), MUSE_FONT_FAMILY: 'Noto Sans CJK SC',

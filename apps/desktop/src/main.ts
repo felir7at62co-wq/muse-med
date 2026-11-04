@@ -77,7 +77,7 @@ const productHome = process.env.MUSE_MED_HOME
 if (app.isPackaged) {
   process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT ||= 'stretch_to_window'
   process.env.MUSE_DEFAULT_SUBTITLE_VISUAL = JSON.stringify({ schema_version: 1, reference_width: 480,
-    reference_height: 854, font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 })
+    reference_height: 854, font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 })
   process.env.MUSE_FORCE_SUBTITLE_VISUAL = '1'
   process.env.MUSE_NORMALIZE_SUBTITLE_TEXT = '1'
   const isolatedHome = productHome?.trim() ? resolve(productHome) : productHomeFor(homedir())
