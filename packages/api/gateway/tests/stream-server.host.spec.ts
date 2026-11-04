@@ -32,6 +32,25 @@ afterEach(async () => {
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
+  it('terminates an upgrade completed after update admission was paused', async () => {
+    const mux = new RemoteStreamMuxServer(async () => (async function* () {})(), mapFailure, 2_000, 262_144)
+    const server = (mux as unknown as {
+      server: { handleUpgrade: (request: unknown, socket: unknown, head: unknown, done: (socket: WebSocket) => void) => void }
+    }).server
+    let complete: ((socket: WebSocket) => void) | undefined
+    vi.spyOn(server, 'handleUpgrade').mockImplementation((_request, _socket, _head, done) => { complete = done })
+    try {
+      const request = {} as Parameters<RemoteStreamMuxServer['handleUpgrade']>[0]
+      const socket = {} as Parameters<RemoteStreamMuxServer['handleUpgrade']>[1]
+      mux.handleUpgrade(request, socket, Buffer.alloc(0), {} as PeerScope)
+      expect(complete).toBeDefined()
+      await mux.pause()
+      const terminate = vi.fn()
+      complete?.({ terminate } as unknown as WebSocket)
+      expect(terminate).toHaveBeenCalledOnce()
+    } finally { await mux.close() }
+  })
+
   it('pauses new socket streams and waits for cancelled stream cleanup before resuming', async () => {
     const opened = Promise.withResolvers<undefined>()
     const started = Promise.withResolvers<undefined>()
