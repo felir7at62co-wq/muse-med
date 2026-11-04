@@ -654,6 +654,11 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     })
     await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
+  async 'muse-current-delivery-review'(cwd) {
+    await workspaceSetups['muse-creation-skills']!(cwd)
+    await copyFile(join(repoRoot, 'apps/desktop-host/skills/video-review/SKILL.md'),
+      join(cwd, '.dsh/skills/video-review/SKILL.md'))
+  },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     await copyFile(join(repoRoot, 'snapshots/session/muse-audio-transcribe-skill/audio-transcribe.skill.txt'), join(cwd, '.dsh/skills/audio-transcribe/SKILL.md'))

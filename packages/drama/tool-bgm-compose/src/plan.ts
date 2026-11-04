@@ -77,16 +77,27 @@ export function trackIdentity(project: string, source: string): string {
   return isAbsolute(source) ? resolve(source) : resolve(project, source)
 }
 
-function stableTrackKey(segment: BgmBatchRow['segments'][number]): string | undefined {
-  const identity = segment.source_sha256 ?? segment.track_id
-  if (identity === undefined) return undefined
-  return /^(?:sha256:)?[a-f0-9]{64}$/iu.test(identity)
-    ? `hash:${identity.replace(/^sha256:/iu, '').toLowerCase()}` : `id:${identity}`
+function trackDigest(value: string | undefined): string | undefined {
+  if (value === undefined || !/^(?:sha256:)?[a-f0-9]{64}$/iu.test(value)) return undefined
+  return value.replace(/^sha256:/iu, '').toLowerCase()
+}
+
+function trackEvidence(segment: BgmBatchRow['segments'][number]): { digest: string | undefined; catalogId: string | undefined } {
+  const id = segment.track_id?.trim()
+  const idDigest = trackDigest(id)
+  return {
+    digest: trackDigest(segment.source_sha256) ?? idDigest,
+    catalogId: idDigest === undefined && id ? id : undefined,
+  }
 }
 
 function sameTrack(project: string, left: BgmBatchRow['segments'][number], right: BgmBatchRow['segments'][number]): boolean {
-  const a = stableTrackKey(left), b = stableTrackKey(right)
-  if (a !== undefined && b !== undefined && a.split(':')[0] === b.split(':')[0]) return a === b
+  const a = trackEvidence(left), b = trackEvidence(right)
+  const compareDigests = a.digest !== undefined && b.digest !== undefined
+  const compareCatalogIds = a.catalogId !== undefined && b.catalogId !== undefined
+  if (compareDigests || compareCatalogIds) {
+    return (compareDigests && a.digest === b.digest) || (compareCatalogIds && a.catalogId === b.catalogId)
+  }
   return trackIdentity(project, left.source) === trackIdentity(project, right.source)
 }
 
