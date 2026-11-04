@@ -5,25 +5,8 @@ import type { MarketManifest, MarketRelease } from '@deepseek-ai/dsh-muse-market
 /** Cloud operations shared by the website and the authenticated Host adapter. */
 export type MarketPublicationActions = Pick<MuseMarket, 'catalog' | 'identity' | 'review'>
 
-/** An original distribution package from the first market catalog. */
-export interface MarketLegacyResource {
-  readonly id: string
-  readonly kind: 'bot' | 'skill'
-  readonly title: string
-  readonly description: string
-  readonly category: string
-  readonly version: string
-  readonly requirements: readonly string[]
-  readonly requiredSkills: readonly string[]
-  readonly validation: string
-  readonly sha256: string
-  readonly href: string
-}
-
 /** Same-origin browser callbacks with explicit upload bounds and verified archive downloads. */
-export interface MarketWebActions extends MarketPublicationActions {
-  /** List matching original distributions for public discovery. */
-  legacyCatalog?(query: string, kind: string): Promise<MarketLegacyResource[]>
+export interface MarketWebActions extends MarketPublicationActions, Pick<MuseMarket, 'legacyCatalog'> {
   /** Maximum compressed archive bytes accepted by this deployment. */
   readonly archiveBytes: number
   /** Inspect local ZIP metadata without uploading or accepting its resources.

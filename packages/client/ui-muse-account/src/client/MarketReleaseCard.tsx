@@ -1,11 +1,10 @@
 /** Shared publication card for discovery, private cloud releases and local installations. */
 import type { ReactNode } from 'react'
-import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
+import type { MarketLegacyResource, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import { MarketArtwork, MarketCharacter, type MarketPresentation } from './MarketCharacter.tsx'
 import type { MarketSectionProps } from './MarketSection.tsx'
 import { boundMarketPresentation, stockMarketPresentation } from './market-stock-art.ts'
-import type { MarketLegacyResource } from './market-web-types.ts'
-import { MarketCatalogBot, MarketCatalogSkill } from './MarketCatalogArtwork.tsx'
+import { MarketCatalogBot, MarketSkillArtwork } from './MarketCatalogArtwork.tsx'
 import css from './MarketSection.module.css'
 
 /** Render shared role artwork and immutable publication information with caller-owned actions.
@@ -36,8 +35,9 @@ export function MarketReleaseCard(props: ({
       ? <MarketCharacter presentation={character} introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')}
         artwork={resource && <MarketCatalogBot id={resource.id} label={manifest.title}
           fallback={<MarketArtwork label={manifest.title} sampleLabel={t('samplePortrait')} />} />} />
-      : <div className={css.skillMedia}>{resource ? <MarketCatalogSkill category={manifest.category} label={manifest.title} />
-        : <MarketArtwork posterUrl={character.posterUrl} label={manifest.title} sampleLabel={t('samplePortrait')} />}</div>}
+      : <div className={css.skillMedia}>
+        <MarketSkillArtwork metadata={resource ? { ...resource, name: resource.id } : release.manifest} label={manifest.title} />
+      </div>}
     <h3>{manifest.title}</h3><p className={css.cardSummary}>{manifest.description}</p>
     <p className={css.publisherLine}>{t('creator', { publisher: release?.publisher ?? t('legacySource'), version: manifest.version })}</p>
     {stock && <p className={css.meta}>{t('stockArtworkHint')}</p>}

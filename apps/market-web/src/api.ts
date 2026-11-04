@@ -1,29 +1,7 @@
 /** Same-origin browser transport using the existing authenticated market API. */
-import { bindMarketPortrait, MarketError, marketRecord, marketRelease, previewMarketPackage } from '@deepseek-ai/dsh-muse-market/format'
+import { bindMarketPortrait, MarketError, marketLegacyCatalog, marketRecord, marketRelease, previewMarketPackage } from '@deepseek-ai/dsh-muse-market/format'
 import type { MarketLimits, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
-import type { MarketLegacyResource, MarketWebActions } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/market-web-types.ts'
-
-function legacyResource(value: unknown): MarketLegacyResource {
-  if (!marketRecord(value) || (value.kind !== 'bot' && value.kind !== 'skill')
-    || typeof value.id !== 'string' || !/^muse\/(?:bots|skills)\/[a-z0-9-]+$/.test(value.id)
-    || typeof value.name !== 'string' || typeof value.description !== 'string'
-    || typeof value.category !== 'string' || typeof value.version !== 'string'
-    || typeof value.validation !== 'string'
-    || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)
-    || typeof value.package !== 'string' || !/^downloads\/[a-zA-Z0-9._-]+\.(?:zip|tgz)$/.test(value.package)
-    || !Array.isArray(value.requirements) || !value.requirements.every((item: unknown): item is string => typeof item === 'string')) {
-    throw new MarketError('invalid-response')
-  }
-  const requiredSkills: unknown = value.requiredSkills ?? []
-  if (!Array.isArray(requiredSkills) || !requiredSkills.every((item: unknown): item is string => typeof item === 'string')) {
-    throw new MarketError('invalid-response')
-  }
-  return {
-    id: value.id, kind: value.kind, title: value.name, description: value.description, category: value.category,
-    version: value.version, requirements: value.requirements, requiredSkills, validation: value.validation,
-    sha256: value.sha256, href: '/market/' + value.package,
-  }
-}
+import type { MarketWebActions } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/market-web-types.ts'
 
 /** Public deployment configuration; credentials and private storage paths are excluded. */
 export interface MarketWebConfig {
@@ -141,17 +119,8 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
   return {
     actions: {
       archiveBytes: config.limits.archiveBytes,
-      legacyCatalog: async (query, kind) => {
-        const value = jsonValue(await request('/market/catalog.json', {}, Math.min(config.metadataBytes, 1024 * 1024)))
-        if (!marketRecord(value) || !Array.isArray(value.entries) || value.entries.length > 500) throw new MarketError('invalid-response')
-        const entries = value.entries.map(legacyResource)
-        if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new MarketError('invalid-response')
-        const words = query.toLowerCase().trim().split(/\s+/)
-        return entries.filter((entry) => {
-          const searchable = [entry.title, entry.description, entry.category].join(' ').toLowerCase()
-          return (!kind || kind === entry.kind) && words.every(word => searchable.includes(word))
-        })
-      },
+      legacyCatalog: async (query, kind) => marketLegacyCatalog(
+        jsonValue(await request('/market/catalog.json', {}, Math.min(config.metadataBytes, 1024 * 1024))), query, kind),
       catalog: async (q, kind, mine) => {
         const value = await json('/catalog?' + new URLSearchParams({ q, kind, mine: String(mine) }).toString())
         if (!marketRecord(value) || !Array.isArray(value.items)) throw new MarketError('invalid-response')

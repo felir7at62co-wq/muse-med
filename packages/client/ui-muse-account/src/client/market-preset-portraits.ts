@@ -1,5 +1,5 @@
 /** Localized labels and deterministic recommendations for built-in Bot portraits. */
-import type { MarketPresetPortraitId } from '@deepseek-ai/dsh-muse-market/types'
+import type { MarketManifest, MarketPresetPortraitId } from '@deepseek-ai/dsh-muse-market/types'
 
 /** Selectable portrait and its labels in the market's supported languages. */
 export interface MarketPresetPortrait {
@@ -73,19 +73,7 @@ function catalogPortrait(id: MarketPresetPortraitId): MarketPresetPortrait {
 export const marketPresetPortraits: readonly MarketPresetPortrait[] =
   (Object.keys(entries) as MarketPresetPortraitId[]).map(catalogPortrait)
 
-type PortraitLabelKey = `presetPortrait.${MarketPresetPortraitId}`
-
-function labels(field: 'name' | 'nameEn'): Record<PortraitLabelKey, string> {
-  return Object.fromEntries(marketPresetPortraits.map(row => [`presetPortrait.${row.id}`, row[field]])) as Record<PortraitLabelKey, string>
-}
-
-/** Simplified Chinese portrait labels for the market dictionary. */
-export const marketPresetPortraitLabelsZh = labels('name')
-
-/** English portrait labels for the market dictionary. */
-export const marketPresetPortraitLabelsEn = labels('nameEn')
-
-/** Find a selectable preset from a UI or wire identifier.
+/** Find a built-in preset by identifier.
  * @param id Candidate identifier.
  * @returns The preset, or undefined for unknown and legacy identifiers.
  */
@@ -109,7 +97,7 @@ const matchers = marketPresetPortraits.map(portrait => ({
 
 const fallback = catalogPortrait('screenplay-editor')
 
-/** Recommend a preset from bilingual purpose and manifest metadata. Higher-specificity
+/** Match a preset using bilingual purpose and manifest metadata. Higher-specificity
  * phrases outrank generic terms, with explicit purpose and title weighted above summaries.
  * @param fields Bot purpose and optional manifest metadata.
  * @returns Best-scoring preset, or the screenplay editor for unrecognized purposes.
@@ -140,4 +128,13 @@ export function matchMarketPresetPortrait(fields: {
     if (score > bestScore) { best = portrait; bestScore = score }
   }
   return best
+}
+
+/** Resolve the portrait to bind when uploading a Bot archive.
+ * @param manifest Validated archive metadata.
+ * @returns A matching preset for an unbound Bot, or undefined when the archive can be uploaded as-is.
+ */
+export function matchUnboundMarketPresetPortrait(manifest: MarketManifest): MarketPresetPortraitId | undefined {
+  if (manifest.kind === 'bot' && !manifest.presetPortrait && !manifest.portrait) return matchMarketPresetPortrait(manifest).id
+  return undefined
 }

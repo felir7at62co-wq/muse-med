@@ -7,21 +7,19 @@ import { marketFailure } from './market-errors.ts'
 import type { MarketPublicationActions } from './market-web-types.ts'
 import type { MarketPresentation } from './MarketCharacter.tsx'
 import { MarketReleaseCard } from './MarketReleaseCard.tsx'
-import { MarketContributionCard } from './MarketContributionCard.tsx'
 import css from './MarketSection.module.css'
 
 type ReviewAction = 'submit' | 'approve' | 'reject' | 'withdraw'
 
 /** Show server-authorized publications and apply only confirmed review results.
- * @param props Host callbacks, confirmed identity, local upload refresh and localized copy.
+ * @param props Host callbacks, confirmed identity and localized copy.
  * @returns Cloud list with revision-fenced review dialogs; it never changes local installations.
  */
-export function MarketPublications({ actions, publishers, admin, refreshKey, reportOutcome,
-  onDetails, onDownload, localBusy, t, presentations, browserMode = false, onUpload }: {
+export function MarketPublications({ actions, publishers, admin, reportOutcome,
+  onDetails, onDownload, localBusy, t, presentations, browserMode = false }: {
   actions: MarketPublicationActions
   publishers: readonly { id: string; title: string }[]
   admin: boolean
-  refreshKey: number
   reportOutcome: MarketSectionProps['reportOutcome']
   onDetails: (release: MarketRelease) => void
   onDownload: (release: MarketRelease) => void
@@ -29,7 +27,6 @@ export function MarketPublications({ actions, publishers, admin, refreshKey, rep
   t: MarketSectionProps['t']
   presentations?: Readonly<Record<string, MarketPresentation>> | undefined
   browserMode?: boolean
-  onUpload?: (() => void) | undefined
 }): ReactNode {
   const [items, setItems] = useState<MarketRelease[]>([])
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -52,7 +49,7 @@ export function MarketPublications({ actions, publishers, admin, refreshKey, rep
     setBusy(false); setSelection(undefined)
     void read(token)
     return () => { operation.current = null }
-  }, [actions, refreshKey])
+  }, [actions])
   const review = async (): Promise<void> => {
     if (!selection || operation.current) return
     const token = Symbol(), { release, action } = selection
@@ -96,7 +93,7 @@ export function MarketPublications({ actions, publishers, admin, refreshKey, rep
             setSelection({ release, action }); setNote('')
           }}>{t(`review.${action}`)}</Button>)}</div>
       </MarketReleaseCard>
-    })}{onUpload && <MarketContributionCard t={t} disabled={busy || localBusy} onUpload={onUpload} />}</div>
+    })}</div>
     <Modal open={Boolean(selection)} title={selection ? t(`review.${selection.action}`) : t('cloudPublications')}
       closeLabel={t('closeReview')} onClose={() => { if (!busy) setSelection(undefined) }}>
       {selection && <form className={`${css.detailBody} ${css.reviewForm}`} onSubmit={(event) => { event.preventDefault(); void review() }}>

@@ -2446,7 +2446,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-market`
 
 - `inject`: `agentPresets` · `skills`
-- `source`: [`packages/host/muse-market/src/index.ts:19`](../packages/host/muse-market/src/index.ts)
+- `source`: [`packages/host/muse-market/src/index.ts:22`](../packages/host/muse-market/src/index.ts)
 
 ```ts config-catalog
 /** Product configuration for the cloud origin and local publication policy. */

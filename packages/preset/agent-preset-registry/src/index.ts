@@ -39,6 +39,7 @@ interface Generation {
 }
 interface Definition {
   config: PresetDefinition
+  readonly plugins: PresetDefinition['plugins']
   context: Context
   ready: Promise<void> | undefined
   generation?: Generation
@@ -89,13 +90,15 @@ export class AgentPresetRegistry extends TypertRemoteService {
 
   /** Register a definition and load it immediately unless it requests on-demand activation.
    * @param definition Parsed configuration supplied by the declaring plugin.
+   * @param resolvePlugins Optional Host-owned composition resolved once on first read or activation.
    * @returns Definition disposer after eager activation settles, or immediately for an on-demand definition.
    */
-  async register(definition: PresetDefinition): Promise<() => Promise<void>> {
+  async register(definition: PresetDefinition, resolvePlugins: () => PresetDefinition['plugins'] = () => definition.plugins): Promise<() => Promise<void>> {
     const context = this.ctx
     if (!definition.id.trim()) throw new Error('Preset id must not be empty')
     if (this.definitions.has(definition.id)) throw new Error(`Duplicate agent preset: ${definition.id}`)
-    const record: Definition = { config: definition, context, ready: undefined }
+    let plugins: PresetDefinition['plugins'] | undefined
+    const record: Definition = { config: definition, get plugins() { return plugins ??= resolvePlugins() }, context, ready: undefined }
     this.definitions.set(definition.id, record)
     let disposed = false
     const unregister = async (): Promise<void> => {
@@ -119,10 +122,10 @@ export class AgentPresetRegistry extends TypertRemoteService {
     const key = {}
     const scope = createScope(this.owner, key)
     try {
-      const problem = entryListProblem(record.config.plugins)
+      const problem = entryListProblem(record.plugins)
       if (problem !== undefined) throw new Error(problem)
       const context = scope.ctx.extend({ baseUrl: record.context.baseUrl })
-      const mount = await mountPreset(context, record.config.id, record.config.plugins)
+      const mount = await mountPreset(context, record.config.id, record.plugins)
       const generation: Generation = { scope, key, mount, users: 0, retired: false }
       context.effect(() => {
         this.generations.set(key, generation)
@@ -257,6 +260,15 @@ export class AgentPresetRegistry extends TypertRemoteService {
     return { id: wanted, ...(broken === undefined ? {} : { broken }) }
   }
 
+  /** Copy the configured rows of an exact declared preset for a Host-owned variant.
+   * @param id Exact preset identity.
+   * @returns A detached composition, or undefined when the declaration is absent.
+   */
+  presetPlugins(id: string): PresetDefinition['plugins'] | undefined {
+    const plugins = this.definitions.get(id)?.plugins
+    return plugins === undefined ? undefined : structuredClone(plugins)
+  }
+
   /** Read one declaration's child plugin list as YAML, for viewing only.
    * @param agentPreset Preset identity.
    * @returns The declared composition beside its published metadata.
@@ -268,12 +280,12 @@ export class AgentPresetRegistry extends TypertRemoteService {
       return Promise.reject(new RemoteError('agent-preset/not-found', `Unknown agent preset: ${agentPreset}`,
         { agentPreset, available: [...this.definitions.keys()] }))
     }
-    const { id, name, description, plugins } = record.config
+    const { id, name, description } = record.config
     // The Loader's own dialect, so `!!js` conditions read as declared rather than as expression objects.
-    const content = dump(plugins, { schema: entryListSchema, noRefs: true, lineWidth: -1 })
-    return Promise.resolve({
-      agentPreset: id, content, ...(name === undefined ? {} : { name }), ...(description === undefined ? {} : { description }),
-    })
+    return Promise.resolve().then(() => ({
+      agentPreset: id, content: dump(record.plugins, { schema: entryListSchema, noRefs: true, lineWidth: -1 }),
+      ...(name === undefined ? {} : { name }), ...(description === undefined ? {} : { description }),
+    }))
   }
 
   private async retain(id?: string): Promise<Generation> {
@@ -434,7 +446,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
     return Promise.all([...this.definitions.values()].map(async (record) => {
       const { id, name, description } = record.config
       const broken = await this.diagnostic(record)
-      const read = definitionComposition(record.config.plugins, () => { throw new Error('Inactive definition') })
+      const read = definitionComposition(broken === undefined ? record.plugins : record.config.plugins, () => { throw new Error('Inactive definition') })
       return { id, ...(name === undefined ? {} : { name }), ...(description === undefined ? {} : { description }),
         isDefault: id === defaultId,
         ...(broken === undefined ? {} : { broken }),

@@ -22,7 +22,7 @@ kind: "reference"
 <a id="build-and-deployment"></a>
 ## 构建与部署
 
-安装工作区依赖后，在仓库根目录运行 `pnpm --filter @deepseek-ai/dsh-market-web run build`。构建写入 `tmp/market-cloud-web/`，资源绝对路径前缀为 `/market/ui/`。在 `/market/` 与 `/market/manage` 提供 HTML，在 `/market/ui/assets/` 提供资源，在 `/market/ui/config.json` 提供公开配置。管理路径直接打开创作者视图。公开发现页同时读取 /market/catalog.json 的首批资源，原始 ZIP 和 TGZ 继续通过 /market/downloads/ 下载。部署时同时保留这些路由和发行接口。查询结果中若已有摘要相同的新版发行，发现页只展示该发行。`/api/market/v1/*` 与 `/account` 继续由现有认证网关处理；此应用不读取或构造浏览器 Cookie。[网关部署参考](../../services/muse-accounts/MARKET.md)负责私有进程配置。
+安装工作区依赖后，在仓库根目录运行 `pnpm --filter @deepseek-ai/dsh-market-web run build`。构建写入 `tmp/market-cloud-web/`，资源绝对路径前缀为 `/market/ui/`。在 `/market/` 与 `/market/manage` 提供 HTML，在 `/market/ui/assets/` 提供资源，在 `/market/ui/config.json` 提供公开配置。管理路径显示创作者的发行列表。该路径带 `?view=upload` 时打开独立上传页，返回操作打开发行列表。公开发现页同时读取 /market/catalog.json 的首批资源，原始 ZIP 和 TGZ 继续通过 /market/downloads/ 下载。部署时同时保留这些路由和发行接口。查询结果中若已有摘要相同的新版发行，发现页只展示该发行。`/api/market/v1/*` 与 `/account` 继续由现有认证网关处理；此应用不读取或构造浏览器 Cookie。[网关部署参考](../../services/muse-accounts/MARKET.md)负责私有进程配置。
 
 公开 JSON 包含 `limits`（`archiveBytes`、`expandedBytes`、`fileCount`）、`allowedPlugins`、`requestTimeoutMs` 与 `metadataBytes`。创建接口适配层前校验这些值。配置缺失或无效时显示重试入口。发布包限制和允许的插件须与云端策略一致；本地元数据预览不代表服务端接受该包。确认上传创建私有草稿，重试保留原请求标识。下载先核对字节数与 SHA-256，再创建浏览器文件。
 
@@ -42,4 +42,4 @@ HTML 与配置不缓存，带内容摘要的资源可使用不可变缓存。页
 
 网页优先使用市场中文词条，缺少的词条从共享中文词表补充，查找顺序与桌面一致。
 
-选择 Bot ZIP 后，市场根据发布包的标题、描述和类别，从 50 个内置角色中推荐一个形象。已有绑定的发布包会预选原角色。创作者可在预览中更换角色，浏览器将最终选择写入 ZIP 清单，审核页和发现页据此显示同一个形象。
+选择 Bot ZIP 后，预览沿用发布包已绑定的形象，或根据标题、描述和分类从 50 个内置角色中自动匹配。浏览器将匹配结果绑定到上传的 ZIP，审核页和发现页据此显示同一形象。

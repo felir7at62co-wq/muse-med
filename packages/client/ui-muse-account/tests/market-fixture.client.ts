@@ -32,6 +32,4 @@ export const marketPresentations: Readonly<Record<string, MarketPresentation>> =
   ['1'.repeat(32)]: { role: '镜镜 · 分镜导演', introduction: '我是分镜导演，帮你把剧本拆成镜头，整理景别与画面衔接。',
     animation: directorAnimation,
     posterUrl: new URL('../src/client/assets/storyboard-director-chibi.png', import.meta.url).href },
-  ['2'.repeat(32)]: { role: '分镜方法与资源', introduction: '从剧本信息到镜头清单的分镜入门方法与配套资源。',
-    posterUrl: new URL('../src/client/assets/storyboard-skill-kit.png', import.meta.url).href },
 }

@@ -1,20 +1,21 @@
-/** Built website smoke with fixture identity and private releases; no production account or network. */
+/** Built market smoke with fixture releases and local authoring. */
 import { createServer, type ServerResponse } from 'node:http'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium, type Browser } from 'playwright'
-import { build as viteBuild } from 'vite'
+import { chromium, type Browser, type Locator, type Page } from 'playwright'
+import { build as viteBuild, preview as vitePreview } from 'vite'
 import { expect, it, onTestFinished } from 'vitest'
-import { marketDigest, readMarketPackage } from '@deepseek-ai/dsh-muse-market/package'
-import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
+import { createMarketPackage, marketDigest, readMarketPackage } from '@deepseek-ai/dsh-muse-market/package'
+import type { MarketManifest, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 
 const policy = { limits: { archiveBytes: 1048576, expandedBytes: 4194304, fileCount: 64 },
   allowedPlugins: ['@deepseek-ai/dsh-persona', '@deepseek-ai/dsh-tool-skill'], requestTimeoutMs: 10000, metadataBytes: 1048576 }
 const publisherId = 'b'.repeat(32) as MarketRelease['publisherId']
 const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
   + "font-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+const audioSkill = { name: 'audio-transcribe', title: '录音转文字', description: '把录音转成文字。', category: '媒体与交付' }
 
 async function fixture(name: string, id: string): Promise<{ release: MarketRelease; bytes: Uint8Array }> {
   const path = new URL('../../../packages/host/muse-market/tests/fixtures/handoff/' + name + '-1.0.0.zip', import.meta.url)
@@ -29,8 +30,48 @@ function json(response: ServerResponse, value: unknown): void {
   response.end(JSON.stringify(value))
 }
 
-it('renders shared roles, keeps hover frames loaded, previews locally and downloads exact publication bytes', async () => {
+function portraitHeight(portrait: Locator): Promise<number> {
+  return portrait.evaluate(element => element.getBoundingClientRect().height)
+}
+
+async function expectStoryboardCover(artwork: Locator): Promise<void> {
+  const source = await artwork.evaluate(async (element) => {
+    if (!(element instanceof HTMLImageElement)) throw Error('Storyboard cover did not render as an image')
+    await element.decode()
+    return element.currentSrc
+  })
+  const bundled = new URL('../../../packages/client/ui-muse-account/src/client/assets/storyboard-skill-kit.png', import.meta.url)
+  const response = await artwork.page().request.get(source)
+  expect(response.ok()).toBe(true)
+  expect(marketDigest(await response.body())).toBe(marketDigest(await readFile(bundled)))
+}
+
+function skillCoverGlyph(artwork: Locator): Promise<string> {
+  return artwork.evaluate((element) => {
+    const glyph = element.querySelector('g g')
+    if (!glyph) throw Error('Skill cover did not render a category glyph')
+    return glyph.innerHTML
+  })
+}
+
+async function fillSkillMetadata(page: Page, skill: Pick<MarketManifest, 'name' | 'title' | 'description' | 'category'>): Promise<void> {
+  await page.getByRole('textbox', { name: '发布标识（小写英文与连字符）', exact: true }).fill(skill.name)
+  await page.getByRole('textbox', { name: '显示名称', exact: true }).fill(skill.title)
+  await page.getByRole('textbox', { name: '介绍', exact: true }).fill(skill.description)
+  await page.getByRole('textbox', { name: '分类', exact: true }).fill(skill.category)
+}
+
+it('guides new visitors, preserves portrait playback, previews locally and downloads exact publication bytes', async () => {
   const [bot, skill] = await Promise.all([fixture('storyboard-director', 'a'.repeat(32)), fixture('storyboard-starter', 'c'.repeat(32))])
+  const audioPath = 'skills/audio-transcribe/SKILL.md'
+  const audioManifest = { ...skill.release.manifest, ...audioSkill, skills: [{ name: audioSkill.name, path: audioPath }] }
+  const audioBytes = createMarketPackage(audioManifest, {
+    [audioPath]: Buffer.from('---\nname: audio-transcribe\ndescription: Transcribe audio clips.\n---\n\nReview the transcript.'),
+  }, policy.limits, policy.allowedPlugins)
+  const publishedSkills = [{ ...skill.release, status: 'published' }, {
+    ...skill.release, id: 'd'.repeat(32), status: 'published', manifest: audioManifest,
+    sha256: marketDigest(audioBytes), bytes: audioBytes.length,
+  }]
   const archives = [bot, skill], requests: string[] = [], failures: string[] = [], pending = new Set<Promise<void>>()
   const originalEntries = archives.map(({ release }) => ({
     id: release.manifest.kind === 'bot' ? 'muse/bots/storyboard-director-16-9' : 'muse/skills/' + release.manifest.name,
@@ -51,12 +92,16 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
       const url = new URL(request.url ?? '/', 'http://fixture.invalid')
       if (request.method !== 'GET') { response.writeHead(405); response.end(); return }
       if (url.pathname === '/api/market/v1/me') { json(response, { publishers: [{ id: publisherId, title: 'Browser fixture studio' }], admin: false }); return }
-      if (url.pathname === '/api/market/v1/catalog') { json(response, { items: url.searchParams.get('mine') === 'true' ? archives.map(row => row.release) : [] }); return }
+      if (url.pathname === '/api/market/v1/catalog') {
+        const publicItems = publishedSkills.filter(row => row.manifest.name === url.searchParams.get('q'))
+        json(response, { items: url.searchParams.get('mine') === 'true' ? archives.map(row => row.release) : publicItems })
+        return
+      }
       const archive = archives.find(row => url.pathname === '/api/market/v1/releases/' + row.release.id + '/download')
       if (archive) { response.writeHead(200, { 'content-type': 'application/zip' }); response.end(archive.bytes); return }
       if (url.pathname === '/market/ui/config.json') { json(response, policy); return }
       if (url.pathname === '/market/catalog.json') { json(response, { entries: [...originalEntries, ...extraSkills] }); return }
-      if (url.pathname === '/market/manage') {
+      if (url.pathname === '/market/' || url.pathname === '/market/manage') {
         response.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': csp })
         response.end(await readFile(new URL('index.html', build))); return
       }
@@ -107,16 +152,18 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
   const page = await context.newPage()
   page.on('pageerror', (error) => { failures.push(error.message) })
   page.on('console', (message) => { if (message.type() === 'error') failures.push(message.text()) })
+  const guide = page.getByRole('dialog', { name: '市场新手指引', exact: true })
   await page.goto(origin + '/market/manage')
   const botCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: bot.release.manifest.title, exact: true }) })
   const skillCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: skill.release.manifest.title, exact: true }) })
   await botCard.getByRole('heading').waitFor()
   await skillCard.getByRole('heading').waitFor()
-  expect(await page.getByRole('article').count()).toBe(3)
+  expect(await guide.count()).toBe(0)
+  expect(await page.getByRole('article').count()).toBe(2)
   expect(await page.getByRole('button', { name: '启用', exact: true }).count()).toBe(0)
   const sprite = botCard.locator('[data-playing="true"]')
   await sprite.waitFor({ state: 'visible' })
-  await skillCard.getByRole('img').evaluate(image => image instanceof HTMLImageElement ? image.decode() : undefined)
+  await expectStoryboardCover(skillCard.getByRole('img'))
   const sheet = sprite.locator('svg image')
   const audit = await sprite.evaluateHandle((element) => {
     const changes: string[] = []
@@ -127,14 +174,20 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
     return { finish: () => { observer.disconnect(); return changes } }
   })
   const portrait = botCard.getByRole('button', { name: '认识一下', exact: true }).first()
+  const marketPortraitHeight = await portraitHeight(portrait)
   for (let index = 0; index < 4; index++) {
     await portrait.hover()
     await expect.poll(() => sheet.getAttribute('y')).toBe('-627')
+    expect(await portraitHeight(portrait)).toBe(marketPortraitHeight)
     await skillCard.getByRole('img').hover()
     await expect.poll(() => sheet.getAttribute('y')).toBe('0')
   }
   expect(await audit.evaluate(value => value.finish())).toEqual([])
   await audit.dispose()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await botCard.locator('[data-playing="false"]').waitFor({ state: 'visible' })
+  expect(await portraitHeight(portrait)).toBe(marketPortraitHeight)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   const downloadReady = page.waitForEvent('download')
   await botCard.getByRole('button', { name: '下载发布包', exact: true }).click()
   const download = await downloadReady, path = await download.path()
@@ -142,24 +195,60 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
   expect(new Uint8Array(await readFile(path))).toEqual(bot.bytes)
   expect(download.suggestedFilename()).toBe('storyboard-director-1.0.0.zip')
   const input = page.getByLabel('选择 ZIP 发布包', { exact: true })
+  expect(await input.count()).toBe(0)
+  const beforeCreator = requests.length
+  await Promise.all([
+    page.waitForURL(origin + '/market/manage?view=upload'),
+    page.getByRole('button', { name: '上传 Bot / Skill', exact: true }).click(),
+  ])
+  await input.waitFor()
+  expect(await guide.count()).toBe(0)
+  expect(await botCard.count()).toBe(0)
+  expect(await skillCard.count()).toBe(0)
+  await page.getByText('等待选择发布包', { exact: true }).waitFor()
+  expect(await page.getByRole('button', { name: '认识一下', exact: true }).count()).toBe(0)
   await input.setInputFiles({ name: 'storyboard-director-1.0.0.zip', mimeType: 'application/zip', buffer: Buffer.from(bot.bytes) })
   await page.getByText('storyboard-director-1.0.0.zip', { exact: true }).waitFor()
   expect(await page.getByRole('button', { name: '上传私有草稿', exact: true }).isEnabled()).toBe(true)
   const uploadForm = page.getByRole('region', { name: '上传新的发布包', exact: true })
-  const portraitPicker = uploadForm.getByRole('combobox', { name: '发布角色', exact: true })
-  await expect.poll(() => portraitPicker.inputValue()).not.toBe('')
+  expect(await uploadForm.getByRole('combobox', { name: '发布角色', exact: true }).count()).toBe(0)
   const previewArtwork = uploadForm.getByRole('img', { name: bot.release.manifest.title, exact: true })
   await previewArtwork.evaluate(image => image instanceof HTMLImageElement ? image.decode() : undefined)
-  const recommendedArtwork = await previewArtwork.getAttribute('src')
-  expect(recommendedArtwork).toBeTruthy()
-  await portraitPicker.selectOption('coding-assistant')
-  expect(await portraitPicker.inputValue()).toBe('coding-assistant')
-  await previewArtwork.evaluate(image => image instanceof HTMLImageElement ? image.decode() : undefined)
-  expect(await previewArtwork.getAttribute('src')).not.toBe(recommendedArtwork)
+  expect(await previewArtwork.getAttribute('src')).toContain('horizontal-storyboard-director')
+  const previewPortrait = uploadForm.getByRole('button', { name: '认识一下', exact: true }).first()
+  expect(await portraitHeight(previewPortrait)).toBe(marketPortraitHeight)
+  await input.setInputFiles({ name: 'storyboard-starter-1.0.0.zip', mimeType: 'application/zip', buffer: Buffer.from(skill.bytes) })
+  await expectStoryboardCover(uploadForm.getByRole('img', { name: skill.release.manifest.title, exact: true }))
+  await input.setInputFiles({ name: 'audio-transcribe-1.0.0.zip', mimeType: 'application/zip', buffer: Buffer.from(audioBytes) })
+  const audioPreviewGlyph = await skillCoverGlyph(uploadForm.getByRole('img', { name: audioSkill.title, exact: true }))
+  expect(requests.slice(beforeCreator).filter(request => request.startsWith('GET /api/market/v1/catalog'))).toEqual([])
   expect(requests.filter(request => request.startsWith('POST '))).toEqual([])
   expect(requests).not.toContain('GET /market/catalog.json')
-  await page.getByRole('button', { name: '发现', exact: true }).click()
+  await Promise.all([
+    page.waitForURL(origin + '/market/manage'),
+    page.getByRole('button', { name: '返回市场', exact: true }).click(),
+  ])
+  await botCard.getByRole('heading').waitFor()
+  expect(await input.count()).toBe(0)
+  await page.goto(origin + '/market/')
+  await guide.waitFor()
+  const nextGuideStep = guide.getByRole('button', { name: '下一步', exact: true })
+  expect(await nextGuideStep.evaluate(element => element === document.activeElement)).toBe(true)
+  await nextGuideStep.click()
+  await guide.getByRole('button', { name: '上一步', exact: true }).click()
+  await nextGuideStep.click()
+  await nextGuideStep.click()
+  await guide.getByRole('button', { name: '开始探索', exact: true }).click()
+  await guide.waitFor({ state: 'hidden' })
+  await page.reload()
   await page.getByRole('heading', { name: originalEntries[0]!.name, exact: true }).waitFor()
+  expect(await guide.count()).toBe(0)
+  const replayGuide = page.getByRole('button', { name: '市场指引', exact: true })
+  await replayGuide.click()
+  await nextGuideStep.waitFor()
+  await page.keyboard.press('Escape')
+  await guide.waitFor({ state: 'hidden' })
+  expect(await replayGuide.evaluate(element => element === document.activeElement)).toBe(true)
   const originalDownloads = page.getByRole('link', { name: '下载原始资源包' })
   expect(await originalDownloads.count()).toBe(12)
   await page.evaluate(() => { window.scrollTo(0, document.documentElement.scrollHeight) })
@@ -169,9 +258,14 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
   expect(await featured.nth(1).getByRole('heading').textContent()).toBe(originalEntries[1]!.name)
   const animatedPortrait = featured.first().getByRole('img', { name: originalEntries[0]!.name })
   await animatedPortrait.evaluate(element => element instanceof HTMLImageElement ? element.decode() : undefined)
-  const animationName = () => animatedPortrait.evaluate(element => getComputedStyle(element).animationName)
+  const animationName = () => animatedPortrait.evaluate((element) => {
+    if (!element.parentElement) throw Error('Missing catalog animation layer')
+    return getComputedStyle(element.parentElement).animationName
+  })
   expect(await animationName()).not.toBe('none')
-  await featured.first().getByRole('button', { name: '认识一下', exact: true }).first().hover()
+  const originalPortrait = featured.first().getByRole('button', { name: '认识一下', exact: true }).first()
+  expect(await portraitHeight(originalPortrait)).toBe(marketPortraitHeight)
+  await originalPortrait.hover()
   await page.getByText('我是' + originalEntries[0]!.name + '。' + originalEntries[0]!.description, { exact: true }).waitFor()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   expect(await animationName()).toBe('none')
@@ -183,7 +277,62 @@ it('renders shared roles, keeps hover frames loaded, previews locally and downlo
   await expect.poll(() => originalDownloads.count()).toBe(12)
   await page.evaluate(() => { window.scrollTo(0, document.documentElement.scrollHeight) })
   await expect.poll(() => originalDownloads.count()).toBe(14)
+  await page.getByRole('textbox', { name: '搜索名称、用途或制作组', exact: true }).fill(skill.release.manifest.name)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expectStoryboardCover(skillCard.getByRole('img'))
+  await page.getByRole('textbox', { name: '搜索名称、用途或制作组', exact: true }).fill(audioSkill.name)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  expect(await skillCoverGlyph(page.getByRole('img', { name: audioSkill.title, exact: true }))).toBe(audioPreviewGlyph)
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
   expect(failures).toEqual([])
+})
+
+it('matches creator artwork to Bot and Skill metadata while keeping the Bot preview size stable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-market-portrait-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const configFile = fileURLToPath(new URL('../../../packages/client/ui-muse-account/tests/market-preview/vite.config.ts', import.meta.url))
+  const build = { outDir: root, emptyOutDir: false }
+  await viteBuild({ configFile, logLevel: 'silent', build })
+  const preview = await vitePreview({ configFile, logLevel: 'silent', build, preview: { host: '127.0.0.1', port: 0 } })
+  onTestFinished(() => preview.close())
+  const address = preview.httpServer.address()
+  if (!address || typeof address === 'string') throw Error('Fixture did not allocate a TCP port')
+  const browser = await chromium.launch()
+  onTestFinished(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1200 }, reducedMotion: 'reduce' })
+  await page.goto('http://127.0.0.1:' + String(address.port))
+  const guide = page.getByRole('dialog', { name: '市场新手指引', exact: true })
+  await guide.getByRole('button', { name: '跳过指引', exact: true }).click()
+  await page.reload()
+  await page.getByRole('button', { name: '制作 Skill', exact: true }).click()
+  const { release: { manifest: skill } } = await fixture('storyboard-starter', 'c'.repeat(32))
+  const skillCategory = page.getByRole('textbox', { name: '分类', exact: true })
+  const skillArtwork = page.getByRole('img', { name: '待命名的 Skill', exact: true })
+  await skillCategory.fill(audioSkill.category)
+  const mediaGlyph = await skillCoverGlyph(skillArtwork)
+  await skillCategory.fill('分镜创作')
+  await expectStoryboardCover(skillArtwork)
+  await skillCategory.fill('编程开发')
+  expect(await skillArtwork.evaluate(element => element.localName)).toBe('svg')
+  await fillSkillMetadata(page, skill)
+  await expectStoryboardCover(page.getByRole('img', { name: skill.title, exact: true }))
+  await fillSkillMetadata(page, audioSkill)
+  expect(await skillCoverGlyph(page.getByRole('img', { name: audioSkill.title, exact: true }))).not.toBe(mediaGlyph)
+  await page.getByRole('button', { name: '制作 Bot', exact: true }).click()
+  const title = page.getByRole('textbox', { name: '显示名称', exact: true })
+  const previewPortrait = page.getByRole('button', { name: '认识一下', exact: true }).first()
+  await title.fill('调色师')
+  const colorist = page.getByRole('img', { name: '调色师', exact: true })
+  await colorist.evaluate(image => image instanceof HTMLImageElement ? image.decode() : undefined)
+  expect(await colorist.getAttribute('src')).toContain('colorist')
+  const height = await portraitHeight(previewPortrait)
+  await title.fill('编程助手')
+  const coding = page.getByRole('img', { name: '编程助手', exact: true })
+  await coding.evaluate(image => image instanceof HTMLImageElement ? image.decode() : undefined)
+  expect(await coding.getAttribute('src')).toContain('coding-assistant')
+  expect(await portraitHeight(previewPortrait)).toBe(height)
+  expect(await page.getByRole('combobox', { name: '发布角色', exact: true }).count()).toBe(0)
+  expect(await page.getByLabel(/角色形象（PNG/u).count()).toBe(0)
+  expect(await page.getByRole('button', { name: '生成候选形象', exact: true }).count()).toBe(0)
 })

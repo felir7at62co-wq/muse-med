@@ -58,6 +58,8 @@ Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注�
 
 声明默认在启动时创建注册表拥有的 scope 和内存 Loader 树。`activation: on-demand` 将这项工作延后到首次绑定；列出声明、解析元数据和读取声明都不会激活插件。并发首次绑定共享一次激活，激活失败在绑定时报告。更新或移除声明会让旧代际退役；Agent、子 Agent 和临时历史读取各自持有引用，最后一个引用释放后才销毁插件树。插件注册继承 preset scope，Agent scope 的父链接决定可见性；Agent loop 仍由宿主共享。
 
+Host 可通过 `register` 为派生预设提供组合解析函数。按需激活的派生预设在首次读取组合或挂载时才解析其行，因此 Host 服务可以先注册派生预设，再声明基础预设。`presetPlugins(id)` 返回准确声明的独立副本。
+
 preset 的服务提供方及其消费方必须共享同一个 `cordis:group` 隔离 realm。条目局部隔离不会沿 Agent 注册 scope 传播：组外的普通 Context 查找（包括 `agent.ctx`）仍选择 Host realm。`agentPresets.serviceFor()` 显式检查保留的组合，不改变普通服务查找。
 
 激活审计检查导入失败、缺失服务和向全局泄漏的服务。导入失败、激活失败和泄漏会拒绝挂载。等待 Host 服务的行保持挂载，每次读取和绑定都在 Host Loader 树结算后重新审计，因此启动顺序不决定结果。失败只禁用该定义的新绑定。会话日志保存 preset ID 和空白会话的切换记录；重启恢复使用该 ID 的当前定义，缺失时拒绝恢复。

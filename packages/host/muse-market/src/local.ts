@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, lstat, rename, mkdtemp, rm } from 'node:fs/
 import { join, dirname, isAbsolute } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { MarketError, marketDigest, marketRelease, readMarketPackage } from './package.ts'
+import { marketLegacyId, marketRecord } from './format.ts'
 import type { MarketInstallation, MarketLimits, MarketRelease } from './types.ts'
 
 interface LocalState {
@@ -48,7 +49,13 @@ export class MuseMarketLocal {
     const installations = installationRows.map((item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item) || typeof (item as Record<string, unknown>).enabled !== 'boolean') throw new MarketError('invalid-ledger')
       const row = item as Record<string, unknown>
-      return { release: marketRelease(row.release, this.config.allowedPlugins), enabled: row.enabled as boolean }
+      const release = marketRelease(row.release, this.config.allowedPlugins)
+      const source = row.legacySource
+      if (source === undefined) return { release, enabled: row.enabled as boolean }
+      if (!marketRecord(source) || !marketLegacyId(source.id)
+        || !source.id.startsWith(`muse/${release.manifest.kind}s/`) || typeof source.sha256 !== 'string'
+        || !/^[a-f0-9]{64}$/.test(source.sha256) || source.sha256 !== release.id) throw new MarketError('invalid-ledger')
+      return { release, enabled: row.enabled as boolean, legacySource: { id: source.id, sha256: source.sha256 } }
     })
     if (new Set(installations.map(item => item.release.id)).size !== installations.length) throw new MarketError('invalid-ledger')
     const references: Record<string, string[]> = {}
@@ -116,16 +123,18 @@ export class MuseMarketLocal {
   /** Store a verified publication without registering or enabling it.
    * @param release Cloud or local-import metadata.
    * @param archive Exact publication bytes.
+   * @param legacySource Original catalog identity and archive digest when the publication is converted locally.
    * @returns The downloaded installation, initially disabled.
    */
-  async install(release: MarketRelease, archive: Uint8Array): Promise<MarketInstallation> {
+  async install(release: MarketRelease, archive: Uint8Array, legacySource?: MarketInstallation['legacySource']): Promise<MarketInstallation> {
     if (marketDigest(archive) !== release.sha256 || archive.byteLength !== release.bytes) throw new MarketError('digest-mismatch')
     const parsed = readMarketPackage(archive, this.config.limits, this.config.allowedPlugins)
     if (JSON.stringify(parsed.manifest) !== JSON.stringify(release.manifest)) throw new MarketError('manifest-mismatch')
     return await this.update(async (state) => {
       const old = state.installations.find(item => item.release.id === release.id)
       if (old) {
-        if (old.release.sha256 !== release.sha256) throw new MarketError('release-conflict', 409)
+        if (old.release.sha256 !== release.sha256 || old.legacySource?.id !== legacySource?.id
+          || old.legacySource?.sha256 !== legacySource?.sha256) throw new MarketError('release-conflict', 409)
         await this.verify(old.release); return old
       }
       const destination = this.directory(release)
@@ -144,7 +153,7 @@ export class MuseMarketLocal {
         } catch (failure) { await rm(staging, { recursive: true, force: true }); throw failure }
       }
       await this.verify(release)
-      const installed = { release, enabled: false }
+      const installed = { release, enabled: false, ...(legacySource === undefined ? {} : { legacySource }) }
       state.installations.push(installed)
       return installed
     })

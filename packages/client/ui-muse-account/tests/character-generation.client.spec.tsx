@@ -146,7 +146,7 @@ it('plays only visible media, switches to introduction frames, and respects redu
     observe = observe
     disconnect = disconnect
   })
-  const props = { animation: directorAnimation, introducing: false, label: 'Director', fallback: <img src="/poster.png" alt="Static director" /> }
+  const props = { animation: directorAnimation, introducing: false, label: 'Director', fallback: <img src="/poster.png" alt="Static director" />, framing: undefined }
   const view = render(<MarketAnimation {...props} />)
   const sprite = view.container.querySelector('image')!
   fireEvent.load(sprite)
@@ -209,8 +209,8 @@ it('records localized failure and recovery output without upstream details', asy
 it('clips each sprite to its own source cell with independent IDs across portrait instances', () => {
   const wide = { ...directorAnimation, sheetUrl: '/wide-sheet.png', cellWidth: 400, cellHeight: 300 }
   const view = render(<>
-    <MarketAnimation animation={directorAnimation} introducing label="Director" fallback={<span />} />
-    <MarketAnimation animation={wide} introducing={false} label="Wide character" fallback={<span />} />
+    <MarketAnimation animation={directorAnimation} introducing label="Director" fallback={<span />} framing={undefined} />
+    <MarketAnimation animation={wide} introducing={false} label="Wide character" fallback={<span />} framing={undefined} />
   </>)
   const clips = [...view.container.querySelectorAll('clipPath')]
   expect(clips).toHaveLength(2)

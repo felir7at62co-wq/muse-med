@@ -1,17 +1,19 @@
 /** Shared sprite player with static fallback and local visibility/motion controls. */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { CharacterAnimation } from './market-character-generation.ts'
+import { marketPortraitStyle, type MarketPortraitFraming } from './market-portrait-framing.ts'
 import css from './MarketCharacter.module.css'
 
 /** Play supplied frame sequences; this component never requests image generation.
  * @param props Approved sprite metadata, interaction state, and static fallback artwork.
  * @returns A contained sprite cell or the original static portrait.
  */
-export function MarketAnimation({ animation, introducing, label, fallback }: {
+export function MarketAnimation({ animation, introducing, label, fallback, framing }: {
   animation: CharacterAnimation
   introducing: boolean
   label: string
   fallback: ReactNode
+  framing: MarketPortraitFraming | undefined
 }): ReactNode {
   const container = useRef<HTMLSpanElement>(null)
   const frameClip = useId()
@@ -55,7 +57,7 @@ export function MarketAnimation({ animation, introducing, label, fallback }: {
   return <span ref={container} className={css.animation} data-playing={playing}>
     {!playing && fallback}
     {failedSheet !== animation.sheetUrl && <span className={css.sprite} hidden={!playing}>
-      <svg viewBox={`0 0 ${animation.cellWidth} ${animation.cellHeight}`} role="img" aria-label={label}>
+      <svg viewBox={`0 0 ${animation.cellWidth} ${animation.cellHeight}`} role="img" aria-label={label} style={marketPortraitStyle(framing)}>
         <defs><clipPath id={frameClip} clipPathUnits="userSpaceOnUse">
           <rect x={0} y={0} width={animation.cellWidth} height={animation.cellHeight} />
         </clipPath></defs>

@@ -88,10 +88,11 @@ export interface UiWorkspace {
    * Create a new Session with the requested Agent preset in the current or most recent Workspace.
    * @param agentPreset - selectable Agent preset for the new Session.
    * @param open - optional product surface that can present the created Session.
+   * @param title - optional durable Session title saved before opening or product adoption.
    * @returns completion; a superseded request may create a Session without opening it.
-   * @throws `workspace-required` when there is no Workspace, or a Session creation error.
+   * @throws `workspace-required` when there is no Workspace, or a Session creation or naming error.
    */
-  startPresetSession(agentPreset: string, open?: PresetSessionOpener): Promise<void>
+  startPresetSession(agentPreset: string, open?: PresetSessionOpener, title?: string): Promise<void>
   /**
    * Archive a Session and clear it when it is the current selection.
    * @param sessionId - Session to archive.
@@ -281,13 +282,23 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     )
   }
 
-  async startPresetSession(agentPreset: string, open?: PresetSessionOpener): Promise<void> {
+  async startPresetSession(agentPreset: string, open?: PresetSessionOpener, title?: string): Promise<void> {
     const workspaceId = this.currentOrRecentWorkspace()
     if (workspaceId === undefined) throw new Error('workspace-required')
     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
     const sessionId = await this.sessions.create({ workspaceId, agentPreset })
+    if (title !== undefined) await this.renameSession(sessionId, title)
     if (!navigation.aborted && await open?.(sessionId, navigation)) return
     if (!navigation.aborted) this.replaceMain(sessionId, navigation, 'reveal')
+  }
+
+  /** Save a Session title using a temporary workspace-operation reference.
+   * @param sessionId - Session receiving the title.
+   * @param title - title text for Host normalization.
+   */
+  async renameSession(sessionId: SessionId, title: string): Promise<void> {
+    const result = await this.sessions.using(sessionId, { source: 'workspaceOperation' }, reference => reference.binding.session.rename(title))
+    if (!result.ok) throw new Error(result.error.message)
   }
 
   private currentOrRecentWorkspace(): WorkspaceId | undefined {

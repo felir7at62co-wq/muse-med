@@ -4,6 +4,8 @@ import { Button, HoverCard } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './MarketCharacter.module.css'
 import { MarketAnimation } from './MarketAnimation.tsx'
 import type { CharacterAnimation, CharacterVersionId } from './market-character-generation.ts'
+import { marketPortraitStyle, museFallbackFraming, directorSpriteFraming, type MarketPortraitFraming } from './market-portrait-framing.ts'
+import { marketPosterFraming, stockDirectorAnimation } from './market-stock-art.ts'
 
 /** Display-only character information; it does not alter a Bot's persona or permissions. */
 export interface MarketPresentation {
@@ -13,6 +15,8 @@ export interface MarketPresentation {
   introduction: string
   /** Optional approved portrait, or a local preview data URL. */
   posterUrl?: string | undefined
+  /** Measured silhouette for a locally selected poster. */
+  posterFraming?: MarketPortraitFraming | undefined
   /** Immutable display-media revision, separate from the installed Bot version. */
   characterVersion?: CharacterVersionId
   /** Optional approved sprite sequences; absent or failed media stays static. */
@@ -23,15 +27,19 @@ export interface MarketPresentation {
  * @param props Artwork URL and locale-owned accessible and fallback labels.
  * @returns Contained artwork without cropping the character or resources.
  */
-export function MarketArtwork({ posterUrl, label, sampleLabel }: {
+export function MarketArtwork({ posterUrl, posterFraming, label, sampleLabel }: {
   posterUrl?: string | undefined
+  posterFraming?: MarketPortraitFraming | undefined
   label: string
   sampleLabel: string
 }): ReactNode {
   const [failedPoster, setFailedPoster] = useState<string>()
   return posterUrl && failedPoster !== posterUrl
-    ? <img className={css.portrait} src={posterUrl} alt={label} onError={() => { setFailedPoster(posterUrl) }} />
-    : <><span className={css.muse} role="img" aria-label={label} /><span className={css.sample}>{sampleLabel}</span></>
+    ? <img className={css.portrait} src={posterUrl} alt={label}
+      style={marketPortraitStyle(posterFraming ?? marketPosterFraming.get(posterUrl))}
+      onError={() => { setFailedPoster(posterUrl) }} />
+    : <><span className={css.muse} role="img" aria-label={label} style={marketPortraitStyle(museFallbackFraming)} />
+      <span className={css.sample}>{sampleLabel}</span></>
 }
 
 /** Render the same character in discovery and the local author preview.
@@ -47,7 +55,8 @@ export function MarketCharacter({ presentation, introduceLabel, sampleLabel, art
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false)
   const introductionId = useId()
-  const portrait = artwork ?? <MarketArtwork posterUrl={presentation.posterUrl} label={presentation.role} sampleLabel={sampleLabel} />
+  const portrait = artwork ?? <MarketArtwork posterUrl={presentation.posterUrl} posterFraming={presentation.posterFraming}
+    label={presentation.role} sampleLabel={sampleLabel} />
   return <div className={css.character} data-introducing={expanded || hovered || focused}
     onPointerEnter={() => { setHovered(true) }} onPointerLeave={() => { setHovered(false) }}
     onFocus={() => { setFocused(true) }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}
@@ -57,8 +66,11 @@ export function MarketCharacter({ presentation, introduceLabel, sampleLabel, art
       anchor={<button type="button" className={css.portraitButton} aria-label={introduceLabel} aria-expanded={expanded}
         aria-controls={expanded ? introductionId : undefined}
         onClick={() => { setExpanded(value => !value) }}>
-        {presentation.animation ? <MarketAnimation animation={presentation.animation} introducing={expanded || hovered || focused}
-          label={presentation.role} fallback={portrait} /> : portrait}
+        <span className={css.portraitStage}>
+          {presentation.animation ? <MarketAnimation animation={presentation.animation} introducing={expanded || hovered || focused}
+            label={presentation.role} fallback={portrait}
+            framing={presentation.animation.sheetUrl === stockDirectorAnimation.sheetUrl ? directorSpriteFraming : undefined} /> : portrait}
+        </span>
       </button>} />
     <div className={css.caption}><span>{presentation.role}</span><Button size="sm" aria-expanded={expanded}
       aria-controls={expanded ? introductionId : undefined}

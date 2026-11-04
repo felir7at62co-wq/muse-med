@@ -1,16 +1,17 @@
-/** Publication details opened from a discovery card without starting a download. */
+/** Market publication metadata and usage instructions for enabled original Skills. */
 import type { ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import type { MarketSectionProps } from './MarketSection.tsx'
 import css from './MarketSection.module.css'
 
-/** Show version, usage and license information before a user chooses to download.
- * @param props Selected release, localized labels and dismissal action.
+/** Show version, usage and license information without changing installation state.
+ * @param props Selected release, original Skill activation, localized labels and dismissal action.
  * @returns Accessible publication details, or a closed modal.
  */
-export function MarketReleaseDetails({ release, onClose, t }: {
+export function MarketReleaseDetails({ release, enabledOriginalSkill, onClose, t }: {
   release: MarketRelease | undefined
+  enabledOriginalSkill: boolean
   onClose: () => void
   t: MarketSectionProps['t']
 }): ReactNode {
@@ -29,7 +30,7 @@ export function MarketReleaseDetails({ release, onClose, t }: {
       {release.manifest.examples.length > 0 && <section><h3>{t('examples')}</h3>
         <ul>{release.manifest.examples.map(item => <li key={item}>{item}</li>)}</ul></section>}
       {release.manifest.skills.length > 0 && <section><h3>{t('sourceSkillsShort')}</h3>
-        <ul>{release.manifest.skills.map(item => <li key={item.name}>{item.name}</li>)}</ul></section>}
+        <ul>{release.manifest.skills.map(item => <li key={item.name}>{enabledOriginalSkill ? t('legacySkillUsage', { skill: item.name }) : item.name}</li>)}</ul></section>}
     </div>}
   </Modal>
 }

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MarketSection, type MarketSectionProps } from '../src/client/MarketSection.tsx'
+import { MarketCreatorPage } from '../src/client/MarketCreatorPage.tsx'
+import { rememberMarketGuide } from '../src/client/MarketGuide.tsx'
 import type { MarketActions } from '../src/client/market-mount.ts'
 import type { MarketInstallation, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import { marketZh, marketEn } from '../src/client/market-locales.ts'
@@ -9,6 +11,7 @@ import { marketFixture, marketPresentations } from './market-fixture.client.ts'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+beforeEach(rememberMarketGuide)
 afterEach(cleanup)
 const release: MarketRelease = { id: 'a'.repeat(32) as MarketRelease['id'], publisherId: 'b'.repeat(32) as MarketRelease['publisherId'],
   publisher: 'Team', sha256: 'c'.repeat(64), bytes: 1024, revision: 1, reviewNote: '', status: 'published', createdAt: '2026-11-02T00:00:00Z',
@@ -18,16 +21,92 @@ function harness() {
   let local: MarketInstallation[] = []
   const actions = {
     catalog: vi.fn<MarketActions['catalog']>(async () => [release]), installed: vi.fn(async () => local),
+    legacyCatalog: vi.fn<MarketActions['legacyCatalog']>(async () => []),
     sources: vi.fn<MarketActions['sources']>(async () => ({ website: 'https://muse.test/market', skills: [], bots: [] })),
     identity: vi.fn<MarketActions['identity']>(async () => ({ publishers: [], admin: false })),
     install: vi.fn<MarketActions['install']>(async () => { const item = { release, enabled: false }; local = [item]; return item }),
+    installLegacy: vi.fn<MarketActions['installLegacy']>(),
     enable: vi.fn<MarketActions['enable']>(async (_id, enabled) => { const item = { release, enabled }; local = [item]; return item }),
     remove: vi.fn(async () => { local = [] }), exportPackage: vi.fn(), importPackage: vi.fn(),
     prepare: vi.fn(), publishDraft: vi.fn(), review: vi.fn(),
   } satisfies MarketActions
-  const props = { actions, reportOutcome: vi.fn(), t: (key: string) => key } as MarketSectionProps
+  const props = { actions, reportOutcome: vi.fn(), onOpenCreator: vi.fn(), t: (key: string) => key } as MarketSectionProps
   return { actions, props }
 }
+
+it('shows the original desktop catalog alongside releases and keeps original downloads separate', async () => {
+  const h = harness()
+  const original = { id: 'muse/bots/storyboard-director-16-9', kind: 'bot' as const, title: 'Original storyboard director',
+    description: 'Plan widescreen shots', category: 'script', version: '0.1.0', requirements: [], requiredSkills: [],
+    validation: 'Manual installation', sha256: 'd'.repeat(64), href: 'https://muse.test/market/downloads/director.tgz' }
+  h.actions.legacyCatalog.mockResolvedValue([original, { ...original, id: 'muse/skills/review', kind: 'skill',
+    title: 'Duplicate original', sha256: release.sha256 }])
+  render(<MarketSection {...h.props} />)
+  expect(await screen.findByRole('heading', { name: original.title })).toBeDefined()
+  expect(screen.getByRole('heading', { name: release.manifest.title })).toBeDefined()
+  expect(screen.queryByRole('heading', { name: 'Duplicate original' })).toBeNull()
+  const link = screen.getByRole('link', { name: 'legacyDownload' })
+  expect(link.getAttribute('href')).toBe(original.href)
+  expect(link.getAttribute('target')).toBe('_blank')
+  expect(h.actions.install).not.toHaveBeenCalled()
+  expect(h.actions.installLegacy).not.toHaveBeenCalled()
+  expect(h.actions.legacyCatalog).toHaveBeenCalledExactlyOnceWith('', '')
+  h.actions.installLegacy.mockRejectedValueOnce(new Error('legacy-catalog-changed'))
+  fireEvent.click(screen.getByRole('button', { name: 'legacyImport' }))
+  await waitFor(() => { expect(h.props.reportOutcome).toHaveBeenCalledWith('error.legacy-catalog-changed', true) })
+  expect(screen.getByRole('link', { name: 'legacyDownload' })).toBe(link)
+  expect(screen.queryByRole('button', { name: 'enable' })).toBeNull()
+})
+
+it('imports the selected original Bot digest, then enables and starts its local version', async () => {
+  const h = harness()
+  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
+  const source = { id: 'muse/bots/storyboard-director-16-9', kind: 'bot' as const, title: bot.manifest.title,
+    description: bot.manifest.description, category: bot.manifest.category, version: bot.manifest.version,
+    requirements: [], requiredSkills: [], validation: '', sha256: 'd'.repeat(64), href: 'https://muse.test/market/downloads/director.tgz' }
+  const local = { release: bot, enabled: false, legacySource: { id: source.id, sha256: source.sha256 } }
+  h.actions.legacyCatalog.mockResolvedValue([source])
+  h.actions.installLegacy.mockResolvedValue(local)
+  h.actions.enable.mockResolvedValueOnce({ ...local, enabled: true })
+  const onRunBot = vi.fn(async () => {})
+  render(<MarketSection {...h.props} onRunBot={onRunBot} />)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'legacyImport' }))
+  expect(h.actions.installLegacy).toHaveBeenCalledExactlyOnceWith(source.id, source.sha256)
+  const enable = await screen.findByRole('button', { name: 'enable' })
+  expect(h.actions.enable).not.toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'runBot' })).toBeNull()
+  expect(screen.getByRole('link', { name: 'legacyDownload' }).getAttribute('href')).toBe(source.href)
+
+  fireEvent.click(enable)
+  fireEvent.click(await screen.findByRole('button', { name: 'runBot' }))
+  expect(h.actions.enable).toHaveBeenCalledExactlyOnceWith(local.release.id, true)
+  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(local.release.id, local.release.manifest.title)
+})
+
+it('shows usage for an enabled original Skill after reloading and excludes it from local publications', async () => {
+  const h = harness()
+  const source = { id: 'muse/skills/review', sha256: 'd'.repeat(64) }
+  h.actions.catalog.mockResolvedValue([])
+  h.actions.installed.mockResolvedValue([{ release, enabled: true, legacySource: source }])
+  h.actions.legacyCatalog.mockResolvedValue([{ ...source, kind: 'skill', title: release.manifest.title,
+    description: release.manifest.description, category: release.manifest.category, version: release.manifest.version,
+    requirements: [], requiredSkills: [], validation: '', href: 'https://muse.test/market/downloads/review.zip' }])
+  render(<MarketSection {...h.props} />)
+  expect(await screen.findByText('enabled')).toBeDefined()
+  expect(screen.queryByRole('button', { name: 'legacyImport' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'details' }))
+  expect(await screen.findByText('legacySkillUsage')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'close' }))
+  fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+  expect(await screen.findByRole('button', { name: 'details' })).toBeDefined()
+  expect(screen.queryByRole('button', { name: 'export' })).toBeNull()
+  await waitFor(() => { expect(screen.getByRole('button', { name: 'publish' }).hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(screen.getByRole('button', { name: 'publish' }))
+  expect(await screen.findByRole('region', { name: 'cloudPublications' })).toBeDefined()
+  expect(screen.queryByText('localPackages')).toBeNull()
+  expect(screen.queryByRole('heading', { name: release.manifest.title })).toBeNull()
+})
 
 it('downloads without enabling and requires a separate enable action', async () => {
   const h = harness(); render(<MarketSection {...h.props} />)
@@ -57,7 +136,7 @@ it('recognizes a ZIP import by digest and enables its local identity from the cl
   expect(h.actions.enable).toHaveBeenCalledWith(localId, true)
 })
 
-it('starts only an enabled Bot and passes the installed ID', async () => {
+it('starts only an enabled Bot and passes its installed ID and title', async () => {
   const h = harness()
   const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
   const localId = bot.sha256 as MarketRelease['id']
@@ -74,10 +153,10 @@ it('starts only an enabled Bot and passes the installed ID', async () => {
   const start = await screen.findByRole('button', { name: 'runBot' })
   await waitFor(() => { expect(start.hasAttribute('disabled')).toBe(false) })
   fireEvent.click(start)
-  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(localId)
+  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(localId, bot.manifest.title)
 })
 
-it('does not upload when entering the creator form and renders bounded failures', async () => {
+it('renders bounded failures when opening creator records', async () => {
   const h = harness(); h.actions.identity.mockRejectedValue(Error('secret response with cookie'))
   render(<MarketSection {...h.props} />)
   await screen.findByText('Review scenes')
@@ -106,50 +185,38 @@ it('introduces the Bot by hover and touch without downloading or enabling it', a
   expect(h.actions.install).not.toHaveBeenCalled(); expect(h.actions.enable).not.toHaveBeenCalled()
 })
 
-it('keeps role edits and portrait selection local while previewing package metadata', async () => {
+it('matches the desktop Bot portrait as the metadata changes and prepares that exact preset', async () => {
   const h = harness()
   h.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
     bots: [{ id: 'director', name: 'Director' }], skills: [] })
-  render(<MarketSection {...h.props} />)
-  await screen.findByText('Review scenes')
-  const publish = screen.getByRole('button', { name: 'publish' })
-  await waitFor(() => { expect(publish.hasAttribute('disabled')).toBe(false) }); fireEvent.click(publish)
-  await waitFor(() => { expect(publish.hasAttribute('disabled')).toBe(false) })
-  fireEvent.change(screen.getByRole('combobox', { name: 'sourceBot' }), { target: { value: 'director' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'label' }), { target: { value: '我的导演' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'role' }), { target: { value: '镜头规划师' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'introduction' }), { target: { value: '我帮你安排镜头' } })
-  expect(screen.getByRole('heading', { name: '我的导演' })).toBeDefined()
-  expect(screen.getByText('镜头规划师')).toBeDefined()
-  expect(screen.getByText('portraitLocalOnly')).toBeDefined()
-  const portrait = screen.getByLabelText('portrait')
-  fireEvent.change(portrait, { target: { files: [new File(['bad'], 'bad.svg', { type: 'image/svg+xml' })] } })
-  expect(screen.getByRole('alert').textContent).toBe('portraitError')
-  fireEvent.change(portrait, { target: { files: [new File(['preview'], 'portrait.png', { type: 'image/png' })] } })
-  await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
-  expect(screen.getByRole('img', { name: '镜头规划师' }).getAttribute('src')).toMatch(/^data:image\/png;base64,/)
-  expect(h.actions.prepare).not.toHaveBeenCalled(); expect(h.actions.publishDraft).not.toHaveBeenCalled()
-})
-
-it('prepares the manually selected desktop Bot portrait without uploading', async () => {
-  const h = harness()
-  h.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
-    bots: [{ id: 'director', name: 'Director' }], skills: [] })
-  h.actions.prepare.mockResolvedValue({ release, enabled: false })
-  render(<MarketSection {...h.props} initialView="publish" />)
-  fireEvent.change(await screen.findByRole('combobox', { name: 'sourceBot' }), { target: { value: 'director' } })
+  const bot = marketFixture[0]!
+  const prepared = { ...bot, status: 'draft' as const,
+    manifest: { ...bot.manifest, title: '编程助手', presetPortrait: 'coding-assistant' as const } }
+  h.actions.identity.mockResolvedValue({ publishers: [{ id: bot.publisherId, title: bot.publisher }], admin: false })
+  h.actions.prepare.mockResolvedValue({ release: prepared, enabled: false })
+  render(<MarketCreatorPage actions={h.actions} t={h.props.t} reportOutcome={h.props.reportOutcome} onBack={vi.fn()} initialKind="bot" />)
+  await screen.findByRole('combobox', { name: 'sourceBot' })
   const title = screen.getByRole('textbox', { name: 'label' })
   fireEvent.change(title, { target: { value: '调色师' } })
-  const portrait = screen.getByRole<HTMLSelectElement>('combobox', { name: 'releasePortrait' })
-  expect(portrait.value).toBe('colorist')
   expect(screen.getByRole('img', { name: '调色师' }).getAttribute('src')).toContain('colorist')
-  fireEvent.change(portrait, { target: { value: 'coding-assistant' } })
-  fireEvent.change(title, { target: { value: '剧本编辑' } })
-  expect(portrait.value).toBe('coding-assistant')
-  expect(screen.getByRole('img', { name: '剧本编辑' }).getAttribute('src')).toContain('coding-assistant')
+  expect(screen.queryByRole('combobox', { name: 'releasePortrait' })).toBeNull()
+  expect(screen.queryByLabelText('portrait')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'characterGenerate' })).toBeNull()
+  fireEvent.change(title, { target: { value: '编程助手' } })
+  expect(screen.getByRole('img', { name: '编程助手' }).getAttribute('src')).toContain('coding-assistant')
+  expect(h.actions.prepare).not.toHaveBeenCalled()
   fireEvent.submit(screen.getByRole('button', { name: 'prepare' }).closest('form')!)
-  await waitFor(() => expect(h.actions.prepare).toHaveBeenCalledWith(
-    expect.objectContaining({ kind: 'bot', presetPortrait: 'coding-assistant' }), [], 'director'))
+  await waitFor(() => {
+    expect(h.actions.prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: 'bot', presetPortrait: 'coding-assistant' }), [], 'director')
+  })
+  const upload = await screen.findByRole<HTMLButtonElement>('button', { name: 'upload' })
+  expect(upload.disabled).toBe(false)
+  fireEvent.change(title, { target: { value: '调色师' } })
+  expect(screen.getByRole('img', { name: '调色师' }).getAttribute('src')).toContain('colorist')
+  expect(screen.queryByRole('button', { name: 'upload' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'creatorUploadZip' }))
+  expect(screen.getByRole('combobox', { name: 'localPackages' })).toHaveProperty('value', prepared.id)
+  expect(screen.getByRole('img', { name: prepared.manifest.title }).getAttribute('src')).toContain('coding-assistant')
   expect(h.actions.publishDraft).not.toHaveBeenCalled()
 })
 
@@ -250,15 +317,17 @@ it('sends the selected type immediately and filters categories without another H
   expect(screen.queryByRole('heading', { name: '分镜导演' })).toBeNull()
 })
 
-it('opens the creator form from the upload entry without preparing or uploading a package', async () => {
+it('opens the dedicated Skill and upload pages directly from the market', async () => {
   const h = harness()
   h.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
     bots: [{ id: 'director', name: 'Director' }], skills: [] })
   render(<MarketSection {...h.props} />)
   await screen.findByText('Review scenes')
+  fireEvent.click(screen.getByRole('button', { name: 'creatorNewSkill' }))
+  expect(h.props.onOpenCreator).toHaveBeenLastCalledWith('skill')
   fireEvent.click(screen.getAllByRole('button', { name: 'uploadEntry' })[0]!)
-  const source = await screen.findByRole('combobox', { name: 'sourceBot' })
-  expect(source.getAttribute('value') ?? (source as HTMLSelectElement).value).toBe('director')
+  expect(h.props.onOpenCreator).toHaveBeenLastCalledWith('upload')
+  expect(screen.queryByRole('combobox', { name: 'sourceBot' })).toBeNull()
   expect(h.actions.prepare).not.toHaveBeenCalled(); expect(h.actions.publishDraft).not.toHaveBeenCalled()
 })
 

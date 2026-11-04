@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { mountMuseMarket } from '../src/client/market-mount.ts'
 import { createMarketFeedback } from '../src/client/market-feedback.tsx'
-import { MarketBotModeLink, MarketPage, MarketSettingsLink } from '../src/client/MarketPage.tsx'
+import { MarketBotModeLink, MarketCreatorPanel, MarketPage, MarketSettingsLink } from '../src/client/MarketPage.tsx'
+import type { MarketCreatorKind } from '../src/client/MarketCreatorPage.tsx'
 import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 
 vi.mock('@deepseek-ai/dsh-muse-market/remote', () => ({
@@ -42,10 +43,24 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   const dispose = await mountMuseMarket(ctx)
   expect(slots.entries('main')[0]?.options.key).toBe('muse-market')
   expect(slots.entries('main')[0]?.component).toBe(MarketPage)
-  const main = slots.entries('main')[0]?.inject?.() as { onRunBot: (id: MarketRelease['id']) => Promise<void> }
+  const main = slots.entries('main')[0]?.inject?.() as {
+    onRunBot: (id: MarketRelease['id'], title: string) => Promise<void>
+    onOpenCreator: (kind: MarketCreatorKind) => void
+  }
   const installId = 'a'.repeat(64) as MarketRelease['id']
-  await main.onRunBot(installId)
-  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`, navigation.openSession)
+  await main.onRunBot(installId, '16:9 分镜导演')
+  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`, navigation.openSession, '16:9 分镜导演')
+  const creator = slots.entries('main').find(entry => entry.options.key === 'muse-market-creator')
+  expect(creator?.component).toBe(MarketCreatorPanel)
+  const creatorProps = creator?.inject?.() as { getInitialKind: () => MarketCreatorKind; onBack: () => void }
+  main.onOpenCreator('upload')
+  expect(selectPanel).toHaveBeenLastCalledWith('muse-market-creator')
+  expect(creatorProps.getInitialKind()).toBe('upload')
+  creatorProps.onBack()
+  expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
+  main.onOpenCreator('skill')
+  expect(selectPanel).toHaveBeenLastCalledWith('muse-market-creator')
+  expect(creatorProps.getInitialKind()).toBe('skill')
   expect(slots.entries('sidebar.footer.action')[0]?.component).toBe(MarketBotModeLink)
   expect(slots.entries('sidebar.panellist')[0]?.options.id).toBe('muse-market')
   expect(resolveSlotLabel(slots.entries('sidebar.panellist')[0]?.options.label)).toBe('Bot 与 Skills 市场')
@@ -60,7 +75,7 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   }
   expect(disposeRemote).toHaveBeenCalledOnce()
   const remount = await mountMuseMarket(ctx)
-  expect(slots.entries('main')).toHaveLength(1)
+  expect(slots.entries('main')).toHaveLength(2)
   expect(slots.entries('sidebar.panellist')).toHaveLength(1)
   await remount()
 })

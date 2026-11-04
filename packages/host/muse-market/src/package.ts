@@ -85,7 +85,10 @@ export function createMarketPackage(manifest: MarketManifest, files: Readonly<Re
   limits: MarketLimits, allowedPlugins: readonly string[]): Uint8Array {
   const list = Object.entries(files).sort(([a], [b]) => a.localeCompare(b))
     .map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
-  const archive = zipSync({ ...files, [MANIFEST]: Buffer.from(JSON.stringify({ ...manifest, files: list })) })
+  const archive = zipSync(
+    { ...files, [MANIFEST]: Buffer.from(JSON.stringify({ ...manifest, files: list })) },
+    { mtime: new Date(1980, 0, 1) },
+  )
   readMarketPackage(archive, limits, allowedPlugins)
   return archive
 }

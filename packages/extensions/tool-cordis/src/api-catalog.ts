@@ -167,9 +167,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Registry of YAML-declared presets and the revisions live Agents retain.',
     methods: [
       {
-        signature: 'async register(definition: PresetDefinition): Promise<() => Promise<void>>',
+        signature: 'async register(definition: PresetDefinition, resolvePlugins: () => PresetDefinition[\'plugins\'] = () => definition.plugins): Promise<() => Promise<void>>',
         description: 'Register a definition and load it immediately unless it requests on-demand activation.',
-        parameters: [{ name: 'definition', description: 'Parsed configuration supplied by the declaring plugin.' }],
+        parameters: [{ name: 'definition', description: 'Parsed configuration supplied by the declaring plugin.' }, { name: 'resolvePlugins', description: 'Optional Host-owned composition resolved once on first read or activation.' }],
         returns: 'Definition disposer after eager activation settles, or immediately for an on-demand definition.',
       },
       {
@@ -201,6 +201,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Resolve an identity without starting an Agent.',
         parameters: [{ name: 'id', description: 'Explicit preset or the current default.' }],
         returns: 'Current metadata, including failure when activation failed.',
+      },
+      {
+        signature: 'presetPlugins(id: string): PresetDefinition[\'plugins\'] | undefined',
+        description: 'Copy the configured rows of an exact declared preset for a Host-owned variant.',
+        parameters: [{ name: 'id', description: 'Exact preset identity.' }],
+        returns: 'A detached composition, or undefined when the declaration is absent.',
       },
       {
         signature: '@Remote(\'read\') readDocument(agentPreset: string): Promise<AgentPresetDocument>',
@@ -1882,6 +1888,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Matching release metadata.',
       },
       {
+        signature: '@Remote(\'legacyCatalog\') async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]>',
+        description: 'List the original public Bot and Skill distributions for discovery.',
+        parameters: [{ name: 'query', description: 'Search text.' }, { name: 'kind', description: 'Optional Bot or Skill filter. An empty string includes both.' }],
+        returns: 'Matching metadata and original download links.',
+      },
+      {
         signature: '@Remote(\'identity\') async identity(): Promise<{ publishers: { id: string; title: string }[]; admin: boolean }>',
         description: 'Read signed-in publisher membership and administrator status.',
         parameters: [],
@@ -1906,10 +1918,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'A disabled local publication available for export and private draft upload.',
       },
       {
-        signature: '@Remote(\'install\') async install(id: MarketReleaseId): Promise<MarketInstallation>',
+        signature: '@Remote(\'installPackage\') async install(id: MarketReleaseId): Promise<MarketInstallation>',
         description: 'Download a selected release into local storage without enabling it.',
         parameters: [{ name: 'id', description: 'Selected cloud release identity.' }],
         returns: 'Verified local installation.',
+      },
+      {
+        signature: '@Remote(\'installLegacy\') async installLegacy(id: string, sha256: string): Promise<MarketInstallation>',
+        description: 'Download and adapt a public original distribution into a disabled local installation.',
+        parameters: [{ name: 'id', description: 'Original catalog identity.' }, { name: 'sha256', description: 'Original digest selected by the user.' }],
+        returns: 'Verified installation and original source identity. A repeat retains its existing activation state.',
       },
       {
         signature: '@Remote(\'importPackage\') async importPackage(base64: string): Promise<MarketInstallation>',
@@ -1924,7 +1942,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Persisted activation choice.',
       },
       {
-        signature: '@Remote(\'remove\') async remove(id: MarketReleaseId): Promise<void>',
+        signature: '@Remote(\'removePackage\') async remove(id: MarketReleaseId): Promise<void>',
         description: 'Remove an unused, disabled local installation while retaining shared cache files.',
         parameters: [{ name: 'id', description: 'Installed release identity.' }],
         returns: 'Completion after the ledger update.',
@@ -1936,9 +1954,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Filename and encoded publication archive.',
       },
       {
-        signature: '@Remote(\'publishDraft\') async publishDraft(id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string): Promise<MarketRelease>',
+        signature: '@Remote(\'publishDraft\') async publishDraft( id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string, presetPortrait?: MarketPresetPortraitId, ): Promise<MarketRelease>',
         description: 'Upload a selected installed release as a private cloud draft.',
-        parameters: [{ name: 'id', description: 'Installed release identity.' }, { name: 'publisherId', description: 'Explicitly selected publisher.' }, { name: 'requestId', description: 'Stable upload idempotency key.' }],
+        parameters: [{ name: 'id', description: 'Installed release identity.' }, { name: 'publisherId', description: 'Explicitly selected publisher.' }, { name: 'requestId', description: 'Stable upload idempotency key.' }, { name: 'presetPortrait', description: 'Automatic portrait for a Bot whose archive has no portrait binding.' }],
         returns: 'The cloud draft; public submission is a separate action.',
       },
       {
@@ -6414,15 +6432,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MarketInstallation',
-    declaration: 'export interface MarketInstallation {\n    readonly release: MarketRelease;\n    readonly enabled: boolean;\n}',
+    declaration: 'export interface MarketInstallation {\n    readonly release: MarketRelease;\n    readonly enabled: boolean;\n    readonly legacySource?: Pick<MarketLegacyResource, \'id\' | \'sha256\'>;\n}',
+  },
+  {
+    name: 'MarketLegacyResource',
+    declaration: 'export interface MarketLegacyResource {\n    readonly id: string;\n    readonly kind: \'bot\' | \'skill\';\n    readonly title: string;\n    readonly description: string;\n    readonly category: string;\n    readonly version: string;\n    readonly requirements: readonly string[];\n    readonly requiredSkills: readonly string[];\n    readonly validation: string;\n    readonly sha256: string;\n    readonly href: string;\n}',
   },
   {
     name: 'MarketManifest',
-    declaration: 'export interface MarketManifest {\n    readonly formatVersion: 1;\n    readonly kind: \'bot\' | \'skill\';\n    readonly name: string;\n    readonly title: string;\n    readonly description: string;\n    readonly version: string;\n    readonly license: string;\n    readonly category: string;\n    readonly examples: readonly string[];\n    readonly requirements: readonly string[];\n    readonly skills: readonly MarketSkill[];\n    readonly plugins?: readonly MarketPlugin[];\n}',
+    declaration: 'export interface MarketManifest {\n    readonly formatVersion: 1;\n    readonly kind: \'bot\' | \'skill\';\n    readonly name: string;\n    readonly title: string;\n    readonly description: string;\n    readonly version: string;\n    readonly license: string;\n    readonly category: string;\n    readonly examples: readonly string[];\n    readonly requirements: readonly string[];\n    readonly skills: readonly MarketSkill[];\n    readonly plugins?: readonly MarketPlugin[];\n    readonly portrait?: MarketPortrait;\n    readonly presetPortrait?: MarketPresetPortraitId;\n}',
   },
   {
     name: 'MarketPlugin',
     declaration: 'export interface MarketPlugin {\n    readonly name: string;\n    readonly config?: Readonly<Record<string, JsonValue>> | readonly MarketPlugin[];\n    readonly disabled?: boolean;\n    readonly group?: boolean;\n}',
+  },
+  {
+    name: 'MarketPortrait',
+    declaration: 'export type MarketPortrait = \'storyboard-director\' | \'screenplay-editor\';',
+  },
+  {
+    name: 'MarketPresetPortraitId',
+    declaration: 'export type MarketPresetPortraitId = typeof marketPresetPortraitIds[number];',
   },
   {
     name: 'MarketPublisherId',

@@ -6,11 +6,14 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { join } from 'node:path'
 import { MuseMarketCloud } from './cloud.ts'
 import { MuseMarketLocal } from './local.ts'
+import { bindMarketPortrait } from './format.ts'
 import { MarketError, marketDigest, marketManifest, createMarketPackage, readMarketPackage } from './package.ts'
 import { collectMarketSkills, marketPresetRows } from './author.ts'
 import { createMarketSkillProvider } from './skills.ts'
-import type { MarketInstallation, MarketLimits, MarketManifest, MarketRelease, MarketReleaseId, MarketPublisherId } from './types.ts'
-import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import { createLegacyBotPackage, legacyBotCompatibility } from './legacy-bot.ts'
+import { createLegacySkillPackage } from './legacy-skill.ts'
+import type { MarketInstallation, MarketLegacyResource, MarketLimits, MarketManifest, MarketPresetPortraitId, MarketRelease, MarketReleaseId, MarketPublisherId } from './types.ts'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { SkillProvider } from '@deepseek-ai/dsh-skill'
 
 export type * from './types.ts'
@@ -85,7 +88,7 @@ export default class MuseMarket extends TypertRemoteService {
 
   async [Service.init](): Promise<void> {
     await this.local.ready()
-    for (const installed of await this.local.list()) if (installed.enabled && installed.release.manifest.kind === 'bot') await this.activate(installed.release)
+    for (const installed of await this.local.list()) if (installed.enabled && installed.release.manifest.kind === 'bot') await this.activate(installed, true)
     this.ctx.on('agent/created', async ({ agent }) => {
       const id = this.ctx.agentPresets.composedPreset(agent.ctx)
       const installed = await this.local.list()
@@ -134,18 +137,39 @@ export default class MuseMarket extends TypertRemoteService {
     })
   }
 
-  private async activate(release: MarketRelease): Promise<void> {
+  private legacyComposition(source: NonNullable<MarketInstallation['legacySource']>, rows: PresetDefinition['plugins']): PresetDefinition['plugins'] {
+    const compatibility = legacyBotCompatibility(source)
+    if (!compatibility) throw new MarketError('legacy-not-supported')
+    const productRows = this.ctx.agentPresets.presetPlugins(compatibility.preset)
+    if (!productRows) throw new MarketError('legacy-not-supported')
+    const { provider } = compatibility
+    const toolSkill = '@deepseek-ai/dsh-tool-skill'
+    const hasSkillLoader = productRows.some(row => row.name === toolSkill && row.disabled !== true)
+    const native = productRows.filter(row => row.name !== '@deepseek-ai/dsh-persona').map((row) => {
+      if (provider === undefined || row.id !== 'delegation' || row.group !== true || !Array.isArray(row.config)) return row
+      const delegates: PresetDefinition['plugins'] = row.config
+      return { ...row, config: delegates.map(delegate => delegate.id === `tool-subagent-${provider}`
+        && delegate.name === '@deepseek-ai/dsh-tool-subagent' ? { ...delegate, disabled: false } : delegate) }
+    })
+    return [...rows.filter(row => row.name !== toolSkill || !hasSkillLoader), ...native]
+  }
+
+  private async activate(installation: MarketInstallation, restoring = false): Promise<void> {
+    const { release, legacySource } = installation
     if (this.activations.has(release.id)) return
     await this.local.verify(release)
-    const rows = [...(release.manifest.plugins ?? [])]
+    const rows: PresetDefinition['plugins'][number][] = [...(release.manifest.plugins ?? [])]
     if (release.manifest.skills.length) rows.push({ name: '@deepseek-ai/dsh-muse-market/bot-skills', config: { releaseId: release.id } })
+    const resolvePlugins = legacySource === undefined ? undefined : () => this.legacyComposition(legacySource, rows)
+    // The restored market row can start before Desktop registers its native presets.
+    const plugins = restoring ? rows : resolvePlugins?.() ?? rows
     const presetId = this.presetId(release)
     const selectable = this.ctx.agentPresets.config.selectablePresets
     const addedToRoster = selectable !== undefined && !selectable.includes(presetId)
     if (addedToRoster) this.ctx.agentPresets.config.selectablePresets = [...selectable, presetId]
     try {
       const dispose = await this.ctx.agentPresets.register({ id: presetId, name: `${release.manifest.title} ${release.manifest.version}`,
-        description: release.manifest.description, activation: 'on-demand', plugins: rows })
+        description: release.manifest.description, activation: 'on-demand', plugins }, restoring ? resolvePlugins : undefined)
       this.activations.set(release.id, async () => {
         try { await dispose() }
         finally {
@@ -183,6 +207,16 @@ export default class MuseMarket extends TypertRemoteService {
   @Remote('catalog')
   async catalog(q: string, kind: string, mine: boolean): Promise<MarketRelease[]> {
     return await this.serial(() => this.cloud.list(q, kind, mine))
+  }
+
+  /** List the original public Bot and Skill distributions for discovery.
+   * @param query Search text.
+   * @param kind Optional Bot or Skill filter. An empty string includes both.
+   * @returns Matching metadata and original download links.
+   */
+  @Remote('legacyCatalog')
+  async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]> {
+    return await this.serial(() => this.cloud.legacyCatalog(query, kind))
   }
 
   /** Read signed-in publisher membership and administrator status.
@@ -250,6 +284,29 @@ export default class MuseMarket extends TypertRemoteService {
     })
   }
 
+  /** Download and adapt a public original distribution into a disabled local installation.
+   * @param id Original catalog identity.
+   * @param sha256 Original digest selected by the user.
+   * @returns Verified installation and original source identity. A repeat retains its existing activation state.
+   */
+  @Remote('installLegacy')
+  async installLegacy(id: string, sha256: string): Promise<MarketInstallation> {
+    return await this.serial(async () => {
+      const { resource, archive } = await this.cloud.downloadLegacy(id, sha256)
+      const installation = (await this.local.list()).find(item => item.legacySource?.id === id && item.legacySource.sha256 === sha256)
+      if (installation) {
+        await this.local.verify(installation.release)
+        return installation
+      }
+      const adapt = resource.kind === 'bot' ? createLegacyBotPackage : createLegacySkillPackage
+      const converted = adapt(resource, archive, this.limits, this.config.allowedPlugins)
+      const { manifest } = readMarketPackage(converted, this.limits, this.config.allowedPlugins)
+      return await this.local.install({ id: sha256 as MarketReleaseId, publisherId: '0000000000000000' as MarketPublisherId,
+        publisher: 'Muse', manifest, sha256: marketDigest(converted), bytes: converted.byteLength, status: 'published', reviewNote: '',
+        revision: 1, createdAt: new Date().toISOString() }, converted, { id, sha256 })
+    })
+  }
+
   /** Import an explicitly selected local publication without uploading it.
    * @param base64 Complete publication archive encoded by the local file picker.
    * @returns The disabled local installation.
@@ -289,7 +346,7 @@ export default class MuseMarket extends TypertRemoteService {
       const result = await this.local.enable(id, enabled)
       if (result.release.manifest.kind !== 'bot') return result
       if (enabled) {
-        try { await this.activate(result.release) }
+        try { await this.activate(result) }
         catch (error) {
           await this.local.enable(id, previous.enabled)
           throw error
@@ -308,7 +365,7 @@ export default class MuseMarket extends TypertRemoteService {
       this.activations.delete(id)
       if (this.selectionInFlight(id)) {
         await this.local.enable(id, previous.enabled)
-        await this.activate(result.release)
+        await this.activate(previous)
         throw new MarketError('release-in-use', 409)
       }
       return result
@@ -336,6 +393,7 @@ export default class MuseMarket extends TypertRemoteService {
     return await this.serial(async () => {
       const item = (await this.local.list()).find(row => row.release.id === id)
       if (!item) throw new MarketError('not-installed', 404)
+      if (item.legacySource) throw new MarketError('legacy-not-exportable', 403)
       return { name: `${item.release.manifest.name}-${item.release.manifest.version}.zip`, base64: Buffer.from(await this.local.verify(item.release)).toString('base64') }
     })
   }
@@ -344,14 +402,22 @@ export default class MuseMarket extends TypertRemoteService {
    * @param id Installed release identity.
    * @param publisherId Explicitly selected publisher.
    * @param requestId Stable upload idempotency key.
+   * @param presetPortrait Automatic portrait for a Bot whose archive has no portrait binding.
    * @returns The cloud draft; public submission is a separate action.
    */
   @Remote('publishDraft')
-  async publishDraft(id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string): Promise<MarketRelease> {
+  async publishDraft(
+    id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string, presetPortrait?: MarketPresetPortraitId,
+  ): Promise<MarketRelease> {
     return await this.serial(async () => {
       const item = (await this.local.list()).find(row => row.release.id === id)
       if (!item) throw new MarketError('not-installed', 404)
-      return await this.cloud.upload(publisherId, requestId, await this.local.verify(item.release))
+      if (item.legacySource) throw new MarketError('legacy-not-publishable', 403)
+      const archive = await this.local.verify(item.release)
+      const manifest = item.release.manifest
+      const upload = presetPortrait && manifest.kind === 'bot' && !manifest.presetPortrait && !manifest.portrait
+        ? bindMarketPortrait(archive, presetPortrait, this.limits, this.config.allowedPlugins) : archive
+      return await this.cloud.upload(publisherId, requestId, upload)
     })
   }
 

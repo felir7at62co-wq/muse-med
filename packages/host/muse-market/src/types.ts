@@ -77,6 +77,20 @@ export interface MarketRelease {
   readonly revision: number
   readonly createdAt: string
 }
+/** Original distribution metadata used for discovery and manual download. */
+export interface MarketLegacyResource {
+  readonly id: string
+  readonly kind: 'bot' | 'skill'
+  readonly title: string
+  readonly description: string
+  readonly category: string
+  readonly version: string
+  readonly requirements: readonly string[]
+  readonly requiredSkills: readonly string[]
+  readonly validation: string
+  readonly sha256: string
+  readonly href: string
+}
 /** A cloud-authenticated account; never constructed from request JSON. */
 export interface MarketActor {
   readonly id: string
@@ -87,4 +101,6 @@ export interface MarketActor {
 export interface MarketInstallation {
   readonly release: MarketRelease
   readonly enabled: boolean
+  /** Original distribution identity before conversion to a local publication. */
+  readonly legacySource?: Pick<MarketLegacyResource, 'id' | 'sha256'>
 }

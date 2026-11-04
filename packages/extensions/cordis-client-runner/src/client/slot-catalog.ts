@@ -1763,6 +1763,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [
       'client-ui-conversation ConversationPanel key \'conversation\'',
       'client-ui-muse-account MarketPage',
+      'client-ui-muse-account MarketCreatorPanel',
       'client-ui-plugin-manager PluginManagerPage',
       'client-ui-schedule TaskManagerPage',
     ],

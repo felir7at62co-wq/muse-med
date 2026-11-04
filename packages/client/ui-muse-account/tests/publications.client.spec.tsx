@@ -15,11 +15,11 @@ function harness() {
   const catalog = vi.fn(async () => [draft])
   const review = vi.fn(async (): Promise<MarketRelease> => ({ ...draft, status: 'pending', revision: 2 }))
   const unavailable = async (): Promise<never> => { throw new Error('not-used') }
-  const actions: MarketSectionProps['actions'] = { catalog, review, installed: async () => [], sources: unavailable,
-    identity: unavailable, install: unavailable, enable: unavailable, remove: unavailable, prepare: unavailable,
+  const actions: MarketSectionProps['actions'] = { catalog, review, legacyCatalog: unavailable, installed: async () => [], sources: unavailable,
+    identity: unavailable, install: unavailable, installLegacy: unavailable, enable: unavailable, remove: unavailable, prepare: unavailable,
     importPackage: unavailable, exportPackage: unavailable, publishDraft: unavailable }
   const props = { actions,
-    publishers: [{ id: draft.publisherId, title: draft.publisher }], admin: false, refreshKey: 0,
+    publishers: [{ id: draft.publisherId, title: draft.publisher }], admin: false,
     reportOutcome: vi.fn(), onDetails: vi.fn(), onDownload: vi.fn(), localBusy: false, t: (key: string) => key }
   return { catalog, review, props }
 }

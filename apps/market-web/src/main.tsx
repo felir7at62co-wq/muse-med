@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { Button, IconWarningOutlineRegular, StateDot, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import { MarketPage } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/MarketPage.tsx'
+import { MarketCreatorPanel, MarketPage } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/MarketPage.tsx'
 import type { MarketSectionProps } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/MarketSection.tsx'
 import { marketZh, type MarketLocaleKey } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/market-locales.ts'
 import { createMarketBrowserClient, marketWebConfig, readMarketBody, type MarketBrowserClient } from './api.ts'
@@ -16,6 +16,7 @@ import '../../../packages/client/ui-theme/src/styles/focus.css'
 import './market-web.css'
 
 const dictionary = { ...commonZh, ...marketZh }
+const managementPath = '/market/manage'
 const t: MarketSectionProps['t'] = (key, args) => {
   let copy: string = dictionary[key]
   for (const [name, value] of Object.entries(args ?? {})) copy = copy.replaceAll('{' + name + '}', String(value))
@@ -27,6 +28,11 @@ function Website() {
   const [failed, setFailed] = useState(false)
   const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [outcome, setOutcome] = useState<{ key: MarketLocaleKey; failed: boolean; sequence: number }>()
+  const managing = window.location.pathname === managementPath
+  const uploading = managing && new URLSearchParams(window.location.search).get('view') === 'upload'
+  const reportOutcome: MarketSectionProps['reportOutcome'] = (key, isFailure) => {
+    setOutcome(previous => ({ key, failed: isFailure, sequence: (previous?.sequence ?? 0) + 1 }))
+  }
   useEffect(() => { document.body.toggleAttribute('data-ds-dark-theme', dark) }, [dark])
   useEffect(() => {
     const controller = new AbortController(); let active: MarketBrowserClient | undefined
@@ -49,10 +55,11 @@ function Website() {
   return <div className="market-web-shell">
     <div className="market-web-tools"><a href="/workbench">{t('browserWorkbench')}</a>
       <Button size="sm" variant="ghost" onClick={() => { setDark(value => !value) }}>{t(dark ? 'lightTheme' : 'darkTheme')}</Button></div>
-    {client ? <MarketPage mode="web" actions={client.actions} initialView={window.location.pathname.endsWith('/manage') ? 'publish' : 'discover'} t={t}
-      reportOutcome={(key, isFailure) => {
-        setOutcome(previous => ({ key, failed: isFailure, sequence: (previous?.sequence ?? 0) + 1 }))
-      }} />
+    {client ? (uploading
+      ? <MarketCreatorPanel mode="web" actions={client.actions} getInitialKind={() => 'upload'} t={t} reportOutcome={reportOutcome}
+        onBack={() => { window.location.assign(managementPath) }} />
+      : <MarketPage mode="web" actions={client.actions} initialView={managing ? 'publish' : 'discover'} t={t}
+        reportOutcome={reportOutcome} onOpenCreator={() => { window.location.assign(`${managementPath}?view=upload`) }} />)
       : <div className="market-web-error">{failed ? <><p role="alert">{t('error.market-unavailable')}</p>
         <Button onClick={() => { window.location.reload() }}>{t('retry')}</Button></> : <div role="status" aria-label={t('loading')}><StateDot state="ongoing" /></div>}</div>}
     {outcome && (outcome.failed

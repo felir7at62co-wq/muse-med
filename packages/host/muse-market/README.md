@@ -31,6 +31,10 @@ The `./cloud-host` plugin uses a dedicated loopback `webServer` and an absolute 
 
 The generated Client Remote exposes downloads as `museMarket.installPackage(id)` and removal as `museMarket.removePackage(id)`. Host-local calls remain `ctx.museMarket.install(id)` and `ctx.museMarket.remove(id)`. The wire aliases avoid the Client Remote namespace's internal lifecycle methods; they do not change installation state or removal checks.
 
+Desktop discovery reads the original public Bot and Skill catalog from `baseUrl`. `installLegacy(id, sha256)` fetches the selected archive anonymously, checks its SHA-256 against the current catalog and creates a disabled local installation. The ledger keeps the original catalog identity and digest alongside the verified local package. Repeating the same import preserves enablement. The catalog also links to the original downloads. Converted packages are available for local use, and the Host rejects publication and export of those converted packages.
+
+Original Skills keep their invocation names and resources. The three Office Skills keep their shared helper in each Skill's directory and use an updated relative path in their instructions. Original Bots are matched against an audited list of archive digests. Their personas run with the current Desktop presets and installed tools. Codex and Claude Code delegation still requires the corresponding local provider. Legacy Bot archive expressions and installation scripts never run through market import.
+
 <a id="publication-and-recovery"></a>
 ## Publication and recovery
 
@@ -38,9 +42,9 @@ Both content kinds use a ZIP publication with `muse-package.json`, complete mani
 
 When a Bot declares `@deepseek-ai/dsh-tool-skill`, its configuration must explicitly set `scopedCatalogOwner: true`, including inside groups. Otherwise the shared cloud/local manifest validator rejects the package: an unmarked child loader would lose its catalog to the Host loader. This requirement does not set `catalogSourceLimits` or rewrite the author's configuration.
 
-A Bot manifest can bind a built-in market portrait by identifier. New library selections use the optional `presetPortrait` field. Older clients retain support for the original `portrait` field. Skill manifests cannot bind Bot portraits.
+A Bot manifest can bind a built-in market portrait by identifier. The `presetPortrait` field supports the full portrait library. The original `portrait` field remains supported. Skill manifests cannot bind Bot portraits.
 
-Preparation reads only selected Skill directories and a selected Bot declaration. Unsupported local configuration fails instead of being silently omitted. Export is local; draft upload is explicit; submission and public approval are separate revision-checked actions. A publisher/name/version tuple is immutable, including rejected drafts. Upload retries retain their idempotency key. A built-in portrait selected during Desktop Bot preparation is included in the exported archive and the private draft upload. Public listing excludes drafts, rejected releases and withdrawn releases; downloads require login.
+Preparation reads only selected Skill directories and a selected Bot declaration. Unsupported local configuration fails instead of being silently omitted. Export is local; draft upload is explicit; submission and public approval are separate revision-checked actions. A publisher/name/version tuple is immutable, including rejected drafts. Upload retries retain their idempotency key. Desktop Bot preparation includes the automatically matched portrait in its export and draft upload. When uploading an imported Bot archive, the Host binds the automatic match to the uploaded copy if the archive has no portrait. Public listing excludes drafts, rejected releases and withdrawn releases. Versioned publication downloads require login.
 
 Local files are stored by digest. The versioned installation ledger retains enablement and session references. Each Bot release receives its own `market-<release-id>` preset ID and activates on first binding. Independent Skills are pinned to each session in the local ledger and registered in its scope. Disabling a Skill changes new sessions; existing sessions retain their selected version. Referenced releases cannot be removed; referenced Bots cannot be disabled. Recovery requires the original market root and cached files. The market ledger adds no Session header fields and must be backed up with local Sessions. Cloud SQLite uses a monotonic schema version and an independent data root outside the release.
 

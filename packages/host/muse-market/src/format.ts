@@ -1,10 +1,11 @@
 /** Browser-portable publication metadata validation and bounded ZIP preview. */
 import { unzipSync, zipSync } from 'fflate'
 import { parseDocument } from 'yaml'
-import { marketPresetPortraitIds, type MarketLimits, type MarketManifest, type MarketPlugin, type MarketPortrait, type MarketPresetPortraitId, type MarketRelease } from './types.ts'
+import { marketPresetPortraitIds, type MarketLegacyResource, type MarketLimits, type MarketManifest, type MarketPlugin, type MarketPortrait, type MarketPresetPortraitId, type MarketRelease } from './types.ts'
 
 const namePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/
+const legacyIdPattern = /^muse\/(?:bots|skills)\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 const reservedPlugins = new Set(['@deepseek-ai/dsh-skill-filesystem', '@deepseek-ai/dsh-muse-market/bot-skills'])
 
 const marketPresetPortraits = new Set<unknown>(marketPresetPortraitIds)
@@ -29,6 +30,57 @@ export class MarketError extends Error {
 export function marketRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+/** Recognize the identity of a resource in the original Muse catalog.
+ * @param value Untrusted catalog identity.
+ * @returns Whether the identity is a Muse Bot or Skill path.
+ */
+export function marketLegacyId(value: unknown): value is string {
+  return typeof value === 'string' && legacyIdPattern.test(value)
+}
+
+function legacyResource(value: unknown, origin: string): MarketLegacyResource {
+  if (!marketRecord(value) || (value.kind !== 'bot' && value.kind !== 'skill')
+    || !marketLegacyId(value.id)
+    || !value.id.startsWith(`muse/${value.kind}s/`)
+    || typeof value.name !== 'string' || typeof value.description !== 'string'
+    || typeof value.category !== 'string' || typeof value.version !== 'string'
+    || typeof value.validation !== 'string'
+    || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)
+    || typeof value.package !== 'string' || !/^downloads\/[a-zA-Z0-9._-]+\.(?:zip|tgz)$/.test(value.package)
+    || !value.package.endsWith(value.kind === 'bot' ? '.tgz' : '.zip')
+    || !Array.isArray(value.requirements) || !value.requirements.every((item: unknown): item is string => typeof item === 'string')) {
+    throw new MarketError('invalid-response')
+  }
+  const requiredSkills: unknown = value.requiredSkills ?? []
+  if (!Array.isArray(requiredSkills) || !requiredSkills.every((item: unknown): item is string => typeof item === 'string')) {
+    throw new MarketError('invalid-response')
+  }
+  return {
+    id: value.id, kind: value.kind, title: value.name, description: value.description, category: value.category,
+    version: value.version, requirements: value.requirements, requiredSkills, validation: value.validation,
+    sha256: value.sha256, href: `${origin}/market/${value.package}`,
+  }
+}
+
+/** Validate and filter the original public market catalog for discovery.
+ * @param value Untrusted catalog JSON.
+ * @param query Search words matched against titles, descriptions and categories.
+ * @param kind Optional Bot or Skill filter. An empty string includes both.
+ * @param origin Validated cloud origin for Desktop download links. Omit for same-origin website links.
+ * @returns Matching original resources with download links confined to the market's download directory.
+ */
+export function marketLegacyCatalog(value: unknown, query: string, kind: string, origin = ''): MarketLegacyResource[] {
+  if (!marketRecord(value) || !Array.isArray(value.entries) || value.entries.length > 500) throw new MarketError('invalid-response')
+  const entries = value.entries.map((entry: unknown) => legacyResource(entry, origin))
+  if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new MarketError('invalid-response')
+  const words = query.toLowerCase().trim().split(/\s+/)
+  return entries.filter((entry) => {
+    const searchable = [entry.title, entry.description, entry.category].join(' ').toLowerCase()
+    return (!kind || kind === entry.kind) && words.every(word => searchable.includes(word))
+  })
+}
+
 function text(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !value.includes('\0')
 }

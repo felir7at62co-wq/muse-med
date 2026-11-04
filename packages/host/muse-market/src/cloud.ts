@@ -1,7 +1,8 @@
 /** Account-bound market transport; cookies never leave the Host. */
 import { readMuseSession } from '@deepseek-ai/dsh-muse-account/session'
-import { MarketError, marketRelease } from './package.ts'
-import type { MarketRelease } from './types.ts'
+import { MarketError, marketLegacyCatalog, marketLegacyId, marketRelease } from './format.ts'
+import { marketDigest } from './package.ts'
+import type { MarketLegacyResource, MarketRelease } from './types.ts'
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -29,14 +30,14 @@ export class MuseMarketCloud {
     this.origin = url.origin
   }
 
-  private async bytes(path: string, init: RequestInit, maximum: number, authenticated: boolean): Promise<Uint8Array> {
+  private async bytes(path: string, init: RequestInit, maximum: number, access: 'required' | 'optional' | 'anonymous'): Promise<Uint8Array> {
     const work = (async () => {
-      const session = await readMuseSession(this.config.sessionFile, this.origin)
-      if (authenticated && !session) throw new MarketError('login-required', 401)
+      const session = access === 'anonymous' ? null : await readMuseSession(this.config.sessionFile, this.origin)
+      if (access === 'required' && !session) throw new MarketError('login-required', 401)
       const headers = new Headers(init.headers)
       headers.set('origin', this.origin)
       if (session) headers.set('cookie', session.cookie)
-      const response = await fetch(this.origin + '/api/market/v1' + path, {
+      const response = await fetch(this.origin + path, {
         ...init, redirect: 'manual', signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.config.requestTimeoutMs)]),
         headers,
       })
@@ -65,7 +66,7 @@ export class MuseMarketCloud {
   }
 
   private async json(path: string, init: RequestInit, authenticated = true): Promise<unknown> {
-    const bytes = await this.bytes(path, init, Math.max(1024 * 1024, this.config.archiveBytes), authenticated)
+    const bytes = await this.bytes('/api/market/v1' + path, init, Math.max(1024 * 1024, this.config.archiveBytes), authenticated ? 'required' : 'optional')
     try { return JSON.parse(Buffer.from(bytes).toString('utf8')) } catch { throw new MarketError('invalid-response') }
   }
 
@@ -79,6 +80,34 @@ export class MuseMarketCloud {
     const value = await this.json('/catalog?' + new URLSearchParams({ q, kind, mine: String(mine) }).toString(), {}, mine)
     if (!value || typeof value !== 'object' || !('items' in value) || !Array.isArray(value.items)) throw new MarketError('invalid-response')
     return value.items.map(item => marketRelease(item, this.config.allowedPlugins))
+  }
+
+  /** Read the original public distributions without account credentials.
+   * @param query Search text.
+   * @param kind Optional Bot or Skill filter. An empty string includes both.
+   * @returns Validated metadata and original download links on the configured cloud origin.
+   */
+  async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]> {
+    const bytes = await this.bytes('/market/catalog.json', {}, 1024 * 1024, 'anonymous')
+    let value: unknown
+    try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
+    catch { throw new MarketError('invalid-response') }
+    return marketLegacyCatalog(value, query, kind, this.origin)
+  }
+
+  /** Download the exact original archive advertised by the current public catalog.
+   * @param id Original catalog identity.
+   * @param sha256 Digest displayed when the user selected the resource.
+   * @returns Catalog metadata and the verified original archive.
+   */
+  async downloadLegacy(id: string, sha256: string): Promise<{ resource: MarketLegacyResource; archive: Uint8Array }> {
+    if (!marketLegacyId(id) || !/^[a-f0-9]{64}$/.test(sha256)) throw new MarketError('invalid-release')
+    const resource = (await this.legacyCatalog('', '')).find(row => row.id === id)
+    if (!resource) throw new MarketError('legacy-not-found', 404)
+    if (resource.sha256 !== sha256) throw new MarketError('legacy-catalog-changed', 409)
+    const archive = await this.bytes(new URL(resource.href).pathname, {}, this.config.archiveBytes, 'anonymous')
+    if (marketDigest(archive) !== sha256) throw new MarketError('digest-mismatch')
+    return { resource, archive }
   }
 
   /** Read the signed-in creator's admitted teams and administrator status.
@@ -104,7 +133,7 @@ export class MuseMarketCloud {
   async download(id: string): Promise<{ release: MarketRelease; archive: Uint8Array }> {
     if (!/^[a-f0-9]{32,64}$/.test(id)) throw new MarketError('invalid-release')
     const release = marketRelease(await this.json(`/releases/${id}`, {}), this.config.allowedPlugins)
-    const archive = await this.bytes(`/releases/${id}/download`, {}, this.config.archiveBytes, true)
+    const archive = await this.bytes(`/api/market/v1/releases/${id}/download`, {}, this.config.archiveBytes, 'required')
     return { release, archive }
   }
 

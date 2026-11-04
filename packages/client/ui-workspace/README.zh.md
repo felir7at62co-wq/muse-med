@@ -31,7 +31,7 @@ kind: "package-reference"
 
 未保存标题的历史会话显示本地化名称「未命名 / Untitled」，不使用目录名兜底。当前空会话仍显示「新会话」，其他空会话仍隐藏。重命名草稿使用已保存标题，无标题时留空；无标题行不提供标题复制。
 
-客户端插件可通过 `uiWorkspace.startPresetSession` 在当前或最近使用的 Workspace 中打开绑定指定 Agent 预设的新 Session。调用前须有一个已注册的 Workspace。产品界面也可通过自身的导航打开已创建的 Session。
+客户端插件可通过 `uiWorkspace.startPresetSession` 在当前或最近使用的 Workspace 中打开绑定指定 Agent 预设的新 Session。调用前须有一个已注册的 Workspace。传入的可选标题会在导航前保存到新 Session。产品界面也可通过自身的导航打开已命名的 Session。
 
 ### 重排序与视图选项
 

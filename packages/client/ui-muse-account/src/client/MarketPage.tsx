@@ -7,6 +7,7 @@ import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-setti
 import { Button, IconGlobeOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MuseBotMarketNavigation } from './market-mount.ts'
 import { MarketSection, type MarketSectionProps } from './MarketSection.tsx'
+import { MarketCreatorPage, type MarketCreatorKind, type MarketCreatorPageProps } from './MarketCreatorPage.tsx'
 import css from './MarketPage.module.css'
 
 /** Render the market in the shell's scrollable central panel.
@@ -15,6 +16,17 @@ import css from './MarketPage.module.css'
  */
 export function MarketPage(props: MarketSectionProps): ReactNode {
   return <div className={css.page}><div className={css.content}><MarketSection {...props} /></div></div>
+}
+
+/** Render creation and upload in a separate scrollable market page.
+ * @param props Creator operations, navigation and localized copy.
+ * @returns Dedicated creator page.
+ */
+export function MarketCreatorPanel(
+  { getInitialKind, ...props }: MarketCreatorPageProps & { getInitialKind: () => MarketCreatorKind },
+): ReactNode {
+  const initialKind = getInitialKind()
+  return <div className={css.page}><div className={css.content}><MarketCreatorPage {...props} initialKind={initialKind} /></div></div>
 }
 
 /** Render the market's existing-library glyph; the sidebar supplies the label.

@@ -5,13 +5,14 @@ import marketRemote from '@deepseek-ai/dsh-muse-market/remote'
 import type MuseMarket from '@deepseek-ai/dsh-muse-market'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { MarketBotModeLink, MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
+import { MarketBotModeLink, MarketCreatorPanel, MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
+import type { MarketCreatorKind } from './MarketCreatorPage.tsx'
 import type { MarketSectionProps } from './MarketSection.tsx'
 import { createMarketFeedback, MarketFeedbackOverlay } from './market-feedback.tsx'
 import { marketZh, marketEn, type MarketLocaleKey } from './market-locales.ts'
 
 /** Market actions available to the page through the authenticated Host. */
-export type MarketActions = Pick<MuseMarket, 'catalog' | 'installed' | 'identity' | 'sources' | 'install' | 'enable' | 'remove' | 'exportPackage' | 'importPackage' | 'prepare' | 'publishDraft' | 'review'>
+export type MarketActions = Pick<MuseMarket, 'catalog' | 'legacyCatalog' | 'installed' | 'identity' | 'sources' | 'install' | 'installLegacy' | 'enable' | 'remove' | 'exportPackage' | 'importPackage' | 'prepare' | 'publishDraft' | 'review'>
 
 /** Optional navigation supplied by the qualified Muse Bot client. */
 export interface MuseBotMarketNavigation {
@@ -51,25 +52,35 @@ export async function mountMuseMarket(ctx: Context): Promise<() => Promise<void>
       locale: 'settings.museMarket', inject: () => ({ hooks: feedback.hooks, dismiss: feedback.dismiss }) }, MarketFeedbackOverlay))
     const actions: MarketActions = {
       catalog: (...args) => value(calls.catalog(...args)),
+      legacyCatalog: (...args) => value(calls.legacyCatalog(...args)),
       installed: () => value(calls.installed()), identity: () => value(calls.identity()),
       sources: () => value(calls.sources()),
       install: (...args) => value(calls.installPackage(...args)), enable: (...args) => value(calls.enable(...args)),
+      installLegacy: (...args) => value(calls.installLegacy(...args)),
       remove: (...args) => value(calls.removePackage(...args)), exportPackage: (...args) => value(calls.exportPackage(...args)),
       importPackage: (...args) => value(calls.importPackage(...args)), prepare: (...args) => value(calls.prepare(...args)),
       publishDraft: (...args) => value(calls.publishDraft(...args)),
       review: (...args) => value(calls.review(...args)),
     }
     const panelId = 'muse-market' as MainPanelId
+    const creatorId = 'muse-market-creator' as MainPanelId
+    let initialKind: MarketCreatorKind = 'skill'
     const onOpen = (): void => { context.layout.selectPanel(panelId) }
+    const onOpenCreator = (kind: MarketCreatorKind): void => {
+      initialKind = kind
+      context.layout.selectPanel(creatorId)
+    }
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: panelId, locale: 'settings.museMarket',
       inject: () => {
         const workspace = context.get('uiWorkspace')
-        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? (id) => {
+        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? (id, title) => {
           const navigation = context.get('museBotMarketNavigation')
-          return workspace.startPresetSession(`market-${id}`, navigation?.openSession)
+          return workspace.startPresetSession(`market-${id}`, navigation?.openSession, title)
         } : undefined
-        return { actions, reportOutcome: feedback.report, ...(onRunBot ? { onRunBot } : {}) }
+        return { actions, reportOutcome: feedback.report, onOpenCreator, ...(onRunBot ? { onRunBot } : {}) }
       } }, MarketPage))
+    context.slots.inject('main', () => context.slots.register({ name: 'main', key: creatorId, locale: 'settings.museMarket',
+      inject: () => ({ actions, reportOutcome: feedback.report, getInitialKind: () => initialKind, onBack: onOpen }) }, MarketCreatorPanel))
     context.slots.inject('sidebar.panellist', () => context.slots.register({ name: 'sidebar.panellist', id: panelId,
       order: 20, locale: 'settings.museMarket', label: () => t('nav') }, MarketPanelIcon))
     context.inject(['museBotMarketNavigation'], (scope) => {

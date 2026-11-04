@@ -232,6 +232,13 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
  */
 @Remote('catalog') async catalog(q: string, kind: string, mine: boolean): Promise<MarketRelease[]>
 
+/** List the original public Bot and Skill distributions for discovery.
+ * @param query Search text.
+ * @param kind Optional Bot or Skill filter. An empty string includes both.
+ * @returns Matching metadata and original download links.
+ */
+@Remote('legacyCatalog') async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]>
+
 /** Read signed-in publisher membership and administrator status.
  * @returns Account-safe publication privileges.
  */
@@ -259,7 +266,14 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
  * @param id Selected cloud release identity.
  * @returns Verified local installation.
  */
-@Remote('install') async install(id: MarketReleaseId): Promise<MarketInstallation>
+@Remote('installPackage') async install(id: MarketReleaseId): Promise<MarketInstallation>
+
+/** Download and adapt a public original distribution into a disabled local installation.
+ * @param id Original catalog identity.
+ * @param sha256 Original digest selected by the user.
+ * @returns Verified installation and original source identity. A repeat retains its existing activation state.
+ */
+@Remote('installLegacy') async installLegacy(id: string, sha256: string): Promise<MarketInstallation>
 
 /** Import an explicitly selected local publication without uploading it.
  * @param base64 Complete publication archive encoded by the local file picker.
@@ -278,7 +292,7 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
  * @param id Installed release identity.
  * @returns Completion after the ledger update.
  */
-@Remote('remove') async remove(id: MarketReleaseId): Promise<void>
+@Remote('removePackage') async remove(id: MarketReleaseId): Promise<void>
 
 /** Export exact local publication bytes to a user-requested download.
  * @param id Installed release identity.
@@ -290,9 +304,10 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
  * @param id Installed release identity.
  * @param publisherId Explicitly selected publisher.
  * @param requestId Stable upload idempotency key.
+ * @param presetPortrait Automatic portrait for a Bot whose archive has no portrait binding.
  * @returns The cloud draft; public submission is a separate action.
  */
-@Remote('publishDraft') async publishDraft(id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string): Promise<MarketRelease>
+@Remote('publishDraft') async publishDraft( id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string, presetPortrait?: MarketPresetPortraitId, ): Promise<MarketRelease>
 
 /** Submit a draft, review it, or withdraw a publication using the current revision.
  * @param id Cloud release identity.

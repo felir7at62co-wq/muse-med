@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { MarketCreatorPanel } from '../src/client/MarketPage.tsx'
 import { MarketSection } from '../src/client/MarketSection.tsx'
 import { MarketBrowserUpload } from '../src/client/MarketBrowserUpload.tsx'
 import type { MarketWebActions } from '../src/client/market-web-types.ts'
@@ -11,6 +12,7 @@ function fixture() {
   const release = { ...marketFixture[0]!, status: 'draft' as const }
   const actions = {
     archiveBytes: 1048576,
+    legacyCatalog: vi.fn<MarketWebActions['legacyCatalog']>(async () => []),
     catalog: vi.fn<MarketWebActions['catalog']>(async (_q, _kind, mine) => mine ? [release] : []),
     identity: vi.fn<MarketWebActions['identity']>(async () => ({ publishers: [{ id: release.publisherId, title: release.publisher }], admin: false })),
     review: vi.fn<MarketWebActions['review']>(async () => ({ ...release, status: 'pending', revision: 2 })),
@@ -18,7 +20,7 @@ function fixture() {
     uploadArchive: vi.fn<MarketWebActions['uploadArchive']>(async () => release),
     downloadArchive: vi.fn<MarketWebActions['downloadArchive']>(async () => ({ name: 'bot.zip', bytes: new Uint8Array([1, 2]) })),
   } satisfies MarketWebActions
-  return { release, actions, reportOutcome: vi.fn(), t: (key: string) => key }
+  return { release, actions, reportOutcome: vi.fn(), onOpenCreator: vi.fn(), t: (key: string) => key }
 }
 function file(bytes: Uint8Array, name = 'bot.zip'): File {
   const value = new File([Uint8Array.from(bytes)], name, { type: 'application/zip' })
@@ -34,7 +36,21 @@ it('opens creator drafts directly for the authenticated web view without local i
   expect(screen.queryByRole('button', { name: 'installed' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'enable' })).toBeNull()
   expect(screen.getByRole('link', { name: 'browserAccount' }).getAttribute('href')).toBe('/account')
+  expect(screen.queryByLabelText('browserArchive')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'uploadEntry' }))
+  expect(f.onOpenCreator).toHaveBeenCalledOnce()
   expect(f.actions.uploadArchive).not.toHaveBeenCalled()
+})
+
+it('opens the standalone upload form independently of creator drafts', async () => {
+  const f = fixture(), onBack = vi.fn()
+  render(<MarketCreatorPanel mode="web" actions={f.actions} getInitialKind={() => 'upload'} t={f.t}
+    reportOutcome={f.reportOutcome} onBack={onBack} />)
+  expect(await screen.findByLabelText('browserArchive')).toBeDefined()
+  expect(screen.queryByText('publication.draft')).toBeNull()
+  expect(f.actions.catalog).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'creatorBack' }))
+  expect(onBack).toHaveBeenCalledOnce()
 })
 
 it('keeps public discovery usable for anonymous visitors and explains where private drafts appear', async () => {
@@ -46,6 +62,19 @@ it('keeps public discovery usable for anonymous visitors and explains where priv
   fireEvent.click(creator)
   expect(await screen.findByText('browserSignInHint')).toBeDefined()
   expect(f.actions.catalog).not.toHaveBeenCalledWith('', '', true)
+})
+
+it('offers the original archive download without installing it on the standalone market', async () => {
+  const f = fixture()
+  const href = 'https://muse.test/market/downloads/director.tgz'
+  f.actions.legacyCatalog.mockResolvedValue([{ id: 'muse/bots/storyboard-director-16-9', kind: 'bot', title: 'Original director',
+    description: 'Plan widescreen shots', category: 'script', version: '0.1.0', requirements: [], requiredSkills: [],
+    validation: '', sha256: 'd'.repeat(64), href }])
+  render(<MarketSection {...f} mode="web" />)
+  const original = await screen.findByRole('link', { name: 'legacyDownload' })
+  expect(original.getAttribute('href')).toBe(href)
+  expect(original.hasAttribute('download')).toBe(true)
+  expect(screen.queryByRole('button', { name: 'legacyImport' })).toBeNull()
 })
 
 it('starts a verified file download without claiming that the browser installed or enabled it', async () => {
@@ -111,7 +140,7 @@ it('discards stale local previews after selecting a different file', async () =>
   expect(screen.queryByText('Stale title')).toBeNull()
 })
 
-it('recommends a Bot portrait by purpose and uploads the portrait chosen in preview', async () => {
+it('automatically matches a Bot portrait by purpose and binds the previewed preset on upload', async () => {
   const f = fixture(), onUploaded = vi.fn()
   f.actions.previewArchive.mockResolvedValueOnce({
     ...f.release.manifest, name: 'film-color-grading', title: '电影调色师', category: '影视后期',
@@ -120,30 +149,26 @@ it('recommends a Bot portrait by purpose and uploads the portrait chosen in prev
   render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={onUploaded} />)
   const archive = new Uint8Array([4, 5, 6])
   fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(archive)] } })
-  const picker = await screen.findByRole('combobox', { name: 'releasePortrait' })
-  expect(picker).toHaveProperty('value', 'colorist')
-  const recommendedUrl = screen.getByRole('img', { name: '电影调色师' }).getAttribute('src')
-  expect(recommendedUrl).toBeTruthy()
+  const portrait = await screen.findByRole('img', { name: '电影调色师' })
+  expect(portrait.getAttribute('src')).toContain('colorist')
+  expect(screen.queryByRole('combobox', { name: 'releasePortrait' })).toBeNull()
   expect(f.actions.uploadArchive).not.toHaveBeenCalled()
-
-  fireEvent.change(picker, { target: { value: 'coding-assistant' } })
-  expect(picker).toHaveProperty('value', 'coding-assistant')
-  expect(screen.getByRole('img', { name: '电影调色师' }).getAttribute('src')).not.toBe(recommendedUrl)
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
-  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), 'coding-assistant')
+  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), 'colorist')
 })
 
-it('keeps a preset stored in a Bot archive when opening its upload preview', async () => {
+it('previews a Bot archive with its saved portrait and uploads the existing binding', async () => {
   const f = fixture(), onUploaded = vi.fn()
   f.actions.previewArchive.mockResolvedValueOnce({ ...f.release.manifest, presetPortrait: 'coding-assistant' })
   render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={onUploaded} />)
   const archive = new Uint8Array([7, 8, 9])
   fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(archive)] } })
-  expect(await screen.findByRole('combobox', { name: 'releasePortrait' })).toHaveProperty('value', 'coding-assistant')
+  const portrait = await screen.findByRole('img', { name: f.release.manifest.title })
+  expect(portrait.getAttribute('src')).toContain('coding-assistant')
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
-  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), 'coding-assistant')
+  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String))
 })
 
 it('uploads a Skill archive without selecting a Bot portrait', async () => {

@@ -1,0 +1,58 @@
+.guide {
+  --dsw-alias-button-primary-fill: var(--dsw-alias-market-accent-fill);
+  --dsw-alias-button-primary-hover: var(--dsw-alias-market-accent-hover);
+  --dsw-alias-label-primary-foreground: var(--dsw-alias-market-on-accent);
+  --dsw-focus-ring-color: var(--dsw-alias-market-accent-label);
+  width: min(460px, 100%);
+  max-block-size: 100%;
+}
+
+.content {
+  min-block-size: 0;
+  overflow: auto;
+}
+
+.lesson {
+  display: grid;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-market-surface);
+  color: var(--dsw-alias-market-accent-label);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.lesson h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 500;
+}
+
+.lesson p {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  justify-content: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  inline-size: 100%;
+}
+
+.skip {
+  margin-inline-end: auto;
+}

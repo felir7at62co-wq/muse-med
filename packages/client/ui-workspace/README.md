@@ -31,7 +31,7 @@ Use the sidebar to browse Workspaces and their Sessions, reorder them, and start
 
 History rows without a stored title use the localized unnamed label (未命名 / Untitled), rather than a directory name. The current blank row remains New Session; other blank rows remain hidden. Rename drafts use the stored title, or start empty when unnamed; unnamed rows do not offer title copying.
 
-Client plugins can use `uiWorkspace.startPresetSession` to open a fresh Session with a specified Agent preset in the current or most recent Workspace. The call requires an existing Workspace. A product surface can optionally present the created Session through its own navigation.
+Client plugins can use `uiWorkspace.startPresetSession` to open a fresh Session with a specified Agent preset in the current or most recent Workspace. The call requires an existing Workspace. An optional title is persisted on the created Session before navigation. A product surface can present the titled Session through its own navigation.
 
 ### Reordering and view options
 

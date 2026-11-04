@@ -190,6 +190,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   uiConversation: 'client-side Conversation registries and assembler — packages/client/ui-conversation/README.md owns the API',
   workspaceFileReferences: 'client-side workspace file reference commands — packages/client/ui-conversation/README.md owns the API',
   uiWorkspace: 'client-side Workspace navigation adapter — packages/client/ui-workspace/README.md owns the API',
+  museBotMarketNavigation: 'client-only Muse Bot navigation bridge owned by packages/client/ui-muse-account/src/client/market-mount.ts',
   settingsSchema: 'client-side schema introspection service — packages/client/ui-settings/README.md owns the API',
   configForms: 'client-side shared entry forms — packages/client/ui-settings/README.md owns the API',
   chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-chat/README.md owns the API',
@@ -859,8 +860,10 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MarketRelease: 'Cloud release records are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketLegacyResource: 'Original distribution records are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketInstallation: 'Local activation records are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketManifest: 'Portable publication metadata is owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketPresetPortraitId: 'Bot portrait identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketReleaseId: 'Immutable release identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketPublisherId: 'Authenticated publisher identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',

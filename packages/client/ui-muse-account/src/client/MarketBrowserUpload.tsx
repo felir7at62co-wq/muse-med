@@ -6,12 +6,13 @@ import type { MarketManifest, MarketRelease } from '@deepseek-ai/dsh-muse-market
 import type { MarketSectionProps } from './MarketSection.tsx'
 import type { MarketWebActions } from './market-web-types.ts'
 import { MarketCharacter } from './MarketCharacter.tsx'
+import { MarketSkillArtwork } from './MarketCatalogArtwork.tsx'
 import { boundMarketPresentation } from './market-stock-art.ts'
-import { findMarketPresetPortrait, marketPresetPortraits, matchMarketPresetPortrait } from './market-preset-portraits.ts'
+import { matchUnboundMarketPresetPortrait } from './market-preset-portraits.ts'
 import { marketFailure } from './market-errors.ts'
 import css from './MarketSection.module.css'
 
-/** Preview a selected archive, then upload exactly those bytes as a private draft.
+/** Preview a selected archive and upload a private draft with its displayed portrait.
  * @param props Browser callbacks, admitted publishing teams and confirmed-upload feedback.
  * @returns Upload form; selecting a file alone never contacts the upload endpoint.
  */
@@ -24,28 +25,24 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
 }): ReactNode {
   const [publisher, setPublisher] = useState(publishers[0]?.id ?? '')
   const [selection, setSelection] = useState<{ name: string; bytes: Uint8Array; manifest: MarketManifest }>()
-  const [portrait, setPortrait] = useState<MarketManifest['presetPortrait'] | MarketManifest['portrait']>()
   const [phase, setPhase] = useState<'idle' | 'reading' | 'uploading'>('idle')
   const [error, setError] = useState<Parameters<typeof t>[0]>()
   const operation = useRef<symbol | null>(null)
   const keys = useRef(new Map<string, string>())
   useEffect(() => {
     operation.current = null; keys.current.clear()
-    setSelection(undefined); setPortrait(undefined); setPhase('idle'); setError(undefined)
+    setSelection(undefined); setPhase('idle'); setError(undefined)
     return () => { operation.current = null }
   }, [actions])
   const read = async (file: File): Promise<void> => {
     const token = Symbol(); operation.current = token
-    keys.current.clear(); setSelection(undefined); setPortrait(undefined); setError(undefined); setPhase('reading')
+    keys.current.clear(); setSelection(undefined); setError(undefined); setPhase('reading')
     try {
       if (file.size > actions.archiveBytes) throw Error('archive-too-large')
       const bytes = new Uint8Array(await file.arrayBuffer())
       if (operation.current !== token) return
       const manifest = await actions.previewArchive(bytes)
       if (operation.current !== token) return
-      if (manifest.kind === 'bot') {
-        setPortrait(manifest.presetPortrait ?? manifest.portrait ?? matchMarketPresetPortrait(manifest).id)
-      }
       setSelection({ name: file.name, bytes, manifest })
     } catch (failure) {
       if (operation.current === token) setError(marketFailure(failure))
@@ -53,15 +50,16 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
       if (operation.current === token) { operation.current = null; setPhase('idle') }
     }
   }
+  const manifest = selection?.manifest
+  const autoPortrait = manifest && matchUnboundMarketPresetPortrait(manifest)
   const upload = async (): Promise<void> => {
     if (!selection || operation.current || !publishers.some(row => row.id === publisher)) return
     const token = Symbol(); operation.current = token; setPhase('uploading')
-    const choice = publisher + '/' + (portrait ?? '')
-    const key = keys.current.get(choice) ?? randomUUID()
-    keys.current.set(choice, key)
+    const key = keys.current.get(publisher) ?? randomUUID()
+    keys.current.set(publisher, key)
     try {
-      const release = portrait
-        ? await actions.uploadArchive(selection.bytes, publisher, key, portrait)
+      const release = autoPortrait
+        ? await actions.uploadArchive(selection.bytes, publisher, key, autoPortrait)
         : await actions.uploadArchive(selection.bytes, publisher, key)
       if (operation.current !== token) return
       keys.current.clear(); setSelection(undefined); setError(undefined)
@@ -73,7 +71,7 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
     }
   }
   const blocked = phase !== 'idle'
-  const selectedPresentation = selection && boundMarketPresentation(selection.manifest, portrait)
+  const selectedPresentation = manifest && boundMarketPresentation(manifest, autoPortrait)
   return <section className={css.browserUpload} aria-label={t('browserUploadTitle')}>
     <div><h3>{t('browserUploadTitle')}</h3><p>{t('browserUploadHint', { limit: String(actions.archiveBytes / 1024 / 1024) })}</p></div>
     <div className={css.authorLayout}><form className={css.form} onSubmit={(event) => { event.preventDefault(); void upload() }}>
@@ -90,23 +88,21 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
         <dt>{t('license')}</dt><dd>{selection.manifest.license}</dd><dt>{t('category')}</dt><dd>{selection.manifest.category}</dd>
         <dt>{t('sourceSkillsShort')}</dt><dd>{selection.manifest.skills.map(row => row.name).join(', ') || t('noSelectedSkills')}</dd>
       </dl><p>{selection.manifest.description}</p><p className={css.previewHint}>{t('browserPreviewHint')}</p></>}
-      {selection?.manifest.kind === 'bot' && <label className={css.field}>{t('releasePortrait')}
-        <select value={portrait ?? ''} disabled={blocked} onChange={(event) => {
-          const choice = event.target.value
-          if (choice === 'storyboard-director' || findMarketPresetPortrait(choice)) {
-            setPortrait(choice === 'storyboard-director' ? choice : findMarketPresetPortrait(choice)?.id)
-          }
-        }}>
-          {selection.manifest.portrait === 'storyboard-director' && <option value="storyboard-director">{t('directorPortrait')}</option>}
-          {marketPresetPortraits.map(row => <option key={row.id} value={row.id}>{t(`presetPortrait.${row.id}`)}</option>)}
-        </select>
-      </label>}
       <Button type="submit" variant="primary" disabled={blocked || !selection || !publishers.some(row => row.id === publisher)}>{t('upload')}</Button>
     </form><div className={css.browserPreview}>
       <h3>{t('preview')}</h3><p className={css.meta}>{t('localPreview')}</p>
-      <MarketCharacter presentation={selectedPresentation ?? { role: selection?.manifest.title ?? t('browserArchivePending'),
-        introduction: selection?.manifest.description ?? t('browserArchivePendingHint') }} introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')} />
-      <p className={css.previewHint}>{t(selectedPresentation ? 'boundPortraitHint' : 'stockArtworkHint')}</p>
+      {!selection && <div className={css.empty}>
+        <h3>{t('browserArchivePending')}</h3><p>{t('browserArchivePendingHint')}</p>
+      </div>}
+      {selection && (selection.manifest.kind === 'skill'
+        ? <MarketSkillArtwork metadata={selection.manifest} label={selection.manifest.title} />
+        : <>
+          <MarketCharacter presentation={selectedPresentation ?? {
+            role: selection.manifest.title, introduction: selection.manifest.description,
+          }}
+          introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')} />
+          <p className={css.previewHint}>{t(selectedPresentation ? 'boundPortraitHint' : 'stockArtworkHint')}</p>
+        </>)}
     </div></div>
   </section>
 }

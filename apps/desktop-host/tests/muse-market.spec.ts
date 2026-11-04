@@ -21,7 +21,8 @@ import Presets from '@deepseek-ai/dsh-agent-preset-registry'
 import * as Persona from '@deepseek-ai/dsh-persona'
 import MuseMarket from '@deepseek-ai/dsh-muse-market'
 import * as BotSkills from '@deepseek-ai/dsh-muse-market/bot-skills'
-import { createMarketPackage } from '@deepseek-ai/dsh-muse-market/package'
+import { createMarketPackage, marketDigest } from '@deepseek-ai/dsh-muse-market/package'
+import { zipSync } from 'fflate'
 import { expect, it, vi } from 'vitest'
 
 type ProductEntry = Omit<Partial<EntryOptions>, 'config'> & {
@@ -345,3 +346,131 @@ it('replays bounded market catalogs and explicit bodies through the shipped Load
     await rm(root, { recursive: true, force: true })
   }
 }, 60_000)
+
+it('records a turn with the original Bot persona, current Host tools, and an imported legacy Skill', async () => {
+  let ctx = new Context()
+  const bot = await readFile(new URL('../../../packages/host/muse-market/tests/fixtures/legacy-bot/storyboard-director-16-9-0.1.0.tgz', import.meta.url))
+  const skillName = 'shot-script-creator-16-9'
+  const skillBody = 'Verified legacy horizontal shot instructions.'
+  const skill = zipSync({ [`${skillName}/SKILL.md`]: Buffer.from(`---\nname: ${skillName}\ndescription: Legacy storyboard\n---\n${skillBody}\n`) },
+    { mtime: new Date(1980, 0, 1) })
+  const botPath = 'downloads/bot-storyboard-director-16-9-0.1.0.tgz'
+  const skillPath = 'downloads/skill-shot-script-creator-16-9-0.1.0.zip'
+  const botId = 'muse/bots/storyboard-director-16-9'
+  const skillId = `muse/skills/${skillName}`
+  const botDigest = '53c53c34ee234b1c3b4fd2c81075b3d717b43415692a87a7310e9a868e377129'
+  const skillDigest = marketDigest(skill)
+  const catalogRow = { version: '0.1.0', category: '镜头分镜', description: 'Legacy storyboard', requirements: [], validation: '' }
+  const root = await mkdtemp(join(tmpdir(), 'muse-market-legacy-'))
+  const requests: string[] = []
+  vi.stubGlobal('fetch', (input: string, init: RequestInit) => {
+    const url = new URL(input)
+    expect(url.origin).toBe('http://127.0.0.1:9')
+    expect(new Headers(init.headers).has('cookie')).toBe(false)
+    requests.push(url.pathname)
+    switch (url.pathname) {
+      case '/market/catalog.json':
+        return Response.json({ entries: [
+          { ...catalogRow, id: botId, kind: 'bot', name: '16:9 分镜导演', package: botPath, sha256: botDigest },
+          { ...catalogRow, id: skillId, kind: 'skill', name: '16:9 横屏镜头脚本', package: skillPath, sha256: skillDigest },
+        ] })
+      case `/market/${botPath}`: return new Response(new Uint8Array(bot))
+      case `/market/${skillPath}`: return new Response(new Uint8Array(skill))
+      default: throw new Error(`Unexpected market fixture request ${url.pathname}`)
+    }
+  })
+  const mountMarket = async (ctx: Context, withNativePreset: boolean) => {
+    ctx.baseUrl = pathToFileURL(root).href + '/'
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.group = Group
+    for (const plugin of [Llm, Sessions, SessionProjections, Tools, Agents, Skills]) await ctx.plugin(plugin)
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const patch = yaml.load(await readFile(new URL('../config/desktop.cordis.patch.yml', import.meta.url), 'utf8'),
+      { schema: entryListSchema }) as ProductEntry[]
+    const presetPolicy = patch.find(row => row.id === 'agent-preset-registry')
+    const marketRow = patch.flatMap(row => row.insert ?? []).find(row => row.id === 'muse-market')
+    if (!marketRow?.name || !marketRow.config || !presetPolicy?.config) throw new Error('Missing Desktop market policy')
+    await ctx.plugin(Presets, presetPolicy.config)
+    const modules = new Map<string, unknown>([
+      ['@deepseek-ai/dsh-muse-market', MuseMarket],
+      ['@deepseek-ai/dsh-persona', Persona],
+      ['@deepseek-ai/dsh-tool-skill', ToolSkill],
+      ['native-tool-fixture', { inject: ['tools'], apply: (scope: Context) => {
+        scope.tools.register(defineContentToolFixture({ name: 'native_fixture', description: 'Local Host tool',
+          parameters: {}, execute: async () => [{ type: 'text', text: 'native Host tool available' }] }))
+      } }],
+    ])
+    ctx.loader.internal = { version: 'v2', loadCache: new Map(),
+      register() { throw new Error('Unexpected loader hooks') },
+      getOrCreateModuleJob() { throw new Error('Unexpected loader job') },
+      resolveSync() { throw new Error('Unexpected loader resolution') },
+      load() { throw new Error('Unexpected loader load') },
+      async import(specifier: string) {
+        if (!modules.has(specifier)) throw new Error(`Unexpected module ${specifier}`)
+        return modules.get(specifier)
+      } }
+    const registerNativePreset = () => ctx.agentPresets.register({ id: 'short-drama', plugins: [
+      { name: '@deepseek-ai/dsh-persona', config: { prefix: 'Native fixture persona' } },
+      { name: '@deepseek-ai/dsh-tool-skill', config: { scopedCatalogOwner: true } },
+      { name: 'native-tool-fixture' },
+    ] })
+    const market = { ...marketRow, name: marketRow.name, config: { ...marketRow.config,
+      baseUrl: 'http://127.0.0.1:9', root: join(root, 'market'), accountHome: join(root, 'account'),
+    } }
+    if (withNativePreset) await registerNativePreset()
+    await ctx.loader.root.update([market])
+    await ctx.loader.await()
+    return registerNativePreset
+  }
+  try {
+    await mountMarket(ctx, true)
+    const installedBot = await ctx.museMarket.installLegacy(botId, botDigest)
+    const installedSkill = await ctx.museMarket.installLegacy(skillId, skillDigest)
+    expect([installedBot, installedSkill].map(row => row.enabled)).toEqual([false, false])
+    expect(requests).toEqual(['/market/catalog.json', `/market/${botPath}`, '/market/catalog.json', `/market/${skillPath}`])
+    await ctx.museMarket.enable(installedBot.release.id, true)
+    await ctx.museMarket.enable(installedSkill.release.id, true)
+    const marketPreset = `market-${installedBot.release.id}`
+    await ctx.fiber.dispose()
+    ctx = new Context()
+    const registerNativePreset = await mountMarket(ctx, false)
+    expect((await ctx.museMarket.installed()).map(row => row.enabled)).toEqual([true, true])
+    await registerNativePreset()
+    const adapter = new MarketFixtureAdapter([
+      fixtureCall('load-legacy-skill', 'skill', { name: skillName }),
+      fixtureReply('横屏分镜交付完成。'),
+    ])
+    ctx.llm.registerAdapter(['market-fixture'], adapter)
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('market-legacy-recording'), meta: { cwd: root },
+      agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
+      setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') } })
+    await ctx.agentPresets.select(agent, marketPreset)
+    expect(ctx.tools.get('native_fixture', agent)).toBeDefined()
+    expect((await ctx.skills.get(skillName, { scope: agent }))?.source).toBe('muse-market')
+    await fixtureTurn(ctx, agent, '把开门和放下信件写成横屏分镜。')
+    expect(adapter.requests).toHaveLength(2)
+    const events = agent.session.snapshotEvents()
+    const system = events.find(event => event.type === 'system/message')
+    expect(JSON.stringify(system)).toContain('你是 Muse 16:9 分镜导演')
+    expect(JSON.stringify(system)).not.toContain('Native fixture persona')
+    const projection = events.flatMap<object>((event) => {
+      switch (event.type) {
+        case 'agent-preset/selected': return [{ kind: 'preset', id: event.data.agentPreset }]
+        case 'tool/call': return [{ kind: 'tool-call', name: event.data.name }]
+        case 'tool/result': return [{ kind: 'tool-result', name: 'skill', loaded: JSON.stringify(event.data.message).includes(skillBody) }]
+        case 'assistant/message': {
+          const text = event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+          return text ? [{ kind: 'assistant', text }] : []
+        }
+        default: return []
+      }
+    })
+    expect(projection.map(row => JSON.stringify(row)).join('\n') + '\n').toBe(
+      await readFile(new URL('./fixtures/muse-market-legacy-recording.expected.jsonl', import.meta.url), 'utf8'))
+  } finally {
+    await ctx.fiber.dispose()
+    vi.unstubAllGlobals()
+    await rm(root, { recursive: true, force: true })
+  }
+})

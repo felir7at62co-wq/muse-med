@@ -1,4 +1,4 @@
-.section { --dsw-focus-ring-color: var(--dsw-alias-market-accent-label); --dsw-alias-button-primary-fill: var(--dsw-alias-market-accent-fill); --dsw-alias-button-primary-hover: var(--dsw-alias-market-accent-hover); --dsw-alias-label-primary-foreground: var(--dsw-alias-market-on-accent); --dsw-alias-label-dimmed: var(--dsw-alias-label-secondary); container-type: inline-size; container-name: market; display: flex; flex-direction: column; gap: 24px; color: var(--dsw-alias-label-primary); width: 100%; min-width: 0; }
+.section { --market-portrait-size: clamp(150px, 20vw, 205px); --dsw-focus-ring-color: var(--dsw-alias-market-accent-label); --dsw-alias-button-primary-fill: var(--dsw-alias-market-accent-fill); --dsw-alias-button-primary-hover: var(--dsw-alias-market-accent-hover); --dsw-alias-label-primary-foreground: var(--dsw-alias-market-on-accent); --dsw-alias-label-dimmed: var(--dsw-alias-label-secondary); container-type: inline-size; container-name: market; display: flex; flex-direction: column; gap: 24px; color: var(--dsw-alias-label-primary); width: 100%; min-width: 0; }
 .section p { margin: 0; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .masthead { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; padding-bottom: 16px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 26px; line-height: 36px; font-weight: 500; letter-spacing: -.04em; }
@@ -20,7 +20,7 @@
 .readNotice { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 16px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); }
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 20px; }
 .card, .contribute { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 20px; border: 0.5px solid var(--dsw-alias-market-border); border-radius: var(--dsw-radius-xl); background: var(--dsw-alias-market-surface); }
-.card { --market-portrait-height: clamp(150px, 20vw, 205px); transition: border-color var(--ds-transition-duration-fast); }
+.card { transition: border-color var(--ds-transition-duration-fast); }
 .card:hover, .card:focus-within { border-color: var(--dsw-alias-market-accent-label); }
 .card h3, .contribute h3 { font-size: 24px; line-height: 32px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
 .cardHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -55,7 +55,6 @@
 .previewHeading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .previewHint, .previewFacts { color: var(--dsw-alias-label-secondary); }
 .previewFacts > span { font-size: 12px; line-height: 18px; }
-.skillPreview { min-height: 160px; display: flex; flex-direction: column; justify-content: center; gap: 16px; align-items: start; padding: 20px; background: var(--dsw-alias-bg-layer-1); border-radius: var(--dsw-radius-md); }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 20px; }
 .skills { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; font-size: 13px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md); }
 .skills label { display: flex; align-items: center; gap: 6px; }

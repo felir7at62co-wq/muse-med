@@ -63,6 +63,20 @@ describe('declarative preset revisions', () => {
     expect(ctx.agentPresets.inspectCompositions()).toHaveLength(1)
   })
 
+  it('registers an on-demand variant before its base and resolves the base on mount', async () => {
+    const ctx = await setup()
+    await ctx.agentPresets.register({ id: 'variant', activation: 'on-demand', plugins: [] }, () => {
+      const base = ctx.agentPresets.presetPlugins('base')
+      if (!base) throw new Error('Base preset missing')
+      return base
+    })
+    expect(await ctx.agentPresets.list()).toEqual([{ id: 'variant' }])
+    await declare(ctx, contribution('base'))
+    const agent = await agentOn(ctx, 'legacy-variant', 'variant')
+    expect(ctx.tools.schemas(agent).map(row => row.name)).toEqual(['base'])
+    expect(ctx.agentPresets.presetPlugins('variant')).toEqual(contribution('base').plugins)
+  })
+
   it('eagerly scopes tool and prompt registrations and shares one revision across Agents', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))

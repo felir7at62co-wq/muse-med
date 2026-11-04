@@ -502,9 +502,10 @@ Registry of YAML-declared presets and the revisions live Agents retain.
 ```ts cordis-catalog
 /** Register a definition and load it immediately unless it requests on-demand activation.
  * @param definition Parsed configuration supplied by the declaring plugin.
+ * @param resolvePlugins Optional Host-owned composition resolved once on first read or activation.
  * @returns Definition disposer after eager activation settles, or immediately for an on-demand definition.
  */
-async register(definition: PresetDefinition): Promise<() => Promise<void>>
+async register(definition: PresetDefinition, resolvePlugins: () => PresetDefinition['plugins'] = () => definition.plugins): Promise<() => Promise<void>>
 
 /** Inspect retained revisions, or the exact revision an Agent joined.
  * @param ctx - optional Agent context; omission includes all retained revisions.
@@ -533,6 +534,12 @@ async resolveForCreation(id?: string): Promise<AgentPreset>
  * @returns Current metadata, including failure when activation failed.
  */
 async resolve(id?: string): Promise<AgentPreset>
+
+/** Copy the configured rows of an exact declared preset for a Host-owned variant.
+ * @param id Exact preset identity.
+ * @returns A detached composition, or undefined when the declaration is absent.
+ */
+presetPlugins(id: string): PresetDefinition['plugins'] | undefined
 
 /** Read one declaration's child plugin list as YAML, for viewing only.
  * @param agentPreset Preset identity.
