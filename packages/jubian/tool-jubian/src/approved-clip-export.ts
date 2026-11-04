@@ -6,6 +6,7 @@ import { lstat, realpath } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { MEDIA_LIMITS } from '@deepseek-ai/dsh-jubian-api'
+import type { ApprovedClipDelivery } from './types.ts'
 import { decodeVideoFile } from './video-media-check.ts'
 
 const execute = promisify(execFile)
@@ -88,7 +89,7 @@ async function samples(path: string, ffmpeg: string, timeout: number, signal: Ab
  * @returns The verified export path, hash and similarity scores between zero and one.
  */
 export async function verifyApprovedClipExport(projectDir: string, source: string, sourceSha256: string, path: string,
-  ffmpeg: string, timeout: number, signal: AbortSignal) {
+  ffmpeg: string, timeout: number, signal: AbortSignal): Promise<NonNullable<ApprovedClipDelivery['export']>> {
   if (!/^exports\/[\p{L}\p{N}_][\p{L}\p{N}_. ()-]{0,150}\.mp4$/iu.test(path)
     || /^exports\/(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(path)) {
     throw new Error('Select an MP4 directly inside the project exports directory')

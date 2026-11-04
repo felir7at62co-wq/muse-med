@@ -11,6 +11,7 @@ import { downloadMedia, MEDIA_LIMITS } from '@deepseek-ai/dsh-jubian-api'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { recoverVideoSubmission } from './native.ts'
+import type { ApprovedClipDirectDelivery } from './types.ts'
 import { observe, watchArgs } from './watch.ts'
 import type { checkVideoMedia } from './video-media-check.ts'
 
@@ -322,7 +323,8 @@ function directDeliveryReceipt(projectDir: string, reviewDigest: string): string
  * @param sha256 - Approved media hash.
  * @returns The recorded delivery when its filename and hash match the approval.
  */
-export async function readApprovedVideoDelivery(projectDir: string, taskId: number, reviewDigest: string, sha256: string) {
+export async function readApprovedVideoDelivery(projectDir: string, taskId: number, reviewDigest: string,
+  sha256: string): Promise<ApprovedClipDirectDelivery | undefined> {
   const source = await optionalReport(directDeliveryReceipt(projectDir, reviewDigest))
   if (source === undefined) return undefined
   const receipt = approvedVideoDeliverySchema.parse(JSON.parse(source))
@@ -379,7 +381,7 @@ async function copyApprovedVideo(source: string, destination: string, sha256: st
  * @returns The verified project-relative MP4 path and bare SHA-256 digest.
  */
 export async function publishApprovedVideo(projectDir: string, taskId: number, reviewDigest: string, source: string,
-  sha256: string, signal: AbortSignal) {
+  sha256: string, signal: AbortSignal): Promise<ApprovedClipDirectDelivery> {
   const receiptPath = directDeliveryReceipt(projectDir, reviewDigest)
   await reportDirectory(receiptPath, false)
   const previous = await readApprovedVideoDelivery(projectDir, taskId, reviewDigest, sha256)
