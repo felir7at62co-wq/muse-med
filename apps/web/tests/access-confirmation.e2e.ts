@@ -148,7 +148,7 @@ describe('web e2e: experimental Auto and Full access confirmation', () => {
     await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
       .toBe('访问模式，当前：Auto review EXP')
     expect(await slashDialog.count()).toBe(0)
-    expect(await input.textContent()).toBe('')
+    await expect.poll(() => input.textContent(), { timeout: 10_000 }).toBe('')
     await captureAutoReviewState(page, 'experimental-current-session')
 
     // Leave the shared page in the baseline state for the Full-access
