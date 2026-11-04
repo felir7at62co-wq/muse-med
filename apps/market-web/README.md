@@ -40,4 +40,6 @@ The discovery page reveals additional original resources as the reader approache
 <a id="dev-note"></a>
 ## Dev Note
 
+The website uses the Chinese market dictionary with the shared Chinese vocabulary as a fallback, matching Desktop's lookup order.
+
 When the creator selects a Bot ZIP, the preview recommends one of 50 built-in portraits using the package title, description and category. A portrait already bound to the package is preselected. The creator can change the selection before upload. The browser writes the selected identifier into the ZIP manifest so review and discovery display the same portrait.

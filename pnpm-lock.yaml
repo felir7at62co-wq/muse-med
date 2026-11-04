@@ -1131,6 +1131,9 @@ importers:
 
   apps/market-web:
     dependencies:
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:*
+        version: link:../../packages/client/locale
       '@deepseek-ai/dsh-client-ui-muse-account':
         specifier: workspace:*
         version: link:../../packages/client/ui-muse-account

@@ -12,6 +12,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/client/locale/tsconfig.client.json"
+    },
+    {
       "path": "../../packages/client/ui-muse-account/tsconfig.client.json"
     },
     {

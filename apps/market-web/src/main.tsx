@@ -1,6 +1,7 @@
 /** Standalone market website using the shared Muse market page and same-origin account session. */
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { Button, IconWarningOutlineRegular, StateDot, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MarketPage } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/MarketPage.tsx'
 import type { MarketSectionProps } from '@deepseek-ai/dsh-client-ui-muse-account/src/client/MarketSection.tsx'
@@ -14,8 +15,9 @@ import '../../../packages/client/ui-theme/src/styles/scrollbar.css'
 import '../../../packages/client/ui-theme/src/styles/focus.css'
 import './market-web.css'
 
-const t: MarketSectionProps['t'] = (key: MarketLocaleKey, args?: Record<string, unknown>) => {
-  let copy = marketZh[key]
+const dictionary = { ...commonZh, ...marketZh }
+const t: MarketSectionProps['t'] = (key, args) => {
+  let copy: string = dictionary[key]
   for (const [name, value] of Object.entries(args ?? {})) copy = copy.replaceAll('{' + name + '}', String(value))
   return copy
 }

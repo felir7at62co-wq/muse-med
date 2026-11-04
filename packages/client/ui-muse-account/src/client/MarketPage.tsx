@@ -30,7 +30,7 @@ export function MarketPanelIcon({ size }: PropsRuntime<'sidebar.panellist'>): Re
  * @param props - sidebar width, locale, mode observer and market navigation.
  * @returns Market shortcut while Bot mode is active.
  */
-export function MarketBotModeLink({ t, wide, navigation, onOpen }: PropsRuntime<'sidebar.footer.action'>
+export function MarketBotModeLink({ t, wide, navigation, onOpen }: Pick<PropsRuntime<'sidebar.footer.action'>, 'wide'>
   & PropsLocale<'settings.museMarket'> & { navigation: MuseBotMarketNavigation; onOpen: () => void }): ReactNode {
   const active = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot)
   if (!active) return null
