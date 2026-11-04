@@ -46,6 +46,7 @@
     "src/video-media-check.ts",
     "src/approved-clip-export.ts",
     "src/video-recovery.ts",
+    "src/episode-delivery.ts",
     "src/video-recovery-service.ts",
     "src/video-session.ts",
     "src/video-session-types.ts",

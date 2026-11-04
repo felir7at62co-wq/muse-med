@@ -83,6 +83,30 @@ export interface ApprovedClipDirectDelivery {
   readonly sha256: string
 }
 
+/** Durable result of rendering one explicitly planned episode from approved clips. */
+export interface ApprovedEpisodeDelivery {
+  /** Project-relative MP4 path. */
+  readonly path: string
+  /** Lowercase hexadecimal SHA-256 of the delivered file. */
+  readonly sha256: string
+  /** Verified duration in seconds. */
+  readonly durationSeconds: number
+  /** Renderer checks retained with the receipt. */
+  readonly checks: readonly { readonly id: string; readonly ok: boolean; readonly detail: string }[]
+}
+
+/** Readiness and durable delivery for an explicitly authored episode plan. */
+export interface ApprovedEpisodeDeliverySummary {
+  readonly episode: number
+  readonly approvedShots: number
+  readonly totalShots: number
+  readonly readiness: 'ready' | 'incomplete' | 'invalid'
+  /** Digest of the plan and the exact approved reports it references. */
+  readonly digest?: string
+  readonly missing: readonly string[]
+  readonly delivery?: ApprovedEpisodeDelivery
+}
+
 /** Host provider for creating editable local drafts from approved media. */
 export interface ApprovedClipDraftService {
   /**
@@ -103,9 +127,33 @@ export interface ApprovedClipDraftService {
     signal?: AbortSignal): Promise<{ path: string }>
 }
 
+/** Host renderer that composes a project-authored episode from approved clips. */
+export interface ApprovedEpisodeRenderer {
+  /**
+   * Render and inspect an episode using the current deployment's media tools.
+   * @param input - Approved sources and explicit project-owned editing inputs.
+   * @param signal - Cancellation of rendering and verification.
+   * @returns Render measurements and checks from the episode renderer.
+   */
+  render(input: {
+    readonly projectDir: string
+    readonly episode: number
+    readonly clips: readonly { readonly shot: number; readonly path: string; readonly sha256: string }[]
+    readonly timelinePath: string
+    readonly subtitlePath: string
+    readonly mixProfilePath: string
+    readonly bgmPath?: string
+    readonly outputPath: string
+  }, signal: AbortSignal): Promise<{
+    readonly durationSeconds: number
+    readonly checks: readonly { readonly id: string; readonly ok: boolean; readonly detail: string }[]
+  }>
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     approvedClipDraft: ApprovedClipDraftService
+    approvedEpisodeRenderer: ApprovedEpisodeRenderer
   }
 }
 
@@ -138,7 +186,11 @@ export interface VideoRecoveryStatus {
   readonly draftAvailable?: boolean
   /** A local editor export provider is registered on this Host. */
   readonly automaticExportAvailable?: boolean
+  /** A host-local episode renderer is registered. */
+  readonly episodeRendererAvailable?: boolean
   readonly reports: readonly VideoRecoveryReview[]
+  /** Explicitly planned full-episode deliveries available in the selected project. */
+  readonly episodes?: readonly ApprovedEpisodeDeliverySummary[]
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {

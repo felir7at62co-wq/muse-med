@@ -55,7 +55,7 @@ import { JubianVideoSelection } from './video-session.ts'
 export { JubianVideoSelection } from './video-session.ts'
 export { productionRows, readProductionLibrary, productionCard, publishProductionCard } from './production.ts'
 export type { ProductionLibraryEntry, ProductionCardInput } from './production.ts'
-export type { ApprovedClipDraftService } from './types.ts'
+export type { ApprovedClipDraftService, ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary, ApprovedEpisodeRenderer } from './types.ts'
 export type { VideoModelOption, SessionVideoSelection } from './video-session-types.ts'
 import { need, requireArguments, requireKey } from './write.ts'
 import {

@@ -3,7 +3,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  ApprovedClipDeliveryInput, VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput, VideoRecoveryReview,
+  ApprovedClipDeliveryInput, ApprovedEpisodeDeliverySummary, VideoRecoveryAdoptionInput,
+  VideoRecoveryConfigurationInput, VideoRecoveryReview,
   VideoRecoveryReviewInput, VideoRecoveryStatus,
 } from '../types.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -55,6 +56,12 @@ export interface VideoRecoveryControls {
    * @returns The updated report with the direct MP4 receipt.
    */
   deliverApprovedMp4: (input: ApprovedClipDeliveryInput) => Promise<RemoteResult<VideoRecoveryReview>>
+  /**
+   * Render the episode from its current approved project plan.
+   * @param input - Episode number and exact plan digest.
+   * @returns The updated readiness summary and durable output receipt.
+   */
+  deliverApprovedEpisode: (input: { episode: number; digest: string }) => Promise<RemoteResult<ApprovedEpisodeDeliverySummary>>
   /** Open the available directory chooser. */
   pickDirectory?: () => Promise<string | null>
 }
@@ -96,6 +103,8 @@ function reviewStatus(report: VideoRecoveryReview, t: RecoveryProps['t']): strin
 export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode {
   const [state, setState] = useState<VideoRecoveryStatus>()
   const [projectDir, setProjectDir] = useState('')
+  const [episodeNumber, setEpisodeNumber] = useState<number>()
+  const [episodeDelivering, setEpisodeDelivering] = useState(false)
   const [busy, setBusy] = useState(true)
   const [notice, setNotice] = useState<string>()
   const [pending, setPending] = useState<{ action: ReportAction; report: VideoRecoveryReview }>()
@@ -143,6 +152,23 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
     setState(value)
     if (state === undefined) setProjectDir(value.projectDir ?? '')
   })
+  const selectedEpisode = state?.episodes?.find(row => row.episode === episodeNumber) ?? state?.episodes?.[0]
+  const deliverEpisode = async () => {
+    if (selectedEpisode?.readiness !== 'ready' || !selectedEpisode.digest) return
+    const { episode, digest } = selectedEpisode
+    setEpisodeDelivering(true)
+    try {
+      await run(async () => {
+        const result = remoteValue(await controls.deliverApprovedEpisode({ episode, digest }))
+        setState(current => current?.episodes === undefined ? current : {
+          ...current,
+          episodes: current.episodes.map(row => row.episode === episode && row.digest === digest ? result : row),
+        })
+      })
+    } finally {
+      setEpisodeDelivering(false)
+    }
+  }
   const chooseProject = () => run(async () => {
     const path = await controls.pickDirectory?.()
     if (path) setProjectDir(path)
@@ -205,6 +231,10 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
       }
       updateReport(report, remoteValue(result))
       setPending(undefined)
+      if (action === 'approve' || action === 'reject') {
+        try { setState(remoteValue(await controls.status())) }
+        catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
+      }
     }, setReviewError)
   }
 
@@ -255,6 +285,53 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
         </Button>
       </div>
       {notice && <p role="alert" className={css.notice}>{t('failed', { reason: notice })}</p>}
+      {state?.projectDir && (
+        <section className={css.recoveryReport} aria-label={t('episodeDeliveryTitle')}>
+          <h4 className={css.recoveryTitle}>{t('episodeDeliveryTitle')}</h4>
+          {selectedEpisode ? (
+            <>
+              <label className={css.field}>
+                <span className={css.label}>{t('episodeDeliveryEpisode')}</span>
+                <select className={css.input} value={selectedEpisode.episode} disabled={busy}
+                  onChange={(event) => { setEpisodeNumber(Number(event.currentTarget.value)) }}>
+                  {state.episodes?.map(row => <option key={row.episode} value={row.episode}>
+                    {t('episodeDeliveryNumber', { episode: String(row.episode) })}
+                  </option>)}
+                </select>
+              </label>
+              <p className={css.label}>{t('episodeDeliveryShots', {
+                approved: String(selectedEpisode.approvedShots), total: String(selectedEpisode.totalShots),
+              })}</p>
+              {selectedEpisode.readiness !== 'ready' && (
+                <p className={css.notice}>
+                  {t(selectedEpisode.readiness === 'invalid' ? 'episodeDeliveryInvalid' : 'episodeDeliveryIncomplete', {
+                    shots: selectedEpisode.missing.join(', '), reason: selectedEpisode.missing.join(' '),
+                  })}
+                </p>
+              )}
+              {state.episodeRendererAvailable === false && (
+                <p className={css.notice}>{t('episodeRendererUnavailable')}</p>
+              )}
+              {selectedEpisode.delivery && (
+                <>
+                  <p className={css.recoveryTitle}>{t('episodeDelivered')}</p>
+                  <p className={css.label}>{selectedEpisode.delivery.path}</p>
+                  <p className={css.label}>{t('recoveryMp4Digest', { digest: selectedEpisode.delivery.sha256 })}</p>
+                  <p className={css.label}>{t('episodeDuration', { seconds: selectedEpisode.delivery.durationSeconds.toFixed(2) })}</p>
+                </>
+              )}
+              <div className={css.actions}>
+                <Button variant="primary" size="sm" disabled={busy || state.episodeRendererAvailable === false
+                  || selectedEpisode.readiness !== 'ready' || !selectedEpisode.digest}
+                onClick={() => { void deliverEpisode() }}>
+                  {t('episodeDeliverMp4')}
+                </Button>
+                {episodeDelivering && <p className={css.label} role="status">{t('episodeDelivering')}</p>}
+              </div>
+            </>
+          ) : <p className={css.label}>{t('episodeDeliveryNoPlan')}</p>}
+        </section>
+      )}
       {state?.projectDir && (
         <div className={css.recoveryReports}>
           <h4 className={css.recoveryTitle}>{t('recoveryReports')}</h4>

@@ -95,6 +95,19 @@ async function desktopComposition(
     console.warn(`muse-med: shipped presets shadow the packaged product presets: ${shadowedPresets.join(', ')}`)
   }
   layers.push([{ insert: productPresetRows }])
+  const jubianConfig: unknown = rows.get('tool-jubian')?.config
+  if (typeof jubianConfig === 'object' && jubianConfig !== null && !Array.isArray(jubianConfig)
+    && Reflect.get(jubianConfig, 'videoRecoverySettings') === true) {
+    layers.push([{ insert: [{
+      id: 'desktop-approved-episode-render',
+      name: '@deepseek-ai/dsh-desktop-host/approved-episode-render',
+      config: {
+        ffmpegPath: process.env.DSH_FFMPEG_PATH || 'ffmpeg',
+        ffprobePath: process.env.DSH_FFPROBE_PATH || 'ffprobe',
+        fontsDir: process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts',
+      },
+    }] }])
+  }
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
   const bundledSkillDir = bundledSkillDirectory(runtimeDir)

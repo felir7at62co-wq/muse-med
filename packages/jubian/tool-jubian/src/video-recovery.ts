@@ -100,7 +100,13 @@ async function optionalReport(path: string): Promise<string | undefined> {
   }
 }
 
-async function artifactHash(path: string, signal?: AbortSignal): Promise<string> {
+/**
+ * Hash a regular local video artifact within the media size limit.
+ * @param path - Absolute path of the managed video.
+ * @param signal - Optional cancellation of the read.
+ * @returns Lowercase hexadecimal SHA-256 of the exact file bytes.
+ */
+export async function artifactHash(path: string, signal?: AbortSignal): Promise<string> {
   try {
     await regularReport(path)
     const hash = createHash('sha256')

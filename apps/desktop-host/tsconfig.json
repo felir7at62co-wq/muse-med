@@ -96,6 +96,12 @@
       "path": "../../packages/drama/screenplay-project"
     },
     {
+      "path": "../../packages/drama/tool-episode-render"
+    },
+    {
+      "path": "../../packages/jubian/tool-jubian/tsconfig.host.json"
+    },
+    {
       "path": "../../packages/drama/tool-shot-script"
     },
     {

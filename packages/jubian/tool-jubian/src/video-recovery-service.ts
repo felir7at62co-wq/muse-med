@@ -1,20 +1,23 @@
 /** Authenticated browser configuration and review for a local Jubian project. */
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { lstat, mkdir, readFile, realpath, link, unlink, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { JubianClient, JubianLedger, JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import { verifyApprovedClipExport } from './approved-clip-export.ts'
+import { episodeDeliveryReceiptPath, listApprovedEpisodeNumbers, readApprovedEpisodePlan, readEpisodeDelivery,
+  parseEpisodeDelivery, summarizeApprovedEpisode } from './episode-delivery.ts'
 import { checkVideoMedia, decodeVideoFile } from './video-media-check.ts'
 import {
   adoptRecoveredVideo, isProjectVideoIntent, materializeApprovedProviderVideo, publishApprovedVideo,
-  readApprovedVideoDelivery, reviewRecoveredVideo, runVideoRecovery,
+  readApprovedVideoDelivery, reviewRecoveredVideo, runVideoRecovery, artifactHash,
 } from './video-recovery.ts'
 import type {
-  ApprovedClipDeliveryInput, ApprovedClipDraftService, VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput, VideoRecoveryReview,
+  ApprovedClipDeliveryInput, ApprovedClipDraftService, ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary,
+  VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput, VideoRecoveryReview,
   VideoRecoveryReviewInput, VideoRecoveryStatus,
 } from './types.ts'
 
@@ -218,7 +221,9 @@ export class JubianVideoRecovery extends TypertRemoteService {
       decoderAvailable: await this.decoderAvailable(),
       draftAvailable: this.ctx.get('approvedClipDraft') !== undefined,
       automaticExportAvailable: this.ctx.get('approvedClipDraft')?.export !== undefined,
+      episodeRendererAvailable: this.ctx.get('approvedEpisodeRenderer') !== undefined,
       reports: await this.reports(configuration.projectDir),
+      episodes: configuration.projectDir === null ? [] : await this.episodes(configuration.projectDir),
     }
   }
 
@@ -338,6 +343,88 @@ export class JubianVideoRecovery extends TypertRemoteService {
       } catch (error) {
         if (error instanceof RemoteError) throw error
         throw refusal(error instanceof Error ? error.message : 'Could not deliver the approved MP4', error)
+      }
+    })
+  }
+
+  /**
+   * Render and verify the selected episode from its exact approved report set.
+   * @param input - Episode number and the current authored plan digest.
+   * @returns The durable project-relative MP4 receipt.
+   */
+  @Remote
+  async deliverApprovedEpisode(input: { episode: number; digest: string }): Promise<ApprovedEpisodeDeliverySummary> {
+    return await this.enqueue(async () => {
+      const renderer = this.ctx.get('approvedEpisodeRenderer')
+      if (renderer === undefined) throw refusal('Direct episode rendering is unavailable on this Host')
+      if (!Number.isSafeInteger(input.episode) || input.episode < 1 || input.episode > 99
+        || !digestSchema.safeParse(input.digest).success) {
+        throw refusal('Episode delivery requires a numbered episode and a valid plan digest')
+      }
+      const selected = this.state.configuration.projectDir
+      if (selected === null) throw refusal('Select a Jubian project before delivering an episode')
+      let unreceiptedOutput: string | undefined
+      try {
+        const project = await boundProject(selected)
+        const summary = (await this.episodes(project.directory)).find(row => row.episode === input.episode)
+        if (summary?.readiness !== 'ready' || summary.digest !== input.digest) {
+          throw refusal('The episode plan changed or not every listed shot has a passing approval')
+        }
+        const plan = await readApprovedEpisodePlan(project.directory, input.episode)
+        const previous = await readEpisodeDelivery(project.directory, input.episode, input.digest)
+        if (previous !== undefined) {
+          const path = join(project.directory, previous.path)
+          if (await artifactHash(path) !== previous.sha256) throw refusal('The recorded episode output changed after delivery')
+          return { ...summary, delivery: previous }
+        }
+        const reports = await this.reports(project.directory)
+        const clips = [] as { shot: number; path: string; sha256: string }[]
+        for (const shot of plan.plan.shots) {
+          const report = reports.find(row => row.idempotencyKey === shot.idempotency_key)
+          if (report === undefined || report.digest !== shot.review_digest) throw refusal('An episode approval changed before rendering')
+          const approved = await this.approvedClip({ idempotencyKey: shot.idempotency_key, digest: shot.review_digest })
+          clips.push({ shot: shot.shot, path: approved.source, sha256: approved.sha256 })
+        }
+        const outputPath = join(project.directory, 'exports', `Supermuse-episode-${String(input.episode).padStart(2, '0')}-${input.digest}.mp4`)
+        const signal = this.ctx.invocation?.signal ?? new AbortController().signal
+        const rendered = await renderer.render({
+          projectDir: project.directory, episode: input.episode, clips,
+          timelinePath: plan.timelinePath, subtitlePath: plan.subtitlePath, mixProfilePath: plan.mixProfilePath,
+          ...(plan.bgmPath === undefined ? {} : { bgmPath: plan.bgmPath }), outputPath,
+        }, signal)
+        unreceiptedOutput = outputPath
+        signal.throwIfAborted()
+        const current = (await this.episodes(project.directory)).find(row => row.episode === input.episode)
+        if (current?.readiness !== 'ready' || current.digest !== input.digest) {
+          throw refusal('The episode approval set changed during rendering')
+        }
+        const ffmpeg = this.options.ffmpegPath
+        if (ffmpeg === undefined) throw refusal('Video decoding is unavailable')
+        const decoded = await decodeVideoFile(outputPath, ffmpeg, this.options.decodeTimeoutMs, signal)
+        if (!decoded.video || !decoded.audio) throw refusal('The episode MP4 must contain decodable picture and audio')
+        const checks = [...rendered.checks]
+        if (checks.some(check => !check.ok)) throw refusal('The episode renderer reported a failed check')
+        const delivery: ApprovedEpisodeDelivery = {
+          path: relative(project.directory, outputPath).split(sep).join('/'),
+          sha256: await artifactHash(outputPath, signal),
+          durationSeconds: rendered.durationSeconds,
+          checks,
+        }
+        const receiptPath = episodeDeliveryReceiptPath(project.directory, input.episode, input.digest)
+        await this.publishEpisodeReceipt(receiptPath, delivery)
+        unreceiptedOutput = undefined
+        return { ...summary, delivery }
+      } catch (error) {
+        if (error instanceof RemoteError) throw error
+        throw refusal(error instanceof Error ? error.message : 'Could not deliver the approved episode', error)
+      } finally {
+        if (unreceiptedOutput !== undefined) {
+          try { await unlink(unreceiptedOutput) }
+          catch (error) {
+            if (!isMissing(error)) this.ctx.logger.warn('Unreceipted episode MP4 could not be removed: %s',
+              error instanceof Error ? error.message : String(error))
+          }
+        }
       }
     })
   }
@@ -489,6 +576,46 @@ export class JubianVideoRecovery extends TypertRemoteService {
       }
     }
     return result
+  }
+
+  private async episodes(projectDir: string): Promise<ApprovedEpisodeDeliverySummary[]> {
+    const reports = await this.reports(projectDir)
+    const result: ApprovedEpisodeDeliverySummary[] = []
+    for (const episode of await listApprovedEpisodeNumbers(projectDir)) {
+      let summary = await summarizeApprovedEpisode(projectDir, episode, reports)
+      if (summary.digest !== undefined) {
+        const delivery = await readEpisodeDelivery(projectDir, episode, summary.digest)
+        if (delivery !== undefined) {
+          const path = join(projectDir, delivery.path)
+          if (await artifactHash(path) !== delivery.sha256) throw refusal('A recorded episode output changed after delivery')
+          summary = { ...summary, delivery }
+        }
+      }
+      result.push(summary)
+    }
+    return result
+  }
+
+  private async publishEpisodeReceipt(path: string, delivery: ApprovedEpisodeDelivery): Promise<void> {
+    const directory = dirname(path)
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    const folder = await lstat(directory)
+    if (!folder.isDirectory() || folder.isSymbolicLink() || await realpath(directory) !== directory) {
+      throw new Error('Episode delivery receipts must stay in the project review directory')
+    }
+    const temporary = path + '.' + randomUUID() + '.tmp'
+    await writeFile(temporary, JSON.stringify(delivery, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    try {
+      await link(temporary, path)
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
+      const existing = parseEpisodeDelivery(JSON.parse(await readFile(path, 'utf8')))
+      if (existing.sha256 !== delivery.sha256 || existing.path !== delivery.path) {
+        throw new Error('A different episode delivery receipt already exists')
+      }
+    } finally {
+      await unlink(temporary)
+    }
   }
 
   private ownsRecord(record: JubianLedgerRecord | undefined, project: { directory: string; scriptId: number }): boolean {

@@ -226,6 +226,9 @@ describe('Jubian recovery delivery', () => {
         verifyExport: async () => ({ ok: true, value: report }),
         deliverApprovedClip,
         deliverApprovedMp4: async () => ({ ok: true, value: report }),
+        deliverApprovedEpisode: async () => ({ ok: true, value: {
+          episode: 1, approvedShots: 0, totalShots: 0, readiness: 'invalid', missing: [],
+        } }),
       },
     })} />)
 
@@ -279,6 +282,9 @@ describe('Jubian recovery delivery', () => {
         verifyExport: async () => ({ ok: true, value: report }),
         deliverApprovedClip,
         deliverApprovedMp4,
+        deliverApprovedEpisode: vi.fn(async () => ({ ok: true as const, value: {
+          episode: 1, approvedShots: 0, totalShots: 0, readiness: 'invalid' as const, missing: [],
+        } })),
       },
     })} />)
 
