@@ -190,6 +190,9 @@ jobs:
       - name: Prepare media test executables
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
 
+      - name: Install locked Bot runtime dependencies
+        run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
 
@@ -688,6 +691,10 @@ jobs:
       - name: Prepare media test executables
         shell: pwsh
         run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
+
+      - name: Install locked Bot runtime dependencies
+        shell: pwsh
+        run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
 
       - name: Run Windows coverage
         shell: pwsh
