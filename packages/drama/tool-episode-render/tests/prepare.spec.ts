@@ -10,6 +10,7 @@ import {
   masterAudioFilter,
   parseShotManifest,
   prepareEpisode,
+  prepareStagedEpisodeAudio,
   resolveShots,
 } from '../src/prepare.ts'
 import type { SubtitleCue } from '../src/types.ts'
@@ -160,6 +161,42 @@ describe('cueOverrunWarnings', () => {
 
   it('stays quiet when every cue fits', () => {
     expect(cueOverrunWarnings([cue(1, 12)], 18.133333)).toEqual([])
+  })
+})
+
+describe('prepareStagedEpisodeAudio', () => {
+  it('places the staged clips’ embedded audio on the authored clock without changing the timeline', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    const timeline = JSON.stringify({ clips: [
+      { shot: 1, start_us: 0, duration_us: 1_200_000 },
+      { shot: 2, start_us: 1_200_000, duration_us: 2_500_000 },
+    ], body_end: 3.7 })
+    await writePlaceholder(paths.timeline, timeline)
+    const channel = stubChannel([() => ({ after: async () => { await writePlaceholder(paths.masterAudio, 'wav') } })])
+    await prepareStagedEpisodeAudio({ project, episode: '02', timelinePath: paths.timeline },
+      { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
+    expect(channel.calls).toEqual([{ command: 'ffmpeg', args: [
+      '-y', '-v', 'error', '-i', join(paths.videoDir, 'shot_001.mp4'), '-i', join(paths.videoDir, 'shot_002.mp4'),
+      '-filter_complex', '[0:a]atrim=0:1.200000,asetpts=N/SR/TB,adelay=delays=0:all=1[a0];'
+        + '[1:a]atrim=0:2.500000,asetpts=N/SR/TB,adelay=delays=1200:all=1[a1];'
+        + '[a0][a1]amix=inputs=2:duration=longest:normalize=0[a]',
+      '-map', '[a]', '-c:a', 'pcm_s16le', '-ar', '48000', paths.masterAudio,
+    ] }])
+    expect(await readFile(paths.timeline, 'utf8')).toBe(timeline)
+    expect(await readFile(paths.masterAudio, 'utf8')).toBe('wav')
+  })
+
+  it('propagates a missing embedded audio stream instead of supplying silence', async () => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    await writePlaceholder(paths.timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }] }))
+    const channel = stubChannel([() => ({ code: 1, stderr: 'Stream specifier :a matches no streams' })])
+    await expect(prepareStagedEpisodeAudio({ project, episode: '02', timelinePath: paths.timeline },
+      { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })).rejects.toThrow('matches no streams')
+    expect(await pathExists(paths.masterAudio)).toBe(false)
   })
 })
 

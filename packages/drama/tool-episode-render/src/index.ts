@@ -44,6 +44,9 @@ import { reviewSpeechCoverage, type SpeechCoverageReport } from './speech-covera
 import { measureSubtitleLayout } from './subtitle-layout.ts'
 import { readSubtitleCues } from './subtitles.ts'
 
+export { shotFileName } from './paths.ts'
+export { prepareStagedEpisodeAudio } from './prepare.ts'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
 
