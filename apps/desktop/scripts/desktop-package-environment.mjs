@@ -11,6 +11,7 @@ import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mj
 import { resolveMacOSPackageSettings } from './macos-package-settings.mjs'
 import { resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
 import { resolveWindowsPackageSettings } from './windows-package-settings.mjs'
+import { SUPERMUSE_WINDOWS_APP_ID } from './supermuse-identity.mjs'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SHARED_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN))|DOWNLOAD_TEST_RELEASE_ID|DOWNLOAD_(?:TEST|PROD)_(?:ORIGIN|COS_BUCKET|COS_SECRET_ID|COS_SECRET_KEY))$/u
@@ -53,6 +54,7 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
   for (const name of FILE_SETTINGS) {
     if (settings[name]?.trim()) settings[name] = resolve(dirname(path), settings[name].trim())
   }
+  if (settings.DSH_DESKTOP_APP_ID !== undefined) settings.DSH_DESKTOP_APP_ID = settings.DSH_DESKTOP_APP_ID.trim()
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
     ...settings,
@@ -77,13 +79,14 @@ function requireReadableFile(environment, name) {
  * @returns {void}
  */
 export function validateDesktopPackageEnvironment(environment, target, options = {}) {
-  resolveDesktopAppId(environment)
+  const appId = resolveDesktopAppId(environment)
+  const supermuse = target.platform === 'win32' && appId === SUPERMUSE_WINDOWS_APP_ID
   resolveNpmRegistry(environment)
-  resolveDesktopPolicyEnvironment(environment)
+  if (!supermuse) resolveDesktopPolicyEnvironment(environment)
   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
   else resolveWindowsPackageSettings(environment)
   if (options.unsigned) return
-  if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+  if (!options.prepareOnly && !supermuse) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   if (target.platform === 'win32') {
     if (!options.prepareOnly) createWindowsTokenSigner({
       certificateFile: environment.DSH_DESKTOP_WINDOWS_CER_FILE,

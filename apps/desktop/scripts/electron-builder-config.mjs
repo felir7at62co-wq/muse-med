@@ -24,7 +24,7 @@ import { resolveDesktopAutoUpdateConfig, resolveDesktopGitHubUpdateConfig,
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { readDesktopProductVersion, resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
-import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
+import { desktopArtifactDirectory, desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
 import { SUPERMUSE_WINDOWS_APP_ID, SUPERMUSE_WINDOWS_PRODUCT_NAME, SUPERMUSE_WINDOWS_PACKAGE_NAME } from './supermuse-identity.mjs'
 import { installWindowsDirectoryInstaller } from './windows-directory-installer.mjs'
 import { preserveWindowsRuntimeSignature, signWindowsCode } from './windows-runtime-signature.mjs'
@@ -67,7 +67,8 @@ export function createElectronBuilderConfig(
   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS && !unsigned) resolveMacOSNotarizationEnvironment(env)
-  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  const target = resolveDesktopBuildTarget(env, hostPlatform, hostArch)
+  const buildPaths = desktopTargetBuildPaths(target)
   let primaryRuntimeDestination
   let dshDestination
   let windowsCode = []
@@ -97,7 +98,8 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? resolveDesktopGitHubUpdateConfig(readDesktopProductVersion()) : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const update = supermuse ? undefined : unsigned ? resolveDesktopGitHubUpdateConfig(readDesktopProductVersion())
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
@@ -124,8 +126,8 @@ export function createElectronBuilderConfig(
     },
     productName: supermuse ? SUPERMUSE_WINDOWS_PRODUCT_NAME : 'muse-med',
     icon: fileURLToPath(new URL('../renderer/icon.png', import.meta.url)),
-    artifactName: `muse-med-\${version}-\${os}-\${arch}.\${ext}`,
-    directories: { output: unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts },
+    artifactName: `${supermuse && !unsigned ? SUPERMUSE_WINDOWS_PACKAGE_NAME : 'muse-med'}-\${version}-\${os}-\${arch}.\${ext}`,
+    directories: { output: desktopArtifactDirectory(target, unsigned, appId) },
     asar: true,
     electronDist: buildPaths.electron,
     electronFuses: { runAsNode: true },
@@ -262,7 +264,7 @@ export function createElectronBuilderConfig(
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
-        publisherName: windowsSigner === undefined ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
+        publisherName: windowsSigner === undefined || supermuse ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
         signingHashAlgorithms: ['sha256'],
       },
       target: ['nsis'],

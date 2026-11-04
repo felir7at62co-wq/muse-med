@@ -1,6 +1,7 @@
 /** Resolve build-owned Desktop paths without sharing mutable state across release targets. */
 
 import { join, resolve } from 'node:path'
+import { SUPERMUSE_WINDOWS_APP_ID } from './supermuse-identity.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
@@ -58,6 +59,20 @@ export function desktopTargetBuildPaths(target) {
     packedLandlock: join(packed, 'landlock'),
     downloads: join(BUILD_ROOT, 'downloads'),
   }
+}
+
+/**
+ * Select the output directory for an installer and its completion record.
+ * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target Supported Desktop target name.
+ * @param {boolean} unsigned Whether the build omits publisher signing.
+ * @param {string | undefined} appId Packaged application ID.
+ * @returns {string} The selected output path.
+ */
+export function desktopArtifactDirectory(target, unsigned, appId) {
+  const paths = desktopTargetBuildPaths(target)
+  if (unsigned) return paths.unsignedArtifacts
+  return target === 'win-x64' && appId?.trim() === SUPERMUSE_WINDOWS_APP_ID
+    ? join(paths.root, 'supermuse-signed-artifacts') : paths.artifacts
 }
 
 /**

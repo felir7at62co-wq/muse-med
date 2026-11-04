@@ -1,19 +1,21 @@
 /** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
+import { X509Certificate } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pnpmInvocation } from '../../../scripts/pnpm-invocation.ts'
 import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
-import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopArtifactDirectory, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
 import { withWindowsSigningStage } from './windows-signing-stage.mjs'
+import { inspectWindowsRuntimeSignature } from './windows-runtime-signature.mjs'
 import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
 import { withMacOSSigningKeychain } from './macos-signing-keychain.mjs'
 import { macOSDownloadEnvironment, resolveMacOSPackageSettings } from './macos-package-settings.mjs'
@@ -25,6 +27,7 @@ import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
+import { SUPERMUSE_WINDOWS_APP_ID, SUPERMUSE_WINDOWS_PACKAGE_NAME } from './supermuse-identity.mjs'
 import {
   assertCleanWorktree,
   assertReusableArtifacts,
@@ -42,6 +45,7 @@ import {
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
+const SUPERMUSE_BUILD_RECORD = 'supermuse-windows-build.json'
 const WINDOWS_SIGNING_ENV_PREFIX = 'DSH_DESKTOP_WINDOWS_'
 const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_CER_FILE',
@@ -151,11 +155,12 @@ function packageVersion(path: string, label: string): string {
   return manifest.version
 }
 
-function writeReleaseRecord(
+async function writeReleaseRecord(
   target: DesktopPackageTarget,
   environment: NodeJS.ProcessEnv,
-  artifactsRoot: string,
-): void {
+  recordPath: string,
+  supermuse: boolean,
+): Promise<void> {
   const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
   if (desktopVersion !== dshVersion) {
@@ -163,16 +168,28 @@ function writeReleaseRecord(
   }
   const buildVersion = resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT))
   const packaged = resolveDesktopBuildCommit(environment)
-  const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
-  const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
+  let distribution
+  if (supermuse) {
+    const certificate = environment.DSH_DESKTOP_WINDOWS_CER_FILE
+    if (certificate === undefined) throw new Error('Supermuse packaging requires the public signing certificate')
+    const installer = `${SUPERMUSE_WINDOWS_PACKAGE_NAME}-${buildVersion}-win-x64.exe`
+    const signature = await inspectWindowsRuntimeSignature(join(dirname(recordPath), installer))
+    const expectedThumbprint = new X509Certificate(readFileSync(certificate)).fingerprint.replaceAll(':', '')
+    if (signature.status !== 'Valid' || !signature.timestamped || signature.thumbprint?.toUpperCase() !== expectedThumbprint.toUpperCase()) {
+      throw new Error('Supermuse installer requires a valid timestamped signature from the configured certificate')
+    }
+    distribution = { appId: SUPERMUSE_WINDOWS_APP_ID, installer, signature }
+  } else {
+    const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+    distribution = { environment: update.environment, publicUrl: update.publicUrl }
+  }
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
     schemaVersion: 1,
     target: target.name,
     version: buildVersion,
     dshVersion,
-    environment: update.environment,
-    publicUrl: update.publicUrl,
+    ...distribution,
     // Upload reads this to tag the commit a production release was packaged from.
     ...packaged === undefined ? {} : { commit: packaged.commit, dirty: packaged.dirty },
   }, null, 2)}\n`)
@@ -406,11 +423,11 @@ async function resolveRequestedBuildVersion(
   const requested = invocation.requestedBuildVersion
   if (requested === undefined) return productVersion
   if (requested !== AUTOMATIC_BUILD_VERSION) return validateDesktopBuildVersion(requested, productVersion)
-  const paths = desktopTargetBuildPaths(invocation.target.name)
+  const appId = environment.DSH_DESKTOP_APP_ID?.trim()
+  const supermuse = invocation.target.platform === 'win32' && appId === SUPERMUSE_WINDOWS_APP_ID
   return suggestDesktopBuildVersion({
-    productVersion, target: invocation.target.name, environment,
-    // Unsigned builds land beside the signed output, so numbering has to read the directory this run writes.
-    artifactsRoot: invocation.unsigned ? paths.unsignedArtifacts : paths.artifacts,
+    productVersion, target: invocation.target.name, environment: supermuse ? {} : environment,
+    artifactsRoot: desktopArtifactDirectory(invocation.target.name, invocation.unsigned, appId),
   })
 }
 
@@ -444,6 +461,7 @@ async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
   const environment = loadDesktopPackageEnvironment(target.platform)
+  const supermuse = target.platform === 'win32' && environment.DSH_DESKTOP_APP_ID?.trim() === SUPERMUSE_WINDOWS_APP_ID
   const productVersion = readDesktopProductVersion(APP_ROOT)
   // Release settings come from the target dotenv file alone, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
@@ -452,10 +470,10 @@ async function main(): Promise<void> {
   if (invocation.check) {
     validateDesktopPackageEnvironment(environment, target, invocation)
     await requireDesktopToolchain(target.platform, environment)
-    process.stdout.write(`desktop package: ${target.name} would publish ${buildVersion}; local configuration and toolchain valid, signing and notarization were not attempted\n`)
+    process.stdout.write(`desktop package: ${target.name} would ${supermuse ? 'build' : 'publish'} ${buildVersion}; local configuration and toolchain valid, signing and notarization were not attempted\n`)
     return
   }
-  process.stdout.write(`desktop package: ${target.name} publishes ${buildVersion}${buildVersion === productVersion ? '' : ` for product version ${productVersion}`}\n`)
+  process.stdout.write(`desktop package: ${target.name} ${supermuse ? 'builds' : 'publishes'} ${buildVersion}${buildVersion === productVersion ? '' : ` for product version ${productVersion}`}\n`)
   const packaged = readDesktopBuildCommit(REPOSITORY_ROOT)
   Object.assign(environment, desktopBuildCommitEnvironment(packaged))
   const secrets = Object.entries(environment).filter(([name]) => /KEY|SECRET|TOKEN|PASSWORD|APPLE_ID/iu.test(name)).map(([, value]) => value ?? '')
@@ -514,7 +532,10 @@ export async function packageTarget(
   const mac = target.platform === 'darwin' ? resolveMacOSPackageSettings(environment) : undefined
   const packArguments = mac === undefined ? [] : ['--concurrency', String(mac.packConcurrency)]
   const buildPaths = desktopTargetBuildPaths(target.name)
-  const steps = desktopPackageSteps(REPOSITORY_ROOT, target.name, invocation.unsigned)
+  const appId = environment.DSH_DESKTOP_APP_ID?.trim()
+  const supermuse = target.platform === 'win32' && appId === SUPERMUSE_WINDOWS_APP_ID
+  const artifacts = desktopArtifactDirectory(target.name, invocation.unsigned, appId)
+  const steps = desktopPackageSteps(REPOSITORY_ROOT, target.name, invocation.unsigned, appId)
   if (invocation.help || invocation.listSteps) {
     console.log(describeUsage(steps))
     return
@@ -533,7 +554,7 @@ export async function packageTarget(
     )
     if (missing.length > 0) throw new Error(`desktop package: --with-bgm requires ${missing.join(' and ')}`)
   }
-  const releaseRecordPath = join(buildPaths.artifacts, desktopBuildRecordFilename(target.name))
+  const releaseRecordPath = join(artifacts, supermuse ? SUPERMUSE_BUILD_RECORD : desktopBuildRecordFilename(target.name))
   if (!invocation.prepareOnly && !invocation.unsigned) {
     rmSync(releaseRecordPath, { force: true })
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
@@ -671,8 +692,8 @@ export async function packageTarget(
         await signedStage('artifacts', () => execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv))
         await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
       }
-      if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
-      if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: invocation.unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts })
+      if (!invocation.directory && !invocation.unsigned) await writeReleaseRecord(target, electronBuilderEnv, releaseRecordPath, supermuse)
+      if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: artifacts })
     },
   }
   const runSteps: readonly DesktopPackageRunStep[] = steps.map(step => ({ ...step, run: bodies[step.id] }))

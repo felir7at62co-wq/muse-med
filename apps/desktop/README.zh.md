@@ -265,7 +265,7 @@ Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-source
 
 打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
-每条打包命令在构建与下载前检查应用 ID、更新地址和该模式需要的签名配置，随后探测本次运行要用的外部工具：归档读取工具，以及 Windows 目标的安装器编译器。macOS 检查身份、Team ID、一套完整公证凭据、`CSC_LINK` 指定的可读本地 p12 文件、显式配置的 `CSC_KEY_PASSWORD`，以及引用的 API Key 和钥匙串文件；Windows 检查公开代码签名证书、SignTool 文件、容器名称和 PIN 格式。仅准备 Windows 资源或显式未签名打包不要求签名凭据。配置检查不验证 PIN 是否正确、Token 是否登录、钥匙串是否解锁或 Apple 是否接受凭据；实际签名与公证负责这些检查。`--build-version auto` 会访问目标 bucket，`--check` 下同样如此。单独运行相同检查：
+每条打包命令在构建与下载前检查应用 ID 和该模式需要的签名配置。常规 Muse 打包也会在需要时检查更新地址。每条命令随后探测归档读取工具，Windows 打包还会探测安装器编译器。macOS 检查身份、Team ID、一套完整公证凭据、`CSC_LINK` 指定的可读本地 p12 文件、显式配置的 `CSC_KEY_PASSWORD`，以及引用的 API Key 和钥匙串文件。Windows 检查公开代码签名证书、SignTool 文件、容器名称和 PIN 格式。仅准备 Windows 资源或显式未签名打包不要求签名凭据。配置检查不验证 PIN 是否正确、Token 是否登录、钥匙串是否解锁或 Apple 是否接受凭据。实际签名与公证负责这些检查。常规 Muse 配置更新目标后，`--build-version auto` 在 `--check` 下也会访问 bucket。以下命令可单独运行这些检查。
 
 ```sh
 pnpm --dir apps/desktop run check:package
@@ -464,6 +464,8 @@ NSIS 在安装阶段清理临时解压目录，完成后才显示完成页或自
 pnpm run package:desktop:win:x64
 ```
 
+为独立的 Supermuse 安装包签名时，在 `.env.windows` 中设置 `DSH_DESKTOP_APP_ID=cn.aigcpipeline.supermuse.acceptance`，然后使用相同的 EV 签名命令。Supermuse 没有更新源，无需配置更新地址或发布 ID。`--build-version auto` 根据本地产物目录编排版本号。签名安装包位于 `.desktop-build/targets/win-x64/supermuse-signed-artifacts/`，文件名为 `supermuse-<version>-win-x64.exe`。Windows 验证安装包的时间戳及签名者后，同一目录会生成 `supermuse-windows-build.json`。记录不包含上传地址。
+
 打包前插入并解锁 Token。electron-builder 钩子把每个产物交给采用 CRLF 的 `scripts/windows-sign.cmd`；该 CMD 只调用一次已配置的 SignTool，并指定 `/f`、SafeNet `/kc "[{{PIN}}]=容器"`、`/csp "eToken Base Cryptographic Provider"`和 SHA-256 文件摘要，不请求时间戳。随后钩子在隔离副本上完成 DigiCert SHA-256 RFC 3161 时间戳，不传递签名凭据。钩子不会改用 electron-builder 内置的 SignTool，也不会重试失败的签名请求。SignTool、证书、容器、PIN、Token 或签名不可用时，Windows 发布打包会失败，不会生成未签名产物。
 
 时间戳处理仅对正常退出但返回失败或警告的时间戳命令重试，最多尝试三次，间隔为一秒和两秒。每次均从同一份已验证的主签名开始。启动错误、终止状态不确定或验签失败会立即停止。SignTool 使用短的私有路径；发布时先把已验证字节复制到目标卷，再原子替换。最终必须通过 Windows 信任、证书、时间戳和规范化全文件相等检查。尝试耗尽后停止打包并保留证据，不再次调用硬件。参见[签名完成决策](../../.agents/notes/implemented/process/2026-09-17-windows-signature-completion.zh.md)。
@@ -495,7 +497,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 更新页使用冷白色卡片、浅灰状态面板与圆角蓝色下载进度条；校验和安装阶段显示状态，不补造百分比。打包后的更新器使用按产品版本推导的 GitHub Releases 通道。
 
-打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此所有目标都会检查，两个平台的未签名构建也一样。ad-hoc macOS 构建采用上文的已校验 DMG 手动安装流程，带发布者签名的 macOS 构建仍使用 Squirrel。Windows 未签名包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。签名且供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。签名发布包含运行时与桌面壳。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
+常规 Muse 打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此所有目标都会检查，两个平台的未签名构建也一样。ad-hoc macOS 构建采用上文的已校验 DMG 手动安装流程，带发布者签名的 macOS 构建仍使用 Squirrel。Windows 未签名包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。签名且供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。签名发布包含运行时与桌面壳。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
 
 原生更新浮层在文档就绪且父窗口可见时显示，并在父窗口再次显示时恢复。关闭浮层会释放输入拦截和父窗口监听。[本地窗口验证](tests/README.zh.md#verification-overlay)无需启动工作区即可检查这些切换。
 

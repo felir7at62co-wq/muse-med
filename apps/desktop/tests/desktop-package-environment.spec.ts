@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from '../scripts/desktop-package-environment.mjs'
 import { resolveWindowsPackageSettings } from '../scripts/windows-package-settings.mjs'
+import { SUPERMUSE_WINDOWS_APP_ID } from '../scripts/supermuse-identity.mjs'
 
 const WINDOWS = { platform: 'win32', arch: 'x64' } as const
 const MACOS = { platform: 'darwin', arch: 'arm64' } as const
@@ -49,7 +50,7 @@ describe('Desktop local packaging configuration', () => {
 
   it('selects the platform file, preserves literal secrets, and excludes stale ambient release settings', async () => {
     await withDirectory(async (directory) => {
-      await writeFile(join(directory, '.env.windows'), '\uFEFFDSH_DESKTOP_APP_ID=com.example.windows\r\nDSH_DESKTOP_WINDOWS_TOKEN_PIN=" #!$%&literal "\r\nDSH_DESKTOP_WINDOWS_CER_FILE="keys/public certificate.cer"\r\n')
+      await writeFile(join(directory, '.env.windows'), '\uFEFFDSH_DESKTOP_APP_ID=" com.example.windows "\r\nDSH_DESKTOP_WINDOWS_TOKEN_PIN=" #!$%&literal "\r\nDSH_DESKTOP_WINDOWS_CER_FILE="keys/public certificate.cer"\r\n')
       await writeFile(join(directory, '.env.macos'), 'DSH_DESKTOP_APP_ID=com.example.mac\nAPPLE_KEYCHAIN_PROFILE=release\nCSC_LINK=keys/signing.p12\nCSC_KEY_PASSWORD=" # literal "\n')
       const parent = {
         PATH: 'build-tools', DSH_DESKTOP_APP_ID: 'com.stale.desktop',
@@ -137,6 +138,12 @@ describe('Desktop local packaging configuration', () => {
     expect(() => {
       validateDesktopPackageEnvironment({ ...POLICY, DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID }, WINDOWS, { prepareOnly: true })
     }).not.toThrow()
+  })
+
+  it('requires Windows signing credentials for Supermuse without requiring an updater destination', () => {
+    expect(() => {
+      validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: SUPERMUSE_WINDOWS_APP_ID }, WINDOWS)
+    }).toThrow(/DSH_DESKTOP_WINDOWS_CER_FILE/u)
   })
 
   it('accepts one local npm registry mirror and rejects other registry forms', () => {

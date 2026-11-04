@@ -210,11 +210,12 @@ describe('desktop package step table', () => {
     expect(media('mac-arm64')).toEqual(['apps/desktop/.desktop-build/targets/mac-arm64/runtime/media'])
   })
 
-  it('records the unsigned installer directory when the run is unsigned', () => {
-    const globs = (unsigned: boolean): string[] =>
-      desktopPackageSteps(process.cwd(), 'win-x64', unsigned)
+  it('records the installer directory for the signing mode and application identity', () => {
+    const globs = (unsigned: boolean, appId?: string): string[] =>
+      desktopPackageSteps(process.cwd(), 'win-x64', unsigned, appId)
         .at(-1)!.artifacts.map(artifact => artifact.glob)
     expect(globs(false)).toEqual(['apps/desktop/.desktop-build/targets/win-x64/artifacts'])
     expect(globs(true)).toEqual(['apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts'])
+    expect(globs(false, ' cn.aigcpipeline.supermuse.acceptance ')).toEqual(['apps/desktop/.desktop-build/targets/win-x64/supermuse-signed-artifacts'])
   })
 })
