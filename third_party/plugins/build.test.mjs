@@ -20,15 +20,9 @@ function firstDifference(actual, expected) {
 /**
  * Create the two output directories one reproducible-build comparison needs.
  *
- * Both outputs must sit at the SAME directory depth: `build.mjs` stages every build in a
- * `.source-build-*` directory inside `--out` and links the toolchain into it with junctions, and
- * rolldown records every module it inlines in a `//#region` comment naming the file. Those paths
- * leave the staging tree for the checkout, so they are written relative to the emitted file (or
- * absolute when output and checkout sit on different Windows drives, which is why this only
- * reproduces with both on one drive). One extra `--out` level adds one `../` to each of the four
- * bundled `@heroicons/react` comments in the Codex client bundle, and the two tarballs then differ
- * in `lib/client.js` alone. Two `mkdtempSync` siblings under the OS temp root keep the depth equal;
- * nesting the second output inside the first cannot.
+ * Use sibling outputs because Rolldown records inlined dependency paths relative to the
+ * emitted file when the checkout and output share a drive. Different output depths can
+ * change those paths even when the dependencies are identical.
  *
  * @param {string} label Prefix naming the fixtures the two directories belong to.
  * @returns {[string, string]} The first and second output directories.
