@@ -185,6 +185,39 @@ describe('JubianTokenSection — writes', () => {
   })
 })
 
+it('reopens a returned video with a reason and waits for a new decision', async () => {
+  let report: VideoRecoveryReview = {
+    idempotencyKey: 'reviewed-video', taskId: 562626, status: 'awaiting_review', digest: 'old-digest',
+    decision: 'reject', reason: 'Check lip sync', mediaChecks: [],
+  }
+  const status = async (): Promise<RemoteResult<VideoRecoveryStatus>> => ({ ok: true,
+    value: { enabled: true, configurable: true, decoderAvailable: true, projectDir: '/project', reports: [report] } })
+  const review = vi.fn(async () => {
+    report = { ...report, digest: 'new-digest', decision: null,
+      reopenedFrom: { digest: 'old-digest', rejectionReason: 'Check lip sync', reason: 'Action only' } }
+    return { ok: true as const, value: report }
+  })
+  const read = async (): Promise<RemoteResult<VideoRecoveryReview>> => ({ ok: true, value: report })
+  render(<JubianTokenSection {...props({ recovery: {
+    status, configure: status, review, adopt: read, createDraft: read, verifyExport: read,
+    deliverApprovedClip: read, deliverApprovedMp4: read,
+    deliverApprovedEpisode: async () => ({ ok: true, value: {
+      episode: 1, approvedShots: 0, totalShots: 0, readiness: 'invalid', missing: [],
+    } }),
+  } })} />)
+  fireEvent.click(await screen.findByRole('button', { name: en.recoveryReopen }))
+  const confirm = screen.getByRole('button', { name: en.recoveryConfirm })
+  expect(confirm.hasAttribute('disabled')).toBe(true)
+  fireEvent.change(screen.getByLabelText(en.recoveryReopenReason), { target: { value: 'Action only' } })
+  fireEvent.click(confirm)
+  await screen.findByText(en.recoveryAwaiting)
+  expect(review).toHaveBeenCalledWith({ action: 'reopen', idempotencyKey: 'reviewed-video', digest: 'old-digest', reason: 'Action only' })
+  expect(screen.getByText(en.recoveryPreviousRejection)).toBeDefined()
+  expect(screen.getByText('Check lip sync')).toBeDefined()
+  expect(screen.getByRole('button', { name: en.recoveryApprove })).toBeDefined()
+  expect(screen.queryByRole('button', { name: en.recoveryImport })).toBeNull()
+})
+
 describe('Jubian recovery delivery', () => {
   it.each(['derivative', 'original'] as const)('exports an approved %s again and displays the updated verification', async (source) => {
     const sha256 = 'sha256:' + 'a'.repeat(64)

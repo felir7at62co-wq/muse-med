@@ -67,6 +67,7 @@ const deliverySchema = z.object({
 })
 const derivativeViewSchema = z.object({ path: z.string(), sha256: digestSchema, video: z.boolean(), audio: z.boolean() })
 const reasonSchema = z.string().trim().min(1).max(1000)
+const reopenedFromSchema = z.object({ digest: digestSchema, rejectionReason: z.string().nullable(), reason: reasonSchema })
 const decisionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), digest: digestSchema, reason: z.undefined().optional() }),
   z.object({ action: z.literal('reject'), digest: digestSchema, reason: reasonSchema.optional() }),
@@ -128,6 +129,7 @@ function reportView(report: Awaited<ReturnType<typeof reviewRecoveredVideo>>, ke
   const digest = digestSchema.parse(report.digest)
   const derivative = report.derivative === null ? null : derivativeViewSchema.parse(report.derivative)
   const decision = report.decision === null ? null : decisionSchema.parse(report.decision)
+  const reopenedFrom = reopenedFromSchema.optional().parse(report.reopened_from)
   if (decision !== null && decision.digest !== digest) throw new Error('Video review decision belongs to another report')
   return {
     idempotencyKey: key, taskId: evidence.task_id, status: evidence.status, digest,
@@ -137,6 +139,7 @@ function reportView(report: Awaited<ReturnType<typeof reviewRecoveredVideo>>, ke
     ...(derivative === null ? {} : { derivative: { path: derivative.path, sha256: derivative.sha256 } }),
     decision: decision?.action ?? null,
     ...(decision?.reason === undefined ? {} : { reason: decision.reason }),
+    ...(reopenedFrom === undefined ? {} : { reopenedFrom }),
   }
 }
 
@@ -259,9 +262,9 @@ export class JubianVideoRecovery extends TypertRemoteService {
   }
 
   /**
-   * Read a report or record the operator's decision for its exact digest.
-   * @param input - Recorded submission key and, for a decision, the report digest.
-   * @returns The report and its durable review decision.
+   * Read a report, record a decision, or reopen a rejected artifact for one more review.
+   * @param input - Recorded submission key and the exact digest for any change.
+   * @returns The current report, its durable decision and any earlier rejection.
    */
   @Remote
   async review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview> {
@@ -276,14 +279,18 @@ export class JubianVideoRecovery extends TypertRemoteService {
         }
         const previous = reportView(await reviewRecoveredVideo(project.directory, key), key)
         const reason = reasonSchema.optional().safeParse(input.reason)
-        if (!reason.success || (reason.data !== undefined && input.action !== 'reject')) {
-          throw refusal('A rejection reason must contain 1 to 1000 characters')
+        if (!reason.success || (reason.data !== undefined && input.action !== 'reject' && input.action !== 'reopen')
+          || (input.action === 'reopen' && reason.data === undefined)) {
+          throw refusal('A review reason must contain 1 to 1000 characters')
         }
         if (input.action === 'read') return await withDelivery(project.directory, previous)
         const digest = digestSchema.safeParse(input.digest)
         if (!digest.success) throw refusal('Read the report before recording a decision')
         if (previous.digest !== digest.data || previous.status !== 'awaiting_review') {
           throw refusal('The report changed or is not awaiting review')
+        }
+        if (input.action === 'reopen' && (previous.decision !== 'reject' || previous.reopenedFrom !== undefined)) {
+          throw refusal('Only the original rejected review can be reopened')
         }
         this.ctx.invocation?.signal.throwIfAborted()
         return reportView(await reviewRecoveredVideo(project.directory, key, {

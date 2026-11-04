@@ -41,13 +41,13 @@ export interface VideoRecoveryConfigurationInput {
   readonly projectDir?: string
 }
 
-/** Exact recorded submission and decision requested by the operator. */
+/** Exact recorded submission and review action requested by the operator. */
 export interface VideoRecoveryReviewInput {
-  readonly action: 'read' | 'approve' | 'reject'
+  readonly action: 'read' | 'approve' | 'reject' | 'reopen'
   readonly idempotencyKey: string
-  /** Current report digest. Required for an approval or rejection. */
+  /** Current report digest. Required for every action that changes the review. */
   readonly digest?: string
-  /** Optional operator feedback on rejection, trimmed to 1–1000 characters. */
+  /** Optional rejection feedback or required reopening reason, trimmed to 1–1000 characters. */
   readonly reason?: string
 }
 
@@ -175,6 +175,8 @@ export interface VideoRecoveryReview {
   readonly decision: 'approve' | 'reject' | null
   /** Recorded operator feedback, when supplied for a rejection. */
   readonly reason?: string
+  /** The original rejection and operator's reason for reopening this artifact. */
+  readonly reopenedFrom?: { readonly digest: string; readonly rejectionReason: string | null; readonly reason: string }
 }
 
 /** Video recovery settings and reviewed submissions for the selected project. */

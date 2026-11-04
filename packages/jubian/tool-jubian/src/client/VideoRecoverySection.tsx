@@ -70,6 +70,7 @@ type RecoveryProps = PropsLocale<'settings.jubian'> & { controls: VideoRecoveryC
 const actionLabels = {
   approve: 'recoveryApprove',
   reject: 'recoveryReject',
+  reopen: 'recoveryReopen',
   adopt: 'recoveryImport',
   createDraft: 'recoveryCreateDraft',
   verifyExport: 'recoveryVerifyExport',
@@ -180,7 +181,7 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
     setPending({ action, report })
   }
   const reason = reviewReason.trim()
-  const needsReason = pending?.action === 'reject'
+  const needsReason = pending?.action === 'reject' || pending?.action === 'reopen'
   const isImport = pending?.action === 'adopt'
   const isExport = pending?.action === 'verifyExport'
   const needsPath = isImport || isExport
@@ -226,12 +227,13 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
           result = await controls.review({ ...target, action })
           break
         case 'reject':
+        case 'reopen':
           result = await controls.review({ ...target, action, reason })
           break
       }
       updateReport(report, remoteValue(result))
       setPending(undefined)
-      if (action === 'approve' || action === 'reject') {
+      if (action === 'approve' || action === 'reject' || action === 'reopen') {
         try { setState(remoteValue(await controls.status())) }
         catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
       }
@@ -347,6 +349,18 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
                   <p className={css.recoveryReason}>{report.reason}</p>
                 </div>
               )}
+              {report.reopenedFrom && (
+                <div className={css.field}>
+                  {report.reopenedFrom.rejectionReason && (
+                    <>
+                      <p className={css.label}>{t('recoveryPreviousRejection')}</p>
+                      <p className={css.recoveryReason}>{report.reopenedFrom.rejectionReason}</p>
+                    </>
+                  )}
+                  <p className={css.label}>{t('recoveryReopenReason')}</p>
+                  <p className={css.recoveryReason}>{report.reopenedFrom.reason}</p>
+                </div>
+              )}
               {report.derivative && (
                 <div className={css.field}>
                   <p className={css.recoveryTitle}>{t('recoveryDerivative')}</p>
@@ -427,7 +441,7 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
               )}
               {report.status === 'awaiting_review' && report.decision === null && (
                 <div className={css.actions}>
-                  {!report.derivative && state.decoderAvailable && (
+                  {!report.derivative && !report.reopenedFrom && state.decoderAvailable && (
                     <Button variant="outline" size="sm" disabled={busy}
                       onClick={() => { requestAction('adopt', report) }}>
                       {t('recoveryImport')}
@@ -440,6 +454,14 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
                   <Button variant="outline" size="sm" disabled={busy}
                     onClick={() => { requestAction('reject', report) }}>
                     {t('recoveryReject')}
+                  </Button>
+                </div>
+              )}
+              {report.status === 'awaiting_review' && report.decision === 'reject' && !report.reopenedFrom && (
+                <div className={css.actions}>
+                  <Button variant="outline" size="sm" disabled={busy}
+                    onClick={() => { requestAction('reopen', report) }}>
+                    {t('recoveryReopen')}
                   </Button>
                 </div>
               )}
@@ -456,7 +478,8 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
           title={t(actionLabels[pending.action])}
           description={isImport ? t('recoveryImportHint') : isExport ? t('recoveryExportHint')
             : pending.action === 'createDraft' ? t('recoveryDraftHint')
-              : t('recoveryConfirmTask', { id: String(pending.report.taskId) })}
+              : pending.action === 'reopen' ? t('recoveryReopenHint')
+                : t('recoveryConfirmTask', { id: String(pending.report.taskId) })}
           footer={(
             <>
               <Button variant="outline" data-modal-autofocus={needsReason || needsPath ? undefined : true} disabled={busy} onClick={() => { setPending(undefined) }}>{t('recoveryCancel')}</Button>
@@ -482,7 +505,7 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
           )}
           {needsReason && (
             <label className={css.field}>
-              <span className={css.label}>{t('recoveryReason')}</span>
+              <span className={css.label}>{t(pending.action === 'reopen' ? 'recoveryReopenReason' : 'recoveryReason')}</span>
               <textarea
                 className={css.recoveryReasonInput}
                 data-modal-autofocus

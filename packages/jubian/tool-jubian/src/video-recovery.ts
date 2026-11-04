@@ -80,6 +80,8 @@ const jsonValueSchema = z.json()
 const reportSchema = z.record(z.string(), jsonValueSchema)
 const outputSchema = z.object({ outputs: z.array(z.object({ video_url: z.string().min(1) })).min(1) })
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
+const rejectionSchema = z.object({ action: z.literal('reject'), digest: sha256Schema, reason: z.string().optional() })
+const reopeningSchema = z.object({ rejectionSha256: sha256Schema, reason: z.string().trim().min(1).max(1000) })
 const derivativeSchema = z.object({
   kind: z.literal('derivative'),
   originalDigest: sha256Schema,
@@ -124,14 +126,14 @@ export async function artifactHash(path: string, signal?: AbortSignal): Promise<
 }
 
 /**
- * Read the project report or record one human decision bound to its exact bytes.
+ * Read the current review, record a decision, or reopen a rejected artifact once.
  * @param projectDir - Authorized project directory.
  * @param key - Original submission key.
- * @param decision - Optional explicitly authorized decision and report digest.
- * @returns Original evidence, active digest, optional derivative and recorded decision.
+ * @param decision - Optional decision or reason to reopen the exact rejected report digest.
+ * @returns Original evidence, active digest, optional derivative, recorded decision and any prior rejection.
  */
 export async function reviewRecoveredVideo(projectDir: string, key: string,
-  decision?: { action: 'approve' | 'reject'; digest: string; reason?: string }): Promise<Record<string, JsonValue>> {
+  decision?: { action: 'approve' | 'reject' | 'reopen'; digest: string; reason?: string }): Promise<Record<string, JsonValue>> {
   const path = reviewPath(projectDir, key)
   await reportDirectory(path, false)
   await regularReport(path)
@@ -140,6 +142,7 @@ export async function reviewRecoveredVideo(projectDir: string, key: string,
   const evidence = reportSchema.parse(JSON.parse(report))
   let decisionPath = path + '.decision.json'
   const initial = await optionalReport(decisionPath)
+  let decisionBytes = initial
   let recorded: JsonValue = initial === undefined ? null : jsonValueSchema.parse(JSON.parse(initial))
   let derivative: JsonValue = null
   if (initial !== undefined && recorded !== null && typeof recorded === 'object' && !Array.isArray(recorded) && recorded.kind === 'derivative') {
@@ -153,6 +156,35 @@ export async function reviewRecoveredVideo(projectDir: string, key: string,
       path: 'video_tasks/review/' + adoption.filename, sha256: adoption.sha256, video: adoption.video, audio: adoption.audio,
     }
     decisionPath = path + '.derivative.decision.json'
+    decisionBytes = await optionalReport(decisionPath)
+    recorded = decisionBytes === undefined ? null : jsonValueSchema.parse(JSON.parse(decisionBytes))
+  }
+  const reopeningPath = decisionPath + '.reopen.json'
+  const reopeningBytes = await optionalReport(reopeningPath)
+  if (decision?.action === 'reopen') {
+    const rejection = rejectionSchema.safeParse(recorded)
+    if (reopeningBytes !== undefined || !rejection.success || decisionBytes === undefined
+      || rejection.data.digest !== digest || decision.digest !== digest
+      || evidence.status !== 'awaiting_review' || evidence.idempotency_key !== key) {
+      throw new Error('Only the current rejected review can be reopened once')
+    }
+    const reopening = reopeningSchema.parse({
+      rejectionSha256: createHash('sha256').update(decisionBytes).digest('hex'), reason: decision.reason,
+    })
+    if (!await publishOnce(reopeningPath, reopening)) throw new Error('The rejected review has already been reopened')
+    return await reviewRecoveredVideo(projectDir, key)
+  }
+  let reopenedFrom: JsonValue | undefined
+  if (reopeningBytes !== undefined) {
+    const rejection = rejectionSchema.parse(recorded)
+    const reopening = reopeningSchema.parse(JSON.parse(reopeningBytes))
+    if (rejection.digest !== digest || decisionBytes === undefined
+      || reopening.rejectionSha256 !== createHash('sha256').update(decisionBytes).digest('hex')) {
+      throw new Error('The original video rejection changed after reopening')
+    }
+    reopenedFrom = { digest, rejectionReason: rejection.reason ?? null, reason: reopening.reason }
+    digest = createHash('sha256').update(digest).update('\0').update(reopeningBytes).digest('hex')
+    decisionPath += '.reopened.json'
     const active = await optionalReport(decisionPath)
     recorded = active === undefined ? null : jsonValueSchema.parse(JSON.parse(active))
   }
@@ -171,7 +203,8 @@ export async function reviewRecoveredVideo(projectDir: string, key: string,
       }
     }
   }
-  return { evidence, digest, derivative, decision: recorded }
+  return { evidence, digest, derivative, decision: recorded,
+    ...(reopenedFrom === undefined ? {} : { reopened_from: reopenedFrom }) }
 }
 
 /**
@@ -189,7 +222,7 @@ export async function adoptRecoveredVideo(projectDir: string, key: string, diges
   signal: AbortSignal): Promise<Record<string, JsonValue>> {
   const report = await reviewRecoveredVideo(projectDir, key)
   const evidence = report.evidence
-  if (report.digest !== digest || report.derivative !== null || report.decision !== null
+  if (report.digest !== digest || report.derivative !== null || report.decision !== null || report.reopened_from !== undefined
     || evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)
     || evidence.status !== 'awaiting_review' || evidence.idempotency_key !== key) {
     throw new Error('Video adoption requires an undecided provider report')
