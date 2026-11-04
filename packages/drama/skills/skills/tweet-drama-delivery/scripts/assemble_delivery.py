@@ -200,6 +200,10 @@ def film_review_notice(project: Path, episode: int, master: Path, digest: str) -
         problems.append("source 缺失")
     else:
         try:
+            # Windows can return an invalid path from non-strict resolve().
+            if "\0" in source:
+                raise ValueError("source contains a NUL character")
+            source.encode("utf-8")
             reviewed_source = (project / source).resolve()
         except (OSError, ValueError, UnicodeError) as error:
             problems.append(f"source 无法解析（{type(error).__name__}）")

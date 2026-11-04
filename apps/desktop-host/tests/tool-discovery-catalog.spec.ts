@@ -51,7 +51,7 @@ it('does not register or expose the removed daemon memory integration', () => {
   expect(catalog.flatMap(entry => entry.schemas).map(schema => schema.name)).not.toContain('hindsight_memory')
   const require = createRequire(new URL('../package.json', import.meta.url))
   expect(() => require.resolve('@deepseek-ai/dsh-desktop-host/hindsight'))
-    .toThrowError(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
+    .toThrow(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
 })
 
 it.each(['short-drama', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s product composition', async (preset) => {
