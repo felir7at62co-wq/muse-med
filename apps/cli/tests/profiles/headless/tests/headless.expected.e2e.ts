@@ -916,6 +916,7 @@ describe('headless stream-json snapshots', () => {
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
+        DSH_LOADER_SMOKE_REQUIRED_ENTRY_ID: 'headless-title-fence',
         DSH_SNAPSHOT_FILE: join(goalScenarioDir, 'session.jsonl'),
         DSH_SNAPSHOT_OVERRIDE: join(goalScenarioDir, 'replay.override.json'),
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
@@ -977,6 +978,7 @@ describe('headless stream-json snapshots', () => {
       env: {
         // The override fully supplies the parent script; the child fixture
         // remains separate so replay binds it to the fresh child Session.
+        DSH_LOADER_SMOKE_REQUIRED_ENTRY_ID: 'headless-title-fence',
         DSH_SNAPSHOT_FILE: parentReplay,
         DSH_SNAPSHOT_OVERRIDE: parentOverride,
         DSH_SNAPSHOT_CHILD_FILES: childReplay,
