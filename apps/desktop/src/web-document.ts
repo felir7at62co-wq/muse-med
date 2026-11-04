@@ -1,6 +1,7 @@
 /** Local Web document and authenticated HTTP forwarding for the application window. */
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
+import { Agent } from 'undici'
 
 const MIME: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -85,8 +86,13 @@ const WITHHELD_RESPONSE_HEADERS = [
 /** Host routes whose responses carry immutable cache headers keyed by a per-process revision. */
 const PLUGIN_BUNDLE_PATH = /^\/plugins\//u
 
+const EPISODE_DELIVERY_PATH = '/api/jubianVideoRecovery/deliverApprovedEpisode'
+// proxy-exempt: the authenticated episode RPC connects only to the application's loopback Host.
+const episodeDeliveryAgent = new Agent({ headersTimeout: 30 * 60_000 })
+
 /**
  * Forward local application requests to its authenticated Host, preserving streaming and cancellation.
+ * The episode delivery POST can wait up to 30 minutes for loopback response headers while the Host renders and verifies the MP4.
  * Plugin bundle responses lose their `cache-control` for `no-store`: the Host marks them immutable
  * under a revision that changes every launch, so Chromium's disk cache would only accumulate bundles
  * no later launch can reuse.
@@ -105,7 +111,15 @@ export async function forwardWebRequest(request: Request, host: string, cookie: 
   const headers = new Headers(request.headers)
   for (const name of ['host', 'origin', 'cookie', 'sec-fetch-site']) headers.delete(name)
   headers.set('cookie', cookie)
-  const init = { method: request.method, headers, body: request.body, signal: request.signal, duplex: 'half', redirect: 'manual' as const }
+  const rendersEpisode = source.pathname === EPISODE_DELIVERY_PATH && request.method === 'POST'
+    && target.protocol === 'http:' && target.hostname === '127.0.0.1'
+  const init = {
+    method: request.method, headers, body: request.body, signal: request.signal, duplex: 'half', redirect: 'manual' as const,
+    ...rendersEpisode ? {
+      // proxy-exempt: this exact RPC requires a longer response-header deadline on the owned loopback Host.
+      dispatcher: episodeDeliveryAgent,
+    } : {},
+  }
   const response = await fetch(target, init)
   const outgoing = new Headers(response.headers)
   const length = response.headers.get('content-length')

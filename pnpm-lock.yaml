@@ -817,6 +817,9 @@ importers:
       semver:
         specifier: ^7.8.5
         version: 7.8.5
+      undici:
+        specifier: ^7.28.0
+        version: 7.28.0
       ws:
         specifier: ^8.21.0
         version: 8.21.0
