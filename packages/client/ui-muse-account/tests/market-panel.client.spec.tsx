@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { mountMuseMarket } from '../src/client/market-mount.ts'
 import { createMarketFeedback } from '../src/client/market-feedback.tsx'
-import { MarketPage, MarketSettingsLink } from '../src/client/MarketPage.tsx'
+import { MarketBotModeLink, MarketPage, MarketSettingsLink } from '../src/client/MarketPage.tsx'
 import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 
 vi.mock('@deepseek-ai/dsh-muse-market/remote', () => ({
@@ -29,12 +29,15 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   const startPresetSession = vi.fn(async () => {})
   ctx.provide('layout', { selectPanel })
   ctx.provide('uiWorkspace', { startPresetSession })
+  const navigation = { getSnapshot: () => true, subscribe: () => () => {}, openSession: vi.fn(async () => true) }
+  ctx.provide('museBotMarketNavigation', navigation)
   ctx.provide('remote', { $mount: vi.fn(async () => disposeRemote), museMarket: {} })
   ctx.provide('remote.museMarket', {})
   const slots = ctx.get('slots') as SlotRegistry
   slots.register({ name: 'root', children: {
     main: { kind: 'keyed', scope: 'root' }, 'sidebar.panellist': { kind: 'list', scope: 'root' },
     'settings.section': { kind: 'list', scope: 'root' }, 'shell.overlay': { kind: 'list', scope: 'root' },
+    'sidebar.footer.action': { kind: 'list', scope: 'root' },
   } } as never, () => null)
   const dispose = await mountMuseMarket(ctx)
   expect(slots.entries('main')[0]?.options.key).toBe('muse-market')
@@ -42,7 +45,8 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   const main = slots.entries('main')[0]?.inject?.() as { onRunBot: (id: MarketRelease['id']) => Promise<void> }
   const installId = 'a'.repeat(64) as MarketRelease['id']
   await main.onRunBot(installId)
-  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`)
+  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`, navigation.openSession)
+  expect(slots.entries('sidebar.footer.action')[0]?.component).toBe(MarketBotModeLink)
   expect(slots.entries('sidebar.panellist')[0]?.options.id).toBe('muse-market')
   expect(resolveSlotLabel(slots.entries('sidebar.panellist')[0]?.options.label)).toBe('Bot 与 Skills 市场')
   const shortcut = slots.entries('settings.section')[0]!
@@ -51,7 +55,7 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   props.onOpen(); expect(selectPanel).toHaveBeenCalledWith('muse-market')
   expect(slots.entries('shell.overlay')).toHaveLength(1)
   await dispose()
-  for (const name of ['main', 'sidebar.panellist', 'settings.section', 'shell.overlay'] as const) {
+  for (const name of ['main', 'sidebar.panellist', 'sidebar.footer.action', 'settings.section', 'shell.overlay'] as const) {
     expect(slots.entries(name)).toHaveLength(0)
   }
   expect(disposeRemote).toHaveBeenCalledOnce()
@@ -59,6 +63,16 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   expect(slots.entries('main')).toHaveLength(1)
   expect(slots.entries('sidebar.panellist')).toHaveLength(1)
   await remount()
+})
+
+it('shows the market footer only while Bot mode is active', () => {
+  const onOpen = vi.fn()
+  const navigation = { getSnapshot: () => true, subscribe: () => () => {}, openSession: vi.fn(async () => true) }
+  const { rerender } = render(<MarketBotModeLink t={key => key} wide={false} navigation={navigation} onOpen={onOpen} />)
+  fireEvent.click(screen.getByRole('button', { name: 'nav' }))
+  expect(onOpen).toHaveBeenCalledOnce()
+  rerender(<MarketBotModeLink t={key => key} wide={false} navigation={{ ...navigation, getSnapshot: () => false }} onOpen={onOpen} />)
+  expect(screen.queryByRole('button', { name: 'nav' })).toBeNull()
 })
 
 it('retains operation feedback until dismissed and ignores completions after plugin disposal', () => {

@@ -1,17 +1,28 @@
 /** Generated Remote mounting and main-area registration for the Muse market. */
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { PresetSessionOpener } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import marketRemote from '@deepseek-ai/dsh-muse-market/remote'
 import type MuseMarket from '@deepseek-ai/dsh-muse-market'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
+import { MarketBotModeLink, MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
 import type { MarketSectionProps } from './MarketSection.tsx'
 import { createMarketFeedback, MarketFeedbackOverlay } from './market-feedback.tsx'
 import { marketZh, marketEn, type MarketLocaleKey } from './market-locales.ts'
 
 /** Market actions available to the page through the authenticated Host. */
 export type MarketActions = Pick<MuseMarket, 'catalog' | 'installed' | 'identity' | 'sources' | 'install' | 'enable' | 'remove' | 'exportPackage' | 'importPackage' | 'prepare' | 'publishDraft' | 'review'>
+
+/** Optional navigation supplied by the qualified Muse Bot client. */
+export interface MuseBotMarketNavigation {
+  readonly getSnapshot: () => boolean
+  readonly subscribe: (listener: () => void) => () => void
+  readonly openSession: PresetSessionOpener
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context { museBotMarketNavigation: MuseBotMarketNavigation }
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { 'settings.museMarket': MarketLocaleKey }
@@ -53,11 +64,18 @@ export async function mountMuseMarket(ctx: Context): Promise<() => Promise<void>
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: panelId, locale: 'settings.museMarket',
       inject: () => {
         const workspace = context.get('uiWorkspace')
-        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? id => workspace.startPresetSession(`market-${id}`) : undefined
+        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? (id) => {
+          const navigation = context.get('museBotMarketNavigation')
+          return workspace.startPresetSession(`market-${id}`, navigation?.openSession)
+        } : undefined
         return { actions, reportOutcome: feedback.report, ...(onRunBot ? { onRunBot } : {}) }
       } }, MarketPage))
     context.slots.inject('sidebar.panellist', () => context.slots.register({ name: 'sidebar.panellist', id: panelId,
       order: 20, locale: 'settings.museMarket', label: () => t('nav') }, MarketPanelIcon))
+    context.inject(['museBotMarketNavigation'], (scope) => {
+      scope.slots.inject('sidebar.footer.action', () => scope.slots.register({ name: 'sidebar.footer.action', id: panelId,
+        order: 20, locale: 'settings.museMarket', inject: () => ({ navigation: scope.museBotMarketNavigation, onOpen }) }, MarketBotModeLink))
+    })
     context.slots.inject('settings.section', () => context.slots.register({ name: 'settings.section', id: 'muse-market', order: 13,
       label: () => t('nav'), locale: 'settings.museMarket', inject: () => ({ onOpen }) }, MarketSettingsLink))
   })

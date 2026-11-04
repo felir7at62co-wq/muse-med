@@ -1,5 +1,5 @@
 /** Qualify the native Muse Bot workspace for the application's controlled runtime. */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { load } from 'js-yaml'
 
@@ -17,7 +17,29 @@ export const museBotDesktopCompatibility = Object.freeze({
   github: false,
   webSearch: 'Muse profile unchanged; upstream search bundle omitted',
   runtime: 'native Cordis plugin in the existing Muse Host',
+  marketNavigation: 'adopt and open the existing version-bound Session',
 })
+
+function installMarketNavigation(directory) {
+  const entry = join(directory, 'src/client/index.js')
+  let source = readFileSync(entry, 'utf8').replace(/\r\n/gu, '\n')
+  const patches = [
+    ["import { call } from './api.js'", "import { call } from './api.js'\nimport { createMuseBotMarketNavigation } from './muse-market-navigation.mjs'"],
+    ['  const face = () => ({ actions, hooks:', `  ctx.provide('museBotMarketNavigation', createMuseBotMarketNavigation({
+    surface, actions, pull, sessionOf: id => {
+      const bot = roster.getSnapshot().byId[id]
+      return bot === undefined ? undefined : currentPart(bot)
+    },
+  }))
+  const face = () => ({ actions, hooks:`],
+  ]
+  for (const [before, after] of patches) {
+    if (source.split(before).length !== 2) throw new Error('community plugins: Muse Bot market navigation needs source review')
+    source = source.replace(before, after)
+  }
+  copyFileSync(join(import.meta.dirname, 'muse-bot-market-client.mjs'), join(directory, 'src/client/muse-market-navigation.mjs'))
+  writeFileSync(entry, source)
+}
 
 /**
  * Remove the retired search dependency and require Muse's single native composition.
@@ -50,5 +72,6 @@ export function applyMuseBotDesktopCompatibility(directory) {
   if (!readFileSync(join(directory, 'NOTICE'), 'utf8').trim()) {
     throw new Error('community plugins: Muse Bot attribution notice is missing')
   }
+  installMarketNavigation(directory)
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }

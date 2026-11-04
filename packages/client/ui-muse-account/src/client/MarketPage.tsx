@@ -1,10 +1,11 @@
 /** Main-area market panel and the Settings shortcut to it. */
-import type { ReactNode } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { Button, IconGlobeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconGlobeOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MuseBotMarketNavigation } from './market-mount.ts'
 import { MarketSection, type MarketSectionProps } from './MarketSection.tsx'
 import css from './MarketPage.module.css'
 
@@ -22,6 +23,23 @@ export function MarketPage(props: MarketSectionProps): ReactNode {
  */
 export function MarketPanelIcon({ size }: PropsRuntime<'sidebar.panellist'>): ReactNode {
   return <IconGlobeOutlineRegular size={size} />
+}
+
+/**
+ * Open the market from the Bot mode sidebar, which owns its panel list.
+ * @param props - sidebar width, locale, mode observer and market navigation.
+ * @returns Market shortcut while Bot mode is active.
+ */
+export function MarketBotModeLink({ t, wide, navigation, onOpen }: PropsRuntime<'sidebar.footer.action'>
+  & PropsLocale<'settings.museMarket'> & { navigation: MuseBotMarketNavigation; onOpen: () => void }): ReactNode {
+  const active = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot)
+  if (!active) return null
+  const label = t('nav')
+  return <Tooltip label={label} disabled={wide} portal>
+    <Button variant="ghost" aria-label={label} onClick={onOpen} icon={<IconGlobeOutlineRegular size={18} />}>
+      {wide ? label : null}
+    </Button>
+  </Tooltip>
 }
 
 /** Open the main market panel from the retained Settings entry.

@@ -772,6 +772,17 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.create).not.toHaveBeenCalled()
   })
 
+  it('lets the product surface open the newly created preset task', async () => {
+    const current = summary('previous', { cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.retain.mockClear()
+    const open = vi.fn(async () => true)
+    await b.uiWorkspace.startPresetSession('market-release', open)
+    expect(open).toHaveBeenCalledExactlyOnceWith(sid('created-current'), expect.any(AbortSignal))
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+  })
+
   describe('startSession draft initialization', () => {
     it.each<{ name: string; options: DraftInitializationOptions }>([
       { name: 'plain text', options: { prompt: '草稿 🧭\nsecond line', clearPreviousDraft: true } },
