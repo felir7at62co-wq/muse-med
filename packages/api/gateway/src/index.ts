@@ -422,7 +422,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return this.holdLocalStream(() => this.openStream(request, new AbortController()))
   }
 
-  private async holdLocalStream(open: () => Promise<AsyncIterable<unknown>>): Promise<AsyncIterable<unknown>> {
+  private async holdLocalStream(open: () => Promise<AsyncGenerator>): Promise<AsyncIterable<unknown>> {
     if (this.updatePaused) throw new Error('desktop update: Remote stream admission is paused')
     const token = Symbol('in-process Remote stream')
     this.localUpdateStreams.add(token)
@@ -449,11 +449,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const wrapped: AsyncIterableIterator<unknown> = {
         [Symbol.asyncIterator]: () => wrapped,
         next: () => run(() => iterator.next()),
-        return: () => run(async () => await iterator.return?.() ?? { done: true, value: undefined }),
-        throw: (error?: unknown) => run(async () => {
-          if (iterator.throw === undefined) throw error
-          return iterator.throw(error)
-        }),
+        return: () => run(() => iterator.return(undefined)),
+        throw: (error?: unknown) => run(() => iterator.throw(error)),
       }
       return wrapped
     } catch (error) {
@@ -466,7 +463,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * `control` belongs to the logical stream: a rejected uplink item aborts it
    * with the Remote failure as the reason so the carrier delivers that failure.
    */
-  private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
+  private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncGenerator> {
     const prepared = await this.prepareInvocation(request, control)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()
@@ -534,7 +531,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     peer: PeerScope | undefined,
     signal: AbortSignal,
     control: AbortController,
-  ): Promise<AsyncIterable<unknown>> {
+  ): Promise<AsyncGenerator> {
     if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {
       // A Gateway-owned stream reads no uplink: releasing it now keeps its items out of the bounded inbox.
       releaseUplink(uplink)

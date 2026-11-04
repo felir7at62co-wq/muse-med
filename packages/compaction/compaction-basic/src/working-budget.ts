@@ -100,7 +100,7 @@ export function registerWorkingBudget(
         const info = await ctx.llm.resolveModelInfo(options.provider, options.model, signal)
           .finally(() => { pending.delete(signal) })
         signal.throwIfAborted()
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can occur while model metadata resolves.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal may run after finally clears pending.
         if (!active) throw stopped('unavailable')
         delete request.safeInputBudget
         if (info.context !== undefined) {
@@ -162,6 +162,7 @@ export function registerWorkingBudget(
       }
       const policy = resolveTargetPolicy(config, header.config)
       const limit = request.limit
+      /* v8 ignore if -- pending recovery has a limit and attempts below the frozen cap; disposal aborts the signal above. */
       if (!active || limit === undefined || request.attempts > policy.maxOverflowRetries) {
         request.terminal = true
         throw stopped('unavailable')
@@ -176,8 +177,8 @@ export function registerWorkingBudget(
           summaryFailed = true
         }
         signal.throwIfAborted()
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while compaction is awaited.
-        if (!active) throw stopped('unavailable')
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal aborts pending compaction.
+        /* v8 ignore if -- disposal aborts the pending agent before compaction settles. */ if (!active) throw stopped('unavailable')
         try { assertNoActiveCompaction(agent.session, 'working-context recovery') }
         catch (_error: unknown) { throw stopped('persistence') }
         try {
@@ -189,8 +190,8 @@ export function registerWorkingBudget(
           throw stopped('persistence')
         }
         signal.throwIfAborted()
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while persistence is awaited.
-        if (!active) throw stopped('unavailable')
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal aborts pending persistence.
+        /* v8 ignore if -- disposal aborts the pending agent before the flush settles. */ if (!active) throw stopped('unavailable')
         const measured = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
         const context = agent.session.requestContext()
         if (context?.workingTokenLimit !== limit || context.workingContextTokens !== measured) {

@@ -41,6 +41,7 @@ import type {
   RemoteEventClientId,
   RemoteEventInvocationFrame,
 } from '../src/stream-protocol.ts'
+import { RemoteStreamMuxServer } from '../src/stream-server.ts'
 
 vi.mock('node:crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:crypto')>()
@@ -411,6 +412,8 @@ describe('Typert Remote streams', () => {
     await closed
     expect(service.returns).toBe(1)
     expect(await acceptsSocket(ctx)).toBe(false)
+    await expect(ctx.typertGateway.stream({ namespace: 'feed', method: 'sync', args: { label: 'paused' } }))
+      .rejects.toThrow('Remote stream admission is paused')
     await expect(ctx.typertGateway.invoke({ namespace: 'feed', method: 'unknown', args: {} }))
       .rejects.toThrow('Remote admission is paused')
     await ctx.serial('connection/update-resume')
@@ -431,6 +434,36 @@ describe('Typert Remote streams', () => {
     await ctx.serial('connection/update-pause')
     await ctx.serial('connection/update-resume')
   })
+
+  it('pauses a stream carrier mounted after update admission is already closed', async () => {
+    let start: (() => void) | undefined
+    const ready: AppReady = {
+      onReady(listener) { start = listener; return () => { start = undefined } },
+    }
+    const pause = vi.spyOn(RemoteStreamMuxServer.prototype, 'pause')
+    try {
+      const { ctx } = await setup(true, {}, ready)
+      await ctx.serial('connection/update-pause')
+      expect(start).toBeDefined()
+      start?.()
+      await vi.waitFor(() => { expect(pause).toHaveBeenCalledOnce() })
+      expect(await acceptsSocket(ctx)).toBe(false)
+      await ctx.serial('connection/update-resume')
+      expect(await acceptsSocket(ctx)).toBe(true)
+    } finally { pause.mockRestore() }
+  })
+
+  it('releases an in-process stream when its consumer throws into the iterator', async () => {
+    const { ctx } = await setup(false)
+    const source = await ctx.typertGateway.stream({ namespace: 'feed', method: 'sync', args: { label: 'throw' } })
+    const iterator = source[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: 'throw:one' })
+    const failure = new Error('fixture consumer failure')
+    await expect(iterator.throw?.(failure)).rejects.toBe(failure)
+    await ctx.serial('connection/update-pause')
+    await ctx.serial('connection/update-resume')
+  })
+
   it('reports Client event streams without counting a bare WebSocket', async () => {
     const { ctx } = await setup(true)
     const source = new RemoteEventSourceProbe()
