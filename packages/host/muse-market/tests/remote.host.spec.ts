@@ -20,7 +20,7 @@ import { zipSync } from 'fflate'
 import MuseMarket from '../src/index.ts'
 import { MuseMarketCloud } from '../src/cloud.ts'
 import { createMarketPackage, marketDigest, readMarketPackage } from '../src/package.ts'
-import type { MarketManifest } from '../src/types.ts'
+import type { MarketManifest, MarketRelease } from '../src/types.ts'
 
 it('dispatches original discovery and package operations through the Host Gateway', async () => {
   const root = await mkdtemp(join(tmpdir(), 'market-remote-'))
@@ -36,14 +36,21 @@ it('dispatches original discovery and package operations through the Host Gatewa
     package: 'downloads/original-editor.zip', sha256: marketDigest(skillArchive) }
   let downloadBytes = skillArchive
   let payload: unknown = { entries: [original, originalSkill] }
+  const cloudFixture: { download?: { release: MarketRelease; archive: Buffer } } = {}
   const server = createServer((request, response) => {
     requested.push({ path: request.url, cookie: request.headers.cookie })
     if (request.url === '/market/' + originalSkill.package) {
       response.end(downloadBytes)
       return
     }
+    const cloudDownload = cloudFixture.download
+    if (cloudDownload && request.url === `/api/market/v1/releases/${cloudDownload.release.id}/download`) {
+      response.end(cloudDownload.archive)
+      return
+    }
     response.setHeader('content-type', 'application/json')
-    response.end(JSON.stringify(payload))
+    response.end(JSON.stringify(cloudDownload && request.url === `/api/market/v1/releases/${cloudDownload.release.id}`
+      ? cloudDownload.release : payload))
   })
   onTestFinished(async () => {
     try { await ctx.fiber.dispose() }
@@ -161,4 +168,27 @@ it('dispatches original discovery and package operations through the Host Gatewa
   expect((await ctx.museMarket.exportPackage(repeated.release.id)).base64).toBe(originalArchive)
   await ctx.museMarket.remove(repeated.release.id)
   expect(await ctx.museMarket.installed()).toEqual([])
+
+  const cloudRelease: MarketRelease = { ...prepared.release, id: '1'.repeat(32) as MarketRelease['id'],
+    publisherId: '2'.repeat(32) as MarketRelease['publisherId'], publisher: 'Fixture studio', status: 'published' }
+  cloudFixture.download = { release: cloudRelease, archive }
+  const importedArchive = { base64: exported.base64 }
+  await expect(call('installPackage', { id: cloudRelease.id })).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })
+  await expect(call('importPackage', importedArchive)).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })
+  await ctx.museMarket.enable(cloudRelease.id, true)
+  await expect(call('importPackage', importedArchive)).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: true } })
+  expect(await ctx.museMarket.installed()).toEqual([{ release: cloudRelease, enabled: true }])
+  await expect(call('exportPackage', { id: cloudRelease.id })).resolves.toEqual({ ok: true, value: exported })
+  upload.mockClear()
+  await expect(call('publishDraft', { id: cloudRelease.id, publisherId, requestId })).resolves.toMatchObject({ ok: true })
+  expect(upload.mock.calls.map(([publisher, key, bytes]) => [publisher, key, Buffer.from(bytes)]))
+    .toEqual([[publisherId, requestId, archive]])
+
+  await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: [], botId: 'standard' }))
+    .resolves.toMatchObject({ ok: true, value: { release: { id, status: 'draft' }, enabled: false } })
+  expect((await ctx.museMarket.installed()).map(item => [item.release.id, item.enabled]))
+    .toEqual([[cloudRelease.id, true], [id, false]])
+  await expect(call('importPackage', importedArchive)).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: true } })
+  await expect(call('importPackage', { base64: originalArchive }))
+    .resolves.toMatchObject({ ok: true, value: { release: { id: repeated.release.id, status: 'draft' }, enabled: false } })
 })

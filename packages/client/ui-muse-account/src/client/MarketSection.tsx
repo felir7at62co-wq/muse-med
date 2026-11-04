@@ -31,7 +31,7 @@ export type MarketSectionProps = PropsLocale<'settings.museMarket'> & InjectFace
   presentations?: Readonly<Record<string, MarketPresentation>>
 }> & ({ mode?: 'host'; actions: MarketActions } | { mode: 'web'; actions: MarketWebActions })
 
-/** Render market discovery, local packages and cloud publication records.
+/** Render discovery, installed versions with their own actions, and cloud publication records.
  * @param props Localized content, Host actions and shell feedback.
  * @returns Market page content.
  */
@@ -244,7 +244,8 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
       {featured.map(renderLegacyCard)}
       {showContribution && featured.length > 0 && <MarketContributionCard t={t} disabled={busy} onUpload={openUpload} />}
       {rows.map((release) => {
-        const local = installed.find(item => item.release.sha256 === release.sha256)
+        const local = installed.find(item => item.release.id === release.id)
+          ?? (tab === 'discover' ? installed.find(item => item.release.sha256 === release.sha256) : undefined)
         return <MarketReleaseCard key={release.id} release={release} presentation={presentations?.[release.id]} t={t}>
           <Button variant="outline" onClick={() => { setDetail(release) }}>{t('details')}</Button>
           {webActions ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(current => downloadRelease(release, current), 'archiveDownloaded')}>{t('browserDownload')}</Button> : hostActions && (!local ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(async (current) => { const item = await hostActions.install(release.id); if (current()) acceptInstallation(item) })}>{t('download')}</Button> : <>

@@ -136,6 +136,39 @@ it('recognizes a ZIP import by digest and enables its local identity from the cl
   expect(h.actions.enable).toHaveBeenCalledWith(localId, true)
 })
 
+it('keeps the activation and actions of byte-identical Bot installations separate', async () => {
+  const h = harness()
+  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
+  const cloud = { release: bot, enabled: true }
+  const local = { release: { ...bot, id: bot.sha256 as MarketRelease['id'], publisher: 'Local import' }, enabled: false }
+  h.actions.catalog.mockResolvedValue([bot])
+  h.actions.installed.mockResolvedValueOnce([local, cloud]).mockResolvedValue([cloud, local])
+  h.actions.enable.mockResolvedValueOnce({ ...local, enabled: true })
+  const onRunBot = vi.fn(async () => {})
+  render(<MarketSection {...h.props} onRunBot={onRunBot} t={(key, args) => key === 'creator' ? String(args?.publisher) : key} />)
+
+  expect(await screen.findByRole('button', { name: 'runBot' })).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+  const localCard = within((await screen.findByText(local.release.publisher)).closest('article')!)
+  const cloudCard = within(screen.getByText(cloud.release.publisher).closest('article')!)
+  expect(localCard.getByText('disabled')).toBeDefined()
+  expect(localCard.queryByRole('button', { name: 'runBot' })).toBeNull()
+  expect(cloudCard.getByText('enabled')).toBeDefined()
+
+  const runCloud = cloudCard.getByRole('button', { name: 'runBot' })
+  await waitFor(() => { expect(runCloud.hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(runCloud)
+  expect(onRunBot).toHaveBeenNthCalledWith(1, cloud.release.id, bot.manifest.title)
+  const enable = localCard.getByRole('button', { name: 'enable' })
+  await waitFor(() => { expect(enable.hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(enable)
+  expect(h.actions.enable).toHaveBeenCalledExactlyOnceWith(local.release.id, true)
+  const runLocal = await localCard.findByRole('button', { name: 'runBot' })
+  await waitFor(() => { expect(runLocal.hasAttribute('disabled')).toBe(false) })
+  fireEvent.click(runLocal)
+  expect(onRunBot).toHaveBeenNthCalledWith(2, local.release.id, bot.manifest.title)
+})
+
 it('starts only an enabled Bot and passes its installed ID and title', async () => {
   const h = harness()
   const bot = marketFixture.find(row => row.manifest.kind === 'bot')!

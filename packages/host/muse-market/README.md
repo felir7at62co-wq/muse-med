@@ -48,6 +48,8 @@ Preparation reads only selected Skill directories and a selected Bot declaration
 
 Local files are stored by digest. The versioned installation ledger retains enablement and session references. Each Bot release receives its own `market-<release-id>` preset ID and activates on first binding. Independent Skills are pinned to each session in the local ledger and registered in its scope. Disabling a Skill changes new sessions; existing sessions retain their selected version. Referenced releases cannot be removed; referenced Bots cannot be disabled. Recovery requires the original market root and cached files. The market ledger adds no Session header fields and must be backed up with local Sessions. Cloud SQLite uses a monotonic schema version and an independent data root outside the release.
 
+Importing a ZIP with the same SHA-256 digest as an installed cloud release reuses that release's identity and enablement, with export and explicit draft upload still available. Preparing a local publication retains its own draft identity.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

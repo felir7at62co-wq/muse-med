@@ -25,7 +25,7 @@ This client plugin adds a Muse account entry to the Desktop sidebar and Settings
 <a id="use-this-package"></a>
 ## Use this package
 
-The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Scroll long release details within the dialog while its title and close button stay visible. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions.
+The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Scroll long release details within the dialog while its title and close button stay visible. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions. **My capabilities** shows the activation and actions for each installation. Discovery uses the exact installed release when present and otherwise recognizes a ZIP import with identical bytes.
 
 Discovery shows published releases and the original Muse collection. A guide introduces discovery and installation on the first visit. Closing it saves the choice on the current client. **Market guide** opens it again.
 
@@ -39,7 +39,7 @@ Bot cards and creator previews use a shared square portrait area. Built-in artwo
 
 Skill cards, author previews, and ZIP previews choose the same illustration from the Skill name and purpose. The editor updates the illustration as you select a local Skill or enter its details.
 
-The [standalone website](../../../apps/market-web/README.md) uses the same market page through an explicit browser adapter. It previews ZIP metadata locally, uploads only after confirmation and downloads a digest-verified archive. Browser downloads do not install or enable a capability. The handoff Bot's exact archive digest selects its local sample portrait. A local ZIP import can match a byte-identical cloud listing by archive digest while enablement keeps its existing local identifier.
+The [standalone website](../../../apps/market-web/README.md) uses the same market page through an explicit browser adapter. It previews ZIP metadata locally, uploads only after confirmation and downloads a digest-verified archive. Browser downloads do not install or enable a capability. The handoff Bot's exact archive digest selects its local sample portrait.
 
 Creator center separates cloud releases from local packages. Preparing or exporting stays local; uploading creates a private cloud draft with a different identity, retaining the same upload request key for retries. Team membership and administrator status come from the server. Submission, approval, rejection with a required note and withdrawal use the displayed revision and show only server-confirmed states. Cloud conflicts refresh the list without automatically retrying a transition. These controls do not implement authorization in the browser.
 

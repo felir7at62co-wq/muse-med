@@ -123,15 +123,19 @@ export class MuseMarketLocal {
   /** Store a verified publication without registering or enabling it.
    * @param release Cloud or local-import metadata.
    * @param archive Exact publication bytes.
-   * @param legacySource Original catalog identity and archive digest when the publication is converted locally.
-   * @returns The downloaded installation, initially disabled.
+   * @param source Original catalog identity for a conversion, or `zip-import` to reuse a matching cloud installation.
+   * @returns The existing verified installation, or a new disabled installation.
    */
-  async install(release: MarketRelease, archive: Uint8Array, legacySource?: MarketInstallation['legacySource']): Promise<MarketInstallation> {
+  async install(release: MarketRelease, archive: Uint8Array, source?: MarketInstallation['legacySource'] | 'zip-import'): Promise<MarketInstallation> {
     if (marketDigest(archive) !== release.sha256 || archive.byteLength !== release.bytes) throw new MarketError('digest-mismatch')
     const parsed = readMarketPackage(archive, this.config.limits, this.config.allowedPlugins)
     if (JSON.stringify(parsed.manifest) !== JSON.stringify(release.manifest)) throw new MarketError('manifest-mismatch')
+    const legacySource = source === 'zip-import' ? undefined : source
     return await this.update(async (state) => {
-      const old = state.installations.find(item => item.release.id === release.id)
+      const cloudMatch = source === 'zip-import' ? state.installations.find(item => !item.legacySource
+        && item.release.id !== item.release.sha256 && item.release.sha256 === release.sha256
+        && item.release.bytes === release.bytes) : undefined
+      const old = cloudMatch ?? state.installations.find(item => item.release.id === release.id)
       if (old) {
         if (old.release.sha256 !== release.sha256 || old.legacySource?.id !== legacySource?.id
           || old.legacySource?.sha256 !== legacySource?.sha256) throw new MarketError('release-conflict', 409)

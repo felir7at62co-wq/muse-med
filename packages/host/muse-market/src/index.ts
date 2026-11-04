@@ -309,7 +309,7 @@ export default class MuseMarket extends TypertRemoteService {
 
   /** Import an explicitly selected local publication without uploading it.
    * @param base64 Complete publication archive encoded by the local file picker.
-   * @returns The disabled local installation.
+   * @returns The matching verified installation and its activation state, or a new disabled local installation.
    */
   @Remote('importPackage')
   async importPackage(base64: string): Promise<MarketInstallation> {
@@ -317,16 +317,16 @@ export default class MuseMarket extends TypertRemoteService {
       if (base64.length > Math.ceil(this.config.archiveBytes / 3) * 4 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(base64)) throw new MarketError('invalid-archive')
       const archive = Buffer.from(base64, 'base64')
       if (archive.toString('base64') !== base64) throw new MarketError('invalid-archive')
-      return await this.importArchive(archive)
+      return await this.importArchive(archive, 'zip-import')
     })
   }
 
-  private async importArchive(archive: Uint8Array): Promise<MarketInstallation> {
+  private async importArchive(archive: Uint8Array, source?: 'zip-import'): Promise<MarketInstallation> {
     const { manifest } = readMarketPackage(archive, this.limits, this.config.allowedPlugins)
     const sha256 = marketDigest(archive)
     return await this.local.install({ id: sha256 as MarketReleaseId, publisherId: '0000000000000000' as MarketPublisherId,
       publisher: 'Local', manifest, sha256, bytes: archive.byteLength, status: 'draft', reviewNote: '', revision: 1,
-      createdAt: new Date().toISOString() }, archive)
+      createdAt: new Date().toISOString() }, archive, source)
   }
 
   /** Enable or disable an installed release with explicit resource verification.
