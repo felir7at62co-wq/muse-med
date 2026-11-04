@@ -1,0 +1,5 @@
+# Creative presets activate the read-only provider in their own scope.
+- insert:
+    - id: muse-qimao-data
+      name: muse-qimao-data
+      disabled: true

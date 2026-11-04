@@ -15,6 +15,8 @@ Desktop 使用[内置 Muse Bot 记忆](../../third_party/plugins/ds-bot/README.z
 
 Desktop 包含[绿泡泡下载插件](../../third_party/plugins/muse-lvpaopao/README.zh.md)。统一编导的作用域内 `lvpaopao` 工具使用同一个 Host 共享连接，仅在请求时开始原生准备和连接。缺少 Python 依赖或已验证且已登录的微信运行时会返回准备结果，不阻止 Desktop 启动。平台验证范围及 Mac 隔离副本限制由插件 README 说明。
 
+Desktop 在创作及协调预设作用域内提供[七猫公开数据工具](../../third_party/plugins/muse-qimao-data/README.zh.md)，由工具搜索按需加载。插件说明公开榜单窗口、带筛选的书库分页、原始指标名称及无法获取的 App 专属字段；它不获取小说正文。
+
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
 桌面工具发现策略常驻日常文件、命令、图片、视频查看、搜索、交互、任务和 Bot 团队工具，包含 Bot 提问、展示和凭据卡片。专业剧本、资产、制作和交付工具按需通过工具搜索加载；注册及执行权限保持不变。已有会话发现的工具和用户显式固定的 Bot 工具继续加载。

@@ -64,7 +64,7 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   await mkdir(dependency, { recursive: true })
   await writeFile(join(dependency, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-atomic-write', type: 'module', exports: './index.js' }))
   await writeFile(join(dependency, 'index.js'), 'export const fixtureDependency = "installed-peer"\n')
-  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao']) {
+  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-lvpaopao']) {
     const directory = join(source, plugin)
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',
@@ -89,6 +89,9 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   expect(await realpath(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write')))
     .toBe(await realpath(join(dependency, 'index.js')))
   expect(await importPlugin(installed)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
+  const qimaoInstalled = join(nodeModules, 'muse-qimao-data')
+  expect(await realpath(qimaoInstalled)).not.toBe(await realpath(join(source, 'muse-qimao-data')))
+  expect(await importPlugin(qimaoInstalled)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
   const nativeInstalled = join(nodeModules, 'muse-lvpaopao')
   expect(await realpath(nativeInstalled)).not.toBe(await realpath(join(source, 'muse-lvpaopao')))
   const nativeManifest = JSON.parse(await readFile(join(nativeInstalled, 'package.json'), 'utf8')) as {

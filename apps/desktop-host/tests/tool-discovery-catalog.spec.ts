@@ -17,6 +17,7 @@ import Prompt from '@deepseek-ai/dsh-system-prompt'
 import * as BotTools from '../../desktop/tests/fixtures/resident-bot-questions.mjs'
 import { capabilityMemberships } from '../../../packages/core/tool-discovery/src/capabilities.ts'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
+import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.js'
 
 const patchPath = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 const row = loadOverlayPatches('desktop-discovery-catalog', patchPath)
@@ -51,7 +52,7 @@ it('does not register or expose the removed daemon memory integration', () => {
   expect(catalog.flatMap(entry => entry.schemas).map(schema => schema.name)).not.toContain('hindsight_memory')
   const require = createRequire(new URL('../package.json', import.meta.url))
   expect(() => require.resolve('@deepseek-ai/dsh-desktop-host/hindsight'))
-    .toThrowError(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
+    .toThrow(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
 })
 
 it.each(['short-drama', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s product composition', async (preset) => {
@@ -121,4 +122,26 @@ it('classifies the actual Bot team tool registrations without changing their per
     expect(names.filter(name => !resident.has(name) && !capabilityMemberships(name, config.capabilities ?? []).length)).toEqual([])
     expect(config.alwaysLoad).toContain('create_group')
   } finally { await ctx.fiber.dispose() }
+})
+
+it('discovers public Qimao data tools by Chinese requests while keeping them deferred', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(Prompt)
+    await ctx.plugin(Tools)
+    await ctx.plugin(Qimao)
+    const qimaoSchemas = ctx.tools.schemas()
+    expect(qimaoSchemas.map(schema => schema.name).sort()).toEqual(['qimao_detail', 'qimao_rankings', 'qimao_search'])
+    const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...qimaoSchemas].map(schema => [schema.name, schema]))
+    const index = new ToolSearchIndex([...schemas.values()].map(schema => ({
+      ...schema, keywords: config.keywords?.[schema.name] ?? [],
+    })), { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+    for (const [query, name] of [['七猫榜单', 'qimao_rankings'], ['七猫搜书', 'qimao_search'], ['七猫详情', 'qimao_detail']] as const) {
+      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain(name)
+      expect(config.alwaysLoad).not.toContain(name)
+      expect(capabilityMemberships(name, config.capabilities ?? [])).toContain('data-sourcing')
+    }
+  } finally {
+    await ctx.fiber.dispose()
+  }
 })

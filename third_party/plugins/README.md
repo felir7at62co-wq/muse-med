@@ -79,6 +79,10 @@ Tool discovery uses one Host service: new teams separate the coordinator role fr
 
 Search, detail, rankings, and collection filtering use public official metadata pages without a key or Cookie; no initial user configuration is required. Ranking cards with verified identities remain available when displayed metrics are missing. Each observation retains collections, likes, heat, and missing-field reasons; results report page coverage separately from metric coverage. Search covers the initial window, and rankings cover the requested public boards rather than the entire platform. Website requests remain serial, rate limited, cached, and cancellable; access restrictions fail explicitly. The plugin does not download videos. Offline regressions and real Host registration, canonical results, prompt discovery, input rejection, cancellation, and unload checks run during packaging. `test:hongguo` checks two clean, identical tarballs; live site availability is a separate read-only check.
 
+### Qimao public metadata
+
+The Muse-owned [Qimao plugin](muse-qimao-data/README.md) uses `parse5` to read public metadata without executing page scripts. Its scoped tools expose verified ranking windows, filtered library pages, bounded search within those results, and book details. Missing metrics remain unknown. The package retains its MIT reference attribution and enters Desktop through the owned source inventory; no registry substitution or global tool activation is required.
+
 ### Muse local tools
 
 Build the owned download bundles from the repository root with the separate [builder](build-downloads.mjs):

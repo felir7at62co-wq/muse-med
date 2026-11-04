@@ -139,6 +139,7 @@ describe('desktop development project', () => {
     ['muse-douyin-download', 'owned-downloads.json'],
     ['muse-reverse-tools', 'owned-downloads.json'],
     ['muse-fanqie-download', 'owned-downloads.json'],
+    ['muse-qimao-data', 'owned-downloads.json'],
     ['muse-lvpaopao', 'owned-downloads.json'],
   ])('manages %s without modifying the linked workspace packages', async (pluginName, pinFile) => {
     const root = temporaryRoot()
@@ -287,7 +288,7 @@ describe('desktop development user patch', () => {
     const source = join(root, 'selected.yml')
     mkdirSync(project)
     if (kind === 'directory') mkdirSync(source)
-    expect(() => copyDevelopmentUserPatch(project, source)).toThrow()
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow()
     expect(existsSync(join(project, 'cordis.patch.yml'))).toBe(false)
   })
 
@@ -303,7 +304,7 @@ describe('desktop development user patch', () => {
     writeFileSync(join(outside, 'retained'), 'unchanged\n')
     if (kind === 'directory') mkdirSync(target)
     else symlinkSync(outside, target, process.platform === 'win32' ? 'junction' : 'dir')
-    expect(() => copyDevelopmentUserPatch(project, source)).toThrow(/target must be a regular file/u)
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow(/target must be a regular file/u)
     expect(readFileSync(join(outside, 'retained'), 'utf8')).toBe('unchanged\n')
     expect(readFileSync(source, 'utf8')).toBe('selected\n')
   })
@@ -316,8 +317,8 @@ describe('desktop development user patch', () => {
     mkdirSync(project)
     writeFileSync(source, 'selected\n')
     symlinkSync(project, linked, process.platform === 'win32' ? 'junction' : 'dir')
-    expect(() => copyDevelopmentUserPatch(project, linked)).toThrow(/source must be a regular file/u)
-    expect(() => copyDevelopmentUserPatch(linked, source)).toThrow(/project must be a directory/u)
+    expect(() => { copyDevelopmentUserPatch(project, linked) }).toThrow(/source must be a regular file/u)
+    expect(() => { copyDevelopmentUserPatch(linked, source) }).toThrow(/project must be a directory/u)
     expect(existsSync(join(project, 'cordis.patch.yml'))).toBe(false)
   })
 
@@ -325,7 +326,7 @@ describe('desktop development user patch', () => {
     const project = temporaryRoot()
     const source = join(project, 'cordis.patch.yml')
     writeFileSync(source, 'selected\n')
-    expect(() => copyDevelopmentUserPatch(project, source)).toThrow(/source must differ/u)
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow(/source must differ/u)
     expect(readFileSync(source, 'utf8')).toBe('selected\n')
   })
 })

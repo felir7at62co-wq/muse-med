@@ -238,6 +238,9 @@
           fanqie_search: [番茄小说, 搜小说, 搜书, 书名, 作者]
           fanqie_download_info: [番茄小说, 小说详情, 目录, 章节]
           fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]
+          qimao_rankings: [七猫小说, 七猫榜单, 七猫排行, 小说选材]
+          qimao_search: [七猫小说, 七猫搜书, 七猫搜索, 书名, 作者]
+          qimao_detail: [七猫详情, 七猫数据, 人气票, 次阅读, 金选, 小说详情]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
           read_own_chat: [历史会话, 聊天记录, 之前说过, 自己的聊天]
@@ -272,8 +275,8 @@
             tools: [screenplay_export_docx, load_workspace_dependencies, jianying_draft, drama_draft_dir, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
           - id: data-sourcing
             title: 数据选材与下载
-            description: 搜索和下载番茄小说、剧目、榜单及视频素材。
-            tools: ['hongguo_*', 'douyin_*', 'fanqie_*', lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
+            description: 读取七猫小说榜单与详情，搜索和下载番茄小说、剧目及视频素材。
+            tools: ['hongguo_*', 'douyin_*', 'fanqie_*', 'qimao_*', lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
             title: 知识与项目资料
             description: 搜索、读取和整理已连接的知识库与项目资料。

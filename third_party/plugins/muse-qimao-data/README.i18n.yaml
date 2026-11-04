@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-qimao-data/README.md
+/:
+  en: 63d817128c10b407
+  zh: 3236dc3f4e701667
+/muse-qimao-metadata:
+  en: 6ca5d8d878b70f37
+  zh: 01a07e92713c8e20
+/muse-qimao-metadata/summary:
+  en: ab90cd78d1852a93
+  zh: 36fa987da5ea4a75
+/muse-qimao-metadata/table-of-contents:
+  en: 122f0d41696980b1
+  zh: ce6bc6fe7045d4c2
+/muse-qimao-metadata/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/muse-qimao-metadata/use-this-package/profile-activation:
+  en: a2ced67c018af5d1
+  zh: 9a8db391bbe53efb
+/muse-qimao-metadata/use-this-package/public-metadata-and-coverage:
+  en: 645b4b9a5236b516
+  zh: a63088128c71f920
+/muse-qimao-metadata/use-this-package/configuration:
+  en: 81e51f24072f59eb
+  zh: cf1ec67eee53aadd
+/muse-qimao-metadata/understand-the-implementation:
+  en: 38426c166421f32e
+  zh: 8f1ca0dd0e2c8fa2
+/muse-qimao-metadata/model-experience:
+  en: 5f8df1bd0b3b6dfa
+  zh: 6326f014ab8b7023
+/muse-qimao-metadata/known-limitations-and-deferred-work:
+  en: 981c6a1c23152f5a
+  zh: b4046cc2206c6c4b
+/muse-qimao-metadata/dev-note:
+  en: bb55522de738f576
+  zh: 5f3d7484d614f206

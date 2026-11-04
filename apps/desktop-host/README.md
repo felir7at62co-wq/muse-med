@@ -15,6 +15,8 @@ Desktop uses the [built-in Muse Bot memory](../../third_party/plugins/ds-bot/REA
 
 Desktop includes the [Lvpaopao download plugin](../../third_party/plugins/muse-lvpaopao/README.md). One Host-owned bridge serves the unified director’s scoped `lvpaopao` tool; native setup and connection start only when requested. Missing Python dependencies or a qualified logged-in WeChat runtime return a setup result without blocking Desktop startup. The plugin README owns platform qualification and isolated-Mac restrictions.
 
+Desktop includes the [Qimao public metadata tools](../../third_party/plugins/muse-qimao-data/README.md) in creative and coordinator scopes. Tool search loads them on demand. The plugin documents its public ranking windows, filtered library pages, original metric names, and unavailable App-only fields; it does not fetch novel text.
+
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
 The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction, task and Bot-team tools resident, including Bot question, view and credential cards. Specialized screenplay, asset, production and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Existing session discoveries and explicit Bot tool pins continue to load their selected tools.
