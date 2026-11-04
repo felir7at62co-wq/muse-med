@@ -126,6 +126,9 @@ it('validates model-scoped Google thought summaries and protocol', () => {
   const good = resolveProfiles({ example: { api: 'openai-completions', baseURL: 'https://example.test',
     models: [{ id: 'm', googleThoughtSummaries: true }, { id: 'other' }] } })
   expect(good.get('example')?.googleThoughtSummaries).toEqual(new Set(['m']))
+  const unvalidatedModel: Record<string, unknown> = { googleThoughtSummaries: 'yes' }
+  expect(() => resolveProfiles({ example: { api: 'openai-completions', baseURL: 'https://example.test',
+    models: [{ id: 'm', ...unvalidatedModel }] } })).toThrow(/googleThoughtSummaries must be a boolean/)
   expect(() => resolveProfiles({ example: { api: 'anthropic-messages', baseURL: 'https://example.test',
     models: [{ id: 'm', googleThoughtSummaries: true }] } })).toThrow(/requires openai-completions/)
 })

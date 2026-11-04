@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
@@ -14,7 +15,11 @@ it('exports the maintained catalog loader only in the product build overlay', as
   expect(upstream.exports['./catalog']).toBeUndefined()
 })
 
-it('retains pinned community source and licenses without installed runtime data', async () => {
+it('retains pinned community source and licenses without tracking installed runtime data', async () => {
+  const trackedRuntime = execFileSync('git', [
+    'ls-files', '-z', '--', ':(glob)*/node_modules', ':(glob)*/node_modules/**',
+  ], { cwd: root, encoding: 'utf8' })
+  expect(trackedRuntime.split('\0').filter(Boolean)).toEqual([])
   const pins = JSON.parse(await readFile(join(root, 'sources.json'), 'utf8')) as Record<string, {
     repository: string
     version: string
@@ -46,7 +51,6 @@ it('retains pinned community source and licenses without installed runtime data'
     expect(pin.repository, directory).toMatch(/^https:\/\/github\.com\//)
     expect((await stat(join(sourceDir, directory === 'dsh-bridge' ? 'lib' : 'src'))).isDirectory(), directory).toBe(true)
     expect((await readFile(join(sourceDir, 'LICENSE'), 'utf8')).length, directory).toBeGreaterThan(0)
-    expect(await readdir(sourceDir), directory).not.toContain('node_modules')
     if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
     expect(await readdir(sourceDir), directory).not.toContain('.git')
   }

@@ -111,6 +111,7 @@ describe('web e2e: queue row actions', () => {
     await input.fill(ACTIVE_PROMPT)
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    await page.locator('[data-chat-running][data-phase="responding"]').waitFor({ timeout: 10_000 })
 
     const admitted = page.waitForResponse('**/api/session/prompt')
     const received = Promise.withResolvers<undefined>()
@@ -352,6 +353,7 @@ describe('web e2e: queue row actions', () => {
     await input.fill('/goal Keep the composer context panels aligned')
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    await page.locator('[data-chat-running][data-phase="responding"]').waitFor({ timeout: 10_000 })
     await page.locator('[data-goal-bar]').waitFor({ timeout: 10_000 })
 
     const sessions = scaffold.ctx.sessions.list()
