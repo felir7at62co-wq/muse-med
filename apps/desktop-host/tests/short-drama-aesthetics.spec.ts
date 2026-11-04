@@ -102,6 +102,9 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
+    expect(bodies[0]).toContain('人物、场景、道具各自的每条提示词')
+    expect(bodies[0]).toContain('可直接复制的完整文本')
+    expect(bodies[0]).toContain('**PBR 材质**')
     expect(bodies[0]).toContain('左侧为正面平视的面部特写')
     for (const requirement of ['完整保留头部、发型和从头到脚的身体', '右侧可见的脸部区域覆盖纯白',
       '只遮脸，不覆盖整个头或头发', '背面保留完整后脑与发型', '严禁无头、截头或裁掉脚部']) {
