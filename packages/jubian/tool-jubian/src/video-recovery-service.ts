@@ -1,22 +1,26 @@
 /** Authenticated browser configuration and review for a local Jubian project. */
-import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, link, unlink, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { lstat, mkdir, readFile, readdir, realpath, link, unlink, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { JubianClient, JubianLedger, JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import { verifyApprovedClipExport } from './approved-clip-export.ts'
 import { episodeDeliveryReceiptPath, listApprovedEpisodeNumbers, readApprovedEpisodePlan, readEpisodeDelivery,
   parseEpisodeDelivery, summarizeApprovedEpisode } from './episode-delivery.ts'
+import {
+  ensureEpisodeDirectory, episodeFileExists, publishEpisodeCandidate, readEpisodeJob, removeEpisodeJobFile, writeEpisodeJob,
+} from './episode-delivery-job.ts'
 import { checkVideoMedia, decodeVideoFile } from './video-media-check.ts'
 import {
   adoptRecoveredVideo, isProjectVideoIntent, materializeApprovedProviderVideo, publishApprovedVideo,
   readApprovedVideoDelivery, reviewRecoveredVideo, runVideoRecovery, artifactHash,
 } from './video-recovery.ts'
 import type {
-  ApprovedClipDeliveryInput, ApprovedClipDraftService, ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary,
+  ApprovedClipDeliveryInput, ApprovedClipDraftService, ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary, ApprovedEpisodeInputHashes,
   VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput, VideoRecoveryReview,
   VideoRecoveryReviewInput, VideoRecoveryStatus,
 } from './types.ts'
@@ -72,6 +76,9 @@ const decisionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), digest: digestSchema, reason: z.undefined().optional() }),
   z.object({ action: z.literal('reject'), digest: digestSchema, reason: reasonSchema.optional() }),
 ])
+type EpisodeRequest = { episode: number; digest: string }
+const episodeJobName = /^episode-(0[1-9]|[1-9][0-9])-([a-f0-9]{64})\.delivery-job\.json$/u
+
 type Configuration = z.infer<typeof configurationSchema>
 
 function isMissing(error: unknown): boolean {
@@ -103,24 +110,31 @@ async function readConfiguration(path: string): Promise<Configuration> {
   return settings
 }
 
-async function boundProject(path: string): Promise<{ directory: string; scriptId: number }> {
+async function boundProject(path: string): Promise<{ directory: string; scriptId: number; configSha256: string }> {
   if (!isAbsolute(path)) throw new Error('Select an absolute Jubian project directory')
   const entry = await lstat(path)
   if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error('Select a regular Jubian project directory')
   const directory = await realpath(path)
   const config = join(directory, 'project_config.json')
   if (!await regularFile(config)) throw new Error('The selected directory has no regular project_config.json')
-  const source = await readFile(config, 'utf8')
+  const source = await readFile(config)
   let binding: unknown
-  try { binding = JSON.parse(source.replace(/^\uFEFF/, '')) }
+  try { binding = JSON.parse(source.toString('utf8').replace(/^\uFEFF/, '')) }
   catch (error) { throw new Error('The selected project has an invalid project_config.json', { cause: error }) }
   const checked = projectBindingSchema.safeParse(binding)
   if (!checked.success) throw new Error('The selected project has no valid Jubian script ID')
-  return { directory, scriptId: checked.data.jubian_script_id }
+  return { directory, scriptId: checked.data.jubian_script_id, configSha256: createHash('sha256').update(source).digest('hex') }
 }
 
 function refusal(message: string, cause?: unknown): RemoteError {
   return new RemoteError('jubian-video-recovery/rejected', message, {}, { cause })
+}
+
+function checkPreparedEpisode(delivery: ApprovedEpisodeDelivery, inputHashes: ApprovedEpisodeInputHashes, output: string): void {
+  if (delivery.path !== output || !isDeepStrictEqual(delivery.inputHashes, inputHashes)
+    || delivery.checks.length === 0 || delivery.checks.some(check => !check.ok)) {
+    throw refusal('The verified episode delivery does not match its journal')
+  }
 }
 
 function reportView(report: Awaited<ReturnType<typeof reviewRecoveredVideo>>, key: string): VideoRecoveryReview {
@@ -169,6 +183,8 @@ async function withDelivery(project: string, report: VideoRecoveryReview): Promi
 
 /** Project recovery settings and explicit human decisions over the authenticated Gateway. */
 export class JubianVideoRecovery extends TypertRemoteService {
+  private readonly episodeShutdown = new AbortController()
+  private readonly scanningEpisodes = new Set<string>()
   private readonly state: {
     configuration: Configuration
     worker?: { controller: AbortController; done: Promise<void> }
@@ -184,10 +200,12 @@ export class JubianVideoRecovery extends TypertRemoteService {
     super(ctx, 'jubianVideoRecovery')
     ctx.effect(() => async () => {
       this.state.closing = true
+      this.episodeShutdown.abort()
       this.state.worker?.controller.abort()
       await this.state.queue
       await this.stopWorker()
     })
+    ctx.inject(['approvedEpisodeRenderer'], () => { this.resumeEpisodeDeliveries() })
   }
 
   /** Load the saved local operator choice before the browser can use this Remote. */
@@ -195,11 +213,13 @@ export class JubianVideoRecovery extends TypertRemoteService {
     const fixed = this.options.fixed
     if (fixed !== undefined) {
       this.state.configuration = { enabled: true, projectDir: resolve(fixed.projectDir) }
+      this.resumeEpisodeDeliveries()
       return
     }
     const saved = await readConfiguration(this.options.settingsPath)
     if (this.state.closing) return
     this.state.configuration = saved
+    this.resumeEpisodeDeliveries()
     if (saved.enabled && saved.projectDir !== null) {
       try {
         const project = await boundProject(saved.projectDir)
@@ -239,7 +259,8 @@ export class JubianVideoRecovery extends TypertRemoteService {
   async configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus> {
     return await this.enqueue(async () => {
       if (this.options.fixed !== undefined) throw refusal('The deployment manages video recovery settings')
-      const selected = input.projectDir ?? this.state.configuration.projectDir
+      const previousProject = this.state.configuration.projectDir
+      const selected = input.projectDir ?? previousProject
       if (input.enabled && selected === null) throw refusal('Select a Jubian project directory before enabling recovery')
       let projectDir = selected
       if (selected !== null && (input.enabled || input.projectDir !== undefined)) {
@@ -256,6 +277,7 @@ export class JubianVideoRecovery extends TypertRemoteService {
       } catch (error) { throw refusal('Could not save video recovery settings', error) }
       await this.stopWorker()
       this.state.configuration = configuration
+      if (projectDir !== previousProject) this.resumeEpisodeDeliveries()
       if (configuration.enabled && projectDir !== null) this.startWorker(projectDir)
       return await this.status()
     })
@@ -361,78 +383,177 @@ export class JubianVideoRecovery extends TypertRemoteService {
    */
   @Remote
   async deliverApprovedEpisode(input: { episode: number; digest: string }): Promise<ApprovedEpisodeDeliverySummary> {
+    if (!Number.isSafeInteger(input.episode) || input.episode < 1 || input.episode > 99
+      || !digestSchema.safeParse(input.digest).success) {
+      throw refusal('Episode delivery requires a numbered episode and a valid plan digest')
+    }
+    const requestSignal = this.ctx.invocation?.signal
     return await this.enqueue(async () => {
-      const renderer = this.ctx.get('approvedEpisodeRenderer')
-      if (renderer === undefined) throw refusal('Direct episode rendering is unavailable on this Host')
-      if (!Number.isSafeInteger(input.episode) || input.episode < 1 || input.episode > 99
-        || !digestSchema.safeParse(input.digest).success) {
-        throw refusal('Episode delivery requires a numbered episode and a valid plan digest')
-      }
-      const selected = this.state.configuration.projectDir
-      if (selected === null) throw refusal('Select a Jubian project before delivering an episode')
-      let unreceiptedOutput: string | undefined
       try {
-        const project = await boundProject(selected)
-        const summary = (await this.episodes(project.directory)).find(row => row.episode === input.episode)
-        if (summary?.readiness !== 'ready' || summary.digest !== input.digest) {
-          throw refusal('The episode plan changed or not every listed shot has a passing approval')
-        }
-        const plan = await readApprovedEpisodePlan(project.directory, input.episode)
-        const previous = await readEpisodeDelivery(project.directory, input.episode, input.digest)
-        if (previous !== undefined) {
-          const path = join(project.directory, previous.path)
-          if (await artifactHash(path) !== previous.sha256) throw refusal('The recorded episode output changed after delivery')
-          return { ...summary, delivery: previous }
-        }
-        const reports = await this.reports(project.directory)
-        const clips = [] as { shot: number; path: string; sha256: string }[]
-        for (const shot of plan.plan.shots) {
-          const report = reports.find(row => row.idempotencyKey === shot.idempotency_key)
-          if (report === undefined || report.digest !== shot.review_digest) throw refusal('An episode approval changed before rendering')
-          const approved = await this.approvedClip({ idempotencyKey: shot.idempotency_key, digest: shot.review_digest })
-          clips.push({ shot: shot.shot, path: approved.source, sha256: approved.sha256 })
-        }
-        const outputPath = join(project.directory, 'exports', `Supermuse-episode-${String(input.episode).padStart(2, '0')}-${input.digest}.mp4`)
-        const signal = this.ctx.invocation?.signal ?? new AbortController().signal
-        const rendered = await renderer.render({
-          projectDir: project.directory, episode: input.episode, clips,
-          timelinePath: plan.timelinePath, subtitlePath: plan.subtitlePath, mixProfilePath: plan.mixProfilePath,
-          ...(plan.bgmPath === undefined ? {} : { bgmPath: plan.bgmPath }), outputPath,
-        }, signal)
-        unreceiptedOutput = outputPath
-        signal.throwIfAborted()
-        const current = (await this.episodes(project.directory)).find(row => row.episode === input.episode)
-        if (current?.readiness !== 'ready' || current.digest !== input.digest) {
-          throw refusal('The episode approval set changed during rendering')
-        }
-        const ffmpeg = this.options.ffmpegPath
-        if (ffmpeg === undefined) throw refusal('Video decoding is unavailable')
-        const decoded = await decodeVideoFile(outputPath, ffmpeg, this.options.decodeTimeoutMs, signal)
-        if (!decoded.video || !decoded.audio) throw refusal('The episode MP4 must contain decodable picture and audio')
-        const checks = [...rendered.checks]
-        if (checks.some(check => !check.ok)) throw refusal('The episode renderer reported a failed check')
-        const delivery: ApprovedEpisodeDelivery = {
-          path: relative(project.directory, outputPath).split(sep).join('/'),
-          sha256: await artifactHash(outputPath, signal),
-          durationSeconds: rendered.durationSeconds,
-          checks,
-        }
-        const receiptPath = episodeDeliveryReceiptPath(project.directory, input.episode, input.digest)
-        await this.publishEpisodeReceipt(receiptPath, delivery)
-        unreceiptedOutput = undefined
-        return { ...summary, delivery }
+        requestSignal?.throwIfAborted()
+        return await this.deliverEpisode(input, requestSignal)
       } catch (error) {
         if (error instanceof RemoteError) throw error
         throw refusal(error instanceof Error ? error.message : 'Could not deliver the approved episode', error)
-      } finally {
-        if (unreceiptedOutput !== undefined) {
-          try { await unlink(unreceiptedOutput) }
-          catch (error) {
-            if (!isMissing(error)) this.ctx.logger.warn('Unreceipted episode MP4 could not be removed: %s',
-              error instanceof Error ? error.message : String(error))
-          }
+      }
+    })
+  }
+
+  private resumeEpisodeDeliveries(): void {
+    const selected = this.state.configuration.projectDir
+    if (this.state.closing || selected === null || this.scanningEpisodes.has(selected)
+      || this.ctx.get('approvedEpisodeRenderer') === undefined) return
+    this.scanningEpisodes.add(selected)
+    void this.enqueue(async () => {
+      if (this.state.configuration.projectDir !== selected) return
+      const { directory } = await boundProject(selected)
+      const review = join(directory, 'video_tasks', 'review')
+      let files: string[]
+      try {
+        if (await realpath(review) !== review) throw new Error('Episode delivery requires a real project review directory')
+        files = await readdir(review)
+      } catch (error) {
+        if (isMissing(error)) return
+        throw error
+      }
+      for (const name of files.sort()) {
+        if (this.state.closing) return
+        const match = episodeJobName.exec(name)
+        if (match?.[1] === undefined || match[2] === undefined) continue
+        try {
+          await this.deliverEpisode({ episode: Number(match[1]), digest: match[2] })
+        } catch (error) {
+          if (!this.episodeShutdown.signal.aborted) this.ctx.logger.warn('Could not resume episode %s: %s', match[1],
+            error instanceof Error ? error.message : String(error))
         }
       }
+    }).catch((error: unknown) => {
+      if (!this.state.closing) this.ctx.logger.warn('Could not resume episode deliveries: %s',
+        error instanceof Error ? error.message : String(error))
+    }).finally(() => { this.scanningEpisodes.delete(selected) })
+  }
+
+  private async episodeInputs(project: Awaited<ReturnType<typeof boundProject>>, input: EpisodeRequest,
+    locked?: ApprovedEpisodeInputHashes) {
+    const reports = await this.reports(project.directory)
+    const summary = await summarizeApprovedEpisode(project.directory, input.episode, reports)
+    if (summary.readiness !== 'ready' || summary.digest !== input.digest) {
+      throw refusal('The episode plan changed or not every listed shot has a passing approval')
+    }
+    const plan = await readApprovedEpisodePlan(project.directory, input.episode)
+    if (plan.digest !== input.digest || plan.inputHashes.projectConfig !== project.configSha256
+      || (locked !== undefined && !isDeepStrictEqual(plan.inputHashes, locked))) {
+      throw refusal('The episode inputs changed after delivery was requested')
+    }
+    return { plan, summary }
+  }
+
+  private async deliverEpisode(input: EpisodeRequest, requestSignal?: AbortSignal): Promise<ApprovedEpisodeDeliverySummary> {
+    const renderer = this.ctx.get('approvedEpisodeRenderer')
+    if (renderer === undefined) throw refusal('Direct episode rendering is unavailable on this Host')
+    const selected = this.state.configuration.projectDir
+    if (selected === null) throw refusal('Select a Jubian project before delivering an episode')
+    const signal = this.episodeShutdown.signal
+    const project = await boundProject(selected)
+    const receiptPath = episodeDeliveryReceiptPath(project.directory, input.episode, input.digest)
+    const jobPath = receiptPath.replace(/\.delivery\.json$/u, '.delivery-job.json')
+    const episode = String(input.episode).padStart(2, '0')
+    const output = `exports/Supermuse-episode-${episode}-${input.digest}.mp4`
+    const outputPath = join(project.directory, output)
+    const candidatePath = (attempt: string) => receiptPath.replace(/\.json$/u, `-${attempt}.mp4`)
+    await ensureEpisodeDirectory(dirname(receiptPath))
+    return await withFileLock(jobPath, async () => {
+      signal.throwIfAborted()
+      let job = await readEpisodeJob(jobPath)
+      await ensureEpisodeDirectory(dirname(outputPath))
+      let previous = await readEpisodeDelivery(project.directory, input.episode, input.digest)
+      let alreadyVerified = false
+      if (job?.phase === 'prepared' && await episodeFileExists(outputPath)) {
+        checkPreparedEpisode(job.delivery, job.inputHashes, output)
+        if (previous !== undefined && !isDeepStrictEqual(job.delivery, previous)) {
+          throw refusal('The episode receipt does not match its delivery journal')
+        }
+        if (await artifactHash(outputPath, signal) !== job.delivery.sha256) {
+          throw refusal('An existing episode output does not match the verified delivery')
+        }
+        signal.throwIfAborted()
+        if (previous === undefined) await this.publishEpisodeReceipt(receiptPath, job.delivery)
+        await removeEpisodeJobFile(candidatePath(job.attempt))
+        await removeEpisodeJobFile(jobPath)
+        previous = job.delivery
+        job = undefined
+        alreadyVerified = true
+      }
+      const { plan, summary } = await this.episodeInputs(project, input, job?.inputHashes)
+      if (previous !== undefined) {
+        if (!alreadyVerified && await artifactHash(outputPath, signal) !== previous.sha256) {
+          throw refusal('The recorded episode output changed after delivery')
+        }
+        if (previous.inputHashes !== undefined && !isDeepStrictEqual(previous.inputHashes, plan.inputHashes)) {
+          throw refusal('The episode inputs changed after delivery')
+        }
+        if (job !== undefined) throw refusal('The episode receipt does not match its delivery journal')
+        return { ...summary, delivery: previous }
+      }
+      if (job === undefined) {
+        if (await episodeFileExists(outputPath)) throw refusal('An episode MP4 exists without a verified delivery journal')
+        requestSignal?.throwIfAborted()
+        signal.throwIfAborted()
+        job = { attempt: randomUUID(), phase: 'pending', inputHashes: plan.inputHashes }
+        await writeEpisodeJob(jobPath, job)
+      }
+      const candidate = candidatePath(job.attempt)
+      if (job.phase === 'pending') {
+        await removeEpisodeJobFile(candidate)
+        let delivery: ApprovedEpisodeDelivery
+        try {
+          const clips: { shot: number; path: string; sha256: string }[] = []
+          for (const shot of plan.plan.shots) {
+            signal.throwIfAborted()
+            const approved = await this.approvedClip({ idempotencyKey: shot.idempotency_key, digest: shot.review_digest }, signal)
+            clips.push({ shot: shot.shot, path: approved.source, sha256: approved.sha256 })
+          }
+          const rendered = await renderer.render({
+            projectDir: project.directory, episode: input.episode, clips,
+            timelinePath: plan.timelinePath, subtitlePath: plan.subtitlePath, mixProfilePath: plan.mixProfilePath,
+            ...(plan.bgmPath === undefined ? {} : { bgmPath: plan.bgmPath }), inputHashes: job.inputHashes,
+            outputPath: candidate,
+          }, signal)
+          signal.throwIfAborted()
+          const ffmpeg = this.options.ffmpegPath
+          if (ffmpeg === undefined) throw refusal('Video decoding is unavailable')
+          const sha256 = await artifactHash(candidate, signal)
+          const decoded = await decodeVideoFile(candidate, ffmpeg, this.options.decodeTimeoutMs, signal)
+          if (!decoded.video || !decoded.audio) throw refusal('The episode MP4 must contain decodable picture and audio')
+          const checks = [...rendered.checks]
+          if (checks.length === 0 || checks.some(check => !check.ok)) {
+            throw refusal('The episode renderer did not report passing checks')
+          }
+          await this.episodeInputs(project, input, job.inputHashes)
+          signal.throwIfAborted()
+          delivery = {
+            path: output, sha256, durationSeconds: rendered.durationSeconds, checks, inputHashes: job.inputHashes,
+          }
+        } catch (error) {
+          try { await removeEpisodeJobFile(candidate) } catch (cleanupError) {
+            this.ctx.logger.warn('Could not remove the rejected episode candidate: %s',
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError))
+          }
+          throw error
+        }
+        job = { ...job, phase: 'prepared', delivery }
+        await writeEpisodeJob(jobPath, job)
+      }
+      const { delivery, inputHashes } = job
+      checkPreparedEpisode(delivery, inputHashes, output)
+      await publishEpisodeCandidate(candidate, outputPath, delivery.sha256, signal, async () => {
+        await this.episodeInputs(project, input, inputHashes)
+      })
+      signal.throwIfAborted()
+      await this.publishEpisodeReceipt(receiptPath, delivery)
+      await removeEpisodeJobFile(candidate)
+      await removeEpisodeJobFile(jobPath)
+      return { ...summary, delivery }
     })
   }
 
@@ -535,7 +656,8 @@ export class JubianVideoRecovery extends TypertRemoteService {
     return { ...report, delivery }
   }
 
-  private async approvedClip(input: ApprovedClipDeliveryInput) {
+  private async approvedClip(input: ApprovedClipDeliveryInput,
+    signal = this.ctx.invocation?.signal ?? new AbortController().signal) {
     const selected = this.state.configuration.projectDir
     if (selected === null) throw refusal('Select a Jubian project before delivering video')
     const project = await boundProject(selected)
@@ -554,7 +676,6 @@ export class JubianVideoRecovery extends TypertRemoteService {
         source: join(project.directory, report.derivative.path), sha256,
       }
     }
-    const signal = this.ctx.invocation?.signal ?? new AbortController().signal
     const source = await materializeApprovedProviderVideo(project.directory, report.taskId, sha256,
       () => this.options.clientForProject(project.directory), signal)
     const current = reportView(await reviewRecoveredVideo(project.directory, key), key)
@@ -586,15 +707,24 @@ export class JubianVideoRecovery extends TypertRemoteService {
   }
 
   private async episodes(projectDir: string): Promise<ApprovedEpisodeDeliverySummary[]> {
+    let project: Awaited<ReturnType<typeof boundProject>>
+    try { project = await boundProject(projectDir) } catch (error) {
+      if (isMissing(error)) return []
+      throw error
+    }
     const reports = await this.reports(projectDir)
     const result: ApprovedEpisodeDeliverySummary[] = []
-    for (const episode of await listApprovedEpisodeNumbers(projectDir)) {
-      let summary = await summarizeApprovedEpisode(projectDir, episode, reports)
+    for (const episode of await listApprovedEpisodeNumbers(project.directory)) {
+      let summary = await summarizeApprovedEpisode(project.directory, episode, reports)
       if (summary.digest !== undefined) {
-        const delivery = await readEpisodeDelivery(projectDir, episode, summary.digest)
-        if (delivery !== undefined) {
-          const path = join(projectDir, delivery.path)
-          if (await artifactHash(path) !== delivery.sha256) throw refusal('A recorded episode output changed after delivery')
+        const delivery = await readEpisodeDelivery(project.directory, episode, summary.digest)
+        if (delivery?.inputHashes !== undefined && delivery.inputHashes.projectConfig !== project.configSha256) {
+          summary = { ...summary, readiness: 'invalid', missing: ['The project configuration changed after delivery'] }
+        } else if (delivery !== undefined) {
+          const path = join(project.directory, delivery.path)
+          if (await realpath(path) !== path || await artifactHash(path) !== delivery.sha256) {
+            throw refusal('A recorded episode output changed after delivery')
+          }
           summary = { ...summary, delivery }
         }
       }
@@ -604,20 +734,16 @@ export class JubianVideoRecovery extends TypertRemoteService {
   }
 
   private async publishEpisodeReceipt(path: string, delivery: ApprovedEpisodeDelivery): Promise<void> {
-    const directory = dirname(path)
-    await mkdir(directory, { recursive: true, mode: 0o700 })
-    const folder = await lstat(directory)
-    if (!folder.isDirectory() || folder.isSymbolicLink() || await realpath(directory) !== directory) {
-      throw new Error('Episode delivery receipts must stay in the project review directory')
-    }
+    await ensureEpisodeDirectory(dirname(path))
     const temporary = path + '.' + randomUUID() + '.tmp'
     await writeFile(temporary, JSON.stringify(delivery, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
     try {
       await link(temporary, path)
     } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
+      if (!await episodeFileExists(path)) throw error
       const existing = parseEpisodeDelivery(JSON.parse(await readFile(path, 'utf8')))
-      if (existing.sha256 !== delivery.sha256 || existing.path !== delivery.path) {
+      if (!isDeepStrictEqual(existing, delivery)) {
         throw new Error('A different episode delivery receipt already exists')
       }
     } finally {

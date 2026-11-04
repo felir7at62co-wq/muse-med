@@ -1,6 +1,6 @@
 /** The external-process edge: the spawn channel, the two ffmpeg wrappers, and ffprobe parsing. */
 
-import { stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
@@ -135,6 +135,36 @@ describe('createFileCaptureChannel', () => {
     const owned = captureDirectories.slice(before)
     expect(owned).toHaveLength(2)
     for (const directory of owned) await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('waits for the cancelled process to close before removing its capture directory', { timeout: 15_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'drama-render-abort-'))
+    const pidFile = join(root, 'child.pid')
+    const before = captureDirectories.length
+    const abort = new AbortController()
+    const reason = new Error('Host is shutting down')
+    const channel = createFileCaptureChannel(abort.signal)
+    const outcome = channel.run(node, ['-e',
+      "require('node:fs').writeFileSync(process.argv[1], String(process.pid));setInterval(() => {}, 1000)", pidFile])
+    const settled = outcome.catch(() => undefined)
+    try {
+      const pid = await vi.waitFor(async () => {
+        const value = Number(await readFile(pidFile, 'utf8'))
+        expect(value).toBeGreaterThan(0)
+        return value
+      }, { timeout: 5_000 })
+      abort.abort(reason)
+      await expect(outcome).rejects.toBe(reason)
+      expect(() => process.kill(pid, 0)).toThrow(/ESRCH/u)
+      await expect(channel.run(node, ['-e', 'process.exit(0)'])).rejects.toBe(reason)
+      const owned = captureDirectories.slice(before)
+      expect(owned).toHaveLength(1)
+      await expect(stat(owned[0]!)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      abort.abort(reason)
+      await settled
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 

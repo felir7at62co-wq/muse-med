@@ -1,27 +1,18 @@
 /** Host-owned renderer for project episodes made from reviewed video artifacts. */
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
-import { copyFile, link, lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
-import { dirname, extname, join, resolve } from 'node:path'
+import { constants, createReadStream, createWriteStream } from 'node:fs'
+import { link, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import { prepareStagedEpisodeAudio, runDramaRender, shotFileName } from '@deepseek-ai/dsh-tool-episode-render'
+import { createFileCaptureChannel, prepareStagedEpisodeAudio, runDramaRender, shotFileName,
+  stagedEpisodeEndingAssets } from '@deepseek-ai/dsh-tool-episode-render'
+import type { ApprovedEpisodeRenderer } from '@deepseek-ai/dsh-tool-jubian'
 import z from '@deepseek-ai/schemastery'
 
-interface ApprovedEpisodeRenderInput {
-  readonly projectDir: string
-  readonly episode: number
-  readonly clips: readonly { readonly shot: number; readonly path: string; readonly sha256: string }[]
-  readonly timelinePath: string
-  readonly subtitlePath: string
-  readonly mixProfilePath: string
-  readonly bgmPath?: string
-  readonly outputPath: string
-}
-interface ApprovedEpisodeRenderResult {
-  readonly durationSeconds: number
-  readonly checks: readonly { readonly id: string; readonly ok: boolean; readonly detail: string }[]
-}
+type ApprovedEpisodeRenderInput = Parameters<ApprovedEpisodeRenderer['render']>[0]
+type ApprovedEpisodeRenderResult = Awaited<ReturnType<ApprovedEpisodeRenderer['render']>>
+
 /** Media binaries and subtitle font used by the packaged renderer. */
 export interface Config {
   /** FFmpeg executable resolved by the Desktop Host. */
@@ -34,11 +25,11 @@ export interface Config {
   readonly endingAssetsDir?: string
 }
 
-/** Reject missing or non-regular project inputs before staging. */
+/** Require a regular staged MP4 before linking the verified candidate. */
 async function assertFile(path: string): Promise<string> {
   const actual = await realpath(path)
   const entry = await lstat(path)
-  if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode render inputs must be regular files')
+  if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode render output must be a regular file')
   return actual
 }
 
@@ -52,10 +43,28 @@ async function fileHash(path: string, signal: AbortSignal): Promise<string> {
   return hash.digest('hex')
 }
 
-/** Ensure the project output folder exists and does not follow a link. */
+/** Verify the bytes that the media tools will read from this run's private directory. */
+async function stageInput(path: string, target: string, sha256: string, label: string, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  const expected = await lstat(path)
+  if (!expected.isFile() || expected.isSymbolicLink()) throw new Error(`${label} must be a regular file`)
+  const source = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const actual = await source.stat()
+    if (!actual.isFile() || actual.dev !== expected.dev || actual.ino !== expected.ino) {
+      throw new Error(`${label} changed before rendering`)
+    }
+    await pipeline(source.createReadStream({ autoClose: false }),
+      createWriteStream(target, { flags: 'wx', mode: 0o600 }), { signal })
+  } finally {
+    await source.close()
+  }
+  if (await fileHash(target, signal) !== sha256) throw new Error(`${label} changed before rendering`)
+}
+
+/** Check the private candidate directory and refuse to replace an existing file. */
 async function assertOutput(path: string): Promise<void> {
   const parent = dirname(path)
-  await mkdir(parent, { recursive: true })
   const actual = await realpath(parent)
   if (resolve(parent) !== actual) throw new Error('Episode output directory must be a local project directory')
   try {
@@ -70,8 +79,15 @@ async function assertOutput(path: string): Promise<void> {
 /** Render reviewed clips and their embedded audio against the authored timeline. */
 async function renderApprovedEpisode(input: ApprovedEpisodeRenderInput, signal: AbortSignal,
   config: Config): Promise<ApprovedEpisodeRenderResult> {
+  signal.throwIfAborted()
   const root = await realpath(input.projectDir)
-  const stagingParent = join(root, 'video_tasks', 'episode-render-staging')
+  await assertOutput(input.outputPath)
+  const tasks = join(root, 'video_tasks')
+  const tasksInfo = await lstat(tasks)
+  if (!tasksInfo.isDirectory() || tasksInfo.isSymbolicLink() || await realpath(tasks) !== tasks) {
+    throw new Error('Episode task directory must be a real project directory')
+  }
+  const stagingParent = join(tasks, 'episode-render-staging')
   await mkdir(stagingParent, { recursive: true })
   const parentInfo = await lstat(stagingParent)
   if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink() || await realpath(stagingParent) !== stagingParent) {
@@ -81,42 +97,55 @@ async function renderApprovedEpisode(input: ApprovedEpisodeRenderInput, signal: 
   const episode = String(input.episode).padStart(2, '0')
   const stagingOutput = join(stage, 'exports', `episode-${episode}.mp4`)
   try {
-    signal.throwIfAborted()
     await mkdir(join(stage, 'editing'), { recursive: true })
     await mkdir(join(stage, 'video', episode), { recursive: true })
     await mkdir(join(stage, 'audio'), { recursive: true })
-    await copyFile(await assertFile(join(root, 'project_config.json')), join(stage, 'project_config.json'))
-    for (const clip of input.clips) {
-      signal.throwIfAborted()
-      const source = await assertFile(clip.path)
-      const staged = join(stage, 'video', episode, shotFileName(clip.shot))
-      await pipeline(createReadStream(source), createWriteStream(staged, { flags: 'wx', mode: 0o600 }), { signal })
-      if (await fileHash(staged, signal) !== clip.sha256) {
-        throw new Error(`Approved source for shot ${String(clip.shot)} changed before rendering`)
-      }
-    }
     const subtitlePath = join(stage, 'editing', `${episode}.srt`)
     const profilePath = join(stage, 'editing', `${episode}-mix-profile.json`)
     const timelinePath = join(stage, 'editing', `${episode}-timeline.json`)
-    await copyFile(await assertFile(input.timelinePath), timelinePath)
-    await copyFile(await assertFile(input.subtitlePath), subtitlePath)
-    await copyFile(await assertFile(input.mixProfilePath), profilePath)
-    const bgmPath = input.bgmPath === undefined ? undefined : join(stage, 'audio', `${episode}-bgm${extname(input.bgmPath)}`)
-    if (input.bgmPath !== undefined && bgmPath !== undefined) await copyFile(await assertFile(input.bgmPath), bgmPath)
+    const { inputHashes } = input
+    await stageInput(join(root, 'project_config.json'), join(stage, 'project_config.json'), inputHashes.projectConfig, 'Project configuration', signal)
+    await stageInput(input.timelinePath, timelinePath, inputHashes.timeline, 'Timeline', signal)
+    await stageInput(input.subtitlePath, subtitlePath, inputHashes.subtitle, 'Subtitle', signal)
+    await stageInput(input.mixProfilePath, profilePath, inputHashes.mixProfile, 'Mix profile', signal)
+    let bgmPath: string | undefined
+    if (input.bgmPath !== undefined) {
+      if (inputHashes.bgm === undefined) throw new Error('Episode render is missing the planned background music hash')
+      bgmPath = join(stage, 'audio', `${episode}-bgm${extname(input.bgmPath)}`)
+      await stageInput(input.bgmPath, bgmPath, inputHashes.bgm, 'Background music', signal)
+    } else if (inputHashes.bgm !== undefined) {
+      throw new Error('Episode render is missing the planned background music file')
+    }
+    for (const clip of input.clips) {
+      await stageInput(clip.path, join(stage, 'video', episode, shotFileName(clip.shot)),
+        clip.sha256, `Approved source for shot ${String(clip.shot)}`, signal)
+    }
 
+    const stagedEpisode = { project: stage, episode, timelinePath }
+    const endingAssets = await stagedEpisodeEndingAssets(stagedEpisode)
+    let ending: { endingAudio: string; endingEffect: string } | undefined
+    if (endingAssets !== undefined) {
+      if (config.endingAssetsDir === undefined) throw new Error('Packaged ending assets are unavailable for this episode')
+      const directory = join(stage, 'assets')
+      await mkdir(directory)
+      const audioName = basename(endingAssets.audio.file)
+      const effectName = basename(endingAssets.effect.file)
+      ending = { endingAudio: join(directory, audioName), endingEffect: join(directory, effectName) }
+      await stageInput(join(config.endingAssetsDir, audioName), ending.endingAudio,
+        endingAssets.audio.sha256, endingAssets.audio.label, signal)
+      await stageInput(join(config.endingAssetsDir, effectName), ending.endingEffect,
+        endingAssets.effect.sha256, endingAssets.effect.label, signal)
+    }
     const settings = {
       ffmpeg: config.ffmpegPath, ffprobe: config.ffprobePath, masterVolume: 1.45, bgmVolume: 0.24,
       maxBgmVolume: 1, preferNvenc: true, fontsDir: config.fontsDir,
-      subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei',
+      subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei', channel: createFileCaptureChannel(signal),
     }
-    await prepareStagedEpisodeAudio({ project: stage, episode, timelinePath }, settings)
+    await prepareStagedEpisodeAudio(stagedEpisode, settings)
     signal.throwIfAborted()
     const rendered = await runDramaRender({ method: 'render', project: stage, episode: input.episode,
       timeline: timelinePath, subtitleSrt: subtitlePath, mixProfile: profilePath,
-      ...(config.endingAssetsDir === undefined ? {} : {
-        endingAudio: join(config.endingAssetsDir, 'ending_audio.mp3'),
-        endingEffect: join(config.endingAssetsDir, 'ending_effect.mp4'),
-      }),
+      ...ending,
       ...(bgmPath === undefined ? {} : { bgm: bgmPath }), lastShot: input.clips.length, output: stagingOutput, force: true }, settings)
     if (!rendered.ok || rendered.output !== stagingOutput) throw new Error(rendered.failures.join('\n') || 'Episode render checks failed')
     signal.throwIfAborted()

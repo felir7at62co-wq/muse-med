@@ -1,9 +1,10 @@
 /** Explicit project episode plans used by approved-video delivery. */
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
-import type { ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary, VideoRecoveryReview } from './types.ts'
+import type { ApprovedEpisodeDelivery, ApprovedEpisodeDeliverySummary, ApprovedEpisodeInputHashes, VideoRecoveryReview } from './types.ts'
 
 const shotSchema = z.object({
   shot: z.number().int().positive(),
@@ -21,6 +22,16 @@ const planSchema = z.object({
   bgm: z.string().min(1).optional(),
 }).strict()
 const mixProfileSchema = z.object({ schema_version: z.literal(1), mode: z.enum(['legacy', 'no_bgm', 'ducking']) }).loose()
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u)
+
+/** SHA-256 hashes of the project configuration and the files used to render the episode. */
+export const episodeInputHashesSchema = z.object({
+  projectConfig: sha256Schema,
+  timeline: sha256Schema,
+  subtitle: sha256Schema,
+  mixProfile: sha256Schema,
+  bgm: sha256Schema.optional(),
+}).strict().transform(({ bgm, ...required }): ApprovedEpisodeInputHashes => ({ ...required, ...(bgm === undefined ? {} : { bgm }) }))
 const timelineSchema = z.object({
   clips: z.array(z.object({
     shot: z.number().int().positive(),
@@ -54,7 +65,7 @@ async function projectFile(projectDir: string, value: string): Promise<string> {
  * Read and validate an episode plan and every authored editing input it names.
  * @param projectDir - The selected local Jubian project.
  * @param episode - One-based episode number.
- * @returns The explicit plan, its project-owned absolute inputs and digest.
+ * @returns The plan, absolute input paths, per-file hashes and existing delivery digest.
  */
 export async function readApprovedEpisodePlan(projectDir: string, episode: number): Promise<{
   readonly plan: ApprovedEpisodePlan
@@ -64,6 +75,7 @@ export async function readApprovedEpisodePlan(projectDir: string, episode: numbe
   readonly mixProfilePath: string
   readonly bgmPath?: string
   readonly digest: string
+  readonly inputHashes: ApprovedEpisodeInputHashes
 }> {
   const name = String(episode).padStart(2, '0') + '-episode-delivery.json'
   const planPath = await projectFile(projectDir, join('editing', name))
@@ -78,7 +90,8 @@ export async function readApprovedEpisodePlan(projectDir: string, episode: numbe
   const subtitlePath = await projectFile(projectDir, plan.subtitle_srt)
   const mixProfilePath = await projectFile(projectDir, plan.mix_profile)
   const bgmPath = plan.bgm === undefined ? undefined : await projectFile(projectDir, plan.bgm)
-  const timeline = timelineSchema.parse(JSON.parse(await readFile(timelinePath, 'utf8')))
+  const timelineBytes = await readFile(timelinePath)
+  const timeline = timelineSchema.parse(JSON.parse(timelineBytes.toString('utf8')))
   let timelineEnd = 0
   if (timeline.clips.length !== plan.total_shots || timeline.clips.some((clip, index) => {
     const valid = clip.shot === index + 1 && clip.start_us === timelineEnd
@@ -87,20 +100,38 @@ export async function readApprovedEpisodePlan(projectDir: string, episode: numbe
   }) || Math.abs(timeline.body_end - timelineEnd / 1_000_000) > 0.000001) {
     throw new Error('Episode timeline must place the listed shots once, in order, with matching body_end')
   }
-  const mixProfile = mixProfileSchema.parse(JSON.parse(await readFile(mixProfilePath, 'utf8')))
+  const mixProfileBytes = await readFile(mixProfilePath)
+  const mixProfile = mixProfileSchema.parse(JSON.parse(mixProfileBytes.toString('utf8')))
   if ((mixProfile.mode === 'no_bgm') !== (bgmPath === undefined)) {
     throw new Error('A no_bgm profile omits bgm; other mix profiles require a project BGM file')
   }
-  const subtitle = await readFile(subtitlePath, 'utf8')
+  const subtitleBytes = await readFile(subtitlePath)
+  const subtitle = subtitleBytes.toString('utf8')
   if (!/^\s*\d+\s*\r?\n\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}[,.]\d{3}\s*\r?\n\S/mu.test(subtitle)) {
     throw new Error('Episode SRT must contain at least one timed, nonempty subtitle cue')
   }
-  const hash = createHash('sha256').update(JSON.stringify(plan))
-  for (const path of [timelinePath, subtitlePath, mixProfilePath, ...(bgmPath === undefined ? [] : [bgmPath])]) {
-    hash.update(await readFile(path))
+  const projectConfigBytes = await readFile(await projectFile(projectDir, 'project_config.json'))
+  // The project configuration hash is separate from the digest used by existing receipts and output names.
+  const hash = createHash('sha256').update(JSON.stringify(plan)).update(timelineBytes).update(subtitleBytes).update(mixProfileBytes)
+  let bgm: string | undefined
+  if (bgmPath !== undefined) {
+    const bgmHash = createHash('sha256')
+    for await (const chunk of createReadStream(bgmPath)) {
+      if (!(chunk instanceof Uint8Array)) throw new Error('Episode BGM stream returned non-binary data')
+      hash.update(chunk)
+      bgmHash.update(chunk)
+    }
+    bgm = bgmHash.digest('hex')
   }
-  const digest = hash.digest('hex')
-  return { plan, planPath, timelinePath, subtitlePath, mixProfilePath, ...(bgmPath === undefined ? {} : { bgmPath }), digest }
+  const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+  return {
+    plan, planPath, timelinePath, subtitlePath, mixProfilePath, ...(bgmPath === undefined ? {} : { bgmPath }),
+    digest: hash.digest('hex'),
+    inputHashes: {
+      projectConfig: sha256(projectConfigBytes), timeline: sha256(timelineBytes),
+      subtitle: sha256(subtitleBytes), mixProfile: sha256(mixProfileBytes), ...(bgm === undefined ? {} : { bgm }),
+    },
+  }
 }
 
 /**
@@ -166,12 +197,14 @@ export async function listApprovedEpisodeNumbers(projectDir: string): Promise<nu
  * @returns A receipt with validated path, digest, duration and checks.
  */
 export function parseEpisodeDelivery(value: unknown): ApprovedEpisodeDelivery {
-  return z.object({
+  const { inputHashes, ...receipt } = z.object({
     path: z.string().regex(/^exports\/Supermuse-episode-\d{2}-[a-f0-9]{64}\.mp4$/u),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    sha256: sha256Schema,
     durationSeconds: z.number().positive(),
     checks: z.array(z.object({ id: z.string(), ok: z.boolean(), detail: z.string() })),
+    inputHashes: episodeInputHashesSchema.optional(),
   }).parse(value)
+  return { ...receipt, ...(inputHashes === undefined ? {} : { inputHashes }) }
 }
 
 /**

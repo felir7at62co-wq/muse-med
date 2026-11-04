@@ -83,6 +83,15 @@ export interface ApprovedClipDirectDelivery {
   readonly sha256: string
 }
 
+/** SHA-256 of each project input accepted for one approved episode render. */
+export interface ApprovedEpisodeInputHashes {
+  readonly projectConfig: string
+  readonly timeline: string
+  readonly subtitle: string
+  readonly mixProfile: string
+  readonly bgm?: string
+}
+
 /** Durable result of rendering one explicitly planned episode from approved clips. */
 export interface ApprovedEpisodeDelivery {
   /** Project-relative MP4 path. */
@@ -91,6 +100,8 @@ export interface ApprovedEpisodeDelivery {
   readonly sha256: string
   /** Verified duration in seconds. */
   readonly durationSeconds: number
+  /** Project input identities for receipts written by the resumable exporter. */
+  readonly inputHashes?: ApprovedEpisodeInputHashes
   /** Renderer checks retained with the receipt. */
   readonly checks: readonly { readonly id: string; readonly ok: boolean; readonly detail: string }[]
 }
@@ -143,6 +154,8 @@ export interface ApprovedEpisodeRenderer {
     readonly subtitlePath: string
     readonly mixProfilePath: string
     readonly bgmPath?: string
+    readonly inputHashes: ApprovedEpisodeInputHashes
+    /** Absolute private candidate path. The renderer must not replace an existing file. */
     readonly outputPath: string
   }, signal: AbortSignal): Promise<{
     readonly durationSeconds: number

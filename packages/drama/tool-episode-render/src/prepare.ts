@@ -20,7 +20,8 @@ import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { createMediaToolkit, firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from './subtitles.ts'
-import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
+import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, type ShippedEndingAsset } from './delivery.ts'
+import { deliveryPolicyFor, readProjectDelivery, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument, readTimeline } from './timeline.ts'
 import type { MediaToolkit, RenderSettings, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
@@ -230,6 +231,20 @@ async function buildMaster(
   for (const path of audioPaths) args.push('-i', path)
   args.push('-filter_complex', masterAudioFilter(clips), '-map', '[a]', '-c:a', 'pcm_s16le', '-ar', '48000', target)
   await runFfmpeg(toolkit, args)
+}
+
+/**
+ * Read the ending assets selected by the staged episode's delivery policy.
+ * @param input - The staging project and its verified timeline path.
+ * @returns The shipped audio and effect descriptors for a marked delivery, or absence for body-only animation.
+ */
+export async function stagedEpisodeEndingAssets(
+  input: { readonly project: string; readonly timelinePath: string },
+): Promise<{ readonly audio: ShippedEndingAsset; readonly effect: ShippedEndingAsset } | undefined> {
+  const timeline = await readTimeline(input.timelinePath)
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  if (policy.endingSeconds === 0) return undefined
+  return { audio: ENDING_AUDIO_ASSET, effect: ENDING_EFFECT_ASSET }
 }
 
 /**
