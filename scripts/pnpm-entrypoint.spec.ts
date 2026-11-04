@@ -1,6 +1,7 @@
 /** Installed pnpm launchers remain Node-executable across native-bin and legacy releases. */
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
@@ -20,7 +21,7 @@ it.each([
     await writeFile(manifest, JSON.stringify({ name: 'pnpm', bin }))
     await mkdir(dirname(join(root, launcher)), { recursive: true })
     await writeFile(join(root, launcher), '')
-    expect(resolvePnpmEntrypoint(manifest)).toBe(await realpath(join(root, launcher)))
+    expect(resolvePnpmEntrypoint(manifest)).toBe(realpathSync(join(root, launcher)))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
