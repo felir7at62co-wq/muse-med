@@ -145,7 +145,7 @@ jobs:
           --package sdk
           --output-dir dist-python
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
           path: dist-python/deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
@@ -232,7 +232,8 @@ jobs:
           esac
           addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"
           pnpm_setup_root="$(realpath "$(dirname "$(dirname "$PNPM_HOME")")")"
-          (cd "$addon_dir" && npm_config_build_from_source=true pnpm run install)
+          # Verification installs would install node-gyp inside the package and package it into the exe.
+          (cd "$addon_dir" && npm_config_build_from_source=true pnpm --config.verifyDepsBeforeRun=false run install)
           addon="$addon_dir/build/Release/pty.node"
           [ -f "$addon_dir/build/Makefile" ] || {
             echo "::error::node-pty install did not generate $addon_dir/build/Makefile"
@@ -259,7 +260,9 @@ jobs:
       - name: Build single-exe
         env:
           DSH_BUILD_CLIENT_PROFILE: official
-        run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
+        run: >-
+          pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
+          ${{ inputs.ci && github.event_name == 'pull_request' && '--artifacts-only' || '' }}
 
       - name: Resolve platform outputs (POSIX)
         id: runtime-posix
@@ -308,7 +311,7 @@ jobs:
           --runtime-exe "${{ steps.runtime-posix.outputs.exe || steps.runtime-windows.outputs.exe }}"
           --output-dir dist-python
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8.0.1
         with:
           name: deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
           path: dist-python
@@ -501,7 +504,7 @@ jobs:
             env -u PYTHONPATH -u DSH_RUNTIME_MODE /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-mcp --installed-wheel
           '
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ steps.runtime-posix.outputs.wheel || steps.runtime-windows.outputs.wheel }}
           path: dist-python/${{ steps.runtime-posix.outputs.wheel || steps.runtime-windows.outputs.wheel }}

@@ -28,6 +28,10 @@ The SVG delivery scenario includes bounded Host WebSocket observations in a conn
 
 Permission-picker assertions wait for rendered option rows before checking counts or snapshots. The install-lifetime scenario owns a separate profile and browser, installs Auto as a bundle, and persists enablement through Plugin Manager with HMR active. Catalog-response completion precedes the existing DOM checks; current permission alone does not confirm catalog completion.
 
+[Idle-submission handoff](idle-submission-handoff.e2e.ts) waits up to the scaffold's 30-second turn-completion budget for Host frames and browser placement. Vitest owns scaffold teardown so a replay-consumption error does not replace the failed scenario assertion.
+
+Plugin-manager switches wait up to `PLUGIN_TOGGLE_SETTLE_MS` (10 seconds) for the Host's profile write and the store's follow-up inventory read, the two steps that republish `aria-checked`; that constant's JSDoc records the measured chain.
+
 Explicit scrolling uses `scrollIntoView` from `support.ts`: it resolves the locator again when its old element detaches and checks connection in the same browser task as native scrolling. Scenarios retain their visibility and geometry assertions after scrolling.
 
 ## These are Host-face tests

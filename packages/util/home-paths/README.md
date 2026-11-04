@@ -1,5 +1,5 @@
 ---
-description: "Shared resolution of the DeepSeek Harness home and user-data paths for packages that need one consistent root, tilde expansion, and stable watch paths."
+description: "Shared resolution of the DeepSeek Harness home and the shared agent configuration root, plus user-data paths, tilde expansion, and stable watch paths."
 kind: "package-library"
 ---
 
@@ -44,6 +44,17 @@ The default home is `~/.muse` on a machine with no legacy home, and a legacy `~/
 
 `dshCachePath(...segments)` derives paths from the resolved home's `cache` directory. With no segments it returns the cache directory itself. Pass an initial options object, `dshCachePath({ dshHome: home }, ...segments)`, to use an explicit configured home with the same precedence and tilde expansion. It returns an absolute path without creating directories.
 
+### Resolving the shared agents root
+
+```ts
+import { resolveAgentsHome, agentsHomeDisplay } from '@deepseek-ai/dsh-home-paths'
+
+const agents = resolveAgentsHome()   // configured path, else $DSH_AGENTS_HOME, else ~/.agents
+agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any configured root
+```
+
+`resolveAgentsHome` applies the same precedence, blank-value handling, and tilde expansion as `resolveDshHome`. The root is deliberately outside `$DSH_HOME` because other agent tools share it; `dsh-agent-instructions` reads its user-global `AGENTS.md`, and `dsh-skill-filesystem` scans its `skills/` directory.
+
 ### Displaying a home
 
 For user-facing paths, render the root symbolically rather than as a machine path: either default home displays as `~/.muse` or `~/.dsh`, and any configured home displays as `$DSH_HOME`. The display form never leaks an absolute machine path.
@@ -64,7 +75,7 @@ For user-facing paths, render the root symbolically rather than as a machine pat
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package is built on one principle: all harness user data lives under one root, and every other helper derives from that decision.
+The package is built on one principle: harness user data lives under one root, and the shared agent configuration root stays separate because other agent tools read it too. `resolveRoot` and `rootDisplay` own the precedence and display rules for both roots, so neither can drift from the other.
 
 ### Source map
 

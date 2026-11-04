@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { reviewedHostVersion } from './host-runtime.mjs'
 
 const sourceNormalizationSha256 = 'd83b8ceefc9f57b8e4b903ad26787037bf3e49f0a5adeed4cfa5687f60f83f6c'
 const sourceNormalizationBytes = readFileSync(new URL('../dsh-bridge/MUSE_SOURCE_NORMALIZATION.json', import.meta.url))
@@ -60,7 +61,7 @@ export function applyBridgeDesktopCompatibility(directory) {
   manifest.scripts = {}
   delete manifest.bin
   delete manifest.dsh.client
-  manifest.dependencies = { ws: '8.21.3', '@deepseek-ai/dsh-muse-account': '0.2.1-alpha.1', '@xmanrui/dsh-im': '5.1.0' }
+  manifest.dependencies = { ws: '8.21.3', '@deepseek-ai/dsh-muse-account': reviewedHostVersion, '@xmanrui/dsh-im': '5.1.0' }
   delete manifest.devDependencies
   for (const path of ['client', 'scripts', 'locale']) rmSync(join(directory, path), { recursive: true, force: true })
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)

@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 
@@ -19,7 +19,6 @@ const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
 
 interface Handoff { id: string; factory: (require: (spec: string) => unknown) => Record<string, unknown> }
 type Win = { __ModuleLoader__?: { load(h: Handoff): void } }
-const contexts: Context[] = []
 
 function readBundle(): string | undefined {
   try {
@@ -31,8 +30,7 @@ function readBundle(): string | undefined {
   }
 }
 
-afterEach(async () => {
-  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+afterEach(() => {
   delete (window as Win).__ModuleLoader__
   for (const el of document.querySelectorAll('style')) el.remove()
 })
@@ -75,7 +73,7 @@ describe('tsdown client artifact', () => {
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
     const { exports } = await loadArtifact()
     const ctx = new Context()
-    contexts.push(ctx)
+    onTestFinished(() => ctx.fiber.dispose())
     const slots = new SlotRegistry(ctx)
     ctx.provide('uiSession', { provide: () => () => {} } as never)
     // The conversation entry's role: the ring must be declared before riders land.

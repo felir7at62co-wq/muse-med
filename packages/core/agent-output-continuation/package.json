@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-agent-output-continuation",
   "description": "Automatic continuation of output-limited agent responses",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "publishConfig": {
     "access": "public"
   },

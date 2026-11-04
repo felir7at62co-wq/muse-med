@@ -8,7 +8,8 @@ import { qualifyCommunityManifest, reviewedHostPackageVersion, reviewedHostVersi
 const plugins = join(import.meta.dirname, '..')
 const pins = JSON.parse(readFileSync(join(plugins, 'sources.json'), 'utf8'))
 
-for (const name of Object.keys(pins)) {
+for (const [name, pin] of Object.entries(pins)) {
+  if (pin.desktop === false) continue
   test(`qualifies ${name} without retaining removed Host packages or changing source`, () => {
     const manifestPath = join(plugins, name, 'package.json')
     const bytes = readFileSync(manifestPath)

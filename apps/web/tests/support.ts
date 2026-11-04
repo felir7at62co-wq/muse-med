@@ -42,6 +42,15 @@ export const ZH_BROWSER_LOCALE = 'zh-CN'
 export const WEB_FIXTURE_TIME = Date.parse('2026-01-15T12:00:00+08:00')
 
 /**
+ * Budget for a plugin-manager switch to republish its state after a click: the
+ * click starts a Host profile write, and the store's follow-up `load()` re-reads
+ * its inventory before the switch shows the new value. That chain measured
+ * 0.5-0.8 s on an idle host and 2.0-4.8 s across 32 samples in a 16-worker lane,
+ * so Vitest's 1-second `expect.poll` default expires first.
+ */
+export const PLUGIN_TOGGLE_SETTLE_MS = 10_000
+
+/**
  * Pin the Host clock to the shared fixture day for one scenario suite.
  *
  * A rendered message clock gains a `clock.md` / `clock.ymd` date prefix as soon

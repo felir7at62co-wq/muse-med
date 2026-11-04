@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-character-library-tos",
   "description": "Volcengine TOS read-only provider for the Muse character library object store",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "publishConfig": {
     "access": "public"
   },

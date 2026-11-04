@@ -25,6 +25,12 @@ const tools = JSON.parse(readFileSync(join(toolchain, 'package.json'), 'utf8'))
 const { values } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 if (!values.out) throw new Error('community plugins: --out is required')
 if (values.only && !Object.hasOwn(pins, values.only)) throw new Error(`community plugins: unknown source ${values.only}`)
+const selectedSources = values.only ? [values.only] : Object.keys(pins).filter(name => pins[name].desktop !== false)
+const hostVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version
+if (hostVersion !== reviewedHostVersion) throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
+for (const name of selectedSources) {
+  if (pins[name].desktop === false) throw new Error(`community plugins: ${name} has no compatibility review for Host ${hostVersion}`)
+}
 const pnpm = process.env.npm_execpath
 if (!pnpm) throw new Error('community plugins: invoke through pnpm --dir third_party/plugins/toolchain run build')
 const output = resolve(values.out)
@@ -34,6 +40,8 @@ function run(args, cwd, environment = {}, command = process.execPath) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
   Reflect.deleteProperty(env, 'MUSE_HOME')
   Reflect.deleteProperty(env, 'MUSE_MED_HOME')
+  Reflect.deleteProperty(env, 'DSH_FFMPEG_PATH')
+  Reflect.deleteProperty(env, 'DSH_FFPROBE_PATH')
   Object.assign(env, environment)
   if (cwd !== toolchain) {
     env.DSH_HOME = environment.DSH_HOME ?? join(dirname(cwd), 'test-home')
@@ -58,7 +66,11 @@ function linkPackage(modules, name, directory, links) {
 
 function linkDependencies(modules, links) {
   for (const name of Object.keys(tools.dependencies)) {
-    linkPackage(modules, name, name === '@earendil-works/pi-ai' ? hostPiAi : join(toolchain, 'node_modules', name), links)
+    if (name === '@earendil-works/pi-ai') {
+      if (hostPiAi !== undefined) linkPackage(modules, name, hostPiAi, links)
+    } else {
+      linkPackage(modules, name, join(toolchain, 'node_modules', name), links)
+    }
   }
   for (const group of readdirSync(join(repository, 'packages'), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
     for (const entry of readdirSync(join(repository, 'packages', group.name), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
@@ -74,21 +86,22 @@ function linkDependencies(modules, links) {
   }
 }
 
-const hostVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version
-if (hostVersion !== reviewedHostVersion) throw new Error(`community plugins: host ${hostVersion} needs a new compatibility review`)
 for (const entry of readdirSync(join(repository, 'vendor'), { withFileTypes: true }).filter(entry => entry.isDirectory())) {
   const manifestPath = join(repository, 'vendor', entry.name, 'package.json')
   if (!existsSync(manifestPath)) continue
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   if (reviewedVendorVersions[manifest.name] !== manifest.version) throw new Error(`community plugins: vendor ${manifest.name} ${manifest.version} needs a new compatibility review`)
 }
-const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
-const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
-if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
+const hostPiAi = selectedSources.includes('dsh-codex-subscription')
+  ? realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
+  : undefined
+if (hostPiAi !== undefined) {
+  const version = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
+  if (version !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${version} needs a new compatibility review`)
+}
 runPnpm(['install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
-const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
-for (const name of values.only ? [values.only] : desktopSources) {
+for (const name of selectedSources) {
   const staging = mkdtempSync(join(output, '.source-build-'))
   const links = []
   try {

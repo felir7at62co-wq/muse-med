@@ -1,5 +1,5 @@
-/** Exact Host releases qualified by the private community-plugin build. */
-export const reviewedHostVersion = '0.2.1-alpha.1'
+/** Exact Host release of the desktop community-plugin set. */
+export const reviewedHostVersion = '0.2.1-alpha.2'
 
 /** Vendor peers must admit the reviewed prereleases explicitly. */
 export const reviewedVendorVersions = Object.freeze({

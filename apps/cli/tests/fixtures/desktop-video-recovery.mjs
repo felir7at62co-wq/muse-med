@@ -43,7 +43,7 @@ export async function runProfile() {
     } },
     credentials: { resolve: async () => ({ value: 'fixture-token' }) },
     connection: { authenticatedUrl: value => value },
-    webServer: { port: 19387, collectIndexInjections: () => [] },
+    webServer: { protocol: 'http:', port: 19387, collectIndexInjections: () => [] },
   }
   await apply(ctx, {
     ledgerRoot, workspaceSecrets: false, watchPollIntervalMs: 20,

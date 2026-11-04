@@ -56,7 +56,6 @@
             "job_list",
             "job_output",
             "list_agents",
-            "load_workspace_dependencies",
             "read",
             "read_image",
             "send_message",
@@ -69,6 +68,7 @@
             "web_fetch",
             "web_search",
             "workflow",
+            "working_directory",
             "write"
           ]
         },
@@ -87,7 +87,7 @@
     },
     {
       "type": "request/header",
-      "seq": 20,
+      "seq": 19,
       "time": 0,
       "data": {
         "header": {
@@ -113,7 +113,6 @@
             "job_list",
             "job_output",
             "list_agents",
-            "load_workspace_dependencies",
             "read",
             "read_image",
             "send_message",
@@ -127,6 +126,7 @@
             "web_fetch",
             "web_search",
             "workflow",
+            "working_directory",
             "write"
           ]
         },
@@ -135,7 +135,7 @@
     },
     {
       "type": "developer/message",
-      "seq": 21,
+      "seq": 20,
       "time": 0,
       "data": {
         "turn": 1,
@@ -153,13 +153,13 @@
           "role": "developer",
           "id": "{{messageId}}"
         },
-        "headerSeq": 20
+        "headerSeq": "{{header:2}}"
       },
       "surfaceOp": "append"
     },
     {
       "type": "request/header",
-      "seq": 28,
+      "seq": 26,
       "time": 0,
       "data": {
         "header": {
@@ -185,7 +185,6 @@
             "job_list",
             "job_output",
             "list_agents",
-            "load_workspace_dependencies",
             "read",
             "read_image",
             "send_message",
@@ -198,6 +197,7 @@
             "web_fetch",
             "web_search",
             "workflow",
+            "working_directory",
             "write"
           ]
         },
@@ -206,7 +206,7 @@
     },
     {
       "type": "developer/message",
-      "seq": 29,
+      "seq": 27,
       "time": 0,
       "data": {
         "turn": 1,

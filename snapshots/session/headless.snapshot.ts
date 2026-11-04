@@ -1,7 +1,6 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
-import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -115,6 +114,17 @@ interface HeadlessScenario {
 interface SessionLog {
   readonly content: string
   readonly header: JsonObject
+}
+
+/** Keep the cwd text priced by compaction independent of the platform's temporary-root length. */
+async function compactionWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
+  const tempDirParent = await realpath(tmpdir())
+  const prefix = 'dsh-log-snap-'
+  // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
+  const unpaddedLength = JSON.stringify(join(tempDirParent, `${prefix}XXXXXX`)).length
+  const paddingLength = 192 - unpaddedLength
+  if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+  return { tempDirParent, tempDirPrefix: prefix + '-'.repeat(paddingLength) }
 }
 
 function propertyName(node: ts.PropertyName): string | undefined {
@@ -531,45 +541,10 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
   return await prepare(cwd, scenario.dir) ?? {}
 }
 
-const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
-  async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
-    if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
-    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
-    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
-    const path = join(expectedRoot, 'editing/01-sources.json')
-    const document = JSON.parse(await readFile(path, 'utf8')) as { shots: { video: string; audio: string }[] }
-    const actualCwd = await realpath(cwd)
-    for (const shot of document.shots) {
-      shot.video = join(actualCwd, 'source.mp4')
-      shot.audio = join(actualCwd, 'source.mp4')
-    }
-    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`)
-    return { expectedRoot }
-  },
-  async 'drama-subtitle-overlay'(cwd, scenarioDir) {
-    if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
-    const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
-    const sourceRoot = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build')
-    await mkdir(skillRoot, { recursive: true })
-    await copyFile(join(sourceRoot, 'SKILL.md'), join(skillRoot, 'SKILL.md'))
-    await cp(join(sourceRoot, 'references'), join(skillRoot, 'references'), { recursive: true })
-    return { expectedRoot: await prepareSubtitleOverlayExpectedWorkspace(cwd, scenarioDir) }
-  },
-  async 'muse-video-observation'(cwd, scenarioDir) {
-    if (scenarioDir === undefined) throw new Error('video observation requires its owner directory')
-    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
-    await writeFile(join(cwd, 'episode.md'), '# 第1集\n▲合成画面从黑色切换为白色。\n')
-    await writeFile(join(cwd, 'transcript.json'), JSON.stringify([
-      { start: 0, end: 1, text: '合成画面', speaker_id: 1 },
-      { start: 1, end: 3, text: '从黑色切换为白色。', speaker_id: 1 },
-    ]) + '\n')
-    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-video-observation')
-    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
-    return { expectedRoot }
-  },
-  async 'muse-video-inspect'(cwd) {
-    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
-  },
+const WORKTREE_CHECKOUT_FILTER = "printf 'FILTERED CHECKOUT CONTENT\\n'"
+const WORKTREE_CHECKOUT_ATTRIBUTES = 'tracked.txt filter=dsh-snapshot-checkout\n'
+
+const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -579,6 +554,18 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await cp(join(repoRoot, 'packages/skill/skill-office/assets'), join(cwd, 'office-skills'), { recursive: true })
     await symlink(process.execPath, join(cwd, 'office-node'))
     await symlink(join(repoRoot, 'packages/skill/skill-office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), join(cwd, 'office-cli.js'))
+  },
+  async 'git-worktree'(cwd) {
+    snapshotGit(cwd, ['init', '--initial-branch=main', '--object-format=sha1'])
+    snapshotGit(cwd, ['config', 'core.autocrlf', 'false'])
+    snapshotGit(cwd, ['add', 'tracked.txt'])
+    snapshotGit(cwd, ['commit', '-m', 'Snapshot seed'])
+    await writeFile(join(cwd, '.git', 'info', 'attributes'), WORKTREE_CHECKOUT_ATTRIBUTES)
+    snapshotGit(cwd, ['config', 'filter.dsh-snapshot-checkout.smudge', WORKTREE_CHECKOUT_FILTER])
+    await copyFile(join(cwd, '.git', 'config'), join(cwd, '.git', 'config.before-worktree'))
+    await writeFile(join(cwd, '.git', 'info', 'exclude'), '/.dsh/\n/.snapshot-patches/\n')
+    await writeFile(join(cwd, 'tracked.txt'), 'DIRTY SOURCE\n')
+    await writeFile(join(cwd, 'local.txt'), 'UNTRACKED SOURCE\n')
   },
   async 'editing-cordis-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'editing-cordis-compositions', 'SKILL.md')
@@ -889,6 +876,42 @@ async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRo
   expect(full).toContain('session_event_search')
 }
 
+/** Preserve successful native, program, direct-child, and workflow execution in one flow. */
+function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(3)
+  const events = parseSessionLog(logs[0]!.content)
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls).toEqual(['cordis_inspect_list', 'run_code', 'subagent', 'workflow', 'cordis_inspect_list'])
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(5)
+  expect(results.every(result => result.isError === false)).toBe(true)
+  const dispatches = events.flatMap(event => event.type === 'tool/ptc-dispatch' ? [event.data] : [])
+  expect(dispatches).toEqual([expect.objectContaining({ name: 'cordis_inspect_list', isError: false })])
+  const textOf = (index: number) => results[index]!.content
+    .flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  expect(JSON.parse(textOf(1))).toEqual(['Service', 'Event', 'Config', 'Tool'])
+  expect(textOf(2)).toBe(`started subagent ${logs[1]!.header.id}`)
+  const completions = events.flatMap(event => event.type === 'user/message'
+    && event.data.source.kind === 'subagent-settled' ? [{
+      sender: event.data.source.senderSessionId,
+      text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
+    }] : [])
+  expect(completions).toHaveLength(1)
+  expect(completions[0]?.sender).toBe(logs[1]!.header.id)
+  expect(completions[0]?.text).toContain('DIRECT_CHILD_OK')
+  expect(textOf(3)).toContain('WORKFLOW_CHILD_OK')
+  expect(finalTextFromSession(logs[1]!.content)).toBe('DIRECT_CHILD_OK')
+  expect(finalTextFromSession(logs[2]!.content)).toBe('WORKFLOW_CHILD_OK')
+  const headers = events.flatMap(event => event.type === 'request/header' ? [event.data.header] : [])
+  expect(headers).toHaveLength(3)
+  expect(headers[1]!.tools?.map(tool => tool.name)).toEqual(['run_code'])
+  for (const header of [headers[0]!, headers[2]!]) {
+    const names = header.tools?.map(tool => tool.name) ?? []
+    expect(names).toEqual(expect.arrayContaining(['cordis_inspect_list', 'subagent', 'workflow']))
+    expect(names).not.toContain('run_code')
+  }
+}
+
 /** Require real resource results and literal instructions before recording or replay succeeds. */
 function verifyMcpResources(log: string, ptc: boolean): void {
   const events = parseSessionLog(log)
@@ -950,6 +973,69 @@ async function verifyBackgroundConfinementFailure(log: string, cwd: string): Pro
   expect(text).toContain('[status: failed,')
   expect(text).toContain('fixture asynchronous confinement refused')
   expect(JSON.parse(await readFile(join(cwd, 'confinement-audit.json'), 'utf8'))).toEqual({ confineCalls: 1, spawnCalls: 0 })
+}
+
+/** Directory changes remain user context while relative tools follow the committed directory. */
+function verifyWorkingDirectory(log: string, cwd: string): void {
+  const events = records(log)
+  const directories = events.filter(event => event.type === 'working-directory/change')
+    .map(event => (event.data as JsonObject).cwd)
+  expect(directories).toEqual([join(cwd, 'selected'), join(cwd, 'second'), cwd])
+  expect(events.filter(event => event.type === 'system/message')).toHaveLength(1)
+  const users = events.filter(event => event.type === 'user/message').map(event => event.data as JsonObject)
+  const contexts = users.flatMap(message => {
+    const source = message.source as JsonObject
+    if (source.kind !== 'runtime-context') return []
+    return (source.sections as JsonObject[]).filter(section => section.name === 'working-directory:current')
+      .map(section => section.text)
+  })
+  expect(contexts).toEqual([cwd, join(cwd, 'selected'), join(cwd, 'second'), cwd]
+    .map(directory => `Current working directory: ${JSON.stringify(directory)}.`))
+  const notices = users.filter(message => (message.source as JsonObject).kind === 'working-directory')
+    .map(message => (message.content as JsonObject[]).map(block => block.text).join(''))
+  expect(notices).toEqual([
+    `The working directory changed from ${JSON.stringify(cwd)} to ${JSON.stringify(join(cwd, 'selected'))}.`,
+    `The working directory changed from ${JSON.stringify(join(cwd, 'selected'))} to ${JSON.stringify(join(cwd, 'second'))}.`,
+    `The working directory ${JSON.stringify(join(cwd, 'second'))} is unavailable. The working directory is now ${JSON.stringify(cwd)}.`,
+  ])
+}
+
+/** Run fixture Git with deterministic commit identity and no user hooks or configuration. */
+function snapshotGit(cwd: string, args: string[]): string {
+  const result = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'commit.gpgSign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))),
+      GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_AUTHOR_NAME: 'DSH Snapshot', GIT_COMMITTER_NAME: 'DSH Snapshot',
+      GIT_AUTHOR_EMAIL: 'snapshot@example.invalid', GIT_COMMITTER_EMAIL: 'snapshot@example.invalid',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+    },
+  })
+  if (result.status !== 0) throw new Error(`snapshot Git failed: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
+/** Verify Git-owned state independently of the Session and exclude only its volatile administration files from the file oracle. */
+async function verifyWorktree(log: string, cwd: string): Promise<void> {
+  const checkout = join(cwd, '.agents', 'worktrees', 'isolated')
+  expect(await readFile(join(cwd, '.git', 'config'))).toEqual(await readFile(join(cwd, '.git', 'config.before-worktree')))
+  expect(await readFile(join(cwd, '.git', 'info', 'attributes'), 'utf8')).toBe(WORKTREE_CHECKOUT_ATTRIBUTES)
+  expect(snapshotGit(cwd, ['config', 'filter.dsh-snapshot-checkout.smudge'])).toBe(WORKTREE_CHECKOUT_FILTER)
+  expect(await readFile(join(checkout, 'tracked.txt'), 'utf8')).toBe('COMMITTED CONTENT\n')
+  expect(await readFile(join(checkout, 'result.txt'), 'utf8')).toBe('WORKTREE RESULT\n')
+  expect(existsSync(join(checkout, 'local.txt'))).toBe(false)
+  expect(await readFile(join(cwd, '.agents', 'worktrees', '.gitignore'), 'utf8')).toBe('*\n')
+  expect(snapshotGit(cwd, ['branch', '--show-current'])).toBe('main')
+  expect(snapshotGit(checkout, ['branch', '--show-current'])).toBe('isolated')
+  expect(snapshotGit(checkout, ['rev-parse', 'HEAD'])).toBe(snapshotGit(cwd, ['rev-parse', 'HEAD']))
+  expect(snapshotGit(cwd, ['worktree', 'list', '--porcelain'])).toContain(`worktree ${checkout}`)
+  expect(snapshotGit(cwd, ['check-ignore', '.agents/worktrees/isolated/result.txt'])).toBe('.agents/worktrees/isolated/result.txt')
+  const events = records(log)
+  expect(events.filter(event => event.type === 'working-directory/change').map(event => (event.data as JsonObject).cwd))
+    .toEqual([checkout, cwd])
+  expect(events.filter(event => event.type === 'system/message')).toHaveLength(1)
 }
 
 /** Exercise provider-cwd adoption through the shipped launcher without normalizing away the observation. */
@@ -1476,6 +1562,8 @@ describe('headless recorded-session snapshots', () => {
       const task = taskFromSession(primaryFixture) ?? scenario.manifest.input?.task
       if (task === undefined) throw new Error(`${scenario.name}: no accepted or exceptional task input`)
       const pin = pinOf(scenario)
+      const ignoredWorkspaceEntries = scenario.manifest.workspace?.setup === 'git-worktree'
+        ? [...RUNTIME_WORKSPACE_ENTRIES.filter(entry => entry !== '.agents'), '.git'] : RUNTIME_WORKSPACE_ENTRIES
       let model: { provider: string; model: string }
       try {
         model = modelFromSession(primaryFixture)
@@ -1491,11 +1579,10 @@ describe('headless recorded-session snapshots', () => {
         join(baseComposition.dir, 'cordis.yml'),
         ...composition === baseComposition && !replaying ? [] : [compositionPatch],
         join(baseComposition.dir, 'model.cordis.yml'),
+        ...existsSync(join(scenario.dir, 'runtime.cordis.yml')) ? [join(scenario.dir, 'runtime.cordis.yml')] : [],
       ]
       const patchRoot = '.snapshot-patches'
-      const patches = patchSources.map((source, index) => source.endsWith('.snapshot.yml')
-        ? join(patchRoot, `${String(index)}-${basename(source)}`)
-        : source)
+      const patches = patchSources.map((source, index) => join(patchRoot, `${String(index)}-${basename(source)}`))
 
       let actualLogs: SessionLog[] = []
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
@@ -1511,6 +1598,7 @@ describe('headless recorded-session snapshots', () => {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
+          ...(scenario.name === 'compaction-recovery' ? await compactionWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
           sourceImport: 'tsx/esm',
@@ -1553,9 +1641,7 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.manifest.workspace?.parent === 'outside-temp') assertWorkspaceOutsideTemp(cwd)
             await mkdir(join(cwd, patchRoot), { recursive: true })
             patchSources.forEach((source, index) => {
-              if (source.endsWith('.snapshot.yml')) {
-                materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
-              }
+              materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
             })
             if (mcpDemo !== undefined) {
               const profileDir = join(cwd, '.dsh/profiles/headless')
@@ -1564,7 +1650,7 @@ describe('headless recorded-session snapshots', () => {
             }
             expectedWorkspaceRoot = (await seedWorkspace(scenario, cwd)).expectedRoot
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: ignoredWorkspaceEntries,
             })
           },
           inspect: async (cwd) => {
@@ -1590,507 +1676,7 @@ describe('headless recorded-session snapshots', () => {
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
             }
-            if (scenario.name === 'muse-video-observation') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, false, false, false, false, false, false, false, false, false, false, false])
-              const firstDelivery = events.findIndex(event => event.type === 'deliverables/presented')
-              const observationsBeforeDelivery = events.slice(0, firstDelivery)
-                .flatMap(event => event.type !== 'video/review' ? []
-                  : event.data.kind === 'start' ? event.data.review.frames : event.data.frames)
-                .filter(frame => frame.observation !== undefined)
-              expect(firstDelivery).toBeGreaterThan(0)
-              expect(observationsBeforeDelivery).toHaveLength(0)
-              expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(7)
-              expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
-              const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')
-              if (started?.type !== 'video/review' || started.data.kind !== 'start') throw Error('Missing video observation start')
-              const template = await readFile(join(scenario.dir, 'report.expected.json'), 'utf8')
-              const expected = JSON.parse(template.replaceAll('{{id:1}}', started.data.review.id)) as { path: string }
-              expected.path = await realpath(join(cwd, 'fixture.mp4'))
-              const finalText = results[6]?.content.find(block => block.type === 'text')
-              if (finalText?.type !== 'text') throw Error('Missing completed observation report')
-              const report = JSON.parse(finalText.text) as { observation_report: string }
-              const saved = await readFile(report.observation_report, 'utf8')
-              expect(JSON.parse(saved)).toEqual(expected)
-              const timelineText = results[8]?.content.find(block => block.type === 'text')
-              if (timelineText?.type !== 'text') throw Error('Missing source timeline')
-              const { source_timeline: timeline } = JSON.parse(timelineText.text) as { source_timeline: {
-                semantic_assessment: string; scope: { full_episode: boolean }; windows: { frames: object[]; event_notes: object[];
-                  speech_segment_ids: string[] }[]; speech: { segments: object[]; continuous_speech_candidates: object[] }
-              } }
-              expect(timeline.semantic_assessment).toBe('not_performed')
-              expect(timeline.scope.full_episode).toBe(true)
-              expect(timeline.windows.flatMap(window => window.frames)).toHaveLength(5)
-              expect(timeline.windows[0]?.event_notes).toHaveLength(1)
-              expect(timeline.windows[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
-              expect(timeline.speech.continuous_speech_candidates).toHaveLength(1)
-              const comparisonText = results[9]?.content.find(block => block.type === 'text')
-              if (comparisonText?.type !== 'text') throw Error('Missing saved-draft comparison')
-              const { comparison } = JSON.parse(comparisonText.text) as { comparison: {
-                advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string };
-                event_groups: { evidence_current: boolean; speech_segment_ids: string[];
-                  evidence: { frame_id: string; visible: string }[] }[];
-                speech: { segments: object[]; continuous_speech_candidates: object[] }
-              } }
-              expect(comparison.advisory).toBe(true)
-              expect(comparison.semantic_assessment).toBe('not_performed')
-              expect(comparison.observations).toHaveLength(5)
-              expect(comparison.event_groups).toHaveLength(1)
-              expect(comparison.event_groups[0]?.evidence_current).toBe(true)
-              expect(comparison.event_groups[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
-              expect(comparison.event_groups[0]?.evidence.map(frame => frame.frame_id)).toEqual(['F00001', 'F00003'])
-              expect(comparison.event_groups[0]?.evidence[0]?.visible).toContain('没有人物')
-              expect(comparison.speech.segments).toHaveLength(2)
-              expect(comparison.speech.continuous_speech_candidates).toHaveLength(1)
-              expect(comparison.draft.numbered_text).toContain('2: ▲合成画面从黑色切换为白色。')
-              const revisitText = results[10]?.content.find(block => block.type === 'text')
-              if (revisitText?.type !== 'text') throw Error('Missing cached-frame revisit')
-              const revisit = JSON.parse(revisitText.text) as {
-                complete: boolean; pending: number; frames: { id: string; revisited: boolean; observation: object }[]
-              }
-              expect(revisit.complete).toBe(true)
-              expect(revisit.pending).toBe(0)
-              expect(revisit.frames.map(frame => frame.id)).toEqual(['F00001', 'F00003'])
-              expect(revisit.frames.every(frame => frame.revisited && frame.observation)).toBe(true)
-              const eventText = results[7]?.content.find(block => block.type === 'text')
-              if (eventText?.type !== 'text') throw Error('Missing grouped-event report')
-              const eventReport = JSON.parse(eventText.text) as { observation_report: string }
-              const eventTemplate = await readFile(join(scenario.dir, 'events-report.expected.json'), 'utf8')
-              const eventExpected = JSON.parse(eventTemplate.replaceAll('{{id:1}}', started.data.review.id)) as {
-                path: string; transcript_reference: { path: string }
-              }
-              eventExpected.path = expected.path
-              eventExpected.transcript_reference.path = await realpath(join(cwd, 'transcript.json'))
-              const eventSaved = await readFile(eventReport.observation_report, 'utf8')
-              expect(JSON.parse(eventSaved)).toEqual(eventExpected)
-              expect(eventReport.observation_report).not.toBe(report.observation_report)
-              const expectedEvents = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(eventReport.observation_report))
-              await mkdir(dirname(expectedEvents), { recursive: true })
-              await writeFile(expectedEvents, eventSaved)
-              const expectedReport = join(expectedWorkspaceRoot!, '.muse', 'video-observations', basename(report.observation_report))
-              await mkdir(dirname(expectedReport), { recursive: true })
-              await writeFile(expectedReport, saved)
-            }
-            if (scenario.name === 'muse-character-image-continuity') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual([
-                'skill', 'jubian_video', 'jubian_storyboard', 'jubian_storyboard', 'jubian_storyboard',
-              ])
-              const resultText = (callId: string, isError = false): string => {
-                const event = events.find(item => item.type === 'tool/result' && item.data.message.toolCallId === callId)
-                if (event?.type !== 'tool/result') throw new Error(`Missing continuity result: ${callId}`)
-                expect(event.data.message.isError).toBe(isError)
-                const block = event.data.message.content.find(item => item.type === 'text')
-                if (block?.type !== 'text') throw new Error(`Missing continuity text: ${callId}`)
-                return block.text
-              }
-              const guidance = resultText('call_continuity_skill')
-              expect(guidance).toContain('显式把已认可的人脸图 URL 放进')
-              expect(guidance).toContain('不自动确认出演或改绑后续分镜')
-              expect(guidance).toContain('`IMAGE_REFERENCE_CONFLICT`')
-              expect(guidance).toContain('`select_assets` 明确重选并回读两份一致')
-              const approvedUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png'
-              expect(JSON.parse(resultText('call_character_regenerate'))).toMatchObject({
-                outcome: 'accepted', generation_status: 'submitted_pending', parent_asset_id: 11, material_id: null,
-                identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl },
-              })
-              const conflict = resultText('call_conflicting_prepare', true)
-              expect(conflict).toContain('IMAGE_REFERENCE_CONFLICT:')
-              expect(conflict).toContain('modelConfig.materialList')
-              expect(conflict).toContain('storyboardMaterialList')
-              expect(conflict).not.toContain('https://')
-              expect(JSON.parse(resultText('call_explicit_selection'))).toMatchObject({
-                status: 'applied', applied: true, paid_requests: 0,
-                verification: { matches: true, source_matches: {
-                  storyboardMaterialList: true, 'modelConfig.materialList': true,
-                } },
-              })
-              const prepared = JSON.parse(resultText('call_consistent_prepare'))
-              expect(prepared).toMatchObject({ status: 'prepared', estimatedSubmissions: 1,
-                assetSummary: { count: 1, orderedAssets: [{ materialAssetId: 11, materialKey: 'lead', imageUrl: approvedUrl }] } })
-              const receipt = JSON.parse(await readFile(join(cwd, 'provider-receipt.json'), 'utf8'))
-              expect(receipt).toEqual(JSON.parse(await readFile(join(scenario.dir, 'workspace.expected/provider-receipt.json'), 'utf8')))
-              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1 })
-              expect(receipt.selected_model_references).toEqual(receipt.selected_storyboard_references)
-              const preview = JSON.parse(await readFile(prepared.preview_path, 'utf8'))
-              expect(JSON.parse(preview.payload.modelConfig).materialList).toEqual(preview.payload.storyboardMaterialList)
-              expect(preview.payload.storyboardMaterialList).toEqual([{ ...receipt.selected_storyboard_references[0],
-                official: true, asset_status: 'confirmed' }])
-            }
-            if (scenario.name === 'muse-shot-advisory') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const result = events.find(event => event.type === 'tool/result')
-              if (result?.type !== 'tool/result') throw new Error('Expected advisory shot preview')
-              const content = result.data.message.content[0]
-              if (content?.type !== 'text') throw new Error('Expected advisory shot report')
-              const report = JSON.parse(content.text) as { warnings: { code: string; shot: number }[] }
-              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'action_stages_missing', shot: 2 }))
-              expect(report.warnings).toContainEqual(expect.objectContaining({ code: 'performance_budget_missing', shot: 2 }))
-            }
-            if (scenario.name === 'muse-shot-director-format') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'skill', 'read', 'drama_shot'])
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              // Keep the historical calls as rejection coverage for the removed creative skills.
-              expect(results.map(message => message.isError)).toEqual([true, true, true, false, false])
-              for (const index of [0, 1, 2]) {
-                const block = results[index]!.content[0]
-                if (block?.type !== 'text') throw new Error('Expected unavailable skill diagnostic')
-                expect(block.text).toContain('unknown or no longer available')
-              }
-              const resourceBlock = results[3]!.content[0]
-              if (resourceBlock?.type !== 'text') throw new Error('Expected packaged format resource text')
-              expect(resourceBlock.text).toContain('调用没有 `duration` 参数')
-              expect(resourceBlock.text).toContain('不跨镜继承')
-              expect(resourceBlock.text).toContain('场景按本镜实际内外与动作选择')
-              expect(resourceBlock.text).toContain('一个动作跨过室内与室外时拆成各自的镜头')
-              expect(resourceBlock.text).toContain('机器的 `vo` 只归类发声，不替代原文的 OS、心声、记忆音或当前画外对白语义')
-              expect(resourceBlock.text).toContain('画面人物不对这句发声、不按该句对口型，表情动作仍按原文，不强制闭嘴')
-              expect(resourceBlock.text).toContain('不强迫声源入画')
-              const previewBlock = results[4]!.content[0]
-              if (previewBlock?.type !== 'text') throw new Error('Expected format preview text')
-              const preview = JSON.parse(previewBlock.text)
-              expect(preview).toMatchObject({ ok: true, failures: [], written: [] })
-              expect(preview.shots.map((shot: JsonObject) => shot.voice_type)).toEqual(['dialogue', 'action', 'vo'])
-              expect(preview.shots[2]).toMatchObject({ speaker: '周明', offscreen: true })
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings)).toMatchObject([
-                [{ name: '温雨身份母版', asset_id: '71001' }, { name: '后厨', asset_id: '71004' }],
-                [{ name: '温雨雨衣版', asset_id: '71002' }, { name: '后厨', asset_id: '71004' }],
-                [{ name: '温雪身份母版', asset_id: '71003' }, { name: '后厨', asset_id: '71004' }],
-              ])
-              expect(preview.packages.every((pack: JsonObject) => typeof pack.prompt === 'string' && !pack.prompt.includes('时长：'))).toBe(true)
-            }
-            if (scenario.name === 'goal-wait-yields') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const waits = events.filter(event => event.type === 'goal/wait')
-              expect(waits).toHaveLength(1)
-              expect(waits[0]?.data).toMatchObject({ roundsStarted: 0, wait: { reason: 'input', message: 'Waiting for new work' } })
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(result => result.isError)).toEqual([false, true, false])
-              expect(events.filter(event => event.type === 'goal/change').map(event => event.data.operation)).toEqual(['create'])
-            }
-            if (scenario.name === 'muse-shot-scene-context') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['drama_shot', 'drama_shot'])
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.every(message => message.isError === false), JSON.stringify(results)).toBe(true)
-              const positive = results[0]!.content[0]
-              const metadataOnly = results[1]!.content[0]
-              if (positive?.type !== 'text' || metadataOnly?.type !== 'text') throw new Error('Expected source-scene previews')
-              const preview = JSON.parse(positive.text)
-              expect(preview).toMatchObject({ ok: true, failures: [], written: [] })
-              expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['别走', '等等', '外面有人', '他回来了', '回家吧'])
-              expect(preview.packages.map((pack: JsonObject) => pack.shots)).toEqual([[1], [2], [3], [4], [5]])
-              expect(preview.packages[0].prompt).toContain('来源场次（原文段落）：场次1-1：后厨 夜 内；')
-              expect(preview.packages[1].prompt).toContain('场次1-1：后厨 夜 内；')
-              expect(preview.packages[1].prompt).not.toContain('场次1-2')
-              expect(preview.packages[2].prompt).toContain('场次1-2：办公室 次日清晨 内；本镜可为内外插镜')
-              expect(preview.shots[2].scene).toBe('办公室窗下外墙')
-              expect(preview.packages[3].prompt).not.toContain('场次1-3')
-              expect(preview.packages[4].prompt).toContain('场次1-3：门口 次日清晨 外；')
-              expect(preview.packages.every((pack: JsonObject) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
-              expect(preview.shots.every((shot: JsonObject) => !shot.bindings.some((asset: JsonObject) => asset.name === '陆沉'))).toBe(true)
-              const refusedInference = JSON.parse(metadataOnly.text)
-              expect(refusedInference).toMatchObject({ ok: true, failures: [], written: [], shots: [{ bindings: [] }] })
-              expect(refusedInference.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'no_scene_bound' })]))
-              expect(refusedInference.packages[0].material_bindings).toEqual([])
-              expect(refusedInference.packages[0].prompt).toContain('来源场次（原文段落）：场次1-1：陆沉家 夜 内 奶瓶；')
-            }
-            if (scenario.name === 'muse-shot-derived-visual') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['drama_shot', 'drama_shot'])
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.every(message => message.isError === false)).toBe(true)
-              const positive = results[0]!.content[0]
-              const negative = results[1]!.content[0]
-              if (positive?.type !== 'text' || negative?.type !== 'text') throw new Error('Expected derived visual previews')
-              const preview = JSON.parse(positive.text)
-              expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
-              expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
-              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
-              expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
-                .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
-              expect(preview.shots[2]).toMatchObject({ speaker: '谭伯', voice_type: 'vo', offscreen: true })
-              expect(preview.packages).toHaveLength(1)
-              const pack = preview.packages[0]
-              expect(pack.material_bindings.map((binding: JsonObject) => binding.asset_id)).toEqual([
-                '72004', '72005', '72001', '72002', '72003', '72006',
-              ])
-              expect(pack.material_bindings.find((binding: JsonObject) => binding.material_key === 'he')).toMatchObject({
-                name: '小禾身份母版', asset_id: '72001', material_id: '82001', reference_scope: 'identity',
-              })
-              expect(pack.prompt).not.toContain('he-repeat')
-              expect(pack.prompt).toContain('身体状态：【非孕期；7岁；黄色雨衣】')
-              expect(pack.prompt).toContain('动作状态：【蹲下扶住板凳】')
-              expect(pack.prompt).toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
-              expect(pack.prompt).toContain('谭伯OS，内心独白，不对口型；声源画外')
-              expect(pack.prompt).toContain('木枪保持已有木制外形，不改成机械枪')
-              expect(pack.prompt).not.toContain('时长：')
-              const visualScopes = pack.prompt.match(/本镜人物范围：[^\n]+/g)
-              expect(visualScopes).toEqual([
-                '本镜人物范围：0人，无人物入画；画外发声与来源场次的人物表不增加出镜人物。',
-                '本镜人物范围：最多2人，仅限小禾身份母版、小竹身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
-                '本镜人物范围：最多1人，仅限小禾身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
-                '本镜人物范围：最多1人，仅限谭伯身份母版；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。',
-              ])
-              expect(pack.prompt.match(/同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物/g)).toHaveLength(4)
-              expect(pack.prompt.match(/保留区分本人的脸型、年龄感与面部特征/g)).toHaveLength(4)
-              expect(pack.prompt.match(/正文明确的年龄或妆造变化按本镜正文及对应正式版本/g)).toHaveLength(4)
-              expect(pack.prompt.match(/外形、结构、材质和颜色沿用本镜正式参考图/g)).toHaveLength(2)
-              expect(pack.prompt).toContain('不凭道具泛名替换外观，不发明图中未确认的材质或结构')
-              const refused = JSON.parse(negative.text)
-              expect(refused).toMatchObject({ method: 'preview', ok: false, packages: [], written: [] })
-              expect(refused.failures).toEqual(expect.arrayContaining([
-                expect.objectContaining({ code: 'material_reference_mismatch', shot: 1 }),
-              ]))
-              expect(refused.failures[0].message).toContain('@[小竹](asset_72001)')
-            }
-            if (scenario.name === 'muse-shot-material-identities') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['skill', 'drama_shot', 'drama_shot'])
-              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-shot-asset-match' })
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
-              expect(results[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({
-                type: 'text', text: expect.stringContaining('select_assets'),
-              })]))
-              const skillBlock = results[0]!.content[0]
-              if (skillBlock?.type !== 'text') throw new Error('Expected asset matching skill text')
-              expect(skillBlock.text).toContain('专用妆造图核对对应服装')
-              expect(skillBlock.text).toContain('身份母版仅参考本人身份，妆造与动作仍按本镜正文')
-              expect(skillBlock.text).toContain('不得为通过检查删改原文')
-              expect(skillBlock.text).toContain('场景按本镜实际内外、动作与正式图片布局匹配，不靠同名资产认定')
-              expect(skillBlock.text).toContain('`vo` 不替代原文 OS/心声与记忆音语义')
-              expect(skillBlock.text).toContain('最终提示词写清内心独白、不对口型或回忆中的声音，不强迫声源入画')
-              const previewBlock = results[1]!.content[0]
-              const refusedBlock = results[2]!.content[0]
-              if (previewBlock?.type !== 'text' || refusedBlock?.type !== 'text') {
-                throw new Error('Expected shot preview result text')
-              }
-              const preview = JSON.parse(previewBlock.text)
-              expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings)).toMatchObject([
-                [{ name: '温雨身份母版', asset_id: '71001' }, { name: '温雪身份母版', asset_id: '71003' }, { name: '后厨', asset_id: '71004' }],
-                [{ name: '温雨雨衣版', asset_id: '71002' }, { name: '后厨', asset_id: '71004' }],
-                [{ name: '李军家', asset_id: '71007' }, { name: '李军的碗', asset_id: '71008' }],
-                [{ name: '李军', asset_id: '71006' }, { name: '李军家', asset_id: '71007' }, { name: '李军的碗', asset_id: '71008' }],
-              ])
-              expect(preview.shots[2]).toMatchObject({ characters_field: '', voice_type: 'action' })
-              expect(preview.shots[2].bindings.some((asset: JsonObject) => asset.type === '角色')).toBe(false)
-              expect(preview.shots[3].bindings.filter((asset: JsonObject) => asset.type === '角色')).toEqual([
-                { name: '李军', type: '角色', official: true, asset_id: '71006', material_id: '81006', url: 'https://example.invalid/71006.png' },
-              ])
-              expect(preview.packages).toHaveLength(3)
-              const identityPackage = preview.packages[0]
-              expect(identityPackage.material_keys).toEqual(['rain', 'snow', 'background'])
-              expect(identityPackage.material_bindings).toEqual([
-                { material_key: 'rain', name: '温雨身份母版', type: '角色', official: true, asset_id: '71001', material_id: '81001', url: 'https://example.invalid/rain.png', reference_scope: 'identity' },
-                { material_key: 'snow', name: '温雪身份母版', type: '角色', official: true, asset_id: '71003', material_id: '81003', url: 'https://example.invalid/snow.png', reference_scope: 'identity' },
-                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
-              ])
-              expect(identityPackage.prompt).not.toContain('rain-repeat')
-              expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；砖红卫衣】')
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；墨绿夹克】')
-              expect(preview.packages[1].material_bindings).toEqual([
-                { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
-                { material_key: 'asset_71002', name: '温雨雨衣版', type: '角色', official: true, asset_id: '71002', material_id: '81002', url: 'https://example.invalid/rain-yellow.png', reference_scope: 'appearance' },
-              ])
-              expect(preview.packages[1].prompt).toContain('身体状态：【非孕期；青年；黄色雨衣】')
-              expect(preview.packages[1].prompt).toContain('保留本镜正式参考人物的脸型、年龄感和可见妆造差异')
-              expect(preview.packages[1].prompt).toContain('动作和表情以本镜正文为准，不复制参考图的姿态')
-              expect(preview.packages[1].prompt).toContain('同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物')
-              const refused = JSON.parse(refusedBlock.text)
-              expect(refused).toMatchObject({ method: 'preview', ok: false, packages: [], written: [],
-                failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
-              expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
-            }
-            if (scenario.name === 'muse-audio-asset-usage') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
-              if (result?.type !== 'tool/result') throw new Error('Missing persisted asset usage result')
-              const block = result.data.message.content.find(item => item.type === 'text')
-              if (block?.type !== 'text') throw new Error('Missing usage output')
-              expect(JSON.parse(block.text)).toMatchObject({ method: 'usage_preview', total: 2, read_only: true, paid_requests: 0,
-                usage_rows: [{ asset_id: 13, status: 'project_voice_reference' }, { asset_id: 11, episode: 54, status: 'local_package_reference' }],
-                voice_states: [{ character_id: 'lu', status: 'current_reference_needs_verification' }] })
-            }
-            if (scenario.name === 'muse-shared-asset-usage') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_shared_usage_preview')
-              if (result?.type !== 'tool/result') throw new Error('Missing shared usage query result')
-              expect(result.data.message.isError, JSON.stringify(result.data.message.content)).toBe(false)
-              const block = result.data.message.content.find(item => item.type === 'text')
-              if (block?.type !== 'text') throw new Error('Missing shared usage output')
-              expect(JSON.parse(block.text)).toMatchObject({ method: 'shared_usage_preview', complete: true, query_complete: true, stable_inventory: true,
-                paid_requests: 0, remote_writes: 0, local_writes: 0,
-                assets: [{ asset_id: 13, package_count: 2, voice_period_id: 'child' },
-                  { asset_id: 14, package_count: 1, voice_period_id: 'child' }, { asset_id: 15, package_count: 0, voice_period_id: 'adult' }],
-                uses: [{ storyboard_id: 901, episode_number: 54 }, { storyboard_id: 902, episode_number: 83 },
-                  { storyboard_id: 903, episode_number: 83 }],
-                duplicate_audio_groups: [{ asset_ids: [13, 14], preferred_asset_id: 13, delete_allowed: false }],
-                coverage: { historical_generation_tasks: false, other_computers_local_plans: false, atomic_remote_snapshot: false } })
-            }
-            if (scenario.name === 'muse-existing-video-reuse' || scenario.name === 'muse-existing-video-inconsistent-history') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['jubian_video'])
-              expect(JSON.parse(calls[0]!.arguments)).toEqual({ method: 'sources', script_id: 5542, storyboard_id: 2165139 })
-              const notices = events.filter(event => event.type === 'user/message'
-                && event.data.source?.kind === 'jubian-video-reuse')
-              expect(notices).toHaveLength(0)
-              const result = events.find(event => event.type === 'tool/result'
-                && event.data.message.toolCallId === 'call_existing_video_sources')
-              if (result?.type !== 'tool/result') throw new Error('Missing existing video source result')
-              expect(result.data.message.isError).toBe(false)
-              const block = result.data.message.content.find(item => item.type === 'text')
-              if (block?.type !== 'text') throw new Error('Missing existing video source output')
-              expect(JSON.parse(block.text)).toMatchObject({ sources: { script_id: 5542, storyboard_id: 2165139,
-                status: 'available', complete: scenario.name === 'muse-existing-video-reuse', sources: [{ task_id: 681001, subtask_id: 1200001,
-                  model_id: 'older-video-model', resolution: '720p',
-                  video_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing-ep07.mp4' }] } })
-              if (scenario.name === 'muse-existing-video-inconsistent-history') {
-                expect(JSON.parse(block.text)).toMatchObject({ sources: { issues: ['HISTORY_TASK_MISMATCH'],
-                  coverage: { history: 'project', tasks_checked: 1, results_found: 1 } } })
-              }
-              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
-            }
-            if (scenario.name === 'muse-shared-voice-pending') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['jubian_asset'])
-              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_shared_voice_pending')
-              if (result?.type !== 'tool/result') throw new Error('Missing shared voice pending result')
-              expect(result.data.message.isError).toBe(false)
-              const block = result.data.message.content.find(item => item.type === 'text')
-              if (block?.type !== 'text') throw new Error('Missing shared voice pending output')
-              const pending = JSON.parse(block.text)
-              expect(Array.isArray(pending)).toBe(false)
-              expect(pending).toMatchObject({ status: 'coordination_busy', reason_code: 'busy', blocking_state: 'submitted',
-                work_can_continue: true, failure_scope: 'voice_registration', submission_attempted: false,
-                retry_registration: false, original_idempotency_key: 'offline-original-voice-key', paid_requests: 0 })
-              expect(pending.next).toContain('继续无此参考音频的已授权初始视频或其他独立工作')
-              expect(pending).not.toHaveProperty('lease_id')
-              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
-            }
-            if (scenario.name === 'muse-bgm-project-feedback') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(['skill', 'skill', 'bgm_match', 'drama_bgm'])
-              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-project-bible' })
-              expect(JSON.parse(calls[1]!.arguments)).toEqual({ name: 'tweet-drama-background-render' })
-              expect(JSON.parse(calls[2]!.arguments)).toEqual({ method: 'match', project: '.',
-                context_tags: ['family-conflict', 'dense-dialogue'], valence: 5, arousal: 5, limit: 5, intended_use: 'non_commercial' })
-              expect(JSON.parse(calls[3]!.arguments)).toEqual({ method: 'compose', project: '.', episode: 24,
-                timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
-              const bibleBlock = results[0]?.content.find(block => block.type === 'text')
-              const renderBlock = results[1]?.content.find(block => block.type === 'text')
-              if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
-              for (const text of ['project_bible.bgm_feedback', '先 `drama_project action=read`', '时间来自该次明确用户反馈']) {
-                expect(bibleBlock.text).toContain(text)
-              }
-              for (const text of ['可以只用一首，也可以不额外添加 BGM', '实际可播放 A/B 试听', '集中一次请求反馈',
-                'audio_preview', 'bgm_match.story', 'references/story-bgm-selection.md', 'previous_track_id', '对白真实含义', '−10 dB']) {
-                expect(renderBlock.text).toContain(text)
-              }
-              const matchBlock = results[2]?.content.find(block => block.type === 'text')
-              const composeBlock = results[3]?.content.find(block => block.type === 'text')
-              if (matchBlock?.type !== 'text' || composeBlock?.type !== 'text') throw new Error('Missing real BGM feedback tool results')
-              const matched: unknown = JSON.parse(matchBlock.text)
-              expect(matched).toMatchObject({ evaluated_tracks: 1, candidates: [], withheld_count: 1, music_optional: true,
-                project_preferences: { status: 'ready', feedback_count: 1, context_tags: ['family-conflict', 'dense-dialogue'] },
-                withheld_candidates: [{ track_id: `sha256:${'a'.repeat(64)}`, url: 'https://bgm-snapshot.example/bgm/tracks/1',
-                  valence: 5, arousal: 5, distance: 0,
-                  audio_profile: { source_sha256: `sha256:${'a'.repeat(64)}`, human_reviewed: false,
-                    sampled_seconds: 20, sample_count: 2, tags: [{ tag: 'family', similarity: 0.4 }, { tag: 'gentle', similarity: 0.35 }] },
-                  project_preference: { decision: 'reject', feedback_id: 'explicit-user-24-1',
-                    reason: 'The user rejected the instrumentation under this dense family dialogue.',
-                    recorded_at: '2026-10-22T06:00:00Z', history_count: 1, history_truncated: false,
-                    history: [{ feedback_id: 'explicit-user-24-1', applicable: true }] } }],
-                recommendation: 'No unrejected candidate in this scene; deliver without added BGM or ask once for an explicit user change.' })
-              const composed: unknown = JSON.parse(composeBlock.text)
-              expect(composed).toMatchObject({ method: 'compose', episode: '24', music_decision: 'none', status: 'no_added_music',
-                decision_reason: 'Respect explicit user feedback in this dialogue scene; preserve the original audio.',
-                segments: [], output: '', report: '', license_records: [], policy_findings: [], media: { size_bytes: 0, sha256: '' } })
-              expect(existsSync(join(cwd, 'audio'))).toBe(false)
-              expect(existsSync(join(cwd, 'music'))).toBe(false)
-              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
-            }
-            if (scenario.name === 'muse-voice-periods') {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
-              if (result?.type !== 'tool/result') throw new Error('Missing persisted period voice usage result')
-              const block = result.data.message.content.find(item => item.type === 'text')
-              if (block?.type !== 'text') throw new Error('Missing period voice output')
-              expect(JSON.parse(block.text)).toMatchObject({ method: 'usage_preview', total: 2, read_only: true, paid_requests: 0,
-                usage_rows: [{ asset_id: 13, voice_period_id: 'child', status: 'project_voice_reference' },
-                  { asset_id: 11, episode: 54, status: 'local_package_reference' }],
-                voice_states: [{ character_id: 'lu', voice_period_id: 'child', status: 'current_reference_needs_verification' },
-                  { character_id: 'lu', voice_period_id: 'adult', status: 'missing', candidate_count: 0 }] })
-            }
-            if (['muse-entity-match-preview', 'muse-entity-reuse-preview', 'muse-entity-existing-binding'].includes(scenario.name)) {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
-              expect(calls.map(call => call.name)).toEqual(scenario.name === 'muse-entity-existing-binding'
-                ? ['skill', 'drama_assets', 'jubian_storyboard', 'jubian_storyboard'] : ['skill', 'drama_assets'])
-              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-shot-asset-match' })
-              expect(JSON.parse(calls[1]!.arguments)).toMatchObject({
-                method: scenario.name === 'muse-entity-match-preview' ? 'match_preview' : 'reuse_preview', requirements_path: 'requirements.json',
-              })
-              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
-              expect(results[0]!.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining('skill_content name="tweet-drama-shot-asset-match"') })]))
-              const block = results[1]!.content[0]
-              if (block?.type !== 'text') throw new Error('Expected matching result text')
-              const preview = JSON.parse(block.text)
-              if (scenario.name !== 'muse-entity-match-preview') {
-                expect(preview).toMatchObject({ status: 'reuse_ready', apply_allowed: false,
-                  shots: [{ storyboard_id: 901, status: 'awaiting_confirmation' }, { storyboard_id: 902, status: 'awaiting_confirmation' }] })
-                expect(preview.groups).toHaveLength(3)
-                expect(preview.groups[0].requirement_ids).toEqual(['character', 'character-repeat'])
-              } else {
-                expect(preview.counts, JSON.stringify({ preview, call: calls[1] })).toEqual({ reuse_ready: 1, needs_review: 1, missing: 1, blocked: 1 })
-              }
-              expect(preview).toMatchObject({ read_only: true, paid_requests: 0, local_writes: 0, remote_writes: 0 })
-              if (scenario.name === 'muse-entity-existing-binding') {
-                for (const [index, id] of [901, 902].entries()) {
-                  expect(JSON.parse(calls[index + 2]!.arguments)).toEqual({ method: 'select_assets', storyboard_id: id,
-                    selections: [{ material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 }],
-                    idempotency_key: 'approved-selection-' + id })
-                }
-                const evidence = JSON.parse(await readFile(join(cwd, '_probe/handoff-fixture.json'), 'utf8'))
-                expect(evidence).toMatchObject({ simulated: true, paid_requests: 0 })
-                expect(evidence.writes.map((row: JsonObject) => row.storyboard_id)).toEqual([901, 902])
-                expect(evidence.boards.every((row: JsonObject) => row.scriptId === 2708 && row.isGenerate === 0)).toBe(true)
-                expect(evidence.boards[0].privateProviderField).toEqual({ retained: true })
-                expect(evidence.boards[0].storyboardMaterialList[2]).toMatchObject({ materialType: 'audio', materialUrl: 'https://example.invalid/lu.wav' })
-              }
-            }
-            if (scenario.name.startsWith('skill-preparation-')) {
-              const events = parseSessionLog(actualLogs[0]!.content)
-              const prepared = scenario.name === 'skill-preparation-catalog'
-              expect(events.filter(event => event.type === 'step/start')).toHaveLength(prepared ? 1 : 0)
-              expect(events.filter(event => event.type === 'request/header')).toHaveLength(prepared ? 1 : 0)
-              expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(prepared ? 1 : 0)
-              const catalog = events.filter(event => event.type === 'user/message'
-                && event.data.source.kind === 'skill-catalog')
-              expect(catalog).toHaveLength(prepared ? 1 : 0)
-              if (scenario.name === 'skill-preparation-cancel') {
-                expect(turnReasonFromSession(actualLogs[0]!.content)).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
-              }
-            }
+            if (scenario.name === 'advanced-toolchain') verifyAdvancedToolchain(actualLogs)
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)
             }
@@ -2108,11 +1694,18 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'background-confinement-failure') {
               await verifyBackgroundConfinementFailure(actualLogs[0]!.content, cwd)
             }
+            if (scenario.name === 'working-directory') {
+              verifyWorkingDirectory(actualLogs[0]!.content, await realpath(cwd))
+            }
+            if (scenario.name === 'worktree') {
+              await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
+            }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: ignoredWorkspaceEntries,
             })
-            if (expectedWorkspaceRoot !== undefined) {
-              preparedExpectedWorkspace = await captureExpectedWorkspaceSnapshot(expectedWorkspaceRoot)
+            if (scenario.name === 'worktree') {
+              // The linked checkout's .git pointer contains the temporary source path; Git assertions verify it separately.
+              finalWorkspace = finalWorkspace.filter(entry => entry.path !== '.agents/worktrees/isolated/.git')
             }
           },
         })
@@ -2143,8 +1736,11 @@ describe('headless recorded-session snapshots', () => {
         expect(writerFiles, 'native writer oracle inventory').toEqual(scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
           ? [] : fixtures.map((_, index) => writerSnapshotName(index)).sort())
       }
-      let expected = fixtures
-      if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true) {
+      let expected = retainedToolInput === undefined ? fixtures : await fixtureSessions(scenario)
+      if (retainedToolInput !== undefined) {
+        expect(await readFile(join(scenario.dir, retainedToolInput), 'utf8'), 'retained replay input bytes').toBe(primaryFixture)
+      }
+      if (scenario.manifest.sessionFormat !== undefined) {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
         expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
         for (const [index, content] of expected.entries()) {

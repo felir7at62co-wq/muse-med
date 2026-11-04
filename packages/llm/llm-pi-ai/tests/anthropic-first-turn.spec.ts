@@ -30,7 +30,8 @@ const answerEvents = [
 
 it('sends tools on the first Anthropic request and continues from its tool result', async () => {
   vi.stubEnv('PI_CLAUDE_TEST_KEY', 'synthetic-test-key')
-  const server = await mockServer([{ events: toolEvents, namedEvents: true }, { events: answerEvents, namedEvents: true }])
+  const namedEvents = (events: string[]) => events.map(data => ({ event: (JSON.parse(data) as { type: string }).type, data }))
+  const server = await mockServer([{ events: namedEvents(toolEvents) }, { events: namedEvents(answerEvents) }])
   const ctx = new Context()
   try {
     await ctx.plugin(LlmRuntime)

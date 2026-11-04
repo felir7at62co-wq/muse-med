@@ -21,6 +21,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { z } from 'zod'
 import { MockAdapter, textResponse, toolCallResponse } from '../../agent-loop/tests/mock-adapter.ts'
 import * as Discovery from '../src/index.ts'
+import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
 
 /** Test capabilities use normal registration and execution without external effects. */
 const capabilities = { inject: ['tools'], apply(ctx: Context) {
@@ -53,6 +54,7 @@ class AssemblyRuntime extends PtcRuntime {
 async function fixture(root: string, config: Partial<Discovery.Config> = {}) {
   const ctx = new Context()
   try {
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(Loader)
     Object.assign(ctx.loader.builtins, { include: Include, llm: Llm, sessions: Sessions, projections: Projections,
       prompt: SystemPrompt, tools: Tools, agents: Agents, persistence: Persistence, loop: AgentLoop,
@@ -246,7 +248,7 @@ describe('Loader-composed tool discovery', () => {
         }
       }
       const agent = await f.create(`discovery-spill-${mode}`, {
-        setup: (scope) => { if (mode === 'ptc') scope.tools.presentAs('both') },
+        setup: (scope) => { if (mode === 'ptc') scope.tools.presentAs('ptc') },
       })
       f.responses.push(mode === 'ptc'
         ? toolCallResponse('spill-search-ptc', 'run_code', { description: 'Find video tools.',
@@ -265,8 +267,15 @@ describe('Loader-composed tool discovery', () => {
       expect(result.loaded.length).toBeGreaterThan(0)
       expect(result.omitted).toBeGreaterThan(0)
       expect(save).not.toHaveBeenCalled()
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search', ...mode === 'ptc' ? ['run_code'] : [],
-        ...result.loaded.map(tool => tool.name)].sort())
+      if (mode === 'ptc') {
+        expect(await shown(f.ctx, agent)).toEqual(['run_code'])
+        const assembly = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+        const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+        for (const { name } of result.loaded) expect(sdk).toContain(name)
+      } else {
+        expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search',
+          ...result.loaded.map(tool => tool.name)].sort())
+      }
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -345,7 +354,7 @@ describe('Loader-composed tool discovery', () => {
         const value = await find({ query: 'video_inspect', limit: 1 })
         return { logs: [], value }
       }
-      const agent = await f.create('discovery-nested', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('discovery-nested', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       f.responses.push(toolCallResponse('discover-nested', 'run_code', {
         description: 'Find the video inspection capability.',
         code: "return await tools.tool_search({query:'video_inspect',limit:1})",
@@ -354,8 +363,9 @@ describe('Loader-composed tool discovery', () => {
       const dispatch = agent.session.snapshotEvents().find(event => event.type === 'tool/ptc-dispatch')
       expect(dispatch?.data.name).toBe('tool_search')
       expect(dispatch?.data.isError).toBe(false)
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'run_code', 'tool_context', 'tool_search', 'video_inspect'])
-      expect(f.adapter.requests[1]?.tools?.some(tool => tool.name === 'video_inspect')).toBe(true)
+      expect(await shown(f.ctx, agent)).toEqual(['run_code'])
+      const sdk = (await f.ctx.systemPrompt.assemble({ agent, scope: agent })).sections.find(section => section.name === 'tools:sdk')?.text
+      expect(sdk).toContain('video_inspect')
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -414,7 +424,14 @@ describe('Loader-composed tool discovery', () => {
     const f = await fixture(root)
     try {
       await f.ctx.plugin(AssemblyRuntime)
-      const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const runtime = f.ctx.ptcRuntime
+      if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing test runtime')
+      runtime.behavior = async (request) => {
+        const find = request.bindings[0]?.functions.tool_search
+        if (!find) throw new Error('Missing search binding')
+        return { logs: [], value: await find({ query: 'video_inspect', limit: 1 }) }
+      }
+      const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       const first = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       const guidance = first.sections.find(section => section.name === 'tools:discovery')
       expect(guidance?.text).toContain('"id":"video"')
@@ -422,7 +439,11 @@ describe('Loader-composed tool discovery', () => {
       expect(firstSdk).toContain('tool_search')
       expect(firstSdk).not.toContain('video_inspect')
       expect(firstSdk).not.toContain('export_word')
-      await search(f, agent, 'video_inspect')
+      f.responses.push(toolCallResponse('discover-sdk-ptc', 'run_code', {
+        description: 'Find the video inspection capability.',
+        code: "return await tools.tool_search({query:'video_inspect',limit:1})",
+      }), textResponse('Loaded.'))
+      await send(agent)
       const next = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       expect(next.sections.filter(section => section.name === 'tools:discovery')).toEqual([guidance])
       const nextSdk = next.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
@@ -673,7 +694,7 @@ describe('Loader-composed tool discovery', () => {
         if (!edit) throw new Error('Missing context binding')
         return { logs: [], value: await edit({ operation, tools: ['video_inspect'] }) }
       }
-      const agent = await f.create('context-ptc', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('context-ptc', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       f.responses.push(toolCallResponse('context-pin-ptc', 'run_code', { description: 'Pin video tool.', code: 'fixture' }), textResponse('Pinned.'))
       await send(agent)
       expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['video_inspect'])
