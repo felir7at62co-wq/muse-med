@@ -69,6 +69,18 @@ it('preserves result-count bounds without changing anonymous fetching', async ()
   expect(await provider.search({ query: 'q', maxResults: 1 })).toEqual({ sources: [{ url: 'https://a.example' }], truncated: true })
 })
 
+it('returns all valid sources when no result limit is requested', async () => {
+  const { provider, fetcher } = await fixture()
+  fetcher.mockResolvedValueOnce(Response.json({ results: [{ url: 'https://a.example' }] }))
+  expect(await provider.search({ query: 'q' })).toEqual({ sources: [{ url: 'https://a.example' }], truncated: false })
+})
+
+it('rejects a successful response with no readable body', async () => {
+  const { provider, fetcher } = await fixture()
+  fetcher.mockResolvedValueOnce(new Response(null))
+  await expect(provider.search({ query: 'q' })).rejects.toMatchObject({ code: 'WEB_PROVIDER_ERROR' })
+})
+
 it('refuses signed-out or wrong-origin sessions before contacting the gateway', async () => {
   const { provider, fetcher, sessionFile } = await fixture(false)
   await expect(provider.search({ query: 'q' })).rejects.toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
@@ -87,7 +99,8 @@ it.each([401, 403, 429, 502, 503, 504, 302])('contains rejected HTTP %s diagnost
   expect(fetcher).toHaveBeenCalledOnce()
 })
 
-it.each(['not JSON', JSON.stringify({ results: [{ url: 'javascript:alert(1)' }] }),
+it.each(['not JSON', JSON.stringify({ results: [{ url: 'not a URL' }] }),
+  JSON.stringify({ results: [{ url: 'javascript:alert(1)' }] }),
   JSON.stringify({ results: [{ url: 'https://username:secret@example.com' }] }),
   JSON.stringify({ results: [{ url: 4 }] }), 'x'.repeat(1024 * 1024 + 1)])(
   'rejects invalid or oversized search replies without exposing their body', async (body) => {

@@ -30,6 +30,7 @@ import type {
   SummarizationInput,
   SummaryResult,
 } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { CompactionCommitError } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -637,6 +638,28 @@ describe('compactNow transaction and failure classification', () => {
     const calls = compact.calls.length
     expect((await rejection(compact.compactNow(agent, SIGNAL))).code).toBe('busy')
     expect(compact.calls).toHaveLength(calls)
+  })
+
+  it('preserves a non-Error automatic commit cause without inventing its message', () => {
+    const error = new CompactionCommitError('storage unavailable')
+    expect(error.message).toBe('compaction transaction could not be committed')
+    expect(error.cause).toBe('storage unavailable')
+  })
+
+  it('propagates a standalone compaction/start append failure', async () => {
+    const { compact } = detachedService()
+    const session = closedConversation(2)
+    const agent = fakeAgent(session, () => () => undefined)
+    const failure = new Error('opening marker rejected')
+    const append = session.append.bind(session)
+    vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'compaction/start') throw failure
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+    try {
+      await expect(compact.compactNow(agent, SIGNAL)).rejects.toBe(failure)
+      expect(session.snapshotEvents().some(event => event.type.startsWith('compaction/'))).toBe(false)
+    } finally { vi.restoreAllMocks() }
   })
 
   it('keeps a failed error-close as the commit failure and does not flush', async () => {
