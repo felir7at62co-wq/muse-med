@@ -30,7 +30,7 @@ Native Feishu routes each app registration and chat ID to one Bot; threads retai
 
 ## Phone browser access
 
-Open Muse over HTTPS, sign in with the computer's account, and select that computer. Android Chrome and iPhone Safari use the existing Bot conversations, live task progress, confirmation cards and file previews; adding the page to the home screen retains its selected computer. The computer and Muse must remain running. A disconnected phone stops observing but does not cancel computer tasks; reconnect before sending further input. The [account gateway](../../../services/muse-accounts/README.md#desktop-website-access) owns login and computer routing.
+Open Muse over HTTPS, sign in with the computer's account, and select that computer. Android Chrome and iPhone Safari use the existing Bot conversations, live task progress, confirmation cards and file previews; adding the page to the home screen retains its selected computer. Selecting a conversation during initial loading takes priority over the default Main Bot landing, including while its Session list is still loading. The computer and Muse must remain running. A disconnected phone stops observing but does not cancel computer tasks; reconnect before sending further input. The [account gateway](../../../services/muse-accounts/README.md#desktop-website-access) owns login and computer routing.
 
 ## Browser message receipts
 

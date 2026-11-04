@@ -396,6 +396,7 @@ export function apply(ctx) {
     ctx.uiWorkspace.openSession(target)
     closePhoneSidebar(ctx.layout)
   }, current: mainView })
+  ctx.effect(() => () => show.cancel(), 'ds-bot: cancel pending conversation navigation')
   const ordinaryStarter = ordinarySessionStarter({
     create: options => ctx.sessions.create(options),
     open: (id) => { setPlain(true); show(id) },
@@ -417,6 +418,7 @@ export function apply(ctx) {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),
+    prepareLanding: () => show.guard(),
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
@@ -483,8 +485,10 @@ export function apply(ctx) {
     },
     // `last` is the Bot conversation the view held before it cleared: when that part
     // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
+    landOn: async (id, last, canLand = show.guard()) => {
+      if (!canLand()) return
       if (last) await pull().catch(() => {})
+      if (!canLand()) return
       const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
       setPlain(false)
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)

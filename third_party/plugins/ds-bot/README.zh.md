@@ -30,7 +30,7 @@ Host 向原生 IM 适配器提供 `museTeam.registerSessionAsBot(sessionId, { na
 
 ## 手机浏览器访问
 
-通过 HTTPS 打开 Muse，登录电脑使用的同一账号并选择该电脑。Android Chrome 与 iPhone Safari 使用已有 Bot 会话、实时任务进度、确认卡和文件预览；添加到主屏幕后仍进入所选电脑。电脑和 Muse 必须保持运行。手机断线会停止观察，但不会取消电脑上的任务；继续输入前先恢复连接。[账号网关](../../../services/muse-accounts/README.zh.md#desktop-website-access)负责登录与电脑路由。
+通过 HTTPS 打开 Muse，登录电脑使用的同一账号并选择该电脑。Android Chrome 与 iPhone Safari 使用已有 Bot 会话、实时任务进度、确认卡和文件预览；添加到主屏幕后仍进入所选电脑。首屏加载时手动选择会话优先于默认主 Bot 跳转，会话列表尚未到达时也会保留这次选择。电脑和 Muse 必须保持运行。手机断线会停止观察，但不会取消电脑上的任务；继续输入前先恢复连接。[账号网关](../../../services/muse-accounts/README.zh.md#desktop-website-access)负责登录与电脑路由。
 
 ## 网页消息回执
 

@@ -32,6 +32,7 @@
     "src/client/muse-spider-art.js",
     "src/client/muse-spider.js",
     "src/client/new-chat.js",
+    "src/client/open-listed.js",
     "src/client/overlays.js",
     "src/client/palette.js",
     "src/client/phone-navigation.js",
@@ -80,6 +81,7 @@
     "src/host/usage.js",
     "src/host/web-submissions.js",
     "test/muse-web-submissions.test.js",
+    "test/open-listed.test.js",
     "test/web-submissions-channel.test.js",
     "test/web-submissions.test.js"
   ],
@@ -114,6 +116,7 @@
     "Learning writes and explicit reviews require the team write lock",
     "Browser grants reflect actual optional automation registration separately from the Desktop reading channel",
     "Phone Web navigation, touch-sized confirmation cards and bounded attachment layout reuse the existing Muse conversation interface",
-    "Browser task submissions retain installation-scoped request identities and reconcile durable native Session receipts before retrying"
+    "Browser task submissions retain installation-scoped request identities and reconcile durable native Session receipts before retrying",
+    "Explicit conversation choices retain priority over startup default navigation while native Session lists are loading"
   ]
 }

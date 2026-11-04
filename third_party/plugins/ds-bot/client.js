@@ -9729,11 +9729,12 @@ function useLandOnMainBot(roster, useSessions, actions) {
   const lastBot = (0, import_react18.useRef)(null);
   (0, import_react18.useEffect)(() => {
     if (!roster.ready || !roster.mainBotId) return void 0;
+    const canLand = actions.prepareLanding();
     const [id, blank3] = mainView.split("|");
     const bot = id === "" ? void 0 : roster.byId[id];
     if (bot !== void 0) {
       lastBot.current = { botId: bot.id, sessionId: id };
-      if (currentPart(bot) !== id) actions.landOn(bot.id);
+      if (currentPart(bot) !== id) actions.landOn(bot.id, void 0, canLand);
       return void 0;
     }
     if (id !== "" && (roster.roomsById[id] || (actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
@@ -9741,7 +9742,7 @@ function useLandOnMainBot(roster, useSessions, actions) {
       return void 0;
     }
     const last = lastBot.current;
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400);
+    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last, canLand), last ? 0 : 400);
     return () => clearTimeout(timer);
   }, [mainView, roster]);
 }
@@ -20139,32 +20140,55 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 function listedOpener({ list, open, refresh, current }) {
   let drop = () => {
   };
-  return (target) => {
+  let version = 0;
+  let pending = false;
+  const cancel = () => {
     drop();
     drop = () => {
     };
+    pending = false;
+  };
+  const show2 = (target) => {
+    version += 1;
+    cancel();
     const listed = () => list.getSnapshot().byId?.[target] !== void 0;
-    if (listed()) {
-      open(target);
-      return;
-    }
     const from = current?.();
-    const off = list.subscribe(() => {
-      if (current?.() !== from) {
-        off();
-        drop = () => {
-        };
+    let opening = false;
+    pending = true;
+    const update = () => {
+      const main = current?.();
+      if (opening) {
+        if (current === void 0 || main === target || main !== from && main !== void 0) cancel();
+        return;
+      }
+      if (main !== from) {
+        cancel();
         return;
       }
       if (!listed()) return;
-      off();
-      drop = () => {
-      };
-      open(target);
-    });
-    drop = off;
-    refresh?.();
+      opening = true;
+      try {
+        open(target);
+      } catch (error) {
+        cancel();
+        throw error;
+      }
+      if (current === void 0 || current() === target) cancel();
+    };
+    drop = list.subscribe(update);
+    update();
+    if (!opening && pending) refresh?.();
   };
+  show2.guard = () => {
+    const at = version;
+    const from = current?.();
+    return () => at === version && !pending && current?.() === from;
+  };
+  show2.cancel = () => {
+    version += 1;
+    cancel();
+  };
+  return show2;
 }
 
 // src/client/phone-navigation.js
@@ -20537,6 +20561,7 @@ function apply(ctx) {
     ctx.uiWorkspace.openSession(target);
     closePhoneSidebar(ctx.layout);
   }, current: mainView });
+  ctx.effect(() => () => show2.cancel(), "ds-bot: cancel pending conversation navigation");
   const ordinaryStarter = ordinarySessionStarter({
     create: (options) => ctx.sessions.create(options),
     open: (id) => {
@@ -20561,6 +20586,7 @@ function apply(ctx) {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),
+    prepareLanding: () => show2.guard(),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
@@ -20625,9 +20651,11 @@ function apply(ctx) {
     },
     // `last` is the Bot conversation the view held before it cleared: when that part
     // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
+    landOn: async (id, last, canLand = show2.guard()) => {
+      if (!canLand()) return;
       if (last) await pull().catch(() => {
       });
+      if (!canLand()) return;
       const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
       setPlain(false);
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);
