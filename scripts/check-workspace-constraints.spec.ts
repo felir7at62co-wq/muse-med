@@ -42,7 +42,7 @@ it('allows root emitted runtime exports to omit unbundled Client implementation 
   })).toEqual(['lib/index.js', 'lib/types/**/*.js', 'lib/types/**/*.d.ts'])
 })
 
-it.each(['packages/host/feishu-settings', 'packages/jubian/tool-jubian'])(
+it.each(['packages/host/feishu-settings', 'packages/jubian/tool-jubian', 'packages/client/ui-session-video'])(
   'accepts complete browser bundles and flat Host emission in %s', (dir) => {
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
@@ -314,11 +314,12 @@ describe('package payload constraints', () => {
   it('requires the exact tool discovery runtime, locale, and Codex attribution files', () => {
     const dir = 'packages/core/tool-discovery'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
-    const canonical = ['locale/*.json', 'lib/index.js', 'NOTICE', 'LICENSE-Codex', 'lib/types/**/*.d.ts']
+    const canonical = ['locale/*.json', 'lib/index.js', 'LICENSE', 'NOTICE', 'LICENSE-Codex', 'lib/types/**/*.d.ts']
     expect(manifest.files).toEqual(canonical)
     expect(expectedDshPackageFiles(manifest)).toEqual(canonical)
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
     for (const files of [
+      canonical.filter(file => file !== 'LICENSE'),
       canonical.filter(file => file !== 'NOTICE'),
       canonical.filter(file => file !== 'LICENSE-Codex'),
       ['lib/index.js', 'NOTICE', 'LICENSE-*', 'lib/types/**/*.d.ts'],

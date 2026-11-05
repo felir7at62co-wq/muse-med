@@ -9,7 +9,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, launchWebScaffold,
   seedSession, watchConsole, webSnapshotMode,
 } from './scaffold.ts'
-import { openSettings, newEnglishPage, saveFailureShot, ZH_BROWSER_LOCALE } from './support.ts'
+import { settingsLauncher, openSettings, newEnglishPage, saveFailureShot, ZH_BROWSER_LOCALE } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/plugins/fixture-live-client', import.meta.url))
 const EXPECTED = fileURLToPath(new URL('./expected/client-plugin-live', import.meta.url))
@@ -112,7 +112,7 @@ it('keeps ordered legacy Session menu rows before Archive and removes them with 
       title: document.documentElement.dataset.sessionActionTitle,
     }))).toEqual({ action: 'fixture.export-session', id: sessionId, title: SESSION_TITLE })
 
-    await page.getByRole('button', { name: 'Account menu', exact: true }).focus()
+    await settingsLauncher(page, 'en').focus()
     await page.mouse.move(0, 0)
     await observe('blur', true, false)
     await page.setViewportSize({ width: 390, height: 844 })

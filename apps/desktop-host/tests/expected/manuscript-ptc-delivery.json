@@ -1,0 +1,63 @@
+{
+  "actualCreationExecutor": "run_code",
+  "reviewerExecutor": "structured_output",
+  "reviewerRequests": [
+    1
+  ],
+  "heldContinuityLog": true,
+  "dependentDeliveryEnteredBeforeLog": true,
+  "explicitLogRelease": true,
+  "replayedProjectionAfterHmr": true,
+  "successfulPresentEvents": 2,
+  "nativeCalls": [
+    "run_code",
+    "run_code"
+  ],
+  "dispatches": [
+    {
+      "name": "write",
+      "isError": false
+    },
+    {
+      "name": "manuscript_revision",
+      "action": "continuity",
+      "isError": false
+    },
+    {
+      "name": "manuscript_revision",
+      "action": "delivery",
+      "isError": false
+    },
+    {
+      "name": "present",
+      "isError": false
+    },
+    {
+      "name": "manuscript_revision",
+      "action": "delivery",
+      "isError": false
+    },
+    {
+      "name": "present",
+      "isError": false
+    }
+  ],
+  "order": [
+    "continuity-binding-settled-log-held",
+    "delivery-entered-before-continuity-log",
+    "release-continuity-log",
+    "continuity-logged"
+  ],
+  "results": [
+    {
+      "call": "ptc-delivery-program-1",
+      "reviewed": true,
+      "afterProjectionReload": false
+    },
+    {
+      "call": "ptc-delivery-program-2",
+      "reviewed": true,
+      "afterProjectionReload": true
+    }
+  ]
+}

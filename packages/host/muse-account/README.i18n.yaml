@@ -15,11 +15,14 @@
   en: d152484eb41ac6b4
   zh: ffab54373e9e61f0
 /deepseek-ai-dsh-muse-account/use-this-package:
-  en: 8a493c71d2a01778
-  zh: e88240ba3f72ebee
+  en: 49e58a290d16d903
+  zh: d8eb65f15f2dc536
 /deepseek-ai-dsh-muse-account/use-this-package/account-authorized-web-search:
   en: 176956ec3d631560
   zh: 98b06e33be6e5060
+/deepseek-ai-dsh-muse-account/use-this-package/company-media:
+  en: d8a2c6e12fd61b40
+  zh: c91f5cfd9bd08cca
 /deepseek-ai-dsh-muse-account/use-this-package/shared-voice-registration:
   en: dd5ecfddac2f51bc
   zh: 8c0ff6195e7bf5da
@@ -27,8 +30,8 @@
   en: 27ac5f78763f8980
   zh: dbacd0b9dc857ec9
 /deepseek-ai-dsh-muse-account/use-this-package/minimal-configuration:
-  en: 8414f354aeb0a44d
-  zh: ac2f95b17328c9cd
+  en: 453605acce6400a6
+  zh: 72ed48676ee190e7
 /deepseek-ai-dsh-muse-account/use-this-package/desktop-access-from-the-website:
   en: 3274ef3700b1dae4
   zh: d2725395470e644f
@@ -48,8 +51,8 @@
   en: 8a1d745551858eda
   zh: 4ae95ff9991c1a6e
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/token-effect:
-  en: 9b83167b322d03dc
-  zh: a4a91cd0ba61e6dc
+  en: 2fdaf1f10f157585
+  zh: baf9374161164985
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/kv-cache-effect:
   en: d9c7f8f40da48c36
   zh: ed817aa3f6a2ee19

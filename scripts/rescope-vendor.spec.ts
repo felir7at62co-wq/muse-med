@@ -251,6 +251,7 @@ describe('exactEditState', () => {
 
 describe('product identifiers', () => {
   it.each([
+    'snapshots/session/cordis-inspect-overlay-owner/client-fixture.mjs',
     'apps/cli/tests/optional-bundle-transitions.e2e.ts',
     'apps/web/tests/agent-preset-selection.e2e.ts',
     'apps/web/tests/developer-tools-settings.e2e.ts',
@@ -291,6 +292,13 @@ describe('product identifiers', () => {
     expect(rescopeText(text, file)).toEqual({ text: scoped, lines: 2 })
     expect(rescopeText(scoped, file)).toEqual({ text: scoped, lines: 0 })
     expect(rescopeText(scoped, file, true)).toEqual({ text, lines: 2 })
+  })
+
+  it.each([
+    'snapshots/session/cordis-inspect-overlay-owner/client-fixture.mjs',
+  ])('still rejects an unscoped module import beside resolver or event literals in %s', (file) => {
+    const product = "const fixtureName = 'cordis'\nctx.emit('cordis/inspect-query')\n"
+    expectRoundTrip(file, `${product}import 'cordis'\n`, `${product}import '@deepseek-ai/cordis'\n`, 1)
   })
 
   it('keeps unlisted package references subject to residue detection', () => {

@@ -8,6 +8,8 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/drama/session-video" },
+    { "path": "../../packages/client/ui-session-video/tsconfig.host.json" },
     {
       "path": "../../vendor/cordis"
     },

@@ -41,6 +41,7 @@ import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationContent } from './skeleton/ConversationContent.tsx'
+import { ConversationOverlays } from './skeleton/ConversationOverlays.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
@@ -50,6 +51,7 @@ import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
 import { createViewPins } from './view-pins.ts'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type ConversationKey } from './locales.ts'
+import { readHeaderPresentation } from '../header-presentation.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -157,6 +159,7 @@ function concreteConversation(ctx: Context): ConversationController {
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context, config: Config = Config({})): void {
+  const headerPresentation = readHeaderPresentation()
   const sessions = ctx.sessions
   const slots = ctx.slots
   // Schemastery's field default is materialized before Cordis calls apply.
@@ -358,6 +361,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.content.overlayHost': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.dock': { kind: 'list', scope: 'session' },
@@ -443,11 +447,19 @@ export function apply(ctx: Context, config: Config = Config({})): void {
 
   const registerHeader = () => slots.register({
     name: 'conversation.header',
+    inject: () => ({ headerPresentation }),
     children: {
       'conversation.header.leading': { kind: 'single', scope: 'root' },
       'conversation.session.header': { kind: 'single', scope: 'session' },
     },
   }, ConversationHeader)
+
+  const registerOverlayHost = () => slots.register({
+    name: 'conversation.content.overlayHost',
+    store: conversationStore,
+    inject: () => ({ hooks: { conversationViews } }),
+    children: { 'conversation.content.overlay': { kind: 'list', scope: 'session' } },
+  }, ConversationOverlays)
 
   const registerSessionHeader = () => slots.register({
     name: 'conversation.session.header',
@@ -604,6 +616,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     yield registerConversationSession()
     yield registerHeader()
     yield registerSessionHeader()
+    yield registerOverlayHost()
     yield registerComposerBar()
   })
 

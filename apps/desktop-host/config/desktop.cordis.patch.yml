@@ -1,3 +1,7 @@
+- id: ui-conversation
+  config:
+    headerPresentation: floating
+
 # Electron reuses the authenticated Web composition on an OS-assigned loopback port.
 
 # The product speaks for itself: the harness identity line would tell every agent it
@@ -183,6 +187,10 @@
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         webSearch: true
         feedbackTools: true
+        mediaTools: true
+        mediaNodePath: !!js process.execPath
+        mediaFfmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        mediaFfprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }
@@ -196,6 +204,17 @@
           - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
         remoteAccess: true
+
+    - id: session-video
+      name: '@deepseek-ai/dsh-session-video'
+      config:
+        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+    - id: ui-session-video
+      name: '@deepseek-ai/dsh-client-ui-session-video'
+      config:
+        pixelsPerSecond: 48
 
     - id: ui-muse-account
       name: '@deepseek-ai/dsh-client-ui-muse-account'

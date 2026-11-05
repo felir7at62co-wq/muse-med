@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { agentsProblem, agentsRequest, applyEdits, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
+import { agentsProblem, agentsRequest, applyEdits, hashOf, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
 import { legacyContext as fakeContext, legacyConfig } from './legacy-ctx.js'
 
 const TEAM = {
@@ -551,6 +551,145 @@ test('disposal aborts and drains learning before the next host writes state', as
     assert.equal(await runtime.rt.learningRun(), 0)
     assert.equal(runtime.requests.length, calls)
   })
+})
+
+for (const kind of ['agents', 'skill']) test(`disposal drains an admitted ${kind} approval and retains its durable completion`, async t => {
+  const folder = projectFolder(t)
+  const canonical = realpathSync(folder)
+  const initial = readFileSync(join(folder, 'AGENTS.md'), 'utf8')
+  const proposal = kind === 'agents'
+    ? { id: 'approved', kind, botId: 'b2', folder: canonical, path: join(canonical, 'AGENTS.md'), exists: true, base: hashOf(initial), content: `${initial}- Approved rule\n`, edits: [] }
+    : { id: 'approved', kind, action: 'create', botId: 'b2', name: 'release-checks', description: 'Use when checking a release.', content: 'Run the release checks.' }
+  const keep = { id: 'unstarted', kind: 'skill', botId: 'b2', name: 'keep-this-proposal', description: 'Keep this card.' }
+  const runtime = await startRuntime({
+    learningSeed: { proposals: { approved: proposal, unstarted: keep } },
+    config: { learningTimes: { tickMs: 100_000 } },
+  })
+  t.after(() => runtime.stop())
+  let markEntered
+  let release
+  const entered = new Promise(resolve => { markEntered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  if (kind === 'agents') {
+    const real = runtime.rt.real
+    runtime.rt.real = async path => {
+      if (path === canonical) {
+        markEntered()
+        await gate
+      }
+      return real(path)
+    }
+  } else {
+    const save = runtime.rt.capabilitySave
+    runtime.rt.capabilitySave = async (...args) => {
+      const item = await save(...args)
+      // The skill file is committed before unload; attachment and its receipt remain owned work.
+      markEntered()
+      await gate
+      return item
+    }
+  }
+  const applying = runtime.call('learning-answer', { id: proposal.id, approve: true })
+  let closing
+  let refused
+  try {
+    await entered
+    if (kind === 'skill') assert.equal(runtime.teamState().capabilities.items['release-checks'].content, proposal.content)
+    closing = runtime.ctx.dispose()
+    refused = await runtime.call('learning-answer', { id: keep.id, approve: false })
+  } finally {
+    release()
+    const result = await applying
+    await closing
+    assert.equal(result.ok, true)
+  }
+  const final = runtime.learningState()
+  assert.equal(final.proposals.approved, undefined)
+  assert.equal(final.proposals.unstarted.id, keep.id)
+  if (kind === 'agents') assert.equal(readFileSync(join(folder, 'AGENTS.md'), 'utf8'), proposal.content)
+  else {
+    assert.deepEqual(final.learned.b2, ['release-checks'])
+    assert.ok(runtime.teamState().bots.b2.capabilities.includes('release-checks'))
+  }
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /stopp/)
+})
+
+test('a private skill decline retains its Bot owner and does not enter a public Bot review', async t => {
+  const seed = structuredClone(TEAM)
+  seed.bots.b2.private = true
+  seed.bots.b2.workDir = projectFolder(t)
+  seed.bots.b3 = { id: 'b3', sessionId: 'b3', name: 'Public Writer', capabilities: [], model: 'deepseek/v4' }
+  const privateDescription = 'Use when organizing the private diary marker ALPHA.'
+  const reply = JSON.stringify({ action: 'create', name: 'private-diary-rule', description: privateDescription, content: 'Keep diary markers organized.' })
+  const runtime = await startRuntime({
+    seed, learningSeed: { pending: { b2: ['b2'] } }, replies: [reply, noneReply],
+    config: { agentsMd: false, learningTimes: { tickMs: 100_000 } },
+  })
+  t.after(() => runtime.stop())
+  await runtime.rt.learningRun()
+  const proposal = runtime.rt.learningView().b2[0]
+  assert.equal((await runtime.call('learning-answer', { id: proposal.id, approve: false })).ok, true)
+  await finishTurn(runtime.ctx, { id: 'b3' })
+  await runtime.rt.learningRun()
+  assert.doesNotMatch(runtime.requests[1].messages[0].content[0].text, /private diary marker ALPHA/)
+  assert.equal(runtime.learningState().declined[0].botId, 'b2')
+})
+
+test('a failed admitted approval keeps its card while disposal releases the state lock', async t => {
+  const proposal = { id: 'failed', kind: 'skill', action: 'create', botId: 'b2', name: 'release-checks', description: 'Use when checking a release.', content: 'Run the release checks.' }
+  const runtime = await startRuntime({
+    learningSeed: { proposals: { failed: proposal } },
+    config: { learningTimes: { tickMs: 100_000 } },
+  })
+  t.after(() => runtime.stop())
+  let markEntered
+  let release
+  const entered = new Promise(resolve => { markEntered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  runtime.rt.capabilitySave = async () => {
+    markEntered()
+    await gate
+    throw new Error('skill save failed')
+  }
+  const applying = runtime.call('learning-answer', { id: proposal.id, approve: true })
+  let closing
+  let failed
+  try {
+    await entered
+    assert.equal(existsSync(join(runtime.home, 'state.lock')), true)
+    closing = runtime.ctx.dispose()
+  } finally {
+    release()
+    failed = await applying
+    if (closing === undefined) await runtime.ctx.dispose()
+  }
+  assert.equal(failed.ok, false)
+  assert.match(failed.error.message, /skill save failed/)
+  const cleanup = await closing
+  assert.equal(cleanup.some(result => result.status === 'rejected'), false)
+  assert.equal(existsSync(join(runtime.home, 'state.lock')), false)
+  assert.equal(runtime.learningState().proposals.failed.id, proposal.id)
+})
+
+test('legacy skill declines without an owner stay saved but do not enter review prompts', async t => {
+  const runtime = await startRuntime({
+    learningSeed: {
+      pending: { b2: ['b2'] },
+      declined: [
+        { name: 'unowned-rule', description: 'Legacy private marker.' },
+        { botId: 'b2', name: 'own-rule', description: 'Same Bot marker.' },
+        { botId: 'another', name: 'other-rule', description: 'Other Bot marker.' },
+      ],
+    },
+    replies: [noneReply], config: { agentsMd: false, learningTimes: { tickMs: 100_000 } },
+  })
+  t.after(() => runtime.stop())
+  await runtime.rt.learningRun()
+  const request = runtime.requests[0].messages[0].content[0].text
+  assert.match(request, /Same Bot marker/)
+  assert.doesNotMatch(request, /Legacy private marker|Other Bot marker/)
+  assert.equal(runtime.learningState().declined.length, 3)
 })
 
 test('parseJson accepts fenced and unfenced objects and ignores garbage', () => {

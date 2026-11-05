@@ -1,0 +1,43 @@
+name: muse-company-media
+
+services:
+  gateway:
+    image: ${MUSE_MEDIA_IMAGE:?set MUSE_MEDIA_IMAGE}
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    network_mode: host
+    user: "${MUSE_MEDIA_UID:?set MUSE_MEDIA_UID}:${MUSE_MEDIA_GID:?set MUSE_MEDIA_GID}"
+    environment:
+      MUSE_MEDIA_CONFIG: /run/secrets/media-config.json
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ${MUSE_MEDIA_PRIVATE_DIR:?set MUSE_MEDIA_PRIVATE_DIR}:/run/secrets:ro
+      - ${MUSE_MEDIA_ACCOUNTS_DIR:?set MUSE_MEDIA_ACCOUNTS_DIR}:/var/lib/muse/accounts:ro
+      - ${MUSE_MEDIA_STATE_DIR:?set MUSE_MEDIA_STATE_DIR}:/var/lib/muse-media:rw
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 2.0
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:19581/readyz', timeout=3).close()"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

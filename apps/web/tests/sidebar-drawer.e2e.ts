@@ -5,6 +5,7 @@ import type { Locator } from 'playwright'
 import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { compareOrRefreshGolden, launchWebScaffold, seedSession, watchConsole, webSnapshotMode } from './scaffold.ts'
+import { settingsLauncher } from './support.ts'
 
 /** A returning rail uses its compact layout without wide-content or icon-entry animations. */
 async function assertCompactRail(sidebar: Locator): Promise<void> {
@@ -437,8 +438,9 @@ it('overlays the conversation and closes after navigation without losing its sid
       await drawer.getByRole('button', { name: 'Search sessions', exact: true }).tap()
       await searchWithKeyboard.tap()
       await searchWithKeyboard.fill('retained search')
-      await drawer.getByRole('button', { name: 'Account menu', exact: true }).tap()
-      await page.getByRole('menuitem', { name: 'Settings', exact: true }).tap()
+      const launcher = settingsLauncher(page, 'en')
+      expect(await launcher.getAttribute('aria-haspopup')).toBe('dialog')
+      await launcher.tap()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.waitFor()
       const settingsBox = (await settings.boundingBox())!

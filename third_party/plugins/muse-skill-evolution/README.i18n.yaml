@@ -3,23 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-skill-evolution/README.md
 /:
-  en: 8e7f3bfab6015f44
-  zh: fc0884d12c1a56f8
+  en: 02ede57b0fbb07c8
+  zh: 31873a925cc23090
 /muse-skill-evolution:
-  en: bb4369c9cafdbe93
-  zh: 687fd8404d38673c
+  en: c5cc8eb553e150c7
+  zh: 4ab6a71a8ea425d1
 /muse-skill-evolution/learning-and-ownership:
   en: d02b88874783fc10
   zh: 4b9072e901e08e32
 /muse-skill-evolution/management-and-files:
-  en: de5efef90e7ae5cc
-  zh: a3471115288a3da9
+  en: b2a8aa3de6d4e7da
+  zh: 910191f2c6b2b608
+/muse-skill-evolution/product-feedback:
+  en: ba897d467d56389f
+  zh: 90aa689f2bfd0151
 /muse-skill-evolution/configuration-and-model-use:
-  en: ad0679c2c0425307
-  zh: 1f4357fda5830eef
+  en: ff18ed6f24e3d782
+  zh: 15e8b66b94a57ab4
 /muse-skill-evolution/model-experience:
-  en: 86e8faef7a1f6a91
-  zh: 3ea1d082f6f49855
+  en: f6ca3b5c9090f9a7
+  zh: aab7b7d78045938f
 /muse-skill-evolution/development:
   en: 174a706134328752
   zh: 3073ed171dc6ef4a

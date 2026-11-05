@@ -41,7 +41,7 @@ Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron�
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
-视频预览使用鉴权 `/api/video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
+视频预览使用鉴权 `/api/video` 和 `/api/session-video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
 
 Desktop 在 `resources/runtime/primary-runtime/dependencies/pnpm` 中携带一份 pnpm 分发包，不含其他目标平台的原生包。构建时的生产依赖安装、安装版 `dsh` CLI、Creator 和 Web 插件管理器通过 Electron Node 模式执行其中的 `bin/pnpm.mjs`；包操作不要求 PATH 上存在 pnpm。私有 Node 启动器环境仅用于包操作。agent（智能体）的工作区依赖将同一份完整 primary-runtime 复制到 Harness 主目录，并使用其中的独立 Node 执行 pnpm。
 
@@ -60,6 +60,8 @@ Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform �
 Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。取消和提供方错误仍正常显示。
 
 新建任务提供**短剧模式**。其他内置预设继续注册，用于恢复历史 Session，不能用于新建任务。
+
+Desktop 在新建和升级的配置中加载[独立 Skill 学习](../../third_party/plugins/muse-skill-evolution/README.zh.md)。合格任务结束并达到配置的空闲时间后，无工具权限的复盘可以写入自有 Markdown Skill，并通过已登录账号向 Muse 意见箱投递有限的产品建议。`autoSubmitFeedback` 控制自动投递，意见有独立的每日限额和保存的收据，不会直接创建或合并 PR。`cordis.patch.yml` 中的用户覆盖继续生效，包括停用插件或反馈。关闭窗口后 Host 继续运行；退出 Muse 后停止学习，直到下次运行。
 
 ## 终端命令
 
@@ -183,7 +185,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、Deep View 和 Visualize 卡片、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。新建和升级的配置各装载一份卡片 bundle，用户显式禁用的设置仍然有效。插件市场不挂载。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
 保留的 CI 包记录绑定同一来源树中 `muse-product.json` 的 Muse 产品版本与独立的 DSH Core 版本。发布验证这两个原始版本；缺少已验证 Core 身份的旧记录会被拒绝，须从已验证来源恢复证据或重新构建。
 

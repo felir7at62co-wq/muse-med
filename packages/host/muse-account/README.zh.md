@@ -41,6 +41,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 模型拒绝与取消流只提供固定诊断，以及可用的错误类别、HTTP 状态和重试延迟。Host 诊断日志只记录 provider、model、错误类别、HTTP 状态和有长度限制的供应商请求 ID；供应商错误原文、凭据、Authorization 标头、诊断请求标识和异常原因链不会进入会话日志。成功的模型内容与重放元数据保持原样。内容安全拒绝保留 `CONTENT_FILTER`，不会变成暂时性重试类别。
 
+每次 Muse 模型调用生成随机 `client_request_id`。Host 诊断将其会话、提供方、模型与用途关联到可用的、长度受限的响应标识、结束原因及用量。诊断中的 Token 计数只接受非负安全整数；无效字段省略，不改动模型流中的原始数据块。适配器经过公开的请求标头准备 waterfall；仅向已配置 Muse 中转 origin 的请求携带 `x-muse-client-request-id`，供应商直连不携带该标头。诊断不记录消息正文、凭据、完整标头或异常原文；这些请求标识不增加 Session 事件，也不改写重放元数据。客户端标识对应一次准备好的调用，网关的每次 HTTP 尝试另有独立标识。
+
 模型使用账号目录为各模型声明的默认思考档位，直到用户显式选择其他受支持的档位。准备调用时，模型默认档位会进入实际请求日志；没有思考能力的模型不会收到默认思考档位。云映的精确 `gpt-6.1-sol` 模型使用 `max_completion_tokens` 设置输出上限。
 
 `volcengine-ark` 账号路由的 DeepSeek V4.1 Flash `260910` 与 `261017` 模型 ID 支持 `v4-1` 和 `v4.1` 两种版本分隔写法，均使用 `thinking.type`。`alibaba-bailian` 路由的精确 `deepseek-v4.1-flash-1017` 模型 ID 使用 `enable_thinking`。两者均在工具续接中保留助手的 `reasoning_content`，并遵循目录默认思考档位或显式 `off` 选择；各模型支持的档位由账号目录声明。
@@ -60,6 +62,12 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 配置 `webSearch: true` 时，Muse Desktop 选择 `muse` 搜索提供方，`web_fetch` 继续使用现有 `http` 提供方。原有 `web_search` 工具使用已保存的 Muse 会话，把每条查询及可选结果数发送到同源 `/api/web/search` 接口。官方搜索 API Key 保留在服务器，不要求本地 `DEEPSEEK_API_KEY`、模型凭据或 DeepSeek Account 登录。非 Muse profile 保留各自配置的搜索提供方。
 
 搜索拒绝重定向，使用独立的 `searchRequestTimeoutMs` 时限，将网关 JSON 限制为 1 MiB，只返回校验过的来源 URL、标题、摘要片段或 summary 后备文本及日期。工具的来源数量上限仍有效。请求期间退出或切换账号会拒绝该结果。错误使用固定诊断，不包含原始网关响应、凭据值或传输异常，不自动重试。插件卸载会取消并等待在途搜索结束。客户端选择该提供方前，账号网关须先部署对应接口。
+
+### 公司媒体
+
+启用 `mediaTools: true` 后，`muse_media_data`、`muse_media_download`、`muse_media_task`、`muse_media_import` 四个延迟加载工具使用当前私密 Muse 登录。桌面默认启用，员工无需填写上游 API Key。匹配的[公司媒体网关](../../../services/muse-media/gateway/README.zh.md)检查公司成员身份、任务归属与按账号限流。权限拒绝不会删除 Muse 登录。每次调用捕获当前登录修订，账号变化后拒绝交付；卸载会取消并等待网络请求和本地辅助进程结束。
+
+云端提交必须携带稳定 `requestId`；结果不确定时查询原任务，不得换编号重新提交。`cloud_saved` 仅表示云端完整保存。`partial` 只公开逐项接受的文件，导入其中一个文件后整个任务仍为部分完成。导入要求发起会话有本机工作区，拒绝只读策略和覆盖已有文件，工作区写入辅助进程通过已配置的操作系统沙箱执行。完整字节数、SHA-256、FFprobe 元数据和 FFmpeg 完整解码通过后才发布文件。`local_ready` 仅代表一个校验过的图片或视频，同时保留源任务状态和文件覆盖信息；图片不代表视频成功。使用现有 `present` 工具展示返回路径，生成文件卡并进入视频清单。私有辅助进程以内联代码打包，没有公开可执行入口，也不接收账号凭据。
 
 ### 共享声线登记
 
@@ -94,6 +102,20 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
 | `feedbackTools` | `false` | 注册明确的用户反馈提交及本人收据查询工具；Muse 桌面启用。 |
+| `mediaTools` | `false` | 注册四个延迟加载的公司媒体工具；桌面默认启用。 |
+| `mediaRequestTimeoutMs` | 60,000 | 元数据与收据请求时限，范围 1,000–120,000 毫秒。 |
+| `mediaFileTimeoutMs` | 1,800,000 | 文件传输及消费全过程时限，范围 10,000–3,600,000 毫秒。 |
+| `mediaVerifyTimeoutMs` | 1,800,000 | 本地辅助进程与完整解码时限，范围 10,000–3,600,000 毫秒。 |
+| `mediaMaxReplyBytes` | 1,048,576 | 完整 JSON 响应字节上限，范围 1 KiB–16 MiB。 |
+| `mediaMaxFileBytes` | 536,870,912 | 单个导入文件字节上限，正安全整数。 |
+| `mediaDirectory` | `source/media/company` | 相对目标目录，路径段仅含字母、数字、下划线或连字符。 |
+| `mediaNodePath` | `node` | 私有辅助进程的 Node 可执行文件；桌面使用当前宿主可执行文件。 |
+| `mediaFfmpegPath` | `ffmpeg` | 完整解码可执行文件；桌面使用 `DSH_FFMPEG_PATH`。 |
+| `mediaFfprobePath` | `ffprobe` | 元数据检查可执行文件；桌面使用 `DSH_FFPROBE_PATH`。 |
+| `mediaCommandGraceMs` | 1,000 | 进程终止宽限，范围 100–30,000 毫秒。 |
+| `mediaCommandMaxOutputBytes` | 65,536 | 完整辅助进程报告与诊断上限，范围 1 KiB–1 MiB。 |
+| `mediaMaxPixels` | 67,108,864 | 导入媒体宽乘高上限，正安全整数。 |
+| `mediaMaxDurationSeconds` | 7,200 | 视频时长上限，范围 1–86,400 秒。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `activityReportIntervalMs` | 30,000 | 同一登录两次使用情况上报的最短间隔，范围 1,000–3,600,000 毫秒。 |
 | `activityRequestTimeoutMs` | 5,000 | 尽力上报使用情况的请求时限，范围 100–30,000 毫秒。 |
@@ -161,7 +183,7 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 #### Token effect
 
-启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。关闭时，本包不增加工具 schema 或系统提示词文本。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
+启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。反馈和媒体工具均关闭时，本包不增加工具 schema 或系统提示词文本。启用 `mediaTools` 注册四个延迟加载 schema，由发现机制控制请求准入，接受的结果进入正常工具历史。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
 
 #### KV Cache effect
 

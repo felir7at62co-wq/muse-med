@@ -681,6 +681,31 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-conversation -->
+<a id="deepseek-aidsh-client-ui-conversation"></a>
+
+## `@deepseek-ai/dsh-client-ui-conversation`
+
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/ui-conversation/src/index.ts:19`](../packages/client/ui-conversation/src/index.ts)
+
+```ts config-catalog
+/** Runtime preferences projected to the browser. */
+export interface Config {
+  /** Enter key behavior while a turn is running. */
+  busyEnter: Volatile<BusyEnterBehavior>
+  /** Standard navigation rows or controls floating over the transcript. */
+  headerPresentation: HeaderPresentation
+}
+
+/** Configurable meaning of plain Enter while the addressed agent is busy. */
+export type BusyEnterBehavior = typeof BUSY_ENTER_BEHAVIORS[number]
+
+/** Standard navigation rows or controls floating above the transcript. */
+export type HeaderPresentation = 'standard' | 'floating'
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-conversation -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-muse-account -->
 <a id="deepseek-aidsh-client-ui-muse-account"></a>
 
@@ -716,6 +741,22 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-session-video -->
+<a id="deepseek-aidsh-client-ui-session-video"></a>
+
+## `@deepseek-ai/dsh-client-ui-session-video`
+
+- `source`: [`packages/client/ui-session-video/src/config.ts:5`](../packages/client/ui-session-video/src/config.ts)
+
+```ts config-catalog
+/** Validated presentation settings shared by Host and Client. */
+export interface Config {
+  /** Horizontal pixels occupied by one second in the shot timeline. */
+  readonly pixelsPerSecond: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-session-video -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-settings-account -->
 <a id="deepseek-aidsh-client-ui-settings-account"></a>
@@ -2744,7 +2785,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
-- `source`: [`packages/host/muse-account/src/index.ts:40`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:43`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2789,6 +2830,34 @@ export interface Config {
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */
   readonly feedbackTools: boolean
+  /** Register deferred company media tools using the current private Muse login. */
+  readonly mediaTools: boolean
+  /** Deadline for a company media metadata or receipt request. */
+  readonly mediaRequestTimeoutMs: number
+  /** Deadline for one account-owned media stream and its consumer. */
+  readonly mediaFileTimeoutMs: number
+  /** Deadline for local import, including complete media decoding. */
+  readonly mediaVerifyTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the company media service. */
+  readonly mediaMaxReplyBytes: number
+  /** Maximum bytes in one imported media file. */
+  readonly mediaMaxFileBytes: number
+  /** Relative destination directory inside the initiating Session workspace. */
+  readonly mediaDirectory: string
+  /** Node executable used only for the confined private binary-file helper. */
+  readonly mediaNodePath: string
+  /** FFmpeg executable used for complete local media decoding. */
+  readonly mediaFfmpegPath: string
+  /** FFprobe executable used to verify local media dimensions and duration. */
+  readonly mediaFfprobePath: string
+  /** Grace period for termination of the import helper and its descendants. */
+  readonly mediaCommandGraceMs: number
+  /** Maximum complete helper report and child diagnostics, in bytes. */
+  readonly mediaCommandMaxOutputBytes: number
+  /** Maximum width multiplied by height accepted for imported media. */
+  readonly mediaMaxPixels: number
+  /** Maximum complete video duration accepted by the local importer. */
+  readonly mediaMaxDurationSeconds: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -3709,6 +3778,59 @@ export interface Config extends SessionTitleLlmConfig {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-title-first-prompt-llm -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-video -->
+<a id="deepseek-aidsh-session-video"></a>
+
+## `@deepseek-ai/dsh-session-video`
+
+- `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection`
+- `source`: [`packages/drama/session-video/src/index.ts:26`](../packages/drama/session-video/src/index.ts)
+
+```ts config-catalog
+/** Deployment-controlled subprocess, source, cache and playback limits. */
+export interface Config {
+  /** FFmpeg executable name or path in the configured execution world. */
+  readonly ffmpegPath: string
+  /** FFprobe executable name or path in the configured execution world. */
+  readonly ffprobePath: string
+  /** Maximum retained sources and unsettled supported calls per Session. */
+  readonly maxSources: number
+  /** Maximum UTF-8 bytes parsed from one structured tool-result text block. */
+  readonly maxResultBytes: number
+  /** Maximum local input or downloaded media bytes accepted for processing. */
+  readonly maxSourceBytes: number
+  /** Maximum probed container duration accepted for detection, in seconds. */
+  readonly maxDurationSeconds: number
+  /** Maximum video-track width multiplied by height accepted for detection. */
+  readonly maxSourcePixels: number
+  /** FFmpeg scene-change score above which a frame becomes a cut candidate. */
+  readonly sceneThreshold: number
+  /** Scaled video width used for scene-change analysis, in pixels. */
+  readonly analysisWidth: number
+  /** Minimum separation between retained interior cuts and endpoints, in seconds. */
+  readonly minShotSeconds: number
+  /** Maximum complete shot count; larger results fail instead of truncating. */
+  readonly maxShots: number
+  /** Deadline for each probe or detection subprocess, in milliseconds. */
+  readonly commandTimeoutMs: number
+  /** Deadline for a verified provider media download, in milliseconds. */
+  readonly downloadTimeoutMs: number
+  /** Grace period before forced subprocess termination, in milliseconds. */
+  readonly graceMs: number
+  /** Maximum complete stdout bytes and retained stderr bytes per subprocess. */
+  readonly maxOutputBytes: number
+  /** Maximum simultaneous detection operations owned by this plugin. */
+  readonly maxConcurrent: number
+  /** Maximum process-local successful analyses and downloaded-source lookup entries. */
+  readonly maxCachedAnalyses: number
+  /** Maximum bytes read for one playback stream chunk. */
+  readonly playbackChunkBytes: number
+  /** Maximum simultaneously active local playback streams. */
+  readonly maxPlaybackStreams: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-video -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-shell-env -->
 <a id="deepseek-aidsh-shell-env"></a>
@@ -5867,7 +5989,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-chat` | — | [`packages/client/ui-chat/src/index.ts`](../packages/client/ui-chat/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-context-menu` | — | [`packages/client/ui-context-menu/src/index.ts`](../packages/client/ui-context-menu/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-conversation` | — | [`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-cordis` | — | [`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-creation-recommendations` | — | [`packages/experimental/client-ui-creation-recommendations/src/index.ts`](../packages/experimental/client-ui-creation-recommendations/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-deliverables` | `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges` | [`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts) |

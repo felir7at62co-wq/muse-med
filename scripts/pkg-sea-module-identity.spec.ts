@@ -73,16 +73,16 @@ it.each([
   expect(resolve).toBeDefined()
   if (resolve === undefined) throw new Error('Windows virtual URL hook is absent')
   const context = { parentURL: 'file:///E:/plugins/addon/index.js' }
-  const expected = 'file:///C:/snapshot/node/node_modules/cordis/index.js'
+  const expected = 'file:///C:/snapshot/node/node_modules/@deepseek-ai/cordis/index.js'
   for (const drive of ['C', 'D', 'E', 'V', 'z']) {
-    const result = { url: `file:///${drive}:/snapshot/node/node_modules/cordis/index.js`, format: 'module', shortCircuit: true }
-    const resolved = resolve('cordis', context, (specifier, passedContext) => {
-      expect(specifier).toBe('cordis')
+    const result = { url: `file:///${drive}:/snapshot/node/node_modules/@deepseek-ai/cordis/index.js`, format: 'module', shortCircuit: true }
+    const resolved = resolve('@deepseek-ai/cordis', context, (specifier, passedContext) => {
+      expect(specifier).toBe('@deepseek-ai/cordis')
       expect(passedContext).toBe(context)
       return result
     })
     expect(resolved).toEqual({ ...result, url: expected })
-    expect(result.url).toBe(`file:///${drive}:/snapshot/node/node_modules/cordis/index.js`)
+    expect(result.url).toBe(`file:///${drive}:/snapshot/node/node_modules/@deepseek-ai/cordis/index.js`)
     if (drive === 'C') expect(resolved).toBe(result)
   }
   const queried = { url: 'file:///E:/snapshot/node/a%20b.js?variant=one#member', format: 'module' }

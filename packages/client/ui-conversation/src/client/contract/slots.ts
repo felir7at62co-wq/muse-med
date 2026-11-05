@@ -1,5 +1,6 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
 import type { ReactNode, RefObject } from 'react'
+import type { HeaderPresentation } from '../../header-presentation.ts'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/client'
@@ -187,6 +188,12 @@ export interface UserTextNodeOwnerProps {
   readonly interactive: boolean
 }
 
+/** Current View supplied to non-flowing overlays by their owning Conversation. */
+export interface ConversationContentOverlayOwnerProps {
+  /** Resolved registered View, or null while no View is available. */
+  activeView: string | null
+}
+
 /** Complete props for the selected business node, including its Session scope. */
 export type UserTextNodeProps<Id extends UserTextId = UserTextId> =
   PropsRuntime<'conversation.user.text.node', Id>
@@ -235,6 +242,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
     /** Resident navigation container, including when no Session is selected. */
     'conversation.header': { kind: 'single'; scope: 'session-maybe' }
+    /** Strict Session adapter for the shared body's overlay position. */
+    'conversation.content.overlayHost': { kind: 'single'; scope: 'session' }
+    /** Non-flowing Session overlays outside the Chat stacking context; occupants own their panel rank below dialogs. */
+    'conversation.content.overlay': {
+      kind: 'list'
+      scope: 'session'
+      owner: ConversationContentOverlayOwnerProps
+    }
     /** Strict per-Session title, actions, and View navigation. */
     'conversation.session.header': {
       kind: 'single'
@@ -242,6 +257,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         /** Parent-owned visibility shared with the header container styling. */
         hideChrome: boolean
+        /** Header layout selected by the native shell. */
+        presentation?: HeaderPresentation
       }
     }
     /** Optional replacement for one Session breadcrumb title; overlays must portal because the title area clips overflow. */
@@ -367,6 +384,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       props: ConversationContentInputProps
       children: {
         'conversation.session': { kind: 'single'; scope: 'session' }
+        'conversation.content.overlayHost': { kind: 'single'; scope: 'session' }
         'conversation.composer': { kind: 'chain'; scope: 'session' }
         'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe' }
         'conversation.input.dock': { kind: 'list'; scope: 'session' }
@@ -678,10 +696,25 @@ export type ConversationSessionSlotProps =
   & PropsStore<ConversationStore>
   & InjectFace<ConversationSessionInjected>
 
+/** Deployment-selected layout passed to the native header. */
+export interface ConversationHeaderInjected { readonly headerPresentation: HeaderPresentation }
+
 /** Full props of the resident navigation header. */
 export type ConversationHeaderProps =
   PropsRuntime<'conversation.header'>
+  & InjectFace<ConversationHeaderInjected>
   & PropsRenderSlots<'conversation.header.leading' | 'conversation.session.header'>
+
+/** Registered Views read by the strict Session overlay adapter. */
+export interface ConversationOverlayHostInjected {
+  readonly hooks: { readonly conversationViews: ObservableSnapshot<readonly ViewTab[]> }
+}
+
+/** Full props of the strict Session overlay adapter. */
+export type ConversationOverlayHostProps = PropsRuntime<'conversation.content.overlayHost'>
+  & PropsStore<ConversationStore>
+  & InjectFace<ConversationOverlayHostInjected>
+  & PropsRenderSlots<'conversation.content.overlay'>
 
 /** Full props of the strict Session header. */
 export type ConversationSessionHeaderSlotProps =

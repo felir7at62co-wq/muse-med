@@ -70,6 +70,10 @@ The existing semantic `DraftSnapshot` retains quote text and clipboard-coordinat
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
+The Host configuration `headerPresentation` defaults to `standard`. Muse Desktop selects `floating` for Chat: the current Session title stays on one truncated line at the top left with the More views button beside it, while native controls stay at the top right. The More views button remains clickable when the title truncates and provides every View. The title and controls float above a pointer-transparent fading backdrop without reserving vertical space; the tab row is hidden. Other Views use the standard header in normal flow, so their toolbars remain below the title and tabs.
+
+The Session-scoped `conversation.content.overlay` list receives the resolved `activeView` id, or `null` when no View is available. Its absolute host sits directly in the shared body outside the scrollport and Chat query container, inherits the live content-width variables, and creates no stacking context. Entries reserve no layout space and own their panel rank, pointer handling and View visibility; body-portaled job panels use rank 100 and dialogs use 1000. The overlay list is absent from the blank Hero.
+
 Muse Desktop’s blank-session greeting types each verse at 105 ms per character, holds it for 3.2 seconds, erases at 45 ms per character, and pauses 550 ms before the next verse. Reduced motion displays a complete static verse; unmounting releases the timer and preference listener.
 
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. [ui-attachment](../ui-attachment/README.md) owns rendering and the lightbox.

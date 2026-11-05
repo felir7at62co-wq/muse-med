@@ -92,7 +92,8 @@ function shapeBox(pkg, sp, layoutDoc, masterDoc, groupChain = []) {
     }
     if (!box) return undefined
   }
-  for (const grp of groupChain) box = applyGroup(box, grp)
+  // Child coordinates pass through their nearest group before the ancestors.
+  for (let i = groupChain.length - 1; i >= 0; i--) box = applyGroup(box, groupChain[i])
   return box
 }
 const phMatch = (a, b) => a && b && a.type === b.type && String(a.idx ?? '') === String(b.idx ?? '')

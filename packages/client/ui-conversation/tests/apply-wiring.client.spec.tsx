@@ -41,7 +41,7 @@ async function bench(options: { declareConversation?: boolean } = {}) {
 
 function entry(
   runtime: SlotTestRuntime,
-  key: 'main.conversation' | 'conversation.session' | 'conversation.session.header',
+  key: 'main.conversation' | 'conversation.header' | 'conversation.session' | 'conversation.session.header' | 'conversation.content.overlayHost',
 ) {
   return runtime.slots.entries(key)[0] as { store?: unknown } | undefined
 }
@@ -128,8 +128,11 @@ describe('target-neutral Conversation apply wiring', () => {
     const header = entry(b.runtime, 'conversation.session.header')
     expect(entry(b.runtime, 'main.conversation')?.store).toBeUndefined()
     expect(b.runtime.factoryOf('conversation.content').store).toBeUndefined()
+    expect(entry(b.runtime, 'conversation.header')?.store).toBeUndefined()
+    expect(entry(b.runtime, 'conversation.content.overlayHost')?.store).toBe(session?.store)
     expect(session?.store).toBeDefined()
     expect(header?.store).toBe(session?.store)
+    expect(b.runtime.slots.spec('conversation.content.overlay')).toEqual({ kind: 'list', scope: 'session' })
     expect(b.runtime.slots.spec('conversation.composer'))
       .toEqual({ kind: 'chain', scope: 'session' })
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))

@@ -11,6 +11,7 @@ import {Readable} from 'node:stream';
 import {readModelFailure,modelFailure} from './model-errors.mjs';
 import {createModelKeyPool,resolveModelKeyPoolPolicy,ModelKeyPoolError} from './model-key-pool.mjs';
 import {closeModelUpstream,modelSseBytes} from './model-sse.mjs';
+import {createModelRequestMetadata,observeModelResponseBytes} from './model-request-metadata.mjs';
 
 export function publicIPv4(address){
  if(isIP(address)!==4)return false;
@@ -74,24 +75,27 @@ export async function fetchPublicModelListing(url,init){
  });
 }
 /** Forward one request without retries, ending SSE on [DONE] rather than transport EOF.
- * @param {object} options Private settings, body, client response, cancellation and optional admission wait milliseconds.
+ * @param {object} options Private settings, body, client response, cancellation, optional admission wait and bounded metadata observer.
  * @returns {Promise<void>} Settles after forwarding and upstream teardown; rejects transport failures.
  */
-export async function forwardModel({config,body,res,signal,queueMs}){
- const target=completionEndpoint(config.baseURL);
- let upstream,response;
+export async function forwardModel({config,body,res,signal,queueMs,metadata}){
+ const target=completionEndpoint(config.baseURL),serialized=JSON.stringify(body);
+ metadata?.forwarded({model:body.model,bytes:Buffer.byteLength(serialized),stream:body.stream,secret:config.apiKey});
+ let upstream,response;const eof=()=>metadata?.eof();
  try{
   const started=performance.now();
   response=await new Promise((resolve,reject)=>{
    upstream=https.request(target,{method:'POST',lookup:publicLookup,signal,headers:{'content-type':'application/json',authorization:'Bearer '+config.apiKey,accept:body.stream?'text/event-stream':'application/json'}},resolve);
    upstream.setTimeout(300000,()=>upstream.destroy(Error('Upstream idle timeout')));
-   upstream.on('error',reject);upstream.end(JSON.stringify(body));
+   upstream.on('error',reject);upstream.end(serialized);
   });
+  metadata?.upstream(response.statusCode);response.once('end',eof);
   const timings={'server-timing':[
    ...(queueMs===undefined?[]:['gateway-queue;dur='+queueMs.toFixed(1)]),
    'upstream-headers;dur='+(performance.now()-started).toFixed(1),
   ].join(', ')};
   if(response.statusCode<200||response.statusCode>=300){
+   metadata?.failed('upstream_http');metadata?.client(response.statusCode>=400&&response.statusCode<500?response.statusCode:502);
    console.error('[muse-model-relay] upstream status',response.statusCode);
    const failure=await readModelFailure(response);
    const retryAfter=response.headers['retry-after'];
@@ -100,12 +104,15 @@ export async function forwardModel({config,body,res,signal,queueMs}){
    res.end(JSON.stringify(failure));return;
   }
   if(body.stream&&!String(response.headers['content-type']||'').toLowerCase().includes('text/event-stream')){
+   metadata?.failed('invalid_content_type');metadata?.client(502);
    res.writeHead(502,{'content-type':'application/json','cache-control':'no-store',...timings});res.end(JSON.stringify(modelFailure(502,'')));return;
   }
+  metadata?.client(200);
   res.writeHead(200,{'content-type':body.stream?'text/event-stream; charset=utf-8':'application/json','cache-control':'no-store','x-accel-buffering':'no',...timings});
-  await pipeline(body.stream?modelSseBytes(response):response,res);
- }finally{
-  if(response)await closeModelUpstream(response);
+  const source=body.stream?modelSseBytes(response):response;
+  await pipeline(metadata?observeModelResponseBytes(source,metadata):source,res);
+ }catch(error){metadata?.failed(signal?.aborted&&!res.writableFinished?'cancelled':'transport',error);throw error;}finally{
+  if(response){response.off('end',eof);await closeModelUpstream(response);}
   if(upstream)await closeModelUpstream(upstream);
  }
 }
@@ -124,16 +131,20 @@ export function resolveModelReasoning(config,body){
  if(glm&&body.reasoning_effort!==undefined)body.thinking={type:'enabled',clear_thinking:false};
 }
 /** Create the cloud-workspace relay with cancellable supplier-key reservations.
- * @param {object} options Account authentication, private models, forwarding and an optional shared key pool.
+ * @param {object} options Account authentication, private models, forwarding, optional shared key pool and synchronous metadata sink.
  * @returns {http.Server} HTTP relay; closing it releases only an internally created pool.
  */
-export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel,keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool}){
+export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel,keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,metadataSink}){
  const active=new Map();
  const poolKeys=()=>globalModels?.credentialPool?.('zhipu-official')??[];
  const pool=keyPool??createModelKeyPool({keys:poolKeys,...keyPoolPolicy});
  const changed=id=>{for(const controller of active.get(id)||[])controller.abort();};accounts.on('change',changed);
  const server=http.createServer(async(req,res)=>{
-  const fail=(status,message,headers={})=>{if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
+  const completionRoute=/^\/v1(?:\/([a-z][a-z0-9-]{0,63}))?\/chat\/completions$/.exec(req.url);
+  const metadata=completionRoute&&req.method==='POST'?createModelRequestMetadata({clientId:req.headers['x-muse-client-request-id'],route:completionRoute[1]??'muse-shared',sink:metadataSink,
+   sensitiveTokens:[typeof req.headers.authorization==='string'?req.headers.authorization.replace(/^Bearer /,''):undefined]}):undefined;
+  if(metadata)res.setHeader('x-muse-server-request-id',metadata.serverRequestId);
+  const fail=(status,message,headers={})=>{metadata?.client(status);metadata?.failed('request_rejected');if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
   let controllers,controller,abort,id,lease,queueMs;
   try{
    const token=req.headers.authorization?.replace(/^Bearer /,'');id=token?.split('.')[0];
@@ -146,13 +157,15 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    if((req.url!=='/v1/chat/completions'&&!route)||req.method!=='POST'){fail(404,'接口不存在');return;}
    controllers=active.get(id)||new Set();active.set(id,controllers);
    controller=new AbortController();controllers.add(controller);abort=()=>controller.abort();req.on('aborted',abort);res.on('close',abort);
-   let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>24*1024*1024){fail(413,'上下文过大');return;}chunks.push(chunk);}
+   let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;metadata?.ingress(size);if(size>24*1024*1024){fail(413,'上下文过大');return;}chunks.push(chunk);}
+   metadata?.ingress(size,true);
    let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail(400,'请求格式错误');return;}
    if(!body||typeof body.model!=='string'||!Array.isArray(body.messages)){fail(400,'请选择管理员配置的统一模型');return;}
    if(route){current=globalModels?.resolve(route,body.model);if(!current){fail(400,'请选择管理员配置的模型');return;}
    }else if(body.model!=='muse-shared'){fail(400,'请选择管理员配置的统一模型');return;}
    else if(globalModels){current=globalModels.resolve('muse-shared',current.model);if(!current){fail(400,'统一模型已撤回，请重新选择管理员配置的模型');return;}
    }
+   metadata?.request(body.model);
    if(!current.apiKey){fail(503,'管理员尚未配置模型凭据');return;}
    if(!accounts.get(id)||accounts.get(id).disabled){fail(401,'账户不可用');return;}
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined&&(!Number.isSafeInteger(body[key])||body[key]<1)){fail(400,'输出上限无效');return;}
@@ -168,10 +181,10 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
    try{resolveModelReasoning(current,body);}catch(error){fail(400,error.message);return;}
    for(const key of ['max_tokens','max_completion_tokens'])if(body[key]!==undefined)body[key]=Math.min(body[key],current.maxTokens);
    if(body.max_tokens===undefined&&body.max_completion_tokens===undefined)body.max_tokens=current.maxTokens;
-   await forward({config:current,body,res,signal:controller.signal,queueMs});
-  }catch(error){if(controller?.signal.aborted)fail(401,'账户失效或请求已取消');
+   await forward({config:current,body,res,signal:controller.signal,queueMs,metadata});
+  }catch(error){metadata?.failed(controller?.signal.aborted&&!res.writableFinished?'cancelled':'transport',error);if(controller?.signal.aborted)fail(401,'账户失效或请求已取消');
    else if(error instanceof ModelKeyPoolError)fail(503,'模型请求正在排队，请稍后重试',{'retry-after':'1'});
    else{console.error('[muse-model-relay] 连接失败');fail(502,'模型服务连接失败，请联系管理员检查配置。');}}
-  finally{lease?.release();if(abort){req.off('aborted',abort);res.off('close',abort);}if(controller)controllers?.delete(controller);if(controllers?.size===0)active.delete(id);}
+  finally{metadata?.finish(res.statusCode);lease?.release();if(abort){req.off('aborted',abort);res.off('close',abort);}if(controller)controllers?.delete(controller);if(controllers?.size===0)active.delete(id);}
  });server.on('close',()=>{accounts.off('change',changed);for(const controllers of active.values())for(const controller of controllers)controller.abort();if(!keyPool)pool.close();});return server;
 }

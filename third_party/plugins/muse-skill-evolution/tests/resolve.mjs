@@ -15,7 +15,10 @@ for (const group of readdirSync(join(root, 'packages'), { withFileTypes: true })
     if (existsSync(manifest)) manifests.set(JSON.parse(readFileSync(manifest, 'utf8')).name, manifest)
   }
 }
-for (const name of ['cordis', 'schemastery']) manifests.set(`@deepseek-ai/${name}`, join(root, 'vendor', name, 'package.json'))
+for (const directory of ['vendor/cordis', 'vendor/schemastery']) {
+  const manifest = join(root, directory, 'package.json')
+  manifests.set(JSON.parse(readFileSync(manifest, 'utf8')).name, manifest)
+}
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const name = specifier.split('/').slice(0, 2).join('/')

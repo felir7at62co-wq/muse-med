@@ -12,7 +12,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, parseSeedFixture, readPersistedEvents, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, openSettings, pinBrowserClock, pinHostClock, saveFailureShot, WEB_FIXTURE_TIME, writeComposerDraft } from './support.ts'
+import { settingsLauncher, newEnglishPage, openSettings, pinBrowserClock, pinHostClock, saveFailureShot, WEB_FIXTURE_TIME, writeComposerDraft } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/collapse-timing', import.meta.url))
 const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/session.v3.jsonl', import.meta.url))
@@ -66,7 +66,7 @@ describe.skipIf(MODE === 'record')('web e2e: recorded collapse timing', () => {
     if (MODE !== 'record') await pinBrowserClock(page)
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-    await page.getByRole('button', { name: 'Account menu', exact: true }).waitFor()
+    await settingsLauncher(page, 'en').waitFor()
   })
 
   afterAll(async () => {

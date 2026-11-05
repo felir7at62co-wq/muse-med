@@ -36,6 +36,18 @@ export const IconSearchOutlineRegular = productIcon('search-outline', 'regular')
 /** Medium IconSearchOutline artwork with a 1.3px stroke. */
 export const IconSearchOutlineMedium = productIcon('search-outline', 'medium')
 
+/** Regular magnifier with a minus sign for decreasing the displayed scale. */
+export const IconZoomOutOutlineRegular = productIcon('zoom-out-outline', 'regular')
+
+/** Medium magnifier with a minus sign for decreasing the displayed scale. */
+export const IconZoomOutOutlineMedium = productIcon('zoom-out-outline', 'medium')
+
+/** Regular magnifier with a plus sign for increasing the displayed scale. */
+export const IconZoomInOutlineRegular = productIcon('zoom-in-outline', 'regular')
+
+/** Medium magnifier with a plus sign for increasing the displayed scale. */
+export const IconZoomInOutlineMedium = productIcon('zoom-in-outline', 'medium')
+
 /** Regular one-pixel IconGlobeOutline artwork. */
 export const IconGlobeOutlineRegular = productIcon('globe-outline', 'regular')
 
@@ -287,6 +299,18 @@ export const IconDownloadOutlineRegular = productIcon('download-outline', 'regul
 
 /** Medium IconDownloadOutline artwork with a 1.3px stroke. */
 export const IconDownloadOutlineMedium = productIcon('download-outline', 'medium')
+
+/** Regular triangle without a surrounding circle for compact media buttons. */
+export const IconPlayTriangleOutlineRegular = productIcon('play-triangle-outline', 'regular')
+
+/** Medium triangle without a surrounding circle for compact media buttons. */
+export const IconPlayTriangleOutlineMedium = productIcon('play-triangle-outline', 'medium')
+
+/** Regular pause bars without a surrounding circle for compact media buttons. */
+export const IconPauseBarsOutlineRegular = productIcon('pause-bars-outline', 'regular')
+
+/** Medium pause bars without a surrounding circle for compact media buttons. */
+export const IconPauseBarsOutlineMedium = productIcon('pause-bars-outline', 'medium')
 
 /** Regular one-pixel IconPlayOutline artwork. */
 export const IconPlayOutlineRegular = productIcon('play-outline', 'regular')

@@ -41,6 +41,8 @@ After admission succeeds, a failed account-liveness check returns non-retryable 
 
 Model refusals and cancelled streams expose fixed diagnostics with their error category, HTTP status and retry delay when available. The Host diagnostic log records only provider, model, category, HTTP status, and a bounded supplier request ID; supplier error text, credentials, authorization headers, diagnostic request IDs and chained exceptions do not enter Session logs. Successful model content and replay metadata remain intact. Content-safety refusals retain `CONTENT_FILTER` and never become a transient retry category.
 
+Each Muse model call receives a random `client_request_id`. Host diagnostics correlate its Session, provider, model and purpose with bounded response identifiers, completion reason and usage when available. Diagnostic token counts accept only nonnegative safe integers; invalid fields are omitted without changing model stream chunks. The adapter passes the public request-header preparation waterfall; only requests to the configured Muse relay origin carry `x-muse-client-request-id`. Supplier-direct requests omit that header. Diagnostic records exclude message bodies, credentials, complete headers and exception text; these request identifiers do not add Session events or change replay metadata. A client request identifier names one prepared call; gateway HTTP attempts have separate identifiers.
+
 Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort. Yunying's exact `gpt-6.1-sol` model uses `max_completion_tokens` for its output limit.
 
 On the `volcengine-ark` account route, DeepSeek V4.1 Flash `260910` and `261017` IDs with either `v4-1` or `v4.1` use `thinking.type`. The `alibaba-bailian` route's exact `deepseek-v4.1-flash-1017` ID uses `enable_thinking`. Both preserve assistant `reasoning_content` through tool continuations and honor the catalog's default effort or an explicit `off` choice. The account catalog declares each model's supported efforts.
@@ -60,6 +62,12 @@ With `feedbackTools: true`, `muse_feedback_submit` submits an explicit user prob
 With `webSearch: true`, Muse Desktop selects the `muse` search provider while retaining the existing `http` provider for `web_fetch`. The existing `web_search` tool sends each query and optional result count to the same-origin `/api/web/search` endpoint using the saved Muse session. Official search API keys remain on the server; local `DEEPSEEK_API_KEY`, model credentials and DeepSeek Account sign-in are not required. Non-Muse profiles retain their configured search providers.
 
 Search refuses redirects, observes its own `searchRequestTimeoutMs` deadline, caps gateway JSON at 1 MiB, and returns only validated source URLs, titles, snippets or summary fallbacks, and dates. The tool's source limit remains in force. Signing out or switching accounts during a request rejects its result. Errors use fixed diagnostics without raw gateway bodies, credential values or transport exceptions; there is no automatic retry. Unloading the plugin cancels and awaits active searches. The account gateway must deploy this endpoint before a client selects the provider.
+
+### Company media
+
+With `mediaTools: true`, four deferred tools use the current private Muse login: `muse_media_data`, `muse_media_download`, `muse_media_task`, and `muse_media_import`. Desktop enables them without asking employees for an upstream API key. The matching [company media gateway](../../../services/muse-media/gateway/README.md) checks company membership, task ownership and per-account limits. Permission rejection does not delete the Muse login. Every call captures the current login revision and rejects delivery after an account change; unload aborts and settles requests and local helpers.
+
+Cloud submission requires a stable `requestId`; uncertainty requires querying the original job, never a new submission key. `cloud_saved` describes complete cloud storage only. `partial` exposes only individually accepted files and remains partial after importing one of them. The importer requires an initiating local workspace, rejects read-only policy and existing-file replacement, and uses the configured OS sandbox for workspace-write helpers. Complete byte counts, SHA-256, FFprobe metadata and full FFmpeg decoding must pass before publication. `local_ready` identifies one verified image or video, with its source job state and file coverage; images do not establish video success. Use the existing `present` tool with the returned path for file cards and video inventory. The private helper is bundled inline, has no public executable, and receives no account credential.
 
 ### Shared voice registration
 
@@ -94,6 +102,20 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `searchRequestTimeoutMs` | 60,000 | Independent account-authorized search timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
 | `feedbackTools` | `false` | Register explicit user submission and owner-scoped receipt-query tools; Muse Desktop enables them. |
+| `mediaTools` | `false` | Register four deferred company media tools; Desktop enables them. |
+| `mediaRequestTimeoutMs` | 60,000 | Metadata and receipt deadline in milliseconds, 1,000–120,000. |
+| `mediaFileTimeoutMs` | 1,800,000 | Whole file-transfer and consumer deadline, 10,000–3,600,000 ms. |
+| `mediaVerifyTimeoutMs` | 1,800,000 | Local helper and complete decoding deadline, 10,000–3,600,000 ms. |
+| `mediaMaxReplyBytes` | 1,048,576 | Complete JSON reply cap, 1 KiB–16 MiB. |
+| `mediaMaxFileBytes` | 536,870,912 | Per-file import byte cap; positive safe integer. |
+| `mediaDirectory` | `source/media/company` | Relative destination with slash-separated letters, digits, underscores or hyphens. |
+| `mediaNodePath` | `node` | Private helper Node executable; Desktop supplies its current executable. |
+| `mediaFfmpegPath` | `ffmpeg` | Full-decoding executable; Desktop supplies `DSH_FFMPEG_PATH`. |
+| `mediaFfprobePath` | `ffprobe` | Metadata executable; Desktop supplies `DSH_FFPROBE_PATH`. |
+| `mediaCommandGraceMs` | 1,000 | Process termination grace, 100–30,000 ms. |
+| `mediaCommandMaxOutputBytes` | 65,536 | Complete helper report and diagnostic cap, 1 KiB–1 MiB. |
+| `mediaMaxPixels` | 67,108,864 | Maximum imported width × height; positive safe integer. |
+| `mediaMaxDurationSeconds` | 7,200 | Maximum accepted video duration, 1–86,400 seconds. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
@@ -161,7 +183,7 @@ Model requests use the selected account provider and model. Optional account sea
 
 #### Token effect
 
-When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With it disabled, the package adds no tool schemas or system-prompt text. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
+When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With feedback and media tools disabled, the package adds no tool schemas or system-prompt text. Enabling `mediaTools` registers four deferred schemas; discovery controls admission, while accepted results enter ordinary logged tool history. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
 
 #### KV Cache effect
 

@@ -1,0 +1,44 @@
+.layer {
+  position: absolute;
+  z-index: 19;
+  left: var(--video-absorption-left);
+  top: var(--video-absorption-top);
+  width: var(--video-absorption-width);
+  height: var(--video-absorption-height);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.material {
+  position: absolute;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+  background: var(--dsw-alias-video-shelf-bg);
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hit {
+  position: absolute;
+  left: var(--video-absorption-hit-left);
+  top: var(--video-absorption-hit-top);
+  width: var(--video-absorption-hit-width);
+  height: var(--video-absorption-hit-height);
+  border: 0;
+  padding: 0;
+  border-radius: var(--video-absorption-hit-radius);
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.hit:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}

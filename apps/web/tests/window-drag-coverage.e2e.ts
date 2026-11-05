@@ -24,7 +24,7 @@ import {
   INTERACTIVE_SELECTOR, RECALL_MARK, isDraggableAt, type RegionRect,
 } from '@deepseek-ai/dsh-client-web/src/window-drag/regions.ts'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { openSettings, connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 /** One collected box: its app-region value, whether it is interactive, and where it is. */
 interface CollectedRegion extends RegionRect {
@@ -635,8 +635,7 @@ describe('web e2e: macOS window drag coverage', () => {
   it('keeps a covering overlay out of the drag surface', async () => {
     const { page, tripwire } = await desktopPage()
     try {
-      await page.getByRole('button', { name: 'Account menu', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+      await openSettings(page, 'en')
       const dialog = page.locator('[role="dialog"]').first()
       await dialog.waitFor({ timeout: 15_000 })
       await settled(page)

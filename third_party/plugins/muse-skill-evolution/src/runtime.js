@@ -3,6 +3,7 @@ import { Service } from '@deepseek-ai/cordis'
 import { createHash, randomUUID } from 'node:crypto'
 import { reviewCompletedTurn, scrubEvidence } from './reviewer.js'
 import { assertSkillWriteAllowed } from './permissions.js'
+import { feedbackFailure, validateFeedbackRecord } from './feedback.js'
 
 const visibleText = message => (message?.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('\n')
 const reviewId = id => typeof id === 'string' && id.startsWith('muse-skill-review-')
@@ -35,6 +36,7 @@ export class EvolutionRuntime extends Service {
     this.timerDone = undefined
     this.lastActivity = Date.now()
     this.closed = false
+    this.feedbackProvider = undefined
     if (config.enabled) {
       ctx.on('session/event', (session, event) => { this.collect(session, event) })
       ctx.on('agent/status', ({ agent }) => {
@@ -51,6 +53,7 @@ export class EvolutionRuntime extends Service {
    * @returns {Promise<void>} Completion after persisted queue metadata is checked.
    */
   async start() {
+    await this.store.recoverFeedback?.()
     for (const run of await this.store.runs()) {
       if (run.state === 'queued' && Array.isArray(run.lines) && run.route && run.source) this.pending.set(run.id, run)
       else if (run.state === 'running') await this.store.recordRun({ ...run, state: 'failed', error: 'A previous review was interrupted; no automatic retry was made.' })
@@ -159,6 +162,81 @@ export class EvolutionRuntime extends Service {
     return [...byName.values()]
   }
 
+  /**
+   * Own one optional account provider until all started submissions and receipts settle.
+   * @param {object} service - Existing account service; it owns authentication and bounded transport.
+   * @returns {Function} Async disposer preventing admission and draining its submissions.
+   */
+  attachFeedback(service) {
+    const provider = { service, pending: new Set(), closed: false }
+    this.feedbackProvider = provider
+    return async () => {
+      provider.closed = true
+      if (this.feedbackProvider === provider) this.feedbackProvider = undefined
+      await Promise.allSettled([...provider.pending])
+    }
+  }
+
+  async skillOutcome(job, result, catalog, signal) {
+    const candidate = result.proposal
+    if (candidate.action === 'none') return { state: 'none' }
+    const previous = catalog.find(skill => skill.name === candidate.name)
+    if (candidate.action === 'create' && previous !== undefined) throw new Error('A Skill with this name already exists')
+    if (candidate.action === 'update' && (previous === undefined || previous.currentHash === undefined
+      || !result.reviewedSkills.includes(candidate.name))) throw new Error('The proposed Skill lacks a complete reviewed baseline')
+    const duplicate = (await this.store.proposals()).find(proposal => ['pending', 'blocked'].includes(proposal.state)
+      && proposal.action === candidate.action && proposal.name === candidate.name && proposal.description === candidate.description && proposal.content === candidate.content)
+    signal.throwIfAborted()
+    const proposal = duplicate ?? await this.store.addProposal({ ...candidate, source: job.source, reviewSessionId: job.reviewSessionId,
+      ...(previous?.currentHash === undefined ? {} : { baseHash: previous.currentHash }) })
+    let state = 'proposed'
+    if (this.config.autoApplyOwned && job.writeAllowed && (candidate.action === 'create' || previous?.owned === true)) {
+      try {
+        const sourceSession = this.ctx.sessions.get(job.source.sessionId)
+        if (sourceSession === undefined) throw new Error('The source Session is no longer available')
+        await assertSkillWriteAllowed(this.ctx, sourceSession, this.config.skillsRoot)
+        signal.throwIfAborted()
+        const applied = await this.store.apply(proposal.id, { automatic: true })
+        state = applied.state === 'applied' ? 'applied' : 'blocked'
+      } catch (error) {
+        signal.throwIfAborted()
+        state = 'blocked'
+      }
+    }
+    return { state, proposalId: proposal.id, validation: { format: 'passed', semantic: 'not_performed' } }
+  }
+
+  async deliverFeedback(job, candidate, evidenceCount, signal, provider) {
+    signal.throwIfAborted()
+    const sourceAvailable = this.ctx.sessions.get(job.source.sessionId) !== undefined
+    const available = provider !== undefined && !provider.closed && provider === this.feedbackProvider
+    const enabled = this.config.enabled && this.config.autoSubmitFeedback
+    const claim = await this.store.claimFeedback(job.id, candidate, { evidenceCount,
+      submit: enabled && available && sourceAvailable, maxPerDay: this.config.maxFeedbackPerDay, now: Date.now(),
+      reason: !enabled ? 'disabled' : !sourceAvailable ? 'source-unavailable' : 'account-unavailable' })
+    if (!claim.send) return
+    const feedback = claim.feedback
+    if (signal.aborted || this.closed || provider.closed || provider !== this.feedbackProvider) {
+      await this.store.settleFeedback(job.id, feedback.hash, { state: 'blocked', code: 'cancelled-before-send' }, Date.now())
+      return
+    }
+    let outcome
+    try {
+      const receipt = await provider.service.feedback(feedback.request)
+      outcome = { state: 'submitted', receipt: { id: receipt.id, revision: receipt.revision, deduplication: receipt.deduplication ?? 'unavailable' } }
+      validateFeedbackRecord({ ...feedback, ...outcome, finishedAt: Date.now() })
+    } catch (error) { outcome = feedbackFailure(error) }
+    // The account transport has its own deadline. Once started, retain its actual result even if activity resumed.
+    await this.store.settleFeedback(job.id, feedback.hash, outcome, Date.now())
+  }
+
+  async submitFeedback(job, candidate, evidenceCount, signal) {
+    const provider = this.feedbackProvider
+    const task = this.deliverFeedback(job, candidate, evidenceCount, signal, provider)
+    provider?.pending.add(task)
+    try { await task } finally { provider?.pending.delete(task) }
+  }
+
   async run() {
     if (this.closed || !this.idle()) return
     for (const [id, queued] of this.pending) {
@@ -166,7 +244,7 @@ export class EvolutionRuntime extends Service {
       const day = new Date().toISOString().slice(0, 10)
       const used = (await this.store.runs()).filter(run => typeof run.startedAt === 'number' && new Date(run.startedAt).toISOString().slice(0, 10) === day).length
       if (used >= this.config.maxReviewsPerDay) break
-      let job = queued
+      let job = queued, skillSettled = false
       const review = new AbortController()
       const reviewSignal = AbortSignal.any([this.controller.signal, review.signal])
       this.activeReview = review
@@ -176,37 +254,24 @@ export class EvolutionRuntime extends Service {
         if (!this.idle()) break
         job = { ...job, state: 'running', reviewSessionId: `muse-skill-review-${randomUUID()}`, startedAt: Date.now() }
         await this.store.recordRun(job)
-        const result = await reviewCompletedTurn(this.ctx, this.config, job, catalog, reviewSignal)
+        const reportedFeedback = (await this.store.runs()).filter(run => run.feedback !== undefined && run.feedback.state !== 'duplicate').map(run => run.feedback.candidate)
+        const result = await reviewCompletedTurn(this.ctx, this.config, { ...job, reportedFeedback }, catalog, reviewSignal)
         reviewSignal.throwIfAborted()
-        if (result.proposal.action === 'none') {
-          await this.store.recordRun({ ...job, state: 'none', finishedAt: Date.now(), inputHash: result.inputHash })
-        } else {
-          const candidate = result.proposal
-          const previous = catalog.find(skill => skill.name === candidate.name)
-          if (candidate.action === 'create' && previous !== undefined) throw new Error('A Skill with this name already exists')
-          if (candidate.action === 'update' && (previous === undefined || previous.currentHash === undefined
-            || !result.reviewedSkills.includes(candidate.name))) throw new Error('The proposed Skill lacks a complete reviewed baseline')
-          const duplicate = (await this.store.proposals()).find(proposal => ['pending', 'blocked'].includes(proposal.state)
-            && proposal.action === candidate.action && proposal.name === candidate.name && proposal.description === candidate.description && proposal.content === candidate.content)
+        let outcome
+        try { outcome = await this.skillOutcome(job, result, catalog, reviewSignal) }
+        catch (error) {
           reviewSignal.throwIfAborted()
-          const proposal = duplicate ?? await this.store.addProposal({ ...candidate, source: job.source, reviewSessionId: job.reviewSessionId,
-            ...(previous?.currentHash === undefined ? {} : { baseHash: previous.currentHash }) })
-          let state = 'proposed'
-          if (this.config.autoApplyOwned && job.writeAllowed && (candidate.action === 'create' || previous?.owned === true)) {
-            try {
-              const sourceSession = this.ctx.sessions.get(job.source.sessionId)
-              if (sourceSession === undefined) throw new Error('The source Session is no longer available')
-              await assertSkillWriteAllowed(this.ctx, sourceSession, this.config.skillsRoot)
-              reviewSignal.throwIfAborted()
-              const applied = await this.store.apply(proposal.id, { automatic: true })
-              state = applied.state === 'applied' ? 'applied' : 'blocked'
-            } catch { reviewSignal.throwIfAborted(); state = 'blocked' }
-          }
-          await this.store.recordRun({ ...job, state, proposalId: proposal.id, finishedAt: Date.now(), inputHash: result.inputHash,
-            validation: { format: 'passed', semantic: 'not_performed' } })
+          outcome = { state: 'failed', error: 'The Skill proposal could not be applied or validated; feedback is evaluated independently.' }
         }
-      } catch {
-        await this.store.recordRun({ ...job, state: 'failed', finishedAt: Date.now(),
+        await this.store.recordRun({ ...job, ...outcome, finishedAt: Date.now(), inputHash: result.inputHash,
+          ...(result.proposal.feedbackProblem === undefined ? {} : { feedbackProblem: result.proposal.feedbackProblem }) })
+        skillSettled = true
+        if (result.proposal.feedback !== undefined && !reviewSignal.aborted && !this.closed) {
+          await this.submitFeedback(job, result.proposal.feedback, result.evidenceCount, reviewSignal)
+        }
+      } catch (error) {
+        if (skillSettled) this.ctx.logger.warn('The product feedback outcome could not be recorded; inspect its retained intent before any further submission.')
+        else await this.store.recordRun({ ...job, state: 'failed', finishedAt: Date.now(),
           error: reviewSignal.aborted ? 'Skill review was cancelled. No automatic retry was made.' : 'Skill review failed validation or execution. Inspect its saved review Session before retrying.' })
       } finally { this.activeReview = undefined; this.pending.delete(id) }
     }

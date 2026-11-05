@@ -1,4 +1,4 @@
-import { createElement as h, useId, useMemo, useRef, useState } from 'react'
+import { createElement as h, useId, useMemo, useState } from 'react'
 import { useTurnFacts } from './btw.js'
 import { editLines, lineDiff, proposalPlacement } from './learning-card-model.js'
 import { currentPart } from './text.js'
@@ -6,29 +6,9 @@ import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
 import { spring, SPRING_TAP } from './motion.js'
 
-const failedAnswers = new Map()
-
-function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(initialError)
-  const busyRef = useRef(false)
+function ProposalCard({ proposal, error = '', busy, actions }) {
   const titleId = useId()
-  const answer = approve => {
-    if (busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setError('')
-    void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve))
-      .then(() => onResolved(proposal.id), failure => {
-        const message = failure?.message ?? String(failure)
-        setError(message)
-        onFailure(proposal, message)
-      })
-      .finally(() => {
-        busyRef.current = false
-        setBusy(false)
-      })
-  }
+  const answer = approve => { void actions.learningAnswer(proposal, approve) }
   const update = proposal.action === 'update'
   const rows = useMemo(() => lineDiff(update ? proposal.previous?.content : '', proposal.content), [update, proposal.previous?.content, proposal.content])
   if (proposal.kind === 'agents') {
@@ -101,43 +81,28 @@ function FileBox({ name, path, state, blocks }) {
         t(open ? 'Show less' : 'Show all {count} lines', { count: all.length }))) : null)
 }
 
-function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
+function LearningProposals({ turn, dock, sessionId, useRoster, useLearningRecovery, actions }) {
   const roster = useRoster(value => value)
+  const recovery = useLearningRecovery(value => value)
   const facts = useTurnFacts(sessionId, actions)
-  const [failed, setFailed] = useState({})
   const bot = roster.byId?.[sessionId]
   if (!bot || currentPart(bot) !== sessionId) return null
   const proposals = roster.learning?.[bot.id] ?? []
-  const visible = [...proposals]
-  for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !proposals.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
-  }
-  for (const entry of failedAnswers.values()) {
-    if (entry.proposal.botId === bot.id && !proposals.some(proposal => proposal.id === entry.proposal.id)
-      && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
+  const visible = proposals.filter(proposal => recovery[proposal.id]?.status !== 'closed')
+  for (const entry of Object.values(recovery)) {
+    if (entry.status !== 'closed' && entry.proposal.botId === bot.id
+      && !proposals.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
   }
   const cards = visible.filter(proposal => {
     const placement = proposalPlacement(proposal, facts?.turns)
     return dock ? placement.kind === 'dock' : placement.kind === 'turn' && placement.turn === turn?.turn
   })
   if (cards.length === 0) return null
-  const onFailure = (proposal, error) => {
-    failedAnswers.set(proposal.id, { proposal, error })
-    setFailed(current => ({ ...current, [proposal.id]: { proposal, error } }))
-  }
-  const onResolved = id => setFailed(current => {
-    failedAnswers.delete(id)
-    if (!(id in current)) return current
-    const next = { ...current }
-    delete next[id]
-    return next
-  })
   return h('div', { className: dock ? 'bt-learning-stack bt-learning-dock' : 'bt-learning-stack' }, cards.map(proposal => h('div', { className: 'bt-q-inline', key: proposal.id },
     h(ProposalCard, {
       proposal,
-      initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
-      onFailure,
-      onResolved,
+      error: recovery[proposal.id]?.error,
+      busy: recovery[proposal.id]?.status === 'answering',
       actions,
     }))))
 }

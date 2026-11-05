@@ -85,7 +85,8 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
-    'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/feishu-migration.js',
+    'lib/manuscript-revisions.js', 'lib/manuscript-continuity-preset.js', 'lib/manuscript-source-review.js',
+    'lib/jianying-draft.js', 'lib/feishu-migration.js',
     'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
   ],
@@ -213,8 +214,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   ],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
-  // Codex-derived discovery surfaces publish their license notices beside the entry.
-  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
+  // Discovery publishes its MIT license and Codex attribution beside the entry.
+  '@deepseek-ai/dsh-tool-discovery': ['LICENSE', 'NOTICE', 'LICENSE-Codex'],
   // Statically linked client libraries keep their stylesheets next to the emitted
   // JavaScript, which imports them by relative path: the compile shell runs
   // them through its own CSS pipeline, so the sheets are published artifacts.

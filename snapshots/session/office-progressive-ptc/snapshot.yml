@@ -4,6 +4,7 @@ profile: headless
 platform: posix
 composition: office-render-tools-ptc
 recording: authored
+writerOutput: true
 header:
   class: office-render-tools-ptc
   pin: true

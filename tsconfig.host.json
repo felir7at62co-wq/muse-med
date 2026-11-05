@@ -9,6 +9,7 @@
   },
   "include": [
     "apps/web/tests/jubian-video-recovery.e2e.ts",
+    "apps/web/tests/session-video.e2e.ts",
     "apps/web/tests/muse-session-views.e2e.ts",
     "apps/web/tests/muse-visualize.e2e.ts",
     "apps/web/tests/sidebar-drawer.e2e.ts",
@@ -281,6 +282,8 @@
     "packages/drama/drama-settings/tests/built-client.e2e.ts"
   ],
   "references": [
+    { "path": "./packages/drama/session-video" },
+    { "path": "./packages/client/ui-session-video/tsconfig.host.json" },
     {
       "path": "./packages/experimental/action-cards"
     },

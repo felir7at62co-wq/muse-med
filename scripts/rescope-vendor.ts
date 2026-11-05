@@ -79,6 +79,8 @@ interface GenericSkip {
 }
 
 const GENERIC_SKIPS: readonly GenericSkip[] = [
+  // Client inspection retains the Cordis event domain while real module imports remain scoped.
+  { file: 'snapshots/session/cordis-inspect-overlay-owner/client-fixture.mjs', upstream: ['cordis'] },
   // Preset ids and paths below an already scoped module root retain the literal cordis name.
   { file: 'apps/desktop-host/tests/preset-executors.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/qimao-presets.spec.ts', upstream: ['cordis'] },

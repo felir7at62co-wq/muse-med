@@ -40,7 +40,7 @@ test('Desktop relay keeps one thousand synthetic account requests active without
  const desktop=createDesktopModels({globalModels:{resolve:()=>settings},forward:async({res})=>{if(++calls===1000)entered();await held;res.end('done');}});
  const requests=Array.from({length:1000},(_,index)=>{
   const req=Readable.from([Buffer.from(JSON.stringify({model:settings.model,messages:[]}))]);req.method='POST';
-  const res=new EventEmitter();res.writeHead=()=>{};res.end=()=>{};
+  const res=new EventEmitter();res.setHeader=()=>{};res.writeHead=()=>{};res.end=()=>{};
   return desktop.handle(req,res,{id:'account-'+index,token:'session-'+index,expiry:Date.now()+60000},'/api/desktop-models/studio/chat/completions');
  });
  try{
@@ -89,7 +89,7 @@ test('Desktop relay uses the same defaults and releases rejected requests',async
  const calls=[],desktop=createDesktopModels({globalModels:{resolve:()=>settings},forward:async({body,res})=>{calls.push(structuredClone(body));res.end('done');}});
  const invoke=async body=>{
   const request=Readable.from([Buffer.from(JSON.stringify({model:settings.model,messages:[],...body}))]);request.method='POST';
-  const response=new EventEmitter();response.writeHead=status=>{response.statusCode=status;};response.end=()=>{};
+  const response=new EventEmitter();response.setHeader=()=>{};response.writeHead=status=>{response.statusCode=status;};response.end=()=>{};
   await desktop.handle(request,response,{id:'alice',token:'session',expiry:Date.now()+60000},'/api/desktop-models/studio/chat/completions');return response.statusCode;
  };
  try{await invoke({});assert.equal(calls[0].max_tokens,32768);assert.equal(calls[0].reasoning_effort,'wire-low');assert.equal(await invoke({reasoning_effort:'unknown'}),400);await invoke({max_tokens:1234,reasoning_effort:'wire-high'});assert.equal(calls[1].max_tokens,1234);assert.equal(calls[1].reasoning_effort,'wire-high');}finally{desktop.close();}

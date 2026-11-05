@@ -16,6 +16,7 @@ kind: "package-reference"
 
 ## 目录
 
+- [消息气泡](#message-bubbles)
 - [引用预览](#reference-previews)
 - [Chat 隐藏的行](#system-prompt-row)
 - [指令与失败行](#command-and-failure-rows)
@@ -29,6 +30,13 @@ kind: "package-reference"
 - [开发备注](#dev-note)
 
 -----
+
+<a id="message-bubbles"></a>
+## 消息气泡
+
+用户内容保留右对齐的浅色气泡，右下角使用较小圆角。Assistant 回复采用敞开的全宽正文，不添加气泡底色或内边距。推理与工具过程行保留各自的展示。原生图片、操作、流式节点身份、代码滚动及宽表扩展保持可用。
+
+会话作用域的 `conversation.chat.pinned` 列表在 Chat 框架内、裁剪的聊天记录区域上方渲染。贡献接收原生会话、Chat 与输入数据。共用列表以及 `data-chat-frame` / `data-chat-scroll` DOM 锚点不承载特定功能逻辑。
 
 <a id="reference-previews"></a>
 ## 引用预览

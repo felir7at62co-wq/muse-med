@@ -298,7 +298,7 @@ export function install(rt) {
     saved.agentsPending ??= {}
     return saved
   }
-  let stopped = false
+  let phase = 'active'
   const reviewController = new AbortController()
   const writeCheck = () => {
     const reason = rt.readOnly()
@@ -306,7 +306,7 @@ export function install(rt) {
   }
   let writing = Promise.resolve()
   const persist = () => {
-    if (stopped || rt.readOnly() !== undefined) return writing
+    if (phase === 'stopped' || rt.readOnly() !== undefined) return writing
     const text = JSON.stringify(data(), null, 1)
     writing = writing.then(async () => {
       if (rt.readOnly() !== undefined) return
@@ -327,7 +327,7 @@ export function install(rt) {
   const noted = new Map()
   let lastActivity = Date.now()
   ctx.on('agent/status', ({ agent, status }) => {
-    if (stopped || rt.readOnly() !== undefined) return
+    if (phase !== 'active' || rt.readOnly() !== undefined) return
     const id = agent?.id
     if (id === undefined || !rt.isBotSession(id)) return
     lastActivity = Date.now()
@@ -390,7 +390,7 @@ export function install(rt) {
       lines,
       learned: learned.map(name => skills[name]),
       library,
-      declined: data().declined.filter(entry => entry.kind !== 'agents'),
+      declined: data().declined.filter(entry => entry.kind !== 'agents' && entry.botId === bot.id),
       language: writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.()),
       limit: settings.learnedMax,
     })
@@ -505,7 +505,7 @@ export function install(rt) {
   // proposal still waiting is skipped: its chat is read again in the next pass.
   let running
   async function run() {
-    if (stopped) return 0
+    if (phase !== 'active') return 0
     writeCheck()
     if (running) return running
     running = (async () => {
@@ -513,7 +513,7 @@ export function install(rt) {
       store.lastRun = Date.now()
       let made = 0
       for (const [botId, pendingSessions] of Object.entries(store.pending)) {
-        if (stopped) break
+        if (phase !== 'active') break
         writeCheck()
         const bot = rt.botOf(botId)
         if (bot === undefined) {
@@ -526,10 +526,10 @@ export function install(rt) {
         try {
           const read = []
           for (const sessionId of sessions) read.push({ sessionId, ...await linesSince(sessionId) })
-          if (stopped) return made
+          if (phase !== 'active') return made
           const lines = read.flatMap(entry => entry.lines)
           const proposal = lines.length === 0 ? undefined : await reviewSkill(bot, lines)
-          if (stopped) return made
+          if (phase !== 'active') return made
           writeCheck()
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
@@ -556,13 +556,13 @@ export function install(rt) {
           if (remaining.length === 0) delete store.pending[botId]
           else store.pending[botId] = remaining
         } catch (error) {
-          if (!stopped) rt.warn('ds-bot: the learning review of %s failed: %s', bot.name, error?.message ?? error)
+          if (phase === 'active') rt.warn('ds-bot: the learning review of %s failed: %s', bot.name, error?.message ?? error)
           continue
         }
       }
       if (config.agentsMd !== false) {
         for (const [folder, group] of Object.entries(store.agentsPending)) {
-          if (stopped) break
+          if (phase !== 'active') break
           writeCheck()
           let bot = rt.botOf(group.botId)
           if (bot === undefined) {
@@ -579,7 +579,7 @@ export function install(rt) {
             const reviewRecords = [...group.records]
             const reviewedOrders = reviewRecords.map(item => item.order)
             const current = await agentsFile(folder)
-            if (stopped) return made
+            if (phase !== 'active') return made
             if (current === undefined && await exists(join(folder, 'AGENTS.md'))) continue
             const lines = []
             let used = 0
@@ -599,7 +599,7 @@ export function install(rt) {
             }
             if (lines.length === 0) continue
             const proposal = await reviewAgents(bot, folder, current, lines)
-            if (stopped) return made
+            if (phase !== 'active') return made
             writeCheck()
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
@@ -611,7 +611,7 @@ export function install(rt) {
               if (queue.records.length === 0) delete store.agentsPending[folder]
             }
           } catch (error) {
-            if (!stopped) rt.warn('ds-bot: the AGENTS.md review of %s failed: %s', folder, error?.message ?? error)
+            if (phase === 'active') rt.warn('ds-bot: the AGENTS.md review of %s failed: %s', folder, error?.message ?? error)
           }
         }
       }
@@ -622,7 +622,7 @@ export function install(rt) {
   }
 
   const due = () => {
-    if (stopped) return false
+    if (phase !== 'active') return false
     const store = data()
     const hasPending = Object.values(store.pending).some(sessions => sessions.length > 0)
       || (config.agentsMd !== false && Object.values(store.agentsPending).some(queue => queue.records?.length > 0))
@@ -630,18 +630,38 @@ export function install(rt) {
     if (Object.keys(rt.workView()).length > 0 || Date.now() - lastActivity < settings.idleMs) return false
     return store.lastRun === undefined || Date.now() - store.lastRun >= settings.intervalMs
   }
+  const answers = new Set()
+  let timer
+  let draining
+  // The state-lock owner awaits this same drain before closing its own writer.
+  const learningDispose = () => {
+    if (draining !== undefined) return draining
+    phase = 'stopping'
+    reviewController.abort()
+    clearInterval(timer)
+    draining = (async () => {
+      try {
+        await running
+      } finally {
+        try {
+          await Promise.allSettled([...answers])
+        } finally {
+          try {
+            await writing
+          } finally {
+            phase = 'stopped'
+          }
+        }
+      }
+    })()
+    return draining
+  }
   ctx.effect(() => {
-    const timer = setInterval(() => {
+    timer = setInterval(() => {
       if (due()) void run().catch(error => rt.warn('ds-bot: learning pass failed: %s', error?.message ?? error))
     }, settings.tickMs)
     timer.unref?.()
-    return async () => {
-      stopped = true
-      reviewController.abort()
-      clearInterval(timer)
-      await running
-      await writing
-    }
+    return learningDispose
   }, 'ds-bot: learning')
 
   // The user's answer to a card.
@@ -652,8 +672,8 @@ export function install(rt) {
     if (approve !== true) {
       delete store.proposals[id]
       const decline = proposal.kind === 'agents'
-        ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
-        : { name: proposal.name, description: proposal.description, at: Date.now() }
+        ? { kind: 'agents', botId: proposal.botId, folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
+        : { botId: proposal.botId, name: proposal.name, description: proposal.description, at: Date.now() }
       store.declined = [...store.declined, decline].slice(-settings.declinedMax)
       await persist()
       return { applied: false }
@@ -735,7 +755,16 @@ export function install(rt) {
   }
 
   async function learningEndpoint(endpoint, body) {
-    if (endpoint === 'learning-answer') return answer({ id: String(body.id ?? ''), approve: body.approve === true })
+    if (endpoint === 'learning-answer') {
+      if (phase !== 'active') throw new Error('Learning cannot change after this Host starts stopping')
+      const operation = answer({ id: String(body.id ?? ''), approve: body.approve === true })
+      answers.add(operation)
+      try {
+        return await operation
+      } finally {
+        answers.delete(operation)
+      }
+    }
     throw new Error(`Unknown endpoint ${endpoint}`)
   }
 
@@ -768,5 +797,5 @@ export function install(rt) {
     return result
   }
 
-  Object.assign(rt, { learningView, learningEndpoint, learningRun: run })
+  Object.assign(rt, { learningView, learningEndpoint, learningRun: run, learningDispose })
 }

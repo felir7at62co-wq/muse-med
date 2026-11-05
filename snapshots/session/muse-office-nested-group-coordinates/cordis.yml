@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: typert-loader
+  disabled: true
+- insert:
+    - id: office-nested-fixture
+      name: ./office-fixture.mjs

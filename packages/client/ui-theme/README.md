@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Users switch the color scheme, font sizes, and fonts from rows in Settings (General section); the choices persist across restarts in every authenticated browser. Feature plugins consume the current snapshot through `ctx.theme` and read the `--dsw-*` tokens in CSS; they do not manage theme state themselves.
 
+User chat fills use `--dsw-alias-chat-user-bg`. Muse video controls use the independent `--dsw-alias-video-shelf-*` material: a dark fill and readable light labels in both palettes, shared by the expanded player, inline video card and absorption preview.
+
 ### Appearance and font size
 
 In narrow browser settings, the three Appearance choices share one row and font-size labels use a smaller gutter. At viewport widths up to 767 CSS px, including narrow desktop windows, font-family rows stack each title, description, and full-width field vertically. Font-size steppers stay to the right of their labels. Wider viewports retain horizontal font-family rows. Windows and macOS desktop windows retain wrapping Appearance choices and standard font-size label spacing. Font-family fields use 16 px text on devices with a coarse primary pointer.

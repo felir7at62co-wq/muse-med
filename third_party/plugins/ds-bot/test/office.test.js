@@ -200,6 +200,44 @@ describe('docx', () => {
 })
 
 describe('pptx', () => {
+  const emu = 914400
+  const boxXml = (x, y, w, h) => `<a:off x="${x * emu}" y="${y * emu}"/><a:ext cx="${w * emu}" cy="${h * emu}"/>`
+  const groupXml = (id, name, [x, y, w, h, childX, childY, childW, childH], shapes) =>
+    `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${id}" name="${name}"/></p:nvGrpSpPr><p:grpSpPr><a:xfrm>${boxXml(x, y, w, h)}<a:chOff x="${childX * emu}" y="${childY * emu}"/><a:chExt cx="${childW * emu}" cy="${childH * emu}"/></a:xfrm></p:grpSpPr>${shapes}</p:grpSp>`
+  const textXml = (id, name, [x, y, w, h]) =>
+    `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/></p:nvSpPr><p:spPr><a:xfrm>${boxXml(x, y, w, h)}</a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>${name}</a:t></a:r></a:p></p:txBody></p:sp>`
+  const groupedDeck = (shapes) => {
+    const pkg = Package.open(fixture('sample.pptx'))
+    pkg.put('ppt/slides/slide1.xml', `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>${shapes}</p:spTree></p:cSld></p:sld>`)
+    return pkg
+  }
+
+  test('nested group boxes use nearest-to-outer transforms for every sibling', () => {
+    const pkg = groupedDeck(groupXml(10, 'outer', [5, 1, 2, 1, 0, 0, 1, 1],
+      groupXml(11, 'inner', [1, 1, 2, 1, 0, 0, 1, 1],
+        textXml(12, 'first', [0, 0, 0.25, 0.25]) + textXml(13, 'second', [0.25, 0, 0.25, 0.25]))))
+    const shapes = pptxInventory(pkg, ['1']).slides[0].shapes
+    assert.deepEqual(shapes.find(s => s.name === 'first').box, { x: 7, y: 2, w: 1, h: 0.25 })
+    assert.deepEqual(shapes.find(s => s.name === 'second').box, { x: 8, y: 2, w: 1, h: 0.25 })
+  })
+
+  test('three nested groups preserve both axes, child origins and unequal scales', () => {
+    const pkg = groupedDeck(groupXml(10, 'outer', [2, 1, 6, 4, 1, 2, 3, 4],
+      groupXml(11, 'middle', [1, 3, 2, 4, 2, 1, 4, 2],
+        groupXml(12, 'inner', [4, 2, 2, 1, 1, 3, 2, 2],
+          textXml(13, 'first', [1.5, 4, 0.5, 1]) + textXml(14, 'second', [2.5, 4, 0.5, 1])))))
+    const shapes = pptxInventory(pkg, ['1']).slides[0].shapes
+    assert.deepEqual(shapes.find(s => s.name === 'first').box, { x: 4.5, y: 5, w: 0.5, h: 1 })
+    assert.deepEqual(shapes.find(s => s.name === 'second').box, { x: 5.5, y: 5, w: 0.5, h: 1 })
+  })
+
+  test('nested layout keeps a real off-slide finding without flagging an in-bounds sibling', () => {
+    const pkg = groupedDeck(groupXml(10, 'outer', [5, 1, 2, 1, 0, 0, 1, 1],
+      groupXml(11, 'inner', [1, 1, 2, 1, 0, 0, 1, 1],
+        textXml(12, 'inside', [0, 0, 0.25, 0.25]) + textXml(13, 'outside', [1, 0, 0.25, 0.25]))))
+    const findings = pptxLayout(pkg, ['1']).findings.filter(f => f.rule === 'off-slide')
+    assert.deepEqual(findings, [{ slide: 1, rule: 'off-slide', shape: 'outside', box: { x: 11, y: 2, w: 1, h: 0.25 } }])
+  })
   test('inventory resolves boxes incl. inherited placeholder and group transform', () => {
     const inv = pptxInventory(Package.open(fixture('sample.pptx')))
     assert.equal(inv.slideSize.cx, 10)

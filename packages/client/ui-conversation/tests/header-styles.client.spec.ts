@@ -5,6 +5,19 @@ import { describe, expect, it } from 'vitest'
 const css = readFileSync(new URL('../src/client/skeleton/ConversationRoot.module.css', import.meta.url), 'utf8')
 
 describe('conversation header geometry', () => {
+  it('gives overlay occupants an absolute host without introducing a stacking context', () => {
+    const overlays = css.match(/\.contentOverlays\s*\{([^}]*)\}/)?.[1]
+    expect(overlays).toContain('position: absolute')
+    expect(overlays).toContain('inset: 0')
+    expect(overlays).toContain('pointer-events: none')
+    expect(overlays).not.toMatch(/z-index|isolation|transform|container-type|opacity/)
+  })
+
+  it('applies floating chrome only while the strict Session header selects it', () => {
+    expect(css.match(/\.headerFloating([^{}]*?)\s*\{/)?.[1]).toContain(":where(:not(:has([data-conversation-session-presentation='standard'])))")
+    expect(css).toContain(".headerFade:has(+ .header [data-conversation-session-presentation='standard']) { display: none; }")
+  })
+
   it('removes the extra tab inset only in narrow Web windows', () => {
     const narrow = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(css)?.[1]
     expect(narrow).toContain(':global(html:not([data-platform])) .tabs')
@@ -35,5 +48,19 @@ describe('conversation header geometry', () => {
   it('uses 32px between view labels without changing the action gap', () => {
     expect(css.match(/\.viewTabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 32px')
     expect(css.match(/\.tabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 16px 20px')
+  })
+
+  it('shrinks the floating title without clipping or fading its adjacent More views button', () => {
+    const title = css.match(/\.headerFloating[^\n{]* \.floatingTitle\s*\{([^}]*)\}/)?.[1]
+    expect(title).toContain('display: flex')
+    expect(title).toContain('min-width: 0')
+    expect(title).toContain('gap: 4px')
+    expect(title).toContain('--dsh-frame-leading-clearance')
+    expect(title).not.toMatch(/overflow|mask-image/)
+    expect(css.match(/\.crumbs\s*\{([^}]*)\}/)?.[1]).toContain('overflow: hidden')
+    expect(css.match(/^\.crumb\s*\{([^}]*)\}/m)?.[1]).toContain('text-overflow: ellipsis')
+    expect(css.match(/^\.viewsMoreAnchor\s*\{([^}]*)\}/m)?.[1]).toContain('flex: none')
+    expect(css.match(/\.headerFloating[^\n{]* \.floatingTitle \.viewsMoreAnchor\s*\{([^}]*)\}/)?.[1]).toContain('pointer-events: auto')
+    expect(css.match(/\.headerFloating[^\n{]* \.floatingTitle \.viewsMore\s*\{([^}]*)\}/)?.[1]).toContain('margin-top: 0')
   })
 })

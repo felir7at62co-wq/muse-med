@@ -15,6 +15,12 @@ import { MuseAccountService } from '../src/service.ts'
 import { apply, Config } from '../src/index.ts'
 import { writeMuseSession } from '../src/session.ts'
 import { afterEach, expect, it, vi } from 'vitest'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import FsLocal from '@deepseek-ai/dsh-fs-local'
+import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const homes: string[] = [], contexts: Context[] = []
 afterEach(async () => {
@@ -95,6 +101,57 @@ it('rejects invalid model image budgets before activation', () => {
   for (const modelRequestImageMaxBytes of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '1024']) {
     expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, modelRequestImageMaxBytes }]) }).toThrow()
   }
+})
+
+it('keeps company media opt-in and validates its destination and resource limits', async () => {
+  expect(Config({ baseUrl })).toMatchObject({ mediaTools: false, mediaDirectory: 'source/media/company' })
+  for (const mediaDirectory of ['../outside', '/absolute', 'source//media', 'source/../media', 'source\\media']) {
+    expect(() => Config({ baseUrl, mediaDirectory })).toThrow()
+  }
+  for (const mediaMaxFileBytes of [0, -1, 1.5, Infinity]) expect(() => Config({ baseUrl, mediaMaxFileBytes })).toThrow()
+  const { ctx, home } = await fixture()
+  await expect(apply(ctx, Config({ baseUrl, accountHome: home, mediaTools: true })))
+    .rejects.toThrow('mediaTools requires fs, subprocess and sandboxPolicy providers')
+})
+
+it('removes media tools and settles an active helper before its subprocess provider unloads', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-media-lifetime-')); homes.push(home)
+  const ctx = new Context(); contexts.push(ctx)
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(FsLocal, { cwd: home })
+  const processes = ctx.plugin(SubprocessLocal)
+  await processes.await()
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access' })
+  const driver = await mountAgentLoopTestHarness(ctx)
+  const agent = await driver.create(SessionId('media-unload-owner'), {}, { cwd: home })
+  await writeMuseSession(join(home, 'session.json'), { baseUrl, username: 'alice', cookie: '__Host-muse=media-unload-only' })
+  const jobId = '80000000-0000-4000-8000-000000000001'
+  const receipt = { state: 'cloud_saved', job_id: jobId, files: [{ name: 'video.mp4', kind: 'video', bytes: 512, sha256: 'a'.repeat(64) }],
+    file_coverage: { reported: 1, accepted: 1, rejected: 0, complete: true, truncated: false } }
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input) => {
+    const path = (input instanceof Request ? new URL(input.url) : new URL(input)).pathname
+    if (path === '/api/desktop-models/providers') return Response.json(catalog)
+    if (path === `/api/media/jobs/${jobId}`) return Response.json(receipt)
+    if (path.endsWith('/files/video.mp4')) return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(Buffer.from('partial bytes'))
+    } }))
+    throw Error('Unexpected media fixture route')
+  }))
+  await apply(ctx, Config({ baseUrl, accountHome: home, mediaTools: true, mediaNodePath: process.execPath }))
+  const spawned = Promise.withResolvers<undefined>(), exited: Promise<boolean>[] = []
+  const original = ctx.subprocess.spawn.bind(ctx.subprocess)
+  vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control === 'pipe') { spawned.resolve(undefined); exited.push(child.waitForExit()) }
+    return child
+  })
+  const pending = executeToolFixture(ctx, { agent, name: 'muse_media_import', callId: ToolCallId('media-unload-import'),
+    arguments: { jobId, fileName: 'video.mp4' }, signal: new AbortController().signal })
+  await Promise.race([spawned.promise, pending.then((result) => { throw Error(`Import settled before helper: ${JSON.stringify(result)}`) })])
+  await processes.dispose()
+  expect(JSON.stringify(await pending)).toContain('cancelled')
+  expect(await Promise.all(exited)).toEqual([true])
+  expect(ctx.tools.schemas().some(tool => tool.name.startsWith('muse_media_'))).toBe(false)
 })
 
 it('bounds activity reporting frequency and lifetime independently of account model requests', () => {

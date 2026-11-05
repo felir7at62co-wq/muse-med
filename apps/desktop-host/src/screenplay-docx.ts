@@ -137,7 +137,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'screenplay_export_docx',
     description: '将剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。'
-      + (config.reviewMode === 'advisory' ? '当前由Agent自主决定内容审校方式，导出和交付不要求独立审校、批准候选或审校收据；返稿差异可通过manuscript_revision查看。' : '受管项目沿用其严格候选验收与交付检查。')
+      + (config.reviewMode === 'advisory' ? '导出不要求批准候选；返稿差异可通过manuscript_revision查看。编写或修改后的剧本交付须核对最终DOCX当前版本，或用manuscript_revision delivery明确登记为草稿，再按返回标签调用present。' : '受管项目沿用其严格候选验收与交付检查。')
       + '格式沿系统提示词，Word 操作使用 office-docx；生成后检查排版，再用 present 交付实际 DOCX。',
     parameters: {
       inputs: { type: 'array', required: true, items: { type: 'string' }, description: '绝对路径的 .md 文件，按交付集数顺序排列；使用本次实际正文。' },

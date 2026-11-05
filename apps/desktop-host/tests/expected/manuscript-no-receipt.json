@@ -1,0 +1,63 @@
+{
+  "main": {
+    "mode": "main",
+    "fakeCodeWasNotExecuted": true,
+    "loggedGenericNotices": 1,
+    "noticeActuallyReceived": true,
+    "toolCalls": [
+      {
+        "id": "actual-write",
+        "name": "write"
+      },
+      {
+        "id": "actual-readback",
+        "name": "read"
+      },
+      {
+        "id": "actual-review",
+        "name": "manuscript_revision"
+      },
+      {
+        "id": "actual-declare",
+        "name": "manuscript_revision"
+      },
+      {
+        "id": "actual-present",
+        "name": "present"
+      }
+    ],
+    "reviewerRequests": 1,
+    "successfulPresentEvents": 1,
+    "reminderBeforeActualExecution": true
+  },
+  "tutorial": {
+    "mode": "tutorial",
+    "fakeCodeWasNotExecuted": true,
+    "loggedGenericNotices": 0,
+    "noticeActuallyReceived": false,
+    "toolCalls": [],
+    "reviewerRequests": 0,
+    "successfulPresentEvents": 0,
+    "reminderBeforeActualExecution": false
+  },
+  "chat": {
+    "mode": "chat",
+    "fakeCodeWasNotExecuted": true,
+    "loggedGenericNotices": 0,
+    "noticeActuallyReceived": false,
+    "toolCalls": [],
+    "reviewerRequests": 0,
+    "successfulPresentEvents": 0,
+    "reminderBeforeActualExecution": false
+  },
+  "no-file": {
+    "mode": "no-file",
+    "fakeCodeWasNotExecuted": true,
+    "loggedGenericNotices": 0,
+    "noticeActuallyReceived": false,
+    "toolCalls": [],
+    "reviewerRequests": 0,
+    "successfulPresentEvents": 0,
+    "reminderBeforeActualExecution": false
+  }
+}

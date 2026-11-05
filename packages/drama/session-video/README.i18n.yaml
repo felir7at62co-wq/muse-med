@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/session-video/README.md
+/:
+  en: 23aa4404b66a8078
+  zh: 73c1684cd547c8d9
+/deepseek-ai-dsh-session-video:
+  en: 50b550aa56e19c19
+  zh: f7339979597370d1
+/deepseek-ai-dsh-session-video/summary:
+  en: 71198d24436d3057
+  zh: 8b982d3371777195
+/deepseek-ai-dsh-session-video/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 87d7d2dbd7777429
+/deepseek-ai-dsh-session-video/use-this-package:
+  en: c0cb4aed3c1b10a2
+  zh: f44dee1b7a36f3b2
+/deepseek-ai-dsh-session-video/use-this-package/recorded-sources-and-detection:
+  en: c48ea31de0937946
+  zh: 8062c393489613b3
+/deepseek-ai-dsh-session-video/use-this-package/configuration:
+  en: d40a0805083a93e1
+  zh: 8b6d02de70821241
+/deepseek-ai-dsh-session-video/understand-the-implementation:
+  en: f25236eedfd34970
+  zh: 862cd15e8af7acf4
+/deepseek-ai-dsh-session-video/further-exploration:
+  en: fc68b5d9b375de86
+  zh: 6e1db10c18b4e20f
+/deepseek-ai-dsh-session-video/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-session-video/model-experience/video-inspection-in-the-client:
+  en: 562832edf8859fec
+  zh: 238b5240371c42fc
+/deepseek-ai-dsh-session-video/model-experience/video-inspection-in-the-client/what-the-model-sees:
+  en: 5a0a5cb6d9d201bf
+  zh: fda6a899497cfbe3
+/deepseek-ai-dsh-session-video/model-experience/video-inspection-in-the-client/token-effect:
+  en: 52a02af8a55fd66e
+  zh: 99c4a27108b2e491
+/deepseek-ai-dsh-session-video/model-experience/video-inspection-in-the-client/kv-cache-effect:
+  en: 6b4979b1d58f2281
+  zh: e066e7e225985a6d
+/deepseek-ai-dsh-session-video/known-limitations-and-deferred-work:
+  en: a323013af38eb232
+  zh: 20e08faffb5f6091
+/deepseek-ai-dsh-session-video/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

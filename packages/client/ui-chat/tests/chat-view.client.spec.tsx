@@ -479,7 +479,7 @@ function makeHarness(
     return renderUserContent(owner as UserContentInput, renderImages, props.t)
   }
   const renderSlot = (key: string, owner: ChatFlowOwnerProps, opts: Parameters<FlowRenderer>[2]) => {
-    if (key === 'conversation.chat.text-interaction') return null
+    if (key === 'conversation.chat.text-interaction' || key === 'conversation.chat.pinned') return null
     if (key !== 'conversation.chat.flow') throw new Error(`Undeclared ChatView child: ${key}`)
     if ('renderSlot' in owner || 'useStore' in owner || 'actions' in owner) {
       throw new Error('Flow owner data must not replace its rendering or store authority')
@@ -727,7 +727,7 @@ describe('Chat node rendering', () => {
       const { getTriggerProps } = useMarkdownDelegate()
       return <>{targets.map((target, index) => <button key={index} {...getTriggerProps!(target)}>{index}</button>)}</>
     }
-    const view = render(<ChatView {...h.props} renderSlot={() => <References />} />)
+    const view = render(<ChatView {...h.props} renderSlot={(key: string) => key === 'conversation.chat.flow' ? <References /> : null} />)
     directory = '/workspace/moved'
     for (const [index, target] of targets.entries()) {
       const button = view.getByRole('button', { name: String(index) })
@@ -4758,14 +4758,14 @@ it('formats Portuguese elapsed minutes with numeric units', () => {
 it('does not infer menu targets from links or data attributes inside a plugin flow slot', () => {
   const h = makeHarness()
   const custom = vi.fn()
-  const view = render(<ChatView {...h.props} renderSlot={() => <>
+  const view = render(<ChatView {...h.props} renderSlot={(key: string) => key === 'conversation.chat.flow' ? <>
     <a href="https://example.com/plugin">Plugin link</a>
     <button data-file-path="/plugin/private.txt">Undeclared file</button>
     <button onContextMenu={(event) => {
       event.preventDefault()
       custom()
     }}>Custom target</button>
-  </>} />)
+  </> : null} />)
   expect(fireEvent.contextMenu(view.getByRole('link', { name: 'Plugin link' }))).toBe(true)
   expect(fireEvent.contextMenu(view.getByRole('button', { name: 'Undeclared file' }))).toBe(true)
   fireEvent.contextMenu(view.getByRole('button', { name: 'Custom target' }))

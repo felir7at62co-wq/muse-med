@@ -3,6 +3,7 @@ scenario: office-authoring-checker
 profile: headless
 composition: office-authoring-checker
 recording: authored
+writerOutput: true
 header:
   class: office-authoring-checker
   pin: true

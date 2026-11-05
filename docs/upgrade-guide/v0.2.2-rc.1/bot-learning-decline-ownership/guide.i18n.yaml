@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/bot-learning-decline-ownership/guide.md
+/:
+  en: b8aca01b1ecf51d4
+  zh: 85d8a8bbd6e515ff
+/bot-skill-refusals-belong-to-one-bot:
+  en: 9b1df56d3c94f8cb
+  zh: d9756d3e41ac54de
+/bot-skill-refusals-belong-to-one-bot/change:
+  en: a75646e1dfa6548f
+  zh: 98ced8c06abea460
+/bot-skill-refusals-belong-to-one-bot/migration:
+  en: 945ed8521c1bfea1
+  zh: 79e119895dded6de

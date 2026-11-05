@@ -8,6 +8,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SessionStore from '@deepseek-ai/dsh-session'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import { afterEach, expect, it, vi } from 'vitest'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -188,12 +189,13 @@ it('boots the actual Muse plugin through Loader and keeps the default model and 
     { id: 'settings', name: 'cordis:settings' },
     { id: 'llm', name: 'cordis:llm' },
     { id: 'model', name: 'cordis:model', config: { provider: 'personal', model: 'unchanged-default' } },
+    { id: 'sessions', name: 'cordis:sessions' },
     { id: 'projections', name: 'cordis:projections' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
     { id: 'web', name: 'cordis:web', config: { searchProvider: 'muse', fetchProvider: 'http' } },
     { id: 'account', name: 'cordis:muse', config: { baseUrl: origin, accountHome: home, webSearch: true } },
-  ], builtins: { llm: LlmRuntime, projections: SessionProjectionRegistry, prompt: SystemPrompt, tools: ToolRuntime,
+  ], builtins: { llm: LlmRuntime, sessions: SessionStore, projections: SessionProjectionRegistry, prompt: SystemPrompt, tools: ToolRuntime,
     web: WebRuntime, muse: MuseAccount } })
   expect(await loaded.ctx.web.search({ query: 'q', maxResults: 8 })).toEqual({ sources: [
     { title: 'Gateway source', url: 'https://source.example', snippet: 'offline fixture' },

@@ -688,6 +688,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The interface returns path-only completion candidates within an Agent cwd; providers own namespace access and ranking without reading file contents.',
   },
   {
+    key: 'sessionVideo',
+    pkg: 'session-video',
+    title: 'Recorded Session video inspection',
+    mode: 'service',
+    consumers: ['client-ui-session-video'],
+    note: 'Provides recorded-source inventory, authenticated playback and bounded visual cut detection through one Session-authorized Remote namespace; results retain source versions and original video ranges.',
+  },
+  {
     key: 'sessionReferenceResolver',
     pkg: 'session-reference',
     title: 'Cross-session snapshot preparation',

@@ -23,6 +23,7 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { ConversationContent } from '../src/client/skeleton/ConversationContent.tsx'
 import { ConversationHeader } from '../src/client/skeleton/ConversationHeader.tsx'
+import { ConversationOverlays } from '../src/client/skeleton/ConversationOverlays.tsx'
 import { ConversationMainPanel } from '../src/client/skeleton/ConversationMainPanel.tsx'
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
 import { conversationPhase } from '../src/client/contract/snapshot.ts'
@@ -148,6 +149,8 @@ function mount(
     entryActions?: boolean
     /** Isolate header capability checks from the composer's required layout observers. */
     headerOnly?: boolean
+    headerPresentation?: 'standard' | 'floating'
+    displayTitle?: string
   } = {},
 ) {
   const sessionId = 'sessionId' in options ? options.sessionId : SID
@@ -159,7 +162,7 @@ function mount(
     running: false, retainedBy: {}, blank: false, updatedAt: 2,
   }
   const childRow = {
-    id: SID, displayTitle: 'Child', parentId: options.nestedSubagent === true ? parent : root,
+    id: SID, displayTitle: options.displayTitle ?? 'Child', parentId: options.nestedSubagent === true ? parent : root,
     cwd: '/projects/one', running: false, retainedBy: { mainView: 1 }, blank: options.summaryBlank ?? false, updatedAt: 3,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
@@ -211,19 +214,31 @@ function mount(
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
     if (key === 'conversation.session.header.views.actions') {
       actionsOwner = owner as ConversationViewActionsOwnerProps
+      if (!options.entryActions) return opts?.fallback ?? null
       return <button type="button" role="menuitem" onClick={actionsOwner.onDismiss}>Header view action</button>
+    }
+    if (key === 'conversation.content.overlay') {
+      return <div data-testid="view-conversation.content.overlay" data-active-view={'activeView' in owner ? String(owner.activeView) : ''} />
     }
     if (key === 'conversation.session.header.lineage') {
       lineageOwners.push(owner as ConversationHeaderLineageOwnerProps)
       return opts?.fallback ?? null
     }
     if (key === 'conversation.header') {
-      return <ConversationHeader {...runtimeProps} renderSlot={renderSlot as never} />
+      return <ConversationHeader {...runtimeProps} headerPresentation={options.headerPresentation ?? 'standard'} renderSlot={renderSlot as never} />
+    }
+    if (key === 'conversation.content.overlayHost') {
+      return <ConversationOverlays {...runtimeProps} sessionId={SID} useConversationViews={useConversationViews}
+        useChat={useChat} useTrajectory={useTrajectory}
+        useSession={useSession} useConversation={useConversation} useSessionStatus={useSessionStatus}
+        useInput={useInput} inputActions={inputActions}
+        {...allowAllAccess}
+        useStore={bindSnapshotSelector(store.store)} actions={store.actions} renderSlot={renderSlot as never} />
     }
     if (key === 'conversation.session.header') {
       return (
         <ConversationSessionHeader
-          hideChrome={(owner as Pick<ConversationSessionHeaderSlotProps, 'hideChrome'>).hideChrome}
+          {...owner as Pick<ConversationSessionHeaderSlotProps, 'hideChrome' | 'presentation'>}
           sessionId={SID}
           SessionProvider={({ children }) => children}
           useSession={useSession}
@@ -1056,5 +1071,90 @@ describe('ConversationRoot resident composer', () => {
   it('hero phase renders no width handles (no transcript to size)', () => {
     const b = mount(sessionSnapshotOf({ blank: true }))
     expect(b.view.container.querySelector('[data-width-handle]')).toBeNull()
+  })
+})
+
+describe('Floating conversation header', () => {
+  it('hosts overlays beside the scroll body and publishes the resolved View', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating' })
+    const overlay = b.view.getByTestId('view-conversation.content.overlay')
+    expect(overlay.dataset.activeView).toBe('chat')
+    const host = overlay.closest('[data-conversation-overlay]')
+    expect(host?.parentElement?.hasAttribute('data-conversation-content')).toBe(true)
+    expect(host?.parentElement?.querySelector('[data-conversation-scroll]')?.contains(host)).toBe(false)
+    act(() => { b.store.actions.setView('trajectory') })
+    expect(overlay.dataset.activeView).toBe('trajectory')
+  })
+
+  it('keeps overlay seats absent from the blank Hero', () => {
+    const b = mount(sessionSnapshotOf({ blank: true }), undefined, undefined, { headerPresentation: 'floating' })
+    expect(b.view.queryByTestId('view-conversation.content.overlay')).toBeNull()
+  })
+
+  it('keeps the current title on the floating row without restoring tabs or ancestry rows', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'floating', headerOnly: true, summaryOrigin: 'subagent', nestedSubagent: true,
+    })
+    expect(b.view.container.querySelector('header')?.dataset.conversationHeaderPresentation).toBe('floating')
+    expect(b.view.queryByRole('tablist')).toBeNull()
+    const title = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    expect(title.textContent).toBe('Child')
+    expect(title.querySelector('[data-conversation-floating-title]')).not.toBeNull()
+    expect(b.slotCalls).toContain('conversation.session.header.utilities')
+    expect(b.slotCalls).toContain('conversation.session.header.corner')
+    expect(b.slotCalls).toContain('conversation.session.header.actions')
+  })
+
+  it('keeps the standard header title, ancestry and tabs available', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'standard', headerOnly: true, summaryOrigin: 'subagent', entryActions: true,
+    })
+    const ancestry = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    expect(ancestry.textContent).toContain('Root')
+    expect(ancestry.textContent).toContain('Child')
+    const tabs = b.view.getByRole('tablist')
+    const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
+    expect(tabs.parentElement?.contains(more)).toBe(true)
+    expect(ancestry.parentElement?.contains(more)).toBe(false)
+    expect(b.view.container.querySelector('[data-conversation-floating-title]')).toBeNull()
+  })
+
+  it('keeps More views beside a long floating title and leaves native controls on the right', () => {
+    const displayTitle = 'Long session title '.repeat(30)
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'floating', headerOnly: true, displayTitle,
+    })
+    const title = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
+    expect(title.textContent).toBe(displayTitle)
+    expect(title.nextElementSibling?.contains(more)).toBe(true)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.actions'))).toBe(false)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.utilities'))).toBe(false)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.corner'))).toBe(false)
+    fireEvent.click(more)
+    expect(screen.getByRole('menuitem', { name: 'Trajectory' })).toBeTruthy()
+  })
+
+  it('restores header flow for another View and floats again when Chat is selected', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating' })
+    fireEvent.click(b.view.getByRole('button', { name: zh['session.moreViews'] }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Trajectory' }))
+    expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
+    expect(b.view.container.querySelector('[data-conversation-session-presentation]')?.getAttribute('data-conversation-session-presentation')).toBe('standard')
+    expect(b.view.getByRole('tab', { name: 'Trajectory' }).getAttribute('aria-selected')).toBe('true')
+    expect(b.view.container.querySelector('[data-conversation-floating-title]')).toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(b.view.getByRole('tab', { name: 'Chat' }))
+    expect(b.view.container.querySelector('[data-conversation-session-presentation]')?.getAttribute('data-conversation-session-presentation')).toBe('floating')
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+    expect(b.view.queryByRole('tablist')).toBeNull()
+  })
+
+  it('hands the complete View list to a native customization menu in floating mode', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating', entryActions: true })
+    fireEvent.click(b.view.getByRole('button', { name: zh['session.moreViews'] }))
+    expect(b.actionsOwner().entries.map(entry => entry.id)).toEqual(['chat', 'trajectory'])
+    act(() => { b.actionsOwner().onOpen('trajectory') })
+    expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
   })
 })

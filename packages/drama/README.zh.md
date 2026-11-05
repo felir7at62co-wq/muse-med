@@ -26,6 +26,7 @@ kind: "package-group"
 |---|---|
 | [`character-asset-catalog/`](character-asset-catalog/README.zh.md) | 按来源区分的人物 metadata 适配，通过调用方读取器核验图片字节，不授予批准或写入存储 |
 | [`screenplay-project/`](screenplay-project/README.zh.md) | 以来源为依据写作、独立事实与分集审校、程序生成引用和可恢复的人物知情状态 |
+| [`session-video/`](session-video/README.zh.md) | 会话视频清单、授权媒体访问，以及带来源版本检查的画面切镜检测 |
 | [`tool-audio-transcribe/`](tool-audio-transcribe/README.zh.md) | 模型可见的 `audio_transcribe` 工具：通过当前账号云端转写本地媒体，保存持久任务收据和版本化转写稿 |
 | [`tool-shot-script/`](tool-shot-script/README.zh.md) | 模型可见的 `drama_shot` 工具：默认严格编译脚本，Muse 短剧模式采用提示型内容检查、分包建议和独立检查草稿 |
 | [`bgm-license-info/`](bgm-license-info/README.zh.md) | 曲库与渲染使用方共享的音乐权利声明、明确的未知元数据及用途冲突提示 |

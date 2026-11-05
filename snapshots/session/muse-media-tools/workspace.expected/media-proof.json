@@ -1,0 +1,15 @@
+{
+  "downloadRequests": 3,
+  "downloadJobs": 2,
+  "duplicateReused": true,
+  "pendingQueriedOriginalJob": true,
+  "partialPromoted": false,
+  "authenticatedFileReads": 1,
+  "localBytes": 1698,
+  "localSha256": "aedfa3de28fc43ac56699b7c6d184862cd8be4633d1bc838ca17ced8aeaba1cb",
+  "fullDecodeVerified": true,
+  "deliveries": 1,
+  "rateLimitReported": true,
+  "permissionDeniedReported": true,
+  "credentialsLogged": false
+}

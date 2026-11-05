@@ -41,7 +41,8 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     }
     const discovery = Discovery.Config({ ...config, alwaysLoad: names })
     expect(discovery.alwaysLoad).toContain('ask_user_question')
-    for (const name of ['show_view', 'ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']) {
+    expect(discovery.alwaysLoad).toContain('show_view')
+    for (const name of ['ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']) {
       expect(discovery.alwaysLoad.includes(name), name).toBe(mode !== 'classic')
     }
     expect(discovery.alwaysLoad).toContain('video_inspect')

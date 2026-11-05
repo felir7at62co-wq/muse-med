@@ -374,20 +374,37 @@ export function conversationContextKey(kind: string, id: string): string {
   return `${kind.length}:${kind}${id}`
 }
 
-/** Open Settings through the sidebar account menu.
+/** Locate the current Settings entry without assuming an account menu is mounted.
+ * @param page - browser page with the mounted sidebar.
+ * @param locale - current UI language.
+ * @returns The registered account-menu trigger or the direct Settings button.
+ */
+export function settingsLauncher(page: Page, locale: 'en' | 'zh' | 'ja'): Locator {
+  const labels = { en: ['Account menu', 'Settings'], zh: ['账号菜单', '设置'], ja: ['アカウントメニュー', '設定'] } as const
+  const account = page.getByRole('button', {
+    name: labels[locale][0], exact: true, includeHidden: true,
+  })
+  const settings = page.getByRole('button', {
+    name: labels[locale][1], exact: true, includeHidden: true,
+  })
+  return account.or(settings)
+}
+
+/** Open Settings through the registered sidebar launcher.
  * @param page - browser page with the mounted sidebar.
  * @param locale - current UI language.
  */
 export async function openSettings(page: Page, locale: 'en' | 'zh' | 'ja'): Promise<void> {
   const labels = { en: ['Account menu', 'Settings'], zh: ['账号菜单', '设置'], ja: ['アカウントメニュー', '設定'] } as const
-  const trigger = page.getByRole('button', {
-    name: labels[locale][0], exact: true, includeHidden: true,
-  })
+  const account = page.getByRole('button', { name: labels[locale][0], exact: true, includeHidden: true })
+  const trigger = settingsLauncher(page, locale)
   await trigger.waitFor({ state: 'attached' })
   await revealNavigationDrawer(page, locale)
   if (!await trigger.isVisible()) {
     await page.getByRole('button', { name: { en: 'Open sidebar', zh: '打开侧边栏', ja: 'サイドバーを開く' }[locale], exact: true }).click()
   }
   await trigger.click()
-  await page.getByRole('menuitem', { name: labels[locale][1], exact: true }).click()
+  if (await account.count() > 0) {
+    await page.getByRole('menuitem', { name: labels[locale][1], exact: true }).click()
+  }
 }
