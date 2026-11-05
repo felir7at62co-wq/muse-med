@@ -991,6 +991,11 @@ def _smoke_sdk_authoring_cached(base_url: str, executable: Path, update_snapshot
                     Path(__file__).resolve().parent / "fixtures/python-sdk-authoring-clock.mjs"
                 ).as_uri()}]},
                 {"id": "time-context", "config": {"timeZone": "UTC"}},
+                {"id": "skill-filesystem", "config": {
+                    "includeDefaultRoots": True, "includeProjectRoots": False, "customSkillDirs": [],
+                    "dshHome": str(home), "museHome": str(root / "muse"), "agentsHome": str(root / "agents"),
+                    "bundledSkillDir": str(root / "bundled-skills"),
+                }},
             ]
             if mode == "disabled":
                 patch_rows.append({"id": "skill-office", "disabled": True})
@@ -2089,7 +2094,7 @@ def smoke_sdk_snapshot_mode(
         compare_snapshot_files(
             files, update_snapshots, ADVANCED_SNAPSHOT_DIRECTORY if mode == "native" else ADVANCED_SNAPSHOT_ROOT / "advanced-ptc",
             ADVANCED_SNAPSHOT_FILENAMES if mode == "native" else ("result.json", "session.v4.jsonl"),
-            native_writer_output=True,
+            native_writer_output=True, writer_expected=True,
         )
 
 

@@ -15,6 +15,9 @@ import { acceptsNpmPlatform } from '../npm-platform.ts'
 import lock from './lock.json' with { type: 'json' }
 import { prunePrimaryRuntimePythonTests } from './prune-python-tests.ts'
 
+/** OCR model notices copied into each primary runtime payload. */
+export const PRIMARY_RUNTIME_NOTICE_FILES = ['ocr-models-notice.txt', 'ocr-models-license.txt'] as const
+
 /**
  * Download or reuse an archive only when its bytes match the release lock.
  * @param url - Locked archive URL.
@@ -128,7 +131,7 @@ export function primaryRuntimePayloadDigest(
   return createHash('sha256').update(JSON.stringify({
     format: 8, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
-    ocrNotices: ['ocr-models-notice.txt', 'ocr-models-license.txt'].map(filename =>
+    ocrNotices: PRIMARY_RUNTIME_NOTICE_FILES.map(filename =>
       createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
   })).digest('hex')
 }
@@ -254,8 +257,8 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     for (const wheel of [...lock.targets[target].wheels, ...lock.wheels]) {
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
     }
-    for (const filename of ['ocr-models-notice.txt', 'ocr-models-license.txt']) {
-      cpSync(join(import.meta.dirname, filename), join(output, filename))
+    for (const filename of PRIMARY_RUNTIME_NOTICE_FILES) {
+      writeFileSync(join(output, filename), readFileSync(join(import.meta.dirname, filename)))
     }
     prunePrimaryRuntimePythonTests(entries.pythonPackages)
     writeFileSync(join(output, 'runtime.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)

@@ -10,16 +10,16 @@ import { createHash } from 'node:crypto'
 import { build as bundle } from 'tsdown'
 import { spawn } from 'node:child_process'
 import { pnpmInvocation, verifyStagedDependencies } from './executable-packaging.ts'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { chmod, copyFile, cp, glob, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './executable-native-pty.ts'
 import { officeSidecarArchives, runtimeNpmArchive, OFFICE_ASSET_IGNORES } from './build-exe-for-python-sdk-office.ts'
 import { syncPythonRuntimeProduct } from './build-exe-for-python-sdk-resources.ts'
 import { deduplicateStagedWorkspacePackages, materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
-import { prepareOfficeSkillAssets } from './primary-runtime/prepare.ts'
+import { prepareOfficeSkillAssets, PRIMARY_RUNTIME_NOTICE_FILES } from './primary-runtime/prepare.ts'
 import primaryLock from './primary-runtime/lock.json' with { type: 'json' }
 
 const root = resolve(import.meta.dirname, '..')
@@ -48,6 +48,7 @@ const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
 const ASSET_GLOBS = [
   'package.json',
   '*.mjs',
+  ...PRIMARY_RUNTIME_NOTICE_FILES,
   'node_modules/**/*.js',
   'node_modules/**/*.cjs',
   'node_modules/**/*.mjs',
@@ -277,6 +278,7 @@ class SingleExeBuild {
    */
   readonly staging = resolve(root, PYTHON_RUNTIME_DIR, PYTHON_NODE_SUBDIR)
   private readonly outDir = resolve(root, OUT_DIR)
+  private readonly pkgCli = realpathSync(fileURLToPath(import.meta.resolve('@yao-pkg/pkg/lib-es5/bin.js')))
 
   constructor(private readonly cli: BuildCli) {}
 
@@ -376,6 +378,9 @@ class SingleExeBuild {
     } finally {
       for (const entry of Object.values(entries)) await rm(entry, { force: true })
     }
+    for (const notice of PRIMARY_RUNTIME_NOTICE_FILES) {
+      await copyFile(join(root, 'scripts', 'primary-runtime', notice), join(this.staging, notice))
+    }
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
     await writeFile(manifestPath, `${JSON.stringify({ ...manifest, ...patch }, null, 2)}\n`)
     await this.run('resource helper imports', process.execPath, ['--input-type=module', '--eval',
@@ -394,9 +399,8 @@ class SingleExeBuild {
     await this.prepareNativePty(target)
     const platform = target.platform === 'macos' ? 'darwin' : target.platform === 'win' ? 'win32' : target.platform
     if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
-    await this.runPnpm(`pkg ${target.spec}`, [
-      'exec',
-      'pkg',
+    await this.run(`pkg ${target.spec}`, process.execPath, [
+      this.pkgCli,
       this.staging,
       '--sea',
       '--compress',

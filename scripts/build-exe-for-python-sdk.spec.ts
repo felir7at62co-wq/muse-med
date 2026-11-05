@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
 const script = resolve(root, 'scripts/build-exe-for-python-sdk.ts')
+const pkgCli = realpathSync(fileURLToPath(import.meta.resolve('@yao-pkg/pkg/lib-es5/bin.js')))
 const temporaryDirectories: string[] = []
 
 afterEach(() => {
@@ -142,7 +144,8 @@ describe('Python runtime executable builder CLI', () => {
     expect(result.stdout.split('--config.allow-unused-patches=true')).toHaveLength(2)
     expect(result.stdout).not.toContain(resolve(root, 'python/sdk-runtime/runtime-bootstrap.mjs'))
     expect(result.stdout).toContain('"bin":"runtime-bootstrap.mjs"')
-    expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs exec pkg`)
+    expect(result.stdout).toContain(`${process.execPath} ${pkgCli}`)
+    expect(result.stdout).not.toContain('exec pkg')
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })
 
@@ -176,7 +179,7 @@ describe('Python runtime executable builder CLI', () => {
     )
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain('exec pkg')
+    expect(result.stdout).toContain(`${process.execPath} ${pkgCli}`)
     expect(result.stdout).toContain('--sea --compress Brotli --targets node24-macos-x64')
     expect(result.stdout).toContain('keep only node-pty prebuilds darwin-x64')
     expect(result.stdout).toContain('lock optional resource downloads and copy Office skills')

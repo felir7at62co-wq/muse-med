@@ -1,5 +1,5 @@
 diff --git a/lib-es5/sea-assets.js b/lib-es5/sea-assets.js
-index a0cb0de8491d4eff37aba7eaaeeec5934f5a9985..f6bb9a35ce2c1978fb08a3400a36a86ce7a43c43 100644
+index a0cb0de8491d4eff37aba7eaaeeec5934f5a9985..64007c35530e3affb26650c4a251c46d3e77b35c 100644
 --- a/lib-es5/sea-assets.js
 +++ b/lib-es5/sea-assets.js
 @@ -69,7 +69,13 @@ function resolveCompressor(type) {
@@ -163,3 +163,19 @@ index ac14980e953134f2285e326a5111cf52de717cf5..272dbc51ccefb5ce1ab87ffcf5916fbd
      shared.setupProcessPkg(entrypoint2, manifest2.entrypoint);
      if (manifest2.debug) {
        shared.installDiagnostic(SNAPSHOT_PREFIX);
+diff --git a/prelude/sea-vfs-setup.js b/prelude/sea-vfs-setup.js
+index 94a34ea58dc14d7e39ebbd5aaf6351612ffd6891..a29a77e71ae2cad1d1972a3053f63a57748f38ae 100644
+--- a/prelude/sea-vfs-setup.js
++++ b/prelude/sea-vfs-setup.js
+@@ -425,7 +425,10 @@ class SEAProvider extends MemoryProvider {
+               filePath,
+           );
+         }
+-        buf = this._decompress(slice, { maxOutputLength: maxOutputLength });
++        buf = this._decompress(slice, { maxOutputLength: Math.max(1, maxOutputLength) });
++        if (buf.length !== maxOutputLength) {
++          throw new Error('pkg: corrupt SEA manifest: decompressed size does not match stats.size for ' + filePath);
++        }
+         this._fileCache.set(p, buf);
+       } else {
+         buf = slice;
