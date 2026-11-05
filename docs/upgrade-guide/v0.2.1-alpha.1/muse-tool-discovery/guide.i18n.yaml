@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-tool-discovery/guide.md
 /:
-  en: c26f17e793113a73
-  zh: 0816a44cc371b3ff
-/muse-tool-discovery-and-bot-roles:
-  en: 78d4ef69289acfe0
-  zh: f2397b2928b1871e
-/muse-tool-discovery-and-bot-roles/change:
-  en: e2b6d6f4ccec35f1
-  zh: 760bcff0edf1ca8c
-/muse-tool-discovery-and-bot-roles/migration:
-  en: ba98018c4fd3b3bd
-  zh: 944156457fe8f92d
+  en: ee2840c86353037a
+  zh: 4a9dca93e731c2fb
+/muse-session-tool-discovery:
+  en: 052e4dbf3f0597c0
+  zh: b34ea139a8f5905a
+/muse-session-tool-discovery/change:
+  en: 1d479df6880c47e0
+  zh: 28e739394165abbe
+/muse-session-tool-discovery/migration:
+  en: ad533695c1cdcfe8
+  zh: 56cb1c274f7cfac5

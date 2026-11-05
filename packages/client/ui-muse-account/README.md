@@ -31,7 +31,7 @@ Each opening verifies the saved login with the gateway before displaying account
 
 The signed-in account area shows **User management** only when the Host returns a verified administrator identity and an administration URL. Reverification immediately hides that entry until it succeeds again. Cached or ordinary identities never show it. The button opens the Host-validated administration URL without appending credentials.
 
-Existing Desktop compositions continue to supply the required `feedbackUrl` setting for compatibility. It accepts HTTPS pages without URL credentials; local gateways may use HTTP only on `localhost`, `127.0.0.1`, or `[::1]`, with an optional explicit port and a non-root page path. In **Muse Bot settings → Feedback**, open the native session feedback form and submit it after reviewing the content.
+Existing Desktop compositions continue to supply the required `feedbackUrl` setting for compatibility. It accepts HTTPS pages without URL credentials; local gateways may use HTTP only on `localhost`, `127.0.0.1`, or `[::1]`, with an optional explicit port and a non-root page path.
 
 In Muse Desktop this plugin also provides delivery for the existing message and task feedback dialogs through `museAccount.feedback`. Their submissions use the saved Desktop login and arrive in the account opinion inbox. The [dialog package](../ui-message-feedback/README.md) owns the optional excerpt choice, retained drafts, and receipt acknowledgement. Missing Muse delivery never becomes a local-only success; other profiles retain their local feedback behavior.
 
@@ -42,16 +42,16 @@ The sidebar shows one account button beside connection and update status. The ex
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The Host and Client compile through `tsconfig.host.json` and `tsconfig.client.json`; the package root config only combines these programs. The browser bundle mounts the generated `museAccount` Remote contribution, then registers locale copy, the Settings section, the sidebar launcher, and the first-run sign-in panel. It only exposes bounded status and error codes from the Host; saved cookies and KB bearers remain in the Host process. No runtime invariant companion is published because these registrations are visible through their owning slot and Remote registries, with no separate state to reconcile.
+The Host and Client compile through `tsconfig.host.json` and `tsconfig.client.json`; the package root config only combines these programs. The browser bundle mounts the generated `museAccount` Remote contribution, then registers locale copy, the Settings section, the sidebar launcher, and the first-run sign-in panel. It only exposes bounded status and error codes from the Host; saved cookies remain in the Host process. No runtime invariant companion is published because these registrations are visible through their owning slot and Remote registries, with no separate state to reconcile.
 
-The sidebar account button exposes `data-muse-account-launcher` for Muse Bot to open native Settings without depending on its localized label.
+The sidebar account button exposes `data-muse-account-launcher` for native controls to open Settings without depending on its localized label.
 
 -----
 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Muse account Host](../../host/muse-account/README.md) — login storage, knowledge-base tools, and speech access.
+- [Muse account Host](../../host/muse-account/README.md) — login storage, model routing, and speech access.
 - [Desktop composition](../../../apps/desktop/README.md) — packaged profile and user flows.
 
 -----
@@ -63,7 +63,7 @@ The sidebar account button exposes `data-muse-account-launcher` for Muse Bot to 
 
 #### What the model sees
 
-The `museAccount` Remote namespace serves browser requests. This UI plugin adds no model-facing tools or prompt text; the Host package owns account and knowledge-base tool schemas.
+The `museAccount` Remote namespace serves browser requests. This UI plugin adds no model-facing tools or prompt text; the Host package owns account-authorized model and speech services.
 
 #### Token effect
 

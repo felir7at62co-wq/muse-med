@@ -72,7 +72,6 @@ export function createElectronBuilderConfig(
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
     '**/@deepseek-ai/dsh-drama-skills/**', '**/@deepseek-ai/dsh-desktop-host/skills/**',
     '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**', '**/@openai/codex*/**',
-    '**/ds-bot/office.js',
     ...packagesWindows ? ['**/@deepseek-ai/dsh-tool-video-inspect/scripts/**'] : [],
     '**/muse-douyin-download/python/**', '**/muse-hongguo-download/python/**',
     '**/muse-reverse-tools/resources/**', '**/muse-fanqie-download/python/**', '**/muse-lvpaopao/native/**',

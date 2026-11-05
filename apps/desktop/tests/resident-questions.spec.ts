@@ -1,5 +1,5 @@
-/** Product discovery keeps both shipped question tools usable before professional-tool discovery. */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+/** Current native questions and explicitly retained Bot cards keep separate discovery fixtures. */
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -23,14 +23,16 @@ import * as BotQuestions from './fixtures/resident-bot-questions.mjs'
 
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 
-it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s question tool without a discovery call', async (mode) => {
+it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s question with its current or historical policy', async (mode) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-resident-questions-'))
   const ctx = new Context()
   try {
     const row = loadOverlayPatches('resident-question-test', patchPath)
       .flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'tool-discovery')
     if (!row) throw new Error('Missing product tool discovery row')
-    const config: unknown = row.config
+    const config: unknown = mode === 'classic' ? row.config : JSON.parse(await readFile(new URL(
+      '../../../snapshots/session/muse-resident-question/legacy-discovery.json', import.meta.url,
+    ), 'utf8'))
     if (!config || typeof config !== 'object' || !('alwaysLoad' in config)) throw new Error('Missing resident tool names')
     const names: unknown = config.alwaysLoad
     if (!Array.isArray(names) || !names.every((name: unknown): name is string => typeof name === 'string')) {
@@ -38,12 +40,14 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     }
     const discovery = Discovery.Config({ ...config, alwaysLoad: names })
     expect(discovery.alwaysLoad).toContain('ask_user_question')
-    expect(discovery.alwaysLoad).toContain('ask_user')
-    expect(discovery.alwaysLoad).toContain('show_view')
-    for (const name of ['show_view', 'ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'drama_shot', 'manuscript_revision', 'video_inspect', 'drama_project',
+    for (const name of ['show_view', 'ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']) {
+      expect(discovery.alwaysLoad.includes(name), name).toBe(mode !== 'classic')
+    }
+    expect(discovery.alwaysLoad).toContain('video_inspect')
+    for (const name of ['drama_shot', 'manuscript_revision', 'drama_project',
       'source_recover', 'muse_production', 'jubian_catalog', 'jubian_organize', 'jubian_find',
       'drama_character_reference_project', 'drama_character_references', 'drama_character_reference_view']) {
-      expect(discovery.alwaysLoad).toContain(name)
+      expect(discovery.alwaysLoad).not.toContain(name)
     }
     for (const name of ['manuscript_work', 'creative_guidance', 'source_review', 'screenplay_project']) {
       expect(discovery.alwaysLoad).not.toContain(name)

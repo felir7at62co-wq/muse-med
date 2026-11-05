@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -15,19 +14,12 @@ import { MuseDesktopRemote } from '../src/desktop-remote.ts'
 import { MuseAccountService } from '../src/service.ts'
 import { apply, Config } from '../src/index.ts'
 import { writeMuseSession } from '../src/session.ts'
-import type { Config as McpConfig } from '@deepseek-ai/dsh-mcp-client'
 import { afterEach, expect, it, vi } from 'vitest'
 
-const discovery = vi.hoisted(() => ({ apply: vi.fn<(_ctx: Context, _config: McpConfig) => void>() }))
-vi.mock('@deepseek-ai/dsh-mcp-client', async original => ({
-  ...await original<typeof import('@deepseek-ai/dsh-mcp-client')>(),
-  inject: [], apply: discovery.apply,
-}))
 const homes: string[] = [], contexts: Context[] = []
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(homes.splice(0).map(home => rm(home, { recursive: true, force: true })))
-  discovery.apply.mockClear()
   vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers()
 })
 const catalog = { providers: [{ id: 'studio', name: 'Studio', models: [{ id: 'writer', name: 'Writer',
@@ -95,7 +87,6 @@ it('defaults account provider filters to empty lists and rejects malformed IDs b
     [{ providerId: 'yunying', modelId: '' }], [{ providerId: 'yunying' }]]) {
     expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, visibleModels }]) }).toThrow()
   }
-  expect(discovery.apply).not.toHaveBeenCalled()
 })
 
 it('rejects invalid model image budgets before activation', () => {
@@ -155,25 +146,16 @@ it('requests durable offloading when account model images exceed the configured 
   expect((await ctx.attachments.readImage(ref)).data.byteLength).toBeGreaterThan(0)
 })
 
-it('rejects a relative product account home before mounting account services or discovery', async () => {
+it('rejects a relative product account home before mounting account services', async () => {
   const { ctx } = await fixture()
   await expect(apply(ctx, Config({ baseUrl, accountHome: 'relative/account' }))).rejects.toThrow('accountHome must be absolute')
-  expect(discovery.apply).not.toHaveBeenCalled()
 })
 
-it('mounts the account service and a credential-free child using the configured product home', async () => {
+it('mounts the account service using the configured product home without an MCP child', async () => {
   const { ctx, home } = await fixture()
   vi.stubEnv('MUSE_HOME', home)
   await apply(ctx, Config({ baseUrl }))
   expect(await account(ctx).status({})).toEqual({ state: 'signed-out' })
-  expect(discovery.apply).toHaveBeenCalledOnce()
-  const configured = discovery.apply.mock.calls[0]?.[1]
-  expect(configured).toMatchObject({ serverName: 'muse-account', transport: 'stdio', command: process.execPath,
-    failOnStartupError: true, args: [fileURLToPath(new URL('../lib/types/mcp-server.js', import.meta.url))] })
-  if (!configured || configured.transport !== 'stdio') throw new Error('Bundled stdio discovery was not mounted')
-  const launch = JSON.parse(configured.env?.MUSE_ACCOUNT_CONFIG ?? '{}') as Record<string, unknown>
-  expect(launch).toEqual({ baseUrl, accountHome: join(home, 'muse-account'), requestTimeoutMs: 15000 })
-  expect(JSON.stringify(configured)).not.toContain('password')
   await expect(account(ctx).feedback({ sessionId: SessionId('missing'), target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/sign-in-required' })
 })
@@ -183,7 +165,6 @@ it.each(['none', 'bridge', 'connection'] as const)('refuses remote access before
   if (part !== 'none') await host(ctx, part)
   await expect(apply(ctx, Config({ baseUrl, accountHome: home, remoteAccess: true })))
     .rejects.toThrow('remoteAccess requires museDesktopBridge, connection and webServer providers')
-  expect(discovery.apply).not.toHaveBeenCalled()
 })
 
 it('exchanges the real loopback Host token for a cookie and stops the account tunnel on disposal', async () => {

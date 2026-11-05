@@ -1,11 +1,9 @@
-/** Muse Desktop account service, session-authorized models, and bundled knowledge-base MCP server. */
+/** Muse Desktop account service, session-authorized models, and cloud speech access. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { MuseAccountController } from './account.ts'
 import { MuseBrowserLogin } from './browser-login.ts'
 import { MuseAsrClient } from './asr.ts'
@@ -38,7 +36,7 @@ export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel'
 
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {
-  /** MUSE website origin serving account and knowledge-base access endpoints. */
+  /** MUSE website origin serving account-authorized services. */
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
@@ -64,7 +62,7 @@ export interface Config {
   }[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
-  /** Timeout for account and knowledge-base gateway requests in milliseconds. */
+  /** Timeout for account gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
   /** Register account-authorized search when a web service is present. Muse Desktop enables it. */
   readonly webSearch: boolean
@@ -121,11 +119,10 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
 })
 
 /**
- * Mount the Host account service and await the bundled stdio MCP discovery.
- * The MCP child requires the package's built files, including for source profile launches.
+ * Mount the Host account service with account-authorized models, speech and feedback.
  * @param ctx - Product Host context.
  * @param config - Gateway origin and optional product-home storage directory.
- * @returns Completion after the MCP tools have registered.
+ * @returns Completion after the account service has activated.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const baseUrl = museGatewayOrigin(config.baseUrl)
@@ -197,15 +194,4 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots,
     ...(remote === undefined ? {} : { remote }) })
   await service.await()
-
-  const server = fileURLToPath(new URL('./lib/types/mcp-server.js', import.meta.resolve('@deepseek-ai/dsh-muse-account/package.json')))
-  const child = ctx.plugin(McpClient, McpClient.Config({
-    serverName: 'muse-account',
-    transport: 'stdio',
-    command: process.execPath,
-    args: [server],
-    env: { MUSE_ACCOUNT_CONFIG: JSON.stringify({ baseUrl, accountHome, requestTimeoutMs: config.requestTimeoutMs }) },
-    failOnStartupError: true,
-  }))
-  await child.await()
 }

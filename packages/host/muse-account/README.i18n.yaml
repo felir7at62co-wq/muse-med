@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/muse-account/README.md
 /:
-  en: 5c8d78fcc475576a
-  zh: a8769bceed306b19
+  en: 65cb1bbdd702c992
+  zh: e3a24621dbe9ca7f
 /deepseek-ai-dsh-muse-account:
   en: db5527a4bb7a543e
   zh: 8af3bc11b56325b5
 /deepseek-ai-dsh-muse-account/summary:
-  en: cf32bd15f344a589
-  zh: 71e67462d1f74ab8
+  en: 1ded5950b0654d15
+  zh: 26103f2974429fa4
 /deepseek-ai-dsh-muse-account/table-of-contents:
   en: d152484eb41ac6b4
   zh: ffab54373e9e61f0
 /deepseek-ai-dsh-muse-account/use-this-package:
-  en: e0f048ea9af31dba
-  zh: 211b68a97caf0e10
+  en: f7bc8a2bbaaa1cbb
+  zh: 6650d4e346c7f978
 /deepseek-ai-dsh-muse-account/use-this-package/account-authorized-web-search:
   en: 176956ec3d631560
   zh: 98b06e33be6e5060
@@ -27,17 +27,17 @@
   en: 27ac5f78763f8980
   zh: dbacd0b9dc857ec9
 /deepseek-ai-dsh-muse-account/use-this-package/minimal-configuration:
-  en: ec83273ba274c208
-  zh: cc822bef7c9fed9e
+  en: 1b1bb42e14161a8d
+  zh: d9d515b227f7cfda
 /deepseek-ai-dsh-muse-account/use-this-package/desktop-access-from-the-website:
   en: 3274ef3700b1dae4
   zh: d2725395470e644f
 /deepseek-ai-dsh-muse-account/understand-the-implementation:
-  en: 5eebb0b2c1e3e1e3
-  zh: 1bb60efa69dfd155
+  en: a1a35ac6ae7fc0c4
+  zh: 84853642723def64
 /deepseek-ai-dsh-muse-account/further-exploration:
-  en: faff5afdd2802119
-  zh: b07fdc3d0e9acb9a
+  en: 8fb653062f85caec
+  zh: 26eef9f888d77a30
 /deepseek-ai-dsh-muse-account/model-experience:
   en: 215e7ba838619b7b
   zh: 215e7ba838619b7b
@@ -45,17 +45,17 @@
   en: cd8530c72534ee6b
   zh: cd8530c72534ee6b
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/what-the-model-sees:
-  en: a7e4d0c36693307d
-  zh: ea98a3cbcb040bcf
+  en: 8a1d745551858eda
+  zh: 4ae95ff9991c1a6e
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/token-effect:
-  en: 4205ae732fdc2656
-  zh: 11cee690cb0495c8
+  en: e6fd4a821e1a081c
+  zh: 7bba41a95e1711c0
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/kv-cache-effect:
-  en: 4a9756262e148303
-  zh: 80be931da34e852a
+  en: d9c7f8f40da48c36
+  zh: ed817aa3f6a2ee19
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work:
-  en: 6dd9db63173b3ecb
-  zh: c3f604c7ea9b531e
+  en: 1953050cd69ab1df
+  zh: 5cbf99313bcb0e51
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 8ec3e73528ddb1a6

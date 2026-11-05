@@ -7,7 +7,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama, bot-coordinator]
+    selectablePresets: [short-drama]
 
 - id: ui-conversation
   config:

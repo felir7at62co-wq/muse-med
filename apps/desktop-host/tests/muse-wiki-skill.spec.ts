@@ -25,7 +25,7 @@ it('loads retained Muse Wiki guidance for logged-in navigation, cited synthesis,
     }
     expect(input).toMatch(/冲突.*重读.*合并/su)
     expect(input).toMatch(/当前.*登录.*不.*密钥/su)
-    expect(CREATION_SKILL_NAMES).toContain('muse-llm-wiki')
+    expect(CREATION_SKILL_NAMES).not.toContain('muse-llm-wiki')
     const preset = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
     expect(preset).not.toContain('muse-llm-wiki')
   } finally {
@@ -53,15 +53,16 @@ it('loads retained proactive participation guidance across presets with private 
       const preset = await readFile(new URL('../presets/' + name + '/agent.cordis.yml', import.meta.url), 'utf8')
       if (name === 'creation') {
         expect(preset).toContain('@deepseek-ai/dsh-desktop-host/creation-skills')
-        expect(CREATION_SKILL_NAMES).toContain('muse-project-participation')
+        expect(CREATION_SKILL_NAMES).not.toContain('muse-project-participation')
       } else if (name === 'short-drama') {
         expect(preset).not.toContain('muse-project-participation')
       } else {
-        expect(preset).toContain('muse-project-participation')
+        expect(preset).not.toContain('muse-project-participation')
       }
     }
     const minimal = await readFile(new URL('../presets/minimal/agent.cordis.yml', import.meta.url), 'utf8')
-    expect(minimal).toContain('no Muse Wiki tools')
+    expect(minimal).not.toContain('Wiki')
+    expect(minimal).toContain('authorized workspace')
   } finally {
     await ctx.fiber.dispose()
   }

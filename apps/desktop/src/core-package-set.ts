@@ -22,9 +22,6 @@ export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 /** Reviewed ChatGPT subscription provider and its local account settings. */
 export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
 
-/** Reviewed native team workspace supplied by the Muse application. */
-export const DESKTOP_MUSE_BOT_PACKAGE = 'ds-bot'
-
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -81,15 +78,9 @@ export const DESKTOP_CODEX_RUNTIME_FILES = [
   'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
 ] as const
 
-/** Native team Host, browser module and attribution required from the Muse Bot tarball. */
-export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
-  'index.js', 'src/host/agents.js', 'src/host/store.js', 'src/host/parts.js', 'src/host/muse-config.js',
-  'client.js', 'cordis.patch.yml', 'SOURCE.json', 'LICENSE', 'NOTICE',
-] as const
-
 /** Source-built community plugins and Muse tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE,
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao',

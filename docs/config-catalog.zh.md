@@ -2383,12 +2383,12 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:40`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:38`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {
-  /** MUSE website origin serving account and knowledge-base access endpoints. */
+  /** MUSE website origin serving account-authorized services. */
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
@@ -2414,7 +2414,7 @@ export interface Config {
   }[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
-  /** Timeout for account and knowledge-base gateway requests in milliseconds. */
+  /** Timeout for account gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
   /** Register account-authorized search when a web service is present. Muse Desktop enables it. */
   readonly webSearch: boolean

@@ -6,9 +6,7 @@
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
-源码清单中 desktop: false 的条目仅保留用于显式兼容工作，默认构建、桌面打包与开发加载均排除。Codex 订阅包含在产品构建中；不会仅因订阅插件而选择可选 Codex CLI peer。--only dsh-codex-subscription 可单独构建其经过审核的产物。
-
-构建工具链使用独立 workspace 配置，仅跳过 deep-view 的四个 Host peer 的自动安装；暂存目录仍提供本仓库已构建的实际 Host 依赖。DS Bot 0.2.4 同时构建浏览器模块与独立 Office CLI，保留 Office skills；桌面包将该 CLI 从应用归档中解包以供执行。
+源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。默认交付包含七个保留源码插件和七个 Muse 自有插件；Bot 固定版本与源码原样保留，供显式恢复使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。Codex 订阅包含在产品构建中；不会仅因订阅插件而选择可选 Codex CLI peer。--only dsh-codex-subscription 可单独构建其经过审核的产物。
 
 ## 构建
 
@@ -67,13 +65,11 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence` 依赖，使工作区校验可以读取活跃或已持久化的 Session 头部信息。隔离 IM 检查以离线平台传输验证迁移、真实 Loader 和 Agent API、群提及、控制归属及原 Session 历史恢复。服务访问受限的 Cordis 插件通过真实 Host gateway 新建私聊和群聊 Session，验证两者使用同一所选工作区且历史独立；缺少依赖的反例会在请求模型前拒绝未声明的 Session 访问。构建检查比较两份完整 tarball，核对原生 Client 和许可证，并确认保留的上游文件未被改动。这些检查不认证真实机器人，也不能证明租户权限已配置。
 
-### Muse Bot
+### 已归档的 Muse Bot
 
-[Muse Bot](ds-bot/README.zh.md)是固定源码的原生团队工作区。桌面 bundle 只添加一个 Bot 插件，保留 Muse 的模型路由、网页搜索、任务界面、上下文压缩和目标工具。受控构建要求内置记忆复盘默认开启，并在 `SOURCE.json` 中记录该设置；[Bot 参考](ds-bot/README.zh.md)说明配置和模型费用。构建会重建其浏览器模块，并保留 Apache 许可证、上游署名与来源收据；不包含独立插件更新或上游独立应用。
+[DS Bot 源码](ds-bot/README.zh.md)、固定版本的许可证及兼容覆盖均保留，用于恢复归档。即使上游固定版本仍在清单中，默认构建也会跳过；只有显式 `--only ds-bot` 选择才进入旧构建路径。恢复产物应使用独立输出目录；默认构建不会删除输出目录内已有的旧归档。
 
-原生飞书群聊和私聊各按已登记应用与聊天 ID 绑定一个 Muse Bot，名称不参与路由。群名通过已认证的群信息接口读取；私聊使用入站发送者姓名，或复用已有消息读取接口，核对原消息、聊天和发送者后再采用姓名。成功取得的名称跨重启缓存；元数据暂不可用时保留 Session 标题，通道重启后再尝试，后续入站发送者姓名也可补齐缺失信息。不申请通讯录权限。团队服务分别保留真实聊天标题和可用于寻址的唯一 Bot 名称，保留用户手工改过的名字。原 Session、工作区、模型和目标保持不变，显式 `/new`、`/use` 延续同一 Bot 身份。第一版绑定记录兼容缺少聊天名称元数据的旧群记录，并原地补充元数据。
-
-工具发现使用 Host 的单一服务：新团队分别配置协调主控和 Muse 专业执行者，各 Bot 独立保存常驻工具。工具选择、历史与缓存行为见[工具发现参考](../../packages/core/tool-discovery/README.zh.md)。
+归档路径保留浏览器与 Office 构建和 `test:bot` 检查；这些检查不会在普通会话产品中启用 Bot 功能。已有私有 Bot 状态和 Session 文件保持不变。[普通会话升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)说明保留 profile 的备份和归档应用恢复。
 
 ### 红果公开数据
 

@@ -3,6 +3,7 @@ scenario: muse-glm-tool-stream
 profile: headless
 composition: muse-glm-tool-stream
 recording: authored
+writerOutput: true
 header:
   class: muse-glm-tool-stream
   pin: true

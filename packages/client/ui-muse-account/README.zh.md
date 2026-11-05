@@ -31,7 +31,7 @@ kind: "package-reference"
 
 仅当 Host 返回已验证的管理员身份及管理地址时，登录后的账号区域才显示**用户管理**。重新验证时立即隐藏该入口，验证成功后才重新显示；缓存身份和普通用户均不显示。按钮打开 Host 验证过的管理地址，不附加凭据。
 
-现有桌面配置继续提供必填的 `feedbackUrl` 设置以保持兼容。它接受不含 URL 凭据的 HTTPS 页面；本地网关仅可在 `localhost`、`127.0.0.1` 或 `[::1]` 使用 HTTP，可显式指定端口，且页面路径不得为根路径。**Muse Bot 设置 → 反馈**可打开原生会话反馈表单，确认内容后由用户提交。
+现有桌面配置继续提供必填的 `feedbackUrl` 设置以保持兼容。它接受不含 URL 凭据的 HTTPS 页面；本地网关仅可在 `localhost`、`127.0.0.1` 或 `[::1]` 使用 HTTP，可显式指定端口，且页面路径不得为根路径。
 
 在 Muse 桌面中，本插件还通过 `museAccount.feedback` 为现有回答与任务反馈弹窗提供发送服务。弹窗提交使用桌面保存的登录状态，反馈进入账号意见箱。[弹窗包](../ui-message-feedback/README.zh.md)负责可选摘录、失败保留草稿及保存凭据确认。Muse 发送服务缺失时不会显示仅本地保存成功；其他配置继续使用原有本地反馈方式。
 
@@ -42,16 +42,16 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 实现方式
 
-Host 与 Client 分别通过 `tsconfig.host.json` 和 `tsconfig.client.json` 编译；包根配置仅组合这两个程序。浏览器包先装载生成的 `museAccount` Remote contribution，再注册本地化文案、设置页、侧栏入口与初次运行登录面板。它仅从 Host 接收限定的状态与错误码；已保存的 cookie 和知识库 bearer 留在 Host 进程。本包不发布运行时不变量伴随插件，因为这些注册可通过其所属的 slot 与 Remote 注册表观察，无需另存状态核对。
+Host 与 Client 分别通过 `tsconfig.host.json` 和 `tsconfig.client.json` 编译；包根配置仅组合这两个程序。浏览器包先装载生成的 `museAccount` Remote contribution，再注册本地化文案、设置页、侧栏入口与初次运行登录面板。它仅从 Host 接收限定的状态与错误码；已保存的 cookie 留在 Host 进程。本包不发布运行时不变量伴随插件，因为这些注册可通过其所属的 slot 与 Remote 注册表观察，无需另存状态核对。
 
-侧栏账号按钮提供 `data-muse-account-launcher` 标记，供 Muse Bot 打开原生设置，不依赖按钮的本地化标签。
+侧栏账号按钮提供 `data-muse-account-launcher` 标记，供原生控件打开设置，不依赖按钮的本地化标签。
 
 -----
 
 <a id="further-exploration"></a>
 ## 延伸阅读
 
-- [Muse 账号 Host](../../host/muse-account/README.zh.md) — 登录存储、知识库工具和语音访问。
+- [Muse 账号 Host](../../host/muse-account/README.zh.md) — 登录存储、模型路由和语音访问。
 - [桌面应用组合](../../../apps/desktop/README.zh.md) — 打包配置和用户流程。
 
 -----
@@ -63,7 +63,7 @@ Host 与 Client 分别通过 `tsconfig.host.json` 和 `tsconfig.client.json` 编
 
 #### 模型能看到什么
 
-`museAccount` Remote 命名空间处理浏览器请求。这个界面插件不增加模型工具或提示词；Host 包拥有账号和知识库工具的 schema。
+`museAccount` Remote 命名空间处理浏览器请求。这个界面插件不增加模型工具或提示词；Host 包拥有账号授权的模型与语音服务。
 
 #### Token 影响
 

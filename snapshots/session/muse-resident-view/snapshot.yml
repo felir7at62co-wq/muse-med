@@ -3,7 +3,9 @@ scenario: muse-resident-view
 profile: headless
 composition: muse-resident-view
 recording: authored
-writerOutput: true
+sessionFormat:
+  version: 4
+  coverage: [retired-tools]
 header:
   class: muse-resident-view
   pin: true

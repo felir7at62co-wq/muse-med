@@ -14,8 +14,6 @@
     "src/voice-slots.ts",
     "src/gateway.ts",
     "src/index.ts",
-    "src/kb.ts",
-    "src/mcp-server.ts",
     "src/service.ts",
     "src/session.ts",
     "src/types.ts",
@@ -54,9 +52,6 @@
     },
     {
       "path": "../../web/web"
-    },
-    {
-      "path": "../../mcp/mcp-client"
     },
     {
       "path": "../../typert/protocol"

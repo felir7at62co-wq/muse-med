@@ -242,6 +242,8 @@ it('keeps V3 replay input plus bounded declared historical migration coverage', 
       { key: 'session/error-finish', selectedVersions: [0], retained: { version: 0, coverage: ['retry-failure'] } },
       { key: 'session/muse-manuscript-user-revisions', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
       { key: 'session/muse-manuscript-user-revisions-pwsh', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/muse-resident-question', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/muse-resident-view', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
       { key: 'session/packed-chunks', selectedVersions: [0], retained: { version: 0, coverage: ['packed-row'] } },
       { key: 'session/subagent-multi', selectedVersions: [0, 0, 0], retained: { version: 0, coverage: ['multi-hop', 'shipped-profile'] } },
       { key: 'session/text-turn', selectedVersions: [1], retained: { version: 1, coverage: ['adjacent-migration'] } },
@@ -250,7 +252,7 @@ it('keeps V3 replay input plus bounded declared historical migration coverage', 
     ])
   expect(summary.baselineRoles).toBeGreaterThan(0)
   expect(summary).toMatchObject({
-    retainedRoles: 13,
-    retainedScenarios: 10,
+    retainedRoles: 15,
+    retainedScenarios: 12,
   })
 })

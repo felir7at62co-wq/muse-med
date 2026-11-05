@@ -23,3 +23,5 @@
       name: '../../../apps/desktop/tests/fixtures/resident-bot-questions.mjs'
     - id: resident-discovery
       name: '../../../apps/desktop/tests/fixtures/resident-discovery.mjs'
+      config:
+        legacyBotTools: true

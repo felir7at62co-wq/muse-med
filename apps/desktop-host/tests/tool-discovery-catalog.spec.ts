@@ -9,12 +9,9 @@ import { beforeAll, expect, it } from 'vitest'
 import { collectToolCatalog, type ToolCatalog } from '../../../scripts/gen-tool-catalog.ts'
 import { Config } from '@deepseek-ai/dsh-tool-discovery'
 import { Context } from '@deepseek-ai/cordis'
-import Llm from '@deepseek-ai/dsh-llm'
-import Sessions from '@deepseek-ai/dsh-session'
 import Agents from '@deepseek-ai/dsh-agent'
 import Tools from '@deepseek-ai/dsh-tools'
 import Prompt from '@deepseek-ai/dsh-system-prompt'
-import * as BotTools from '../../desktop/tests/fixtures/resident-bot-questions.mjs'
 import { capabilityMemberships } from '../../../packages/core/tool-discovery/src/capabilities.ts'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
 import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.js'
@@ -60,7 +57,7 @@ it('does not register or expose the removed daemon memory integration', () => {
     .toThrow(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
 })
 
-it.each(['short-drama', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s product composition', async (preset) => {
+it.each(['short-drama', 'standard', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s composition', async (preset) => {
   const source = await readFile(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
   const packages = new Set(packagesFromRows(yaml.load(source, { schema: entryListSchema })))
   const defaultsPath = fileURLToPath(new URL('../config/defaults.cordis.patch.yml', import.meta.url))
@@ -108,7 +105,7 @@ it('keeps native delivery, project and memory tools deferred while giving each a
     expect(config.keywords?.[name]?.length).toBeGreaterThan(0)
   }
   expect(config.alwaysLoad).toContain('ask_user_question')
-  expect(config.alwaysLoad).toContain('ask_user')
+  expect(config.alwaysLoad).toContain('present')
 })
 
 it('recalls the registered Douyin task controls without making them resident', async () => {
@@ -154,22 +151,26 @@ it('recalls the registered Lvpaopao background controls without contacting the n
   }
 })
 
-it('classifies the actual Bot team tool registrations without changing their permissions', async () => {
-  const ctx = new Context()
-  try {
-    await ctx.plugin(Llm)
-    await ctx.plugin(Sessions)
-    await ctx.plugin(Agents)
-    await ctx.plugin(Prompt)
-    await ctx.plugin(Tools)
-    await ctx.plugin(BotTools)
-    const names = ctx.tools.schemas().map(schema => schema.name)
-    expect(names).toContain('create_group')
-    expect(names).toContain('attach_capability')
-    const resident = new Set([...config.alwaysLoad, 'tool_search', 'tool_context'])
-    expect(names.filter(name => !resident.has(name) && !capabilityMemberships(name, config.capabilities ?? []).length)).toEqual([])
-    expect(config.alwaysLoad).toContain('create_group')
-  } finally { await ctx.fiber.dispose() }
+it('removes Bot-only tools from product discovery while retaining native questions and task controls', () => {
+  for (const name of ['list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
+    'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'show_view', 'request_secret',
+    'list_secrets', 'group_relay', 'read_own_chat', 'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
+    'list_capabilities', 'save_capability', 'delete_capability', 'attach_capability', 'detach_capability']) {
+    expect(config.alwaysLoad, name).not.toContain(name)
+    expect(config.keywords?.[name], name).toBeUndefined()
+    expect(capabilityMemberships(name, config.capabilities ?? []), name).toEqual([])
+  }
+  for (const name of ['ask_user_question', 'present', 'job_output', 'job_list', 'job_kill', 'subagent',
+    'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'web_search', 'web_fetch']) {
+    expect(config.alwaysLoad, name).toContain(name)
+    expect(capabilityMemberships(name, config.capabilities ?? []), name).not.toEqual([])
+  }
+  for (const name of ['mcp__muse-account__muse_kb_search', 'mcp__muse-account__muse_kb_wiki_read']) {
+    expect(capabilityMemberships(name, config.capabilities ?? [])).toEqual([])
+  }
+  for (const name of ['source_recover', 'read_mcp_resource', 'list_mcp_resources', 'list_mcp_resource_templates']) {
+    expect(capabilityMemberships(name, config.capabilities ?? [])).toContain('knowledge')
+  }
 })
 
 it('discovers public Qimao data tools by Chinese requests while keeping them deferred', async () => {

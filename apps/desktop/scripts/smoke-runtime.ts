@@ -117,6 +117,8 @@ export function apply(ctx) {
     }
     for (const handle of handles) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
+    for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
@@ -131,7 +133,7 @@ export function apply(ctx) {
           'mcp__muse-account__muse_kb_ingest_script']
         : id === 'bot-coordinator' ? ['read', 'write', 'edit', 'glob', 'grep', 'skill', shell, 'present',
           'web_search', 'web_fetch', 'ask_user_question', 'todo_write', 'todo_update', 'subagent',
-          'tool_search', 'tool_context', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']
+          'tool_search', 'tool_context']
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)

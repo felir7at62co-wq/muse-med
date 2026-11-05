@@ -94,7 +94,7 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
   const service: unknown = fixture.ctx.get('museAccount')
   if (!(service instanceof account.MuseAccountService)) throw new Error('Built Muse account service did not activate')
   expect(await service.status({ verify: false })).toEqual({ state: 'signed-out' })
-  expect(fixture.ctx.tools.schemas().some(tool => tool.name === 'mcp__muse-account__muse_account_status')).toBe(true)
+  expect(fixture.ctx.tools.schemas().filter(tool => tool.name.startsWith('mcp__muse-account__'))).toEqual([])
   expect(await service.login({ username: 'alice', password: 'local-test-password', registerIfMissing: false }))
     .toMatchObject({ outcome: 'signed-in', status: { state: 'signed-in', username: 'alice' } })
   expect(fixture.ctx.llm.listProviders().some(provider => provider.id === 'muse-cloud-aa')).toBe(composition === 'package')

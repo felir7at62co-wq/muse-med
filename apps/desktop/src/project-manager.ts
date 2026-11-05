@@ -4,7 +4,6 @@ import { valid } from 'semver'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
-  constants,
   copyFileSync,
   existsSync,
   fsyncSync,
@@ -24,7 +23,6 @@ import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import {
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
-  DESKTOP_MUSE_BOT_PACKAGE,
   DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
   verifyDesktopCorePackageSet,
@@ -39,6 +37,7 @@ import {
 } from './profile-packages.ts'
 import { sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
 import type { DesktopPluginRecord } from './ipc-types.ts'
+import { disableRetiredBotProfilePatch, isRetiredBotBundle } from './retired-bot-profile.ts'
 
 /** Installed desktop project manifest slice. */
 interface DesktopProjectManifest {
@@ -87,7 +86,6 @@ const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
-  DESKTOP_MUSE_BOT_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
@@ -198,7 +196,7 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
   const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
   if (missingAt === -1) return undefined
   const tail = normalized.slice(missingAt)
-  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE])
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE])
   if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
@@ -216,7 +214,9 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
 function backupProfileManifest(projectDir: string): void {
   const path = join(projectDir, 'package.json')
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/gu, '').replace('T', '-')
-  copyFileSync(path, `${path}.${stamp}-${randomUUID()}.bak`, constants.COPYFILE_EXCL)
+  const descriptor = openSync(`${path}.${stamp}-${randomUUID()}.bak`, 'wx', 0o600)
+  try { writeFileSync(descriptor, readFileSync(path)); fsyncSync(descriptor) }
+  finally { closeSync(descriptor) }
 }
 
 /**
@@ -238,11 +238,12 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
   const retiredFeishu = manifest.dsh.profile.bundles.includes(RETIRED_FEISHU_PACKAGE)
+  const retiredBot = manifest.dsh.profile.bundles.some(isRetiredBotBundle)
   if (new Set(manifest.dsh.profile.bundles).size !== manifest.dsh.profile.bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE)
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE && !isRetiredBotBundle(bundle))
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -251,7 +252,8 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired || retiredPonytail || retiredFeishu) {
+  disableRetiredBotProfilePatch(projectDir)
+  if (pending !== undefined || retired || retiredPonytail || retiredFeishu || retiredBot) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')
@@ -492,6 +494,7 @@ export class DesktopProjectManager {
     switch (mutation.type) {
       case 'plugin-add': {
         const requestedName = packageNameFromSpec(mutation.spec)
+        if (isRetiredBotBundle(requestedName)) throw new Error('desktop project: archived Bot packages cannot be activated in the Desktop profile')
         if (this.currentRuntime().sharedPackages.some(entry => entry.name === requestedName)) {
           throw new Error(`desktop project: cannot install host-owned package ${requestedName}`)
         }
@@ -517,6 +520,7 @@ export class DesktopProjectManager {
       case 'plugin-update':
         assertPackageName(mutation.name)
         assertVersion(mutation.version)
+        if (isRetiredBotBundle(mutation.name)) throw new Error('desktop project: archived Bot packages cannot be activated in the Desktop profile')
         if (!Object.hasOwn(projectManifest(projectDir).dependencies, mutation.name)) {
           throw new Error(`desktop project: plugin ${JSON.stringify(mutation.name)} is not installed`)
         }
@@ -531,6 +535,7 @@ export class DesktopProjectManager {
         return
       case 'plugin-toggle': {
         assertPackageName(mutation.name)
+        if (mutation.enabled && isRetiredBotBundle(mutation.name)) throw new Error('desktop project: archived Bot packages cannot be activated in the Desktop profile')
         const plugins = pluginRecords(projectDir)
         if (!plugins.some(plugin => plugin.name === mutation.name)) throw new Error(`desktop project: plugin ${mutation.name} is not installed`)
         writeProfilePlugins(projectDir, plugins.map(plugin => (

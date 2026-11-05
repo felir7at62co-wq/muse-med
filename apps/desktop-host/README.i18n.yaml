@@ -8,9 +8,9 @@
 /muse-desktop-host:
   en: c6843e339b786c54
   zh: d2ea42feff9ece27
-/muse-desktop-host/bot-memory:
-  en: 2ac05cb9a74cd81e
-  zh: 2ff508643a932659
+/muse-desktop-host/ordinary-sessions-and-retained-data:
+  en: a5716183b349056a
+  zh: e737c8501b984e09
 /muse-desktop-host/returned-manuscript-comparisons:
   en: 7cfe7b1d04d31582
   zh: 0c4643e0e591ca46
@@ -20,9 +20,9 @@
 /muse-desktop-host/bundled-bridge-selection:
   en: c066c96538781f87
   zh: fe8db08d76e8f5e0
-/muse-desktop-host/bot-tool-discovery:
-  en: d8908c0732e298b0
-  zh: 1bae8e571e39fb65
+/muse-desktop-host/session-tool-discovery:
+  en: f84c11ec6e726996
+  zh: fe354282be12addf
 /muse-desktop-host/short-drama-identity:
   en: 0c9b5396f7a683b6
   zh: 7d488a29105aabec
@@ -30,8 +30,8 @@
   en: dbedfe98788962e8
   zh: 021736dc2a666225
 /muse-desktop-host/creation-mode:
-  en: d1290459d6448c0f
-  zh: 59304c9bc614ae18
+  en: a679cbceef46be19
+  zh: 337a51af4dc36c24
 /muse-desktop-host/compaction-defaults:
   en: 3f47772f19a03732
   zh: 421eb0e6ddd2c582

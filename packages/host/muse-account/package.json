@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-muse-account",
-  "description": "Muse Desktop account sign-in, authorized knowledge-base tools, and Host cloud speech access",
+  "description": "Muse Desktop account sign-in, authorized model routing, and Host cloud speech access",
   "version": "0.2.1-alpha.1",
   "publishConfig": {
     "access": "public"
@@ -59,10 +59,7 @@
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
     "@deepseek-ai/dsh-web": "workspace:*",
-    "@deepseek-ai/dsh-mcp-client": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
     "zod": "^4.4.3",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-llm-pi-ai": "workspace:*",

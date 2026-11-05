@@ -25,6 +25,8 @@ export const name = 'snapshot-small-window-compaction'
 export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'tokenMeter', 'sessions']
 
 const resources = Array.from({ length: 7400 }, (_value, index) => `resource-${index.toString().padStart(5, '0')}`)
+// This fixed corpus crosses the pressure threshold twice with the current account tool catalog.
+const expectedSummaries = 2
 
 /** Stable sub-threshold tool values; the shipped pruner retains each complete result.
  * @param {string} resource - Resource selected from the real JSON Schema enumeration.
@@ -158,10 +160,10 @@ export async function apply(ctx) {
   ctx.on('agent/turn-stopping', ({ agent }) => {
     if (rejected) throw rejected
     assert.equal(requests.filter(request => !request.summary).length, ordinaryScript.length)
-    assert.equal(requests.filter(request => request.summary).length, 4)
+    assert.equal(requests.filter(request => request.summary).length, expectedSummaries)
     assert.equal(results.length, 26)
     const events = agent.session.snapshotEvents()
-    for (const type of ['compaction/start', 'compaction/summary', 'compaction/end']) assert.equal(events.filter(event => event.type === type).length, 4)
+    for (const type of ['compaction/start', 'compaction/summary', 'compaction/end']) assert.equal(events.filter(event => event.type === type).length, expectedSummaries)
     const summary = events.find(event => event.type === 'compaction/summary')
     assert.equal(summary.data.maxTokens, selectedPolicy.maxTokens)
     assert.ok(summary.data.shadowedSeqs.length > 1)

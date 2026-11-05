@@ -1,20 +1,20 @@
 ---
 kind: upgrade-guide
-description: "自动登记的 Muse Session Bot 共用原生模型选择，不再使用保存的 Bot 覆盖值。"
+description: "Muse 使用原生会话模型选择，归档的 Bot 模型设置保持停用。"
 ---
 
-# 自动 Session Bot 共用一个模型选择
+# 在原生会话中选择模型
 
 [English](guide.md) | 中文
 
 ## 变更
 
-自动登记的 Muse Session Bot 使用原生 Session 当前的模型和推理等级。Bot 存储加载时，带有 `autoSessionBot: true` 的旧记录会规范为 `modelSource: session`。保存的模型偏好、会话分段、历史和独立 Bot 设置保留原位。旁答、记忆复盘和新分段不再使用旧的 Bot 模型覆盖原生选择。记忆复盘仍沿用最低可用推理等级的现有规则。
+Muse 会话使用原生 Session 当前的模型和推理等级。产品不再加载 Bot 存储，也不运行 Bot 旁答、记忆复盘或创建会话分段。保存的 Bot 模型偏好与历史原样保留，不做转换，也不覆盖普通会话。停用界面与保留数据的说明见[普通会话](../muse-session-product/guide.zh.md)。
 
-在 Bot 设置中选择模型会更新同一原生 Session，不改变 profile 默认模型。独立创建的 Bot，以及已明确设置模型的手动登记 Bot，仍保留各自的模型设置。
+在原生会话控件中选择模型。会话选择与 profile 默认值保持区分；更改会话模型不会重写归档的 Bot 设置。
 
 ## 迁移
 
-1. 安装新版 Muse Desktop，打开受影响的会话或其自动登记的 Bot。不要手动修改 `muse-bot/state.json`。
-2. 在任一界面选择所需模型和推理等级。确认另一界面显示相同选择，且下一次请求使用该提供方和模型。
-3. 如果某个 Bot 需要独立模型，请新建独立 Bot，不要使用已有 Session 的自动登记项。已有独立 Bot 设置无须迁移。
+1. 安装新版 Muse Desktop，从原生历史打开底层会话，保持归档的 Bot 状态不变。
+2. 检查会话保存的模型和推理等级，或在原生控件中选择所需值。确认下一次请求使用该提供方和模型。
+3. 将独立 Bot 模型设置保留在归档中。普通产品不提供 Bot 模型编辑器，也不会自动导入这些覆盖值。

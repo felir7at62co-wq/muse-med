@@ -19,13 +19,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('offers short-drama and coordinator presets while keeping recorded editing sessions recoverable', async () => {
+it('offers only short-drama while retaining historical coordinator and editing compositions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'bot-coordinator'] })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama'] })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
@@ -64,8 +64,17 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
-    expect((await ctx.agentPresets.resolveForCreation('bot-coordinator')).id).toBe('bot-coordinator')
-    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'bot-coordinator'])
+    await expect(ctx.agentPresets.resolveForCreation('bot-coordinator')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+    expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })
+    const recovery = (await ctx.agentPresets.readDocument('bot-coordinator')).content
+    expect(recovery).not.toMatch(/name: (?:ds-bot|['"]ds-bot['"])/)
+    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research', 'muse-douyin-download']) {
+      expect(recovery).toContain(name)
+    }
+    expect((await ctx.agentPresets.list()).find(row => row.id === 'bot-coordinator')).toMatchObject({
+      name: '历史会话恢复', description: '读取既有主控会话并使用通用工具继续工作；不恢复 Bot 团队或自动编排。',
+    })
     await expect(ctx.agentPresets.resolveForCreation('creation')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
     expect(await ctx.agentPresets.resolve('creation')).toMatchObject({ id: 'creation' })
     const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
@@ -111,9 +120,9 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     expect(prompt).toContain('禁止改写、删减或替换整段台词')
     expect(prompt).toContain('技术性失败不构成修改台词的理由')
     expect(prompt).toContain('按项目已定画幅设计镜头')
-    expect(prompt).toContain('人物角色资产图优先遵循当前项目已定画幅与交付用途')
-    expect(prompt).toContain('项目要求竖幅或单人全身图时，按该画幅安排清晰面容与完整体态')
-    expect(prompt).toContain('右侧是同一角色的无面容全身三视图')
+    expect(prompt).toContain('所有资产图默认16:9横版')
+    expect(prompt).toContain('资产图比例与视频成片比例分别处理')
+    expect(prompt).toContain('右侧为同一人物正面、侧面、背面全身三视图')
     expect(prompt).toContain('人物面部同样不写“脸红”“面部发红”')
     expect(prompt).toContain('依据实际成图和成片判断吸引力、情绪与叙事效果')
     expect(prompt).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')

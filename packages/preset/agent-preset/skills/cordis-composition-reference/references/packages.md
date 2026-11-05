@@ -282,7 +282,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-host-plugin-inventory` | no | Read-only Remote projection of current Cordis Loader plugin state |
 | `@deepseek-ai/dsh-host-product-telemetry-otel` | yes | Explicit product usage events exported through OpenTelemetry HTTP logs |
 | `@deepseek-ai/dsh-host-webserver` | yes | Web route-registration plugin: HTTP and upgrade routes, index transform taps, and static dist fallback; knows no harness concepts |
-| `@deepseek-ai/dsh-muse-account` | yes | Muse Desktop account sign-in, authorized knowledge-base tools, and Host cloud speech access |
+| `@deepseek-ai/dsh-muse-account` | yes | Muse Desktop account sign-in, authorized model routing, and Host cloud speech access |
 
 ## interaction
 

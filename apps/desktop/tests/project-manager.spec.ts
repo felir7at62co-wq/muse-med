@@ -85,7 +85,6 @@ const BUILT_IN_BUNDLES = [
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   '@xmanrui/dsh-im',
   'dsh-codex-subscription',
-  'ds-bot',
 ] as const
 /** Bundle list stored in a profile manifest file. */
 function storedBundles(manifestPath: string): string[] {
@@ -114,6 +113,59 @@ afterEach(async () => {
 })
 
 describe('desktop external plugin profile', () => {
+  it.each(['ds-bot', 'muse-bot'])('retires %s from an existing current profile without deleting dependencies or conversation bytes', async (bot) => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string>; dsh: { profile: { bundles: string[] } } }
+    manifest.dependencies[bot] = '1.0.0'
+    manifest.dsh.profile.bundles = [...BUILT_IN_BUNDLES, bot, 'plugin']
+    const originalManifest = JSON.stringify(manifest)
+    writeFileSync(manifestPath, originalManifest)
+    const module = join(manager.paths.profile, 'node_modules', bot)
+    mkdirSync(module, { recursive: true })
+    writeFileSync(join(module, 'package.json'), JSON.stringify({ name: bot, version: '1.0.0', dsh: { bundle: { patch: 'bundle.yml' } } }))
+    writeFileSync(join(module, 'bundle.yml'), '[]\n')
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const originalPatch = '# retained private preferences\n- id: muse-bot\n  config:\n    keepPrivate: retained-config\n  disabled: false\n- id: custom-plugin\n  config:\n    enabled: true\n'
+    writeFileSync(patchPath, originalPatch)
+    const stateDir = join(root, 'ds-bot')
+    mkdirSync(stateDir)
+    const state = join(stateDir, 'state.json'), conversation = join(root, 'session.v4.jsonl.zstd')
+    const opaqueState = Buffer.from('opaque saved Bot state'), opaqueConversation = Buffer.from('opaque complete conversation bytes')
+    writeFileSync(state, opaqueState); writeFileSync(conversation, opaqueConversation)
+    const lockfile = join(manager.paths.profile, 'pnpm-lock.yaml')
+    const lockBefore = existsSync(lockfile) ? readFileSync(lockfile) : undefined
+    const pnpmBefore = calls(root)
+
+    await expect(manager.applyRelease()).resolves.toBe(false)
+
+    expect(storedBundles(manifestPath)).toEqual([...BUILT_IN_BUNDLES, 'plugin'])
+    const migratedManifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
+    expect(migratedManifest.dependencies).toEqual(manifest.dependencies)
+    expect(manager.listPlugins()).toEqual([{ name: bot, version: '1.0.0', enabled: false }, { name: 'plugin', version: '1.0.0', enabled: true }])
+    expect(readFileSync(state)).toEqual(opaqueState); expect(readFileSync(conversation)).toEqual(opaqueConversation)
+    expect(lockBefore === undefined ? existsSync(lockfile) : readFileSync(lockfile)).toEqual(lockBefore === undefined ? false : lockBefore)
+    expect(calls(root)).toEqual(pnpmBefore)
+    const backups = manifestBackups(manager.paths.profile)
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, backups[0]!), 'utf8')).toBe(originalManifest)
+    const patchBackups = readdirSync(manager.paths.profile).filter(name => /^cordis\.patch\.yml\.bot-retired-.*\.bak$/.test(name))
+    expect(patchBackups).toHaveLength(1)
+    expect(readFileSync(join(manager.paths.profile, patchBackups[0]!), 'utf8')).toBe(originalPatch)
+    const nextPatch = readFileSync(patchPath, 'utf8')
+    expect(nextPatch).toContain('keepPrivate: retained-config')
+    if (process.platform !== 'win32') {
+      for (const name of [backups[0]!, patchBackups[0]!, 'cordis.patch.yml']) expect(statSync(join(manager.paths.profile, name)).mode & 0o777).toBe(0o600)
+    }
+    await expect(manager.applyRelease()).resolves.toBe(false)
+    expect(manifestBackups(manager.paths.profile)).toEqual(backups)
+    expect(readFileSync(patchPath, 'utf8')).toBe(nextPatch)
+    await expect(manager.mutate({ type: 'plugin-toggle', name: bot, enabled: true }, hooks())).rejects.toThrow('archived Bot packages cannot be activated')
+    await expect(manager.mutate({ type: 'plugin-add', spec: bot + '@1.0.0' }, hooks())).rejects.toThrow('archived Bot packages cannot be activated')
+  })
+
   it.each([
     ['@mengyuly/dsh-ponytail', false], ['@mengyuly/dsh-ponytail', true],
   ] as const)('removes retired %s while retaining external plugins (legacy bridge: %s)', async (retiredPlugin, legacyBridge) => {

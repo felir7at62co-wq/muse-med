@@ -9,13 +9,15 @@ English | [中文](README.zh.md)
 
 The Host awaits application teardown and IPC delivery of its shutdown acknowledgement before explicitly exiting. Incidental event-loop handles retained by disposed plugins cannot delay a completed shutdown. Failed teardown or acknowledgement does not authorize that exit; startup failure retains its own diagnostic status. The [Desktop application](../desktop/README.md) still requires the acknowledgement and a successful process exit before installing an update.
 
-## Bot memory
+## Ordinary Sessions and retained data
 
-Desktop uses the [built-in Muse Bot memory](../../third_party/plugins/ds-bot/README.md) for persistent notes across conversations, without a separate memory service. Custom overlays using the removed `muse-hindsight` plugin or `hindsight_memory` tool must follow the [migration guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-bot-memory/guide.md).
+Desktop opens ordinary Sessions and leaves archived Bot state unchanged. The built-in Bot interface, long-term memory service and phone-control entry are inactive; retained files do not automatically become Session memory. Recovery and profile backups are documented in the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.md).
+
+The account plugin no longer starts a Muse knowledge-base MCP sidecar. User-configured MCP connections, Feishu and project files remain separate; the [knowledge-base removal guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-account-kb-removal/guide.md) describes the retained account and cloud data.
 
 Desktop includes the [Lvpaopao download plugin](../../third_party/plugins/muse-lvpaopao/README.md). One Host-owned bridge serves the unified director’s scoped `lvpaopao` tool; native setup and connection start only when requested. Missing Python dependencies or a qualified logged-in WeChat runtime return a setup result without blocking Desktop startup. The plugin README owns platform qualification and isolated-Mac restrictions.
 
-Desktop includes the [Qimao public metadata tools](../../third_party/plugins/muse-qimao-data/README.md) in creative and coordinator scopes. Tool search loads them on demand. The plugin documents its public ranking windows, filtered library pages, original metric names, and unavailable App-only fields; it does not fetch novel text.
+Desktop includes the [Qimao public metadata tools](../../third_party/plugins/muse-qimao-data/README.md) in creative and historical recovery scopes. Tool search loads them on demand. The plugin documents its public ranking windows, filtered library pages, original metric names, and unavailable App-only fields; it does not fetch novel text.
 
 The [source research tools](../../third_party/plugins/muse-source-research/README.md) save collection results as immutable workspace snapshots and build selection reports with their coverage and missing metrics. Comparisons require matching collection scopes and metric meanings. Legacy imports retain their original file hashes and do not establish fresh observations.
 
@@ -23,7 +25,7 @@ Work relationship proposals cite saved snapshots and require an explicit human d
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
-The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction, task and Bot-team tools resident, including Bot question, view and credential cards. Specialized screenplay, asset, production and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Existing session discoveries and explicit Bot tool pins continue to load their selected tools.
+The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction and task tools resident. Specialized screenplay, asset, production, collection and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Bot-only definitions and preference services are absent from the default product.
 
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 
@@ -33,11 +35,11 @@ The Desktop account composition excludes the standalone Gemini provider `aa` thr
 
 The Desktop account composition also excludes Yunying's exact `claude-opus-5-5`, `claude-fable-5-1`, `gpt-6-astra`, and `glm-5.3-flash` IDs from new selections. The gateway directory and other providers, including official Zhipu GLM routes, remain unchanged. Existing conversations keep their saved model ID and show a switch prompt when that route is absent from the catalog.
 
-The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds for gateway and knowledge-base requests, including project portfolio scans. Personal overlays can change this validated account setting; the underlying plugin's default remains 15,000 milliseconds. A timeout still reports an unavailable service and does not establish whether a remote write completed.
+The Desktop account composition sets `requestTimeoutMs` to 60,000 milliseconds for account-gateway requests. Personal overlays can change this validated account setting; the underlying plugin's default remains 15,000 milliseconds. A timeout still reports an unavailable service and does not establish whether a remote write completed.
 
 Short-drama delivery follows the explicit project medium and prepared canvas; see the [project bible](../../packages/drama/drama-settings/README.md) for selection and legacy behavior.
 
-Muse includes the Codex subscription plugin and its ChatGPT sign-in entry in Settings. The separate subscription login uses the official Codex OAuth provider; Muse account login does not authorize it. Credentials remain in the local Host credential service, while browser account responses omit tokens. Subscription models appear only while an account is connected. Upgrading restores the built-in bundle without replacing saved subscription settings or credentials. The optional Codex CLI subagent provider is not included or enabled by this subscription integration. The product overlay continues to disable both the Agent Notes settings page and its Host API; engineering-note files and Muse knowledge-base features remain available.
+Muse includes the Codex subscription plugin and its ChatGPT sign-in entry in Settings. The separate subscription login uses the official Codex OAuth provider; Muse account login does not authorize it. Credentials remain in the local Host credential service, while browser account responses omit tokens. Subscription models appear only while an account is connected. Upgrading restores the built-in bundle without replacing saved subscription settings or credentials. The optional Codex CLI subagent provider is not included or enabled by this subscription integration. The product overlay continues to disable both the Agent Notes settings page and its Host API; engineering-note files and user-configured MCP connections remain available.
 
 ## Returned manuscript comparisons
 
@@ -73,13 +75,13 @@ The Host resolves `muse-desktop-bridge` from the bundled bridge's remote export 
 
 The [Feishu migration helper](src/feishu-migration.ts) resolves a previous `activeSessionId` against live or persisted Session headers and preserves the header's working directory. It checks the existing profile first, then same-app/scanner state in `dsh-bridge/config.json`; it neither copies credentials nor edits Session logs. Old state contains no durable chat ownership, so recovery requires an explicit choice in an authorized chat. An existing chat binding wins, and one previous Session can bind to only one chat.
 
-## Bot tool discovery
+## Session tool discovery
 
-The Desktop Host mounts one shared [tool discovery service](../../packages/core/tool-discovery/README.md). New Bot coordinators use the standard tool composition with DS Bot's standing coordinator role; Muse specialists use `short-drama`. All agents initially receive the standard filesystem, shell, skill, planning, task, delegation and web tools. Classic Sessions keep `ask_user_question` resident. Bot chats also keep their registered team tools resident, including cards, questions, secret entry, groups, history, memory and capabilities; tool scope and permissions still apply. Other registered tools remain searchable through overlapping capability groups. Each Bot stores its own preferred exact tool names; session loading remains separate. Existing Sessions retain their preset and history. Tool selection changes future declarations, while historical definitions and results remain subject to provider-specific history and cache handling.
+The Desktop Host mounts one shared [tool discovery service](../../packages/core/tool-discovery/README.md). New Sessions use `short-drama` and retain native questions, file delivery, background Jobs, subagents and web tools. Existing `bot-coordinator` Sessions can recover through their retained general composition; that preset is hidden from new-conversation choices and does not restore Bot teams. Other registered tools remain searchable through capability groups. Session loading and pins remain scoped to the Session. Tool selection changes future declarations, while historical definitions and results remain subject to provider-specific history and cache handling.
 
-The product directory includes project settings, image overviews, native Jianying drafts, draft-root lookup, manuscript comparisons, Office delivery and local memory. Chinese search aliases cover common production requests without retaining every tool schema. Authorized deferred tools outside configured groups appear under the runtime's uncategorized group. Module-level keyless tests check the shipped preset declarations against registered schemas and native Office tools; connected MCP tools, user overlays, Bot permissions and dynamically registered tools still depend on the active runtime.
+The product directory includes project settings, image overviews, native Jianying drafts, draft-root lookup, manuscript comparisons, Office delivery and connected knowledge sources. Chinese aliases cover common production requests without retaining every tool schema. Authorized deferred tools outside configured groups appear under the runtime's uncategorized group. Keyless tests compare shipped preset declarations with registered schemas; connected MCP tools, user overlays and dynamic registrations still depend on the active runtime.
 
-Project settings, manuscript comparisons, shot checks, video inspection, truncated-source recovery, production planning, delivery checks, existing project lookup, model catalogs, asset organization and character-reference tools are resident when registered in the current preset. Their original permissions and operation effects still apply; visibility does not make optional reviews mandatory or authorize generation.
+Specialized project, manuscript, production, delivery, model-catalog and asset tools remain discoverable when registered in the current preset; `video_inspect` stays resident. Their original permissions and operation effects still apply. Visibility does not make optional reviews mandatory or authorize generation.
 
 ## Short-drama identity
 
@@ -141,7 +143,7 @@ In an explicit strict self-check deployment, the C-review PTC program must finis
 
 Modified work follows the [shared creation guidance](src/creation-guidance.ts): preserve originals and deliver final-bound `《修改说明》` with located changes, comment dispositions, authorized supplements, unresolved items and actual verification scope. New writing without an earlier screenplay uses real source/output locations rather than invented before/after quotations. Original source-preserving forks retain real Host user input, baseline versions and a bounded category grant; synchronous actions remain typed and covered without duplicate rendering.
 
-The accepted screenplay, Word body and knowledge-base text contain only the screenplay. Modification notes are a separate accepted-candidate sidecar, with the same version binding and an additional digest in new refinement Word receipts. Existing unmarked documents retain their prior behavior; Muse applies advisory review to old managed projects without rewriting their historical records.
+The accepted screenplay and Word body contain only the screenplay. Modification notes are a separate accepted-candidate sidecar, with the same version binding and an additional digest in new refinement Word receipts. Existing unmarked documents retain their prior behavior; Muse applies advisory review to old managed projects without rewriting their historical records.
 
 With strict Word/delivery configuration, formal refinement or story-faithful delivery under a conventional managed `final/` directory must present the screenplay or Word together with that candidate's exact modification-notes file. Notes can be redelivered separately. Receipt-bound Word resends outside that directory retain standalone body/version verification; the validator has no first-delivery history and does not mechanically enforce the pair on arbitrary relocated files. The creation workflow still requires the pair for the initial complete handoff.
 

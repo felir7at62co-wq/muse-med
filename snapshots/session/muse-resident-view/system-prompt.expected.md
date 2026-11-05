@@ -84,10 +84,6 @@ Start independent subagent delegations together in one assistant message and con
 
 Start independent subagent_fork delegations together in one assistant message and continue useful work while they run.
 
-## MCP resource servers
-
-Use list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource with one of these names as the server argument: ["muse-account"].
-
 剧本、大纲等文字稿件的文件交付默认使用 Word（.docx）；用户明确指定其他格式时按其要求。保留 Markdown 编辑源稿，但默认完成交付时须提供实际生成的 Word 文件。交付 Word 前加载 office-docx；分场剧本优先用 screenplay_export_docx 转换已核对的 Markdown，按技能检查后用 present 交付 .docx。格式转换复用已有正文，不重新转写视频或重写剧本；转换失败时保留源稿并说明原因，不声称 Word 已交付。
 
 你的工作目录是 {{cwd}} ；短剧工作间是其中的 short-drama/。
@@ -96,4 +92,4 @@ Some authorized tools are not loaded upfront. Missing initial definitions or loc
 
 Available capability groups (an empty or cropped directory does not limit global search):
 
-{"capabilities":[{"id":"workspace","title":"文件与工作间","description":"查找、读取、编辑项目文件并交付文档。"},{"id":"video-understanding","title":"视频理解与转写","description":"查看视频画面、抽帧、识别对白和字幕。"},{"id":"screenplay","title":"剧本与分镜","description":"整理剧本、编写镜头脚本并对照来源证据。"},{"id":"assets","title":"角色场景与素材","description":"查询、整理和准备角色、场景、道具及参考素材。"},{"id":"production","title":"制作与生成","description":"处理项目视频卡、模型、预算、生成及任务状态。"},{"id":"editing-delivery","title":"剪辑配乐与交付","description":"导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。"},{"id":"data-sourcing","title":"数据选材与下载","description":"搜索和下载番茄小说、剧目、榜单及视频素材。"},{"id":"knowledge","title":"知识与项目资料","description":"搜索、读取和整理已连接的知识库与项目资料。"},{"id":"coordination","title":"团队任务与跟进","description":"分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。"},{"id":"research","title":"搜索与技术分析","description":"搜索网页资料、读取网页和分析技术问题。"},{"id":"uncategorized","title":"Other authorized tools","description":"Browse authorized tools not assigned to another capability."}],"omitted_capabilities":0}
+{"capabilities":[{"id":"workspace","title":"文件与工作间","description":"查找、读取、编辑项目文件并交付文档。"},{"id":"video-understanding","title":"视频理解与转写","description":"查看视频画面、抽帧、识别对白和字幕。"},{"id":"screenplay","title":"剧本与分镜","description":"整理剧本、编写镜头脚本并对照来源证据。"},{"id":"assets","title":"角色场景与素材","description":"查询、整理和准备角色、场景、道具及参考素材。"},{"id":"production","title":"制作与生成","description":"处理项目视频卡、模型、预算、生成及任务状态。"},{"id":"editing-delivery","title":"剪辑配乐与交付","description":"导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。"},{"id":"data-sourcing","title":"数据选材与下载","description":"采集红果与七猫公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。"},{"id":"knowledge","title":"知识与项目资料","description":"搜索、读取和整理已连接的知识库与项目资料。"},{"id":"coordination","title":"团队任务与跟进","description":"分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。"},{"id":"research","title":"搜索与技术分析","description":"搜索网页资料、读取网页和分析技术问题。"}],"omitted_capabilities":0}

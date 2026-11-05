@@ -1,25 +1,16 @@
-/** Mount a product preset and discover the source Muse MCP catalog over loopback. */
+/** Mount the real product preset without an automatic Muse account MCP sidecar. */
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { stageSourceMusePlugins } from './source-plugin-layout.mjs'
 
-const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpClient,
-  { createMuseAccountMcpServer }, { createMuseKbReader }, CharacterLibrary, CharacterLibraryTos] = await Promise.all([
+const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, CharacterLibrary, CharacterLibraryTos] = await Promise.all([
   importSnapshotPackage('@deepseek-ai/cordis', new URL('../../../apps/desktop-host/package.json', import.meta.url)),
   importSnapshotPackage('@deepseek-ai/dsh-system-prompt', new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url)),
   importSnapshotModule(new URL('../../../apps/desktop-host/src/native-preset.ts', import.meta.url),
     new URL('../../../apps/desktop-host/lib/native-preset.js', import.meta.url)),
-  importSnapshotModule(new URL('../../../packages/mcp/mcp-client/src/index.ts', import.meta.url),
-    new URL('../../../packages/mcp/mcp-client/lib/index.js', import.meta.url)),
-  importSnapshotModule(new URL('../../../packages/host/muse-account/src/mcp-server.ts', import.meta.url),
-    new URL('../../../packages/host/muse-account/lib/types/mcp-server.js', import.meta.url)),
-  importSnapshotModule(new URL('../../../packages/host/muse-account/src/kb.ts', import.meta.url),
-    new URL('../../../packages/host/muse-account/lib/types/kb.js', import.meta.url)),
   importSnapshotModule(new URL('../../../packages/drama/character-library/src/index.ts', import.meta.url),
     new URL('../../../packages/drama/character-library/lib/index.js', import.meta.url)),
   importSnapshotModule(new URL('../../../packages/drama/character-library-tos/src/index.ts', import.meta.url),
@@ -111,52 +102,6 @@ export async function apply(ctx, config) {
   await ctx.plugin(SnapshotLvpaopaoBridge)
   await ctx.plugin(CharacterLibraryTos, CharacterLibraryTos.Config({})).await()
   await ctx.plugin(CharacterLibrary.default).await()
-  const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))
-  const importSdk = async name => {
-    const manifestUrl = new URL('../package.json', pathToFileURL(requireSdk.resolve(name)))
-    const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
-    return import(new URL(manifest.exports['.'].import.default, manifestUrl).href)
-  }
-  const [{ createMcpHandler }, { toNodeHandler }] = await Promise.all([
-    importSdk('@modelcontextprotocol/server'),
-    importSdk('@modelcontextprotocol/node'),
-  ])
-  let kb
-  await ctx.effect(async () => {
-    const accountHome = await mkdtemp(join(tmpdir(), 'dsh-snapshot-muse-account-'))
-    kb = createMuseKbReader({
-      baseUrl: 'https://snapshot-muse.invalid',
-      sessionFile: join(accountHome, 'session.json'),
-      requestTimeoutMs: 15_000,
-      fetcher: async () => { throw new Error('Snapshot Muse gateway requests are unavailable') },
-    })
-    return () => rm(accountHome, { recursive: true, force: true })
-  }, 'snapshot-muse-account-home')
-  const handler = createMcpHandler(() => createMuseAccountMcpServer({ status: async () => ({ state: 'signed-out' }) }, kb), {
-    onerror: error => console.error('Snapshot Muse MCP handler failed:', error),
-  })
-  ctx.effect(() => () => handler.close(), 'snapshot-muse-mcp-handler')
-  const handle = toNodeHandler(handler)
-  let mcpUrl
-  await applyLoopbackServerEffect(ctx, {
-    label: 'snapshot-muse-mcp-server',
-    requestListener: (req, res) => {
-      handle(req, res).catch(error => {
-        console.error('Snapshot Muse MCP request failed:', error)
-        if (!res.headersSent) res.writeHead(500)
-        res.end()
-      })
-    },
-    onListening: address => { mcpUrl = `http://127.0.0.1:${address.port}/mcp` },
-    onCleanup: () => {},
-  })
-  await ctx.plugin(McpClient, McpClient.Config({
-    serverName: 'muse-account',
-    transport: 'streamable-http',
-    url: mcpUrl,
-    failOnStartupError: true,
-    reconnect: { enabled: false },
-  })).await()
   const productCtx = ctx.extend({baseUrl: productBaseUrl})
   await productCtx.plugin(NativePreset, {
     id: presetId,

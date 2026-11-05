@@ -12,7 +12,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama, bot-coordinator]
+    selectablePresets: [short-drama]
 
 - id: sandbox-policy
   config:
@@ -202,7 +202,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, ask_user, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot, show_view, request_secret, list_secrets, list_bot_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, remember, forget, recall, read_browser, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability, video_inspect]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -248,16 +248,12 @@
           douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
-          read_own_chat: [历史会话, 聊天记录, 之前说过, 自己的聊天]
-          read_group_chat: [群聊记录, 群消息, 群里说过]
-          read_browser: [当前网页, 浏览器页面, 打开的网页]
-          show_view: [交互图表, 数据看板, 展示图表]
 
         capabilities:
           - id: workspace
             title: 文件与工作间
             description: 查找、读取、编辑项目文件并交付文档。
-            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, working_directory, show_view, request_secret, list_secrets]
+            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, working_directory]
           - id: video-understanding
             title: 视频理解与转写
             description: 查看视频画面、抽帧、识别对白和字幕。
@@ -283,13 +279,13 @@
             description: 采集红果与七猫公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
             tools: ['hongguo_*', 'douyin_*', 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
-            title: 知识与项目资料
-            description: 搜索、读取和整理已连接的知识库与项目资料。
-            tools: [source_recover, remember, forget, recall, 'mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            title: MCP 与项目资料
+            description: 读取已连接的 MCP 资源与项目资料。
+            tools: [source_recover, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
           - id: coordination
-            title: 团队任务与跟进
-            description: 分配子任务、查看执行状态、管理团队群聊与共享能力、回读聊天并安排定时跟进。
-            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question, ask_user, list_bots, message_bot, create_bot, update_bot, stop_bot, list_bot_models, create_group, update_group, delete_group, post_to_group, group_relay, read_own_chat, read_group_chat, list_capabilities, save_capability, delete_capability, attach_capability, detach_capability]
+            title: 子任务与跟进
+            description: 委派子任务、查看执行状态、管理后台工作并安排定时跟进。
+            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question]
           - id: computer-use
             title: 电脑与软件操作
             description: 查看本机应用窗口与截图，根据任务点击、输入和滚动，再读取实际结果。
@@ -297,4 +293,4 @@
           - id: research
             title: 搜索与技术分析
             description: 搜索网页资料、读取网页和分析技术问题。
-            tools: ['web_*', 'reverse_*', read_browser]
+            tools: ['web_*', 'reverse_*']

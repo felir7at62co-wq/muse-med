@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.7.0",
   "scripts": {
     "build": "node ../build.mjs",
-    "test:build": "node --test ../compatibility/host-runtime.test.mjs ../build.test.mjs ../hongguo-build.test.mjs",
+    "test:build": "node --test ../source-selection.test.mjs ../compatibility/host-runtime.test.mjs ../build.test.mjs ../hongguo-build.test.mjs",
     "test:host": "node --test ../compatibility/host-runtime.test.mjs ../compatibility/bridge-desktop.test.mjs ../compatibility/codex-model-visibility.test.mjs ../compatibility/mcp-desktop.test.mjs",
     "test:feishu": "node --test ../feishu-build.test.mjs",
     "test:im": "node --test ../im-build.test.mjs",

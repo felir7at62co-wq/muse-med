@@ -1,5 +1,5 @@
 ---
-description: "Sign in to MUSE and let the agent save reviewed scripts privately, then search and read account-authorized sources."
+description: "Sign in to MUSE for account-authorized models, web search, cloud speech and Desktop services."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Sign in to MUSE from Desktop Settings without entering a password in a model conversation. The agent can save reviewed scripts and immutable originals privately, then synthesize cited Wiki pages in account or project scope. It can browse directories, search full text, follow links, and read historical revisions alongside administrator-granted references. These operations require a configured Muse gateway.
+Sign in to MUSE from Desktop Settings without entering a password in a model conversation. Use the account model catalog, optional web search, cloud transcription, feedback and desktop remote access through the configured Muse gateway. Account credentials remain in Host storage.
 
 ## Table of Contents
 
@@ -25,9 +25,9 @@ Sign in to MUSE from Desktop Settings without entering a password in a model con
 <a id="use-this-package"></a>
 ## Use this package
 
-Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign in later** leaves the account available from the sidebar and **Settings → MUSE Account**. Opening the page refreshes the model catalog; use **Verify status** to ask the gateway to confirm the account identity. The account page starts Feishu browser sign-in without username, password or registration fields. The same session loads the website model catalog and authorizes model requests, knowledge-base access, and speech transcription. A fresh profile selects the first Muse model automatically; an old direct default without its own configured credential selects the corresponding Muse route. Models settings still accepts custom providers and credentials, and configured custom defaults remain selected. Signing out removes only Muse routes. The official DeepSeek route and GLM-5.3 models explicitly supply their thinking protocol and required `reasoning_content` field in both transports; model history never depends on guessing the upstream vendor from the proxy URL. Official Zhipu GLM-5.3 requests retain historical thinking with `clear_thinking: false` when thinking is enabled and send `tool_stream: true` when tools are present, so tool arguments can arrive incrementally.
+Muse Desktop offers MUSE sign-in before model setup on a blank first run; **Sign in later** leaves the account available from the sidebar and **Settings → MUSE Account**. Opening the page refreshes the model catalog; use **Verify status** to ask the gateway to confirm the account identity. The account page starts Feishu browser sign-in without username, password or registration fields. The same session loads the website model catalog and authorizes model requests and speech transcription. A fresh profile selects the first Muse model automatically; an old direct default without its own configured credential selects the corresponding Muse route. Models settings still accepts custom providers and credentials, and configured custom defaults remain selected. Signing out removes only Muse routes. The official DeepSeek route and GLM-5.3 models explicitly supply their thinking protocol and required `reasoning_content` field in both transports; model history never depends on guessing the upstream vendor from the proxy URL. Official Zhipu GLM-5.3 requests retain historical thinking with `clear_thinking: false` when thinking is enabled and send `tool_stream: true` when tools are present, so tool arguments can arrive incrementally.
 
-Browser sign-in opens only the configured Muse origin at its exact Desktop approval or Feishu entry URL; extra query parameters and fragments are rejected. The Host requests `provider=feishu`; a Feishu-enabled gateway redirects directly to Feishu's official authorization UI, then the user compares the Desktop code and confirms the device on a MUSE page. Gateways without Feishu support keep the original approval URL, and new gateways retain that URL for older clients that omit the provider field. The short-lived approval exchanges for a separate Desktop session. The redemption secret stays in Host memory and never reaches the UI, browser URL, agent or Session log. The Host verifies identity and writes the existing origin-bound session file before reporting success. Start, check and cancellation serialize with each other; manual login and logout first collect cancellation. A committed login uses the same model, speech, knowledge-base and remote-desktop consumers as password login. Gateway restart or lost redemption requires a new attempt. Deploy the matching account-gateway endpoints before using the browser button; legacy authentication interfaces remain available to existing consumers.
+Browser sign-in opens only the configured Muse origin at its exact Desktop approval or Feishu entry URL; extra query parameters and fragments are rejected. The Host requests `provider=feishu`; a Feishu-enabled gateway redirects directly to Feishu's official authorization UI, then the user compares the Desktop code and confirms the device on a MUSE page. Gateways without Feishu support keep the original approval URL, and new gateways retain that URL for older clients that omit the provider field. The short-lived approval exchanges for a separate Desktop session. The redemption secret stays in Host memory and never reaches the UI, browser URL, agent or Session log. The Host verifies identity and writes the existing origin-bound session file before reporting success. Start, check and cancellation serialize with each other; manual login and logout first collect cancellation. A committed login uses the same model, speech and remote-desktop consumers as password login. Gateway restart or lost redemption requires a new attempt. Deploy the matching account-gateway endpoints before using the browser button; legacy authentication interfaces remain available to existing consumers.
 
 Once authentication saves the account session, Desktop reports sign-in success even if the immediate desktop-connection or model-catalog refresh fails. Reading account status likewise treats the controller's local or explicitly verified result as authoritative; refresh failures are logged independently and scheduled catalog polling can retry them. A 401 from either the provider catalog or direct-access endpoint withdraws Muse routes and removes only that login revision's model-access credentials without deleting the account session. Explicit account verification owns rejection of an invalid saved session.
 
@@ -41,13 +41,13 @@ Model refusals and cancelled streams expose fixed diagnostics with their error c
 
 Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort. Yunying's exact `gpt-6.1-sol` model uses `max_completion_tokens` for its output limit.
 
-Session and Bot menus expose only the effort levels advertised by the account catalog. Yunying GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`; Gemini 3.1 Pro supports `low`, `medium`, and `high`. The regular Session menu retains its personal-default save behavior; Bot selections remain specific to that Bot. Neither changes the server catalog defaults. Gemini keeps `include_thoughts: true` alongside the selected `reasoning_effort`. A requested level does not guarantee that the supplier returns a visible summary on every step.
+Model menus expose only the effort levels advertised by the account catalog. Yunying GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`; Gemini 3.1 Pro supports `low`, `medium`, and `high`. The Session menu retains its personal-default save behavior without changing the server catalog defaults. Gemini keeps `include_thoughts: true` alongside the selected `reasoning_effort`. A requested level does not guarantee that the supplier returns a visible summary on every step.
 
 A model choice saved during catalog refresh takes precedence over initial account default selection. The refreshed catalog remains available; an unrelated settings write failure still rejects the refresh.
 
 An existing conversation with an unconfigured direct route can use the same exact model advertised by Muse. The Host records that change through normal model selection and request headers only while the assembled provider, model and reasoning choice still match the current selection; a newer user choice remains selected. If Muse does not advertise that model, the conversation asks the user to choose an available Muse model from the picker.
 
-The message rating and task feedback dialogs submit to the Muse opinion inbox; **Muse Bot settings → Feedback** opens the native Session feedback form described by the [account UI](../../client/ui-muse-account/README.md). A submission uses the saved Desktop account and retains its category and local Session/message identifiers. The optional related-excerpt checkbox starts clear; selected diagnostics contain only bounded visible request and answer text, with known credentials removed. No tool arguments, tool results, reasoning, attachments, or full Session log are sent. A confirmed inbox receipt closes the form; login, network, and account-switch failures retain the draft. An uncertain result requires checking the inbox before another submission. Administrators review all submitted opinions at `/feedback`; ordinary users see their own.
+The message rating and task feedback dialogs submit to the Muse opinion inbox through the [account UI](../../client/ui-muse-account/README.md). A submission uses the saved Desktop account and retains its category and local Session/message identifiers. The optional related-excerpt checkbox starts clear; selected diagnostics contain only bounded visible request and answer text, with known credentials removed. No tool arguments, tool results, reasoning, attachments, or full Session log are sent. A confirmed inbox receipt closes the form; login, network, and account-switch failures retain the draft. An uncertain result requires checking the inbox before another submission. Administrators review all submitted opinions at `/feedback`; ordinary users see their own.
 
 ### Account-authorized web search
 
@@ -83,7 +83,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `visibleModels` | `[]` | Exact `{ providerId, modelId }` pairs selectable within hidden account providers. Excluded providers and models remain excluded; other providers and personal adapters are unaffected. |
 | `modelRefreshMs` | 60,000 | Model catalog refresh interval in milliseconds, from 10,000 to 3,600,000. |
 | `accountHome` | Active DSH home | Absolute directory containing this product's account session file. |
-| `requestTimeoutMs` | 15,000 | Account and KB access request timeout in milliseconds, from 1,000 to 120,000. |
+| `requestTimeoutMs` | 15,000 | Account gateway request timeout in milliseconds, from 1,000 to 120,000. |
 | `webSearch` | `false` | Register the `muse` search provider when the web service is present; Muse Desktop enables it. |
 | `searchRequestTimeoutMs` | 60,000 | Independent account-authorized search timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
@@ -122,17 +122,13 @@ Verified account status exposes administrator navigation only when the current g
 
 The authenticated `museAccount.feedback` Remote receives Typert-validated identifiers and ratings, verifies the live feedback target, captures the origin-bound account revision, and rechecks it after preparing the text. It sends one same-origin JSON POST to `/api/muse.feedback` with the captured cookie and Origin header, without following redirects or retrying unknown writes. A receipt must match the username and exact submitted title, body, and category. Switching accounts during submission reports an account-change result; check the original account inbox. Muse Desktop disables the upstream Session-log delivery plugin. The typed Host `/feedback <text>` command retains its local recording behavior.
 
-The Host runs the package's built `lib/types/mcp-server.js` under plain Node and waits for MCP tool discovery. Source profiles mounting this plugin require `pnpm run build` first. For each KB call, the child exchanges the current saved cookie through `/api/kb/access` for a fresh short-lived bearer and calls the same-origin MCP endpoint; it never persists or returns the bearer. `muse_kb_ingest_script` submits up to 12 reviewed Markdown episodes or chapters, with a 2 MiB total request limit, and reports each saved, duplicate, or failed section. The nine `muse_kb_wiki_*` tools expose immutable source capture, directory browsing, full-text search, source/page reading, cited page writes, history, links, status, and migration preview. Scope defaults to `private`; `project` requires an account-local `project_id`, and `shared` uses explicit grants and administrator-only writes. Page writes carry original-source character citations and `expected_revision`; conflicts require reading and merging the current page before retrying. Capture creates a pending source page, while migration preview changes neither originals nor grants. Legacy reads retain their 6,000-character pages and 24,000-character opening limit.
-
-The MCP SDK validates remote response fields; the local bridge accepts only text blocks. Local failures return fixed codes without upstream response text. Bounded recognized Wiki errors distinguish revision conflicts, busy writes, invalid citations, unresolved links, and access refusal. The model receives fixed recovery guidance for retryable Wiki edits; unknown errors and bearer-containing results remain rejected. Each call rereads the account session, so refreshed login and sign-out apply without restarting the MCP child.
-
 The Host-only `MuseAsrClient` reads the same saved account session for the `audio_transcribe` tool. A submit carries the receipt's optional `X-Muse-Asr-Purpose` (`subtitles` or `screenplay`); a query uses the existing account-scoped job ID. Omission preserves legacy routing. The client validates optional purpose, actual service version, accepted-queue state, fixed error categories, bounded provider diagnostics, and recovery instructions. Unknown metadata remains absent; purpose never implies a historical service version. Sentence and word timestamps remain in seconds, with invalid spans refused. Desktop exposes no provider keys, resource picker, or TOS credentials. Missing account login, gateway, or server ASR configuration has an explicit failure. The server deployment and task limits are documented in [`services/muse-accounts`](../../../services/muse-accounts/README.md).
 
 Host transcription calls accept a caller cancellation signal alongside the request timeout. They abort uploads and response reads, preserve the caller’s cancellation reason, and await transport or unread-body cleanup before settling. Cancellation does not revoke an already accepted gateway job.
 
 Transcription refusals distinguish queue capacity, upload contention, account request rate, provider service limits, daily account quota, and idempotency conflicts. The client keeps validated `Retry-After` seconds and only safe diagnostic categories, operation, HTTP status, and numeric provider code; it discards response bodies, signed URLs, account/resource identities, and credentials. It never retries a submission inside an HTTP call; the receipt-owning tool controls explicit recovery.
 
-No runtime invariant companion is published because account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.
+No runtime invariant companion is published because the account controller and model registry own the observable account and routing state.
 
 </details>
 
@@ -143,7 +139,7 @@ No runtime invariant companion is published because account status and registere
 
 - [MCP client](../../mcp/mcp-client/README.md) — server-qualified tool names and lifecycle.
 - [Desktop composition](../../../apps/desktop/README.md) — the shipped application profile.
-- [Account and KB decision](../../../.agents/notes/implemented/feature/2026-09-28-muse-account-kb-access.md) — credential and source-access choices.
+- [Built-in KB removal](../../../docs/upgrade-guide/v0.2.1-alpha.1/muse-account-kb-removal/guide.md) — removed tools and custom MCP configuration.
 
 -----
 
@@ -154,15 +150,15 @@ No runtime invariant companion is published because account status and registere
 
 #### What the model sees
 
-After the bundled MCP server connects, the model receives sixteen schemas: account status, the four legacy source operations, nine scoped Wiki operations, participation reporting, and authorized project portfolios. Wiki results contain source/page IDs, digests, revisions, citations, links, bounded excerpts, and continuation offsets. The write tools distinguish immutable captures from synthesized pages and reviewed script sections. `muse_kb_wiki_record_project` distinguishes a saved contribution from an unsynchronized overview; `muse_kb_wiki_project_portfolio` identifies own-account or authorized cross-account access. Password, cookie, and bearer are absent from tool arguments and results. Model-visible arguments and results remain Session data. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
+Model requests use the selected account provider and model. Optional account search returns validated sources through the existing `web_search` tool. The package contributes no account-status or knowledge-base tool schemas. Passwords and cookies stay outside tool arguments and results. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
 
 #### Token effect
 
-The sixteen tool schemas add a stable request cost while the server is mounted. Calls append returned text to the conversation; legacy results are capped at 128 KiB, while Wiki results allow up to 4 MiB for link graphs and citations. Reads provide 6,000-character pages. Results above the relevant limit are rejected, including unusually large ambiguous-link candidate lists. This package adds no system-prompt text.
+The package adds no tool schemas or system-prompt text. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
 
 #### KV Cache effect
 
-Stable tool schemas preserve an already reusable request prefix. A new tool result extends the conversation; account status and KB content can change between calls without replacing earlier logged tokens.
+Account settings and status remain Host and Client data. Model selection and the existing tool-history rules determine request-prefix reuse.
 
 ## Known Limitations and Deferred Work
 
@@ -171,9 +167,7 @@ Stable tool schemas preserve an already reusable request prefix. A new tool resu
 These limits apply to the bundled Desktop account flow.
 
 - **Same-user file access** — the saved cookie is outside the model conversation, but an agent process running as the same OS user may be able to read the session file through file tools. UI and Remote routing do not provide complete isolation; stronger separation requires OS credential storage, a separate account, or narrower sandbox read permissions.
-- **Gateway dependency** — account-private writes and KB reads require the deployed gateway with a private user root and explicit shared-document grants. Source packaging alone does not activate them.
-- **Participation reporting** — the tool saves and verifies the agent's report, without independently checking artifacts or proving completion. Presets prompt milestone updates; they do not observe every shell operation. Minimal mode retains local pending records because it has no Wiki tools.
-- **Agent instruction** — editing mode prompts the agent to read useful script and case material before drafting; the Host does not enforce a prewriting gate.
+- **Gateway dependency** — account-authorized models, web search and speech require matching deployed gateway services. Source packaging alone does not enable them.
 
 <a id="dev-note"></a>
 ### Dev Note

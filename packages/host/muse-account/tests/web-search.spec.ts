@@ -15,10 +15,6 @@ import * as MuseAccount from '../src/index.ts'
 import { readMuseSession, writeMuseSession } from '../src/session.ts'
 import { mountMuseWebSearch, MuseWebSearchProvider } from '../src/web-search.ts'
 
-vi.mock('@deepseek-ai/dsh-mcp-client', async original => ({
-  ...await original<typeof import('@deepseek-ai/dsh-mcp-client')>(), inject: [], apply: () => {},
-}))
-
 const origin = 'https://muse.example'
 const cookie = '__Host-muse=fake-session-private'
 const homes: string[] = []

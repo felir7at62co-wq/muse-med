@@ -1,11 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_MUSE_BOT_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
+import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopDramaSkillPackageFiles,
   assertDesktopCodexPackageFiles,
-  assertDesktopMuseBotPackageFiles,
   assertDesktopFeishuPackageFiles,
   assertDesktopHostPackageFiles,
   selectDesktopPackageClosure,
@@ -90,7 +89,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['ds-bot', 'dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -135,12 +134,15 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('requires the Muse Bot Host, client and Apache attribution in the release tarball', () => {
-    const files = DESKTOP_MUSE_BOT_RUNTIME_FILES.map(file => `package/${file}`)
-    expect(() => { assertDesktopMuseBotPackageFiles(files) }).not.toThrow()
-    for (const file of files) {
-      expect(() => { assertDesktopMuseBotPackageFiles(files.filter(value => value !== file)) }).toThrow(file.slice('package/'.length))
-    }
+  it('leaves archived Bot tarballs outside the default product package closure', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'ds-bot', 'muse-bot']
+    const available = new Map(names.map(name => [name, packed(name)]))
+    const selected = selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
+    expect(selected).toContain('dsh-codex-subscription')
+    expect(selected).not.toContain('ds-bot')
+    expect(selected).not.toContain('muse-bot')
+    for (const name of ['ds-bot', 'muse-bot']) available.delete(name)
+    expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)).toEqual(selected)
   })
 
   it.each([null, [], { '@deepseek-ai/dsh-subagent-codex': 'optional' }])('rejects malformed optional-peer metadata: %j', (metadata) => {

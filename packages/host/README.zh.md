@@ -36,7 +36,7 @@ kind: "package-group"
 | [`plugin-inventory/`](plugin-inventory/README.zh.md) | 当前 Loader 条目的只读投影 | Remote `pluginInventory/list` |
 | [`product-telemetry-otel/`](product-telemetry-otel/README.zh.md) | 通过 OTLP/HTTP 显式上报产品使用事件 | `ctx.productTelemetry` |
 | [`feishu-settings/`](feishu-settings/README.zh.md) | 桌面版飞书设置及扫码注册页面 | Remote `feishuSetup` |
-| [`muse-account/`](muse-account/README.zh.md) | 桌面版 MUSE 登录与授权知识库阅读 | Remote `museAccount`；MCP 工具 |
+| [`muse-account/`](muse-account/README.zh.md) | 桌面版 MUSE 登录与授权云服务 | Remote `museAccount` |
 
 -----
 

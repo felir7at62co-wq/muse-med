@@ -1,6 +1,6 @@
 # Product-owned adapted composition. The Desktop Host declares this file as its preset;
 # no harness package has to ship a copy for it to load.
-# Coordinator tools reuse the standard composition; DS Bot supplies the standing role.
+# Recovery-only composition for existing bot-coordinator Sessions; it supplies ordinary tools without Bot services.
 #
 # This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
 # standing scope; every session naming it joins by scope parentage, so the

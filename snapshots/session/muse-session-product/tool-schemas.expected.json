@@ -1,0 +1,3614 @@
+{
+  "initial": [
+    {
+      "name": "ask_user_question",
+      "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "description": "Questions to ask the user before continuing.",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Stable id for this question; echoed in the answer."
+                },
+                "question": {
+                  "type": "string",
+                  "description": "The specific question to ask the user."
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+                },
+                "options": {
+                  "type": "array",
+                  "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Short user-facing option label."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "One sentence explaining the tradeoff or impact."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                },
+                "multi_select": {
+                  "type": "boolean",
+                  "description": "Whether the user may select more than one option. Defaults to false."
+                }
+              },
+              "required": [
+                "id",
+                "question"
+              ]
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      }
+    },
+    {
+      "name": "create_goal",
+      "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "The concrete completion objective inferred from the direct human request."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Optional positive safe-integer limit on automatic continuation rounds."
+          }
+        },
+        "required": [
+          "objective"
+        ]
+      }
+    },
+    {
+      "name": "edit",
+      "description": "Edit an existing UTF-8 text file by replacing literal text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    {
+      "name": "get_goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "glob",
+      "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for (ripgrep syntax)."
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "include": {
+            "type": "string",
+            "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "interrupt_agent",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The id of an agent created under you: your direct child or a deeper descendant."
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "job_kill",
+      "description": "Request cancellation of a running background job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional short reason, recorded in the log and forwarded to the job."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "job_list",
+      "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_output",
+      "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+            "enum": [
+              "children",
+              "descendants"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "present",
+      "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path of an existing regular file. Relative paths use the Session working directory."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Brief description for the user."
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "read_image",
+      "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the image file, resolved by the filesystem backend."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the agent."
+          }
+        },
+        "required": [
+          "agent_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "skill",
+      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The exact skill name from the available skills list."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "subagent",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_fork",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "todo_write",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "description": "The COMPLETE task list, replacing any previous list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "What the task is — a short imperative line."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "pending (not started) | in_progress (now) | completed (done).",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "todos"
+        ]
+      }
+    },
+    {
+      "name": "tool_context",
+      "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+            "enum": [
+              "status",
+              "load",
+              "pin",
+              "release",
+              "unpin"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "description": "Exact tool names; required for changes. Use tool_search to find names.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      }
+    },
+    {
+      "name": "tool_search",
+      "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+          },
+          "capability": {
+            "type": "string",
+            "description": "Optional capability id from the directory. Omit to search across groups."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum matching tools to load, from 1 to 8; defaults to 8."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_goal",
+      "description": "Update the current goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "Exact id returned by get_goal."
+          },
+          "revision": {
+            "type": "number",
+            "description": "Exact positive revision returned by get_goal."
+          },
+          "action": {
+            "type": "string",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+            "enum": [
+              "edit",
+              "pause",
+              "resume",
+              "complete",
+              "blocked",
+              "wait"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "description": "Replacement objective; valid only with action edit."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Replacement cap; valid only with action edit."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          },
+          "wait_reason": {
+            "type": "string",
+            "description": "With action wait: describe what new information or event is needed."
+          },
+          "wake_after_seconds": {
+            "type": "number",
+            "description": "With action wait: optional positive whole seconds before continuing."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "With action wait: optional owned job to watch for new output or settlement."
+          }
+        },
+        "required": [
+          "goal_id",
+          "revision",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "video_inspect",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+          },
+          "review_id": {
+            "type": "string",
+            "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
+          },
+          "episode": {
+            "type": "string",
+            "description": "首次scan时标记集号；省略则使用实际视频路径。"
+          },
+          "method": {
+            "type": "string",
+            "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
+            "enum": [
+              "scan",
+              "next",
+              "revisit",
+              "observe",
+              "events",
+              "status",
+              "metadata",
+              "timeline",
+              "compare",
+              "close",
+              "reopen"
+            ]
+          },
+          "timeline_start_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+          },
+          "timeline_end_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+          },
+          "frame_ids": {
+            "type": "array",
+            "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "draft_path": {
+            "type": "string",
+            "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+          },
+          "transcript_path": {
+            "type": "string",
+            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
+          },
+          "event_groups": {
+            "type": "array",
+            "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "frame_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "uncertainty": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "frame_ids",
+                "actor",
+                "action",
+                "object",
+                "before",
+                "after",
+                "uncertainty"
+              ]
+            }
+          },
+          "observations": {
+            "type": "array",
+            "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frame_id": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "string",
+                  "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                },
+                "change": {
+                  "type": "string",
+                  "description": "与邻近画面的变化；无变化也需据实说明。"
+                },
+                "uncertainty": {
+                  "type": "string",
+                  "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                }
+              },
+              "required": [
+                "frame_id",
+                "visible",
+                "change"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The HTTP(S) URL to fetch."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "description": "1–4 search queries; their results are merged.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "name": "write",
+      "description": "Create or fully replace a UTF-8 text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full UTF-8 text content to write."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  ],
+  "changes": [
+    [
+      {
+        "name": "ask_user_question",
+        "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "description": "Questions to ask the user before continuing.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Stable id for this question; echoed in the answer."
+                  },
+                  "question": {
+                    "type": "string",
+                    "description": "The specific question to ask the user."
+                  },
+                  "header": {
+                    "type": "string",
+                    "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+                  },
+                  "options": {
+                    "type": "array",
+                    "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "description": "Short user-facing option label."
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "One sentence explaining the tradeoff or impact."
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ]
+                    }
+                  },
+                  "multi_select": {
+                    "type": "boolean",
+                    "description": "Whether the user may select more than one option. Defaults to false."
+                  }
+                },
+                "required": [
+                  "id",
+                  "question"
+                ]
+              }
+            }
+          },
+          "required": [
+            "questions"
+          ]
+        }
+      },
+      {
+        "name": "create_goal",
+        "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "objective": {
+              "type": "string",
+              "description": "The concrete completion objective inferred from the direct human request."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Optional positive safe-integer limit on automatic continuation rounds."
+            }
+          },
+          "required": [
+            "objective"
+          ]
+        }
+      },
+      {
+        "name": "edit",
+        "description": "Edit an existing UTF-8 text file by replacing literal text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Literal text to replace."
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Literal replacement text. Use an empty string to delete the match."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "old_string",
+            "new_string"
+          ]
+        }
+      },
+      {
+        "name": "get_goal",
+        "description": "Read the current session goal, including the id and revision that update_goal requires.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "glob",
+        "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "grep",
+        "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression to search for (ripgrep syntax)."
+            },
+            "path": {
+              "type": "string",
+              "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+            },
+            "include": {
+              "type": "string",
+              "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "hongguo_collections",
+        "description": "在官方公开热播榜覆盖范围内筛选收藏数，默认阈值1000000。遍历分页后去重，按最小观察收藏值降序。万/亿展示值是近似数，阈值附近和冲突跨阈值列为uncertain；默认不混入结果。不是全红果片库筛选。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minCollections": {
+              "type": "integer",
+              "description": "收藏阈值，默认1000000，非负安全整数"
+            },
+            "includeUncertain": {
+              "type": "boolean",
+              "description": "默认false；true把待核实条目包含在items，同时保留thresholdStatus"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot-drama",
+                  "hot-real-drama",
+                  "hot-ai-drama",
+                  "hot-comic-drama"
+                ]
+              },
+              "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "hongguo_detail",
+        "description": "当用户想查某部红果剧的数据时，按搜索或榜单给出的seriesId读取官方公开详情：简介、演员、集数、收藏与点赞源字段。仅返回请求的ID；url是官网详情页；watchPageUrl如有则为网页实际链接的官方播放页，并非视频文件或保证可播放的直链。不返回用户评论或下载视频。source整数可能经过平台处理，不承诺后台精度。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seriesId": {
+              "type": "string",
+              "description": "搜索或榜单返回的十进制字符串ID，不能转成JS数字"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": [
+            "seriesId"
+          ]
+        }
+      },
+      {
+        "name": "hongguo_rankings",
+        "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot-drama",
+                  "hot-real-drama",
+                  "hot-ai-drama",
+                  "hot-comic-drama"
+                ]
+              },
+              "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "interrupt_agent",
+        "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The id of an agent created under you: your direct child or a deeper descendant."
+            }
+          },
+          "required": [
+            "agent_id"
+          ]
+        }
+      },
+      {
+        "name": "job_kill",
+        "description": "Request cancellation of a running background job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Optional short reason, recorded in the log and forwarded to the job."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "job_list",
+        "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "job_output",
+        "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "wait": {
+              "type": "boolean",
+              "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "list_agents",
+        "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+              "enum": [
+                "children",
+                "descendants"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "present",
+        "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "array",
+              "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path of an existing regular file. Relative paths use the Session working directory."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Brief description for the user."
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          },
+          "required": [
+            "files"
+          ]
+        }
+      },
+      {
+        "name": "qimao_detail",
+        "description": "读取指定七猫书籍主信息区的公开元数据，核验真实bookId，返回书名、作者、分类、简介、状态、字数、更新时间、累计人气值和次阅读的原名/值/采集时间/缺失原因。次阅读不是当前在读人数，累计人气值不是当日投票；currentReaders和goldenPick均未知。仅解析DOM，不执行网页脚本、不抓取或返回章节正文。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bookId": {
+              "type": "string",
+              "description": "qimao_rankings/search返回的十进制字符串书ID或官方/shuku/ID/链接，不转JS数字"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            }
+          },
+          "required": [
+            "bookId"
+          ]
+        }
+      },
+      {
+        "name": "qimao_rankings",
+        "description": "七猫小说选材：静态读取男/女频大热、新书、完结、收藏、更新榜首屏，大热分日/月；或读取公开筛选书库的真实分页。核验实际频道、榜种、周期和页码，拒绝重复页。仅覆盖所选公开窗口，coverage.complete仅表示请求范围成功；指标完整性另报。热度、累计人气值、次阅读分别保留原名与时间；在读人数、金选未知，不下载正文、不登录。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "rank",
+                "library"
+              ],
+              "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "boy",
+                  "girl"
+                ]
+              },
+              "description": "rank频道，默认boy/girl；library不接受此参数"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot",
+                  "new",
+                  "over",
+                  "collect",
+                  "update"
+                ]
+              },
+              "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+            },
+            "periods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "date",
+                  "month"
+                ]
+              },
+              "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+            },
+            "pages": {
+              "type": "integer",
+              "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "qimao_search",
+        "description": "按书名或作者在本次所选七猫公开榜单首屏/筛选书库页面内过滤候选。返回matchedInWindow、availableInWindow和原覆盖说明；complete始终false，不得把没找到解释成七猫没有此书。可用qimao_detail按返回bookId核对详情。不访问小说正文。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "rank",
+                "library"
+              ],
+              "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "boy",
+                  "girl"
+                ]
+              },
+              "description": "rank频道，默认boy/girl；library不接受此参数"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot",
+                  "new",
+                  "over",
+                  "collect",
+                  "update"
+                ]
+              },
+              "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+            },
+            "periods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "date",
+                  "month"
+                ]
+              },
+              "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+            },
+            "pages": {
+              "type": "integer",
+              "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            },
+            "query": {
+              "type": "string",
+              "description": "书名或作者片段，1–100字符；只匹配所选公开采集窗口，不是全站搜索"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "过滤结果偏移，默认0；不触发额外官网翻页"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数，默认20，范围1–100"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "read",
+        "description": "Read a UTF-8 text file and return line-numbered content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to read, resolved by the filesystem backend."
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based first line to return. Defaults to 1."
+            },
+            "column": {
+              "type": "number",
+              "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to return. Defaults to 2000."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "read_image",
+        "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to the image file, resolved by the filesystem backend."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "send_message",
+        "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+            },
+            "message": {
+              "type": "string",
+              "description": "The message to deliver to the agent."
+            }
+          },
+          "required": [
+            "agent_id",
+            "message"
+          ]
+        }
+      },
+      {
+        "name": "skill",
+        "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The exact skill name from the available skills list."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "source_snapshot",
+        "description": "真实采集红果官方公开榜单或七猫公开榜单首屏/筛选书库，保存不可覆盖的v1来源快照；collect仅接受平台和rankings请求，不能提交模型编造的sourceResult。import_legacy只导入项目内旧JSON为legacy_file证据，保留源路径/SHA和原字段；list/read/compare读取项目内快照。按平台+真实ID去重，无ID原样保留但不入统计。比较要求相同范围及指标原语义/单位/标签，未知不是0，缓存测量时间不变，不推断新增/退榜、在读人数、市场总量或跨平台身份。写入前检查当前文件权限，只读会在HTTP前拒绝。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "collect",
+                "import_legacy",
+                "list",
+                "read",
+                "compare"
+              ]
+            },
+            "project": {
+              "type": "string",
+              "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+            },
+            "platform": {
+              "type": "string",
+              "enum": [
+                "hongguo",
+                "qimao"
+              ]
+            },
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operation"
+              ],
+              "properties": {
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "rankings"
+                  ]
+                },
+                "refresh": {
+                  "type": "boolean",
+                  "description": "跳过来源短期缓存；false保留原始测量时间，不把缓存当作新测量"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "rank",
+                    "library"
+                  ]
+                },
+                "channels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "boy",
+                      "girl"
+                    ]
+                  }
+                },
+                "boards": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "hot-drama",
+                      "hot-real-drama",
+                      "hot-ai-drama",
+                      "hot-comic-drama",
+                      "hot",
+                      "new",
+                      "over",
+                      "collect",
+                      "update"
+                    ]
+                  }
+                },
+                "periods": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "date",
+                      "month"
+                    ]
+                  }
+                },
+                "pages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "仅library真实分页；固定近3天更新、30万字以下、连载中、click排序。rank不接受pages"
+                }
+              }
+            },
+            "path": {
+              "type": "string",
+              "description": "import_legacy必填：项目内已有legacy JSON，保留原文件、原字段及SHA，不把它称为官方新采集"
+            },
+            "snapshotId": {
+              "type": "string"
+            },
+            "beforeId": {
+              "type": "string"
+            },
+            "afterId": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "subagent",
+        "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Defaults to true. Set false only when your next action depends on the result."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "subagent_fork",
+        "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Defaults to true. Set false only when your next action depends on the result."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "todo_update",
+        "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Exact content of the existing task; surrounding whitespace is ignored."
+            },
+            "status": {
+              "type": "string",
+              "description": "Actual task state: pending, in_progress, or completed.",
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed"
+              ]
+            },
+            "start_next": {
+              "type": "boolean",
+              "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+            }
+          },
+          "required": [
+            "task",
+            "status"
+          ]
+        }
+      },
+      {
+        "name": "todo_write",
+        "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "todos": {
+              "type": "array",
+              "description": "The COMPLETE task list, replacing any previous list.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "What the task is — a short imperative line."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "pending (not started) | in_progress (now) | completed (done).",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "status"
+                ]
+              }
+            }
+          },
+          "required": [
+            "todos"
+          ]
+        }
+      },
+      {
+        "name": "tool_context",
+        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "enum": [
+                "status",
+                "load",
+                "pin",
+                "release",
+                "unpin"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "description": "Exact tool names; required for changes. Use tool_search to find names.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+            },
+            "capability": {
+              "type": "string",
+              "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum matching tools to load, from 1 to 8; defaults to 8."
+            }
+          }
+        }
+      },
+      {
+        "name": "update_goal",
+        "description": "Update the current goal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal_id": {
+              "type": "string",
+              "description": "Exact id returned by get_goal."
+            },
+            "revision": {
+              "type": "number",
+              "description": "Exact positive revision returned by get_goal."
+            },
+            "action": {
+              "type": "string",
+              "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+              "enum": [
+                "edit",
+                "pause",
+                "resume",
+                "complete",
+                "blocked",
+                "wait"
+              ]
+            },
+            "objective": {
+              "type": "string",
+              "description": "Replacement objective; valid only with action edit."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Replacement cap; valid only with action edit."
+            },
+            "blocked_reason": {
+              "type": "string",
+              "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+            },
+            "wait_reason": {
+              "type": "string",
+              "description": "With action wait: describe what new information or event is needed."
+            },
+            "wake_after_seconds": {
+              "type": "number",
+              "description": "With action wait: optional positive whole seconds before continuing."
+            },
+            "job_id": {
+              "type": "string",
+              "description": "With action wait: optional owned job to watch for new output or settlement."
+            }
+          },
+          "required": [
+            "goal_id",
+            "revision",
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "video_inspect",
+        "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+            },
+            "review_id": {
+              "type": "string",
+              "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+            },
+            "reason": {
+              "type": "string",
+              "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
+            },
+            "episode": {
+              "type": "string",
+              "description": "首次scan时标记集号；省略则使用实际视频路径。"
+            },
+            "method": {
+              "type": "string",
+              "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
+              "enum": [
+                "scan",
+                "next",
+                "revisit",
+                "observe",
+                "events",
+                "status",
+                "metadata",
+                "timeline",
+                "compare",
+                "close",
+                "reopen"
+              ]
+            },
+            "timeline_start_seconds": {
+              "type": "number",
+              "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+            },
+            "timeline_end_seconds": {
+              "type": "number",
+              "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+            },
+            "frame_ids": {
+              "type": "array",
+              "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "draft_path": {
+              "type": "string",
+              "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+            },
+            "transcript_path": {
+              "type": "string",
+              "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
+            },
+            "event_groups": {
+              "type": "array",
+              "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "event_id": {
+                    "type": "string"
+                  },
+                  "frame_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "actor": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "before": {
+                    "type": "string"
+                  },
+                  "after": {
+                    "type": "string"
+                  },
+                  "uncertainty": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "event_id",
+                  "frame_ids",
+                  "actor",
+                  "action",
+                  "object",
+                  "before",
+                  "after",
+                  "uncertainty"
+                ]
+              }
+            },
+            "observations": {
+              "type": "array",
+              "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "frame_id": {
+                    "type": "string"
+                  },
+                  "visible": {
+                    "type": "string",
+                    "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                  },
+                  "change": {
+                    "type": "string",
+                    "description": "与邻近画面的变化；无变化也需据实说明。"
+                  },
+                  "uncertainty": {
+                    "type": "string",
+                    "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                  }
+                },
+                "required": [
+                  "frame_id",
+                  "visible",
+                  "change"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "web_fetch",
+        "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The HTTP(S) URL to fetch."
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      {
+        "name": "web_search",
+        "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "queries": {
+              "type": "array",
+              "description": "1–4 search queries; their results are merged.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "queries"
+          ]
+        }
+      },
+      {
+        "name": "work_mapping",
+        "description": "用已保存红果/七猫快照的{snapshotId,itemId}两端提出关系，平台、ID、标题和SHA由工具核验；同名仅是未审核提案，不自动合并指标。propose/read/list/lookup管理直接关系，lookup恰选mappingId/sourceRef/sourceKey；sourceKey只查同平台ID的历史证据，不自动扩展旧确认到新快照。review和supersede必须提供预期提案SHA与revision，通过真实用户提问确认/拒绝/待核实；模型不能提交confirmed或decision。只读在提问前拒绝，取消、无回答服务、子agent或失效回答不写决定。决定追加不可覆盖的修订；改关系/证据另建提案。同系列不等于同作，来源未给季数仍未知；未命中只表示本证据未观察到，不推断全平台无AI或无S2，不做传递合并。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "propose",
+                "read",
+                "list",
+                "lookup",
+                "review",
+                "supersede"
+              ]
+            },
+            "project": {
+              "type": "string",
+              "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+            },
+            "left": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "right": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "sourceRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "sourceKey": {
+              "type": "string",
+              "description": "lookup三选一：hongguo:<ID>或qimao:<ID>，仅返回该平台ID的历史提案及原快照证据，不自动扩展旧确认到新快照"
+            },
+            "relation": {
+              "type": "string",
+              "enum": [
+                "same_work",
+                "adaptation_of",
+                "same_series",
+                "sequel_of"
+              ],
+              "description": "same_work同作；same_series同系列不等于同作；adaptation_of左侧改编自右侧；sequel_of左侧是右侧续作"
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "propose必填模型理由，明确未核实；不能由同名自动确认"
+            },
+            "mappingId": {
+              "type": "string"
+            },
+            "expectedProposalSha256": {
+              "type": "string",
+              "description": "review/supersede必填：read返回的proposalSha256完整文件SHA-256"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "review初始0，supersede必须等于已存在最新revision；旧回答不能写入新revision"
+            }
+          }
+        }
+      },
+      {
+        "name": "write",
+        "description": "Create or fully replace a UTF-8 text file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full UTF-8 text content to write."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "content"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "name": "ask_user_question",
+        "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "description": "Questions to ask the user before continuing.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Stable id for this question; echoed in the answer."
+                  },
+                  "question": {
+                    "type": "string",
+                    "description": "The specific question to ask the user."
+                  },
+                  "header": {
+                    "type": "string",
+                    "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+                  },
+                  "options": {
+                    "type": "array",
+                    "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "description": "Short user-facing option label."
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "One sentence explaining the tradeoff or impact."
+                        }
+                      },
+                      "required": [
+                        "label"
+                      ]
+                    }
+                  },
+                  "multi_select": {
+                    "type": "boolean",
+                    "description": "Whether the user may select more than one option. Defaults to false."
+                  }
+                },
+                "required": [
+                  "id",
+                  "question"
+                ]
+              }
+            }
+          },
+          "required": [
+            "questions"
+          ]
+        }
+      },
+      {
+        "name": "create_goal",
+        "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "objective": {
+              "type": "string",
+              "description": "The concrete completion objective inferred from the direct human request."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Optional positive safe-integer limit on automatic continuation rounds."
+            }
+          },
+          "required": [
+            "objective"
+          ]
+        }
+      },
+      {
+        "name": "edit",
+        "description": "Edit an existing UTF-8 text file by replacing literal text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Literal text to replace."
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Literal replacement text. Use an empty string to delete the match."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "old_string",
+            "new_string"
+          ]
+        }
+      },
+      {
+        "name": "get_goal",
+        "description": "Read the current session goal, including the id and revision that update_goal requires.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "glob",
+        "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "grep",
+        "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression to search for (ripgrep syntax)."
+            },
+            "path": {
+              "type": "string",
+              "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+            },
+            "include": {
+              "type": "string",
+              "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "hongguo_collections",
+        "description": "在官方公开热播榜覆盖范围内筛选收藏数，默认阈值1000000。遍历分页后去重，按最小观察收藏值降序。万/亿展示值是近似数，阈值附近和冲突跨阈值列为uncertain；默认不混入结果。不是全红果片库筛选。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minCollections": {
+              "type": "integer",
+              "description": "收藏阈值，默认1000000，非负安全整数"
+            },
+            "includeUncertain": {
+              "type": "boolean",
+              "description": "默认false；true把待核实条目包含在items，同时保留thresholdStatus"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot-drama",
+                  "hot-real-drama",
+                  "hot-ai-drama",
+                  "hot-comic-drama"
+                ]
+              },
+              "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "hongguo_detail",
+        "description": "当用户想查某部红果剧的数据时，按搜索或榜单给出的seriesId读取官方公开详情：简介、演员、集数、收藏与点赞源字段。仅返回请求的ID；url是官网详情页；watchPageUrl如有则为网页实际链接的官方播放页，并非视频文件或保证可播放的直链。不返回用户评论或下载视频。source整数可能经过平台处理，不承诺后台精度。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seriesId": {
+              "type": "string",
+              "description": "搜索或榜单返回的十进制字符串ID，不能转成JS数字"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": [
+            "seriesId"
+          ]
+        }
+      },
+      {
+        "name": "hongguo_rankings",
+        "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot-drama",
+                  "hot-real-drama",
+                  "hot-ai-drama",
+                  "hot-comic-drama"
+                ]
+              },
+              "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "interrupt_agent",
+        "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The id of an agent created under you: your direct child or a deeper descendant."
+            }
+          },
+          "required": [
+            "agent_id"
+          ]
+        }
+      },
+      {
+        "name": "job_kill",
+        "description": "Request cancellation of a running background job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Optional short reason, recorded in the log and forwarded to the job."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "job_list",
+        "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "job_output",
+        "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "wait": {
+              "type": "boolean",
+              "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "list_agents",
+        "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+              "enum": [
+                "children",
+                "descendants"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "list_mcp_resource_templates",
+        "description": "List parameterized resource URI templates from an MCP server.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "server": {
+              "type": "string",
+              "description": "Configured MCP server name."
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Continuation cursor returned by this server."
+            }
+          },
+          "required": [
+            "server"
+          ]
+        }
+      },
+      {
+        "name": "list_mcp_resources",
+        "description": "List resources available from an MCP server.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "server": {
+              "type": "string",
+              "description": "Configured MCP server name."
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Continuation cursor returned by this server."
+            }
+          },
+          "required": [
+            "server"
+          ]
+        }
+      },
+      {
+        "name": "lvpaopao",
+        "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (selection-required when ambiguous) or selected source IDs. mode defaults to wait; background returns series-queued with owned data.seriesTask.id/state/jobId and continues after the tool returns. That outer ID differs from data.series.taskId. Repeating download_series refreshes the catalog and rechecks saved files. series_status is local-only: supply either seriesTaskId alone or source IDs with outputDir. series_resume and series_cancel accept only seriesTaskId and only its original live Session can control it. Resume rechecks current file permission and saved receipts, explicitly recovers the shared connection through status, then reconciles unknown episodes with their original download_status keys before safe same-key retries. Restart marks interrupted tasks without replay; use series_resume explicitly. A missing previously used manifest blocks recovery. Background tasks can report waiting_user or waiting_source; queued does not establish completion. Only account-playable episodes are downloaded; no purchases, ads or unlocks. Completion requires every actual catalog episode and verified local files; unknown catalog coverage stays incomplete. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "status",
+                "search",
+                "detail",
+                "episodes",
+                "download_first_episode",
+                "download_episode",
+                "download_status",
+                "download_series",
+                "series_status",
+                "series_resume",
+                "series_cancel",
+                "rankings",
+                "engagement"
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "description": "download_series: wait by default; background accepts an owned durable task without binding the finished tool signal.",
+              "enum": [
+                "wait",
+                "background"
+              ]
+            },
+            "seriesTaskId": {
+              "type": "string",
+              "description": "series_resume/series_cancel require only this outer data.seriesTask.id. series_status accepts it instead of source IDs/outputDir; never use data.series.taskId here."
+            },
+            "boardType": {
+              "type": "integer",
+              "description": "rankings: board type from returned boards; defaults to the app reputation board (6)."
+            },
+            "pageIndex": {
+              "type": "integer",
+              "description": "rankings: zero-based page; defaults to 0."
+            },
+            "coldStartTime": {
+              "type": "integer",
+              "description": "rankings: reuse the returned timestamp with the same board and count for subsequent pages."
+            },
+            "query": {
+              "type": "string",
+              "description": "search/download_series/engagement: title. download_series selects only one exact match; otherwise use returned candidates."
+            },
+            "srcAppId": {
+              "type": "string",
+              "description": "Source AppID returned by search; required with dramaId except title lookup."
+            },
+            "dramaId": {
+              "type": "string",
+              "description": "Source drama ID, kept as a string. series_status uses this identity to read saved progress."
+            },
+            "start": {
+              "type": "integer",
+              "description": "episodes: first positive requested number."
+            },
+            "count": {
+              "type": "integer",
+              "description": "episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking."
+            },
+            "episodeNo": {
+              "type": "integer",
+              "description": "engagement: omit for full-series totals or select one actual catalog episode. download_episode/download_status: actual catalog episode."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation."
+            },
+            "outputDir": {
+              "type": "string",
+              "description": "Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming."
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "mcp__user-fixture__project_lookup",
+        "description": "Read synthetic project material from the user-configured MCP connection.",
+        "parameters": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "present",
+        "description": "Declare existing files as final deliverables for the user. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "array",
+              "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path of an existing regular file. Relative paths use the Session working directory."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Brief description for the user."
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          },
+          "required": [
+            "files"
+          ]
+        }
+      },
+      {
+        "name": "qimao_detail",
+        "description": "读取指定七猫书籍主信息区的公开元数据，核验真实bookId，返回书名、作者、分类、简介、状态、字数、更新时间、累计人气值和次阅读的原名/值/采集时间/缺失原因。次阅读不是当前在读人数，累计人气值不是当日投票；currentReaders和goldenPick均未知。仅解析DOM，不执行网页脚本、不抓取或返回章节正文。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bookId": {
+              "type": "string",
+              "description": "qimao_rankings/search返回的十进制字符串书ID或官方/shuku/ID/链接，不转JS数字"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            }
+          },
+          "required": [
+            "bookId"
+          ]
+        }
+      },
+      {
+        "name": "qimao_rankings",
+        "description": "七猫小说选材：静态读取男/女频大热、新书、完结、收藏、更新榜首屏，大热分日/月；或读取公开筛选书库的真实分页。核验实际频道、榜种、周期和页码，拒绝重复页。仅覆盖所选公开窗口，coverage.complete仅表示请求范围成功；指标完整性另报。热度、累计人气值、次阅读分别保留原名与时间；在读人数、金选未知，不下载正文、不登录。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "rank",
+                "library"
+              ],
+              "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "boy",
+                  "girl"
+                ]
+              },
+              "description": "rank频道，默认boy/girl；library不接受此参数"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot",
+                  "new",
+                  "over",
+                  "collect",
+                  "update"
+                ]
+              },
+              "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+            },
+            "periods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "date",
+                  "month"
+                ]
+              },
+              "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+            },
+            "pages": {
+              "type": "integer",
+              "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "qimao_search",
+        "description": "按书名或作者在本次所选七猫公开榜单首屏/筛选书库页面内过滤候选。返回matchedInWindow、availableInWindow和原覆盖说明；complete始终false，不得把没找到解释成七猫没有此书。可用qimao_detail按返回bookId核对详情。不访问小说正文。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "rank",
+                "library"
+              ],
+              "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "boy",
+                  "girl"
+                ]
+              },
+              "description": "rank频道，默认boy/girl；library不接受此参数"
+            },
+            "boards": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "hot",
+                  "new",
+                  "over",
+                  "collect",
+                  "update"
+                ]
+              },
+              "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+            },
+            "periods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "date",
+                  "month"
+                ]
+              },
+              "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+            },
+            "pages": {
+              "type": "integer",
+              "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+            },
+            "refresh": {
+              "type": "boolean",
+              "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+            },
+            "query": {
+              "type": "string",
+              "description": "书名或作者片段，1–100字符；只匹配所选公开采集窗口，不是全站搜索"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "过滤结果偏移，默认0；不触发额外官网翻页"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数，默认20，范围1–100"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "read",
+        "description": "Read a UTF-8 text file and return line-numbered content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to read, resolved by the filesystem backend."
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based first line to return. Defaults to 1."
+            },
+            "column": {
+              "type": "number",
+              "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to return. Defaults to 2000."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "read_image",
+        "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to the image file, resolved by the filesystem backend."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "read_mcp_resource",
+        "description": "Read an MCP resource by URI from the named server. Use a listed URI or an expanded resource template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "server": {
+              "type": "string",
+              "description": "Configured MCP server name."
+            },
+            "uri": {
+              "type": "string",
+              "description": "Resource URI to read."
+            }
+          },
+          "required": [
+            "server",
+            "uri"
+          ]
+        }
+      },
+      {
+        "name": "reverse_skill",
+        "description": "Load the appropriate methodology from the bundled pinned reverse-skill project. Use for authorized binary, APK, JavaScript, desktop or protocol analysis. Returns original instructions and real resource paths. Does not install tools, start services, register MCP, access networks or authorize a target. Optional tools may require separate installation and licenses.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hint": {
+              "type": "string",
+              "description": "Describe the authorized analysis target and goal"
+            }
+          },
+          "required": [
+            "hint"
+          ]
+        }
+      },
+      {
+        "name": "send_message",
+        "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+            },
+            "message": {
+              "type": "string",
+              "description": "The message to deliver to the agent."
+            }
+          },
+          "required": [
+            "agent_id",
+            "message"
+          ]
+        }
+      },
+      {
+        "name": "skill",
+        "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The exact skill name from the available skills list."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "source_snapshot",
+        "description": "真实采集红果官方公开榜单或七猫公开榜单首屏/筛选书库，保存不可覆盖的v1来源快照；collect仅接受平台和rankings请求，不能提交模型编造的sourceResult。import_legacy只导入项目内旧JSON为legacy_file证据，保留源路径/SHA和原字段；list/read/compare读取项目内快照。按平台+真实ID去重，无ID原样保留但不入统计。比较要求相同范围及指标原语义/单位/标签，未知不是0，缓存测量时间不变，不推断新增/退榜、在读人数、市场总量或跨平台身份。写入前检查当前文件权限，只读会在HTTP前拒绝。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "collect",
+                "import_legacy",
+                "list",
+                "read",
+                "compare"
+              ]
+            },
+            "project": {
+              "type": "string",
+              "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+            },
+            "platform": {
+              "type": "string",
+              "enum": [
+                "hongguo",
+                "qimao"
+              ]
+            },
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operation"
+              ],
+              "properties": {
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "rankings"
+                  ]
+                },
+                "refresh": {
+                  "type": "boolean",
+                  "description": "跳过来源短期缓存；false保留原始测量时间，不把缓存当作新测量"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "rank",
+                    "library"
+                  ]
+                },
+                "channels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "boy",
+                      "girl"
+                    ]
+                  }
+                },
+                "boards": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "hot-drama",
+                      "hot-real-drama",
+                      "hot-ai-drama",
+                      "hot-comic-drama",
+                      "hot",
+                      "new",
+                      "over",
+                      "collect",
+                      "update"
+                    ]
+                  }
+                },
+                "periods": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "date",
+                      "month"
+                    ]
+                  }
+                },
+                "pages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "仅library真实分页；固定近3天更新、30万字以下、连载中、click排序。rank不接受pages"
+                }
+              }
+            },
+            "path": {
+              "type": "string",
+              "description": "import_legacy必填：项目内已有legacy JSON，保留原文件、原字段及SHA，不把它称为官方新采集"
+            },
+            "snapshotId": {
+              "type": "string"
+            },
+            "beforeId": {
+              "type": "string"
+            },
+            "afterId": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "subagent",
+        "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Defaults to true. Set false only when your next action depends on the result."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "subagent_fork",
+        "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Defaults to true. Set false only when your next action depends on the result."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "todo_update",
+        "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Exact content of the existing task; surrounding whitespace is ignored."
+            },
+            "status": {
+              "type": "string",
+              "description": "Actual task state: pending, in_progress, or completed.",
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed"
+              ]
+            },
+            "start_next": {
+              "type": "boolean",
+              "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+            }
+          },
+          "required": [
+            "task",
+            "status"
+          ]
+        }
+      },
+      {
+        "name": "todo_write",
+        "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "todos": {
+              "type": "array",
+              "description": "The COMPLETE task list, replacing any previous list.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "What the task is — a short imperative line."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "pending (not started) | in_progress (now) | completed (done).",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "status"
+                ]
+              }
+            }
+          },
+          "required": [
+            "todos"
+          ]
+        }
+      },
+      {
+        "name": "tool_context",
+        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "enum": [
+                "status",
+                "load",
+                "pin",
+                "release",
+                "unpin"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "description": "Exact tool names; required for changes. Use tool_search to find names.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        }
+      },
+      {
+        "name": "tool_search",
+        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Task description or exact tool name; supports Chinese and English. Omit both query and capability to list capabilities."
+            },
+            "capability": {
+              "type": "string",
+              "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum matching tools to load, from 1 to 8; defaults to 8."
+            }
+          }
+        }
+      },
+      {
+        "name": "update_goal",
+        "description": "Update the current goal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal_id": {
+              "type": "string",
+              "description": "Exact id returned by get_goal."
+            },
+            "revision": {
+              "type": "number",
+              "description": "Exact positive revision returned by get_goal."
+            },
+            "action": {
+              "type": "string",
+              "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+              "enum": [
+                "edit",
+                "pause",
+                "resume",
+                "complete",
+                "blocked",
+                "wait"
+              ]
+            },
+            "objective": {
+              "type": "string",
+              "description": "Replacement objective; valid only with action edit."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Replacement cap; valid only with action edit."
+            },
+            "blocked_reason": {
+              "type": "string",
+              "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+            },
+            "wait_reason": {
+              "type": "string",
+              "description": "With action wait: describe what new information or event is needed."
+            },
+            "wake_after_seconds": {
+              "type": "number",
+              "description": "With action wait: optional positive whole seconds before continuing."
+            },
+            "job_id": {
+              "type": "string",
+              "description": "With action wait: optional owned job to watch for new output or settlement."
+            }
+          },
+          "required": [
+            "goal_id",
+            "revision",
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "video_inspect",
+        "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+            },
+            "review_id": {
+              "type": "string",
+              "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+            },
+            "reason": {
+              "type": "string",
+              "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
+            },
+            "episode": {
+              "type": "string",
+              "description": "首次scan时标记集号；省略则使用实际视频路径。"
+            },
+            "method": {
+              "type": "string",
+              "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
+              "enum": [
+                "scan",
+                "next",
+                "revisit",
+                "observe",
+                "events",
+                "status",
+                "metadata",
+                "timeline",
+                "compare",
+                "close",
+                "reopen"
+              ]
+            },
+            "timeline_start_seconds": {
+              "type": "number",
+              "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+            },
+            "timeline_end_seconds": {
+              "type": "number",
+              "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+            },
+            "frame_ids": {
+              "type": "array",
+              "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "draft_path": {
+              "type": "string",
+              "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+            },
+            "transcript_path": {
+              "type": "string",
+              "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
+            },
+            "event_groups": {
+              "type": "array",
+              "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "event_id": {
+                    "type": "string"
+                  },
+                  "frame_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "actor": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "before": {
+                    "type": "string"
+                  },
+                  "after": {
+                    "type": "string"
+                  },
+                  "uncertainty": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "event_id",
+                  "frame_ids",
+                  "actor",
+                  "action",
+                  "object",
+                  "before",
+                  "after",
+                  "uncertainty"
+                ]
+              }
+            },
+            "observations": {
+              "type": "array",
+              "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "frame_id": {
+                    "type": "string"
+                  },
+                  "visible": {
+                    "type": "string",
+                    "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                  },
+                  "change": {
+                    "type": "string",
+                    "description": "与邻近画面的变化；无变化也需据实说明。"
+                  },
+                  "uncertainty": {
+                    "type": "string",
+                    "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                  }
+                },
+                "required": [
+                  "frame_id",
+                  "visible",
+                  "change"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "web_fetch",
+        "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The HTTP(S) URL to fetch."
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      {
+        "name": "web_search",
+        "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "queries": {
+              "type": "array",
+              "description": "1–4 search queries; their results are merged.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "queries"
+          ]
+        }
+      },
+      {
+        "name": "work_mapping",
+        "description": "用已保存红果/七猫快照的{snapshotId,itemId}两端提出关系，平台、ID、标题和SHA由工具核验；同名仅是未审核提案，不自动合并指标。propose/read/list/lookup管理直接关系，lookup恰选mappingId/sourceRef/sourceKey；sourceKey只查同平台ID的历史证据，不自动扩展旧确认到新快照。review和supersede必须提供预期提案SHA与revision，通过真实用户提问确认/拒绝/待核实；模型不能提交confirmed或decision。只读在提问前拒绝，取消、无回答服务、子agent或失效回答不写决定。决定追加不可覆盖的修订；改关系/证据另建提案。同系列不等于同作，来源未给季数仍未知；未命中只表示本证据未观察到，不推断全平台无AI或无S2，不做传递合并。",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "propose",
+                "read",
+                "list",
+                "lookup",
+                "review",
+                "supersede"
+              ]
+            },
+            "project": {
+              "type": "string",
+              "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+            },
+            "left": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "right": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "sourceRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "snapshotId",
+                "itemId"
+              ],
+              "properties": {
+                "snapshotId": {
+                  "type": "string",
+                  "description": "已保存并可通过source_snapshot读取的快照ID"
+                },
+                "itemId": {
+                  "type": "string",
+                  "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+                }
+              }
+            },
+            "sourceKey": {
+              "type": "string",
+              "description": "lookup三选一：hongguo:<ID>或qimao:<ID>，仅返回该平台ID的历史提案及原快照证据，不自动扩展旧确认到新快照"
+            },
+            "relation": {
+              "type": "string",
+              "enum": [
+                "same_work",
+                "adaptation_of",
+                "same_series",
+                "sequel_of"
+              ],
+              "description": "same_work同作；same_series同系列不等于同作；adaptation_of左侧改编自右侧；sequel_of左侧是右侧续作"
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "propose必填模型理由，明确未核实；不能由同名自动确认"
+            },
+            "mappingId": {
+              "type": "string"
+            },
+            "expectedProposalSha256": {
+              "type": "string",
+              "description": "review/supersede必填：read返回的proposalSha256完整文件SHA-256"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "review初始0，supersede必须等于已存在最新revision；旧回答不能写入新revision"
+            }
+          }
+        }
+      },
+      {
+        "name": "write",
+        "description": "Create or fully replace a UTF-8 text file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full UTF-8 text content to write."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "content"
+          ]
+        }
+      }
+    ]
+  ]
+}

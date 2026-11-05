@@ -212,20 +212,10 @@ it('keeps the Windows OCR bridge outside ASAR for direct PowerShell execution', 
   expect(config.asarUnpack).toContain('**/@deepseek-ai/dsh-tool-video-inspect/scripts/**')
 })
 
-it.each([false, true])('unpacks the Bot Office CLI for standalone Node with external source=%s', async (external) => {
-  const input = await fixture(external)
-  const module = join(input.source, 'node_modules', 'ds-bot')
-  await mkdir(module, { recursive: true })
-  await writeFile(join(module, 'office.js'), 'console.log("office fixture")\n')
-  await writeFile(join(module, 'index.js'), 'export function apply() {}\n')
-  const config = unsignedWindowsConfig('com.example.bot-office', input.source)
-  input.config.asarUnpack = [...config.asarUnpack]
-  await packageFixture(input)
-  const archive = await readAsar(join(input.resources, 'app.asar'))
-  const cli = join('dsh', 'node_modules', 'ds-bot', 'office.js')
-  expect(archive.getFile(cli, false).unpacked).toBe(true)
-  expect(await readFile(join(input.resources, 'app.asar.unpacked', cli), 'utf8')).toBe('console.log("office fixture")\n')
-  expect(archive.getFile(join('dsh', 'node_modules', 'ds-bot', 'index.js')).unpacked).not.toBe(true)
+it('does not require an archived Bot Office CLI unpack rule', async () => {
+  const input = await fixture(false)
+  const config = unsignedWindowsConfig('com.example.session-product', input.source)
+  expect(config.asarUnpack).not.toContain('**/ds-bot/office.js')
 })
 
 it.each([false, true])('unpacks platform ripgrep executables with external source=%s', async (external) => {

@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-session-product
+profile: headless
+composition: muse-session-product
+recording: authored
+writerOutput: true
+permission: workspace-write
+header:
+  class: muse-session-product
+  pin: true
+  changes: 2
+workspace:
+  setup: muse-minimal-writing

@@ -17,8 +17,6 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'media-link-import',
   'muse-dialogue-polish',
   'muse-episode-design',
-  'muse-llm-wiki',
-  'muse-project-participation',
   'muse-script-doctor',
   'novel-to-script',
   'office-docx',

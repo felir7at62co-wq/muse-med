@@ -1,21 +1,21 @@
 ---
 kind: upgrade-guide
-description: Ordinary Muse Sessions no longer automatically become persistent Bots.
+description: Muse removes the Conversation/Bot mode switch and opens ordinary Sessions directly.
 ---
 
-# Separate Conversation and Bot modes
+# Use the ordinary conversation entry
 
 English | [中文](guide.zh.md)
 
 ## Change
 
-Muse uses `autoSessionBots: false` by default. Opening Bot mode no longer registers ordinary Sessions or forks in the team roster. The switch beside the MUSE account at the bottom of the sidebar selects Conversation or Bot mode and retains each mode’s last selection.
+Muse opens ordinary Sessions directly. The Conversation/Bot mode switch and Bot registration settings are unavailable. New work uses `short-drama`; the archived Bot interface and its phone entry do not load. The complete affected-feature list and profile backups are in [ordinary Sessions](../muse-session-product/guide.md).
 
-Existing Bot identities, including older automatic entries, keep their Sessions and memory. Session logs, memory files and model defaults are not migrated or removed. Bot-owned Sessions remain accessible in the native history for compatibility.
+Existing Bot identities, including older automatic entries, keep their saved files. Session logs, memory files and model defaults are not migrated or removed. Their underlying Sessions remain readable from native history, without reactivating Bot ownership or orchestration.
 
 ## Migration
 
-1. Use Conversation for ordinary Sessions and Bot for persistent team members. Existing profiles using the bundled Muse composition need no manual data migration.
-2. To turn a Session into a Bot, use Settings → Bots → Use an existing conversation. Registration keeps its original history.
-3. Custom deployments that intentionally need the previous automatic roster can set `autoSessionBots: true` on their own `ds-bot` entry; the bundled Muse desktop composition requires `false`.
-4. Verify that creating an ordinary Session leaves the Bot roster unchanged, and that existing Bots and their memory remain available after switching modes and restarting.
+1. Use the ordinary conversation entry. Existing profiles using the bundled Muse composition need no manual Session-data migration.
+2. Open existing underlying Sessions through native history. New Bot registration and conversion of Sessions into Bots are unavailable.
+3. Preserve the source archive and old Bot data. A separately maintained archived deployment must use its own profile; the reserved Desktop profile rejects re-enabling the retired bundle.
+4. Verify that creating a conversation offers no Bot switch, while previous native history and saved model selections remain available.

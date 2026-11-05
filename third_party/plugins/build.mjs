@@ -16,6 +16,7 @@ import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/c
 import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
 import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion, reviewedVendorVersions } from './compatibility/host-runtime.mjs'
 import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
+import { selectCommunitySources } from './source-selection.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -24,7 +25,7 @@ const pins = JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8'))
 const tools = JSON.parse(readFileSync(join(toolchain, 'package.json'), 'utf8'))
 const { values } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 if (!values.out) throw new Error('community plugins: --out is required')
-if (values.only && !Object.hasOwn(pins, values.only)) throw new Error(`community plugins: unknown source ${values.only}`)
+const selectedSources = selectCommunitySources(pins, values.only)
 if (!process.env.npm_execpath) throw new Error('community plugins: invoke through pnpm --dir third_party/plugins/toolchain run build')
 const pnpm = resolvePnpmEntrypoint(join(repository, 'node_modules/pnpm/package.json'))
 const output = resolve(values.out)
@@ -82,8 +83,7 @@ const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
 run([pnpm, 'install', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
-const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
-for (const name of values.only ? [values.only] : desktopSources) {
+for (const name of selectedSources) {
   const staging = mkdtempSync(join(output, '.source-build-'))
   const links = []
   try {

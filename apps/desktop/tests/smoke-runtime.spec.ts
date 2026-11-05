@@ -154,8 +154,7 @@ function fixture(packaged = false) {
   const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
     'ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   const coordinatorCapabilityNames = ['write', 'edit', 'glob', 'grep', 'present', 'web_search', 'web_fetch',
-    'ask_user_question', 'todo_write', 'todo_update', 'subagent', 'audio_transcribe', 'tool_search', 'tool_context',
-    'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot']
+    'ask_user_question', 'todo_write', 'todo_update', 'subagent', 'audio_transcribe', 'tool_search', 'tool_context']
   const editingCapabilityNames = ['ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   const loadSkill = (catalog: typeof skills, name: string) => {
     const skill = catalog.find(value => value.name === name)
@@ -581,13 +580,22 @@ it('rejects changing the default product preset to the coordinator', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
-it.each(['read', 'tool_search', 'tool_context', 'message_bot', 'create_bot'])
-('rejects coordinator missing its standard, discovery or team tool %s', async (missing) => {
+it.each(['read', 'tool_search', 'tool_context'])
+('rejects recovery coordinator missing its standard or discovery tool %s', async (missing) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'bot-coordinator'
     ? schemas(key).filter(tool => tool.name !== missing) : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing + ' in bot-coordinator')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user'])
+('rejects archived Bot tool %s leaking into a registered composition', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), { name }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('archived Bot tool remains active: ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
