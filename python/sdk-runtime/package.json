@@ -163,6 +163,7 @@
     "@deepseek-ai/dsh-workflow-ptc": "workspace:*",
     "@deepseek-ai/dsh-otel": "workspace:*",
     "@deepseek-ai/dsh-workspace": "workspace:*",
+    "@deepseek-ai/libreoffice-kit": "^0.1.5",
     "@deepseek-ai/schemastery": "workspace:~"
   }
 }

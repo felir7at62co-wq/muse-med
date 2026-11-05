@@ -50,6 +50,8 @@ External profile management uses `dsh plugin --profile <name> ...`. That command
 
 Production deployment permits unused workspace patches for packages outside the runtime closure; patches for included packages must still apply successfully. This exception is confined to the deploy command; repository installation still rejects unused patches.
 
+The runtime closure declares the Office kit at the same version as the Office skill provider. The builder completes the legacy deployment with missing production dependencies and the selected Office engine from the installed workspace, retaining shared peers and nested package versions. It runs the installed pkg entry directly after deployment.
+
 From the repository root, `pnpm exec tsx scripts/build-exe-for-python-sdk.ts` verifies the closure, builds packages, deploys a symlink-free tree, packages the selected target, and syncs the executable and sidecars into this module. `scripts/build-python-release.py` stages release-shaped wheels at the root repository version and pins `deepseek-harness-sdk` to the exact runtime version.
 
 The installed-wheel smoke creates a clean virtual environment outside the checkout, proves the installed distribution and executable identities, then exercises default and customized SDK profiles, external plugins, MCP, native tools, direct JSON-RPC, committed snapshots, and the real provider on trusted runs. Its Office scenario relocates the complete target payload and converts DOCX with the required platform engine: the target’s declared native engine, or WASM when no native engine is declared. See the [Python contributor workflow](../development.md) and [installed-wheel testing decision](../../.agents/notes/implemented/testing/2026-08-23-installed-python-wheel-black-box-ci.md).
