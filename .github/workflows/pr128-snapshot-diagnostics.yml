@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_COMMIT: 7f22c90933cdcbde425281cf8d23fb13fb89b807
+  SOURCE_COMMIT: d855c0fe14bb5b37b368a18e541a8df424edb5d8
   PRIMARY_NODE_VERSION: '24'
   DSH_TELEMETRY_DISABLED: '1'
   DSH_EXAMPLE_MODE: lib
