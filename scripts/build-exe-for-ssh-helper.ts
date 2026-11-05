@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util'
 import { build } from 'tsdown'
 import { create as createTar } from 'tar'
 import { verifyRuntimeClosure } from './verify-runtime-closure.ts'
-import { pnpmInvocation, restoreLegacyHoists } from './executable-packaging.ts'
+import { executableDeployArgs, executableDeployEnvironment, pnpmInvocation } from './executable-packaging.ts'
 import { materializeStagedLinks, deduplicateStagedWorkspacePackages } from './build-exe-for-python-sdk-staging.ts'
 import { resolveLinuxNodePtyAddon } from './executable-native-pty.ts'
 import { artifactManifestSchema, fileDigest, payloadFiles, SSH_HELPER_TARGETS, verifyPayload, type SshHelperTarget } from './ssh-helper/artifact.ts'
@@ -23,10 +23,10 @@ interface Manifest { name: string; version: string; license?: string; dependenci
 
 async function manifest(path: string): Promise<Manifest> { return JSON.parse(await readFile(path, 'utf8')) as Manifest }
 
-async function run(command: string, args: string[]): Promise<void> {
+async function run(command: string, args: string[], environment = process.env): Promise<void> {
   console.log(`ssh-helper build: ${[command, ...args].join(' ')}`)
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CI: 'true' } })
+    const child = spawn(command, args, { cwd: root, stdio: 'inherit', env: { ...environment, CI: 'true' } })
     child.once('error', reject)
     child.once('close', (code, signal) => {
       if (code === 0 && signal === null) resolve()
@@ -129,13 +129,9 @@ export async function buildSshHelper(argv: string[]): Promise<void> {
     const staging = join(temporary, 'staging')
     const product = join(temporary, 'dsh-ssh-helper')
     await mkdir(product)
-    try {
-      await pnpm('--filter', closureName, 'deploy', '--legacy', '--prod', '--config.allow-unused-patches=true', '--config.node-linker=hoisted', '--config.auto-install-peers=false', '--config.link-workspace-packages=true', '--config.hoist-workspace-packages=false', staging)
-    } finally {
-      // Legacy deploy records production-only workspace state; pnpm's next exec otherwise prunes build tools.
-      await pnpm('install', '--offline', '--frozen-lockfile', '--prod=false', '--ignore-scripts')
-    }
-    await restoreLegacyHoists(staging, join(root, closureDirectory, 'node_modules'))
+    const environment = executableDeployEnvironment(root)
+    const [command, args] = pnpmInvocation(executableDeployArgs(closureName, staging), environment)
+    await run(command, args, environment)
     await materializeStagedLinks(staging)
     await deduplicateStagedWorkspacePackages(staging, root)
     await prepareNative(staging, product, process.platform, process.arch as 'x64' | 'arm64')

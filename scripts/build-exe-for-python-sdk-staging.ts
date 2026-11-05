@@ -66,12 +66,9 @@ async function findSymlink(directory: string): Promise<string | undefined> {
 /**
  * Replace every deploy-time package link below the staged payload with real files.
  *
- * Legacy deploy links workspace packages into the target's `node_modules`, and
- * those links must survive packaging as files. One link is not a package: when
- * the deploy target sits inside the deployed project, pnpm links that project
- * into its own `node_modules`. Dereferencing it would copy the payload into
- * itself, and the packaged payload never carries the project source, so the
- * entry is dropped instead.
+ * Package links in the deployed `node_modules` become files. A link to the
+ * deploy target or one of its ancestors is dropped to avoid copying the payload
+ * into itself.
  * @param staging - Deployed payload root whose `node_modules` becomes symlink-free.
  */
 export async function materializeStagedLinks(staging: string): Promise<void> {

@@ -1,15 +1,17 @@
 /** Shared production-deploy preparation for the SDK and SSH executable carriers. */
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, readFile } from 'node:fs/promises'
-import { dirname, extname, join, resolve, sep } from 'node:path'
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 /**
  * Resolve pnpm without invoking a command shell, including Windows shims.
  * @param args - pnpm arguments.
+ * @param environment - environment containing the pnpm launcher or home.
  * @returns the executable and its argument vector.
  */
-export function pnpmInvocation(args: string[]): [command: string, args: string[]] {
-  const entrypoint = process.env.npm_execpath?.trim()
+export function pnpmInvocation(args: string[], environment = process.env): [command: string, args: string[]] {
+  const entrypoint = environment.npm_execpath?.trim()
   if (entrypoint !== undefined && entrypoint !== '') {
     const extension = extname(entrypoint).toLowerCase()
     if (extension === '.js' || extension === '.cjs' || extension === '.mjs') {
@@ -17,7 +19,7 @@ export function pnpmInvocation(args: string[]): [command: string, args: string[]
     }
     if (extension !== '.cmd') return [entrypoint, args]
   }
-  const home = process.env.PNPM_HOME?.trim()
+  const home = environment.PNPM_HOME?.trim()
   if (home !== undefined && home !== '') {
     const packageBin = resolve(home, '..', 'pnpm', 'bin')
     for (const filename of ['pnpm.mjs', 'pnpm.cjs']) {
@@ -32,39 +34,42 @@ export function pnpmInvocation(args: string[]): [command: string, args: string[]
 }
 
 /**
- * Restore direct dependencies omitted by pnpm's legacy hoister, excluding nested module trees.
+ * Deploy the locked production graph into its own hoisted package tree.
+ * @param closure - deploy root's workspace package name.
  * @param staging - deployed runtime root.
- * @param sourceNodeModules - deploy source's installed dependencies.
- * @returns names restored from the source installation.
+ * @returns arguments for pnpm's lockfile-backed deploy.
  */
-export async function restoreLegacyHoists(staging: string, sourceNodeModules: string): Promise<string[]> {
-  const manifestPath = join(staging, 'package.json')
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-    dependencies?: Record<string, string>
+export function executableDeployArgs(closure: string, staging: string): string[] {
+  return ['--filter', closure, 'deploy', '--prod', '--config.allow-unused-patches=true',
+    '--config.node-linker=hoisted', '--config.auto-install-peers=false', staging]
+}
+
+function isBuildPolicy(value: unknown): value is Record<string, boolean> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && Object.values(value).every(decision => typeof decision === 'boolean')
+}
+
+/**
+ * Keep pnpm's effective lifecycle policy when deploy converts local file dependencies to absolute URLs.
+ * @param workspace - Root of the source workspace.
+ * @param environment - Environment carrying the pnpm launcher and any policy overrides.
+ * @returns Child environment with equivalent rules for local deployment identities.
+ */
+export function executableDeployEnvironment(workspace: string, environment = process.env): NodeJS.ProcessEnv {
+  const [command, args] = pnpmInvocation(['config', 'get', 'allow-builds'], environment)
+  const policy: unknown = JSON.parse(execFileSync(command, args, { cwd: workspace, env: environment, encoding: 'utf8' }))
+  if (!isBuildPolicy(policy)) {
+    throw new Error('executable-packaging: pnpm allowBuilds must map package identities to booleans.')
   }
-  const restored: string[] = []
-  for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
-    const destination = join(staging, 'node_modules', dependency)
-    if (existsSync(destination)) continue
-    const source = join(sourceNodeModules, dependency)
-    if (!existsSync(source)) {
-      throw new Error(
-        `executable-packaging: deployed dependency ${dependency} is absent from both ${destination} and ${source}.`,
-      )
-    }
-    await mkdir(dirname(destination), { recursive: true })
-    const nestedNodeModules = join(source, 'node_modules')
-    await cp(source, destination, {
-      recursive: true,
-      dereference: true,
-      filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
-    })
-    restored.push(dependency)
+  const deployed = { ...policy }
+  for (const [key, decision] of Object.entries(policy)) {
+    const [, prefix, locator] = /^(.+@)file:([^/\\].*)$/u.exec(key) ?? []
+    if (prefix === undefined || locator === undefined || isAbsolute(locator)) continue
+    const source = resolve(workspace, locator)
+    const path = relative(workspace, source)
+    if (path === '' || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) continue
+    const identity = `${prefix}${pathToFileURL(source).href}`
+    if (!Object.hasOwn(policy, identity)) deployed[identity] = deployed[identity] !== false && decision
   }
-  const stillMissing = Object.keys(manifest.dependencies ?? {})
-    .filter(dependency => !existsSync(join(staging, 'node_modules', dependency)))
-  if (stillMissing.length > 0) {
-    throw new Error(`executable-packaging: staged dependencies remain missing: ${stillMissing.join(', ')}.`)
-  }
-  return restored
+  return { ...environment, PNPM_CONFIG_ALLOW_BUILDS: JSON.stringify(deployed) }
 }

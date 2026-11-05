@@ -1,8 +1,9 @@
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
-import { restoreLegacyHoists } from './executable-packaging.ts'
+import { executableDeployEnvironment } from './executable-packaging.ts'
 import { materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
 
 async function fixture() {
@@ -15,22 +16,33 @@ async function fixture() {
   return { root, source, staging, modules: join(staging, 'node_modules') }
 }
 
-it('restores omitted direct peers without copying their nested module instances', async () => {
+it('preserves exact package build decisions when local deployment paths become absolute URLs', async () => {
   const test = await fixture()
-  await writeFile(join(test.staging, 'package.json'), JSON.stringify({ dependencies: { peer: 'workspace:^' } }))
-  await mkdir(join(test.source, 'peer/node_modules/shadow'), { recursive: true })
-  await writeFile(join(test.source, 'peer/index.js'), 'export const identity = 1\n')
-  await writeFile(join(test.source, 'peer/node_modules/shadow/index.js'), 'shadow')
-  expect(await restoreLegacyHoists(test.staging, test.source)).toEqual(['peer'])
-  expect(await readFile(join(test.modules, 'peer/index.js'), 'utf8')).toBe('export const identity = 1\n')
-  await expect(lstat(join(test.modules, 'peer/node_modules'))).rejects.toThrow('ENOENT')
-  expect(await restoreLegacyHoists(test.staging, test.source)).toEqual([])
+  const allowed = `@fixture/runtime@${pathToFileURL(join(test.root, 'source/with spaces')).href}`
+  const denied = `@fixture/denied@${pathToFileURL(join(test.root, 'source/denied')).href}`
+  const equivalent = `@fixture/equivalent@${pathToFileURL(join(test.root, 'source/equivalent')).href}`
+  const policy = {
+    '@fixture/runtime@file:source/with spaces': true,
+    '@fixture/denied@file:source/denied': true,
+    [denied]: false,
+    '@fixture/equivalent@file:source/equivalent': true,
+    '@fixture/equivalent@file:./source/equivalent': false,
+    '@fixture/other@file:../outside': true,
+    thirdParty: false,
+  }
+  const pnpm = join(test.root, 'pnpm.mjs')
+  await writeFile(pnpm, `console.log(${JSON.stringify(JSON.stringify(policy))})\n`)
+  const environment = executableDeployEnvironment(test.root, { ...process.env, npm_execpath: pnpm })
+
+  expect(JSON.parse(environment.PNPM_CONFIG_ALLOW_BUILDS ?? '')).toEqual({ ...policy, [allowed]: true, [equivalent]: false })
 })
 
-it('rejects a missing dependency instead of packaging an incomplete graph', async () => {
+it('rejects an unresolved build decision before deployment', async () => {
   const test = await fixture()
-  await writeFile(join(test.staging, 'package.json'), JSON.stringify({ dependencies: { missing: 'workspace:^' } }))
-  await expect(restoreLegacyHoists(test.staging, test.source)).rejects.toThrow('absent from both')
+  const pnpm = join(test.root, 'pnpm.mjs')
+  await writeFile(pnpm, 'console.log(\'{"undecided":"set this to true or false"}\')\n')
+  expect(() => executableDeployEnvironment(test.root, { ...process.env, npm_execpath: pnpm }))
+    .toThrow('allowBuilds must map package identities to booleans')
 })
 
 it('materializes a package junction without deleting its source and drops linked command directories', async () => {
