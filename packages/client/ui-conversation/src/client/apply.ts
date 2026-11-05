@@ -50,6 +50,7 @@ import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
 import { createViewPins } from './view-pins.ts'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type ConversationKey } from './locales.ts'
+import { readHeaderPresentation } from '../header-presentation.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -157,6 +158,7 @@ function concreteConversation(ctx: Context): ConversationController {
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context, config: Config = Config({})): void {
+  const headerPresentation = readHeaderPresentation()
   const sessions = ctx.sessions
   const slots = ctx.slots
   // Schemastery's field default is materialized before Cordis calls apply.
@@ -443,6 +445,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
 
   const registerHeader = () => slots.register({
     name: 'conversation.header',
+    inject: () => ({ headerPresentation }),
     children: {
       'conversation.header.leading': { kind: 'single', scope: 'root' },
       'conversation.session.header': { kind: 'single', scope: 'session' },

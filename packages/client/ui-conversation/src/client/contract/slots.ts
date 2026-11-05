@@ -1,5 +1,6 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
 import type { ReactNode, RefObject } from 'react'
+import type { HeaderPresentation } from '../../header-presentation.ts'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/client'
@@ -242,6 +243,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         /** Parent-owned visibility shared with the header container styling. */
         hideChrome: boolean
+        /** Header layout selected by the native shell. */
+        presentation?: HeaderPresentation
       }
     }
     /** Optional replacement for one Session breadcrumb title; overlays must portal because the title area clips overflow. */
@@ -678,9 +681,13 @@ export type ConversationSessionSlotProps =
   & PropsStore<ConversationStore>
   & InjectFace<ConversationSessionInjected>
 
+/** Deployment-selected layout passed to the native header. */
+export interface ConversationHeaderInjected { readonly headerPresentation: HeaderPresentation }
+
 /** Full props of the resident navigation header. */
 export type ConversationHeaderProps =
   PropsRuntime<'conversation.header'>
+  & InjectFace<ConversationHeaderInjected>
   & PropsRenderSlots<'conversation.header.leading' | 'conversation.session.header'>
 
 /** Full props of the strict Session header. */

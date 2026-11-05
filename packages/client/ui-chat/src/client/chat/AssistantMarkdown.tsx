@@ -6,7 +6,6 @@ import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions, MarkdownPathImages } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps, UseDisclosure, UsePresentation, UseGroupAction } from '../contract/slots.ts'
 import type { AssistantBlock } from '../contract/snapshot.ts'
-import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
 import { markdownLabels } from '../markdown-labels.ts'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -75,7 +74,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     || interrupted === true
     || blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
-  const responseBubble = groupPart !== 'reasoning' && (hasAssistantReplyContent(blocks) || interrupted === true)
   const rendered: ReactNode[] = []
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
@@ -149,8 +147,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   }
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
-      <div className={css.body}
-        data-message-bubble={responseBubble ? 'assistant' : undefined}>
+      <div className={css.body} data-assistant-body>
         {rendered}
         {interrupted && (groupPart === undefined || groupPart === 'response'
           || !blocks.some(block => block.kind !== 'reasoning' && block.kind !== 'tool-call'))

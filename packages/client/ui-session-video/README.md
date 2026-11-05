@@ -55,7 +55,7 @@ The modification action appends the source, shot identity and original time rang
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.chat.pinned` list item and contributes to the native delivery-video chain and closing-Turn surface. Queries use caller cancellation; closing or unmounting players releases their media source. The absorption preview preserves the original inline card's layout position and respects reduced-motion preferences.
+The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.chat.pinned` list item and contributes to the native delivery-video chain and closing-Turn surface. Queries use caller cancellation; closing or unmounting players releases their media source. The absorption preview preserves the original inline card's layout position and respects reduced-motion preferences. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
 
 | Source | Responsibility |
 |---|---|

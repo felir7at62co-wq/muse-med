@@ -90,6 +90,42 @@ describe('web e2e: recorded conversation video inspection', () => {
     try { await browser?.close() } finally { await scaffold?.close() }
   })
 
+  it('floats native controls above a fading transcript and keeps the dark spider at the top', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-floating-header'))
+    const header = page.locator('[data-conversation-header-presentation="floating"]')
+    expect(await header.evaluate(element => getComputedStyle(element).position)).toBe('absolute')
+    expect(await header.evaluate(element => getComputedStyle(element).borderBottomWidth)).toBe('0px')
+    expect(await header.getByRole('navigation', { name: 'Session hierarchy' }).count()).toBe(0)
+    expect(await header.getByRole('tab').count()).toBe(0)
+    const anchor = page.locator('[data-muse-video-anchor]')
+    const geometry = await anchor.evaluate((element) => {
+      const viewport = element.closest('[data-conversation-scroll]')
+      if (viewport === null) throw new Error('Spider has no conversation scrollport')
+      return { offset: element.getBoundingClientRect().top - viewport.getBoundingClientRect().top,
+        background: getComputedStyle(element).backgroundColor, ink: getComputedStyle(element).color }
+    })
+    expect(geometry.offset).toBeGreaterThanOrEqual(6)
+    expect(geometry.offset).toBeLessThanOrEqual(12)
+    expect(geometry.background).toBe('rgb(27, 27, 28)')
+    const fade = page.locator('[class*="headerFade"]')
+    expect(await fade.evaluate(element => getComputedStyle(element).backgroundImage)).toContain('linear-gradient')
+    expect(await fade.evaluate(element => getComputedStyle(element).pointerEvents)).toBe('none')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await expect.poll(() => page.locator('body[data-ds-dark-theme]').count()).toBe(0)
+    expect(await anchor.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(geometry.background)
+    expect(await anchor.evaluate(element => getComputedStyle(element).color)).toBe(geometry.ink)
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.waitForSelector('body[data-ds-dark-theme]')
+    const moreViews = header.getByRole('button', { name: 'More conversation views', exact: true })
+    await moreViews.click()
+    await page.getByRole('menuitem', { name: 'Trajectory', exact: true }).click()
+    await expect.poll(() => page.locator('[data-muse-video-anchor]').count()).toBe(0)
+    await moreViews.click()
+    await page.getByRole('menuitem', { name: 'Chat', exact: true }).click()
+    await page.locator('[data-muse-video-anchor]').waitFor()
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
   it('plays the native delivery and exposes three real cut ranges through one shelf player', async () => {
     onTestFailed(() => saveFailureShot(page, 'session-video-playback'))
     const inline = page.locator('[data-muse-inline-video] video')

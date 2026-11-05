@@ -7,7 +7,8 @@
   },
   "files": [
     "src/submission-settings.ts",
-    "src/index.ts"
+    "src/index.ts",
+    "src/header-presentation.ts"
   ],
   "references": [
     {
@@ -18,6 +19,9 @@
     },
     {
       "path": "../../settings/settings"
+    },
+    {
+      "path": "../../host/webserver"
     }
   ]
 }

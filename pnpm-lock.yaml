@@ -4446,6 +4446,9 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:*
+        version: link:../../host/webserver
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
