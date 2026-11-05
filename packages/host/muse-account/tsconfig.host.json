@@ -24,7 +24,12 @@
     "src/feedback.ts",
     "src/feedback-tools.ts",
     "src/desktop-bridge.ts",
-    "src/desktop-remote.ts"
+    "src/desktop-remote.ts",
+    "src/media.ts",
+    "src/media-types.ts",
+    "src/media-import.ts",
+    "src/media-file-helper.ts",
+    "src/media-tools.ts"
   ],
   "references": [
     {
@@ -86,6 +91,21 @@
     },
     {
       "path": "../webserver"
+    },
+    {
+      "path": "../../subprocess/subprocess"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }

@@ -186,6 +186,10 @@
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         webSearch: true
         feedbackTools: true
+        mediaTools: true
+        mediaNodePath: !!js process.execPath
+        mediaFfmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        mediaFfprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }
