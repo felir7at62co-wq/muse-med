@@ -1,4 +1,4 @@
-name: PR 128 keyless snapshot diagnostics
+name: PR 128 keyless shutdown diagnostics
 
 on:
   push:
@@ -12,18 +12,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_COMMIT: d855c0fe14bb5b37b368a18e541a8df424edb5d8
-  PRIMARY_NODE_VERSION: '24'
+  SOURCE_COMMIT: c5d81d55e70116775a4b633c1183d4c650ad72f3
   DSH_TELEMETRY_DISABLED: '1'
+  DEEPSEEK_API_KEY: ''
   DSH_EXAMPLE_MODE: lib
   DSH_BUILD_CLIENT_PROFILE: official
-  DSH_SNAPSHOT_MAX_WORKERS: '2'
-  DSH_SNAPSHOT_MAX_CONCURRENCY: '2'
+  DSH_SNAPSHOT_MAX_WORKERS: '1'
+  DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
 
 jobs:
-  diagnose:
+  factory-shutdown:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -35,11 +35,11 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$SOURCE_COMMIT" HEAD
           test "$(git diff --name-only "$SOURCE_COMMIT" HEAD)" = '.github/workflows/pr128-snapshot-diagnostics.yml'
-          mkdir -p .local/pr128/diagnostics
+          mkdir -p .local/pr128/factory-diagnostics
           echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
-          git rev-parse HEAD > .local/pr128/diagnostics/workflow-commit.txt
-          git rev-parse "$SOURCE_COMMIT" > .local/pr128/diagnostics/source-commit.txt
+          git rev-parse HEAD > .local/pr128/factory-diagnostics/workflow-commit.txt
+          git rev-parse "$SOURCE_COMMIT" > .local/pr128/factory-diagnostics/source-commit.txt
 
       - uses: pnpm/action-setup@v6
         with:
@@ -47,9 +47,9 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          node-version: '24'
 
-      - name: Install frozen dependencies and the existing Linux sandbox
+      - name: Install frozen dependencies and prepare the existing sandbox
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile &
@@ -63,239 +63,147 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Prepare the existing media test executables
-        run: |
-          set -euo pipefail
-          sudo apt-get update && sudo apt-get install --yes ffmpeg
-          ffmpeg_path=$(command -v ffmpeg)
-          command -v ffprobe
-          echo "MUSE_RECOVERY_TEST_FFMPEG=$ffmpeg_path" >> "$GITHUB_ENV"
-          echo "DSH_FFMPEG_PATH=$ffmpeg_path" >> "$GITHUB_ENV"
-
       - name: Build the exact source checkpoint
-        run: |
-          pnpm run build
-          node third_party/plugins/muse-lvpaopao/scripts/build.mjs
+        run: pnpm run build
 
-      - name: Prepare read-only inventory and guarded diagnostic helpers
+      - name: Freeze canonical Session inputs and the exact test selection
         run: |
-          cat > .local/pr128/diagnostic.mjs <<'NODE'
+          cat > .local/pr128/factory-diagnostic.mjs <<'NODE'
           import { createHash } from 'node:crypto'
           import { execFileSync } from 'node:child_process'
-          import { readFile, readdir, writeFile } from 'node:fs/promises'
-          import { join, dirname } from 'node:path'
-          import { stripVTControlCharacters } from 'node:util'
-          import * as yaml from 'js-yaml'
+          import { mkdir, readFile, writeFile } from 'node:fs/promises'
+          import { join } from 'node:path'
 
-          const output = '.local/pr128/diagnostics'
-          const git = args => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-          const json = async path => JSON.parse(await readFile(path, 'utf8'))
-          const save = async (name, value) => writeFile(join(output, name), JSON.stringify(value, null, 2) + '\n')
+          const output = '.local/pr128/factory-diagnostics'
+          const owner = 'snapshots/sdk/factory-shutdown'
+          const title = 'SDK factory shutdown (POSIX SIGTERM) joins the active child before releasing inbox projections and closes both durable turns'
+          const allowed = [
+            `${owner}/writer.expected.jsonl`,
+            `${owner}/writer.1.expected.jsonl`,
+            `${owner}/result.expected.json`,
+            `${owner}/system-prompt.1.expected.md`,
+            `${owner}/tool-schemas.1.expected.json`,
+          ]
           const canonicalName = /^session(?:\.[1-9]\d*)?(?:\.v[1-9]\d*)?\.jsonl$/u
-          const digest = bytes => createHash('sha256').update(bytes).digest('hex')
-          const escape = text => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+          const git = args => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+          const json = async name => JSON.parse(await readFile(join(output, name), 'utf8'))
+          const save = (name, value) => writeFile(join(output, name), JSON.stringify(value, null, 2) + '\n')
 
-          async function canonicalInventory() {
-            const files = git(['ls-files', '--cached', '--others', '-z', '--', 'snapshots']).split('\0')
-              .filter(path => canonicalName.test(path.split('/').at(-1)))
-            return Object.fromEntries(await Promise.all([...new Set(files)].sort().map(async path =>
-              [path, digest(await readFile(path))])))
+          async function inventory() {
+            const paths = git(['ls-files', '-z', '--', 'snapshots']).split('\0')
+              .filter(path => canonicalName.test(path.split('/').at(-1))).sort()
+            if (paths.length !== 718) throw new Error(`Expected 718 canonical Session files, found ${paths.length}`)
+            return Object.fromEntries(await Promise.all(paths.map(async path =>
+              [path, createHash('sha256').update(await readFile(path)).digest('hex')])))
           }
 
-          async function assertCanonical() {
-            const before = await json(join(output, 'canonical-before.json'))
-            const after = await canonicalInventory()
-            await save('canonical-after.json', after)
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
-              throw new Error('Canonical Session inventory or bytes changed during diagnostics')
+          function assertInventory(before, after) {
+            if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Canonical Session inventory or bytes changed')
+          }
+
+          function assertChangedPaths(paths) {
+            const rejected = paths.filter(path => !allowed.includes(path))
+            if (rejected.length > 0) throw new Error(`Unapproved changed paths: ${rejected.join(', ')}`)
+          }
+
+          function assertExecuted(report) {
+            const cases = report.testResults.flatMap(file => file.assertionResults)
+            if (cases.length !== 1 || cases[0].fullName !== title || cases[0].status !== 'passed') {
+              throw new Error('The selected POSIX shutdown case must execute exactly once and pass')
+            }
+            return cases.map(test => ({ title: test.fullName, status: test.status }))
+          }
+
+          function selftest() {
+            const assertion = { fullName: title, status: 'passed' }
+            assertExecuted({ testResults: [{ assertionResults: [assertion] }] })
+            assertInventory({ 'session.v4.jsonl': 'a' }, { 'session.v4.jsonl': 'a' })
+            assertChangedPaths(allowed)
+            const rejects = [
+              () => assertInventory({ 'session.v4.jsonl': 'a' }, { 'session.v4.jsonl': 'b' }),
+              () => assertChangedPaths([`${owner}/session.v4.jsonl`]),
+              () => assertChangedPaths([`${owner}/runtime.mjs`]),
+              () => assertExecuted({ testResults: [{ assertionResults: [{ ...assertion, status: 'skipped' }] }] }),
+              () => assertExecuted({ testResults: [{ assertionResults: [{ ...assertion, fullName: 'other' }] }] }),
+              () => assertExecuted({ testResults: [{ assertionResults: [assertion, assertion] }] }),
+              () => assertExecuted({ testResults: [] }),
+            ]
+            for (const reject of rejects) {
+              let rejected = false
+              try { reject() } catch { rejected = true }
+              if (!rejected) throw new Error('Guard negative control was accepted')
             }
           }
 
-          async function selectFailedOwners() {
-            await assertCanonical()
+          if (process.argv[2] === 'freeze') {
+            selftest()
+            await mkdir(output, { recursive: true })
             if (git(['status', '--porcelain=v1', '--', 'snapshots']) !== '') {
-              throw new Error('Read-only Linux replay modified the committed corpus')
+              throw new Error('Diagnostic source corpus must be clean before execution')
             }
-            const report = await json(join(output, 'linux-replay.json'))
-            const selected = []
-            const blocked = []
-            for (const file of report.testResults ?? []) {
-              for (const assertion of file.assertionResults ?? []) {
-                if (assertion.status !== 'failed') continue
-                const title = assertion.title ?? ''
-                const match = /^replays ([A-Za-z0-9_-]+) through dsh --profile headless$/u.exec(title)
-                if (match === null) {
-                  blocked.push({ title, reason: 'Not an owned headless replay', failures: assertion.failureMessages })
-                  continue
-                }
-                const name = match[1]
-                const failures = stripVTControlCharacters((assertion.failureMessages ?? []).join('\n'))
-                const compare = new RegExp('AssertionError: ' + escape(name) + ': session(?:s:| \\d+:)', 'u')
-                if (!compare.test(failures) || /UNKNOWN_TOOL|unknown workspace setup|replay.*exhaust|exited \d|timed? out|workspace final|workspace\.expected/iu.test(failures)) {
-                  blocked.push({ title, reason: 'Requires execution, workspace, or non-writer diagnosis', failures })
-                  continue
-                }
-                const directory = 'snapshots/session/' + name
-                const manifest = yaml.load(await readFile(directory + '/snapshot.yml', 'utf8'))
-                if (manifest.profile !== 'headless' || manifest.session !== undefined
-                  || (manifest.writerOutput !== true && manifest.sessionFormat === undefined)) {
-                  blocked.push({ title, reason: 'No separate owned writer oracle', failures })
-                  continue
-                }
-                const files = await readdir(directory)
-                if (!files.some(file => /^writer(?:\.[1-9]\d*)?\.expected\.jsonl$/u.test(file))) {
-                  blocked.push({ title, reason: 'Missing reviewed writer oracle inventory', failures })
-                  continue
-                }
-                selected.push(name)
-              }
+            const before = await inventory()
+            await save('canonical-before.json', before)
+            await save('selection.json', { file: 'snapshots/sdk/factory-shutdown.snapshot.ts', title, allowed })
+            console.log(`Frozen ${Object.keys(before).length} canonical inputs; selected one exact POSIX case`)
+          } else if (process.argv[2] === 'guard') {
+            const before = await json('canonical-before.json')
+            const after = await inventory()
+            await save('canonical-after.json', after)
+            assertInventory(before, after)
+            const paths = git(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', 'snapshots'])
+              .split('\0').filter(Boolean)
+            assertChangedPaths(paths)
+            const phases = await json('phase-exits.json')
+            const errors = []
+            const executed = {}
+            for (const phase of ['refresh', 'post-replay']) {
+              try {
+                if (phases[phase] !== 0) throw new Error(`${phase} exited ${phases[phase]}`)
+                executed[phase] = assertExecuted(await json(`${phase}.json`))
+              } catch (error) { errors.push(`${phase}: ${error.message}`) }
             }
-            const names = [...new Set(selected)].sort()
-            await save('selected-owners.json', names)
-            await save('blocked-failures.json', blocked)
-            await writeFile(join(output, 'selected-pattern.txt'), '\\b(?:replays|refreshs) (?:' + names.map(escape).join('|') + ') through dsh --profile headless$')
-            await writeFile(process.env.GITHUB_OUTPUT, 'count=' + names.length + '\n', { flag: 'a' })
-          }
-
-          async function verifyExecuted(name, prefix) {
-            const selected = await json(join(output, 'selected-owners.json'))
-            const report = await json(join(output, name))
-            const pattern = new RegExp('^' + prefix + ' ([A-Za-z0-9_-]+) through dsh --profile headless$', 'u')
-            const results = new Map()
-            for (const file of report.testResults ?? []) {
-              for (const assertion of file.assertionResults ?? []) {
-                const match = pattern.exec(assertion.title ?? '')
-                if (match === null) continue
-                if (!selected.includes(match[1])) {
-                  if (['passed', 'failed'].includes(assertion.status)) throw new Error('An unselected scenario executed: ' + match[1])
-                  continue
-                }
-                if (results.has(match[1]) || !['passed', 'failed'].includes(assertion.status)) {
-                  throw new Error('Selected scenario was duplicated or not executed: ' + match[1])
-                }
-                results.set(match[1], assertion.status)
-              }
+            const summary = { canonicalFiles: Object.keys(before).length, canonicalUnchanged: true, paths, executed, errors }
+            await save('summary.json', summary)
+            if (errors.length > 0) throw new Error('No accepted patch: refresh and post-replay must both pass')
+            const patch = git(['diff', '--binary', '--', ...allowed])
+            await writeFile(join(output, 'review.patch'), patch)
+            console.log(JSON.stringify({ ...summary, patchBytes: Buffer.byteLength(patch) }))
+          } else if (process.argv[2] === 'selftest') {
+            selftest()
+            const report = JSON.parse(await readFile(process.argv[3], 'utf8'))
+            try {
+              assertExecuted(report)
+              throw new Error('Windows skip was accepted')
+            } catch (error) {
+              if (error.message === 'Windows skip was accepted') throw error
+              const cases = report.testResults.flatMap(file => file.assertionResults)
+              if (cases.length !== 1 || cases[0].fullName !== title || cases[0].status !== 'skipped') throw error
             }
-            if (selected.length !== results.size || selected.some(name => !results.has(name))) {
-              throw new Error('Selected scenario execution does not match the exact owner inventory')
-            }
-            return results
-          }
-
-          async function prepareReviewPatch() {
-            await assertCanonical()
-            const selected = await json(join(output, 'selected-owners.json'))
-            const passed = new Set()
-            if (selected.length > 0) {
-              const refresh = await verifyExecuted('linux-refresh.json', 'refreshs')
-              const replay = await verifyExecuted('linux-post-refresh-replay.json', 'replays')
-              for (const name of selected) if (refresh.get(name) === 'passed' && replay.get(name) === 'passed') passed.add(name)
-            }
-            const tracked = git(['diff', '--name-only', '-z', '--', 'snapshots']).split('\0').filter(Boolean)
-            const untracked = git(['ls-files', '--others', '--exclude-standard', '-z', '--', 'snapshots']).split('\0').filter(Boolean)
-            const changed = [...new Set([...tracked, ...untracked])].sort()
-            const allowed = new Set(selected.map(name => 'snapshots/session/' + name))
-            const oracleName = /^(?:writer(?:\.[1-9]\d*)?\.expected\.jsonl|system-prompt(?:\.[1-9]\d*)?\.expected\.md|tool-schemas(?:\.[1-9]\d*)?\.expected\.json)$/u
-            const rejected = []
-            for (const path of changed) {
-              if (!allowed.has(dirname(path)) || !oracleName.test(path.split('/').at(-1))) {
-                rejected.push(path)
-                continue
-              }
-              const bytes = await readFile(path)
-              if (bytes.includes(0)) throw new Error('Binary data is forbidden in the review artifact: ' + path)
-              new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-            }
-            await save('changed-files.json', changed)
-            await save('rejected-changes.json', rejected)
-            if (rejected.length > 0) throw new Error('Refresh changed files outside the exact selected writer and sidecar set')
-            const eligible = new Set([...passed].map(name => 'snapshots/session/' + name))
-            await save('verified-refreshed-owners.json', [...passed].sort())
-            await save('excluded-unverified-changes.json', changed.filter(path => !eligible.has(dirname(path))))
-            const reviewedTracked = tracked.filter(path => eligible.has(dirname(path)))
-            let patch = reviewedTracked.length === 0 ? '' : git(['diff', '--no-ext-diff', '--text', '--', ...reviewedTracked])
-            for (const path of untracked.filter(path => eligible.has(dirname(path)))) {
-              try { patch += git(['diff', '--no-index', '--text', '--', '/dev/null', path]) }
-              catch (error) {
-                if (error.status !== 1 || typeof error.stdout !== 'string') throw error
-                patch += error.stdout
-              }
-            }
-            await writeFile(join(output, 'review-only.patch'), patch)
-            await writeFile(join(output, 'review-only.patch.sha256'), digest(patch) + '\n')
-          }
-
-          switch (process.argv[2]) {
-            case 'freeze': {
-              const inventory = await canonicalInventory()
-              if (Object.keys(inventory).length === 0) throw new Error('Canonical Session inventory must not be empty')
-              await save('canonical-before.json', inventory)
-              break
-            }
-            case 'select': await selectFailedOwners(); break
-            case 'verify-refresh': await verifyExecuted('linux-refresh.json', 'refreshs'); break
-            case 'verify-post': await verifyExecuted('linux-post-refresh-replay.json', 'replays'); break
-            case 'guard': await prepareReviewPatch(); break
-            default: throw new Error('Unknown diagnostic helper operation')
+            const before = await inventory()
+            assertInventory(before, await inventory())
+            console.log(`Guard selftests passed with ${Object.keys(before).length} real canonical inputs and actual skipped POSIX title`)
+          } else {
+            throw new Error('Expected freeze, guard, or selftest')
           }
           NODE
-          node --check .local/pr128/diagnostic.mjs
-          node .local/pr128/diagnostic.mjs freeze
+          node .local/pr128/factory-diagnostic.mjs freeze
 
-      - name: Replay the real Linux headless corpus without writes
-        id: replay
-        env:
-          DSH_SNAPSHOT: replay
+      - name: Run the real POSIX refresh and independent read-only replay
         run: |
           set +e
-          set -uo pipefail
-          pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-replay.json 2>&1 | tee .local/pr128/diagnostics/linux-replay.log
-          status=${PIPESTATUS[0]}
-          echo "$status" > .local/pr128/diagnostics/linux-replay.exit
-          exit 0
+          DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/sdk/factory-shutdown.snapshot.ts --reporter=json --outputFile=.local/pr128/factory-diagnostics/refresh.json 2>&1 | tee .local/pr128/factory-diagnostics/refresh.log
+          refresh_status=${PIPESTATUS[0]}
+          DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/sdk/factory-shutdown.snapshot.ts --reporter=json --outputFile=.local/pr128/factory-diagnostics/post-replay.json 2>&1 | tee .local/pr128/factory-diagnostics/post-replay.log
+          post_status=${PIPESTATUS[0]}
+          printf '{"refresh":%s,"post-replay":%s}\n' "$refresh_status" "$post_status" > .local/pr128/factory-diagnostics/phase-exits.json
+          node .local/pr128/factory-diagnostic.mjs guard
 
-      - name: Select only failed Linux current-writer comparisons
-        id: select
-        run: node .local/pr128/diagnostic.mjs select
-
-      - name: Refresh only those exact owned writer comparisons
-        if: steps.select.outputs.count != '0'
-        env:
-          DSH_SNAPSHOT: refresh
-          DSH_SNAPSHOT_MAX_WORKERS: '1'
-          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: |
-          set +e
-          set -uo pipefail
-          pattern=$(cat .local/pr128/diagnostics/selected-pattern.txt)
-          pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-refresh.json 2>&1 | tee .local/pr128/diagnostics/linux-refresh.log
-          status=${PIPESTATUS[0]}
-          echo "$status" > .local/pr128/diagnostics/linux-refresh.exit
-          node .local/pr128/diagnostic.mjs verify-refresh
-
-      - name: Replay the same exact selection after refresh without writes
-        if: steps.select.outputs.count != '0'
-        env:
-          DSH_SNAPSHOT: replay
-        run: |
-          set +e
-          set -uo pipefail
-          pattern=$(cat .local/pr128/diagnostics/selected-pattern.txt)
-          pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-post-refresh-replay.json 2>&1 | tee .local/pr128/diagnostics/linux-post-refresh-replay.log
-          status=${PIPESTATUS[0]}
-          echo "$status" > .local/pr128/diagnostics/linux-post-refresh-replay.exit
-          node .local/pr128/diagnostic.mjs verify-post
-
-      - name: Verify immutable Sessions and emit a text-only review patch
-        if: always() && steps.select.outcome == 'success'
-        run: node .local/pr128/diagnostic.mjs guard
-
-      - name: Upload diagnostic logs and review-only text changes
-        if: always()
+      - name: Upload text-only review evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: pr128-linux-snapshot-diagnostics-${{ github.sha }}
-          path: .local/pr128/diagnostics/
+          name: pr128-factory-shutdown-${{ github.sha }}
+          path: .local/pr128/factory-diagnostics/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
