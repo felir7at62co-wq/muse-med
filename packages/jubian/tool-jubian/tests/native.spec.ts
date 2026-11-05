@@ -671,9 +671,13 @@ describe('prepare_video', () => {
   })
   it.each([
     { label: 'unreadable page', page: () => ({ total: 1, rows: null }) },
+    { label: 'nonnumeric total', page: () => ({ total: '2', rows: SUBJECT_ROWS }) },
     { label: 'nonobject row', page: () => [null] },
     { label: 'negative total', page: () => ({ total: -1, rows: [] }) },
     { label: 'overflowing total', page: () => ({ total: 1, rows: SUBJECT_ROWS }) },
+    { label: 'noninteger subject ID', page: () => ({ total: 2, rows: [{ ...SUBJECT_ROWS[0], id: 1.5 }, SUBJECT_ROWS[1]] }) },
+    { label: 'zero subject ID', page: () => ({ total: 2, rows: [{ ...SUBJECT_ROWS[0], id: 0 }, SUBJECT_ROWS[1]] }) },
+    { label: 'blank subject ID', page: () => ({ total: 2, rows: [{ ...SUBJECT_ROWS[0], id: ' ' }, SUBJECT_ROWS[1]] }) },
     { label: 'empty incomplete page', page: () => ({ total: 3, rows: [] }) },
     { label: 'changing total', page: (page: number) => ({ total: page === 1 ? 3 : 4, rows: SUBJECT_ROWS }) },
     { label: 'page limit', page: () => Array.from({ length: 100 }, (_, id) => ({ id, assetId: 999999 })) },

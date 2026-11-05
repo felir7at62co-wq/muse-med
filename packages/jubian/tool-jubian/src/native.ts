@@ -516,6 +516,7 @@ function projectRootOfPreview(previewPath: string): string {
 /** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
+  // Each pattern requires capture group 1, so every match supplies its label.
   for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) names.add((match[1] as string).trim())
   for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
     names.add((match[1] as string).trim())
