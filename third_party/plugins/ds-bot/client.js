@@ -10842,25 +10842,10 @@ function lineDiff(before, after) {
 
 // src/client/learning-card.js
 var import_react22 = require("react");
-var failedAnswers = /* @__PURE__ */ new Map();
-function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
-  const [busy, setBusy] = (0, import_react22.useState)(false);
-  const [error, setError] = (0, import_react22.useState)(initialError);
-  const busyRef = (0, import_react22.useRef)(false);
+function ProposalCard({ proposal, error = "", busy, actions }) {
   const titleId = (0, import_react22.useId)();
   const answer = (approve) => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setError("");
-    void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve)).then(() => onResolved(proposal.id), (failure) => {
-      const message = failure?.message ?? String(failure);
-      setError(message);
-      onFailure(proposal, message);
-    }).finally(() => {
-      busyRef.current = false;
-      setBusy(false);
-    });
+    void actions.learningAnswer(proposal, approve);
   };
   const update = proposal.action === "update";
   const rows2 = (0, import_react22.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
@@ -10966,44 +10951,29 @@ function FileBox({ name, path, state, blocks }) {
     ) : null
   );
 }
-function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
+function LearningProposals({ turn, dock, sessionId, useRoster, useLearningRecovery, actions }) {
   const roster = useRoster((value) => value);
+  const recovery = useLearningRecovery((value) => value);
   const facts = useTurnFacts(sessionId, actions);
-  const [failed, setFailed] = (0, import_react22.useState)({});
   const bot = roster.byId?.[sessionId];
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
-  const visible = [...proposals];
-  for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
-  }
-  for (const entry of failedAnswers.values()) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
+  const visible = proposals.filter((proposal) => recovery[proposal.id]?.status !== "closed");
+  for (const entry of Object.values(recovery)) {
+    if (entry.status !== "closed" && entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
   }
   const cards = visible.filter((proposal) => {
     const placement = proposalPlacement(proposal, facts?.turns);
     return dock ? placement.kind === "dock" : placement.kind === "turn" && placement.turn === turn?.turn;
   });
   if (cards.length === 0) return null;
-  const onFailure = (proposal, error) => {
-    failedAnswers.set(proposal.id, { proposal, error });
-    setFailed((current) => ({ ...current, [proposal.id]: { proposal, error } }));
-  };
-  const onResolved = (id) => setFailed((current) => {
-    failedAnswers.delete(id);
-    if (!(id in current)) return current;
-    const next = { ...current };
-    delete next[id];
-    return next;
-  });
   return (0, import_react22.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react22.createElement)(
     "div",
     { className: "bt-q-inline", key: proposal.id },
     (0, import_react22.createElement)(ProposalCard, {
       proposal,
-      initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
-      onFailure,
-      onResolved,
+      error: recovery[proposal.id]?.error,
+      busy: recovery[proposal.id]?.status === "answering",
       actions
     })
   )));
@@ -11064,6 +11034,46 @@ var LEARNING_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-learning-btn{transition:background-color .12s ease,opacity .12s ease}.bt-learning-btn:active:not(:disabled){scale:none}}
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
+
+// src/client/learning-recovery.js
+function createLearningRecovery(send) {
+  const state = createSource({});
+  const pending = /* @__PURE__ */ new Map();
+  const controller = new AbortController();
+  let disposed = false;
+  let disposal;
+  const close = (id) => state.set((current) => ({ ...current, [id]: { status: "closed" } }));
+  return {
+    state,
+    answer(proposal, approve) {
+      if (disposed) return Promise.resolve();
+      const existing = pending.get(proposal.id);
+      if (existing) return existing;
+      state.set((current) => ({ ...current, [proposal.id]: { status: "answering", proposal } }));
+      const task = Promise.resolve().then(() => {
+        if (!disposed) return send(proposal.id, approve, controller.signal);
+      }).then(() => {
+        if (!disposed) close(proposal.id);
+      }, (error) => {
+        if (disposed) return;
+        if (error?.code === "bot/stale") close(proposal.id);
+        else state.set((current) => ({ ...current, [proposal.id]: { status: "failed", proposal, error: error?.message ?? String(error) } }));
+      });
+      pending.set(proposal.id, task);
+      void task.then(() => pending.delete(proposal.id));
+      return task;
+    },
+    dispose() {
+      if (disposal) return disposal;
+      disposed = true;
+      controller.abort();
+      state.set({});
+      disposal = Promise.all([...pending.values()]).then(() => {
+      });
+      return disposal;
+    }
+  };
+}
 
 // src/client/avatar-library.js
 var import_react23 = require("react");
@@ -20204,6 +20214,13 @@ var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "la
 function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
   const roster = createSource(EMPTY_ROSTER);
+  const learningRecovery = createLearningRecovery(async (id, approve, signal) => {
+    const value = await call("learning-answer", { id, approve }, signal);
+    await pull(signal).catch(() => {
+    });
+    return value;
+  });
+  ctx.effect(() => () => learningRecovery.dispose(), "ds-bot: learning answer recovery");
   ctx.effect(() => ctx.uiWorkspace.registerBlankSessionFilter((id) => canReuseOrdinarySession(id, roster.getSnapshot())), "ds-bot: ordinary blank ownership");
   migrateStorage();
   const unreadStore = sharedMap(STORAGE.unread);
@@ -20290,11 +20307,11 @@ function apply(ctx) {
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
   let applied = 0;
-  const pull = async () => {
+  const pull = async (signal) => {
     const order = ++pulls;
     const known = roster.getSnapshot();
-    const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", locale: language() });
-    if (order < applied) return;
+    const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", locale: language() }, signal);
+    if (signal?.aborted || order < applied) return;
     applied = order;
     const nextActivity = JSON.stringify(value.activity ?? {});
     if (nextActivity !== activityKey) {
@@ -20575,7 +20592,7 @@ function apply(ctx) {
   ctx.effect(() => () => ordinaryStarter.dispose(), "ds-bot: cancel ordinary Session navigation");
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock }),
-    learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
+    learningAnswer: (proposal, approve) => learningRecovery.answer(proposal, approve),
     adoptableSessions: () => adoptableSessions(ctx.sessions.list.getSnapshot(), roster.getSnapshot()),
     adoptSession: async (payload) => {
       const result = await after(call("adopt-session", payload));
@@ -20840,7 +20857,7 @@ function apply(ctx) {
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});
   const browserHolds = browsers?.holds ?? createSource({});
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, videoUi } });
+  const face = () => ({ actions, hooks: { roster, learningRecovery: learningRecovery.state, ui: ui2, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, videoUi } });
   ctx.effect(() => noticeApprovals({
     work,
     roster,

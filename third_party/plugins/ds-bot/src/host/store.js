@@ -341,9 +341,17 @@ export function install(rt) {
     })
   }
 
-  ctx.effect(() => () => {
-    stopped = true
-    return writing.finally(() => lock.release())
+  ctx.effect(() => async () => {
+    try {
+      if (rt.learningDispose !== undefined) await rt.learningDispose()
+    } finally {
+      stopped = true
+      try {
+        await writing
+      } finally {
+        lock.release()
+      }
+    }
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
