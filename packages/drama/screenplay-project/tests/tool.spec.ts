@@ -326,8 +326,8 @@ it.each([false, true])('observes actual rereads before self approval in PTC, wit
   fixtures.push({ ctx, root })
   const errors: string[] = []
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
-  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true, tools: { mode: 'ptc' } })
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
@@ -371,8 +371,8 @@ it('binds a real user refinement grant and delivers separately through the PTC l
   fixtures.push({ ctx, root })
   const errors: string[] = []
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
-  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true, tools: { mode: 'ptc' } })
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
@@ -409,8 +409,8 @@ it('creates a story from decoded original frames and verifies final C approval i
   fixtures.push({ ctx, root })
   const errors: string[] = []
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
-  await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true, tools: { mode: 'ptc' } })
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
