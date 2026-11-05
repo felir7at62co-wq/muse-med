@@ -25,6 +25,10 @@ describe('CI workflow', () => {
         description: 'Copy both verified installers into existing exact-commit drafts; requires target all',
         type: 'boolean', default: false,
       },
+      export_candidate_to_tos: {
+        description: 'Export an encrypted Windows candidate with a short-lived object-scoped upload secret',
+        type: 'boolean', default: false,
+      },
       verify_hongguo_live: {
         description: 'Require complete Hongguo downloads from the genuine installed application', type: 'boolean', default: false,
       },
@@ -57,6 +61,14 @@ describe('CI workflow', () => {
     const steps = job.steps.filter(isRecord)
     expect(steps).toContainEqual(expect.objectContaining({
       run: 'pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned',
+    }))
+    expect(steps).toContainEqual(expect.objectContaining({
+      if: "github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos",
+      env: {
+        MUSE_RELEASE_TARGET: '${{ matrix.target }}',
+        MUSE_CI_TOS_CANDIDATE_UPLOAD: '${{ secrets.MUSE_CI_TOS_CANDIDATE_UPLOAD }}',
+      },
+      run: 'node apps/desktop/scripts/export-muse-ci-candidate.mjs',
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
