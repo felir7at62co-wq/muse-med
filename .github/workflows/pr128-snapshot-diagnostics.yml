@@ -27,19 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify the source checkpoint and isolated workflow
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$SOURCE_COMMIT"
+          git merge-base --is-ancestor "$SOURCE_COMMIT" HEAD
           test "$(git diff --name-only "$SOURCE_COMMIT" HEAD)" = '.github/workflows/pr128-snapshot-diagnostics.yml'
           mkdir -p .local/pr128/diagnostics
           echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
           git rev-parse HEAD > .local/pr128/diagnostics/workflow-commit.txt
-          git rev-parse HEAD^ > .local/pr128/diagnostics/source-commit.txt
+          git rev-parse "$SOURCE_COMMIT" > .local/pr128/diagnostics/source-commit.txt
 
       - uses: pnpm/action-setup@v6
         with:
@@ -232,6 +232,7 @@ jobs:
         env:
           DSH_SNAPSHOT: replay
         run: |
+          set +e
           set -uo pipefail
           pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-replay.json 2>&1 | tee .local/pr128/diagnostics/linux-replay.log
           status=${PIPESTATUS[0]}
@@ -249,6 +250,7 @@ jobs:
           DSH_SNAPSHOT_MAX_WORKERS: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: |
+          set +e
           set -uo pipefail
           pattern=$(cat .local/pr128/diagnostics/selected-pattern.txt)
           pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-refresh.json 2>&1 | tee .local/pr128/diagnostics/linux-refresh.log
@@ -261,6 +263,7 @@ jobs:
         env:
           DSH_SNAPSHOT: replay
         run: |
+          set +e
           set -uo pipefail
           pattern=$(cat .local/pr128/diagnostics/selected-pattern.txt)
           pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-post-refresh-replay.json 2>&1 | tee .local/pr128/diagnostics/linux-post-refresh-replay.log
