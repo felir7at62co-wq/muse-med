@@ -43,6 +43,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 模型使用账号目录为各模型声明的默认思考档位，直到用户显式选择其他受支持的档位。准备调用时，模型默认档位会进入实际请求日志；没有思考能力的模型不会收到默认思考档位。云映的精确 `gpt-6.1-sol` 模型使用 `max_completion_tokens` 设置输出上限。
 
+`volcengine-ark` 账号路由的 DeepSeek V4.1 Flash `260910` 与 `261017` 模型 ID 支持 `v4-1` 和 `v4.1` 两种版本分隔写法，均使用 `thinking.type`。`alibaba-bailian` 路由的精确 `deepseek-v4.1-flash-1017` 模型 ID 使用 `enable_thinking`。两者均在工具续接中保留助手的 `reasoning_content`，并遵循目录默认思考档位或显式 `off` 选择；各模型支持的档位由账号目录声明。
+
 模型菜单只显示账号目录公布的思考档位。云映 GPT-6.1 Sol 支持 `low`、`medium`、`high`、`xhigh` 和 `max`；Gemini 3.1 Pro 支持 `low`、`medium` 和 `high`。会话菜单保留将选择保存为个人默认值的既有行为，不改写服务器目录默认值。Gemini 在传递所选 `reasoning_effort` 时保留 `include_thoughts: true`。指定思考档位不保证供应商每一步都返回可见摘要。
 
 目录刷新期间保存的模型选择优先于初始账号默认选择。刷新后的目录仍可使用；无关的设置写入错误仍会使刷新失败。

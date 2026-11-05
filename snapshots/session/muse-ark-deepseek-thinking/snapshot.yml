@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-ark-deepseek-thinking
+profile: headless
+composition: muse-deepseek-supplier-thinking
+recording: authored
+writerOutput: true
+header:
+  class: muse-ark-deepseek-thinking
+  pin: true
