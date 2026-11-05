@@ -54,7 +54,7 @@ test('the collapsed mode-selector rail survives Bot to conversation switches unt
   runInNewContext(committed(), {
     window: { __ModuleLoader__: { load: value => { registration = value } } }, document,
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-    MutationObserver: class { observe() {} disconnect() {} }, setTimeout, clearTimeout,
+    MutationObserver: class { observe() {} disconnect() {} }, AbortController, setTimeout, clearTimeout,
   })
   const react = { createElement: () => null, Fragment: Symbol('Fragment'), useState: initial => [initial, () => {}], useEffect() {}, useMemo: make => make(), useCallback: fn => fn, useRef: current => ({ current }), useId: () => 'id', useSyncExternalStore: (_, get) => get(), createContext: value => ({ value }), useContext: ctx => ctx.value }
   const platform = { react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText() {}, Tooltip() {} } }

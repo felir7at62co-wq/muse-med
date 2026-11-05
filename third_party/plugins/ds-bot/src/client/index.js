@@ -20,6 +20,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
+import { createLearningRecovery } from './learning-recovery.js'
 import { AVATAR_LIBRARY_CSS } from './avatar-library.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, TurnTailCell, ToolCell } from './cells.js'
@@ -53,6 +54,12 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   const roster = createSource(EMPTY_ROSTER)
+  const learningRecovery = createLearningRecovery(async (id, approve, signal) => {
+    const value = await call('learning-answer', { id, approve }, signal)
+    await pull(signal).catch(() => {})
+    return value
+  })
+  ctx.effect(() => () => learningRecovery.dispose(), 'ds-bot: learning answer recovery')
   ctx.effect(() => ctx.uiWorkspace.registerBlankSessionFilter(id => canReuseOrdinarySession(id, roster.getSnapshot())), 'ds-bot: ordinary blank ownership')
   migrateStorage()
   const unreadStore = sharedMap(STORAGE.unread)
@@ -156,11 +163,11 @@ export function apply(ctx) {
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
-  const pull = async () => {
+  const pull = async (signal) => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', locale: language() })
-    if (order < applied) return
+    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', locale: language() }, signal)
+    if (signal?.aborted || order < applied) return
     applied = order
     const nextActivity = JSON.stringify(value.activity ?? {})
     if (nextActivity !== activityKey) { activityKey = nextActivity; activity.set(value.activity ?? {}) }
@@ -407,7 +414,7 @@ export function apply(ctx) {
   ctx.effect(() => () => ordinaryStarter.dispose(), 'ds-bot: cancel ordinary Session navigation')
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }),
-    learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
+    learningAnswer: (proposal, approve) => learningRecovery.answer(proposal, approve),
     adoptableSessions: () => adoptableSessions(ctx.sessions.list.getSnapshot(), roster.getSnapshot()),
     adoptSession: async (payload) => {
       const result = await after(call('adopt-session', payload))
@@ -672,7 +679,7 @@ export function apply(ctx) {
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, videoUi } })
+  const face = () => ({ actions, hooks: { roster, learningRecovery: learningRecovery.state, ui, activity, work, memoryNews, registry, turnClock, live, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, videoUi } })
   ctx.effect(() => noticeApprovals({
     work,
     roster,
