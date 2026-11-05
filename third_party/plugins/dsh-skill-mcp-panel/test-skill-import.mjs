@@ -10,14 +10,14 @@
  *   B. 端到端：真的跑 `dsh-panel skill add`，验证落盘形态与部分成功回报。
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { strToU8, zipSync } from "fflate";
-import { classifySkillImport, describeSkips, expandTopLevelZips } from "./lib/skill-import.js";
+import { classifySkillImport, describeSkips, expandTopLevelZips, resolveImportTarget } from "./lib/skill-import.js";
 
 let passed = 0;
 let failed = 0;
@@ -143,6 +143,22 @@ check("顶层 zip 展开并过滤 __MACOSX；文件夹内的 zip 不展开", () 
 	assert.deepEqual(expandTopLevelZips(nested).map((entry) => entry.path), ["folder/asset.zip"]);
 });
 
+check("zip 在分类前拒绝父目录、绝对路径与驱动器路径", () => {
+	for (const path of ["bundle/../../../protected.txt", "/absolute.txt", "C:/absolute.txt", "C:relative.txt", "\\\\server\\share\\file.txt", "bundle\\..\\file.txt", "bundle/./file.txt"]) {
+		const archive = zipSync({ "bundle/SKILL.md": strToU8(md("archive-guard")), [path]: strToU8("untrusted payload") });
+		assert.throws(() => expandTopLevelZips([{ path: "archive.zip", data: Buffer.from(archive) }]), /非法.*路径/, path);
+	}
+});
+
+check("载荷最终路径必须位于当前技能自己的暂存目录内", () => {
+	const staging = join(tmpdir(), "dsh-import-path-parser", "skill");
+	assert.equal(resolveImportTarget(staging, "scripts/helper.py"), join(staging, "scripts", "helper.py"));
+	assert.equal(resolveImportTarget(staging, ".metadata/settings.json"), join(staging, ".metadata", "settings.json"));
+	for (const path of ["../sibling/file.txt", "../../outside.txt", ".", "", "/absolute.txt", "C:/absolute.txt", "C:relative.txt", "\\\\server\\share\\file.txt"]) {
+		assert.throws(() => resolveImportTarget(staging, path), /非法.*路径|超出.*暂存目录/, path);
+	}
+});
+
 check("describeSkips 只展示前 3 条并汇总总数", () => {
 	const text = describeSkips([
 		{ name: "a", reason: "r1" },
@@ -190,6 +206,41 @@ const listStray = () => (existsSync(skillRoot) ? readdirSync(skillRoot).filter((
 try {
 	mkdirSync(join(project, ".git"), { recursive: true });
 	mkdirSync(source, { recursive: true });
+
+	check("CLI：拒绝越出暂存目录的 zip，保留临时工作区中的原文件", () => {
+		const sentinel = join(project, ".dsh", "protected.txt");
+		mkdirSync(join(project, ".dsh"), { recursive: true });
+		writeFileSync(sentinel, "original fixture bytes\n");
+		const archive = join(source, "archive-guard.zip");
+		writeFileSync(archive, zipSync({
+			"archive-guard/SKILL.md": strToU8(md("archive-guard")),
+			"archive-guard/../../../protected.txt": strToU8("untrusted fixture bytes\n")
+		}));
+		const run = runAdd(archive);
+		const after = readFileSync(sentinel, "utf8");
+		assert.equal(run.status, 1, "unsafe archive was accepted; protected fixture bytes: " + JSON.stringify(after));
+		assert.match(run.stderr, /非法.*路径/, run.stderr);
+		assert.equal(after, "original fixture bytes\n");
+		assert.ok(!existsSync(join(skillRoot, "archive-guard")), "rejected archive must not install a skill");
+		assert.deepEqual(listStray(), [], "rejected archive must not leave staging directories");
+	});
+
+	check("CLI：正常 zip 保留脚本、隐藏资源与二进制载荷", () => {
+		const archive = join(source, "portable-bundle.zip");
+		const binary = Buffer.from([0, 255, 17]);
+		writeFileSync(archive, zipSync({
+			"./portable-bundle/SKILL.md": strToU8(md("portable-bundle")),
+			"./portable-bundle/scripts/helper.py": strToU8("print('fixture')\n"),
+			"./portable-bundle/.metadata/settings.json": strToU8("{\"fixture\":true}\n"),
+			"./portable-bundle/assets/sample.bin": binary
+		}));
+		const run = runAdd(archive);
+		assert.equal(run.status, 0, run.stderr);
+		const installed = join(skillRoot, "portable-bundle");
+		assert.equal(readFileSync(join(installed, "scripts/helper.py"), "utf8"), "print('fixture')\n");
+		assert.equal(readFileSync(join(installed, ".metadata/settings.json"), "utf8"), "{\"fixture\":true}\n");
+		assert.deepEqual(readFileSync(join(installed, "assets/sample.bin")), binary);
+	});
 
 	// 形状 1：技能包 + references/（grill-with-docs 真实形状）
 	await writeSource("grill-with-docs/SKILL.md", md("grill-with-docs"));
@@ -317,8 +368,20 @@ const payload = (entries) => entries.map(([path, text]) => ({ path, base64: Buff
 
 try {
 	if (gateway === null) {
-		console.log("SKIP  宿主 addSkill 端到端（" + gatewaySkip + "）");
+		await checkAsync("宿主 addSkill 夹具必须加载并使用隔离技能根", async () => {
+			assert.fail(gatewaySkip || "Host fixture did not load");
+		});
 	} else {
+		await checkAsync("宿主 addSkill：拒绝归档中的不安全路径且不落盘", async () => {
+			for (const path of ["host-guard/../../../protected.txt", "/absolute.txt", "C:/absolute.txt", "C:relative.txt"]) {
+				const archive = zipSync({ "host-guard/SKILL.md": strToU8(md("host-guard")), [path]: strToU8("untrusted fixture bytes") });
+				await assert.rejects(() => gateway.addSkill(undefined, {
+					kind: "auto", files: [{ path: "host-guard.zip", base64: Buffer.from(archive).toString("base64") }], workspace: null
+				}), /非法.*路径/, path);
+			}
+			assert.equal(existsSync(hostRoot), false, "archive paths must be rejected before creating the target root");
+		});
+
 		await checkAsync("宿主 addSkill：技能包（文件夹选择路径）落盘为一个技能包", async () => {
 			const result = await gateway.addSkill(undefined, {
 				kind: "auto",

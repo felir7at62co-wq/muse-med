@@ -117,6 +117,8 @@ The panel works exactly like the host's built-in Plugins page: a single **Skill 
 - **Migrate** — copy or move skills in bulk to several workspaces; one failure never aborts the rest
 - **Groups** — create, rename and delete groups and batch-check members; groups live only in the plugin's own display config, skill directories are never touched
 
+Archive files must use relative paths; parent-directory components, absolute paths and drive-qualified paths are rejected before an import writes files. Payload writes from both the panel and CLI stay inside the current skill's staging directory. Normal scripts, hidden resources and binary files remain part of the skill bundle.
+
 ### MCP panel
 
 - **Server management** — **Stdio** and **HTTP** transports: add, edit, enable/disable, delete and test connections; saving is hot-reloaded by DSH HMR, no gateway restart. Only the panel's own managed block is edited — everything else in `cordis.patch.yml` (including rows inside the block that are not ours) is preserved byte for byte

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-import-path-recovery
+profile: headless
+composition: muse-skill-import-path-recovery
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-import-path-recovery
+  pin: true
+workspace:
+  final: true

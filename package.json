@@ -336,7 +336,11 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
-    "@deepseek-ai/dsh-web": "workspace:*"
+    "@deepseek-ai/dsh-web": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "chokidar": "5.0.0",
+    "yaml": "2.9.0"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }
