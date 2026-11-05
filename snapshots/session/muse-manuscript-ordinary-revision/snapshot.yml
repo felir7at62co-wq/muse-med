@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-manuscript-ordinary-revision
+profile: headless
+composition: muse-manuscript-ordinary-revision
+recording: authored
+writerOutput: true
+header:
+  class: muse-manuscript-ordinary-revision
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+environment:
+  MUSE_REVISION_BASIS_CASE: revision
+workspace:
+  final: true

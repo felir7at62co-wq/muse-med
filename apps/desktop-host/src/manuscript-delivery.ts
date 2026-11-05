@@ -180,7 +180,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 4, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 5, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
