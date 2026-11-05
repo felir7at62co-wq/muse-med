@@ -125,6 +125,8 @@ Restoration refuses to replace an existing file or directory. A failed restorati
 
 Closing the notification, leaving the page or stopping the Host does not erase unrestored originals. For manual recovery, find `.dsh-skill-deleted-*` beside the original skill. The `originalName` field in `original.json` records the original file or directory name, and `entry` holds the complete entity. After inspecting the destination, move `entry` back under that name without replacing existing content. Successful restoration attempts to remove its backup; other unrestored backups are not removed automatically.
 
+Quick migration counts only items explicitly acknowledged as successful by the Host. Failed or unconfirmed items remain in the source list and current selection unless the user changes that selection. All-failed and partial outcomes have distinct notifications; View details opens the original batch’s per-item receipts without submitting another migration. For an unconfirmed result, inspect the source and destination before retrying. An older batch response does not clear a new selection after a workspace or selection change.
+
 ### MCP panel
 
 - **Server management** — **Stdio** and **HTTP** transports: add, edit, enable/disable, delete and test connections; saving is hot-reloaded by DSH HMR, no gateway restart. Only the panel's own managed block is edited — everything else in `cordis.patch.yml` (including rows inside the block that are not ours) is preserved byte for byte

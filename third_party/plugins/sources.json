@@ -52,7 +52,7 @@
     "commit": "ae3fb4a4b6d723c5e1ec0a3c933f80d19f686dc1",
     "license": "MIT",
     "localModifications": {
-      "description": "Own each OAuth flow and callback listener in the panel lifecycle, cancel and drain admitted work, redeem authorization codes once across concurrent polls, and reject unsafe skill import paths before writing payloads inside their staging directory. Preserve complete Skill files and resource bundles for panel Undo, restore exact paths and disabled state without overwriting conflicts, and retain originals after failed recovery.",
+      "description": "Own each OAuth flow and callback listener in the panel lifecycle, cancel and drain admitted work, redeem authorization codes once across concurrent polls, and reject unsafe skill import paths before writing payloads inside their staging directory. Preserve complete Skill files and resource bundles for panel Undo, restore exact paths and disabled state without overwriting conflicts, and retain originals after failed recovery. Report quick Skill migration from explicit per-item acknowledgements, retain failed selections and expose batch failure details without resubmission.",
       "files": {
         "src/mcp/gateway.ts": {
           "upstreamSha256": "eb173c15272b291120fb172235a93aa78c4aa481273eca2968a8f77b245203fe",
@@ -64,11 +64,11 @@
         },
         "README.md": {
           "upstreamSha256": "7b8271254dfd1f0ac99653b5853816bd3f644580c42bfba20d1ee1aef25f6592",
-          "sha256": "ed56610e2e39777b56cd351e698103babdc790aba68589e3ae963709058bb7ae"
+          "sha256": "33fcfc4323d8a89719e102e33924fceb5fb40ae72541eedaba5e7ec7e92188e0"
         },
         "README.en.md": {
           "upstreamSha256": "b9d48f3bd71d8de20053140d1a2aad3972248a728c4c6a2338a1b8a91031a9fd",
-          "sha256": "eff6401e34cdf255ef0d242c85a85850dd3833b752fad0de93c6327911a7bf9b"
+          "sha256": "e7ad797cedc21aed0b33d8de5c1a9eee848d615edc56137df7a3fc06e02b4658"
         },
         "src/skill-import.ts": {
           "upstreamSha256": "b668b99b81add6e1ead9429172bda84bf6b0f598349d98bd2d11559e9fa37772",
@@ -88,11 +88,11 @@
         },
         "src/client.ts": {
           "upstreamSha256": "6ee6d76ac999b49d89d55d267978783c9b092640b34a27f8ff0845ac8fab33b8",
-          "sha256": "03a30957d40a5ad02a6b8c3ffa9b330c77be2954a578bd2417516ed13b224ef1"
+          "sha256": "63e58ca3144e1ea2c1c0fa95ef36741df8e1c753665a5e33950e71a81df69934"
         },
         "test-panel-render.mjs": {
           "upstreamSha256": "2adf41da2f15ab34b3e1c89b8d6cb2aeeb4436a0ca65b833da99c7e57387d5c6",
-          "sha256": "58c8a3360c178ebd59824992d7188c1ec852cfe1f92c8134953b274803dc2e73"
+          "sha256": "7a04f1503315e60aa75e90132bb7a8c4e137dc6d075103dfb0cd3701476a4de2"
         },
         "src/skill-recovery.ts": {
           "sha256": "87eae7ccdd122b174b2d8f22638367d09447873090fe5155e3aac6a8a02d7a07"

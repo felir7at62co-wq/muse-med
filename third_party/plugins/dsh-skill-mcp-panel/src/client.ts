@@ -568,6 +568,10 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 			batchMigrateTo: "迁移到…",
 			batchAdvanced: "更多选项（复制 / 多目标）…",
 			batchMigrated: "已迁移 {count} 项到 {target}",
+			batchMigrateFailed: "{failed} 项迁移失败或结果未确认（目标：{target}）",
+			batchMigratePartial: "已迁移 {moved} 项到 {target}，另有 {failed} 项失败或结果未确认",
+			batchMigrateUnconfirmed: "迁移结果未确认，请检查源和目标位置后重试",
+			batchMigrateDetails: "查看详情",
 			toastDeleted: "已删除 {name}",
 			toastUndo: "撤销",
 			toastUndoDone: "已还原 {name}",
@@ -688,6 +692,10 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 			batchMigrateTo: "Migrate to…",
 			batchAdvanced: "More options (copy / multiple targets)…",
 			batchMigrated: "Moved {count} item(s) to {target}",
+			batchMigrateFailed: "{failed} move(s) failed or unconfirmed (target: {target})",
+			batchMigratePartial: "Moved {moved} item(s) to {target}; {failed} failed or unconfirmed",
+			batchMigrateUnconfirmed: "Migration unconfirmed. Check the source and destination before retrying.",
+			batchMigrateDetails: "View details",
 			toastDeleted: "Deleted {name}",
 			toastUndo: "Undo",
 			toastUndoDone: "Restored {name}",
@@ -1596,6 +1604,10 @@ function SkillsSection(props) {
 			const [batchMode, setBatchMode] = react.useState(false);
 			const [selected, setSelected] = react.useState(() => new Set());
 			const [batchMenuOpen, setBatchMenuOpen] = react.useState(false);
+			const batchSelectionEpoch = react.useRef(0);
+			const currentBatchScope = react.useRef(scopeFilter);
+			const quickMigratePending = react.useRef(false);
+			const [quickMigrateBusy, setQuickMigrateBusy] = react.useState(false);
 			// 正在淡出右移、等 RPC 落地的行（key = opKeyOf）。
 			const [removing, setRemoving] = react.useState(() => new Set());
 			// 顶部居中 Toast：{ text, action: { label, run } | null }。
@@ -2161,6 +2173,7 @@ function SkillsSection(props) {
 
 			// ── 批量模式：勾选 / 迁移 ─────────────────────────────────────────
 			const exitBatch = () => {
+				batchSelectionEpoch.current += 1;
 				setBatchMode(false);
 				setSelected(new Set());
 				setBatchMenuOpen(false);
@@ -2173,6 +2186,7 @@ function SkillsSection(props) {
 			const BATCH_ADVANCED = "panel:advanced";
 			const targetWorkspaces = [{ id: "global", label: t("scopeGlobal") }, ...knownPaths.filter((path) => path !== "global").map((path) => ({ id: path, label: labelOf(path) }))].filter((entry) => entry.id !== scopeFilter);
 			const toggleSelected = (name) => {
+				batchSelectionEpoch.current += 1;
 				setSelected((prev) => {
 					const next = new Set(prev);
 					if (next.has(name)) next.delete(name);
@@ -2180,26 +2194,51 @@ function SkillsSection(props) {
 					return next;
 				});
 			};
+			const selectScope = (key) => {
+				if (currentBatchScope.current !== key) batchSelectionEpoch.current += 1;
+				currentBatchScope.current = key;
+				setScopeFilter(key);
+			};
 			// 快捷迁移：单目标、移动模式（多目标/复制仍走完整的批量迁移对话框）。
 			const runQuickMigrate = (targetKey) => {
 				const names = [...selected];
-				if (names.length === 0) return;
-				const payload = {
-					from: scopeFilter === "global" ? null : scopeFilter,
-					targets: [targetKey === "global" ? null : targetKey],
-					mode: "move",
-					names: names
+				if (names.length === 0 || quickMigratePending.current) return;
+				const sourceScope = scopeFilter;
+				const epoch = batchSelectionEpoch.current;
+				const sourceSessionId = currentSessionId();
+				const target = targetKey === "global" ? null : targetKey;
+				const payload = { from: sourceScope === "global" ? null : sourceScope, targets: [target], mode: "move", names };
+				quickMigratePending.current = true;
+				setQuickMigrateBusy(true);
+				setBatchMenuOpen(false);
+				const settle = (results) => {
+					const rows = names.map((name) => {
+						const receipts = results.filter((row) => row !== null && typeof row === "object" && row.name === name && (row.target === undefined || row.target === target));
+						if (receipts.length > 0 && receipts.every((row) => row.ok === true)) return { name, target, ok: true };
+						const failure = receipts.find((row) => row.ok === false);
+						return { name, target, ok: false, error: failure?.error ?? t("batchMigrateUnconfirmed") };
+					});
+					const moved = new Set(rows.filter((row) => row.ok).map((row) => row.name));
+					const failed = rows.filter((row) => !row.ok);
+					setListState((prev) => (prev.status === "ready" ? { status: "ready", skills: prev.skills.filter((skill) => !(scopeOf(skill) === sourceScope && moved.has(skill.name))) } : prev));
+					if (currentBatchScope.current === sourceScope) setSelected((prev) => new Set([...prev].filter((name) => !moved.has(name))));
+					// A later selection or scope visit owns its batch mode, including A→B→A.
+					if (batchSelectionEpoch.current === epoch && currentSessionId() === sourceSessionId && failed.length === 0) setBatchMode(false);
+					const text = failed.length === 0 ? t("batchMigrated") : t(moved.size === 0 ? "batchMigrateFailed" : "batchMigratePartial");
+					const message = text.replace("{count}", String(moved.size)).replace("{moved}", String(moved.size)).replace("{failed}", String(failed.length)).replace("{target}", countOfScope(targetKey));
+					showToast(message, failed.length === 0 ? null : {
+						label: t("batchMigrateDetails"),
+						run: () => setMigrator({ from: sourceScope, targets: new Set([targetKey]), mode: "move", selected: new Set(failed.map((row) => row.name)), busy: false, result: rows, error: null })
+					});
+					if (moved.size > 0) reloadAfterHot();
 				};
 				Promise.resolve().then(() => batchMigrateSkill(payload)).then((snapshot) => {
-					const results = snapshot !== null && typeof snapshot === "object" && Array.isArray(snapshot.results) ? snapshot.results : [];
-					const done = results.filter((row) => row !== null && typeof row === "object" && row.ok !== false).map((row) => row.name);
-					const moved = done.length > 0 ? done : names;
-					setListState((prev) => (prev.status === "ready" ? { status: "ready", skills: prev.skills.filter((skill) => !(scopeOf(skill) === scopeFilter && moved.includes(skill.name))) } : prev));
-					showToast(t("batchMigrated").replace("{count}", String(moved.length)).replace("{target}", countOfScope(targetKey)));
-					exitBatch();
-					reloadAfterHot();
-				}, (error) => {
-					setShellNotice({ kind: "error", text: cleanHostError(error) });
+					settle(snapshot !== null && typeof snapshot === "object" && Array.isArray(snapshot.results) ? snapshot.results : []);
+				}, () => {
+					settle([]);
+				}).finally(() => {
+					quickMigratePending.current = false;
+					setQuickMigrateBusy(false);
 				});
 			};
 
@@ -2573,7 +2612,7 @@ function SkillsSection(props) {
 						"data-active": scopeFilter === entry.key ? "true" : void 0,
 						title: entry.label,
 						onClick: () => {
-							setScopeFilter(entry.key);
+							selectScope(entry.key);
 							setScopeMenuOpen(false);
 						},
 						children: [(0, react_jsx_runtime.jsx)("span", {
@@ -2979,7 +3018,7 @@ migrator !== null ? (0, react_jsx_runtime.jsx)(MigrateDialog, {
 						onClick: (event) => {
 							const node = event.currentTarget;
 							if (node !== null && typeof node.offsetTop === "number") setRailBarY(node.offsetTop + ((node.offsetHeight || 34) - 18) / 2);
-							setScopeFilter(entry.key);
+							selectScope(entry.key);
 						},
 						children: [(0, react_jsx_runtime.jsx)("span", {
 							className: c.railItemName,
@@ -3104,7 +3143,7 @@ migrator !== null ? (0, react_jsx_runtime.jsx)(MigrateDialog, {
 						className: c.batchBtn + " " + c.batchGo,
 						"aria-haspopup": "menu",
 						"aria-expanded": batchMenuOpen,
-						disabled: selected.size === 0,
+						disabled: selected.size === 0 || quickMigrateBusy,
 						onClick: () => {
 							setBatchMenuOpen((value) => !value);
 						},

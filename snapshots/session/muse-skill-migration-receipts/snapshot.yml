@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-migration-receipts
+profile: headless
+composition: muse-skill-migration-receipts
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-migration-receipts
+  pin: true
+workspace:
+  final: true
