@@ -35,7 +35,7 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 `dsh-skill-mcp-panel` 固定于上游 2.3.5。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
 
-Skills 与 MCP 插件随 Muse 更新。检查完成且内置版本已是最新时会清除更新横幅；上游发布更新版本后仍会显示提示，引导桌面用户更新 Muse，而非安装全局面板 CLI。
+Skill / MCP 面板使用当前内置版本，不检查上游版本，也不显示插件更新提示。兼容更新接口仅返回已安装版本，不发起网络请求。技能和 MCP 管理功能保持可用。
 
 Muse 面板及其嵌套技能提供方排除共享用户目录 `~/.agents/skills`，也不使用 `DSH_AGENTS_HOME` 指定的共享目录。为编程助手安装在其中的技能不会出现在 Muse 的管理列表或嵌套目录中。Muse 自有用户技能和明确引用的工作区技能仍然可用，共享技能文件保持不变。Host 文件系统提供方另行将发现范围限制在产品配置的根目录内。
 

@@ -144,7 +144,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
       if (manifest.name === 'dsh-skill-mcp-panel') {
         assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, {
           builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false,
-          preserveSavedSkills: true, desktopManagedUpdates: true, clearsCurrentUpdateNotice: true,
+          preserveSavedSkills: true, pluginUpdateChecks: false, pluginUpdateNotices: false,
         })
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
