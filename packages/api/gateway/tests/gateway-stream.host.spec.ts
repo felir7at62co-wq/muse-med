@@ -459,17 +459,17 @@ describe('Typert Remote streams', () => {
       peer: ownerPeer(ctx), namespace: 'feed', method: 'sync', args: { label: 'throw' },
     })
     const iterator = source[Symbol.asyncIterator]()
-    const release = iterator.return
+    const release = iterator.return?.bind(iterator)
     if (release === undefined) throw new Error('Gateway stream iterator must support return')
     try {
       await expect(iterator.next()).resolves.toEqual({ done: false, value: 'throw:one' })
-      const throwInto = iterator.throw
+      const throwInto = iterator.throw?.bind(iterator)
       if (throwInto === undefined) throw new Error('Gateway stream iterator must support throw')
       const failure = new Error('fixture consumer failure')
-      await expect(throwInto.call(iterator, failure)).rejects.toBe(failure)
+      await expect(throwInto(failure)).rejects.toBe(failure)
       await ctx.serial('connection/update-pause')
       await ctx.serial('connection/update-resume')
-    } finally { await release.call(iterator) }
+    } finally { await release() }
   })
 
   it('reports Client event streams without counting a bare WebSocket', async () => {

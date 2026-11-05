@@ -22,6 +22,12 @@ afterEach(async () => {
 })
 
 describe('Web separate writer output', () => {
+  /** Match a caught Error or another thrown object carrying a string message. */
+  function failureMessageIncludes(fragment: string): (failure: unknown) => boolean {
+    return failure => typeof failure === 'object' && failure !== null && 'message' in failure
+      && typeof failure.message === 'string' && failure.message.includes(fragment)
+  }
+
   async function fixture(): Promise<{ root: string; input: string; writer: string }> {
     const root = await mkdtemp(join(tmpdir(), 'dsh-web-writer-output-'))
     roots.push(root)
@@ -69,7 +75,7 @@ describe('Web separate writer output', () => {
     await drive(f.input, 'replay')
     await writeFile(f.writer, writer.replace('Current working directory:', 'Incorrect working directory:'))
     await expect(drive(f.input, 'replay')).rejects.toMatchObject({
-      errors: [expect.objectContaining({ message: expect.stringContaining('persisted replay') })],
+      errors: [expect.toSatisfy(failureMessageIncludes('persisted replay'))],
     })
     expect(await readFile(f.input, 'utf8')).toBe(canonical)
   }, 60_000)
@@ -109,7 +115,7 @@ describe('Web separate writer output', () => {
     await drive(f.input, 'refresh')
     await writeFile(join(f.root, 'writer.1.expected.jsonl'), '{}\n')
     await expect(drive(f.input, 'replay')).rejects.toMatchObject({
-      errors: [expect.objectContaining({ message: expect.stringContaining('unexpected writer oracle') })],
+      errors: [expect.toSatisfy(failureMessageIncludes('unexpected writer oracle'))],
     })
     await expect(assertFixtureInventory(f.root, ['session.v4.jsonl'])).rejects.toThrow()
   }, 30_000)
@@ -119,7 +125,7 @@ describe('Web separate writer output', () => {
     await drive(f.input, 'refresh')
     await writeFile(join(f.root, 'snapshot.yml'), 'version: 1\nprofile: web\n')
     await expect(drive(f.input, 'replay')).rejects.toMatchObject({
-      errors: [expect.objectContaining({ message: expect.stringContaining('persisted replay') })],
+      errors: [expect.toSatisfy(failureMessageIncludes('persisted replay'))],
     })
   }, 30_000)
 
@@ -133,12 +139,12 @@ describe('Web separate writer output', () => {
     const prompt = await readFile(promptPath, 'utf8')
     await writeFile(promptPath, 'Unexpected prompt\n')
     await expect(drive(f.input, 'replay')).rejects.toMatchObject({
-      errors: [expect.objectContaining({ message: expect.stringContaining('system-prompt pin') })],
+      errors: [expect.toSatisfy(failureMessageIncludes('system-prompt pin'))],
     })
     await writeFile(promptPath, prompt)
     await writeFile(join(f.root, 'tool-schemas.expected.json'), '[]\n')
     await expect(drive(f.input, 'replay')).rejects.toMatchObject({
-      errors: [expect.objectContaining({ message: expect.stringContaining('tool-schema pin') })],
+      errors: [expect.toSatisfy(failureMessageIncludes('tool-schema pin'))],
     })
   }, 60_000)
 })
